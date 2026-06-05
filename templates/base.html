@@ -16,6 +16,7 @@
         <nav>
           <a href="{{ url_for('dashboard') }}">概览</a>
           <a href="{{ url_for('invoices') }}">发票</a>
+          <a href="{{ url_for('service_orders') }}">工单</a>
           <a href="{{ url_for('new_invoice') }}">新建发票</a>
           <a href="{{ url_for('reports') }}">报表</a>
           <a href="{{ url_for('messages') }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>

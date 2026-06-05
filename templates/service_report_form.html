@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}工作日报 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Daily Report</p>
+      <h1>工作日报</h1>
+      <p class="muted-line">{{ order.order_number }} · {{ order.client_name }}</p>
+    </div>
+    <div class="actions">
+      <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
+      {% if is_edit %}
+        <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
+          <button type="submit">导出 Word</button>
+        </form>
+      {% endif %}
+      <button class="primary" type="submit" form="serviceReportForm">保存</button>
+    </div>
+  </header>
+  <form method="post" enctype="multipart/form-data" class="panel service-report-form" id="serviceReportForm">
+    <div class="form-grid">
+      <label>报告日期 <input type="date" name="report_date" value="{{ report.report_date }}" required></label>
+      <label>总计服务工时：小时 <input type="number" step="0.1" min="0" name="total_service_hours" value="{{ report.total_service_hours }}"></label>
+      <label>交通时长：小时 <input type="number" step="0.1" min="0" name="travel_hours" value="{{ report.travel_hours }}"></label>
+      <label>公共交通时长 <input type="number" step="0.1" min="0" name="public_transport_hours" value="{{ report.public_transport_hours }}"></label>
+      <label>自驾里程总计：公里 <input type="number" step="0.1" min="0" name="driving_miles" value="{{ report.driving_miles }}"></label>
+      <label>合计用时 <input name="total_time" value="{{ report.total_time or '' }}"></label>
+      <label>现场到达时间 <input type="time" name="arrival_time" value="{{ report.arrival_time or '' }}"></label>
+      <label>离开现场时间 <input type="time" name="departure_time" value="{{ report.departure_time or '' }}"></label>
+      <label>机柜编号 <input name="cabinet_number" value="{{ report.cabinet_number or '' }}"></label>
+      <label>出发地址 <input name="departure_address" value="{{ report.departure_address or '' }}"></label>
+      <label class="full-span">场地地址 <input name="site_address" value="{{ report.site_address or order.site_address }}"></label>
+    </div>
+
+    <section class="subsection">
+      <h2>服务人员清单</h2>
+      <div class="check-grid">
+        {% for user in users %}
+          <label class="check-chip"><input type="checkbox" name="worker_user_id" value="{{ user.id }}" {% if user.id in selected_workers %}checked{% endif %}> {{ user.name }}</label>
+        {% endfor %}
+      </div>
+    </section>
+
+    <label class="full">现场服务描述 <textarea name="service_description" rows="6">{{ report.service_description or '' }}</textarea></label>
+
+    <section class="subsection">
+      <h2>现场到达时间照片</h2>
+      <input type="file" name="arrival_photos" accept="image/*" multiple>
+      {% set photos = attachments.arrival %}
+      {% include "_photo_thumbs.html" %}
+    </section>
+
+    <section class="subsection">
+      <h2>离开现场时间照片</h2>
+      <input type="file" name="departure_photos" accept="image/*" multiple>
+      {% set photos = attachments.departure %}
+      {% include "_photo_thumbs.html" %}
+    </section>
+
+    <section class="subsection">
+      <h2>自检照片</h2>
+      <input type="file" name="self_check_photos" accept="image/*" multiple>
+      {% set photos = attachments.self_check %}
+      {% include "_photo_thumbs.html" %}
+    </section>
+
+    <section class="subsection">
+      <h2>现场服务照片</h2>
+      <input type="file" name="site_photos" accept="image/*" multiple>
+      {% set photos = attachments.site %}
+      {% include "_photo_thumbs.html" %}
+    </section>
+
+    <section class="subsection">
+      <div class="panel-title"><h2>保存的配件</h2><button class="small" type="button" data-add-part="savedParts">添加一行</button></div>
+      <table class="list-table editable-parts" id="savedParts">
+        <thead><tr><th>零件号</th><th>零件名称</th><th>数量</th><th>状态（新/报废）</th><th></th></tr></thead>
+        <tbody>
+          {% for part in saved_parts %}
+            <tr>
+              <td><input name="saved_part_number" value="{{ part.part_number or '' }}"></td>
+              <td><input name="saved_part_name" value="{{ part.part_name or '' }}"></td>
+              <td><input name="saved_quantity" value="{{ part.quantity or '' }}"></td>
+              <td>
+                <select name="saved_status">
+                  <option value=""></option>
+                  <option value="新" {% if part.status == "新" %}selected{% endif %}>新</option>
+                  <option value="报废" {% if part.status == "报废" %}selected{% endif %}>报废</option>
+                </select>
+              </td>
+              <td><button class="small ghost remove-part" type="button">删除</button></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="subsection">
+      <div class="panel-title"><h2>现场更换的配件</h2><button class="small" type="button" data-add-part="replacedParts">添加一行</button></div>
+      <table class="list-table editable-parts" id="replacedParts">
+        <thead><tr><th>零件号</th><th>零件名称</th><th>旧配件序列号</th><th>新配件序列号</th><th>数量</th><th></th></tr></thead>
+        <tbody>
+          {% for part in replaced_parts %}
+            <tr>
+              <td><input name="replaced_part_number" value="{{ part.part_number or '' }}"></td>
+              <td><input name="replaced_part_name" value="{{ part.part_name or '' }}"></td>
+              <td><input name="replaced_old_serial_number" value="{{ part.old_serial_number or '' }}"></td>
+              <td><input name="replaced_new_serial_number" value="{{ part.new_serial_number or '' }}"></td>
+              <td><input name="replaced_quantity" value="{{ part.quantity or '' }}"></td>
+              <td><button class="small ghost remove-part" type="button">删除</button></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </form>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260605') }}"></script>
+{% endblock %}

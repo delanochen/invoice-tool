@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}工单 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Service Orders</p><h1>工单管理</h1></div>
+    <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_order') }}'">新建工单</button>
+  </header>
+  <form class="filter-bar service-filter no-print" method="get">
+    <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、客户名称或服务订单号码"></label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('service_orders') }}'">重置</button>
+    </div>
+  </form>
+  <section class="panel">
+    <table class="list-table">
+      <thead><tr><th>工单编号</th><th>客户名称</th><th>服务订单号码</th><th>服务现场地址</th><th>日报</th><th>发票</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for order in orders %}
+          <tr>
+            <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
+            <td>{{ order.client_name }}</td>
+            <td>{{ order.client_order_number }}</td>
+            <td>{{ order.site_address }}</td>
+            <td>{{ order.report_count }}</td>
+            <td><span class="status {% if order.invoice_count %}completed{% else %}draft{% endif %}">{% if order.invoice_count %}已开票{% else %}未开票{% endif %}</span></td>
+            <td>{{ "已关闭" if order.status == "closed" else "进行中" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty">还没有工单。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

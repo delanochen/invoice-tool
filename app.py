@@ -24,6 +24,8 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from docx import Document
+from docx.shared import Inches
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -35,7 +37,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "invoices.db")
 ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
+REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 ALLOWED_ATTACHMENT_LABEL = "Word、Excel、PDF、PNG、JPG、JPEG、WEBP、GIF"
 
 DEFAULT_COMPANY_PROFILE = {
@@ -94,6 +98,7 @@ def db():
     if "db" not in g:
         os.makedirs(DATA_DIR, exist_ok=True)
         os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+        os.makedirs(REPORT_ATTACHMENTS_DIR, exist_ok=True)
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
     return g.db
@@ -104,6 +109,12 @@ def close_db(error=None):
     connection = g.pop("db", None)
     if connection is not None:
         connection.close()
+
+
+def ensure_column(connection, table, column, definition):
+    columns = {row["name"] for row in connection.execute(f"pragma table_info({table})").fetchall()}
+    if column not in columns:
+        connection.execute(f"alter table {table} add column {column} {definition}")
 
 
 def init_db():
@@ -201,8 +212,87 @@ def init_db():
                 key text primary key,
                 value text not null
             );
+
+            create table if not exists service_orders (
+                id integer primary key autoincrement,
+                order_number text not null unique,
+                client_name text not null,
+                site_address text not null,
+                client_order_number text not null,
+                status text not null default 'open',
+                created_by integer not null,
+                created_at text not null,
+                foreign key(created_by) references users(id)
+            );
+
+            create table if not exists service_reports (
+                id integer primary key autoincrement,
+                service_order_id integer not null,
+                report_date text not null,
+                total_service_hours real not null default 0,
+                travel_hours real not null default 0,
+                public_transport_hours real not null default 0,
+                driving_miles real not null default 0,
+                departure_address text,
+                site_address text,
+                total_time text,
+                cabinet_number text,
+                arrival_time text,
+                departure_time text,
+                service_description text,
+                created_by integer not null,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(service_order_id) references service_orders(id) on delete cascade,
+                foreign key(created_by) references users(id)
+            );
+
+            create table if not exists service_report_workers (
+                id integer primary key autoincrement,
+                report_id integer not null,
+                user_id integer not null,
+                foreign key(report_id) references service_reports(id) on delete cascade,
+                foreign key(user_id) references users(id)
+            );
+
+            create table if not exists service_report_saved_parts (
+                id integer primary key autoincrement,
+                report_id integer not null,
+                part_number text,
+                part_name text,
+                quantity text,
+                status text,
+                sort_order integer not null default 0,
+                foreign key(report_id) references service_reports(id) on delete cascade
+            );
+
+            create table if not exists service_report_replaced_parts (
+                id integer primary key autoincrement,
+                report_id integer not null,
+                part_number text,
+                part_name text,
+                old_serial_number text,
+                new_serial_number text,
+                quantity text,
+                sort_order integer not null default 0,
+                foreign key(report_id) references service_reports(id) on delete cascade
+            );
+
+            create table if not exists service_report_attachments (
+                id integer primary key autoincrement,
+                report_id integer not null,
+                category text not null,
+                original_filename text not null,
+                stored_filename text not null,
+                content_type text,
+                uploaded_by integer not null,
+                uploaded_at text not null,
+                foreign key(report_id) references service_reports(id) on delete cascade,
+                foreign key(uploaded_by) references users(id)
+            );
             """
         )
+        ensure_column(connection, "invoices", "service_order_id", "integer")
         seed_settings(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
         admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
@@ -434,6 +524,25 @@ def next_invoice_number():
     raise RuntimeError("Unable to generate a unique invoice number.")
 
 
+def next_service_order_number():
+    prefix = f"SO{date.today():%y%m}"
+    row = db().execute(
+        """
+        select order_number from service_orders
+        where order_number like ?
+        order by order_number desc limit 1
+        """,
+        (f"{prefix}%",),
+    ).fetchone()
+    if not row:
+        return f"{prefix}001"
+    suffix = row["order_number"][len(prefix):]
+    try:
+        return f"{prefix}{int(suffix) + 1:03d}"
+    except ValueError:
+        return f"{prefix}{secrets.randbelow(900) + 100}"
+
+
 def invoice_number_exists(invoice_number, exclude_invoice_id=None):
     if exclude_invoice_id:
         return db().execute(
@@ -538,6 +647,179 @@ def get_invoice_attachments(invoice_id):
         """,
         (invoice_id,),
     ).fetchall()
+
+
+def can_access_service_order(order):
+    if not g.user:
+        return False
+    if is_internal_user():
+        return True
+    return False
+
+
+def require_service_order(order_id):
+    order = db().execute("select * from service_orders where id = ?", (order_id,)).fetchone()
+    if not order:
+        abort(404)
+    if not can_access_service_order(order):
+        abort(403)
+    return order
+
+
+def require_service_report(report_id):
+    report = db().execute("select * from service_reports where id = ?", (report_id,)).fetchone()
+    if not report:
+        abort(404)
+    order = require_service_order(report["service_order_id"])
+    return report, order
+
+
+def allowed_image(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+
+def report_attachment_dir(report_id):
+    path = os.path.join(REPORT_ATTACHMENTS_DIR, str(report_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def report_attachment_path(attachment):
+    return os.path.join(REPORT_ATTACHMENTS_DIR, str(attachment["report_id"]), attachment["stored_filename"])
+
+
+def uploaded_report_files(field_name):
+    return [file for file in request.files.getlist(field_name) if file and file.filename]
+
+
+def save_report_attachment(report_id, uploaded, category):
+    if not uploaded or not uploaded.filename:
+        return
+    if not allowed_image(uploaded.filename):
+        raise ValueError("日报照片仅支持 PNG、JPG、JPEG、WEBP、GIF。")
+    source_filename = uploaded.filename or "photo"
+    extension = source_filename.rsplit(".", 1)[1].lower()
+    original_filename = os.path.basename(source_filename).strip() or f"photo.{extension}"
+    stored_filename = f"{secrets.token_hex(12)}.{extension}"
+    uploaded.save(os.path.join(report_attachment_dir(report_id), stored_filename))
+    db().execute(
+        """
+        insert into service_report_attachments (
+            report_id, category, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (report_id, category, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+    )
+
+
+def save_report_uploads(report_id):
+    for field_name, category in (
+        ("self_check_photos", "self_check"),
+        ("site_photos", "site"),
+        ("arrival_photos", "arrival"),
+        ("departure_photos", "departure"),
+    ):
+        for uploaded in uploaded_report_files(field_name):
+            save_report_attachment(report_id, uploaded, category)
+
+
+def get_report_attachments(report_id):
+    rows = db().execute(
+        """
+        select service_report_attachments.*, users.name as uploader_name
+        from service_report_attachments left join users on users.id = service_report_attachments.uploaded_by
+        where report_id = ?
+        order by category asc, uploaded_at asc, id asc
+        """,
+        (report_id,),
+    ).fetchall()
+    grouped = {"self_check": [], "site": [], "arrival": [], "departure": []}
+    for row in rows:
+        grouped.setdefault(row["category"], []).append(row)
+    return grouped
+
+
+def service_report_workers(report_id):
+    return db().execute(
+        """
+        select users.id, users.name, users.email
+        from service_report_workers
+        join users on users.id = service_report_workers.user_id
+        where service_report_workers.report_id = ?
+        order by users.name
+        """,
+        (report_id,),
+    ).fetchall()
+
+
+def report_parts(table, report_id):
+    return db().execute(f"select * from {table} where report_id = ? order by sort_order, id", (report_id,)).fetchall()
+
+
+def parse_part_rows(prefix, fields):
+    values = [request.form.getlist(f"{prefix}_{field}") for field in fields]
+    max_len = max([len(items) for items in values] + [0])
+    rows = []
+    for index in range(max_len):
+        row = {field: values[pos][index].strip() if index < len(values[pos]) else "" for pos, field in enumerate(fields)}
+        if any(row.values()):
+            rows.append(row)
+    return rows
+
+
+def report_form_defaults(report=None, order=None):
+    if report:
+        return dict(report)
+    return {
+        "report_date": date.today().isoformat(),
+        "total_service_hours": "",
+        "travel_hours": "",
+        "public_transport_hours": "",
+        "driving_miles": "",
+        "departure_address": "",
+        "site_address": order["site_address"] if order else "",
+        "total_time": "",
+        "cabinet_number": "",
+        "arrival_time": "",
+        "departure_time": "",
+        "service_description": "",
+    }
+
+
+def save_report_detail_rows(report_id):
+    db().execute("delete from service_report_workers where report_id = ?", (report_id,))
+    for user_id in request.form.getlist("worker_user_id"):
+        if user_id:
+            db().execute("insert into service_report_workers (report_id, user_id) values (?, ?)", (report_id, user_id))
+
+    db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
+    for index, row in enumerate(parse_part_rows("saved", ["part_number", "part_name", "quantity", "status"])):
+        db().execute(
+            """
+            insert into service_report_saved_parts (report_id, part_number, part_name, quantity, status, sort_order)
+            values (?, ?, ?, ?, ?, ?)
+            """,
+            (report_id, row["part_number"], row["part_name"], row["quantity"], row["status"], index),
+        )
+
+    db().execute("delete from service_report_replaced_parts where report_id = ?", (report_id,))
+    for index, row in enumerate(parse_part_rows("replaced", ["part_number", "part_name", "old_serial_number", "new_serial_number", "quantity"])):
+        db().execute(
+            """
+            insert into service_report_replaced_parts (
+                report_id, part_number, part_name, old_serial_number, new_serial_number, quantity, sort_order
+            ) values (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                report_id,
+                row["part_number"],
+                row["part_name"],
+                row["old_serial_number"],
+                row["new_serial_number"],
+                row["quantity"],
+                index,
+            ),
+        )
 
 
 def load_invoice(invoice_id):
@@ -1054,10 +1336,12 @@ def invoices():
     rows = db().execute(
         f"""
         select invoices.*, clients.name as client_name, clients.short_name as client_short_name,
-               clients.client_number, users.name as creator_name
+               clients.client_number, users.name as creator_name,
+               service_orders.order_number as service_order_number
         from invoices
         join clients on clients.id = invoices.client_id
         left join users on users.id = invoices.created_by
+        left join service_orders on service_orders.id = invoices.service_order_id
         where {" and ".join(clauses)}
         order by invoices.issue_date desc, invoices.id desc
         """,
@@ -1165,6 +1449,273 @@ def reports():
     )
 
 
+@app.route("/service-orders")
+@login_required
+def service_orders():
+    if not is_internal_user():
+        abort(403)
+    q = request.args.get("q", "").strip()
+    clauses = ["1 = 1"]
+    params = []
+    if q:
+        clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_orders.client_order_number like ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    rows = db().execute(
+        f"""
+        select service_orders.*,
+               count(distinct service_reports.id) as report_count,
+               count(distinct invoices.id) as invoice_count
+        from service_orders
+        left join service_reports on service_reports.service_order_id = service_orders.id
+        left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
+        where {" and ".join(clauses)}
+        group by service_orders.id
+        order by service_orders.created_at desc, service_orders.id desc
+        """,
+        params,
+    ).fetchall()
+    return render_template("service_orders.html", orders=rows, q=q)
+
+
+@app.route("/service-orders/new", methods=["GET", "POST"])
+@login_required
+def new_service_order():
+    if not is_internal_user():
+        abort(403)
+    if request.method == "POST":
+        client_name = request.form.get("client_name", "").strip()
+        site_address = request.form.get("site_address", "").strip()
+        client_order_number = request.form.get("client_order_number", "").strip()
+        if not client_name or not site_address or not client_order_number:
+            flash("请填写客户名称、服务现场地址和服务订单号码。", "error")
+            return redirect(url_for("new_service_order"))
+        db().execute(
+            """
+            insert into service_orders (order_number, client_name, site_address, client_order_number, created_by, created_at)
+            values (?, ?, ?, ?, ?, ?)
+            """,
+            (next_service_order_number(), client_name, site_address, client_order_number, g.user["id"], now()),
+        )
+        db().commit()
+        flash("工单已创建。", "success")
+        return redirect(url_for("service_orders"))
+    return render_template("service_order_form.html", order=None, form_title="新建工单")
+
+
+@app.route("/service-orders/<int:order_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_service_order(order_id):
+    order = require_service_order(order_id)
+    if request.method == "POST":
+        db().execute(
+            """
+            update service_orders
+            set client_name = ?, site_address = ?, client_order_number = ?, status = ?
+            where id = ?
+            """,
+            (
+                request.form.get("client_name", "").strip(),
+                request.form.get("site_address", "").strip(),
+                request.form.get("client_order_number", "").strip(),
+                request.form.get("status", "open"),
+                order_id,
+            ),
+        )
+        db().commit()
+        flash("工单已保存。", "success")
+        return redirect(url_for("service_order_detail", order_id=order_id))
+    return render_template("service_order_form.html", order=order, form_title="编辑工单")
+
+
+@app.route("/service-orders/<int:order_id>")
+@login_required
+def service_order_detail(order_id):
+    order = require_service_order(order_id)
+    reports_rows = db().execute(
+        """
+        select service_reports.*, group_concat(users.name, ', ') as worker_names
+        from service_reports
+        left join service_report_workers on service_report_workers.report_id = service_reports.id
+        left join users on users.id = service_report_workers.user_id
+        where service_reports.service_order_id = ?
+        group by service_reports.id
+        order by service_reports.report_date desc, service_reports.id desc
+        """,
+        (order_id,),
+    ).fetchall()
+    invoices_rows = db().execute(
+        """
+        select invoices.*, clients.name as client_name
+        from invoices left join clients on clients.id = invoices.client_id
+        where invoices.service_order_id = ? and invoices.status != 'void'
+        order by invoices.issue_date desc, invoices.id desc
+        """,
+        (order_id,),
+    ).fetchall()
+    return render_template("service_order_detail.html", order=order, reports=reports_rows, invoices=invoices_rows, labels=STATUS_LABELS)
+
+
+@app.route("/service-orders/<int:order_id>/reports/new", methods=["GET", "POST"])
+@login_required
+def new_service_report(order_id):
+    order = require_service_order(order_id)
+    users_rows = db().execute("select id, name, email from users where role != 'external' order by name").fetchall()
+    if request.method == "POST":
+        try:
+            cursor = db().execute(
+                """
+                insert into service_reports (
+                    service_order_id, report_date, total_service_hours, travel_hours, public_transport_hours,
+                    driving_miles, departure_address, site_address, total_time, cabinet_number,
+                    arrival_time, departure_time, service_description, created_by, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order_id,
+                    request.form.get("report_date"),
+                    to_float(request.form.get("total_service_hours")),
+                    to_float(request.form.get("travel_hours")),
+                    to_float(request.form.get("public_transport_hours")),
+                    to_float(request.form.get("driving_miles")),
+                    request.form.get("departure_address", "").strip(),
+                    request.form.get("site_address", "").strip(),
+                    request.form.get("total_time", "").strip(),
+                    request.form.get("cabinet_number", "").strip(),
+                    request.form.get("arrival_time", "").strip(),
+                    request.form.get("departure_time", "").strip(),
+                    request.form.get("service_description", "").strip(),
+                    g.user["id"],
+                    now(),
+                    now(),
+                ),
+            )
+            report_id = cursor.lastrowid
+            save_report_detail_rows(report_id)
+            save_report_uploads(report_id)
+            db().commit()
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("new_service_report", order_id=order_id))
+        flash("工作日报已保存。", "success")
+        return redirect(url_for("service_order_detail", order_id=order_id))
+    return render_template(
+        "service_report_form.html",
+        order=order,
+        report=report_form_defaults(order=order),
+        users=users_rows,
+        selected_workers=[],
+        saved_parts=[{} for _ in range(4)],
+        replaced_parts=[{} for _ in range(4)],
+        attachments=get_report_attachments(0),
+        is_edit=False,
+    )
+
+
+@app.route("/service-reports/<int:report_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_service_report(report_id):
+    report, order = require_service_report(report_id)
+    users_rows = db().execute("select id, name, email from users where role != 'external' order by name").fetchall()
+    if request.method == "POST":
+        try:
+            db().execute(
+                """
+                update service_reports
+                set report_date = ?, total_service_hours = ?, travel_hours = ?, public_transport_hours = ?,
+                    driving_miles = ?, departure_address = ?, site_address = ?, total_time = ?, cabinet_number = ?,
+                    arrival_time = ?, departure_time = ?, service_description = ?, updated_at = ?
+                where id = ?
+                """,
+                (
+                    request.form.get("report_date"),
+                    to_float(request.form.get("total_service_hours")),
+                    to_float(request.form.get("travel_hours")),
+                    to_float(request.form.get("public_transport_hours")),
+                    to_float(request.form.get("driving_miles")),
+                    request.form.get("departure_address", "").strip(),
+                    request.form.get("site_address", "").strip(),
+                    request.form.get("total_time", "").strip(),
+                    request.form.get("cabinet_number", "").strip(),
+                    request.form.get("arrival_time", "").strip(),
+                    request.form.get("departure_time", "").strip(),
+                    request.form.get("service_description", "").strip(),
+                    now(),
+                    report_id,
+                ),
+            )
+            save_report_detail_rows(report_id)
+            save_report_uploads(report_id)
+            db().commit()
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("edit_service_report", report_id=report_id))
+        flash("工作日报已保存。", "success")
+        return redirect(url_for("service_order_detail", order_id=order["id"]))
+    selected_workers = [row["id"] for row in service_report_workers(report_id)]
+    saved_parts = list(report_parts("service_report_saved_parts", report_id)) or [{} for _ in range(4)]
+    replaced_parts = list(report_parts("service_report_replaced_parts", report_id)) or [{} for _ in range(4)]
+    return render_template(
+        "service_report_form.html",
+        order=order,
+        report=report_form_defaults(report=report),
+        users=users_rows,
+        selected_workers=selected_workers,
+        saved_parts=saved_parts,
+        replaced_parts=replaced_parts,
+        attachments=get_report_attachments(report_id),
+        is_edit=True,
+    )
+
+
+@app.route("/service-report-attachments/<int:attachment_id>")
+@login_required
+def preview_report_attachment(attachment_id):
+    attachment = db().execute("select * from service_report_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_service_report(attachment["report_id"])
+    return send_file(
+        report_attachment_path(attachment),
+        as_attachment=False,
+        download_name=attachment["original_filename"],
+        mimetype=attachment["content_type"] or None,
+        conditional=True,
+    )
+
+
+@app.post("/service-report-attachments/<int:attachment_id>/delete")
+@login_required
+def delete_report_attachment(attachment_id):
+    attachment = db().execute("select * from service_report_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    report, order = require_service_report(attachment["report_id"])
+    try:
+        os.remove(report_attachment_path(attachment))
+    except FileNotFoundError:
+        pass
+    db().execute("delete from service_report_attachments where id = ?", (attachment_id,))
+    db().commit()
+    flash("照片已删除。", "success")
+    return redirect(url_for("edit_service_report", report_id=report["id"]))
+
+
+@app.post("/service-reports/<int:report_id>/export")
+@login_required
+def export_service_report(report_id):
+    report, order = require_service_report(report_id)
+    document_bytes = build_service_report_docx(report, order)
+    filename = secure_filename(f"{order['order_number']}-{report['report_date']}-report.docx") or "service-report.docx"
+    return send_file(
+        BytesIO(document_bytes),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 @app.route("/invoices/new", methods=["GET", "POST"])
 @login_required
 def new_invoice():
@@ -1179,6 +1730,7 @@ def new_invoice():
         flash("请先创建一个客户。", "error")
         return redirect(url_for("clients"))
     projects_rows = db().execute("select * from projects where is_active = 1 order by name").fetchall()
+    service_orders_rows = db().execute("select * from service_orders where status != 'closed' order by created_at desc, id desc").fetchall()
     if not projects_rows:
         flash("请先由经理或管理员维护项目。", "error")
         return redirect(url_for("projects") if is_manager() else url_for("dashboard"))
@@ -1207,11 +1759,13 @@ def new_invoice():
         "invoice_number": next_invoice_number(),
         "issue_date": today.isoformat(),
         "due_date": (today + timedelta(days=30)).isoformat(),
+        "service_order_id": int(request.args.get("service_order_id")) if request.args.get("service_order_id", "").isdigit() else None,
     }
     return render_template(
         "invoice_form.html",
         clients=clients_rows,
         projects=projects_rows,
+        service_orders=service_orders_rows,
         defaults=defaults,
         form_title="新建发票",
         form_items=[],
@@ -1243,10 +1797,23 @@ def posted_client_id():
         raise ValueError("请选择客户。")
 
 
+def posted_service_order_id():
+    value = request.form.get("service_order_id")
+    if not value:
+        return None
+    try:
+        order_id = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("请选择有效工单。")
+    require_service_order(order_id)
+    return order_id
+
+
 def create_invoice_from_form(submit_for_review=False):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
+    service_order_id = posted_service_order_id()
     invoice_number = request.form.get("invoice_number", "").strip()
     if not invoice_number:
         invoice_number = next_invoice_number()
@@ -1260,12 +1827,13 @@ def create_invoice_from_form(submit_for_review=False):
             cursor = db().execute(
                 """
                 insert into invoices (
-                    invoice_number, client_id, issue_date, due_date, currency, notes, status, created_by, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    invoice_number, client_id, service_order_id, issue_date, due_date, currency, notes, status, created_by, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     invoice_number,
                     client_id,
+                    service_order_id,
                     request.form.get("issue_date"),
                     request.form.get("due_date"),
                     request.form.get("currency", "USD"),
@@ -1315,6 +1883,7 @@ def edit_invoice(invoice_id):
     else:
         clients_rows = db().execute("select * from clients order by client_number").fetchall()
     projects_rows = db().execute("select * from projects where is_active = 1 order by name").fetchall()
+    service_orders_rows = db().execute("select * from service_orders where status != 'closed' or id = ? order by created_at desc, id desc", (invoice["service_order_id"] or 0,)).fetchall()
     if request.method == "POST":
         uploads = uploaded_attachments_from_request()
         if not validate_attachment_uploads(uploads, invoice_id):
@@ -1351,11 +1920,13 @@ def edit_invoice(invoice_id):
         "due_date": invoice["due_date"],
         "currency": invoice["currency"],
         "notes": invoice["notes"],
+        "service_order_id": invoice["service_order_id"],
     }
     return render_template(
         "invoice_form.html",
         clients=clients_rows,
         projects=projects_rows,
+        service_orders=service_orders_rows,
         defaults=defaults,
         form_title="编辑发票",
         form_items=items,
@@ -1368,16 +1939,18 @@ def update_invoice_from_form(invoice_id, submit_for_review=False):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
+    service_order_id = posted_service_order_id()
     item_rows = invoice_items_from_form()
     db().execute(
         """
         update invoices
-        set client_id = ?, issue_date = ?, due_date = ?, currency = ?,
+        set client_id = ?, service_order_id = ?, issue_date = ?, due_date = ?, currency = ?,
             notes = ?
         where id = ?
         """,
         (
             client_id,
+            service_order_id,
             request.form.get("issue_date"),
             request.form.get("due_date"),
             request.form.get("currency", "USD"),
@@ -1408,6 +1981,9 @@ def invoice_detail(invoice_id):
     if invoice["status"] in {"draft", "returned"} and invoice["created_by"] == g.user["id"]:
         return redirect(url_for("edit_invoice", invoice_id=invoice_id))
     creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
+    service_order = None
+    if invoice["service_order_id"]:
+        service_order = db().execute("select * from service_orders where id = ?", (invoice["service_order_id"],)).fetchone()
     return render_template(
         "invoice_detail.html",
         invoice=invoice,
@@ -1415,6 +1991,7 @@ def invoice_detail(invoice_id):
         items=items,
         totals=invoice_totals(invoice_id),
         creator=creator,
+        service_order=service_order,
         attachments=get_invoice_attachments(invoice_id),
         company=get_company_profile(),
         terms=get_invoice_terms(),
@@ -1859,6 +2436,92 @@ def render_invoice_pdf(invoice, client, items):
     page.showPage()
     page.save()
     buffer.seek(0)
+    return buffer.getvalue()
+
+
+def build_service_report_docx(report, order):
+    document = Document()
+    document.add_heading("Service Daily Report", 0)
+    document.add_paragraph(f"Service Order: {order['order_number']}")
+    document.add_paragraph(f"Client: {order['client_name']}")
+    document.add_paragraph(f"Client Service Order No.: {order['client_order_number']}")
+    document.add_paragraph(f"Site Address: {order['site_address']}")
+    document.add_paragraph(f"Report Date: {report['report_date']}")
+
+    workers = service_report_workers(report["id"])
+    document.add_heading("Service Summary", level=1)
+    summary = document.add_table(rows=0, cols=2)
+    for label, value in (
+        ("Service Personnel", ", ".join(row["name"] for row in workers)),
+        ("Total Service Hours", report["total_service_hours"]),
+        ("Travel Hours", report["travel_hours"]),
+        ("Public Transport Hours", report["public_transport_hours"]),
+        ("Driving Miles", report["driving_miles"]),
+        ("Departure Address", report["departure_address"]),
+        ("Site Address", report["site_address"]),
+        ("Total Time", report["total_time"]),
+        ("Cabinet Number", report["cabinet_number"]),
+        ("Arrival Time", report["arrival_time"]),
+        ("Departure Time", report["departure_time"]),
+    ):
+        row = summary.add_row().cells
+        row[0].text = str(label)
+        row[1].text = "" if value is None else str(value)
+
+    document.add_heading("On-site Service Description", level=1)
+    document.add_paragraph(report["service_description"] or "")
+
+    def add_parts_table(title, headers, rows):
+        document.add_heading(title, level=1)
+        table = document.add_table(rows=1, cols=len(headers))
+        for index, header in enumerate(headers):
+            table.rows[0].cells[index].text = header
+        for part in rows:
+            row = table.add_row().cells
+            for index, key in enumerate(headers.values()):
+                row[index].text = "" if part[key] is None else str(part[key])
+
+    add_parts_table(
+        "Saved Parts",
+        {"Part No.": "part_number", "Part Name": "part_name", "Quantity": "quantity", "Status": "status"},
+        report_parts("service_report_saved_parts", report["id"]),
+    )
+    add_parts_table(
+        "Replaced Parts",
+        {
+            "Part No.": "part_number",
+            "Part Name": "part_name",
+            "Old Serial No.": "old_serial_number",
+            "New Serial No.": "new_serial_number",
+            "Quantity": "quantity",
+        },
+        report_parts("service_report_replaced_parts", report["id"]),
+    )
+
+    attachment_groups = get_report_attachments(report["id"])
+    labels = {
+        "arrival": "Arrival Time Photos",
+        "departure": "Departure Time Photos",
+        "self_check": "Self-check Photos",
+        "site": "On-site Service Photos",
+    }
+    for category, title in labels.items():
+        photos = attachment_groups.get(category, [])
+        if not photos:
+            continue
+        document.add_heading(title, level=1)
+        for attachment in photos:
+            path = report_attachment_path(attachment)
+            if not os.path.exists(path):
+                continue
+            document.add_paragraph(attachment["original_filename"])
+            try:
+                document.add_picture(path, width=Inches(3.2))
+            except Exception:
+                document.add_paragraph("[Image could not be embedded]")
+
+    buffer = BytesIO()
+    document.save(buffer)
     return buffer.getvalue()
 
 

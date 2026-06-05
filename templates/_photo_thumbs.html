@@ -1,0 +1,13 @@
+{% if photos %}
+  <div class="thumb-grid">
+    {% for photo in photos %}
+      <figure class="photo-thumb">
+        <a href="{{ url_for('preview_report_attachment', attachment_id=photo.id) }}" target="_blank">
+          <img src="{{ url_for('preview_report_attachment', attachment_id=photo.id) }}" alt="{{ photo.original_filename }}">
+        </a>
+        <figcaption>{{ photo.original_filename }}</figcaption>
+        <button class="danger small delete-photo" type="button" data-delete-url="{{ url_for('delete_report_attachment', attachment_id=photo.id) }}">删除</button>
+      </figure>
+    {% endfor %}
+  </div>
+{% endif %}

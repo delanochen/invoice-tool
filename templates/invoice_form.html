@@ -21,6 +21,14 @@
           {% endfor %}
         </select>
       </label>
+      <label>关联工单
+        <select name="service_order_id">
+          <option value="">不关联工单</option>
+          {% for order in service_orders %}
+            <option value="{{ order.id }}" {% if defaults.service_order_id and defaults.service_order_id == order.id %}selected{% endif %}>{{ order.order_number }} · {{ order.client_name }} · {{ order.client_order_number }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>开票日期 <input type="date" name="issue_date" value="{{ defaults.issue_date }}" required></label>
       <label>到期日期 <input type="date" name="due_date" value="{{ defaults.due_date }}" required></label>
       <label>货币

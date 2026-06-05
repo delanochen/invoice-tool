@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ form_title }} - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Service Order</p><h1>{{ form_title }}</h1></div>
+    <div class="actions">
+      <button type="button" onclick="history.back()">返回</button>
+      <button class="primary" type="submit" form="serviceOrderForm">保存</button>
+    </div>
+  </header>
+  <form method="post" class="panel form-stack narrow-form" id="serviceOrderForm">
+    {% if order %}
+      <label>工单编号 <input value="{{ order.order_number }}" readonly></label>
+    {% endif %}
+    <label>客户名称 <input name="client_name" value="{{ order.client_name if order else '' }}" required></label>
+    <label>服务现场地址 <textarea name="site_address" rows="3" required>{{ order.site_address if order else '' }}</textarea></label>
+    <label>服务订单号码 <input name="client_order_number" value="{{ order.client_order_number if order else '' }}" required></label>
+    {% if order %}
+      <label>状态
+        <select name="status">
+          <option value="open" {% if order.status != "closed" %}selected{% endif %}>进行中</option>
+          <option value="closed" {% if order.status == "closed" %}selected{% endif %}>已关闭</option>
+        </select>
+      </label>
+    {% endif %}
+  </form>
+{% endblock %}
