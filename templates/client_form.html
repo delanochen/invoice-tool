@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}编辑客户 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Clients</p><h1>编辑客户</h1></div>
+    <button type="button" onclick="window.location.href='{{ url_for('clients') }}'">返回客户列表</button>
+  </header>
+  <form method="post" class="panel form-stack narrow-form">
+    <label>客户编号 <input name="client_number" value="{{ client.client_number }}" pattern="[0-9]{5}" required></label>
+    <label>客户公司名称 <input name="name" value="{{ client.name }}" required></label>
+    <label>客户简称 <input name="short_name" value="{{ client.short_name }}" required></label>
+    <label>联系人 <input name="contact_name" value="{{ client.contact_name or '' }}"></label>
+    <label>邮箱 <input type="email" name="email" value="{{ client.email or '' }}"></label>
+    <label>国家/地区 <input name="country" value="{{ client.country or 'China' }}"></label>
+    <label>地址 <textarea name="address" rows="6">{{ client.address or '' }}</textarea></label>
+    <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
+  </form>
+{% endblock %}

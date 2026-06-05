@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}公司设置 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Settings</p><h1>公司设置</h1></div></header>
+  <form method="post" class="panel settings-layout">
+    <section class="form-stack">
+      <h2>公司资料</h2>
+      <label>公司名称 <input name="company_name" value="{{ company.name }}"></label>
+      <label>地址 <textarea name="company_address" rows="4">{{ company.address }}</textarea></label>
+      <label>邮箱 <input name="company_email" value="{{ company.email }}"></label>
+      <label>电话 <input name="company_phone" value="{{ company.phone }}"></label>
+      <label>系统时区 <input name="app_timezone" value="{{ timezone_name }}" placeholder="America/Chicago"></label>
+      <label>税务说明 <textarea name="company_tax_note" rows="6">{{ company.tax_note }}</textarea></label>
+    </section>
+    <section class="form-stack">
+      <h2>收款信息</h2>
+      <label>付款方式 <input name="payment_method" value="{{ payment.method }}"></label>
+      <label>收款人 <input name="payment_beneficiary" value="{{ payment.beneficiary }}"></label>
+      <label>银行 <input name="payment_bank_name" value="{{ payment.bank_name }}"></label>
+      <label>Account Number <input name="payment_account_number" value="{{ payment.account_number }}"></label>
+      <label>Routing Number <input name="payment_routing_number" value="{{ payment.routing_number }}"></label>
+      <label>SWIFT/BIC <input name="payment_swift_bic" value="{{ payment.swift_bic }}"></label>
+      <label>条款 <textarea name="invoice_terms" rows="6">{{ terms }}</textarea></label>
+    </section>
+    <section class="form-stack full-span smtp-settings">
+      <h2>邮件发送设置</h2>
+      <div class="form-grid">
+        <label>SMTP Host <input name="smtp_host" value="{{ smtp.host }}"></label>
+        <label>SMTP Port <input name="smtp_port" value="{{ smtp.port }}"></label>
+        <label>SMTP User <input name="smtp_user" value="{{ smtp.user }}"></label>
+        <label>SMTP Password <input type="password" name="smtp_password" value="{{ smtp.password }}"></label>
+        <label>SMTP From <input name="smtp_from" value="{{ smtp['from'] }}"></label>
+        <label>TLS
+          <select name="smtp_tls">
+            <option value="true" {% if smtp.tls == "true" %}selected{% endif %}>true</option>
+            <option value="false" {% if smtp.tls == "false" %}selected{% endif %}>false</option>
+          </select>
+        </label>
+      </div>
+    </section>
+    <div class="full-span form-actions"><button class="primary" type="submit">保存设置</button></div>
+  </form>
+{% endblock %}

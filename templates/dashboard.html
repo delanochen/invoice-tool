@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}概览 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Overview</p>
+      <h1>开票概览</h1>
+    </div>
+    <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_invoice') }}'">新建发票</button>
+  </header>
+
+  <section class="metric-grid">
+    <article class="metric"><span>发票数量</span><strong>{{ metrics.invoice_count }}</strong></article>
+    <article class="metric"><span>已完成</span><strong>{{ metrics.completed|money }}</strong></article>
+    <article class="metric"><span>已核销</span><strong>{{ metrics.paid|money }}</strong></article>
+    <article class="metric"><span>待核销</span><strong>{{ metrics.unpaid|money }}</strong></article>
+    <article class="metric"><span>总开票</span><strong>{{ metrics.total|money }}</strong></article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>月度项目开票趋势</h2>
+      <form method="get" class="project-switches">
+        <input type="hidden" name="project_filter" value="1">
+        {% for project in project_options %}
+          <label class="check-chip">
+            <input type="checkbox" name="project_id" value="{{ project.id }}" {% if project.id|string in selected_project_ids %}checked{% endif %} onchange="this.form.submit()">
+            <span style="color: {{ project.color }}">{{ project.name }}</span>
+          </label>
+        {% endfor %}
+      </form>
+    </div>
+    {% if chart %}
+      <div class="bar-chart stacked-chart">
+        {% for point in chart %}
+          <div class="bar-item">
+            <div class="bar-track">
+              <div class="stacked-track" style="height: {{ point.height }}%">
+                {% for segment in point.segments %}
+                  <span class="stacked-segment" title="{{ segment.name }} {{ segment.value|money }}" style="height: {{ segment.height }}%; background: {{ segment.color }}"></span>
+                {% endfor %}
+              </div>
+            </div>
+            <small>{{ point.month }}</small>
+            <strong>{{ point.total|money }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">还没有发票数据。</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><h2>月度核销趋势</h2></div>
+    {% if paid_chart %}
+      <div class="bar-chart">
+        {% for point in paid_chart %}
+          <div class="bar-item">
+            <div class="bar-track"><span style="height: {{ point.height }}%"></span></div>
+            <small>{{ point.month }}</small>
+            <strong>{{ point.value|money }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">还没有核销数据。</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>最近发票</h2>
+      <a href="{{ url_for('invoices') }}">查看全部</a>
+    </div>
+    <table class="list-table">
+      <thead><tr><th>编号</th><th>客户</th><th>日期</th><th>状态</th><th>核销</th></tr></thead>
+      <tbody>
+        {% for invoice in recent %}
+          <tr>
+            <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
+            <td>{{ invoice.client_name }}</td>
+            <td>{{ invoice.issue_date }}</td>
+            <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
+            <td><span class="status {% if invoice.paid_at %}completed{% elif invoice.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ invoice|payment_label }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="empty">还没有发票。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

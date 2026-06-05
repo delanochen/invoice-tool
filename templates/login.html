@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}登录 - 发票工具{% endblock %}
+{% block content %}
+  <form method="post" class="login-card">
+    <img class="login-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
+    <h1>登录</h1>
+    <label>邮箱 <input type="email" name="email" required autofocus></label>
+    <label>密码 <input type="password" name="password" required></label>
+    <button class="primary" type="submit">登录</button>
+    <p class="muted-line">外部员工还没有账号？<a href="{{ url_for('register') }}">注册外部账号</a></p>
+  </form>
+{% endblock %}

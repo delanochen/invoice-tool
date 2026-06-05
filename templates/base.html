@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}发票工具{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    {% if g.user %}
+      <aside class="sidebar no-print">
+        <div class="brand">
+          <img src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
+          <span>Prasinos Power</span>
+        </div>
+        <nav>
+          <a href="{{ url_for('dashboard') }}">概览</a>
+          <a href="{{ url_for('invoices') }}">发票</a>
+          <a href="{{ url_for('new_invoice') }}">新建发票</a>
+          <a href="{{ url_for('reports') }}">报表</a>
+          <a href="{{ url_for('messages') }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>
+          {% if g.user.role != "external" %}
+            <details class="nav-group">
+              <summary>基础数据</summary>
+              <div class="nav-submenu">
+                <a href="{{ url_for('clients') }}">客户</a>
+                {% if g.user.role in ["admin", "manager"] %}
+                  <a href="{{ url_for('projects') }}">项目</a>
+                {% endif %}
+                {% if g.user.role == "admin" %}
+                  <a href="{{ url_for('company_settings') }}">公司设置</a>
+                  <a href="{{ url_for('users') }}">用户</a>
+                {% endif %}
+              </div>
+            </details>
+          {% endif %}
+        </nav>
+        <div class="user-box">
+          <span>{{ g.user.name }}</span>
+          <a href="{{ url_for('logout') }}">退出</a>
+        </div>
+      </aside>
+    {% endif %}
+    <main class="{% if g.user %}main{% else %}auth-main{% endif %}">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-stack no-print">
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}报表 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Reports</p><h1>报表查询</h1></div></header>
+
+  <form class="filter-bar report-filter no-print" method="get">
+    <label>客户 <input name="client" value="{{ client_q }}" placeholder="客户编号或名称"></label>
+    <label>客户简称 <input name="short_name" value="{{ short_q }}" placeholder="客户简称"></label>
+    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+    <details class="multi-select">
+      <summary>发票状态</summary>
+      <div class="multi-select-menu">
+        {% for value, text in labels.items() %}
+          <label>
+            <input type="checkbox" name="status" value="{{ value }}" {% if value in selected_statuses %}checked{% endif %}>
+            {{ text }}
+          </label>
+        {% endfor %}
+      </div>
+    </details>
+    <details class="multi-select">
+      <summary>核销状态</summary>
+      <div class="multi-select-menu">
+        <label><input type="checkbox" name="paid_status" value="paid" {% if "paid" in selected_paid_statuses %}checked{% endif %}> 已核销</label>
+        <label><input type="checkbox" name="paid_status" value="unpaid" {% if "unpaid" in selected_paid_statuses %}checked{% endif %}> 待核销</label>
+      </div>
+    </details>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('reports') }}'">重置</button>
+    </div>
+    <details class="multi-select project-filter">
+      <summary>项目</summary>
+      <div class="multi-select-menu">
+        {% for project in project_options %}
+          <label>
+            <input type="checkbox" name="project_id" value="{{ project.id }}" {% if project.id|string in selected_project_ids %}checked{% endif %}>
+            {{ project.name }}
+          </label>
+        {% endfor %}
+      </div>
+    </details>
+  </form>
+
+  <section class="panel">
+    <table class="list-table">
+      <thead>
+        <tr>
+          <th>日期</th><th>发票编号</th><th>客户编号</th><th>客户</th><th>客户简称</th>
+          <th>项目</th><th>金额</th><th>税率</th><th>税额</th><th>合计</th><th>状态</th><th>核销</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in rows %}
+          {% set row = item.row %}
+          <tr>
+            <td>{{ row.issue_date }}</td>
+            <td>{{ row.invoice_number }}</td>
+            <td>{{ row.client_number }}</td>
+            <td>{{ row.client_name }}</td>
+            <td>{{ row.short_name }}</td>
+            <td>{{ row.project_name }}</td>
+            <td>{{ row.amount|money(row.currency) }}</td>
+            <td>{{ "%.2f"|format(row.tax_rate) }}%</td>
+            <td>{{ item.tax|money(row.currency) }}</td>
+            <td>{{ item.line_total|money(row.currency) }}</td>
+            <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
+            <td><span class="status {% if row.paid_at %}completed{% elif row.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ row|payment_label }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="12" class="empty">没有符合条件的报表数据。</td></tr>
+        {% endfor %}
+        {% if rows %}
+          <tr class="report-total">
+            <td colspan="6">汇总</td>
+            <td>{{ subtotal|money }}</td>
+            <td></td>
+            <td>{{ tax_total|money }}</td>
+            <td>{{ grand_total|money }}</td>
+            <td></td>
+            <td></td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </section>
+  <script src="{{ url_for('static', filename='report-filters.js', v='20260601-autoclose') }}"></script>
+{% endblock %}

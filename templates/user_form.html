@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}编辑用户 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Users</p><h1>编辑用户</h1></div>
+    <button type="button" onclick="window.location.href='{{ url_for('users') }}'">返回用户列表</button>
+  </header>
+  <form method="post" class="panel form-stack narrow-form">
+    <label>姓名 <input name="name" value="{{ user.name }}" required></label>
+    <label>邮箱 <input type="email" name="email" value="{{ user.email }}" required></label>
+    <label>角色
+      <select name="role">
+        <option value="admin" {% if user.role == "admin" %}selected{% endif %}>管理员</option>
+        <option value="manager" {% if user.role == "manager" %}selected{% endif %}>经理</option>
+        <option value="user" {% if user.role in ["user", "internal"] %}selected{% endif %}>内部用户</option>
+        <option value="external" {% if user.role == "external" %}selected{% endif %}>外部员工</option>
+      </select>
+    </label>
+    <label>绑定客户
+      <select name="client_id">
+        <option value="">内部用户不需要绑定客户</option>
+        {% for client in clients %}
+          <option value="{{ client.id }}" {% if user.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>新密码 <input type="password" name="password" minlength="8" placeholder="留空则不修改密码"></label>
+    <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
+  </form>
+{% endblock %}

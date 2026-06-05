@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}消息 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Messages</p><h1>消息</h1></div></header>
+  <section class="panel">
+    <table class="list-table">
+      <thead><tr><th>标题</th><th>内容</th><th>时间</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for message in messages %}
+          <tr class="{% if not message.is_read %}message-unread{% endif %}">
+            <td><a href="{{ url_for('message_detail', message_id=message.id) }}">{{ message.title }}</a></td>
+            <td>{{ message.body }}</td>
+            <td>{{ message.created_at|local_datetime }}</td>
+            <td>{{ "已读" if message.is_read else "未读" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">暂无消息。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

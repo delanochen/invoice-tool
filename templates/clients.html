@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}客户 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Clients</p><h1>客户资料</h1></div></header>
+
+  {% if g.user.role != "external" %}
+    <form class="panel filter-bar no-print" method="get">
+      <label>查找客户 <input name="q" value="{{ q or '' }}" placeholder="客户编号、公司名称、简称、联系人或邮箱"></label>
+      <div class="filter-actions">
+        <button type="submit">查找</button>
+        <button type="button" onclick="window.location.href='{{ url_for('clients') }}'">重置</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <section class="split">
+    {% if g.user.role != "external" %}
+      <form method="post" class="panel form-stack">
+        <h2>新增客户</h2>
+        <label>客户编号 <input value="自动生成" disabled></label>
+        <label>客户公司名称 <input name="name" required></label>
+        <label>客户简称 <input name="short_name" required></label>
+        <label>联系人 <input name="contact_name"></label>
+        <label>邮箱 <input type="email" name="email"></label>
+        <label>国家/地区 <input name="country" value="China"></label>
+        <label>地址 <textarea name="address" rows="5"></textarea></label>
+        <button class="primary" type="submit">保存客户</button>
+      </form>
+    {% endif %}
+
+    <section class="panel">
+      <h2>客户列表</h2>
+      <table class="list-table">
+        <thead><tr><th>编号</th><th>名称</th><th>简称</th><th>联系人</th><th>邮箱</th><th>国家</th>{% if g.user.role != "external" %}<th>操作</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for client in clients %}
+            <tr>
+              <td>{{ client.client_number }}</td>
+              <td>{{ client.name }}</td>
+              <td>{{ client.short_name }}</td>
+              <td>{{ client.contact_name }}</td>
+              <td>{{ client.email }}</td>
+              <td>{{ client.country }}</td>
+              {% if g.user.role != "external" %}
+                <td>
+                  <div class="row-actions">
+                    <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_client', client_id=client.id) }}'">编辑</button>
+                    <form method="post" action="{{ url_for('delete_client', client_id=client.id) }}" onsubmit="return confirm('确定删除这个客户吗？已有发票的客户不会被删除。');">
+                      <button class="danger small" type="submit">删除</button>
+                    </form>
+                  </div>
+                </td>
+              {% endif %}
+            </tr>
+          {% else %}
+            <tr><td colspan="{% if g.user.role != 'external' %}7{% else %}6{% endif %}" class="empty">没有符合条件的客户。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}页面不存在 - 发票工具{% endblock %}
+{% block content %}
+  <section class="panel error-panel">
+    <p class="eyebrow">{{ status_code }}</p>
+    <h1>{{ title }}</h1>
+    <p class="muted">{{ message }}</p>
+    <div class="actions">
+      {% if g.user %}
+        <button type="button" onclick="window.location.href='{{ url_for('invoices') }}'">返回发票列表</button>
+        <button class="primary" type="button" onclick="window.location.href='{{ url_for('dashboard') }}'">返回概览</button>
+      {% else %}
+        <button class="primary" type="button" onclick="window.location.href='{{ url_for('login') }}'">返回登录</button>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

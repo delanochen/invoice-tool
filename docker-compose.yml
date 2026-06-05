@@ -1,0 +1,13 @@
+services:
+  invoice-tool:
+    build: .
+    container_name: invoice-tool
+    restart: unless-stopped
+    ports:
+      - "8088:8000"
+    environment:
+      SECRET_KEY: "change-this-long-random-secret"
+      ADMIN_EMAIL: "delanochen@gmail.com"
+      ADMIN_PASSWORD: "1qaz@WSX"
+    volumes:
+      - ./data:/app/data

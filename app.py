@@ -1,0 +1,2104 @@
+import os
+import secrets
+import shutil
+import smtplib
+import sqlite3
+import zipfile
+from datetime import date, datetime, timedelta, timezone
+from email.message import EmailMessage
+from functools import wraps
+from io import BytesIO
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from flask import (
+    Flask,
+    abort,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+    url_for,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfgen import canvas
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+DB_PATH = os.path.join(DATA_DIR, "invoices.db")
+ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
+ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
+ALLOWED_ATTACHMENT_LABEL = "Word、Excel、PDF、PNG、JPG、JPEG、WEBP、GIF"
+
+DEFAULT_COMPANY_PROFILE = {
+    "name": "Prasinos Power LLC",
+    "address": "6131 Fenske Lane, Needville, TX 77461, US",
+    "email": "info@prasinospower.com",
+    "phone": "+1 910 910 9191",
+    "tax_note": (
+        "No Texas sales tax is charged on this invoice because the customer is located outside "
+        "the United States. Customer is responsible for any applicable local taxes, withholding, "
+        "foreign exchange costs, intermediary bank fees, or wire transfer fees unless otherwise agreed in writing."
+    ),
+}
+
+DEFAULT_PAYMENT_INSTRUCTIONS = {
+    "method": "International bank wire transfer",
+    "beneficiary": "Prasinos Power LLC",
+    "bank_name": "Chase Bank",
+    "account_number": "2909930519",
+    "routing_number": "111000614",
+    "swift_bic": "CHASUS33XXX",
+}
+
+DEFAULT_INVOICE_TERMS = (
+    "Payment is due by the due date stated on this invoice. Bank fees, intermediary fees, "
+    "and foreign exchange charges are the responsibility of the payer unless otherwise agreed in writing."
+)
+
+DEFAULT_SMTP_SETTINGS = {
+    "host": "smtp.gmail.com",
+    "port": "587",
+    "user": "delanochen@gmail.com",
+    "password": "",
+    "from": "delanochen@gmail.com",
+    "tls": "true",
+}
+DEFAULT_TIMEZONE = "America/Chicago"
+
+STATUS_LABELS = {
+    "draft": "保存未提交",
+    "submitted": "待经理审核",
+    "returned": "已退回",
+    "completed": "已完成",
+    "void": "作废",
+}
+
+app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+
+
+def now():
+    return datetime.now(app_timezone()).replace(microsecond=0).isoformat()
+
+
+def db():
+    if "db" not in g:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+        g.db = sqlite3.connect(DB_PATH)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(error=None):
+    connection = g.pop("db", None)
+    if connection is not None:
+        connection.close()
+
+
+def init_db():
+    with app.app_context():
+        connection = db()
+        connection.executescript(
+            """
+            create table if not exists users (
+                id integer primary key autoincrement,
+                name text not null,
+                email text not null unique,
+                password_hash text not null,
+                role text not null default 'user',
+                client_id integer,
+                created_at text not null,
+                foreign key(client_id) references clients(id)
+            );
+
+            create table if not exists clients (
+                id integer primary key autoincrement,
+                client_number text not null unique,
+                name text not null,
+                short_name text not null,
+                contact_name text,
+                email text,
+                address text,
+                country text not null default 'China',
+                created_at text not null
+            );
+
+            create table if not exists projects (
+                id integer primary key autoincrement,
+                name text not null,
+                default_amount real not null default 0,
+                tax_rate real not null default 0,
+                is_active integer not null default 1,
+                created_at text not null
+            );
+
+            create table if not exists invoices (
+                id integer primary key autoincrement,
+                invoice_number text not null unique,
+                client_id integer not null,
+                issue_date text not null,
+                due_date text not null,
+                currency text not null default 'USD',
+                notes text,
+                status text not null default 'submitted',
+                return_reason text,
+                sent_at text,
+                paid_at text,
+                payment_amount real,
+                payment_note text,
+                created_by integer not null,
+                created_at text not null,
+                foreign key(client_id) references clients(id),
+                foreign key(created_by) references users(id)
+            );
+
+            create table if not exists invoice_items (
+                id integer primary key autoincrement,
+                invoice_id integer not null,
+                project_id integer not null,
+                description text not null,
+                amount real not null,
+                tax_rate real not null default 0,
+                foreign key(invoice_id) references invoices(id) on delete cascade,
+                foreign key(project_id) references projects(id)
+            );
+
+            create table if not exists invoice_attachments (
+                id integer primary key autoincrement,
+                invoice_id integer not null,
+                original_filename text not null,
+                stored_filename text not null,
+                content_type text,
+                uploaded_by integer not null,
+                uploaded_at text not null,
+                foreign key(invoice_id) references invoices(id) on delete cascade,
+                foreign key(uploaded_by) references users(id)
+            );
+
+            create table if not exists messages (
+                id integer primary key autoincrement,
+                user_id integer not null,
+                title text not null,
+                body text not null,
+                link text,
+                is_read integer not null default 0,
+                created_at text not null,
+                foreign key(user_id) references users(id)
+            );
+
+            create table if not exists settings (
+                key text primary key,
+                value text not null
+            );
+            """
+        )
+        seed_settings(connection)
+        admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
+        admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
+        if not connection.execute("select id from users where email = ?", (admin_email,)).fetchone():
+            connection.execute(
+                """
+                insert into users (name, email, password_hash, role, created_at)
+                values (?, ?, ?, 'admin', ?)
+                """,
+                ("Admin", admin_email, generate_password_hash(admin_password), now()),
+            )
+        connection.commit()
+
+
+def seed_settings(connection):
+    defaults = {}
+    for key, value in DEFAULT_COMPANY_PROFILE.items():
+        defaults[f"company_{key}"] = value
+    for key, value in DEFAULT_PAYMENT_INSTRUCTIONS.items():
+        defaults[f"payment_{key}"] = value
+    for key, value in DEFAULT_SMTP_SETTINGS.items():
+        defaults[f"smtp_{key}"] = value
+    defaults["invoice_terms"] = DEFAULT_INVOICE_TERMS
+    for key, value in defaults.items():
+        connection.execute(
+            "insert or ignore into settings (key, value) values (?, ?)",
+            (key, value),
+        )
+
+
+def get_setting(key, default=""):
+    row = db().execute("select value from settings where key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    db().execute(
+        """
+        insert into settings (key, value) values (?, ?)
+        on conflict(key) do update set value = excluded.value
+        """,
+        (key, value),
+    )
+
+
+def get_timezone_name():
+    return get_setting("app_timezone", DEFAULT_TIMEZONE) or DEFAULT_TIMEZONE
+
+
+def app_timezone():
+    try:
+        return ZoneInfo(get_timezone_name())
+    except ZoneInfoNotFoundError:
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def get_company_profile():
+    return {key: get_setting(f"company_{key}", value) for key, value in DEFAULT_COMPANY_PROFILE.items()}
+
+
+def get_payment_instructions():
+    return {key: get_setting(f"payment_{key}", value) for key, value in DEFAULT_PAYMENT_INSTRUCTIONS.items()}
+
+
+def get_invoice_terms():
+    return get_setting("invoice_terms", DEFAULT_INVOICE_TERMS)
+
+
+def get_smtp_settings():
+    return {key: get_setting(f"smtp_{key}", value) for key, value in DEFAULT_SMTP_SETTINGS.items()}
+
+
+def current_user():
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    return db().execute("select * from users where id = ?", (user_id,)).fetchone()
+
+
+@app.before_request
+def load_user():
+    g.user = current_user()
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not g.user:
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not g.user:
+            return redirect(url_for("login", next=request.path))
+        if g.user["role"] != "admin":
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def is_external_user():
+    return g.user and g.user["role"] == "external"
+
+
+def is_internal_user():
+    return g.user and g.user["role"] in {"admin", "manager", "user", "internal"}
+
+
+def is_manager():
+    return g.user and g.user["role"] in {"admin", "manager"}
+
+
+def can_access_client(client_id):
+    if not g.user:
+        return False
+    if is_internal_user():
+        return True
+    return g.user["client_id"] == client_id
+
+
+def require_invoice_access(invoice_id):
+    invoice = db().execute("select * from invoices where id = ?", (invoice_id,)).fetchone()
+    if not invoice:
+        abort(404)
+    if not can_access_client(invoice["client_id"]):
+        abort(403)
+    return invoice
+
+
+def client_filter_clause(alias="invoices"):
+    if is_external_user():
+        if not g.user["client_id"]:
+            return "1 = 0", []
+        return f"{alias}.client_id = ?", [g.user["client_id"]]
+    return "1 = 1", []
+
+
+def role_label(role):
+    labels = {"admin": "管理员", "manager": "经理", "user": "员工", "internal": "员工", "external": "外部员工"}
+    return labels.get(role, role)
+
+
+def money(value, currency="USD"):
+    symbols = {"USD": "$", "CNY": "¥", "EUR": "€", "GBP": "£", "JPY": "¥"}
+    amount = float(value or 0)
+    if currency == "JPY":
+        return f"{symbols.get(currency, currency + ' ')}{amount:,.0f}"
+    return f"{symbols.get(currency, currency + ' ')}{amount:,.2f}"
+
+
+PROJECT_COLORS = ["#0f766e", "#175cd3", "#b42318", "#7a271a", "#6941c6", "#027a48", "#b54708", "#3538cd"]
+
+
+def project_color(project_id):
+    return PROJECT_COLORS[int(project_id or 0) % len(PROJECT_COLORS)]
+
+
+def pdf_text(value):
+    return "" if value is None else str(value)
+
+
+def to_float(value, default=0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def invoice_totals(invoice_id):
+    rows = db().execute("select amount, tax_rate from invoice_items where invoice_id = ?", (invoice_id,)).fetchall()
+    subtotal = sum(float(row["amount"] or 0) for row in rows)
+    tax = sum(float(row["amount"] or 0) * float(row["tax_rate"] or 0) / 100 for row in rows)
+    return {"subtotal": subtotal, "tax": tax, "total": max(subtotal + tax, 0)}
+
+
+def payment_label(invoice):
+    if invoice["status"] == "void":
+        return "不适用"
+    if invoice["paid_at"]:
+        return "已核销"
+    if invoice["status"] == "completed":
+        return "待核销"
+    return "流程中"
+
+
+def local_datetime(value):
+    if not value:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return str(value)[:16].replace("T", " ")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(app_timezone()).strftime("%Y-%m-%d %H:%M")
+
+
+app.jinja_env.filters["money"] = money
+app.jinja_env.filters["role_label"] = role_label
+app.jinja_env.filters["payment_label"] = payment_label
+app.jinja_env.filters["local_datetime"] = local_datetime
+
+
+def next_client_number():
+    row = db().execute(
+        """
+        select client_number from clients
+        where client_number glob '[0-9][0-9][0-9][0-9][0-9]'
+        order by client_number desc limit 1
+        """
+    ).fetchone()
+    return "00001" if not row else f"{int(row['client_number']) + 1:05d}"
+
+
+def next_invoice_number():
+    prefix = f"PP-{date.today():%y%m}"
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    for _ in range(30):
+        code = "".join(secrets.choice(alphabet) for _ in range(6))
+        invoice_number = f"{prefix}-{code}"
+        if not db().execute("select id from invoices where invoice_number = ?", (invoice_number,)).fetchone():
+            return invoice_number
+    raise RuntimeError("Unable to generate a unique invoice number.")
+
+
+def invoice_number_exists(invoice_number, exclude_invoice_id=None):
+    if exclude_invoice_id:
+        return db().execute(
+            "select id from invoices where invoice_number = ? and id != ?",
+            (invoice_number, exclude_invoice_id),
+        ).fetchone() is not None
+    return db().execute("select id from invoices where invoice_number = ?", (invoice_number,)).fetchone() is not None
+
+
+def allowed_attachment(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_ATTACHMENT_EXTENSIONS
+
+
+def normalized_attachment_filename(filename):
+    return os.path.basename(filename or "").strip().casefold()
+
+
+def invoice_attachment_dir(invoice_id):
+    path = os.path.join(ATTACHMENTS_DIR, str(invoice_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def attachment_file_path(attachment):
+    return os.path.join(ATTACHMENTS_DIR, str(attachment["invoice_id"]), attachment["stored_filename"])
+
+
+def invoice_attachment_path(invoice_id):
+    return os.path.join(ATTACHMENTS_DIR, str(invoice_id))
+
+
+def existing_attachment_names(invoice_id):
+    rows = db().execute(
+        "select original_filename from invoice_attachments where invoice_id = ?",
+        (invoice_id,),
+    ).fetchall()
+    return {normalized_attachment_filename(row["original_filename"]) for row in rows}
+
+
+def duplicate_attachment_names(uploads, invoice_id=None):
+    seen = existing_attachment_names(invoice_id) if invoice_id else set()
+    duplicates = []
+    for uploaded in uploads:
+        original_name = os.path.basename(uploaded.filename or "").strip()
+        normalized_name = normalized_attachment_filename(original_name)
+        if not normalized_name:
+            continue
+        if normalized_name in seen:
+            duplicates.append(original_name)
+            continue
+        seen.add(normalized_name)
+    return duplicates
+
+
+def validate_attachment_uploads(uploads, invoice_id=None):
+    for uploaded in uploads:
+        if uploaded and uploaded.filename and not allowed_attachment(uploaded.filename):
+            flash(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。", "error")
+            return False
+    duplicates = duplicate_attachment_names(uploads, invoice_id)
+    if duplicates:
+        flash(f"附件重复：{', '.join(duplicates)}。请删除重复附件后再上传。", "error")
+        return False
+    return True
+
+
+def save_uploaded_attachment(invoice_id, uploaded):
+    source_filename = uploaded.filename or "attachment"
+    extension = source_filename.rsplit(".", 1)[1].lower()
+    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
+    if "." not in original_filename:
+        original_filename = f"{original_filename}.{extension}"
+    if normalized_attachment_filename(original_filename) in existing_attachment_names(invoice_id):
+        raise RuntimeError(f"附件已存在：{original_filename}")
+    stored_filename = f"{secrets.token_hex(12)}.{extension}"
+    uploaded.save(os.path.join(invoice_attachment_dir(invoice_id), stored_filename))
+    db().execute(
+        """
+        insert into invoice_attachments (
+            invoice_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, ?, ?)
+        """,
+        (invoice_id, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+    )
+
+
+def uploaded_attachments_from_request():
+    return [
+        file
+        for file in request.files.getlist("attachments") + request.files.getlist("attachment")
+        if file and file.filename
+    ]
+
+
+def get_invoice_attachments(invoice_id):
+    return db().execute(
+        """
+        select invoice_attachments.*, users.name as uploader_name
+        from invoice_attachments left join users on users.id = invoice_attachments.uploaded_by
+        where invoice_id = ?
+        order by uploaded_at desc
+        """,
+        (invoice_id,),
+    ).fetchall()
+
+
+def load_invoice(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    client = db().execute("select * from clients where id = ?", (invoice["client_id"],)).fetchone()
+    items = db().execute("select * from invoice_items where invoice_id = ?", (invoice_id,)).fetchall()
+    return invoice, client, items
+
+
+def create_message(user_id, title, body, link=None):
+    db().execute(
+        "insert into messages (user_id, title, body, link, created_at) values (?, ?, ?, ?, ?)",
+        (user_id, title, body, link, now()),
+    )
+
+
+def notify_role(roles, title, body, link=None):
+    placeholders = ",".join("?" for _ in roles)
+    rows = db().execute(f"select id from users where role in ({placeholders})", list(roles)).fetchall()
+    for row in rows:
+        create_message(row["id"], title, body, link)
+
+
+def review_message_body(user_name, invoice, client, total, is_resubmission=False):
+    action = "重新提交了发票" if is_resubmission else "提交了发票"
+    client_label = client["short_name"] or client["name"]
+    return f"{user_name}{action} {invoice['invoice_number']} 客户:{client_label} 金额:{money(total, invoice['currency'])} 请审核。"
+
+
+def return_message_body(invoice, client, total, reason):
+    client_label = client["short_name"] or client["name"]
+    return f"发票 {invoice['invoice_number']} 已被经理退回。客户:{client_label} 金额:{money(total, invoice['currency'])} 原因：{reason}"
+
+
+def unread_message_count():
+    if not g.user:
+        return 0
+    return db().execute(
+        "select count(*) as count from messages where user_id = ? and is_read = 0",
+        (g.user["id"],),
+    ).fetchone()["count"]
+
+
+@app.context_processor
+def inject_globals():
+    return {"unread_message_count": unread_message_count()}
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        user = db().execute("select * from users where email = ?", (email,)).fetchone()
+        if user and check_password_hash(user["password_hash"], password):
+            session.clear()
+            session["user_id"] = user["id"]
+            return redirect(request.args.get("next") or url_for("dashboard"))
+        flash("邮箱或密码不正确。", "error")
+    return render_template("login.html")
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        if len(password) < 8:
+            flash("密码至少需要 8 位。", "error")
+            return redirect(url_for("register"))
+        try:
+            cursor = db().execute(
+                """
+                insert into users (name, email, password_hash, role, created_at)
+                values (?, ?, ?, 'external', ?)
+                """,
+                (name or email, email, generate_password_hash(password), now()),
+            )
+            user_id = cursor.lastrowid
+            notify_role(
+                ["admin"],
+                "新的外部用户需要绑定客户",
+                f"{name or email} 已注册外部员工账号。请为该用户绑定客户后，对方才能创建和查询发票。",
+                url_for("edit_user", user_id=user_id),
+            )
+            db().commit()
+            flash("注册成功。请联系管理员绑定客户后再创建发票。", "success")
+            return redirect(url_for("login"))
+        except sqlite3.IntegrityError:
+            flash("这个邮箱已经注册。", "error")
+    return render_template("register.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/messages")
+@login_required
+def messages():
+    rows = db().execute(
+        "select * from messages where user_id = ? order by is_read asc, datetime(created_at) desc, id desc",
+        (g.user["id"],),
+    ).fetchall()
+    return render_template("messages.html", messages=rows)
+
+
+@app.route("/messages/<int:message_id>")
+@login_required
+def message_detail(message_id):
+    message = db().execute(
+        "select * from messages where id = ? and user_id = ?",
+        (message_id, g.user["id"]),
+    ).fetchone()
+    if not message:
+        abort(404)
+    db().execute("update messages set is_read = 1 where id = ?", (message_id,))
+    db().commit()
+    link = message["link"]
+    if link:
+        parts = link.strip("/").split("/")
+        if len(parts) >= 2 and parts[0] == "invoices" and parts[1].isdigit():
+            invoice_exists = db().execute("select id from invoices where id = ?", (int(parts[1]),)).fetchone()
+            if not invoice_exists:
+                flash("这条消息对应的发票已经被删除。", "error")
+                return redirect(url_for("messages"))
+        return redirect(link)
+    return redirect(url_for("messages"))
+
+
+@app.route("/")
+@login_required
+def dashboard():
+    metrics = get_metrics()
+    selected_project_ids = request.args.getlist("project_id")
+    project_options = dashboard_project_options()
+    project_filter_submitted = "project_filter" in request.args
+    available_project_ids = {str(project["id"]) for project in project_options}
+    selected_project_ids = [project_id for project_id in selected_project_ids if project_id in available_project_ids]
+    if not project_filter_submitted and not selected_project_ids:
+        selected_project_ids = [str(project["id"]) for project in project_options]
+    chart = monthly_project_chart(selected_project_ids)
+    paid_chart = monthly_paid_chart()
+    access_clause, access_params = client_filter_clause("invoices")
+    recent = db().execute(
+        f"""
+        select invoices.*, clients.name as client_name
+        from invoices join clients on clients.id = invoices.client_id
+        where invoices.status = 'completed' and {access_clause}
+        order by invoices.created_at desc limit 8
+        """,
+        access_params,
+    ).fetchall()
+    return render_template(
+        "dashboard.html",
+        metrics=metrics,
+        chart=chart,
+        paid_chart=paid_chart,
+        recent=recent,
+        labels=STATUS_LABELS,
+        project_options=project_options,
+        selected_project_ids=selected_project_ids,
+    )
+
+
+@app.route("/clients", methods=["GET", "POST"])
+@login_required
+def clients():
+    if is_external_user() and not g.user["client_id"]:
+        flash("外部用户尚未绑定客户。", "error")
+        return redirect(url_for("dashboard"))
+    if request.method == "POST":
+        if is_external_user():
+            abort(403)
+        try:
+            db().execute(
+                """
+                insert into clients (client_number, name, short_name, contact_name, email, address, country, created_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    next_client_number(),
+                    request.form.get("name", "").strip(),
+                    request.form.get("short_name", "").strip() or request.form.get("name", "").strip(),
+                    request.form.get("contact_name", "").strip(),
+                    request.form.get("email", "").strip(),
+                    request.form.get("address", "").strip(),
+                    request.form.get("country", "China").strip() or "China",
+                    now(),
+                ),
+            )
+            db().commit()
+            flash("客户已创建。", "success")
+        except sqlite3.IntegrityError:
+            flash("客户编号重复，请重试。", "error")
+        return redirect(url_for("clients"))
+    q = request.args.get("q", "").strip()
+    if is_external_user():
+        rows = db().execute("select * from clients where id = ?", (g.user["client_id"],)).fetchall()
+    else:
+        params = []
+        where = ""
+        if q:
+            where = "where client_number like ? or name like ? or short_name like ? or contact_name like ? or email like ?"
+            params = [f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
+        rows = db().execute(f"select * from clients {where} order by client_number asc", params).fetchall()
+    return render_template("clients.html", clients=rows, q=q)
+
+
+@app.route("/clients/<int:client_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_client(client_id):
+    if is_external_user():
+        abort(403)
+    client = db().execute("select * from clients where id = ?", (client_id,)).fetchone()
+    if not client:
+        abort(404)
+    if request.method == "POST":
+        client_number = request.form.get("client_number", "").strip()
+        if len(client_number) != 5 or not client_number.isdigit():
+            flash("客户编号必须是 5 位数字。", "error")
+            return redirect(url_for("edit_client", client_id=client_id))
+        try:
+            db().execute(
+                """
+                update clients
+                set client_number = ?, name = ?, short_name = ?, contact_name = ?, email = ?, address = ?, country = ?
+                where id = ?
+                """,
+                (
+                    client_number,
+                    request.form.get("name", "").strip(),
+                    request.form.get("short_name", "").strip() or request.form.get("name", "").strip(),
+                    request.form.get("contact_name", "").strip(),
+                    request.form.get("email", "").strip(),
+                    request.form.get("address", "").strip(),
+                    request.form.get("country", "China").strip() or "China",
+                    client_id,
+                ),
+            )
+            db().commit()
+            flash("客户资料已更新。", "success")
+        except sqlite3.IntegrityError:
+            flash("客户编号重复，请换一个编号。", "error")
+            return redirect(url_for("edit_client", client_id=client_id))
+        return redirect(url_for("clients"))
+    return render_template("client_form.html", client=client)
+
+
+@app.post("/clients/<int:client_id>/delete")
+@login_required
+def delete_client(client_id):
+    if is_external_user():
+        abort(403)
+    invoice_count = db().execute("select count(*) as count from invoices where client_id = ?", (client_id,)).fetchone()["count"]
+    if invoice_count:
+        flash("这个客户已有发票记录，不能删除。可以编辑客户资料以保留历史发票。", "error")
+        return redirect(url_for("clients"))
+    db().execute("delete from clients where id = ?", (client_id,))
+    db().commit()
+    flash("客户已删除。", "success")
+    return redirect(url_for("clients"))
+
+
+@app.route("/projects", methods=["GET", "POST"])
+@login_required
+def projects():
+    if not is_manager():
+        abort(403)
+    if request.method == "POST":
+        db().execute(
+            """
+            insert into projects (name, default_amount, tax_rate, is_active, created_at)
+            values (?, ?, ?, ?, ?)
+            """,
+            (
+                request.form.get("name", "").strip(),
+                to_float(request.form.get("default_amount")),
+                to_float(request.form.get("tax_rate")),
+                1 if request.form.get("is_active", "1") == "1" else 0,
+                now(),
+            ),
+        )
+        db().commit()
+        flash("项目已创建。", "success")
+        return redirect(url_for("projects"))
+    rows = db().execute("select * from projects order by is_active desc, name").fetchall()
+    return render_template("projects.html", projects=rows)
+
+
+@app.route("/projects/<int:project_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_project(project_id):
+    if not is_manager():
+        abort(403)
+    project = db().execute("select * from projects where id = ?", (project_id,)).fetchone()
+    if not project:
+        abort(404)
+    if request.method == "POST":
+        db().execute(
+            """
+            update projects set name = ?, default_amount = ?, tax_rate = ?, is_active = ?
+            where id = ?
+            """,
+            (
+                request.form.get("name", "").strip(),
+                to_float(request.form.get("default_amount")),
+                to_float(request.form.get("tax_rate")),
+                1 if request.form.get("is_active", "1") == "1" else 0,
+                project_id,
+            ),
+        )
+        db().commit()
+        flash("项目已更新。", "success")
+        return redirect(url_for("projects"))
+    return render_template("project_form.html", project=project)
+
+
+@app.post("/projects/<int:project_id>/delete")
+@login_required
+def delete_project(project_id):
+    if not is_manager():
+        abort(403)
+    used = db().execute("select count(*) as count from invoice_items where project_id = ?", (project_id,)).fetchone()["count"]
+    if used:
+        flash("这个项目已有发票记录，不能删除。可以停用该项目。", "error")
+        return redirect(url_for("projects"))
+    db().execute("delete from projects where id = ?", (project_id,))
+    db().commit()
+    flash("项目已删除。", "success")
+    return redirect(url_for("projects"))
+
+
+@app.route("/users", methods=["GET", "POST"])
+@admin_required
+def users():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        role = request.form.get("role", "user")
+        client_id = request.form.get("client_id") or None
+        if role == "external" and not client_id:
+            flash("外部用户必须绑定一个客户。", "error")
+            return redirect(url_for("users"))
+        if role != "external":
+            client_id = None
+        if len(password) < 8:
+            flash("密码至少需要 8 位。", "error")
+            return redirect(url_for("users"))
+        try:
+            db().execute(
+                """
+                insert into users (name, email, password_hash, role, client_id, created_at)
+                values (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    request.form.get("name", "").strip() or email,
+                    email,
+                    generate_password_hash(password),
+                    role,
+                    client_id,
+                    now(),
+                ),
+            )
+            db().commit()
+            flash("用户已创建。", "success")
+        except sqlite3.IntegrityError:
+            flash("这个邮箱已经存在。", "error")
+        return redirect(url_for("users"))
+    rows = db().execute(
+        """
+        select users.*, clients.name as client_name
+        from users left join clients on clients.id = users.client_id
+        order by users.created_at desc
+        """
+    ).fetchall()
+    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
+    return render_template("users.html", users=rows, clients=clients_rows)
+
+
+@app.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_user(user_id):
+    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    if not user:
+        abort(404)
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        role = request.form.get("role", "user")
+        client_id = request.form.get("client_id") or None
+        password = request.form.get("password", "")
+        if role == "external" and not client_id:
+            flash("外部用户必须绑定一个客户。", "error")
+            return redirect(url_for("edit_user", user_id=user_id))
+        if role != "external":
+            client_id = None
+        admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
+        if user["role"] == "admin" and role != "admin" and admin_count <= 1:
+            flash("至少需要保留一个管理员。", "error")
+            return redirect(url_for("edit_user", user_id=user_id))
+        try:
+            old_client_id = user["client_id"]
+            db().execute(
+                "update users set name = ?, email = ?, role = ?, client_id = ? where id = ?",
+                (request.form.get("name", "").strip() or email, email, role, client_id, user_id),
+            )
+            if password:
+                if len(password) < 8:
+                    flash("新密码至少需要 8 位。", "error")
+                    return redirect(url_for("edit_user", user_id=user_id))
+                db().execute("update users set password_hash = ? where id = ?", (generate_password_hash(password), user_id))
+            db().commit()
+            if role == "external" and client_id and old_client_id != int(client_id):
+                create_message(user_id, "客户绑定已完成", "管理员已经为你绑定客户。现在你可以创建和查询该客户的发票。", url_for("dashboard"))
+                db().commit()
+            flash("用户资料已更新。", "success")
+        except sqlite3.IntegrityError:
+            flash("这个邮箱已经存在。", "error")
+            return redirect(url_for("edit_user", user_id=user_id))
+        return redirect(url_for("users"))
+    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
+    return render_template("user_form.html", user=user, clients=clients_rows)
+
+
+@app.post("/users/<int:user_id>/delete")
+@admin_required
+def delete_user(user_id):
+    if user_id == g.user["id"]:
+        flash("不能删除当前登录用户。", "error")
+        return redirect(url_for("users"))
+    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    if not user:
+        abort(404)
+    admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
+    if user["role"] == "admin" and admin_count <= 1:
+        flash("至少需要保留一个管理员。", "error")
+        return redirect(url_for("users"))
+    invoice_count = db().execute("select count(*) as count from invoices where created_by = ?", (user_id,)).fetchone()["count"]
+    if invoice_count:
+        flash("这个用户已经创建过发票，不能删除。", "error")
+        return redirect(url_for("users"))
+    db().execute("delete from messages where user_id = ?", (user_id,))
+    db().execute("delete from users where id = ?", (user_id,))
+    db().commit()
+    flash("用户已删除。", "success")
+    return redirect(url_for("users"))
+
+
+@app.route("/settings/company", methods=["GET", "POST"])
+@admin_required
+def company_settings():
+    if request.method == "POST":
+        for key in DEFAULT_COMPANY_PROFILE:
+            set_setting(f"company_{key}", request.form.get(f"company_{key}", "").strip())
+        for key in DEFAULT_PAYMENT_INSTRUCTIONS:
+            set_setting(f"payment_{key}", request.form.get(f"payment_{key}", "").strip())
+        for key in DEFAULT_SMTP_SETTINGS:
+            set_setting(f"smtp_{key}", request.form.get(f"smtp_{key}", "").strip())
+        timezone_name = request.form.get("app_timezone", DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
+        try:
+            ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            flash("系统时区无效，请使用类似 America/Chicago 的时区名称。", "error")
+            return redirect(url_for("company_settings"))
+        set_setting("app_timezone", timezone_name)
+        set_setting("invoice_terms", request.form.get("invoice_terms", "").strip())
+        db().commit()
+        flash("公司设置已保存。", "success")
+        return redirect(url_for("company_settings"))
+    return render_template(
+        "company_settings.html",
+        company=get_company_profile(),
+        payment=get_payment_instructions(),
+        smtp=get_smtp_settings(),
+        terms=get_invoice_terms(),
+        timezone_name=get_timezone_name(),
+    )
+
+
+@app.route("/invoices")
+@login_required
+def invoices():
+    status = request.args.get("status", "")
+    paid_status = request.args.get("paid_status", "")
+    q = request.args.get("q", "").strip()
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    created_by = request.args.get("created_by", "")
+    access_clause, access_params = client_filter_clause("invoices")
+    clauses = [access_clause]
+    params = list(access_params)
+    if status:
+        clauses.append("invoices.status = ?")
+        params.append(status)
+    if paid_status == "paid":
+        clauses.append("invoices.paid_at is not null")
+    elif paid_status == "unpaid":
+        clauses.append("invoices.status = 'completed' and invoices.paid_at is null")
+    if q:
+        clauses.append("(invoices.invoice_number like ? or clients.name like ? or clients.short_name like ? or clients.client_number like ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+    if date_from:
+        clauses.append("invoices.issue_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("invoices.issue_date <= ?")
+        params.append(date_to)
+    if created_by and not is_external_user():
+        clauses.append("invoices.created_by = ?")
+        params.append(created_by)
+    rows = db().execute(
+        f"""
+        select invoices.*, clients.name as client_name, clients.short_name as client_short_name,
+               clients.client_number, users.name as creator_name
+        from invoices
+        join clients on clients.id = invoices.client_id
+        left join users on users.id = invoices.created_by
+        where {" and ".join(clauses)}
+        order by invoices.issue_date desc, invoices.id desc
+        """,
+        params,
+    ).fetchall()
+    totals = {row["id"]: invoice_totals(row["id"]) for row in rows}
+    users_rows = db().execute("select id, name, email from users order by name").fetchall() if not is_external_user() else []
+    return render_template(
+        "invoices.html",
+        invoices=rows,
+        totals=totals,
+        labels=STATUS_LABELS,
+        users=users_rows,
+        status=status,
+        paid_status=paid_status,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+        created_by=created_by,
+    )
+
+
+@app.route("/reports")
+@login_required
+def reports():
+    client_q = request.args.get("client", "").strip()
+    short_q = request.args.get("short_name", "").strip()
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    available_statuses = set(STATUS_LABELS.keys())
+    selected_statuses = [value for value in request.args.getlist("status") if value in available_statuses]
+    selected_paid_statuses = [value for value in request.args.getlist("paid_status") if value in {"paid", "unpaid"}]
+    project_options = report_project_options()
+    available_project_ids = {str(project["id"]) for project in project_options}
+    selected_project_ids = [value for value in request.args.getlist("project_id") if value in available_project_ids]
+    effective_project_ids = selected_project_ids or [str(project["id"]) for project in project_options]
+    access_clause, access_params = client_filter_clause("invoices")
+    clauses = [access_clause]
+    params = list(access_params)
+    if selected_statuses:
+        placeholders = ",".join("?" for _ in selected_statuses)
+        clauses.append(f"invoices.status in ({placeholders})")
+        params.extend(selected_statuses)
+    else:
+        clauses.append("invoices.status != 'void'")
+    if selected_paid_statuses and len(selected_paid_statuses) < 2:
+        if selected_paid_statuses[0] == "paid":
+            clauses.append("invoices.paid_at is not null")
+        elif selected_paid_statuses[0] == "unpaid":
+            clauses.append("invoices.status = 'completed' and invoices.paid_at is null")
+    if client_q:
+        clauses.append("(clients.name like ? or clients.client_number like ?)")
+        params.extend([f"%{client_q}%", f"%{client_q}%"])
+    if short_q:
+        clauses.append("clients.short_name like ?")
+        params.append(f"%{short_q}%")
+    if date_from:
+        clauses.append("invoices.issue_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("invoices.issue_date <= ?")
+        params.append(date_to)
+    if effective_project_ids:
+        placeholders = ",".join("?" for _ in effective_project_ids)
+        clauses.append(f"invoice_items.project_id in ({placeholders})")
+        params.extend(effective_project_ids)
+    rows = db().execute(
+        f"""
+        select invoices.invoice_number, invoices.issue_date, invoices.currency, invoices.status, invoices.paid_at,
+               clients.client_number, clients.name as client_name, clients.short_name,
+               invoice_items.description as project_name, invoice_items.amount, invoice_items.tax_rate
+        from invoice_items
+        join invoices on invoices.id = invoice_items.invoice_id
+        join clients on clients.id = invoices.client_id
+        where {" and ".join(clauses)}
+        order by invoices.issue_date desc, invoices.id desc, invoice_items.id asc
+        """,
+        params,
+    ).fetchall()
+    report_rows = []
+    subtotal = tax_total = grand_total = 0
+    for row in rows:
+        amount = float(row["amount"] or 0)
+        tax = amount * float(row["tax_rate"] or 0) / 100
+        line_total = amount + tax
+        subtotal += amount
+        tax_total += tax
+        grand_total += line_total
+        report_rows.append({"row": row, "tax": tax, "line_total": line_total})
+    return render_template(
+        "reports.html",
+        rows=report_rows,
+        project_options=project_options,
+        selected_project_ids=effective_project_ids,
+        client_q=client_q,
+        short_q=short_q,
+        date_from=date_from,
+        date_to=date_to,
+        selected_statuses=selected_statuses or [value for value in STATUS_LABELS if value != "void"],
+        selected_paid_statuses=selected_paid_statuses or ["paid", "unpaid"],
+        subtotal=subtotal,
+        tax_total=tax_total,
+        grand_total=grand_total,
+        labels=STATUS_LABELS,
+    )
+
+
+@app.route("/invoices/new", methods=["GET", "POST"])
+@login_required
+def new_invoice():
+    if is_external_user():
+        if not g.user["client_id"]:
+            flash("请联系管理员绑定客户。", "error")
+            return redirect(url_for("dashboard"))
+        clients_rows = db().execute("select * from clients where id = ?", (g.user["client_id"],)).fetchall()
+    else:
+        clients_rows = db().execute("select * from clients order by client_number").fetchall()
+    if not clients_rows:
+        flash("请先创建一个客户。", "error")
+        return redirect(url_for("clients"))
+    projects_rows = db().execute("select * from projects where is_active = 1 order by name").fetchall()
+    if not projects_rows:
+        flash("请先由经理或管理员维护项目。", "error")
+        return redirect(url_for("projects") if is_manager() else url_for("dashboard"))
+    if request.method == "POST":
+        uploads = uploaded_attachments_from_request()
+        if not validate_attachment_uploads(uploads):
+            return redirect(url_for("new_invoice"))
+        try:
+            submit_for_review = request.form.get("action") == "submit"
+            invoice_id = create_invoice_from_form(submit_for_review=submit_for_review)
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("new_invoice"))
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("保存发票时发生数据库冲突，请重新提交。", "error")
+            return redirect(url_for("new_invoice"))
+        if submit_for_review:
+            flash("发票已提交给经理审核。", "success")
+            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+        flash("发票草稿已保存。", "success")
+        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+    today = date.today()
+    defaults = {
+        "invoice_number": next_invoice_number(),
+        "issue_date": today.isoformat(),
+        "due_date": (today + timedelta(days=30)).isoformat(),
+    }
+    return render_template(
+        "invoice_form.html",
+        clients=clients_rows,
+        projects=projects_rows,
+        defaults=defaults,
+        form_title="新建发票",
+        form_items=[],
+        is_edit=False,
+        attachments=[],
+    )
+
+
+def invoice_items_from_form():
+    rows = []
+    for project_id, amount in zip(request.form.getlist("project_id"), request.form.getlist("amount")):
+        if not project_id:
+            continue
+        project = db().execute("select * from projects where id = ? and is_active = 1", (project_id,)).fetchone()
+        if not project:
+            raise ValueError("选择的项目不存在或已停用，请重新选择项目。")
+        rows.append((project, to_float(amount)))
+    if not rows:
+        raise ValueError("请至少选择一个项目明细。")
+    if sum(amount for _, amount in rows) <= 0:
+        raise ValueError("发票金额必须大于 0。")
+    return rows
+
+
+def posted_client_id():
+    try:
+        return int(request.form.get("client_id"))
+    except (TypeError, ValueError):
+        raise ValueError("请选择客户。")
+
+
+def create_invoice_from_form(submit_for_review=False):
+    client_id = posted_client_id()
+    if not can_access_client(client_id):
+        abort(403)
+    invoice_number = request.form.get("invoice_number", "").strip()
+    if not invoice_number:
+        invoice_number = next_invoice_number()
+    if invoice_number_exists(invoice_number):
+        invoice_number = next_invoice_number()
+    item_rows = invoice_items_from_form()
+    status = "submitted" if submit_for_review else "draft"
+    cursor = None
+    for _ in range(30):
+        try:
+            cursor = db().execute(
+                """
+                insert into invoices (
+                    invoice_number, client_id, issue_date, due_date, currency, notes, status, created_by, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    invoice_number,
+                    client_id,
+                    request.form.get("issue_date"),
+                    request.form.get("due_date"),
+                    request.form.get("currency", "USD"),
+                    request.form.get("notes", "").strip(),
+                    status,
+                    g.user["id"],
+                    now(),
+                ),
+            )
+            break
+        except sqlite3.IntegrityError:
+            invoice_number = next_invoice_number()
+    if cursor is None:
+        raise RuntimeError("Unable to generate a unique invoice number.")
+    invoice_id = cursor.lastrowid
+    for project, amount in item_rows:
+        db().execute(
+            """
+            insert into invoice_items (invoice_id, project_id, description, amount, tax_rate)
+            values (?, ?, ?, ?, ?)
+            """,
+            (invoice_id, project["id"], project["name"], to_float(amount), project["tax_rate"]),
+        )
+    for uploaded in uploaded_attachments_from_request():
+        if uploaded and uploaded.filename:
+            save_uploaded_attachment(invoice_id, uploaded)
+    db().commit()
+    if submit_for_review:
+        invoice, client, _ = load_invoice(invoice_id)
+        body = review_message_body(g.user["name"], invoice, client, invoice_totals(invoice_id)["total"])
+        notify_role(["admin", "manager"], "新发票待审核", body, url_for("invoice_detail", invoice_id=invoice_id))
+        db().commit()
+    return invoice_id
+
+
+@app.route("/invoices/<int:invoice_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_invoice(invoice_id):
+    invoice, client, items = load_invoice(invoice_id)
+    if invoice["status"] not in {"draft", "returned"}:
+        flash("只有草稿或被退回的发票可以编辑。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    if invoice["created_by"] != g.user["id"] and not is_manager():
+        abort(403)
+    if is_external_user():
+        clients_rows = db().execute("select * from clients where id = ?", (g.user["client_id"],)).fetchall()
+    else:
+        clients_rows = db().execute("select * from clients order by client_number").fetchall()
+    projects_rows = db().execute("select * from projects where is_active = 1 order by name").fetchall()
+    if request.method == "POST":
+        uploads = uploaded_attachments_from_request()
+        if not validate_attachment_uploads(uploads, invoice_id):
+            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+        try:
+            submit_for_review = request.form.get("action") == "submit"
+            was_returned = invoice["status"] == "returned"
+            update_invoice_from_form(invoice_id, submit_for_review=submit_for_review)
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("发票编号已经存在，请更换一个发票编号后再保存。", "error")
+            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+        if submit_for_review:
+            invoice, client, _ = load_invoice(invoice_id)
+            body = review_message_body(g.user["name"], invoice, client, invoice_totals(invoice_id)["total"], is_resubmission=was_returned)
+            notify_role(["admin", "manager"], "发票已提交审核", body, url_for("invoice_detail", invoice_id=invoice_id))
+            db().commit()
+            flash("发票已提交给经理审核。", "success")
+            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+        db().commit()
+        flash("发票已保存。", "success")
+        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+    defaults = {
+        "id": invoice["id"],
+        "invoice_number": invoice["invoice_number"],
+        "client_id": invoice["client_id"],
+        "created_by": invoice["created_by"],
+        "status": invoice["status"],
+        "issue_date": invoice["issue_date"],
+        "due_date": invoice["due_date"],
+        "currency": invoice["currency"],
+        "notes": invoice["notes"],
+    }
+    return render_template(
+        "invoice_form.html",
+        clients=clients_rows,
+        projects=projects_rows,
+        defaults=defaults,
+        form_title="编辑发票",
+        form_items=items,
+        is_edit=True,
+        attachments=get_invoice_attachments(invoice_id),
+    )
+
+
+def update_invoice_from_form(invoice_id, submit_for_review=False):
+    client_id = posted_client_id()
+    if not can_access_client(client_id):
+        abort(403)
+    item_rows = invoice_items_from_form()
+    db().execute(
+        """
+        update invoices
+        set client_id = ?, issue_date = ?, due_date = ?, currency = ?,
+            notes = ?
+        where id = ?
+        """,
+        (
+            client_id,
+            request.form.get("issue_date"),
+            request.form.get("due_date"),
+            request.form.get("currency", "USD"),
+            request.form.get("notes", "").strip(),
+            invoice_id,
+        ),
+    )
+    db().execute("delete from invoice_items where invoice_id = ?", (invoice_id,))
+    for project, amount in item_rows:
+        db().execute(
+            """
+            insert into invoice_items (invoice_id, project_id, description, amount, tax_rate)
+            values (?, ?, ?, ?, ?)
+            """,
+            (invoice_id, project["id"], project["name"], amount, project["tax_rate"]),
+        )
+    for uploaded in uploaded_attachments_from_request():
+        if uploaded and uploaded.filename:
+            save_uploaded_attachment(invoice_id, uploaded)
+    if submit_for_review:
+        db().execute("update invoices set status = 'submitted', return_reason = null where id = ?", (invoice_id,))
+
+
+@app.route("/invoices/<int:invoice_id>")
+@login_required
+def invoice_detail(invoice_id):
+    invoice, client, items = load_invoice(invoice_id)
+    if invoice["status"] in {"draft", "returned"} and invoice["created_by"] == g.user["id"]:
+        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+    creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
+    return render_template(
+        "invoice_detail.html",
+        invoice=invoice,
+        client=client,
+        items=items,
+        totals=invoice_totals(invoice_id),
+        creator=creator,
+        attachments=get_invoice_attachments(invoice_id),
+        company=get_company_profile(),
+        terms=get_invoice_terms(),
+        payment=get_payment_instructions(),
+        labels=STATUS_LABELS,
+        today=date.today().isoformat(),
+    )
+
+
+@app.post("/invoices/<int:invoice_id>/return")
+@login_required
+def return_invoice(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    if not is_manager():
+        abort(403)
+    if invoice["status"] != "submitted":
+        flash("只有待经理审核的发票可以退回。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    reason = request.form.get("return_reason", "").strip()
+    if not reason:
+        flash("请填写退回原因。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    db().execute("update invoices set status = 'returned', return_reason = ? where id = ?", (reason, invoice_id))
+    client = db().execute("select * from clients where id = ?", (invoice["client_id"],)).fetchone()
+    total = invoice_totals(invoice_id)["total"]
+    return_link = url_for("invoice_detail", invoice_id=invoice_id)
+    existing_return_message = db().execute(
+        """
+        select id from messages
+        where user_id = ? and title = '发票已被退回' and link = ? and is_read = 0
+        """,
+        (invoice["created_by"], return_link),
+    ).fetchone()
+    if existing_return_message:
+        db().execute(
+            "update messages set body = ?, created_at = ? where id = ?",
+            (return_message_body(invoice, client, total, reason), now(), existing_return_message["id"]),
+        )
+    else:
+        create_message(
+            invoice["created_by"],
+            "发票已被退回",
+            return_message_body(invoice, client, total, reason),
+            return_link,
+        )
+    db().commit()
+    flash("发票已退回给发起人。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/complete")
+@login_required
+def complete_invoice(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    if not is_manager():
+        abort(403)
+    db().execute("update invoices set status = 'completed', return_reason = null where id = ?", (invoice_id,))
+    create_message(invoice["created_by"], "发票已确认完成", f"发票 {invoice['invoice_number']} 已由经理确认完成。", url_for("invoice_detail", invoice_id=invoice_id))
+    notify_role(["admin"], "发票已审核完成", f"{g.user['name']}已审核完成发票{invoice['invoice_number']}。", url_for("invoice_detail", invoice_id=invoice_id))
+    db().commit()
+    flash("发票已确认完成。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/admin-status")
+@login_required
+def admin_update_invoice_status(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    if g.user["role"] != "admin":
+        abort(403)
+    if invoice["paid_at"]:
+        flash("这张发票已经核销，不能再修改为保存未提交状态。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    target_status = request.form.get("status", "")
+    if target_status != "draft":
+        flash("当前只允许管理员将未核销发票改为保存未提交状态。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    db().execute(
+        "update invoices set status = 'draft', return_reason = null where id = ?",
+        (invoice_id,),
+    )
+    create_message(
+        invoice["created_by"],
+        "发票状态已调整",
+        f"管理员已将发票 {invoice['invoice_number']} 调整为保存未提交状态。",
+        url_for("edit_invoice", invoice_id=invoice_id),
+    )
+    db().commit()
+    flash("发票状态已修改为保存未提交。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/resubmit")
+@login_required
+def resubmit_invoice(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    if invoice["created_by"] != g.user["id"] and not is_manager():
+        abort(403)
+    if invoice["status"] in {"draft", "returned"}:
+        flash("请先编辑发票内容，然后提交经理审核。", "error")
+        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+    db().execute("update invoices set status = 'submitted', return_reason = null where id = ?", (invoice_id,))
+    client = db().execute("select * from clients where id = ?", (invoice["client_id"],)).fetchone()
+    total = invoice_totals(invoice_id)["total"]
+    body = review_message_body(g.user["name"], invoice, client, total, is_resubmission=True)
+    notify_role(["admin", "manager"], "退回发票已重新提交", body, url_for("invoice_detail", invoice_id=invoice_id))
+    db().commit()
+    flash("发票已重新提交给经理审核。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/void")
+@login_required
+def void_invoice(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    if invoice["status"] == "completed":
+        flash("审核完成后的发票不能作废。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    db().execute("update invoices set status = 'void' where id = ?", (invoice_id,))
+    db().commit()
+    flash("发票已作废。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/delete")
+@login_required
+def delete_invoice(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    can_delete_returned = invoice["status"] in {"draft", "returned"} and (is_manager() or invoice["created_by"] == g.user["id"])
+    can_delete_void = invoice["status"] == "void" and is_manager()
+    if not (can_delete_returned or can_delete_void):
+        flash("只有作废发票，或草稿/退回状态下由管理员、经理、发起人删除的发票可以删除。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    shutil.rmtree(invoice_attachment_path(invoice_id), ignore_errors=True)
+    db().execute(
+        "update messages set link = null where link = ? or link = ?",
+        (url_for("invoice_detail", invoice_id=invoice_id), url_for("edit_invoice", invoice_id=invoice_id)),
+    )
+    db().execute("delete from invoices where id = ?", (invoice_id,))
+    db().commit()
+    flash("发票已删除。", "success")
+    return redirect(url_for("invoices"))
+
+
+@app.post("/invoices/<int:invoice_id>/mark-paid")
+@login_required
+def mark_invoice_paid(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    if not is_internal_user():
+        abort(403)
+    if invoice["status"] != "completed":
+        flash("只有已完成的发票才能核销。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    totals = invoice_totals(invoice_id)
+    db().execute(
+        """
+        update invoices set paid_at = ?, payment_amount = ?, payment_note = ?
+        where id = ?
+        """,
+        (
+            request.form.get("paid_at") or date.today().isoformat(),
+            to_float(request.form.get("payment_amount"), totals["total"]),
+            request.form.get("payment_note", "").strip(),
+            invoice_id,
+        ),
+    )
+    db().commit()
+    flash("发票已核销。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/unmark-paid")
+@login_required
+def unmark_invoice_paid(invoice_id):
+    require_invoice_access(invoice_id)
+    if not is_manager():
+        abort(403)
+    db().execute("update invoices set paid_at = null, payment_amount = null, payment_note = null where id = ?", (invoice_id,))
+    db().commit()
+    flash("发票核销记录已取消。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/send")
+@login_required
+def send_invoice(invoice_id):
+    invoice = require_invoice_access(invoice_id)
+    if invoice["status"] != "completed":
+        flash("只有经理审核完成后的发票才能发送邮件。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    send_invoice_email(invoice_id)
+    flash("发票邮件已发送。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.post("/invoices/<int:invoice_id>/attachments")
+@login_required
+def upload_attachment(invoice_id):
+    require_invoice_access(invoice_id)
+    uploads = uploaded_attachments_from_request()
+    if not uploads:
+        flash("请选择要上传的附件。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    if not validate_attachment_uploads(uploads, invoice_id):
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    for uploaded in uploads:
+        save_uploaded_attachment(invoice_id, uploaded)
+    db().commit()
+    flash(f"已上传 {len(uploads)} 个附件。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+
+
+@app.route("/attachments/<int:attachment_id>")
+@login_required
+def download_attachment(attachment_id):
+    attachment = db().execute("select * from invoice_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_invoice_access(attachment["invoice_id"])
+    return send_file(attachment_file_path(attachment), as_attachment=True, download_name=attachment["original_filename"])
+
+
+@app.route("/attachments/<int:attachment_id>/preview")
+@login_required
+def preview_attachment(attachment_id):
+    attachment = db().execute("select * from invoice_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_invoice_access(attachment["invoice_id"])
+    return send_file(
+        attachment_file_path(attachment),
+        as_attachment=False,
+        download_name=attachment["original_filename"],
+        mimetype=attachment["content_type"] or None,
+        conditional=True,
+    )
+
+
+@app.post("/attachments/<int:attachment_id>/delete")
+@login_required
+def delete_attachment(attachment_id):
+    attachment = db().execute("select * from invoice_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_invoice_access(attachment["invoice_id"])
+    try:
+        os.remove(attachment_file_path(attachment))
+    except FileNotFoundError:
+        pass
+    db().execute("delete from invoice_attachments where id = ?", (attachment_id,))
+    db().commit()
+    flash("附件已删除。", "success")
+    return redirect(url_for("invoice_detail", invoice_id=attachment["invoice_id"]))
+
+
+@app.post("/invoices/<int:invoice_id>/export")
+@login_required
+def export_invoice(invoice_id):
+    invoice, client, items = load_invoice(invoice_id)
+    archive_name, archive_bytes = build_invoice_zip(invoice, client, items)
+    return send_file(
+        BytesIO(archive_bytes),
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"{archive_name}.zip",
+    )
+
+
+def build_invoice_zip(invoice, client, items):
+    archive_name = secure_filename(invoice["invoice_number"])
+    if not archive_name:
+        archive_name = f"invoice-{invoice['id']}"
+    pdf_bytes = render_invoice_pdf(invoice, client, items)
+    attachments = get_invoice_attachments(invoice["id"])
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{archive_name}/{archive_name}.pdf", pdf_bytes)
+        for attachment in attachments:
+            archive.write(attachment_file_path(attachment), arcname=f"{archive_name}/{attachment['original_filename']}")
+    return archive_name, buffer.getvalue()
+
+
+def render_invoice_export_html(invoice, client, items):
+    return render_template(
+        "invoice_export.html",
+        invoice=invoice,
+        client=client,
+        items=items,
+        totals=invoice_totals(invoice["id"]),
+        company=get_company_profile(),
+        terms=get_invoice_terms(),
+        payment=get_payment_instructions(),
+        labels=STATUS_LABELS,
+    )
+
+
+def render_invoice_pdf(invoice, client, items):
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    buffer = BytesIO()
+    page = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    left = 42
+    top = height - 42
+    line = 15
+    company = get_company_profile()
+    payment = get_payment_instructions()
+    terms = get_invoice_terms()
+    totals = invoice_totals(invoice["id"])
+
+    def ensure_space(required):
+        nonlocal y
+        if y - required < 42:
+            page.showPage()
+            y = height - 42
+
+    def wrapped_lines(text, max_width, font_name="STSong-Light", font_size=8):
+        lines = []
+        for source_line in pdf_text(text).splitlines() or [""]:
+            words = source_line.split(" ")
+            current = ""
+            for word in words:
+                candidate = word if not current else f"{current} {word}"
+                if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+                    current = candidate
+                    continue
+                if current:
+                    lines.append(current)
+                if pdfmetrics.stringWidth(word, font_name, font_size) <= max_width:
+                    current = word
+                    continue
+                current = ""
+                chunk = ""
+                for char in word:
+                    candidate = chunk + char
+                    if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+                        chunk = candidate
+                    else:
+                        if chunk:
+                            lines.append(chunk)
+                        chunk = char
+                current = chunk
+            lines.append(current)
+        return [line for line in lines if line]
+
+    def draw_section(title, body):
+        nonlocal y
+        if not pdf_text(body).strip():
+            return
+        body_lines = wrapped_lines(body, width - left * 2, font_size=8)
+        ensure_space(16 + len(body_lines) * 11)
+        page.setFont("STSong-Light", 9)
+        page.drawString(left, y, title)
+        y -= 12
+        page.setFont("STSong-Light", 8)
+        page.setFillColor(colors.HexColor("#344054"))
+        for line_text in body_lines:
+            ensure_space(11)
+            page.drawString(left, y, line_text)
+            y -= 11
+        page.setFillColor(colors.black)
+        y -= 6
+
+    page.setFont("STSong-Light", 18)
+    page.drawString(left, top, pdf_text(company["name"]))
+    page.setFont("STSong-Light", 9)
+    y = top - 22
+    for part in pdf_text(company["address"]).splitlines():
+        page.drawString(left, y, part)
+        y -= line
+
+    page.setFont("STSong-Light", 26)
+    page.drawRightString(width - left, top, "INVOICE")
+    page.setFont("STSong-Light", 10)
+    meta_y = top - 40
+    for label, value in (
+        ("Invoice No.", invoice["invoice_number"]),
+        ("Issue Date", invoice["issue_date"]),
+        ("Due Date", invoice["due_date"]),
+        ("Currency", invoice["currency"]),
+    ):
+        page.drawRightString(width - left - 95, meta_y, label)
+        page.drawRightString(width - left, meta_y, pdf_text(value))
+        meta_y -= line
+
+    y -= 18
+    page.setFont("STSong-Light", 11)
+    page.drawString(left, y, "Bill To")
+    y -= line
+    page.setFont("STSong-Light", 10)
+    for value in (client["name"], client["address"], client["country"]):
+        for part in pdf_text(value).splitlines():
+            if part:
+                page.drawString(left, y, part)
+                y -= line
+
+    y -= 10
+    page.setStrokeColor(colors.HexColor("#d9dee7"))
+    page.line(left, y, width - left, y)
+    y -= 18
+    page.setFont("STSong-Light", 9)
+    headers = [("Description", left), ("Amount", 285), ("Tax Rate", 360), ("Tax", 430), ("Line Total", 500)]
+    for text, x in headers:
+        page.drawString(x, y, text)
+    y -= 8
+    page.line(left, y, width - left, y)
+    y -= 16
+    for item in items:
+        amount = float(item["amount"] or 0)
+        tax = amount * float(item["tax_rate"] or 0) / 100
+        page.drawString(left, y, pdf_text(item["description"])[:46])
+        page.drawRightString(340, y, money(amount, invoice["currency"]))
+        page.drawRightString(410, y, f"{float(item['tax_rate']):.2f}%")
+        page.drawRightString(480, y, money(tax, invoice["currency"]))
+        page.drawRightString(width - left, y, money(amount + tax, invoice["currency"]))
+        y -= line
+
+    y -= 12
+    page.line(360, y, width - left, y)
+    y -= 16
+    for label, value in (("Subtotal", totals["subtotal"]), ("Tax", totals["tax"]), ("Amount Due", totals["total"])):
+        page.drawString(365, y, label)
+        page.drawRightString(width - left, y, money(value, invoice["currency"]))
+        y -= line
+
+    y -= 10
+    draw_section("Notes", invoice["notes"])
+    draw_section("Terms", terms)
+    draw_section(
+        "Payment Instructions",
+        "\n".join(
+            (
+                f"Method: {payment['method']}",
+                f"Beneficiary Name: {payment['beneficiary']}",
+                f"Bank Name: {payment['bank_name']}",
+                f"Account Number: {payment['account_number']}",
+                f"Routing Number: {payment['routing_number']}",
+                f"SWIFT/BIC: {payment['swift_bic']}",
+            )
+        ),
+    )
+    draw_section("Tax Note", company["tax_note"])
+    page.showPage()
+    page.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def send_invoice_email(invoice_id):
+    invoice, client, items = load_invoice(invoice_id)
+    if not client["email"]:
+        raise RuntimeError("客户没有邮箱，无法发送。")
+    archive_name, archive_bytes = build_invoice_zip(invoice, client, items)
+    html = render_template(
+        "email_invoice.html",
+        invoice=invoice,
+        client=client,
+        items=items,
+        totals=invoice_totals(invoice_id),
+        company=get_company_profile(),
+        terms=get_invoice_terms(),
+        payment=get_payment_instructions(),
+    )
+    send_email(
+        to=client["email"],
+        subject=f"Invoice {invoice['invoice_number']} from {get_company_profile()['name']}",
+        html=html,
+        attachments=[
+            {
+                "filename": f"{archive_name}.zip",
+                "content": archive_bytes,
+                "maintype": "application",
+                "subtype": "zip",
+            }
+        ],
+    )
+    db().execute("update invoices set sent_at = ? where id = ?", (now(), invoice_id))
+    db().commit()
+
+
+def send_email(to, subject, html, attachments=None):
+    smtp_settings = get_smtp_settings()
+    host = smtp_settings["host"].strip()
+    if not host:
+        raise RuntimeError("公司设置中的 SMTP Host 未配置。")
+    user = smtp_settings["user"].strip()
+    password = smtp_settings["password"]
+    if user and not password:
+        raise RuntimeError("公司设置中的 SMTP Password 未配置。Gmail 需要使用应用专用密码，不是普通登录密码。")
+    message = EmailMessage()
+    message["From"] = smtp_settings["from"] or user or "billing@example.com"
+    message["To"] = to
+    message["Subject"] = subject
+    message.set_content("Please view this invoice in an HTML-compatible email client.")
+    message.add_alternative(html, subtype="html")
+    for attachment in attachments or []:
+        message.add_attachment(
+            attachment["content"],
+            maintype=attachment["maintype"],
+            subtype=attachment["subtype"],
+            filename=attachment["filename"],
+        )
+    port = int(smtp_settings["port"] or "587")
+    use_tls = smtp_settings["tls"].lower() == "true"
+    try:
+        with smtplib.SMTP(host, port, timeout=30) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user:
+                smtp.login(user, password)
+            smtp.send_message(message)
+    except smtplib.SMTPAuthenticationError as error:
+        raise RuntimeError("Gmail 登录失败。请确认公司设置中的 SMTP Password 是 Gmail 应用专用密码，并且账号已开启两步验证。") from error
+    except (smtplib.SMTPException, OSError, ValueError) as error:
+        raise RuntimeError(f"邮件发送失败：{error}") from error
+
+
+@app.errorhandler(RuntimeError)
+def runtime_error(error):
+    flash(str(error), "error")
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return (
+        render_template(
+            "error.html",
+            status_code="404",
+            title="没有找到这个页面或记录",
+            message="你输入的地址可能不正确，或者这张发票、附件、客户资料已经被删除。",
+        ),
+        404,
+    )
+
+
+def get_metrics():
+    access_clause, access_params = client_filter_clause("invoices")
+    rows = db().execute(
+        f"select id, currency, paid_at, payment_amount from invoices where status = 'completed' and {access_clause}",
+        access_params,
+    ).fetchall()
+    completed = paid = unpaid = invoice_count = 0
+    for row in rows:
+        total = invoice_totals(row["id"])["total"]
+        invoice_count += 1
+        completed += total
+        if row["paid_at"]:
+            paid += float(row["payment_amount"] or total)
+        else:
+            unpaid += total
+    return {"invoice_count": invoice_count, "completed": completed, "paid": paid, "unpaid": unpaid, "total": completed}
+
+
+def monthly_chart():
+    access_clause, access_params = client_filter_clause("invoices")
+    rows = db().execute(
+        f"select id, issue_date from invoices where status = 'completed' and {access_clause} order by issue_date asc",
+        access_params,
+    ).fetchall()
+    buckets = {}
+    for row in rows:
+        month = row["issue_date"][:7]
+        buckets[month] = buckets.get(month, 0) + invoice_totals(row["id"])["total"]
+    if not buckets:
+        return []
+    max_value = max(buckets.values()) or 1
+    return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
+
+
+def available_projects_for_access():
+    access_clause, access_params = client_filter_clause("invoices")
+    rows = db().execute(
+        f"""
+        select distinct projects.id, projects.name
+        from projects
+        join invoice_items on invoice_items.project_id = projects.id
+        join invoices on invoices.id = invoice_items.invoice_id
+        where invoices.status = 'completed' and {access_clause}
+        order by projects.name
+        """,
+        access_params,
+    ).fetchall()
+    if rows:
+        return rows
+    return db().execute("select id, name from projects where is_active = 1 order by name").fetchall()
+
+
+def dashboard_project_options():
+    return [
+        {"id": row["id"], "name": row["name"], "color": project_color(row["id"])}
+        for row in available_projects_for_access()
+    ]
+
+
+def report_project_options():
+    if is_external_user():
+        access_clause, access_params = client_filter_clause("invoices")
+        return db().execute(
+            f"""
+            select distinct projects.id, projects.name
+            from projects
+            join invoice_items on invoice_items.project_id = projects.id
+            join invoices on invoices.id = invoice_items.invoice_id
+            where invoices.status != 'void' and {access_clause}
+            order by projects.name
+            """,
+            access_params,
+        ).fetchall()
+    return db().execute(
+        """
+        select id, name from projects where is_active = 1
+        union
+        select distinct projects.id, projects.name
+        from projects
+        join invoice_items on invoice_items.project_id = projects.id
+        join invoices on invoices.id = invoice_items.invoice_id
+        where invoices.status != 'void'
+        order by name
+        """
+    ).fetchall()
+
+
+def monthly_project_chart(selected_project_ids):
+    access_clause, access_params = client_filter_clause("invoices")
+    clauses = ["invoices.status = 'completed'", access_clause]
+    params = list(access_params)
+    if selected_project_ids:
+        placeholders = ",".join("?" for _ in selected_project_ids)
+        clauses.append(f"invoice_items.project_id in ({placeholders})")
+        params.extend(selected_project_ids)
+    rows = db().execute(
+        f"""
+        select substr(invoices.issue_date, 1, 7) as month, projects.id as project_id,
+               projects.name as project_name, sum(invoice_items.amount + invoice_items.amount * invoice_items.tax_rate / 100) as total
+        from invoice_items
+        join invoices on invoices.id = invoice_items.invoice_id
+        join projects on projects.id = invoice_items.project_id
+        where {" and ".join(clauses)}
+        group by month, projects.id, projects.name
+        order by month asc, projects.name asc
+        """,
+        params,
+    ).fetchall()
+    buckets = {}
+    project_names = {}
+    for row in rows:
+        month = row["month"]
+        amount = float(row["total"] or 0)
+        project_id = row["project_id"]
+        project_names[project_id] = row["project_name"]
+        buckets.setdefault(month, {"month": month, "total": 0, "segments": []})
+        buckets[month]["total"] += amount
+        buckets[month]["segments"].append(
+            {"project_id": project_id, "name": row["project_name"], "value": amount, "color": project_color(project_id)}
+        )
+    if not buckets:
+        return []
+    max_total = max(bucket["total"] for bucket in buckets.values()) or 1
+    for bucket in buckets.values():
+        bucket["height"] = round(bucket["total"] / max_total * 100)
+        for segment in bucket["segments"]:
+            segment["height"] = round(segment["value"] / bucket["total"] * 100) if bucket["total"] else 0
+    return list(buckets.values())
+
+
+def monthly_paid_chart():
+    access_clause, access_params = client_filter_clause("invoices")
+    rows = db().execute(
+        f"select id, paid_at, payment_amount from invoices where status = 'completed' and paid_at is not null and {access_clause} order by paid_at asc",
+        access_params,
+    ).fetchall()
+    buckets = {}
+    for row in rows:
+        month = row["paid_at"][:7]
+        amount = float(row["payment_amount"] or invoice_totals(row["id"])["total"])
+        buckets[month] = buckets.get(month, 0) + amount
+    if not buckets:
+        return []
+    max_value = max(buckets.values()) or 1
+    return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
+
+
+if __name__ == "__main__":
+    init_db()
+    app.run(host="0.0.0.0", port=8000, debug=True)
+else:
+    init_db()

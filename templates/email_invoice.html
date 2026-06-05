@@ -1,0 +1,28 @@
+<h2>{{ company.name }}</h2>
+<h3>Invoice {{ invoice.invoice_number }}</h3>
+<p>Dear {{ client.contact_name or client.name }},</p>
+<p>Please find the invoice details below.</p>
+<table border="1" cellpadding="8" cellspacing="0">
+  <tr><th align="left">Description</th><th>Amount</th><th>Tax Rate</th><th>Tax</th><th>Line Total</th></tr>
+  {% for item in items %}
+    <tr>
+      <td>{{ item.description }}</td>
+      <td>{{ item.amount|money(invoice.currency) }}</td>
+      <td>{{ "%.2f"|format(item.tax_rate) }}%</td>
+      <td>{{ (item.amount * item.tax_rate / 100)|money(invoice.currency) }}</td>
+      <td>{{ (item.amount + item.amount * item.tax_rate / 100)|money(invoice.currency) }}</td>
+    </tr>
+  {% endfor %}
+</table>
+<p><strong>Amount Due: {{ totals.total|money(invoice.currency) }}</strong></p>
+<p>Due Date: {{ invoice.due_date }}</p>
+<p>
+  Payment Method: {{ payment.method }}<br>
+  Beneficiary Name: {{ payment.beneficiary }}<br>
+  Bank Name: {{ payment.bank_name }}<br>
+  Account Number: {{ payment.account_number }}<br>
+  Routing Number: {{ payment.routing_number }}<br>
+  SWIFT/BIC: {{ payment.swift_bic }}
+</p>
+<p>{{ terms }}</p>
+<p>{{ company.name }}</p>

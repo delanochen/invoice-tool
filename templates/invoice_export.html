@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>{{ invoice.invoice_number }}</title>
+    <style>
+      body { margin: 0; background: #fff; color: #111827; font-family: Arial, sans-serif; }
+      .invoice-paper { max-width: 900px; margin: 0 auto; padding: 34px 38px; font-size: 13px; line-height: 1.38; }
+      h2 { margin: 0 0 8px; font-size: 21px; }
+      h3 { margin: 0 0 6px; font-size: 14px; }
+      p { margin: 0 0 8px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid #d9dee7; padding: 8px 9px; text-align: left; vertical-align: top; }
+      th { color: #667085; font-size: 12px; }
+      .invoice-top, .invoice-info, .invoice-bottom { display: grid; grid-template-columns: 1fr 280px; gap: 30px; }
+      .invoice-heading { display: grid; align-content: start; justify-items: end; gap: 10px; }
+      .invoice-heading strong { font-size: 34px; }
+      .invoice-logo { width: 56px; height: 56px; margin-bottom: 10px; border-radius: 8px; }
+      .meta-list p, .invoice-totals p { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 7px; }
+      .invoice-info, .invoice-table, .invoice-bottom { margin-top: 22px; }
+      .invoice-totals { border-top: 2px solid #111827; padding-top: 12px; }
+      .due { margin-top: 10px; padding-top: 10px; border-top: 1px solid #d9dee7; font-size: 18px; }
+      .tax-note { color: #667085; font-size: 12px; }
+      @page { size: A4; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <article class="invoice-paper">
+      <div class="invoice-top">
+        <div>
+          <h2>{{ company.name }}</h2>
+          <p>{{ company.address|replace('\n', '<br>')|safe }}</p>
+        </div>
+        <div class="invoice-heading"><strong>INVOICE</strong></div>
+      </div>
+      <div class="invoice-info">
+        <section>
+          <h3>Bill To</h3>
+          <p><strong>{{ client.name }}</strong><br>{{ client.address|replace('\n', '<br>')|safe }}<br>{{ client.country }}</p>
+        </section>
+        <section class="meta-list">
+          <p><span>Invoice No.</span><strong>{{ invoice.invoice_number }}</strong></p>
+          <p><span>Issue Date</span><strong>{{ invoice.issue_date }}</strong></p>
+          <p><span>Due Date</span><strong>{{ invoice.due_date }}</strong></p>
+          <p><span>Currency</span><strong>{{ invoice.currency }}</strong></p>
+        </section>
+      </div>
+      <table class="invoice-table">
+        <thead><tr><th>Description</th><th>Amount</th><th>Tax Rate</th><th>Tax</th><th>Line Total</th></tr></thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.description }}</td>
+              <td>{{ item.amount|money(invoice.currency) }}</td>
+              <td>{{ "%.2f"|format(item.tax_rate) }}%</td>
+              <td>{{ (item.amount * item.tax_rate / 100)|money(invoice.currency) }}</td>
+              <td>{{ (item.amount + item.amount * item.tax_rate / 100)|money(invoice.currency) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="invoice-bottom">
+        <section>
+          <h3>Notes</h3>
+          <p>{{ invoice.notes }}</p>
+          <h3>Terms</h3>
+          <p>{{ terms }}</p>
+          <h3>Payment Instructions</h3>
+          <p>Method: {{ payment.method }}<br>Beneficiary Name: {{ payment.beneficiary }}<br>Bank Name: {{ payment.bank_name }}<br>Account Number: {{ payment.account_number }}<br>Routing Number: {{ payment.routing_number }}<br>SWIFT/BIC: {{ payment.swift_bic }}</p>
+          <p class="tax-note">{{ company.tax_note }}</p>
+        </section>
+        <section class="invoice-totals">
+          <p><span>Subtotal</span><strong>{{ totals.subtotal|money(invoice.currency) }}</strong></p>
+          <p><span>Tax</span><strong>{{ totals.tax|money(invoice.currency) }}</strong></p>
+          <p class="due"><span>Amount Due</span><strong>{{ totals.total|money(invoice.currency) }}</strong></p>
+        </section>
+      </div>
+    </article>
+  </body>
+</html>

@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}{{ invoice.invoice_number }} - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header no-print">
+    <div>
+      <p class="eyebrow">Invoice</p>
+      <h1>{{ invoice.invoice_number }} <span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></h1>
+      <p class="muted-line">内部记录：开票人 {{ creator.name if creator else "Unknown" }}</p>
+    </div>
+    <div class="actions">
+      <button onclick="window.print()">发票预览</button>
+      <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button type="submit">导出 ZIP</button></form>
+      {% if invoice.status == "completed" %}
+        <form method="post" action="{{ url_for('send_invoice', invoice_id=invoice.id) }}"><button type="submit">发送邮件</button></form>
+      {% else %}
+        <button type="button" disabled>发送邮件</button>
+      {% endif %}
+      {% if invoice.status == "completed" and not invoice.paid_at and g.user.role in ["admin", "manager", "user", "internal"] %}
+        <button class="primary" type="button" onclick="document.querySelector('#paidDialog').showModal()">核销</button>
+      {% endif %}
+      {% if invoice.paid_at and g.user.role in ["admin", "manager"] %}
+        <form method="post" action="{{ url_for('unmark_invoice_paid', invoice_id=invoice.id) }}" onsubmit="return confirm('确定取消这张发票的核销记录吗？');"><button type="submit">取消核销</button></form>
+      {% endif %}
+      {% if g.user.role == "admin" and not invoice.paid_at and invoice.status != "draft" %}
+        <button type="button" onclick="document.querySelector('#adminStatusDialog').showModal()">管理员改状态</button>
+      {% endif %}
+      {% if invoice.status == "submitted" and g.user.role in ["admin", "manager"] %}
+        <form method="post" action="{{ url_for('complete_invoice', invoice_id=invoice.id) }}"><button class="primary" type="submit">确认完成</button></form>
+        <button class="danger" type="button" onclick="document.querySelector('#returnDialog').showModal()">退回</button>
+      {% endif %}
+      {% if invoice.status in ["draft", "returned"] and (invoice.created_by == g.user.id or g.user.role in ["admin", "manager"]) %}
+        <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_invoice', invoice_id=invoice.id) }}'">编辑</button>
+      {% endif %}
+      {% if invoice.status not in ["void", "completed"] %}
+        <form method="post" action="{{ url_for('void_invoice', invoice_id=invoice.id) }}"><button class="danger" type="submit">作废</button></form>
+      {% endif %}
+      {% if invoice.status == "void" and g.user.role in ["admin", "manager"] %}
+        <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张作废发票吗？');"><button class="danger" type="submit">删除</button></form>
+      {% endif %}
+      {% if invoice.status in ["draft", "returned"] and (invoice.created_by == g.user.id or g.user.role in ["admin", "manager"]) %}
+        <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张发票吗？');"><button class="danger" type="submit">删除</button></form>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if g.user.role == "admin" and not invoice.paid_at and invoice.status != "draft" %}
+    <dialog id="adminStatusDialog" class="modal no-print">
+      <form method="post" action="{{ url_for('admin_update_invoice_status', invoice_id=invoice.id) }}" class="form-stack">
+        <h2>管理员修改状态</h2>
+        <label>发票状态
+          <select name="status" required>
+            <option value="draft">保存未提交</option>
+          </select>
+        </label>
+        <p class="muted-line">未核销前，管理员可以把发票状态改回保存未提交，之后发起人可以继续编辑并重新提交。</p>
+        <div class="form-actions">
+          <button type="button" onclick="document.querySelector('#adminStatusDialog').close()">取消</button>
+          <button class="primary" type="submit">确认修改</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+
+  {% if invoice.status == "submitted" and g.user.role in ["admin", "manager"] %}
+    <dialog id="returnDialog" class="modal no-print">
+      <form method="post" action="{{ url_for('return_invoice', invoice_id=invoice.id) }}" class="form-stack">
+        <h2>退回发票</h2>
+        <label>退回原因 <textarea name="return_reason" rows="5" required></textarea></label>
+        <div class="form-actions">
+          <button type="button" onclick="document.querySelector('#returnDialog').close()">取消</button>
+          <button class="danger" type="submit">确认退回</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+
+  {% if invoice.status == "completed" and not invoice.paid_at and g.user.role in ["admin", "manager", "user", "internal"] %}
+    <dialog id="paidDialog" class="modal no-print">
+      <form method="post" action="{{ url_for('mark_invoice_paid', invoice_id=invoice.id) }}" class="form-stack">
+        <h2>核销发票</h2>
+        <label>收款日期 <input type="date" name="paid_at" value="{{ today }}" required></label>
+        <label>收款金额 <input type="number" step="0.01" min="0" name="payment_amount" value="{{ '%.2f'|format(totals.total) }}" required></label>
+        <label>备注 <textarea name="payment_note" rows="4" placeholder="例如银行到账、部分费用说明等"></textarea></label>
+        <div class="form-actions">
+          <button type="button" onclick="document.querySelector('#paidDialog').close()">取消</button>
+          <button class="primary" type="submit">确认核销</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+
+  <dialog id="attachmentPreviewDialog" class="modal preview-modal no-print">
+    <div class="modal-header">
+      <h2 id="attachmentPreviewTitle">附件预览</h2>
+      <div class="preview-tools">
+        <button type="button" id="zoomFitBtn">自适应</button>
+        <button type="button" id="zoomOutBtn">缩小</button>
+        <button type="button" id="zoomOriginalBtn">100%原图</button>
+        <button type="button" id="zoomInBtn">放大</button>
+        <button type="button" onclick="closeAttachmentPreview()">关闭</button>
+      </div>
+    </div>
+    <div id="imagePreviewWrap" class="image-preview-wrap"><img id="attachmentPreviewImage" alt="附件预览"></div>
+    <iframe id="attachmentPreviewFrame" title="附件预览"></iframe>
+  </dialog>
+
+  {% if invoice.status == "returned" and invoice.return_reason %}
+    <section class="panel no-print"><div class="flash error">退回原因：{{ invoice.return_reason }}</div></section>
+  {% endif %}
+  {% if invoice.paid_at %}
+    <section class="panel no-print">
+      <div class="flash success">已核销：{{ invoice.paid_at }}，收款金额 {{ invoice.payment_amount|money(invoice.currency) }}{% if invoice.payment_note %}<br>{{ invoice.payment_note }}{% endif %}</div>
+    </section>
+  {% endif %}
+
+  <article class="invoice-paper">
+    <div class="invoice-top">
+      <div>
+        <img class="invoice-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
+        <h2>{{ company.name }}</h2>
+        <p>{{ company.address|replace('\n', '<br>')|safe }}</p>
+      </div>
+      <div class="invoice-heading">
+        <strong>INVOICE</strong>
+      </div>
+    </div>
+    <div class="invoice-info">
+      <section>
+        <h3>Bill To</h3>
+        <p><strong>{{ client.name }}</strong><br>{{ client.address|replace('\n', '<br>')|safe }}<br>{{ client.country }}</p>
+      </section>
+      <section class="meta-list">
+        <p><span>Invoice No.</span><strong>{{ invoice.invoice_number }}</strong></p>
+        <p><span>Issue Date</span><strong>{{ invoice.issue_date }}</strong></p>
+        <p><span>Due Date</span><strong>{{ invoice.due_date }}</strong></p>
+        <p><span>Currency</span><strong>{{ invoice.currency }}</strong></p>
+      </section>
+    </div>
+    <table class="invoice-table">
+      <thead><tr><th>Description</th><th>Amount</th><th>Tax Rate</th><th>Tax</th><th>Line Total</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td>{{ item.description }}</td>
+            <td>{{ item.amount|money(invoice.currency) }}</td>
+            <td>{{ "%.2f"|format(item.tax_rate) }}%</td>
+            <td>{{ (item.amount * item.tax_rate / 100)|money(invoice.currency) }}</td>
+            <td>{{ (item.amount + item.amount * item.tax_rate / 100)|money(invoice.currency) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="invoice-bottom">
+      <section>
+        <h3>Notes</h3>
+        <p>{{ invoice.notes }}</p>
+        <h3>Terms</h3>
+        <p>{{ terms }}</p>
+        <h3>Payment Instructions</h3>
+        <p>Method: {{ payment.method }}<br>Beneficiary Name: {{ payment.beneficiary }}<br>Bank Name: {{ payment.bank_name }}<br>Account Number: {{ payment.account_number }}<br>Routing Number: {{ payment.routing_number }}<br>SWIFT/BIC: {{ payment.swift_bic }}</p>
+        <p class="tax-note">{{ company.tax_note }}</p>
+      </section>
+      <section class="invoice-totals">
+        <p><span>Subtotal</span><strong>{{ totals.subtotal|money(invoice.currency) }}</strong></p>
+        <p><span>Tax</span><strong>{{ totals.tax|money(invoice.currency) }}</strong></p>
+        <p class="due"><span>Amount Due</span><strong>{{ totals.total|money(invoice.currency) }}</strong></p>
+      </section>
+    </div>
+  </article>
+
+  <section class="panel attachment-panel no-print">
+    <div class="panel-title"><h2>附件清单</h2></div>
+    <table class="list-table attachment-table">
+      <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for attachment in attachments %}
+          <tr>
+            <td><a href="{{ url_for('preview_attachment', attachment_id=attachment.id) }}" class="attachment-preview-link" data-preview-name="{{ attachment.original_filename }}" data-content-type="{{ attachment.content_type or '' }}">{{ attachment.original_filename }}</a></td>
+            <td>{{ attachment.uploader_name or "Unknown" }}</td>
+            <td>{{ attachment.uploaded_at[:10] }}</td>
+            <td>
+              <div class="row-actions">
+                <form method="get" action="{{ url_for('download_attachment', attachment_id=attachment.id) }}"><button class="small" type="submit">下载</button></form>
+                <form method="post" action="{{ url_for('delete_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');"><button class="danger small" type="submit">删除</button></form>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">还没有附件。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <form method="post" action="{{ url_for('upload_attachment', invoice_id=invoice.id) }}" enctype="multipart/form-data" class="attachment-upload form-stack">
+      <div class="file-picker-row">
+        <span>继续上传附件（可多选）</span>
+        <input id="detailAttachmentsInput" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple required>
+        <small>支持 Word、Excel、PDF、图片。</small>
+      </div>
+      <ul id="detailAttachmentList" class="file-list"></ul>
+      <button type="submit">上传附件</button>
+    </form>
+  </section>
+  <script src="{{ url_for('static', filename='invoice-detail.js', v='20260530-attachment-list-v2') }}"></script>
+{% endblock %}
