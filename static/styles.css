@@ -175,6 +175,7 @@ h1, h2, h3, p { margin-top: 0; }
 .metric span { display: block; margin-bottom: 8px; color: var(--muted); }
 .metric strong { font-size: 22px; }
 .panel { margin-bottom: 16px; padding: 20px; }
+.panel:has(.list-table) { overflow-x: auto; }
 .error-panel {
   max-width: 680px;
   margin: 72px auto 16px;
@@ -308,6 +309,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .status.submitted { background: #eff8ff; color: var(--blue); }
 .status.returned { background: #fff4ed; color: var(--warn); }
 .status.completed { background: #ecfdf3; color: var(--ok); }
+.status.approved { background: #ecfdf3; color: var(--ok); }
 .status.void { background: #fff4ed; color: var(--warn); }
 .flash-stack { position: fixed; top: 16px; right: 16px; z-index: 10; display: grid; gap: 8px; }
 .flash { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; background: #fff; }
@@ -432,7 +434,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .stacked-segment { width: 100%; min-height: 1px; }
 .project-switches { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .report-total td { font-weight: 800; background: #f8fafc; }
-.service-filter { grid-template-columns: minmax(260px, 1fr) auto; }
+.service-filter { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -521,6 +523,25 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
     grid-template-columns: 1fr;
   }
   .filter-bar, .item-row, .detail-grid, .service-report-form .form-grid { grid-template-columns: 1fr; }
+  .list-table {
+    min-width: 720px;
+  }
+  .panel:has(.list-table) {
+    padding: 14px;
+  }
+  .row-actions,
+  .filter-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .row-actions button,
+  .row-actions .button,
+  .filter-actions button {
+    width: 100%;
+  }
+  .thumb-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .page-header, .panel-title, .actions { align-items: stretch; flex-direction: column; }
   .invoice-paper { padding: 24px; }
 }

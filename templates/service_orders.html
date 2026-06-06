@@ -14,7 +14,7 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>工单编号</th><th>客户名称</th><th>服务订单号码</th><th>服务现场地址</th><th>日报</th><th>发票</th><th>状态</th></tr></thead>
+      <thead><tr><th>工单编号</th><th>客户名称</th><th>服务订单号码</th><th>服务现场地址</th><th>日报</th>{% if can_view_invoices() %}<th>发票</th>{% endif %}<th>状态</th></tr></thead>
       <tbody>
         {% for order in orders %}
           <tr>
@@ -23,11 +23,13 @@
             <td>{{ order.client_order_number }}</td>
             <td>{{ order.site_address }}</td>
             <td>{{ order.report_count }}</td>
-            <td><span class="status {% if order.invoice_count %}completed{% else %}draft{% endif %}">{% if order.invoice_count %}已开票{% else %}未开票{% endif %}</span></td>
+            {% if can_view_invoices() %}
+              <td><span class="status {% if order.invoice_count %}completed{% else %}draft{% endif %}">{% if order.invoice_count %}已开票{% else %}未开票{% endif %}</span></td>
+            {% endif %}
             <td>{{ "已关闭" if order.status == "closed" else "进行中" }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="empty">还没有工单。</td></tr>
+          <tr><td colspan="{% if can_view_invoices() %}7{% else %}6{% endif %}" class="empty">还没有工单。</td></tr>
         {% endfor %}
       </tbody>
     </table>

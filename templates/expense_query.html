@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}报销查询 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Reports</p><h1>报销查询</h1></div>
+    <div class="metric">
+      <span>已通过报销合计</span>
+      <strong>{{ total|money }}</strong>
+    </div>
+  </header>
+  <form class="filter-bar service-filter no-print" method="get">
+    <label>关键词 <input name="q" value="{{ q }}" placeholder="报销编号、项目、工单、客户"></label>
+    <label>状态
+      <select name="status">
+        <option value="">全部</option>
+        {% for value, label in labels.items() %}
+          <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('expense_query') }}'">重置</button>
+    </div>
+  </form>
+  <section class="panel">
+    <table class="list-table">
+      <thead><tr><th>报销编号</th><th>工单</th><th>客户</th><th>项目</th><th>日期</th><th>提交人</th><th>金额</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td><a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a></td>
+            <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
+            <td>{{ row.client_name }}</td>
+            <td>{{ row.project }}</td>
+            <td>{{ row.expense_date }}</td>
+            <td>{{ row.creator_name or "Unknown" }}</td>
+            <td>{{ row.amount|money(row.currency) }}</td>
+            <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="empty">没有符合条件的报销。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

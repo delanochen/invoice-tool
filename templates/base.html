@@ -15,23 +15,39 @@
         </div>
         <nav>
           <a href="{{ url_for('dashboard') }}">概览</a>
-          <a href="{{ url_for('invoices') }}">发票</a>
+          {% if can_view_invoices() %}
+            <a href="{{ url_for('invoices') }}">发票</a>
+          {% endif %}
           <a href="{{ url_for('service_orders') }}">工单</a>
-          <a href="{{ url_for('new_invoice') }}">新建发票</a>
-          <a href="{{ url_for('reports') }}">报表</a>
+          {% if can_view_invoices() %}
+            <a href="{{ url_for('new_invoice') }}">新建发票</a>
+          {% endif %}
+          <details class="nav-group">
+            <summary>报表</summary>
+            <div class="nav-submenu">
+              <a href="{{ url_for('service_order_query') }}">工单查询</a>
+              {% if can_view_invoices() %}
+                <a href="{{ url_for('invoice_query') }}">发票查询</a>
+              {% endif %}
+              <a href="{{ url_for('service_report_query') }}">日报查询</a>
+              <a href="{{ url_for('expense_query') }}">报销查询</a>
+            </div>
+          </details>
           <a href="{{ url_for('messages') }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>
           {% if g.user.role != "external" %}
             <details class="nav-group">
               <summary>基础数据</summary>
               <div class="nav-submenu">
-                <a href="{{ url_for('clients') }}">客户</a>
-                {% if g.user.role in ["admin", "manager"] %}
+                {% if normalized_role() != "employee" %}
+                  <a href="{{ url_for('clients') }}">客户</a>
+                {% endif %}
+                {% if normalized_role() in ["admin", "manager"] %}
                   <a href="{{ url_for('projects') }}">项目</a>
                 {% endif %}
-                {% if g.user.role == "admin" %}
+                {% if normalized_role() == "admin" %}
                   <a href="{{ url_for('company_settings') }}">公司设置</a>
-                  <a href="{{ url_for('users') }}">用户</a>
                 {% endif %}
+                <a href="{{ url_for('users') }}">用户</a>
               </div>
             </details>
           {% endif %}

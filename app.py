@@ -38,6 +38,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "invoices.db")
 ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
 REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
+EXPENSE_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "expense-attachments")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 ALLOWED_ATTACHMENT_LABEL = "Word、Excel、PDF、PNG、JPG、JPEG、WEBP、GIF"
@@ -86,6 +87,20 @@ STATUS_LABELS = {
     "void": "作废",
 }
 
+EXPENSE_STATUS_LABELS = {
+    "draft": "保存未提交",
+    "submitted": "待经理审核",
+    "returned": "已退回",
+    "approved": "已通过",
+}
+
+ROLE_OPTIONS = {
+    "admin": "管理员",
+    "manager": "经理",
+    "finance": "财务",
+    "employee": "员工",
+}
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
@@ -99,6 +114,7 @@ def db():
         os.makedirs(DATA_DIR, exist_ok=True)
         os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(REPORT_ATTACHMENTS_DIR, exist_ok=True)
+        os.makedirs(EXPENSE_ATTACHMENTS_DIR, exist_ok=True)
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
     return g.db
@@ -290,6 +306,39 @@ def init_db():
                 foreign key(report_id) references service_reports(id) on delete cascade,
                 foreign key(uploaded_by) references users(id)
             );
+
+            create table if not exists expenses (
+                id integer primary key autoincrement,
+                service_order_id integer not null,
+                expense_number text not null unique,
+                project text not null,
+                expense_date text not null,
+                amount real not null default 0,
+                currency text not null default 'USD',
+                description text,
+                status text not null default 'draft',
+                return_reason text,
+                reviewed_by integer,
+                reviewed_at text,
+                created_by integer not null,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(service_order_id) references service_orders(id) on delete cascade,
+                foreign key(created_by) references users(id),
+                foreign key(reviewed_by) references users(id)
+            );
+
+            create table if not exists expense_attachments (
+                id integer primary key autoincrement,
+                expense_id integer not null,
+                original_filename text not null,
+                stored_filename text not null,
+                content_type text,
+                uploaded_by integer not null,
+                uploaded_at text not null,
+                foreign key(expense_id) references expenses(id) on delete cascade,
+                foreign key(uploaded_by) references users(id)
+            );
             """
         )
         ensure_column(connection, "invoices", "service_order_id", "integer")
@@ -403,12 +452,29 @@ def is_external_user():
     return g.user and g.user["role"] == "external"
 
 
+def normalized_role(role=None):
+    role = role if role is not None else (g.user["role"] if g.user else "")
+    if role == "internal":
+        return "finance"
+    if role == "user":
+        return "employee"
+    return role
+
+
 def is_internal_user():
-    return g.user and g.user["role"] in {"admin", "manager", "user", "internal"}
+    return g.user and normalized_role() in {"admin", "manager", "finance", "employee"}
 
 
 def is_manager():
-    return g.user and g.user["role"] in {"admin", "manager"}
+    return g.user and normalized_role() in {"admin", "manager"}
+
+
+def can_view_invoices():
+    return g.user and normalized_role() in {"admin", "manager", "finance"}
+
+
+def can_manage_users():
+    return g.user and normalized_role() == "admin"
 
 
 def can_access_client(client_id):
@@ -420,6 +486,8 @@ def can_access_client(client_id):
 
 
 def require_invoice_access(invoice_id):
+    if not can_view_invoices():
+        abort(403)
     invoice = db().execute("select * from invoices where id = ?", (invoice_id,)).fetchone()
     if not invoice:
         abort(404)
@@ -437,7 +505,7 @@ def client_filter_clause(alias="invoices"):
 
 
 def role_label(role):
-    labels = {"admin": "管理员", "manager": "经理", "user": "员工", "internal": "员工", "external": "外部员工"}
+    labels = {"admin": "管理员", "manager": "经理", "finance": "财务", "employee": "员工", "user": "员工", "internal": "财务", "external": "员工"}
     return labels.get(role, role)
 
 
@@ -500,6 +568,9 @@ app.jinja_env.filters["money"] = money
 app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
 app.jinja_env.filters["local_datetime"] = local_datetime
+app.jinja_env.globals["can_view_invoices"] = can_view_invoices
+app.jinja_env.globals["normalized_role"] = normalized_role
+app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 
 
 def next_client_number():
@@ -537,6 +608,25 @@ def next_service_order_number():
     if not row:
         return f"{prefix}001"
     suffix = row["order_number"][len(prefix):]
+    try:
+        return f"{prefix}{int(suffix) + 1:03d}"
+    except ValueError:
+        return f"{prefix}{secrets.randbelow(900) + 100}"
+
+
+def next_expense_number():
+    prefix = f"EX{date.today():%y%m}"
+    row = db().execute(
+        """
+        select expense_number from expenses
+        where expense_number like ?
+        order by expense_number desc limit 1
+        """,
+        (f"{prefix}%",),
+    ).fetchone()
+    if not row:
+        return f"{prefix}001"
+    suffix = row["expense_number"][len(prefix):]
     try:
         return f"{prefix}{int(suffix) + 1:03d}"
     except ValueError:
@@ -739,6 +829,71 @@ def get_report_attachments(report_id):
     return grouped
 
 
+def can_access_expense(expense):
+    if not g.user:
+        return False
+    if normalized_role() in {"admin", "manager", "finance"}:
+        return True
+    return expense["created_by"] == g.user["id"]
+
+
+def require_expense(expense_id):
+    expense = db().execute("select * from expenses where id = ?", (expense_id,)).fetchone()
+    if not expense:
+        abort(404)
+    if not can_access_expense(expense):
+        abort(403)
+    order = require_service_order(expense["service_order_id"])
+    return expense, order
+
+
+def expense_attachment_dir(expense_id):
+    path = os.path.join(EXPENSE_ATTACHMENTS_DIR, str(expense_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def expense_attachment_path(attachment):
+    return os.path.join(EXPENSE_ATTACHMENTS_DIR, str(attachment["expense_id"]), attachment["stored_filename"])
+
+
+def save_expense_attachment(expense_id, uploaded):
+    if not uploaded or not uploaded.filename:
+        return
+    if not allowed_attachment(uploaded.filename):
+        raise ValueError(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。")
+    source_filename = uploaded.filename or "attachment"
+    extension = source_filename.rsplit(".", 1)[1].lower()
+    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
+    stored_filename = f"{secrets.token_hex(12)}.{extension}"
+    uploaded.save(os.path.join(expense_attachment_dir(expense_id), stored_filename))
+    db().execute(
+        """
+        insert into expense_attachments (
+            expense_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, ?, ?)
+        """,
+        (expense_id, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+    )
+
+
+def save_expense_uploads(expense_id):
+    for uploaded in uploaded_attachments_from_request():
+        save_expense_attachment(expense_id, uploaded)
+
+
+def get_expense_attachments(expense_id):
+    return db().execute(
+        """
+        select expense_attachments.*, users.name as uploader_name
+        from expense_attachments left join users on users.id = expense_attachments.uploaded_by
+        where expense_id = ?
+        order by uploaded_at desc, id desc
+        """,
+        (expense_id,),
+    ).fetchall()
+
+
 def service_report_workers(report_id):
     return db().execute(
         """
@@ -895,19 +1050,19 @@ def register():
             cursor = db().execute(
                 """
                 insert into users (name, email, password_hash, role, created_at)
-                values (?, ?, ?, 'external', ?)
+                values (?, ?, ?, 'employee', ?)
                 """,
                 (name or email, email, generate_password_hash(password), now()),
             )
             user_id = cursor.lastrowid
             notify_role(
                 ["admin"],
-                "新的外部用户需要绑定客户",
-                f"{name or email} 已注册外部员工账号。请为该用户绑定客户后，对方才能创建和查询发票。",
+                "新员工账号已注册",
+                f"{name or email} 已注册员工账号。",
                 url_for("edit_user", user_id=user_id),
             )
             db().commit()
-            flash("注册成功。请联系管理员绑定客户后再创建发票。", "success")
+            flash("注册成功。", "success")
             return redirect(url_for("login"))
         except sqlite3.IntegrityError:
             flash("这个邮箱已经注册。", "error")
@@ -956,6 +1111,8 @@ def message_detail(message_id):
 @app.route("/")
 @login_required
 def dashboard():
+    if not can_view_invoices():
+        return redirect(url_for("service_orders"))
     metrics = get_metrics()
     selected_project_ids = request.args.getlist("project_id")
     project_options = dashboard_project_options()
@@ -991,6 +1148,8 @@ def dashboard():
 @app.route("/clients", methods=["GET", "POST"])
 @login_required
 def clients():
+    if normalized_role() == "employee":
+        abort(403)
     if is_external_user() and not g.user["client_id"]:
         flash("外部用户尚未绑定客户。", "error")
         return redirect(url_for("dashboard"))
@@ -1035,6 +1194,8 @@ def clients():
 @app.route("/clients/<int:client_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_client(client_id):
+    if normalized_role() == "employee":
+        abort(403)
     if is_external_user():
         abort(403)
     client = db().execute("select * from clients where id = ?", (client_id,)).fetchone()
@@ -1075,6 +1236,8 @@ def edit_client(client_id):
 @app.post("/clients/<int:client_id>/delete")
 @login_required
 def delete_client(client_id):
+    if normalized_role() == "employee":
+        abort(403)
     if is_external_user():
         abort(403)
     invoice_count = db().execute("select count(*) as count from invoices where client_id = ?", (client_id,)).fetchone()["count"]
@@ -1157,18 +1320,17 @@ def delete_project(project_id):
 
 
 @app.route("/users", methods=["GET", "POST"])
-@admin_required
+@login_required
 def users():
+    if request.method == "POST" and not can_manage_users():
+        abort(403)
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
-        role = request.form.get("role", "user")
-        client_id = request.form.get("client_id") or None
-        if role == "external" and not client_id:
-            flash("外部用户必须绑定一个客户。", "error")
-            return redirect(url_for("users"))
-        if role != "external":
-            client_id = None
+        role = request.form.get("role", "employee")
+        if role not in ROLE_OPTIONS:
+            role = "employee"
+        client_id = None
         if len(password) < 8:
             flash("密码至少需要 8 位。", "error")
             return redirect(url_for("users"))
@@ -1192,39 +1354,40 @@ def users():
         except sqlite3.IntegrityError:
             flash("这个邮箱已经存在。", "error")
         return redirect(url_for("users"))
-    rows = db().execute(
-        """
-        select users.*, clients.name as client_name
-        from users left join clients on clients.id = users.client_id
-        order by users.created_at desc
-        """
-    ).fetchall()
+    if can_manage_users():
+        rows = db().execute(
+            """
+            select users.*, clients.name as client_name
+            from users left join clients on clients.id = users.client_id
+            order by users.created_at desc
+            """
+        ).fetchall()
+    else:
+        rows = db().execute("select users.*, null as client_name from users where id = ?", (g.user["id"],)).fetchall()
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template("users.html", users=rows, clients=clients_rows)
+    return render_template("users.html", users=rows, clients=clients_rows, role_options=ROLE_OPTIONS, can_manage=can_manage_users())
 
 
 @app.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
-@admin_required
+@login_required
 def edit_user(user_id):
+    if not can_manage_users() and user_id != g.user["id"]:
+        abort(403)
     user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
     if not user:
         abort(404)
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        role = request.form.get("role", "user")
-        client_id = request.form.get("client_id") or None
+        email = request.form.get("email", user["email"]).strip().lower() if can_manage_users() else user["email"]
+        role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
+        if role not in ROLE_OPTIONS and can_manage_users():
+            role = "employee"
+        client_id = None
         password = request.form.get("password", "")
-        if role == "external" and not client_id:
-            flash("外部用户必须绑定一个客户。", "error")
-            return redirect(url_for("edit_user", user_id=user_id))
-        if role != "external":
-            client_id = None
         admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
-        if user["role"] == "admin" and role != "admin" and admin_count <= 1:
+        if can_manage_users() and user["role"] == "admin" and role != "admin" and admin_count <= 1:
             flash("至少需要保留一个管理员。", "error")
             return redirect(url_for("edit_user", user_id=user_id))
         try:
-            old_client_id = user["client_id"]
             db().execute(
                 "update users set name = ?, email = ?, role = ?, client_id = ? where id = ?",
                 (request.form.get("name", "").strip() or email, email, role, client_id, user_id),
@@ -1235,16 +1398,13 @@ def edit_user(user_id):
                     return redirect(url_for("edit_user", user_id=user_id))
                 db().execute("update users set password_hash = ? where id = ?", (generate_password_hash(password), user_id))
             db().commit()
-            if role == "external" and client_id and old_client_id != int(client_id):
-                create_message(user_id, "客户绑定已完成", "管理员已经为你绑定客户。现在你可以创建和查询该客户的发票。", url_for("dashboard"))
-                db().commit()
             flash("用户资料已更新。", "success")
         except sqlite3.IntegrityError:
             flash("这个邮箱已经存在。", "error")
             return redirect(url_for("edit_user", user_id=user_id))
         return redirect(url_for("users"))
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template("user_form.html", user=user, clients=clients_rows)
+    return render_template("user_form.html", user=user, clients=clients_rows, role_options=ROLE_OPTIONS, can_manage=can_manage_users())
 
 
 @app.post("/users/<int:user_id>/delete")
@@ -1305,6 +1465,8 @@ def company_settings():
 @app.route("/invoices")
 @login_required
 def invoices():
+    if not can_view_invoices():
+        abort(403)
     status = request.args.get("status", "")
     paid_status = request.args.get("paid_status", "")
     q = request.args.get("q", "").strip()
@@ -1364,9 +1526,11 @@ def invoices():
     )
 
 
-@app.route("/reports")
+@app.route("/reports/invoices")
 @login_required
-def reports():
+def invoice_query():
+    if not can_view_invoices():
+        abort(403)
     client_q = request.args.get("client", "").strip()
     short_q = request.args.get("short_name", "").strip()
     date_from = request.args.get("date_from", "")
@@ -1447,6 +1611,121 @@ def reports():
         grand_total=grand_total,
         labels=STATUS_LABELS,
     )
+
+
+@app.route("/reports")
+@login_required
+def report_center():
+    return redirect(url_for("service_order_query"))
+
+
+@app.route("/reports/service-orders")
+@login_required
+def service_order_query():
+    if not is_internal_user():
+        abort(403)
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "")
+    clauses = ["1 = 1"]
+    params = []
+    if q:
+        clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_orders.client_order_number like ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if status:
+        clauses.append("service_orders.status = ?")
+        params.append(status)
+    rows = db().execute(
+        f"""
+        select service_orders.*,
+               count(distinct service_reports.id) as report_count,
+               count(distinct invoices.id) as invoice_count,
+               coalesce(sum(case when expenses.status = 'approved' then expenses.amount else 0 end), 0) as approved_expense_total
+        from service_orders
+        left join service_reports on service_reports.service_order_id = service_orders.id
+        left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
+        left join expenses on expenses.service_order_id = service_orders.id
+        where {" and ".join(clauses)}
+        group by service_orders.id
+        order by service_orders.created_at desc, service_orders.id desc
+        """,
+        params,
+    ).fetchall()
+    return render_template("service_order_query.html", orders=rows, q=q, status=status)
+
+
+@app.route("/reports/service-reports")
+@login_required
+def service_report_query():
+    if not is_internal_user():
+        abort(403)
+    q = request.args.get("q", "").strip()
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    clauses = ["1 = 1"]
+    params = []
+    if q:
+        clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_reports.cabinet_number like ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if date_from:
+        clauses.append("service_reports.report_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("service_reports.report_date <= ?")
+        params.append(date_to)
+    rows = db().execute(
+        f"""
+        select service_reports.*, service_orders.order_number, service_orders.client_name,
+               group_concat(users.name, ', ') as worker_names
+        from service_reports
+        join service_orders on service_orders.id = service_reports.service_order_id
+        left join service_report_workers on service_report_workers.report_id = service_reports.id
+        left join users on users.id = service_report_workers.user_id
+        where {" and ".join(clauses)}
+        group by service_reports.id
+        order by service_reports.report_date desc, service_reports.id desc
+        """,
+        params,
+    ).fetchall()
+    return render_template("service_report_query.html", rows=rows, q=q, date_from=date_from, date_to=date_to)
+
+
+@app.route("/reports/expenses")
+@login_required
+def expense_query():
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "")
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    clauses = ["1 = 1"]
+    params = []
+    if normalized_role() == "employee":
+        clauses.append("expenses.created_by = ?")
+        params.append(g.user["id"])
+    if q:
+        clauses.append("(expenses.expense_number like ? or expenses.project like ? or service_orders.order_number like ? or service_orders.client_name like ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+    if status:
+        clauses.append("expenses.status = ?")
+        params.append(status)
+    if date_from:
+        clauses.append("expenses.expense_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("expenses.expense_date <= ?")
+        params.append(date_to)
+    rows = db().execute(
+        f"""
+        select expenses.*, service_orders.order_number, service_orders.client_name, users.name as creator_name
+        from expenses
+        join service_orders on service_orders.id = expenses.service_order_id
+        left join users on users.id = expenses.created_by
+        where {" and ".join(clauses)}
+        order by expenses.expense_date desc, expenses.id desc
+        """,
+        params,
+    ).fetchall()
+    total = sum(float(row["amount"] or 0) for row in rows if row["status"] == "approved")
+    return render_template("expense_query.html", rows=rows, q=q, status=status, date_from=date_from, date_to=date_to, total=total, labels=EXPENSE_STATUS_LABELS)
 
 
 @app.route("/service-orders")
@@ -1552,7 +1831,26 @@ def service_order_detail(order_id):
         """,
         (order_id,),
     ).fetchall()
-    return render_template("service_order_detail.html", order=order, reports=reports_rows, invoices=invoices_rows, labels=STATUS_LABELS)
+    expense_access = "" if normalized_role() in {"admin", "manager", "finance"} else "and expenses.created_by = ?"
+    expense_params = [order_id] if not expense_access else [order_id, g.user["id"]]
+    expenses_rows = db().execute(
+        f"""
+        select expenses.*, users.name as creator_name
+        from expenses left join users on users.id = expenses.created_by
+        where expenses.service_order_id = ? {expense_access}
+        order by expenses.created_at desc, expenses.id desc
+        """,
+        expense_params,
+    ).fetchall()
+    return render_template(
+        "service_order_detail.html",
+        order=order,
+        reports=reports_rows,
+        invoices=invoices_rows,
+        expenses=expenses_rows,
+        labels=STATUS_LABELS,
+        expense_labels=EXPENSE_STATUS_LABELS,
+    )
 
 
 @app.route("/service-orders/<int:order_id>/reports/new", methods=["GET", "POST"])
@@ -1716,9 +2014,237 @@ def export_service_report(report_id):
     )
 
 
+def expense_defaults(expense=None):
+    if expense:
+        return dict(expense)
+    return {
+        "expense_number": next_expense_number(),
+        "project": "",
+        "expense_date": date.today().isoformat(),
+        "amount": "",
+        "currency": "USD",
+        "description": "",
+        "status": "draft",
+    }
+
+
+@app.route("/service-orders/<int:order_id>/expenses/new", methods=["GET", "POST"])
+@login_required
+def new_expense(order_id):
+    order = require_service_order(order_id)
+    if request.method == "POST":
+        submit_for_review = request.form.get("action") == "submit"
+        try:
+            cursor = db().execute(
+                """
+                insert into expenses (
+                    service_order_id, expense_number, project, expense_date, amount, currency,
+                    description, status, created_by, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order_id,
+                    next_expense_number(),
+                    request.form.get("project", "").strip(),
+                    request.form.get("expense_date"),
+                    to_float(request.form.get("amount")),
+                    request.form.get("currency", "USD"),
+                    request.form.get("description", "").strip(),
+                    "submitted" if submit_for_review else "draft",
+                    g.user["id"],
+                    now(),
+                    now(),
+                ),
+            )
+            expense_id = cursor.lastrowid
+            save_expense_uploads(expense_id)
+            db().commit()
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("new_expense", order_id=order_id))
+        if submit_for_review:
+            notify_role(["admin", "manager"], "新报销待审核", f"{g.user['name']}提交了报销 {cursor.lastrowid}，工单 {order['order_number']}。", url_for("expense_detail", expense_id=expense_id))
+            db().commit()
+            flash("报销已提交经理审核。", "success")
+            return redirect(url_for("expense_detail", expense_id=expense_id))
+        flash("报销已保存。", "success")
+        return redirect(url_for("edit_expense", expense_id=expense_id))
+    return render_template("expense_form.html", order=order, expense=expense_defaults(), is_edit=False, attachments=[])
+
+
+@app.route("/expenses/<int:expense_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_expense(expense_id):
+    expense, order = require_expense(expense_id)
+    if expense["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或被退回的报销可以编辑。", "error")
+        return redirect(url_for("expense_detail", expense_id=expense_id))
+    if expense["created_by"] != g.user["id"] and not is_manager():
+        abort(403)
+    if request.method == "POST":
+        submit_for_review = request.form.get("action") == "submit"
+        try:
+            db().execute(
+                """
+                update expenses
+                set project = ?, expense_date = ?, amount = ?, currency = ?, description = ?,
+                    status = ?, return_reason = null, updated_at = ?
+                where id = ?
+                """,
+                (
+                    request.form.get("project", "").strip(),
+                    request.form.get("expense_date"),
+                    to_float(request.form.get("amount")),
+                    request.form.get("currency", "USD"),
+                    request.form.get("description", "").strip(),
+                    "submitted" if submit_for_review else "draft",
+                    now(),
+                    expense_id,
+                ),
+            )
+            save_expense_uploads(expense_id)
+            db().commit()
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("edit_expense", expense_id=expense_id))
+        if submit_for_review:
+            notify_role(["admin", "manager"], "报销已提交审核", f"{g.user['name']}提交了报销 {expense['expense_number']}，工单 {order['order_number']}。", url_for("expense_detail", expense_id=expense_id))
+            db().commit()
+            flash("报销已提交经理审核。", "success")
+            return redirect(url_for("expense_detail", expense_id=expense_id))
+        flash("报销已保存。", "success")
+        return redirect(url_for("edit_expense", expense_id=expense_id))
+    return render_template("expense_form.html", order=order, expense=expense_defaults(expense), is_edit=True, attachments=get_expense_attachments(expense_id))
+
+
+@app.route("/expenses/<int:expense_id>")
+@login_required
+def expense_detail(expense_id):
+    expense, order = require_expense(expense_id)
+    creator = db().execute("select name, email from users where id = ?", (expense["created_by"],)).fetchone()
+    reviewer = db().execute("select name, email from users where id = ?", (expense["reviewed_by"],)).fetchone() if expense["reviewed_by"] else None
+    return render_template(
+        "expense_detail.html",
+        order=order,
+        expense=expense,
+        creator=creator,
+        reviewer=reviewer,
+        attachments=get_expense_attachments(expense_id),
+        labels=EXPENSE_STATUS_LABELS,
+    )
+
+
+@app.post("/expenses/<int:expense_id>/approve")
+@login_required
+def approve_expense(expense_id):
+    expense, order = require_expense(expense_id)
+    if not is_manager():
+        abort(403)
+    if expense["status"] != "submitted":
+        flash("只有待经理审核的报销可以通过。", "error")
+        return redirect(url_for("expense_detail", expense_id=expense_id))
+    db().execute(
+        "update expenses set status = 'approved', return_reason = null, reviewed_by = ?, reviewed_at = ?, updated_at = ? where id = ?",
+        (g.user["id"], now(), now(), expense_id),
+    )
+    create_message(expense["created_by"], "报销已审核通过", f"报销 {expense['expense_number']} 已通过。", url_for("expense_detail", expense_id=expense_id))
+    db().commit()
+    flash("报销已审核通过。", "success")
+    return redirect(url_for("expense_detail", expense_id=expense_id))
+
+
+@app.post("/expenses/<int:expense_id>/return")
+@login_required
+def return_expense(expense_id):
+    expense, order = require_expense(expense_id)
+    if not is_manager():
+        abort(403)
+    if expense["status"] != "submitted":
+        flash("只有待经理审核的报销可以退回。", "error")
+        return redirect(url_for("expense_detail", expense_id=expense_id))
+    reason = request.form.get("return_reason", "").strip()
+    if not reason:
+        flash("请填写退回原因。", "error")
+        return redirect(url_for("expense_detail", expense_id=expense_id))
+    db().execute(
+        "update expenses set status = 'returned', return_reason = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? where id = ?",
+        (reason, g.user["id"], now(), now(), expense_id),
+    )
+    create_message(expense["created_by"], "报销已被退回", f"报销 {expense['expense_number']} 已被退回。原因：{reason}", url_for("expense_detail", expense_id=expense_id))
+    db().commit()
+    flash("报销已退回。", "success")
+    return redirect(url_for("expense_detail", expense_id=expense_id))
+
+
+@app.post("/expenses/<int:expense_id>/delete")
+@login_required
+def delete_expense(expense_id):
+    expense, order = require_expense(expense_id)
+    if expense["created_by"] != g.user["id"] and not is_manager():
+        abort(403)
+    if expense["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或被退回的报销可以删除。", "error")
+        return redirect(url_for("expense_detail", expense_id=expense_id))
+    shutil.rmtree(expense_attachment_dir(expense_id), ignore_errors=True)
+    db().execute("delete from expense_attachments where expense_id = ?", (expense_id,))
+    db().execute("delete from expenses where id = ?", (expense_id,))
+    db().commit()
+    flash("报销已删除。", "success")
+    return redirect(url_for("service_order_detail", order_id=order["id"]))
+
+
+@app.route("/expense-attachments/<int:attachment_id>")
+@login_required
+def preview_expense_attachment(attachment_id):
+    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_expense(attachment["expense_id"])
+    return send_file(
+        expense_attachment_path(attachment),
+        as_attachment=False,
+        download_name=attachment["original_filename"],
+        mimetype=attachment["content_type"] or None,
+        conditional=True,
+    )
+
+
+@app.route("/expense-attachments/<int:attachment_id>/download")
+@login_required
+def download_expense_attachment(attachment_id):
+    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_expense(attachment["expense_id"])
+    return send_file(expense_attachment_path(attachment), as_attachment=True, download_name=attachment["original_filename"])
+
+
+@app.post("/expense-attachments/<int:attachment_id>/delete")
+@login_required
+def delete_expense_attachment(attachment_id):
+    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    expense, order = require_expense(attachment["expense_id"])
+    if expense["status"] not in {"draft", "returned"}:
+        abort(403)
+    try:
+        os.remove(expense_attachment_path(attachment))
+    except FileNotFoundError:
+        pass
+    db().execute("delete from expense_attachments where id = ?", (attachment_id,))
+    db().commit()
+    flash("附件已删除。", "success")
+    return redirect(url_for("edit_expense", expense_id=expense["id"]))
+
+
 @app.route("/invoices/new", methods=["GET", "POST"])
 @login_required
 def new_invoice():
+    if not can_view_invoices():
+        abort(403)
     if is_external_user():
         if not g.user["client_id"]:
             flash("请联系管理员绑定客户。", "error")
@@ -2628,7 +3154,24 @@ def get_metrics():
             paid += float(row["payment_amount"] or total)
         else:
             unpaid += total
-    return {"invoice_count": invoice_count, "completed": completed, "paid": paid, "unpaid": unpaid, "total": completed}
+    expense_rows = db().execute(
+        """
+        select status, amount
+        from expenses
+        where status in ('approved', 'submitted', 'returned')
+        """
+    ).fetchall()
+    approved_expenses = sum(float(row["amount"] or 0) for row in expense_rows if row["status"] == "approved")
+    pending_expenses = sum(float(row["amount"] or 0) for row in expense_rows if row["status"] != "approved")
+    return {
+        "invoice_count": invoice_count,
+        "completed": completed,
+        "paid": paid,
+        "unpaid": unpaid,
+        "total": completed,
+        "approved_expenses": approved_expenses,
+        "pending_expenses": pending_expenses,
+    }
 
 
 def monthly_chart():

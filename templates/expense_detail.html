@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ expense.expense_number }} - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Expense</p>
+      <h1>{{ expense.expense_number }} <span class="status {{ expense.status }}">{{ labels[expense.status] }}</span></h1>
+      <p class="muted-line"><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a> · {{ order.client_name }}</p>
+    </div>
+    <div class="actions">
+      {% if expense.status in ["draft", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
+        <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_expense', expense_id=expense.id) }}'">编辑</button>
+        <form method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}" onsubmit="return confirm('确定删除这张报销单吗？');"><button class="danger" type="submit">删除</button></form>
+      {% endif %}
+      {% if expense.status == "submitted" and normalized_role() in ["admin", "manager"] %}
+        <form method="post" action="{{ url_for('approve_expense', expense_id=expense.id) }}"><button class="primary" type="submit">审核通过</button></form>
+        <button class="danger" type="button" onclick="document.querySelector('#returnExpenseDialog').showModal()">退回</button>
+      {% endif %}
+    </div>
+  </header>
+  {% if expense.status == "submitted" and normalized_role() in ["admin", "manager"] %}
+    <dialog id="returnExpenseDialog" class="modal">
+      <form method="post" action="{{ url_for('return_expense', expense_id=expense.id) }}" class="form-stack">
+        <h2>退回报销</h2>
+        <label>退回原因 <textarea name="return_reason" rows="5" required></textarea></label>
+        <div class="form-actions">
+          <button type="button" onclick="document.querySelector('#returnExpenseDialog').close()">取消</button>
+          <button class="danger" type="submit">确认退回</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+  <section class="panel">
+    <div class="detail-grid">
+      <p><strong>项目</strong><span>{{ expense.project }}</span></p>
+      <p><strong>费用</strong><span>{{ expense.amount|money(expense.currency) }}</span></p>
+      <p><strong>费用日期</strong><span>{{ expense.expense_date }}</span></p>
+      <p><strong>提交人</strong><span>{{ creator.name if creator else "Unknown" }}</span></p>
+      <p><strong>审核人</strong><span>{{ reviewer.name if reviewer else "-" }}</span></p>
+      <p><strong>审核时间</strong><span>{{ expense.reviewed_at|local_datetime if expense.reviewed_at else "-" }}</span></p>
+      <p class="full-span"><strong>说明</strong><span>{{ expense.description or "-" }}</span></p>
+      {% if expense.return_reason %}
+        <p class="full-span"><strong>退回原因</strong><span>{{ expense.return_reason }}</span></p>
+      {% endif %}
+    </div>
+  </section>
+  <section class="panel">
+    <h2>附件</h2>
+    <table class="list-table">
+      <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for attachment in attachments %}
+          <tr>
+            <td><a href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a></td>
+            <td>{{ attachment.uploader_name or "Unknown" }}</td>
+            <td>{{ attachment.uploaded_at[:10] }}</td>
+            <td><button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">还没有附件。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
