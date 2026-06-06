@@ -25,7 +25,12 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from docx import Document
-from docx.shared import Inches
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
+from PIL import Image, ImageOps
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -790,15 +795,30 @@ def save_report_attachment(report_id, uploaded, category):
     source_filename = uploaded.filename or "photo"
     extension = source_filename.rsplit(".", 1)[1].lower()
     original_filename = os.path.basename(source_filename).strip() or f"photo.{extension}"
-    stored_filename = f"{secrets.token_hex(12)}.{extension}"
-    uploaded.save(os.path.join(report_attachment_dir(report_id), stored_filename))
+    stored_filename = f"{secrets.token_hex(12)}.jpg"
+    target_path = os.path.join(report_attachment_dir(report_id), stored_filename)
+    with Image.open(uploaded.stream) as source:
+        source.seek(0)
+        image = ImageOps.exif_transpose(source)
+        if image.mode not in {"RGB", "L"}:
+            background = Image.new("RGB", image.size, "white")
+            if "A" in image.getbands():
+                background.paste(image, mask=image.getchannel("A"))
+            else:
+                background.paste(image.convert("RGB"))
+            image = background
+        else:
+            image = image.convert("RGB")
+        image.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
+        image.save(target_path, format="JPEG", quality=78, optimize=True, progressive=True)
+    content_type = "image/jpeg"
     db().execute(
         """
         insert into service_report_attachments (
             report_id, category, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
         ) values (?, ?, ?, ?, ?, ?, ?)
         """,
-        (report_id, category, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+        (report_id, category, original_filename, stored_filename, content_type, g.user["id"], now()),
     )
 
 
@@ -1967,6 +1987,23 @@ def edit_service_report(report_id):
     )
 
 
+@app.post("/service-reports/<int:report_id>/delete")
+@login_required
+def delete_service_report(report_id):
+    report, order = require_service_report(report_id)
+    if report["created_by"] != g.user["id"] and not is_manager():
+        abort(403)
+    shutil.rmtree(os.path.join(REPORT_ATTACHMENTS_DIR, str(report_id)), ignore_errors=True)
+    db().execute("delete from service_report_attachments where report_id = ?", (report_id,))
+    db().execute("delete from service_report_workers where report_id = ?", (report_id,))
+    db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
+    db().execute("delete from service_report_replaced_parts where report_id = ?", (report_id,))
+    db().execute("delete from service_reports where id = ?", (report_id,))
+    db().commit()
+    flash("工作日报已删除。", "success")
+    return redirect(url_for("service_order_detail", order_id=order["id"]))
+
+
 @app.route("/service-report-attachments/<int:attachment_id>")
 @login_required
 def preview_report_attachment(attachment_id):
@@ -2005,7 +2042,7 @@ def delete_report_attachment(attachment_id):
 def export_service_report(report_id):
     report, order = require_service_report(report_id)
     document_bytes = build_service_report_docx(report, order)
-    filename = secure_filename(f"{order['order_number']}-{report['report_date']}-report.docx") or "service-report.docx"
+    filename = secure_filename(f"{order['client_order_number']}-{report['report_date']}-report.docx") or "service-report.docx"
     return send_file(
         BytesIO(document_bytes),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -2967,84 +3004,205 @@ def render_invoice_pdf(invoice, client, items):
 
 def build_service_report_docx(report, order):
     document = Document()
-    document.add_heading("Service Daily Report", 0)
-    document.add_paragraph(f"Service Order: {order['order_number']}")
-    document.add_paragraph(f"Client: {order['client_name']}")
-    document.add_paragraph(f"Client Service Order No.: {order['client_order_number']}")
-    document.add_paragraph(f"Site Address: {order['site_address']}")
-    document.add_paragraph(f"Report Date: {report['report_date']}")
+    section = document.sections[0]
+    section.page_width = Inches(8.5)
+    section.page_height = Inches(11)
+    section.top_margin = Inches(0.55)
+    section.right_margin = Inches(0.65)
+    section.bottom_margin = Inches(0.5)
+    section.left_margin = Inches(0.65)
+
+    normal_style = document.styles["Normal"]
+    normal_style.font.name = "Microsoft YaHei"
+    normal_style._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
+    normal_style.font.size = Pt(9)
+    normal_style.paragraph_format.space_after = Pt(2)
+
+    def format_run(run, size=9, bold=False, color=None):
+        run.font.name = "Microsoft YaHei"
+        run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
+        run.font.size = Pt(size)
+        run.bold = bold
+        if color:
+            run.font.color.rgb = RGBColor(*color)
+
+    def set_cell_shading(cell, fill):
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shading = tc_pr.find(qn("w:shd"))
+        if shading is None:
+            shading = OxmlElement("w:shd")
+            tc_pr.append(shading)
+        shading.set(qn("w:fill"), fill)
+
+    def set_cell_text(cell, text, bold=False, align=WD_ALIGN_PARAGRAPH.LEFT, size=8.5):
+        cell.text = ""
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = align
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.space_before = Pt(0)
+        run = paragraph.add_run("" if text is None else str(text))
+        format_run(run, size=size, bold=bold)
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
+    def style_table(table, header_rows=0, column_widths=None):
+        table.style = "Table Grid"
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.autofit = False
+        if column_widths:
+            for row in table.rows:
+                for index, width in enumerate(column_widths):
+                    row.cells[index].width = Inches(width)
+        for row_index, row in enumerate(table.rows):
+            for cell in row.cells:
+                cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+                if row_index < header_rows:
+                    set_cell_shading(cell, "D9EAD3")
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.bold = True
+
+    def add_section_title(title):
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_before = Pt(5)
+        paragraph.paragraph_format.space_after = Pt(3)
+        run = paragraph.add_run(title)
+        format_run(run, size=10, bold=True, color=(15, 118, 110))
+
+    title = document.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_after = Pt(8)
+    format_run(title.add_run("现场服务日报"), size=18, bold=True)
+
+    for label, value in (
+        ("客户名称", order["client_name"]),
+        ("服务现场地址", order["site_address"]),
+        ("服务订单号码", order["client_order_number"]),
+    ):
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(2)
+        format_run(paragraph.add_run(f"{label}："), bold=True)
+        format_run(paragraph.add_run(str(value or "")))
 
     workers = service_report_workers(report["id"])
-    document.add_heading("Service Summary", level=1)
-    summary = document.add_table(rows=0, cols=2)
-    for label, value in (
-        ("Service Personnel", ", ".join(row["name"] for row in workers)),
-        ("Total Service Hours", report["total_service_hours"]),
-        ("Travel Hours", report["travel_hours"]),
-        ("Public Transport Hours", report["public_transport_hours"]),
-        ("Driving Miles", report["driving_miles"]),
-        ("Departure Address", report["departure_address"]),
-        ("Site Address", report["site_address"]),
-        ("Total Time", report["total_time"]),
-        ("Cabinet Number", report["cabinet_number"]),
-        ("Arrival Time", report["arrival_time"]),
-        ("Departure Time", report["departure_time"]),
-    ):
-        row = summary.add_row().cells
-        row[0].text = str(label)
-        row[1].text = "" if value is None else str(value)
+    add_section_title("现场服务人员")
+    worker_rows = max(len(workers), 2)
+    worker_table = document.add_table(rows=worker_rows + 1, cols=2)
+    set_cell_text(worker_table.rows[0].cells[0], "姓名", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+    set_cell_text(worker_table.rows[0].cells[1], "公司", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+    for index in range(worker_rows):
+        worker = workers[index] if index < len(workers) else None
+        set_cell_text(worker_table.rows[index + 1].cells[0], worker["name"] if worker else "")
+        set_cell_text(worker_table.rows[index + 1].cells[1], "Prasinos Power LLC" if worker else "")
+    style_table(worker_table, header_rows=1, column_widths=[3.5, 3.5])
 
-    document.add_heading("On-site Service Description", level=1)
-    document.add_paragraph(report["service_description"] or "")
+    summary = document.add_table(rows=2, cols=3)
+    labels = ["报告日期", "总计服务工时（小时）", "交通时长（小时）"]
+    values = [report["report_date"], report["total_service_hours"], report["travel_hours"]]
+    for index, label in enumerate(labels):
+        set_cell_text(summary.rows[0].cells[index], label, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+        set_cell_text(summary.rows[1].cells[index], values[index], align=WD_ALIGN_PARAGRAPH.CENTER)
+    style_table(summary, header_rows=1, column_widths=[2.35, 2.35, 2.3])
 
-    def add_parts_table(title, headers, rows):
-        document.add_heading(title, level=1)
-        table = document.add_table(rows=1, cols=len(headers))
+    add_section_title("现场服务描述")
+    description_table = document.add_table(rows=2, cols=1)
+    set_cell_text(description_table.rows[0].cells[0], report["service_description"] or "")
+    description_table.rows[0].cells[0].paragraphs[0].paragraph_format.space_after = Pt(20)
+    set_cell_text(description_table.rows[1].cells[0], f"机柜编号：{report['cabinet_number'] or ''}", bold=True)
+    style_table(description_table, column_widths=[7.0])
+
+    add_section_title("公共交通时长及自驾车里程细节")
+    travel_table = document.add_table(rows=3, cols=2)
+    travel_table.rows[0].cells[0].merge(travel_table.rows[0].cells[1])
+    set_cell_text(
+        travel_table.rows[0].cells[0],
+        f"公共交通时长：{report['public_transport_hours'] or 0} 小时    自驾里程总计：{report['driving_miles'] or 0} 公里",
+        bold=True,
+    )
+    set_cell_text(travel_table.rows[1].cells[0], f"出发地址：{report['departure_address'] or ''}")
+    set_cell_text(travel_table.rows[1].cells[1], f"场地地址：{report['site_address'] or order['site_address'] or ''}")
+    travel_table.rows[2].cells[0].merge(travel_table.rows[2].cells[1])
+    set_cell_text(travel_table.rows[2].cells[0], f"合计用时：{report['total_time'] or ''}")
+    style_table(travel_table, column_widths=[3.5, 3.5])
+
+    def add_parts_table(title_text, headers, keys, rows, minimum_rows=4):
+        add_section_title(title_text)
+        table_rows = list(rows)
+        while len(table_rows) < minimum_rows:
+            table_rows.append(None)
+        table = document.add_table(rows=len(table_rows) + 2, cols=len(headers))
+        title_cell = table.rows[0].cells[0]
+        for index in range(1, len(headers)):
+            title_cell = title_cell.merge(table.rows[0].cells[index])
+        set_cell_text(table.rows[0].cells[0], title_text, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+        set_cell_shading(table.rows[0].cells[0], "B6D7A8")
         for index, header in enumerate(headers):
-            table.rows[0].cells[index].text = header
-        for part in rows:
-            row = table.add_row().cells
-            for index, key in enumerate(headers.values()):
-                row[index].text = "" if part[key] is None else str(part[key])
+            set_cell_text(table.rows[1].cells[index], header, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, size=8)
+        for row_index, part in enumerate(table_rows, start=2):
+            for column_index, key in enumerate(keys):
+                set_cell_text(table.rows[row_index].cells[column_index], part[key] if part else "", align=WD_ALIGN_PARAGRAPH.CENTER, size=8)
+        widths = [7.0 / len(headers)] * len(headers)
+        style_table(table, header_rows=2, column_widths=widths)
 
     add_parts_table(
-        "Saved Parts",
-        {"Part No.": "part_number", "Part Name": "part_name", "Quantity": "quantity", "Status": "status"},
+        "保存的配件",
+        ["零件号", "零件名称", "数量", "状态（新/报废）"],
+        ["part_number", "part_name", "quantity", "status"],
         report_parts("service_report_saved_parts", report["id"]),
     )
     add_parts_table(
-        "Replaced Parts",
-        {
-            "Part No.": "part_number",
-            "Part Name": "part_name",
-            "Old Serial No.": "old_serial_number",
-            "New Serial No.": "new_serial_number",
-            "Quantity": "quantity",
-        },
+        "现场更换的配件",
+        ["零件号", "零件名称", "旧配件序列号", "新配件序列号", "数量"],
+        ["part_number", "part_name", "old_serial_number", "new_serial_number", "quantity"],
         report_parts("service_report_replaced_parts", report["id"]),
     )
 
+    add_section_title("现场时间")
+    time_table = document.add_table(rows=2, cols=2)
+    set_cell_text(time_table.rows[0].cells[0], "到达现场时间", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+    set_cell_text(time_table.rows[0].cells[1], "离开现场时间", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+    set_cell_text(time_table.rows[1].cells[0], report["arrival_time"] or "", align=WD_ALIGN_PARAGRAPH.CENTER)
+    set_cell_text(time_table.rows[1].cells[1], report["departure_time"] or "", align=WD_ALIGN_PARAGRAPH.CENTER)
+    style_table(time_table, header_rows=1, column_widths=[3.5, 3.5])
+
     attachment_groups = get_report_attachments(report["id"])
-    labels = {
-        "arrival": "Arrival Time Photos",
-        "departure": "Departure Time Photos",
-        "self_check": "Self-check Photos",
-        "site": "On-site Service Photos",
+    photo_labels = {
+        "arrival": "到达现场时间照片",
+        "departure": "离开现场时间照片",
+        "self_check": "自检照片",
+        "site": "现场服务照片",
     }
-    for category, title in labels.items():
+    for category, section_title in photo_labels.items():
         photos = attachment_groups.get(category, [])
         if not photos:
             continue
-        document.add_heading(title, level=1)
-        for attachment in photos:
+        add_section_title(section_title)
+        photo_table = document.add_table(rows=(len(photos) + 1) // 2, cols=2)
+        photo_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        photo_table.autofit = False
+        for index, attachment in enumerate(photos):
+            cell = photo_table.rows[index // 2].cells[index % 2]
             path = report_attachment_path(attachment)
             if not os.path.exists(path):
                 continue
-            document.add_paragraph(attachment["original_filename"])
+            paragraph = cell.paragraphs[0]
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             try:
-                document.add_picture(path, width=Inches(3.2))
+                run = paragraph.add_run()
+                run.add_picture(path, width=Inches(3.15))
             except Exception:
-                document.add_paragraph("[Image could not be embedded]")
+                format_run(paragraph.add_run("图片无法嵌入"), size=8)
+            caption = cell.add_paragraph(attachment["original_filename"])
+            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in caption.runs:
+                format_run(run, size=7)
+
+    document.add_paragraph()
+    sign_table = document.add_table(rows=2, cols=2)
+    set_cell_text(sign_table.rows[0].cells[0], "报告人签字：")
+    set_cell_text(sign_table.rows[0].cells[1], "现场服务人员：")
+    set_cell_text(sign_table.rows[1].cells[0], f"报告时间：{report['report_date'] or ''}")
+    set_cell_text(sign_table.rows[1].cells[1], "公司：Prasinos Power LLC")
+    style_table(sign_table, column_widths=[3.5, 3.5])
 
     buffer = BytesIO()
     document.save(buffer)

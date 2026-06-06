@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Daily Report</p>
       <h1>工作日报</h1>
-      <p class="muted-line">{{ order.order_number }} · {{ order.client_name }}</p>
+      <p class="muted-line">{{ order.client_name }} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>

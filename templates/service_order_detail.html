@@ -47,6 +47,11 @@
                 <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
                   <button class="small" type="submit">导出 Word</button>
                 </form>
+                {% if report.created_by == g.user.id or normalized_role() in ["admin", "manager"] %}
+                  <form method="post" action="{{ url_for('delete_service_report', report_id=report.id) }}" onsubmit="return confirm('确定删除这份工作日报吗？照片和配件记录也会一起删除。');">
+                    <button class="danger small" type="submit">删除</button>
+                  </form>
+                {% endif %}
               </div>
             </td>
           </tr>
