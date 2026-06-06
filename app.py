@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
 from io import BytesIO
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import (
@@ -15,6 +16,7 @@ from flask import (
     abort,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -31,6 +33,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -44,8 +47,17 @@ DB_PATH = os.path.join(DATA_DIR, "invoices.db")
 ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
 REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
 EXPENSE_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "expense-attachments")
+SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
-ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
+REPORT_PHOTO_FOLDERS = {
+    "arrival": "现场到达时间照片",
+    "departure": "离开现场时间照片",
+    "self_check": "自检照片",
+    "site": "现场服务照片",
+}
+
+register_heif_opener()
 ALLOWED_ATTACHMENT_LABEL = "Word、Excel、PDF、PNG、JPG、JPEG、WEBP、GIF"
 
 DEFAULT_COMPANY_PROFILE = {
@@ -778,33 +790,90 @@ def allowed_image(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
 
-def report_attachment_dir(report_id):
-    path = os.path.join(REPORT_ATTACHMENTS_DIR, str(report_id))
+def report_storage_context(report_id):
+    row = db().execute(
+        """
+        select service_reports.report_date, service_orders.order_number
+        from service_reports
+        join service_orders on service_orders.id = service_reports.service_order_id
+        where service_reports.id = ?
+        """,
+        (report_id,),
+    ).fetchone()
+    if not row:
+        abort(404)
+    order_number = secure_filename(row["order_number"]) or f"SO-{report_id}"
+    try:
+        report_date = datetime.strptime(row["report_date"], "%Y-%m-%d").strftime("%Y%m%d")
+    except (TypeError, ValueError):
+        report_date = str(row["report_date"] or "").replace("-", "") or "unknown-date"
+    return order_number, report_date
+
+
+def report_attachment_relative_path(report_id, category, stored_filename):
+    order_number, report_date = report_storage_context(report_id)
+    category_folder = REPORT_PHOTO_FOLDERS.get(category)
+    if not category_folder:
+        raise ValueError("未知的日报照片类别。")
+    return Path(order_number, report_date, category_folder, os.path.basename(stored_filename)).as_posix()
+
+
+def report_attachment_dir(report_id, category):
+    relative = report_attachment_relative_path(report_id, category, "placeholder.jpg")
+    path = os.path.join(REPORT_ATTACHMENTS_DIR, os.path.dirname(relative))
     os.makedirs(path, exist_ok=True)
     return path
 
 
 def report_attachment_path(attachment):
-    return os.path.join(REPORT_ATTACHMENTS_DIR, str(attachment["report_id"]), attachment["stored_filename"])
+    stored_filename = str(attachment["stored_filename"])
+    stored_path = Path(stored_filename)
+    if len(stored_path.parts) > 1:
+        return os.path.join(REPORT_ATTACHMENTS_DIR, *stored_path.parts)
+    return os.path.join(REPORT_ATTACHMENTS_DIR, str(attachment["report_id"]), stored_filename)
+
+
+def prune_empty_report_folders(path):
+    root = Path(REPORT_ATTACHMENTS_DIR).resolve()
+    current = Path(path).resolve().parent
+    while current != root:
+        try:
+            current.relative_to(root)
+            current.rmdir()
+        except (OSError, ValueError):
+            break
+        current = current.parent
+
+
+def relocate_report_attachments(report_id):
+    attachments = db().execute(
+        "select * from service_report_attachments where report_id = ?",
+        (report_id,),
+    ).fetchall()
+    for attachment in attachments:
+        old_path = report_attachment_path(attachment)
+        stored_filename = os.path.basename(attachment["stored_filename"])
+        relative_path = report_attachment_relative_path(report_id, attachment["category"], stored_filename)
+        new_path = os.path.join(REPORT_ATTACHMENTS_DIR, *Path(relative_path).parts)
+        if os.path.normcase(os.path.abspath(old_path)) != os.path.normcase(os.path.abspath(new_path)):
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+            if os.path.isfile(old_path):
+                shutil.move(old_path, new_path)
+                prune_empty_report_folders(old_path)
+            db().execute(
+                "update service_report_attachments set stored_filename = ? where id = ?",
+                (relative_path, attachment["id"]),
+            )
 
 
 def uploaded_report_files(field_name):
     return [file for file in request.files.getlist(field_name) if file and file.filename]
 
 
-def save_report_attachment(report_id, uploaded, category):
-    if not uploaded or not uploaded.filename:
-        return
-    if not allowed_image(uploaded.filename):
-        raise ValueError("日报照片仅支持 PNG、JPG、JPEG、WEBP、GIF。")
-    source_filename = uploaded.filename or "photo"
-    extension = source_filename.rsplit(".", 1)[1].lower()
-    original_filename = os.path.basename(source_filename).strip() or f"photo.{extension}"
-    stored_filename = f"{secrets.token_hex(12)}.jpg"
-    target_path = os.path.join(report_attachment_dir(report_id), stored_filename)
-    with Image.open(uploaded.stream) as source:
-        source.seek(0)
-        image = ImageOps.exif_transpose(source)
+def compress_report_image(source, target_path):
+    with Image.open(source) as source_image:
+        source_image.seek(0)
+        image = ImageOps.exif_transpose(source_image)
         if image.mode not in {"RGB", "L"}:
             background = Image.new("RGB", image.size, "white")
             if "A" in image.getbands():
@@ -816,6 +885,20 @@ def save_report_attachment(report_id, uploaded, category):
             image = image.convert("RGB")
         image.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
         image.save(target_path, format="JPEG", quality=78, optimize=True, progressive=True)
+
+
+def save_report_attachment(report_id, uploaded, category):
+    if not uploaded or not uploaded.filename:
+        return
+    if not allowed_image(uploaded.filename):
+        raise ValueError("日报照片仅支持 PNG、JPG、JPEG、WEBP、GIF。")
+    source_filename = uploaded.filename or "photo"
+    extension = source_filename.rsplit(".", 1)[1].lower()
+    original_filename = os.path.basename(source_filename).strip() or f"photo.{extension}"
+    image_filename = f"{secrets.token_hex(12)}.jpg"
+    stored_filename = report_attachment_relative_path(report_id, category, image_filename)
+    target_path = os.path.join(report_attachment_dir(report_id, category), image_filename)
+    compress_report_image(uploaded.stream, target_path)
     content_type = "image/jpeg"
     db().execute(
         """
@@ -824,6 +907,44 @@ def save_report_attachment(report_id, uploaded, category):
         ) values (?, ?, ?, ?, ?, ?, ?)
         """,
         (report_id, category, original_filename, stored_filename, content_type, g.user["id"], now()),
+    )
+
+
+def shared_photos_root():
+    return Path(SHARED_PHOTOS_DIR).resolve()
+
+
+def resolve_shared_photo(relative_path="", require_file=False):
+    root = shared_photos_root()
+    candidate = (root / str(relative_path or "")).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        abort(403)
+    if require_file:
+        if not candidate.is_file() or candidate.suffix.lower().lstrip(".") not in ALLOWED_IMAGE_EXTENSIONS:
+            abort(404)
+    elif not candidate.is_dir():
+        abort(404)
+    return candidate
+
+
+def shared_photo_relative(path):
+    return path.resolve().relative_to(shared_photos_root()).as_posix()
+
+
+def save_shared_report_photo(report_id, relative_path, category):
+    source_path = resolve_shared_photo(relative_path, require_file=True)
+    image_filename = f"{secrets.token_hex(12)}.jpg"
+    stored_filename = report_attachment_relative_path(report_id, category, image_filename)
+    compress_report_image(source_path, os.path.join(report_attachment_dir(report_id, category), image_filename))
+    db().execute(
+        """
+        insert into service_report_attachments (
+            report_id, category, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, 'image/jpeg', ?, ?)
+        """,
+        (report_id, category, source_path.name, stored_filename, g.user["id"], now()),
     )
 
 
@@ -836,6 +957,8 @@ def save_report_uploads(report_id):
     ):
         for uploaded in uploaded_report_files(field_name):
             save_report_attachment(report_id, uploaded, category)
+        for relative_path in request.form.getlist(f"shared_photo_{category}"):
+            save_shared_report_photo(report_id, relative_path, category)
 
 
 def get_report_attachments(report_id):
@@ -1988,6 +2111,7 @@ def edit_service_report(report_id):
                 ),
             )
             save_report_detail_rows(report_id)
+            relocate_report_attachments(report_id)
             save_report_uploads(report_id)
             db().commit()
         except ValueError as error:
@@ -2018,6 +2142,17 @@ def delete_service_report(report_id):
     report, order = require_service_report(report_id)
     if report["created_by"] != g.user["id"] and not is_manager():
         abort(403)
+    attachments = db().execute(
+        "select * from service_report_attachments where report_id = ?",
+        (report_id,),
+    ).fetchall()
+    for attachment in attachments:
+        attachment_path = report_attachment_path(attachment)
+        try:
+            os.remove(attachment_path)
+            prune_empty_report_folders(attachment_path)
+        except FileNotFoundError:
+            pass
     shutil.rmtree(os.path.join(REPORT_ATTACHMENTS_DIR, str(report_id)), ignore_errors=True)
     db().execute("delete from service_report_attachments where report_id = ?", (report_id,))
     db().execute("delete from service_report_workers where report_id = ?", (report_id,))
@@ -2027,6 +2162,77 @@ def delete_service_report(report_id):
     db().commit()
     flash("工作日报已删除。", "success")
     return redirect(url_for("service_order_detail", order_id=order["id"]))
+
+
+@app.route("/shared-photos/browse")
+@login_required
+def browse_shared_photos():
+    if not is_internal_user():
+        abort(403)
+    if not shared_photos_root().is_dir():
+        return jsonify({"available": False, "current": "", "parent": None, "folders": [], "images": []})
+    current = resolve_shared_photo(request.args.get("path", ""))
+    folders = []
+    images = []
+    try:
+        entries = sorted(current.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold()))
+    except OSError:
+        abort(403)
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        relative = shared_photo_relative(entry)
+        if entry.is_dir():
+            folders.append({"name": entry.name, "path": relative})
+        elif entry.is_file() and entry.suffix.lower().lstrip(".") in ALLOWED_IMAGE_EXTENSIONS:
+            images.append(
+                {
+                    "name": entry.name,
+                    "path": relative,
+                    "thumbnail": url_for("shared_photo_thumbnail", path=relative),
+                }
+            )
+    current_relative = shared_photo_relative(current)
+    parent = None
+    if current != shared_photos_root():
+        parent = shared_photo_relative(current.parent)
+    return jsonify(
+        {
+            "available": True,
+            "current": current_relative,
+            "parent": parent,
+            "folders": folders,
+            "images": images,
+        }
+    )
+
+
+@app.route("/shared-photos/thumbnail")
+@login_required
+def shared_photo_thumbnail():
+    if not is_internal_user():
+        abort(403)
+    source_path = resolve_shared_photo(request.args.get("path", ""), require_file=True)
+    buffer = BytesIO()
+    try:
+        with Image.open(source_path) as source:
+            source.seek(0)
+            image = ImageOps.exif_transpose(source)
+            if image.mode not in {"RGB", "L"}:
+                background = Image.new("RGB", image.size, "white")
+                if "A" in image.getbands():
+                    background.paste(image, mask=image.getchannel("A"))
+                else:
+                    background.paste(image.convert("RGB"))
+                image = background
+            else:
+                image = image.convert("RGB")
+            image.thumbnail((420, 320), Image.Resampling.LANCZOS)
+            image.save(buffer, format="JPEG", quality=70, optimize=True)
+    except (OSError, ValueError):
+        abort(404)
+    buffer.seek(0)
+    return send_file(buffer, mimetype="image/jpeg", max_age=3600)
 
 
 @app.route("/service-report-attachments/<int:attachment_id>")
@@ -2053,7 +2259,9 @@ def delete_report_attachment(attachment_id):
         abort(404)
     report, order = require_service_report(attachment["report_id"])
     try:
-        os.remove(report_attachment_path(attachment))
+        attachment_path = report_attachment_path(attachment)
+        os.remove(attachment_path)
+        prune_empty_report_folders(attachment_path)
     except FileNotFoundError:
         pass
     db().execute("delete from service_report_attachments where id = ?", (attachment_id,))

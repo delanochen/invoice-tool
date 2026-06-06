@@ -9,5 +9,7 @@ services:
       SECRET_KEY: "change-this-long-random-secret"
       ADMIN_EMAIL: "delanochen@gmail.com"
       ADMIN_PASSWORD: "1qaz@WSX"
+      SHARED_PHOTOS_DIR: "/app/shared-photos"
     volumes:
       - ./data:/app/data
+      - "/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures:/app/shared-photos:ro"
