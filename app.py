@@ -169,6 +169,7 @@ def init_db():
             create table if not exists projects (
                 id integer primary key autoincrement,
                 name text not null,
+                project_type text not null default 'invoice',
                 default_amount real not null default 0,
                 tax_rate real not null default 0,
                 is_active integer not null default 1,
@@ -316,6 +317,7 @@ def init_db():
                 id integer primary key autoincrement,
                 service_order_id integer not null,
                 expense_number text not null unique,
+                project_id integer,
                 project text not null,
                 expense_date text not null,
                 amount real not null default 0,
@@ -329,6 +331,7 @@ def init_db():
                 created_at text not null,
                 updated_at text not null,
                 foreign key(service_order_id) references service_orders(id) on delete cascade,
+                foreign key(project_id) references projects(id),
                 foreign key(created_by) references users(id),
                 foreign key(reviewed_by) references users(id)
             );
@@ -347,6 +350,8 @@ def init_db():
             """
         )
         ensure_column(connection, "invoices", "service_order_id", "integer")
+        ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
+        ensure_column(connection, "expenses", "project_id", "integer")
         seed_settings(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
         admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
@@ -1276,15 +1281,19 @@ def projects():
     if not is_manager():
         abort(403)
     if request.method == "POST":
+        project_type = request.form.get("project_type", "invoice")
+        if project_type not in {"invoice", "expense"}:
+            project_type = "invoice"
         db().execute(
             """
-            insert into projects (name, default_amount, tax_rate, is_active, created_at)
-            values (?, ?, ?, ?, ?)
+            insert into projects (name, project_type, default_amount, tax_rate, is_active, created_at)
+            values (?, ?, ?, ?, ?, ?)
             """,
             (
                 request.form.get("name", "").strip(),
-                to_float(request.form.get("default_amount")),
-                to_float(request.form.get("tax_rate")),
+                project_type,
+                to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
+                to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
                 1 if request.form.get("is_active", "1") == "1" else 0,
                 now(),
             ),
@@ -1305,15 +1314,30 @@ def edit_project(project_id):
     if not project:
         abort(404)
     if request.method == "POST":
+        project_type = request.form.get("project_type", "invoice")
+        if project_type not in {"invoice", "expense"}:
+            project_type = "invoice"
+        invoice_used = db().execute(
+            "select count(*) as count from invoice_items where project_id = ?",
+            (project_id,),
+        ).fetchone()["count"]
+        expense_used = db().execute(
+            "select count(*) as count from expenses where project_id = ?",
+            (project_id,),
+        ).fetchone()["count"]
+        if project_type != project["project_type"] and (invoice_used or expense_used):
+            flash("已被发票或报销使用的项目不能切换类型，可以新建另一个项目。", "error")
+            return redirect(url_for("edit_project", project_id=project_id))
         db().execute(
             """
-            update projects set name = ?, default_amount = ?, tax_rate = ?, is_active = ?
+            update projects set name = ?, project_type = ?, default_amount = ?, tax_rate = ?, is_active = ?
             where id = ?
             """,
             (
                 request.form.get("name", "").strip(),
-                to_float(request.form.get("default_amount")),
-                to_float(request.form.get("tax_rate")),
+                project_type,
+                to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
+                to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
                 1 if request.form.get("is_active", "1") == "1" else 0,
                 project_id,
             ),
@@ -1329,9 +1353,10 @@ def edit_project(project_id):
 def delete_project(project_id):
     if not is_manager():
         abort(403)
-    used = db().execute("select count(*) as count from invoice_items where project_id = ?", (project_id,)).fetchone()["count"]
-    if used:
-        flash("这个项目已有发票记录，不能删除。可以停用该项目。", "error")
+    invoice_used = db().execute("select count(*) as count from invoice_items where project_id = ?", (project_id,)).fetchone()["count"]
+    expense_used = db().execute("select count(*) as count from expenses where project_id = ?", (project_id,)).fetchone()["count"]
+    if invoice_used or expense_used:
+        flash("这个项目已有发票或报销记录，不能删除。可以停用该项目。", "error")
         return redirect(url_for("projects"))
     db().execute("delete from projects where id = ?", (project_id,))
     db().commit()
@@ -2056,6 +2081,7 @@ def expense_defaults(expense=None):
         return dict(expense)
     return {
         "expense_number": next_expense_number(),
+        "project_id": None,
         "project": "",
         "expense_date": date.today().isoformat(),
         "amount": "",
@@ -2065,24 +2091,46 @@ def expense_defaults(expense=None):
     }
 
 
+def posted_expense_project():
+    try:
+        project_id = int(request.form.get("project_id"))
+    except (TypeError, ValueError):
+        raise ValueError("请选择报销项目。")
+    project = db().execute(
+        "select * from projects where id = ? and project_type = 'expense' and is_active = 1",
+        (project_id,),
+    ).fetchone()
+    if not project:
+        raise ValueError("选择的报销项目不存在或已停用。")
+    return project
+
+
 @app.route("/service-orders/<int:order_id>/expenses/new", methods=["GET", "POST"])
 @login_required
 def new_expense(order_id):
     order = require_service_order(order_id)
+    expense_projects = db().execute(
+        "select * from projects where project_type = 'expense' and is_active = 1 order by name"
+    ).fetchall()
+    if not expense_projects:
+        flash("请先由经理或管理员创建报销项目。", "error")
+        return redirect(url_for("projects") if is_manager() else url_for("service_order_detail", order_id=order_id))
     if request.method == "POST":
         submit_for_review = request.form.get("action") == "submit"
         try:
+            project = posted_expense_project()
             cursor = db().execute(
                 """
                 insert into expenses (
-                    service_order_id, expense_number, project, expense_date, amount, currency,
+                    service_order_id, expense_number, project_id, project, expense_date, amount, currency,
                     description, status, created_by, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
                     next_expense_number(),
-                    request.form.get("project", "").strip(),
+                    project["id"],
+                    project["name"],
                     request.form.get("expense_date"),
                     to_float(request.form.get("amount")),
                     request.form.get("currency", "USD"),
@@ -2107,7 +2155,14 @@ def new_expense(order_id):
             return redirect(url_for("expense_detail", expense_id=expense_id))
         flash("报销已保存。", "success")
         return redirect(url_for("edit_expense", expense_id=expense_id))
-    return render_template("expense_form.html", order=order, expense=expense_defaults(), is_edit=False, attachments=[])
+    return render_template(
+        "expense_form.html",
+        order=order,
+        expense=expense_defaults(),
+        expense_projects=expense_projects,
+        is_edit=False,
+        attachments=[],
+    )
 
 
 @app.route("/expenses/<int:expense_id>/edit", methods=["GET", "POST"])
@@ -2119,18 +2174,28 @@ def edit_expense(expense_id):
         return redirect(url_for("expense_detail", expense_id=expense_id))
     if expense["created_by"] != g.user["id"] and not is_manager():
         abort(403)
+    expense_projects = db().execute(
+        """
+        select * from projects
+        where project_type = 'expense' and (is_active = 1 or id = ?)
+        order by is_active desc, name
+        """,
+        (expense["project_id"] or 0,),
+    ).fetchall()
     if request.method == "POST":
         submit_for_review = request.form.get("action") == "submit"
         try:
+            project = posted_expense_project()
             db().execute(
                 """
                 update expenses
-                set project = ?, expense_date = ?, amount = ?, currency = ?, description = ?,
+                set project_id = ?, project = ?, expense_date = ?, amount = ?, currency = ?, description = ?,
                     status = ?, return_reason = null, updated_at = ?
                 where id = ?
                 """,
                 (
-                    request.form.get("project", "").strip(),
+                    project["id"],
+                    project["name"],
                     request.form.get("expense_date"),
                     to_float(request.form.get("amount")),
                     request.form.get("currency", "USD"),
@@ -2153,7 +2218,14 @@ def edit_expense(expense_id):
             return redirect(url_for("expense_detail", expense_id=expense_id))
         flash("报销已保存。", "success")
         return redirect(url_for("edit_expense", expense_id=expense_id))
-    return render_template("expense_form.html", order=order, expense=expense_defaults(expense), is_edit=True, attachments=get_expense_attachments(expense_id))
+    return render_template(
+        "expense_form.html",
+        order=order,
+        expense=expense_defaults(expense),
+        expense_projects=expense_projects,
+        is_edit=True,
+        attachments=get_expense_attachments(expense_id),
+    )
 
 
 @app.route("/expenses/<int:expense_id>")
@@ -2292,7 +2364,9 @@ def new_invoice():
     if not clients_rows:
         flash("请先创建一个客户。", "error")
         return redirect(url_for("clients"))
-    projects_rows = db().execute("select * from projects where is_active = 1 order by name").fetchall()
+    projects_rows = db().execute(
+        "select * from projects where project_type = 'invoice' and is_active = 1 order by name"
+    ).fetchall()
     service_orders_rows = db().execute("select * from service_orders where status != 'closed' order by created_at desc, id desc").fetchall()
     if not projects_rows:
         flash("请先由经理或管理员维护项目。", "error")
@@ -2342,7 +2416,10 @@ def invoice_items_from_form():
     for project_id, amount in zip(request.form.getlist("project_id"), request.form.getlist("amount")):
         if not project_id:
             continue
-        project = db().execute("select * from projects where id = ? and is_active = 1", (project_id,)).fetchone()
+        project = db().execute(
+            "select * from projects where id = ? and project_type = 'invoice' and is_active = 1",
+            (project_id,),
+        ).fetchone()
         if not project:
             raise ValueError("选择的项目不存在或已停用，请重新选择项目。")
         rows.append((project, to_float(amount)))
@@ -2445,7 +2522,16 @@ def edit_invoice(invoice_id):
         clients_rows = db().execute("select * from clients where id = ?", (g.user["client_id"],)).fetchall()
     else:
         clients_rows = db().execute("select * from clients order by client_number").fetchall()
-    projects_rows = db().execute("select * from projects where is_active = 1 order by name").fetchall()
+    projects_rows = db().execute(
+        """
+        select * from projects
+        where project_type = 'invoice' and (is_active = 1 or id in (
+            select project_id from invoice_items where invoice_id = ?
+        ))
+        order by is_active desc, name
+        """,
+        (invoice_id,),
+    ).fetchall()
     service_orders_rows = db().execute("select * from service_orders where status != 'closed' or id = ? order by created_at desc, id desc", (invoice["service_order_id"] or 0,)).fetchall()
     if request.method == "POST":
         uploads = uploaded_attachments_from_request()
@@ -3363,7 +3449,9 @@ def available_projects_for_access():
     ).fetchall()
     if rows:
         return rows
-    return db().execute("select id, name from projects where is_active = 1 order by name").fetchall()
+    return db().execute(
+        "select id, name from projects where project_type = 'invoice' and is_active = 1 order by name"
+    ).fetchall()
 
 
 def dashboard_project_options():
@@ -3389,7 +3477,7 @@ def report_project_options():
         ).fetchall()
     return db().execute(
         """
-        select id, name from projects where is_active = 1
+        select id, name from projects where project_type = 'invoice' and is_active = 1
         union
         select distinct projects.id, projects.name
         from projects
