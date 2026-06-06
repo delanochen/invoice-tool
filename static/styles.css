@@ -321,6 +321,18 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 
 .items-editor { display: grid; gap: 10px; margin-bottom: 10px; }
 .item-row { display: grid; grid-template-columns: minmax(220px, 1fr) 160px 120px 86px; gap: 10px; }
+.expense-item-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 150px minmax(220px, 1.4fr) 86px;
+  gap: 10px;
+}
+.expense-items-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
 .file-list {
   display: grid;
   gap: 6px;
@@ -624,7 +636,8 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   .metric-grid, .split, .settings-layout, .attachment-grid, .form-grid, .invoice-top, .invoice-info, .invoice-bottom {
     grid-template-columns: 1fr;
   }
-  .filter-bar, .item-row, .detail-grid, .service-report-form .form-grid { grid-template-columns: 1fr; }
+  .filter-bar, .item-row, .expense-item-row, .detail-grid, .service-report-form .form-grid { grid-template-columns: 1fr; }
+  .expense-items-footer { align-items: stretch; flex-direction: column; }
   .list-table {
     min-width: 720px;
   }

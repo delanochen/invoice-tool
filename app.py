@@ -348,6 +348,18 @@ def init_db():
                 foreign key(reviewed_by) references users(id)
             );
 
+            create table if not exists expense_items (
+                id integer primary key autoincrement,
+                expense_id integer not null,
+                project_id integer not null,
+                project text not null,
+                amount real not null default 0,
+                description text,
+                sort_order integer not null default 0,
+                foreign key(expense_id) references expenses(id) on delete cascade,
+                foreign key(project_id) references projects(id)
+            );
+
             create table if not exists expense_attachments (
                 id integer primary key autoincrement,
                 expense_id integer not null,
@@ -364,6 +376,17 @@ def init_db():
         ensure_column(connection, "invoices", "service_order_id", "integer")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
         ensure_column(connection, "expenses", "project_id", "integer")
+        connection.execute(
+            """
+            insert into expense_items (expense_id, project_id, project, amount, description, sort_order)
+            select expenses.id, expenses.project_id, expenses.project, expenses.amount, expenses.description, 0
+            from expenses
+            where expenses.project_id is not null
+              and not exists (
+                  select 1 from expense_items where expense_items.expense_id = expenses.id
+              )
+            """
+        )
         seed_settings(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
         admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
@@ -1445,7 +1468,7 @@ def edit_project(project_id):
             (project_id,),
         ).fetchone()["count"]
         expense_used = db().execute(
-            "select count(*) as count from expenses where project_id = ?",
+            "select count(*) as count from expense_items where project_id = ?",
             (project_id,),
         ).fetchone()["count"]
         if project_type != project["project_type"] and (invoice_used or expense_used):
@@ -1477,7 +1500,7 @@ def delete_project(project_id):
     if not is_manager():
         abort(403)
     invoice_used = db().execute("select count(*) as count from invoice_items where project_id = ?", (project_id,)).fetchone()["count"]
-    expense_used = db().execute("select count(*) as count from expenses where project_id = ?", (project_id,)).fetchone()["count"]
+    expense_used = db().execute("select count(*) as count from expense_items where project_id = ?", (project_id,)).fetchone()["count"]
     if invoice_used or expense_used:
         flash("这个项目已有发票或报销记录，不能删除。可以停用该项目。", "error")
         return redirect(url_for("projects"))
@@ -2299,18 +2322,75 @@ def expense_defaults(expense=None):
     }
 
 
-def posted_expense_project():
-    try:
-        project_id = int(request.form.get("project_id"))
-    except (TypeError, ValueError):
-        raise ValueError("请选择报销项目。")
-    project = db().execute(
-        "select * from projects where id = ? and project_type = 'expense' and is_active = 1",
-        (project_id,),
-    ).fetchone()
-    if not project:
-        raise ValueError("选择的报销项目不存在或已停用。")
-    return project
+def expense_items(expense_id):
+    return db().execute(
+        """
+        select expense_items.*, projects.is_active
+        from expense_items
+        left join projects on projects.id = expense_items.project_id
+        where expense_items.expense_id = ?
+        order by expense_items.sort_order, expense_items.id
+        """,
+        (expense_id,),
+    ).fetchall()
+
+
+def expense_items_from_form(expense_id=None):
+    project_ids = request.form.getlist("project_id")
+    amounts = request.form.getlist("item_amount")
+    descriptions = request.form.getlist("item_description")
+    rows = []
+    for index, project_id in enumerate(project_ids):
+        if not project_id:
+            continue
+        project = db().execute(
+            """
+            select * from projects
+            where id = ? and project_type = 'expense'
+              and (is_active = 1 or id in (
+                  select project_id from expense_items where expense_id = ?
+              ))
+            """,
+            (project_id, expense_id or 0),
+        ).fetchone()
+        if not project:
+            raise ValueError("选择的报销项目不存在或已停用，请重新选择。")
+        amount = to_float(amounts[index] if index < len(amounts) else 0)
+        if amount <= 0:
+            raise ValueError("每个报销项目的金额必须大于 0。")
+        description = descriptions[index].strip() if index < len(descriptions) else ""
+        rows.append(
+            {
+                "project": project,
+                "amount": amount,
+                "description": description,
+                "sort_order": len(rows),
+            }
+        )
+    if not rows:
+        raise ValueError("请至少添加一个报销项目。")
+    return rows
+
+
+def save_expense_items(expense_id, item_rows):
+    db().execute("delete from expense_items where expense_id = ?", (expense_id,))
+    for item in item_rows:
+        project = item["project"]
+        db().execute(
+            """
+            insert into expense_items (
+                expense_id, project_id, project, amount, description, sort_order
+            ) values (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                expense_id,
+                project["id"],
+                project["name"],
+                item["amount"],
+                item["description"],
+                item["sort_order"],
+            ),
+        )
 
 
 @app.route("/service-orders/<int:order_id>/expenses/new", methods=["GET", "POST"])
@@ -2326,7 +2406,10 @@ def new_expense(order_id):
     if request.method == "POST":
         submit_for_review = request.form.get("action") == "submit"
         try:
-            project = posted_expense_project()
+            item_rows = expense_items_from_form()
+            total_amount = sum(item["amount"] for item in item_rows)
+            project_names = ", ".join(dict.fromkeys(item["project"]["name"] for item in item_rows))
+            first_project = item_rows[0]["project"]
             cursor = db().execute(
                 """
                 insert into expenses (
@@ -2337,11 +2420,11 @@ def new_expense(order_id):
                 (
                     order_id,
                     next_expense_number(),
-                    project["id"],
-                    project["name"],
+                    first_project["id"],
+                    project_names,
                     request.form.get("expense_date"),
-                    to_float(request.form.get("amount")),
-                    request.form.get("currency", "USD"),
+                    total_amount,
+                    "USD",
                     request.form.get("description", "").strip(),
                     "submitted" if submit_for_review else "draft",
                     g.user["id"],
@@ -2350,6 +2433,7 @@ def new_expense(order_id):
                 ),
             )
             expense_id = cursor.lastrowid
+            save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id)
             db().commit()
         except ValueError as error:
@@ -2367,6 +2451,7 @@ def new_expense(order_id):
         "expense_form.html",
         order=order,
         expense=expense_defaults(),
+        form_items=[],
         expense_projects=expense_projects,
         is_edit=False,
         attachments=[],
@@ -2385,15 +2470,22 @@ def edit_expense(expense_id):
     expense_projects = db().execute(
         """
         select * from projects
-        where project_type = 'expense' and (is_active = 1 or id = ?)
+        where project_type = 'expense' and (
+            is_active = 1 or id in (
+                select project_id from expense_items where expense_id = ?
+            )
+        )
         order by is_active desc, name
         """,
-        (expense["project_id"] or 0,),
+        (expense_id,),
     ).fetchall()
     if request.method == "POST":
         submit_for_review = request.form.get("action") == "submit"
         try:
-            project = posted_expense_project()
+            item_rows = expense_items_from_form(expense_id)
+            total_amount = sum(item["amount"] for item in item_rows)
+            project_names = ", ".join(dict.fromkeys(item["project"]["name"] for item in item_rows))
+            first_project = item_rows[0]["project"]
             db().execute(
                 """
                 update expenses
@@ -2402,17 +2494,18 @@ def edit_expense(expense_id):
                 where id = ?
                 """,
                 (
-                    project["id"],
-                    project["name"],
+                    first_project["id"],
+                    project_names,
                     request.form.get("expense_date"),
-                    to_float(request.form.get("amount")),
-                    request.form.get("currency", "USD"),
+                    total_amount,
+                    "USD",
                     request.form.get("description", "").strip(),
                     "submitted" if submit_for_review else "draft",
                     now(),
                     expense_id,
                 ),
             )
+            save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id)
             db().commit()
         except ValueError as error:
@@ -2430,6 +2523,7 @@ def edit_expense(expense_id):
         "expense_form.html",
         order=order,
         expense=expense_defaults(expense),
+        form_items=expense_items(expense_id),
         expense_projects=expense_projects,
         is_edit=True,
         attachments=get_expense_attachments(expense_id),
@@ -2446,6 +2540,7 @@ def expense_detail(expense_id):
         "expense_detail.html",
         order=order,
         expense=expense,
+        items=expense_items(expense_id),
         creator=creator,
         reviewer=reviewer,
         attachments=get_expense_attachments(expense_id),
@@ -2506,6 +2601,7 @@ def delete_expense(expense_id):
         return redirect(url_for("expense_detail", expense_id=expense_id))
     shutil.rmtree(expense_attachment_dir(expense_id), ignore_errors=True)
     db().execute("delete from expense_attachments where expense_id = ?", (expense_id,))
+    db().execute("delete from expense_items where expense_id = ?", (expense_id,))
     db().execute("delete from expenses where id = ?", (expense_id,))
     db().commit()
     flash("报销已删除。", "success")

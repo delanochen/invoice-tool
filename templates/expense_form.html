@@ -18,20 +18,30 @@
   </header>
   <form method="post" enctype="multipart/form-data" class="panel form-stack narrow-form" id="expenseForm">
     <label>报销编号 <input value="{{ expense.expense_number }}" readonly></label>
-    <label>报销项目
-      <select name="project_id" required>
-        <option value="">选择报销项目</option>
-        {% for project in expense_projects %}
-          <option value="{{ project.id }}" {% if expense.project_id == project.id %}selected{% endif %}>{{ project.name }}{% if not project.is_active %}（已停用）{% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
     <label>费用日期 <input type="date" name="expense_date" value="{{ expense.expense_date }}" required></label>
-    <div class="form-grid">
-      <label>费用 <input type="number" step="0.01" min="0.01" name="amount" value="{{ expense.amount }}" required></label>
-      <input type="hidden" name="currency" value="USD">
+    <h2>报销明细</h2>
+    <div id="expenseItems" class="items-editor expense-items-editor">
+      {% set rows = form_items if form_items else [{}] %}
+      {% for item in rows %}
+        <div class="expense-item-row">
+          <select name="project_id" class="expense-project-select" aria-label="报销项目" required>
+            <option value="">选择报销项目</option>
+            {% for project in expense_projects %}
+              <option value="{{ project.id }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.name }}{% if not project.is_active %}（已停用）{% endif %}</option>
+            {% endfor %}
+          </select>
+          <input type="number" step="0.01" min="0.01" name="item_amount" value="{{ item.amount or '' }}" placeholder="金额（USD）" aria-label="金额" required>
+          <input name="item_description" value="{{ item.description or '' }}" placeholder="明细说明" aria-label="明细说明">
+          <button type="button" class="ghost remove-expense-item">删除</button>
+        </div>
+      {% endfor %}
     </div>
-    <label>说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
+    <div class="expense-items-footer">
+      <button type="button" class="ghost" id="addExpenseItem">添加报销项目</button>
+      <strong>合计：<span id="expenseTotal">{{ expense.amount or 0 }}</span> USD</strong>
+    </div>
+    <input type="hidden" name="currency" value="USD">
+    <label>报销单说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
     <div class="file-picker-row">
       <span>附件</span>
       <input type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
@@ -64,4 +74,12 @@
       <form id="deleteExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('delete_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');"></form>
     {% endfor %}
   {% endif %}
+  <script>
+    window.expenseProjects = [
+      {% for project in expense_projects %}
+        {id: "{{ project.id }}", name: {{ project.name|tojson }}, active: {{ "true" if project.is_active else "false" }}}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ];
+  </script>
+  <script src="{{ url_for('static', filename='expense-form.js', v='20260606-multi-items') }}"></script>
 {% endblock %}

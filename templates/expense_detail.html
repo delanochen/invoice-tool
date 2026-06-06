@@ -32,8 +32,7 @@
   {% endif %}
   <section class="panel">
     <div class="detail-grid">
-      <p><strong>项目</strong><span>{{ expense.project }}</span></p>
-      <p><strong>费用</strong><span>{{ expense.amount|money(expense.currency) }}</span></p>
+      <p><strong>报销总额</strong><span>{{ expense.amount|money(expense.currency) }}</span></p>
       <p><strong>费用日期</strong><span>{{ expense.expense_date }}</span></p>
       <p><strong>提交人</strong><span>{{ creator.name if creator else "Unknown" }}</span></p>
       <p><strong>审核人</strong><span>{{ reviewer.name if reviewer else "-" }}</span></p>
@@ -43,6 +42,24 @@
         <p class="full-span"><strong>退回原因</strong><span>{{ expense.return_reason }}</span></p>
       {% endif %}
     </div>
+  </section>
+  <section class="panel">
+    <h2>报销明细</h2>
+    <table class="list-table">
+      <thead><tr><th>报销项目</th><th>明细说明</th><th>金额</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td>{{ item.project }}</td>
+            <td>{{ item.description or "-" }}</td>
+            <td>{{ item.amount|money(expense.currency) }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">没有报销明细。</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr class="report-total"><td colspan="2">合计</td><td>{{ expense.amount|money(expense.currency) }}</td></tr></tfoot>
+    </table>
   </section>
   <section class="panel">
     <h2>附件</h2>
