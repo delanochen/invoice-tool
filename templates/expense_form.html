@@ -16,11 +16,19 @@
       <button class="primary" type="submit" form="expenseForm" name="action" value="submit">提交经理审核</button>
     </div>
   </header>
-  <form method="post" enctype="multipart/form-data" class="panel form-stack narrow-form" id="expenseForm">
-    <label>报销编号 <input value="{{ expense.expense_number }}" readonly></label>
-    <label>费用日期 <input type="date" name="expense_date" value="{{ expense.expense_date }}" required></label>
+  <form method="post" enctype="multipart/form-data" class="panel form-stack expense-form" id="expenseForm">
+    <div class="form-grid expense-header-fields">
+      <label>报销编号 <input value="{{ expense.expense_number }}" readonly></label>
+      <label>费用日期 <input type="date" name="expense_date" value="{{ expense.expense_date }}" required></label>
+    </div>
     <h2>报销明细</h2>
     <div id="expenseItems" class="items-editor expense-items-editor">
+      <div class="expense-item-head" aria-hidden="true">
+        <span>报销项目</span>
+        <span>金额（USD）</span>
+        <span>明细说明</span>
+        <span>操作</span>
+      </div>
       {% set rows = form_items if form_items else [{}] %}
       {% for item in rows %}
         <div class="expense-item-row">

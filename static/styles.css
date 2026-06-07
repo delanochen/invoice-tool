@@ -321,10 +321,27 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 
 .items-editor { display: grid; gap: 10px; margin-bottom: 10px; }
 .item-row { display: grid; grid-template-columns: minmax(220px, 1fr) 160px 120px 86px; gap: 10px; }
+.expense-form {
+  width: 100%;
+  max-width: 1080px;
+}
+.expense-header-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.expense-item-head,
 .expense-item-row {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) 150px minmax(220px, 1.4fr) 86px;
   gap: 10px;
+}
+.expense-item-head {
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.expense-item-row > * {
+  min-width: 0;
 }
 .expense-items-footer {
   display: flex;
@@ -542,6 +559,11 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   gap: 10px;
   margin-bottom: 12px;
 }
+.nas-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .nas-browser-toolbar #nasCurrentPath {
   min-width: 0;
   flex: 1;
@@ -636,7 +658,8 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   .metric-grid, .split, .settings-layout, .attachment-grid, .form-grid, .invoice-top, .invoice-info, .invoice-bottom {
     grid-template-columns: 1fr;
   }
-  .filter-bar, .item-row, .expense-item-row, .detail-grid, .service-report-form .form-grid { grid-template-columns: 1fr; }
+  .filter-bar, .item-row, .expense-item-row, .detail-grid, .service-report-form .form-grid, .expense-header-fields { grid-template-columns: 1fr; }
+  .expense-item-head { display: none; }
   .expense-items-footer { align-items: stretch; flex-direction: column; }
   .list-table {
     min-width: 720px;
@@ -660,6 +683,10 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   .nas-browser-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+  .nas-selection-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .nas-photo-browser {
     grid-template-columns: repeat(2, minmax(0, 1fr));

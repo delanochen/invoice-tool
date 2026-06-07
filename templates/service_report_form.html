@@ -134,6 +134,7 @@
     id="nasPhotoDialog"
     class="modal nas-photo-dialog"
     data-browse-url="{{ url_for('browse_shared_photos') }}"
+    data-order-number="{{ order.order_number }}"
   >
     <div class="modal-header">
       <div>
@@ -143,11 +144,15 @@
       <button type="button" id="closeNasDialog">关闭</button>
     </div>
     <div class="nas-browser-toolbar">
-      <button type="button" id="nasParentButton">返回上级</button>
       <span id="nasSelectionCount">已选择 0 张</span>
+      <div class="nas-selection-actions">
+        <button type="button" id="selectAllNasPhotos">全选</button>
+        <button type="button" id="clearAllNasPhotos">取消全选</button>
+        <button type="button" id="invertNasPhotos">反选</button>
+      </div>
       <button class="primary" type="button" id="confirmNasSelection">添加所选照片</button>
     </div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260606-nas-heic') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260607-order-folder-select') }}"></script>
 {% endblock %}

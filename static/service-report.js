@@ -16,11 +16,10 @@ function clonePartRow(tableId) {
 const nasDialog = document.getElementById("nasPhotoDialog");
 const nasBrowser = document.getElementById("nasPhotoBrowser");
 const nasCurrentPath = document.getElementById("nasCurrentPath");
-const nasParentButton = document.getElementById("nasParentButton");
 const nasSelectionCount = document.getElementById("nasSelectionCount");
 let activeNasCategory = "";
 let currentNasPath = "";
-let currentNasParent = null;
+let currentNasImages = [];
 const nasSelections = new Map();
 const pendingNasSelection = new Map();
 
@@ -31,9 +30,8 @@ function updateNasSelectionCount() {
 function renderNasBrowser(data) {
   nasBrowser.replaceChildren();
   currentNasPath = data.current || "";
-  currentNasParent = data.parent;
-  nasCurrentPath.textContent = currentNasPath || "照片根目录";
-  nasParentButton.disabled = currentNasParent === null;
+  currentNasImages = data.images || [];
+  nasCurrentPath.textContent = currentNasPath || nasDialog.dataset.orderNumber;
   if (!data.available) {
     const message = document.createElement("p");
     message.className = "empty";
@@ -41,19 +39,19 @@ function renderNasBrowser(data) {
     nasBrowser.appendChild(message);
     return;
   }
-  data.folders.forEach((folder) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "nas-folder";
-    button.textContent = `文件夹：${folder.name}`;
-    button.addEventListener("click", () => loadNasFolder(folder.path));
-    nasBrowser.appendChild(button);
-  });
-  data.images.forEach((image) => {
+  if (data.folder_exists === false) {
+    const message = document.createElement("p");
+    message.className = "empty nas-folder-warning";
+    message.textContent = "请先创建与工单同名的文件夹，并上传图片";
+    nasBrowser.appendChild(message);
+    return;
+  }
+  currentNasImages.forEach((image) => {
     const label = document.createElement("label");
     label.className = "nas-photo-option";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
+    checkbox.dataset.path = image.path;
     checkbox.checked = pendingNasSelection.has(image.path);
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) {
@@ -72,7 +70,7 @@ function renderNasBrowser(data) {
     label.append(checkbox, thumbnail, caption);
     nasBrowser.appendChild(label);
   });
-  if (!data.folders.length && !data.images.length) {
+  if (!currentNasImages.length) {
     const message = document.createElement("p");
     message.className = "empty";
     message.textContent = "这个文件夹中没有可用照片。";
@@ -81,15 +79,37 @@ function renderNasBrowser(data) {
 }
 
 async function loadNasFolder(path = "") {
+  currentNasImages = [];
   nasBrowser.innerHTML = '<p class="empty">正在读取照片...</p>';
   const url = new URL(nasDialog.dataset.browseUrl, window.location.origin);
   url.searchParams.set("path", path);
-  const response = await fetch(url);
+  let response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    nasBrowser.innerHTML = '<p class="empty">无法读取这个照片目录。</p>';
+    return;
+  }
   if (!response.ok) {
     nasBrowser.innerHTML = '<p class="empty">无法读取这个照片目录。</p>';
     return;
   }
   renderNasBrowser(await response.json());
+}
+
+function updateVisibleNasSelection(mode) {
+  currentNasImages.forEach((image) => {
+    const selected = pendingNasSelection.has(image.path);
+    if (mode === "select" || (mode === "invert" && !selected)) {
+      pendingNasSelection.set(image.path, image.name);
+    } else if (mode === "clear" || (mode === "invert" && selected)) {
+      pendingNasSelection.delete(image.path);
+    }
+  });
+  nasBrowser.querySelectorAll(".nas-photo-option input[type='checkbox']").forEach((checkbox) => {
+    checkbox.checked = pendingNasSelection.has(checkbox.dataset.path);
+  });
+  updateNasSelectionCount();
 }
 
 function renderSelectedNasPhotos(category) {
@@ -131,7 +151,7 @@ document.addEventListener("click", (event) => {
     }
     updateNasSelectionCount();
     nasDialog.showModal();
-    loadNasFolder("");
+    loadNasFolder(nasDialog.dataset.orderNumber);
     return;
   }
   const addButton = event.target.closest("[data-add-part]");
@@ -158,9 +178,9 @@ document.addEventListener("click", (event) => {
 });
 
 document.getElementById("closeNasDialog")?.addEventListener("click", () => nasDialog.close());
-nasParentButton?.addEventListener("click", () => {
-  if (currentNasParent !== null) loadNasFolder(currentNasParent);
-});
+document.getElementById("selectAllNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("select"));
+document.getElementById("clearAllNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("clear"));
+document.getElementById("invertNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("invert"));
 document.getElementById("confirmNasSelection")?.addEventListener("click", () => {
   const selection = new Map(pendingNasSelection);
   nasSelections.set(activeNasCategory, selection);

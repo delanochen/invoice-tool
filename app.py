@@ -937,13 +937,15 @@ def shared_photos_root():
     return Path(SHARED_PHOTOS_DIR).resolve()
 
 
-def resolve_shared_photo(relative_path="", require_file=False):
+def resolve_shared_photo(relative_path="", require_file=False, allow_missing=False):
     root = shared_photos_root()
     candidate = (root / str(relative_path or "")).resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
         abort(403)
+    if allow_missing and not candidate.exists():
+        return candidate
     if require_file:
         if not candidate.is_file() or candidate.suffix.lower().lstrip(".") not in ALLOWED_IMAGE_EXTENSIONS:
             abort(404)
@@ -2194,7 +2196,19 @@ def browse_shared_photos():
         abort(403)
     if not shared_photos_root().is_dir():
         return jsonify({"available": False, "current": "", "parent": None, "folders": [], "images": []})
-    current = resolve_shared_photo(request.args.get("path", ""))
+    requested_path = request.args.get("path", "")
+    current = resolve_shared_photo(requested_path, allow_missing=True)
+    if not current.is_dir():
+        return jsonify(
+            {
+                "available": True,
+                "folder_exists": False,
+                "current": requested_path,
+                "parent": None,
+                "folders": [],
+                "images": [],
+            }
+        )
     folders = []
     images = []
     try:
@@ -2202,7 +2216,7 @@ def browse_shared_photos():
     except OSError:
         abort(403)
     for entry in entries:
-        if entry.name.startswith("."):
+        if entry.name.startswith(".") or entry.name.casefold() == "@eadir":
             continue
         relative = shared_photo_relative(entry)
         if entry.is_dir():
@@ -2222,6 +2236,7 @@ def browse_shared_photos():
     return jsonify(
         {
             "available": True,
+            "folder_exists": True,
             "current": current_relative,
             "parent": parent,
             "folders": folders,
