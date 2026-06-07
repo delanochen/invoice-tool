@@ -17,9 +17,11 @@ const nasDialog = document.getElementById("nasPhotoDialog");
 const nasBrowser = document.getElementById("nasPhotoBrowser");
 const nasCurrentPath = document.getElementById("nasCurrentPath");
 const nasSelectionCount = document.getElementById("nasSelectionCount");
+const nasProcessingStatus = document.getElementById("nasProcessingStatus");
 let activeNasCategory = "";
 let currentNasPath = "";
 let currentNasImages = [];
+let nasRefreshTimer = null;
 const nasSelections = new Map();
 const pendingNasSelection = new Map();
 
@@ -27,11 +29,26 @@ function updateNasSelectionCount() {
   nasSelectionCount.textContent = `已选择 ${pendingNasSelection.size} 张`;
 }
 
+function renderNasProcessingStatus(status = {}) {
+  const waiting = Number(status.waiting || 0);
+  const processing = Number(status.processing || 0);
+  const failed = Number(status.failed || 0);
+  const parts = [];
+  if (waiting) parts.push(`${waiting} 张等待处理`);
+  if (processing) parts.push(`${processing} 张正在处理`);
+  if (failed) parts.push(`${failed} 张处理失败`);
+  nasProcessingStatus.hidden = parts.length === 0;
+  nasProcessingStatus.textContent = parts.length
+    ? `${parts.join("，")}。窗口会自动刷新。`
+    : "";
+}
+
 function renderNasBrowser(data) {
   nasBrowser.replaceChildren();
   currentNasPath = data.current || "";
   currentNasImages = data.images || [];
   nasCurrentPath.textContent = currentNasPath || nasDialog.dataset.orderNumber;
+  renderNasProcessingStatus(data.status);
   if (!data.available) {
     const message = document.createElement("p");
     message.className = "empty";
@@ -73,14 +90,17 @@ function renderNasBrowser(data) {
   if (!currentNasImages.length) {
     const message = document.createElement("p");
     message.className = "empty";
-    message.textContent = "这个文件夹中没有可用照片。";
+    const status = data.status || {};
+    message.textContent = Number(status.waiting || 0) + Number(status.processing || 0) > 0
+      ? "新照片正在等待处理，完成后会自动显示。"
+      : "这个工单还没有处理完成的照片。";
     nasBrowser.appendChild(message);
   }
 }
 
-async function loadNasFolder(path = "") {
+async function loadNasFolder(path = "", showLoading = true) {
   currentNasImages = [];
-  nasBrowser.innerHTML = '<p class="empty">正在读取照片...</p>';
+  if (showLoading) nasBrowser.innerHTML = '<p class="empty">正在读取照片...</p>';
   const url = new URL(nasDialog.dataset.browseUrl, window.location.origin);
   url.searchParams.set("path", path);
   let response;
@@ -152,6 +172,10 @@ document.addEventListener("click", (event) => {
     updateNasSelectionCount();
     nasDialog.showModal();
     loadNasFolder(nasDialog.dataset.orderNumber);
+    window.clearInterval(nasRefreshTimer);
+    nasRefreshTimer = window.setInterval(() => {
+      if (nasDialog.open) loadNasFolder(nasDialog.dataset.orderNumber, false);
+    }, 5000);
     return;
   }
   const addButton = event.target.closest("[data-add-part]");
@@ -178,6 +202,10 @@ document.addEventListener("click", (event) => {
 });
 
 document.getElementById("closeNasDialog")?.addEventListener("click", () => nasDialog.close());
+nasDialog?.addEventListener("close", () => {
+  window.clearInterval(nasRefreshTimer);
+  nasRefreshTimer = null;
+});
 document.getElementById("selectAllNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("select"));
 document.getElementById("clearAllNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("clear"));
 document.getElementById("invertNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("invert"));

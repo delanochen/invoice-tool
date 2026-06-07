@@ -34,6 +34,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
+from image_processing import compress_image
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -894,20 +895,7 @@ def uploaded_report_files(field_name):
 
 
 def compress_report_image(source, target_path):
-    with Image.open(source) as source_image:
-        source_image.seek(0)
-        image = ImageOps.exif_transpose(source_image)
-        if image.mode not in {"RGB", "L"}:
-            background = Image.new("RGB", image.size, "white")
-            if "A" in image.getbands():
-                background.paste(image, mask=image.getchannel("A"))
-            else:
-                background.paste(image.convert("RGB"))
-            image = background
-        else:
-            image = image.convert("RGB")
-        image.thumbnail((1800, 1800), Image.Resampling.LANCZOS)
-        image.save(target_path, format="JPEG", quality=78, optimize=True, progressive=True)
+    compress_image(source, target_path)
 
 
 def save_report_attachment(report_id, uploaded, category):
@@ -958,11 +946,52 @@ def shared_photo_relative(path):
     return path.resolve().relative_to(shared_photos_root()).as_posix()
 
 
+def count_shared_images(path):
+    if not path.is_dir():
+        return 0
+    return sum(
+        1
+        for entry in path.rglob("*")
+        if entry.is_file()
+        and not entry.name.startswith(".")
+        and entry.suffix.lower().lstrip(".") in ALLOWED_IMAGE_EXTENSIONS
+        and "@eadir" not in {part.casefold() for part in entry.relative_to(path).parts}
+    )
+
+
+def order_photo_status(order_dir):
+    state_names = {"incoming", "pictures", "thumbnails", "processing", "failed", "original_backup"}
+    waiting = count_shared_images(order_dir / "incoming")
+    if order_dir.is_dir():
+        waiting += sum(
+            1
+            for entry in order_dir.rglob("*")
+            if entry.is_file()
+            and not entry.name.startswith(".")
+            and entry.suffix.lower().lstrip(".") in ALLOWED_IMAGE_EXTENSIONS
+            and entry.relative_to(order_dir).parts[0].casefold() not in state_names
+            and "@eadir" not in {part.casefold() for part in entry.relative_to(order_dir).parts}
+        )
+    return {
+        "waiting": waiting,
+        "processing": count_shared_images(order_dir / "processing"),
+        "failed": count_shared_images(order_dir / "failed"),
+    }
+
+
 def save_shared_report_photo(report_id, relative_path, category):
     source_path = resolve_shared_photo(relative_path, require_file=True)
+    order_number, _ = report_storage_context(report_id)
+    processed_root = (shared_photos_root() / order_number / "pictures").resolve()
+    try:
+        source_path.relative_to(processed_root)
+    except ValueError:
+        raise ValueError("只能选择已完成处理的 NAS 照片。")
+    if source_path.suffix.lower() not in {".jpg", ".jpeg"}:
+        raise ValueError("NAS 照片尚未完成处理。")
     image_filename = f"{secrets.token_hex(12)}.jpg"
     stored_filename = report_attachment_relative_path(report_id, category, image_filename)
-    compress_report_image(source_path, os.path.join(report_attachment_dir(report_id, category), image_filename))
+    shutil.copyfile(source_path, os.path.join(report_attachment_dir(report_id, category), image_filename))
     db().execute(
         """
         insert into service_report_attachments (
@@ -2195,10 +2224,19 @@ def browse_shared_photos():
     if not is_internal_user():
         abort(403)
     if not shared_photos_root().is_dir():
-        return jsonify({"available": False, "current": "", "parent": None, "folders": [], "images": []})
+        return jsonify(
+            {
+                "available": False,
+                "current": "",
+                "parent": None,
+                "folders": [],
+                "images": [],
+                "status": {"waiting": 0, "processing": 0, "failed": 0},
+            }
+        )
     requested_path = request.args.get("path", "")
-    current = resolve_shared_photo(requested_path, allow_missing=True)
-    if not current.is_dir():
+    order_dir = resolve_shared_photo(requested_path, allow_missing=True)
+    if not order_dir.is_dir():
         return jsonify(
             {
                 "available": True,
@@ -2207,40 +2245,45 @@ def browse_shared_photos():
                 "parent": None,
                 "folders": [],
                 "images": [],
+                "status": {"waiting": 0, "processing": 0, "failed": 0},
             }
         )
-    folders = []
+    current = order_dir / "pictures"
     images = []
-    try:
-        entries = sorted(current.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold()))
-    except OSError:
-        abort(403)
-    for entry in entries:
-        if entry.name.startswith(".") or entry.name.casefold() == "@eadir":
-            continue
-        relative = shared_photo_relative(entry)
-        if entry.is_dir():
-            folders.append({"name": entry.name, "path": relative})
-        elif entry.is_file() and entry.suffix.lower().lstrip(".") in ALLOWED_IMAGE_EXTENSIONS:
+    if current.is_dir():
+        try:
+            entries = sorted(
+                (
+                    entry
+                    for entry in current.rglob("*")
+                    if entry.is_file()
+                    and not entry.name.startswith(".")
+                    and entry.suffix.lower().lstrip(".") in ALLOWED_IMAGE_EXTENSIONS
+                    and "@eadir" not in {part.casefold() for part in entry.relative_to(current).parts}
+                ),
+                key=lambda item: item.relative_to(current).as_posix().casefold(),
+            )
+        except OSError:
+            abort(403)
+        for entry in entries:
+            relative = shared_photo_relative(entry)
+            display_name = entry.relative_to(current).as_posix()
             images.append(
                 {
-                    "name": entry.name,
+                    "name": display_name,
                     "path": relative,
                     "thumbnail": url_for("shared_photo_thumbnail", path=relative),
                 }
             )
-    current_relative = shared_photo_relative(current)
-    parent = None
-    if current != shared_photos_root():
-        parent = shared_photo_relative(current.parent)
     return jsonify(
         {
             "available": True,
             "folder_exists": True,
-            "current": current_relative,
-            "parent": parent,
-            "folders": folders,
+            "current": requested_path,
+            "parent": None,
+            "folders": [],
             "images": images,
+            "status": order_photo_status(order_dir),
         }
     )
 
@@ -2251,6 +2294,11 @@ def shared_photo_thumbnail():
     if not is_internal_user():
         abort(403)
     source_path = resolve_shared_photo(request.args.get("path", ""), require_file=True)
+    relative_parts = source_path.relative_to(shared_photos_root()).parts
+    if len(relative_parts) >= 3 and relative_parts[1].casefold() == "pictures":
+        thumbnail_path = shared_photos_root() / relative_parts[0] / "thumbnails" / Path(*relative_parts[2:])
+        if thumbnail_path.is_file():
+            return send_file(thumbnail_path, mimetype="image/jpeg", max_age=3600)
     buffer = BytesIO()
     try:
         with Image.open(source_path) as source:

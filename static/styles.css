@@ -564,6 +564,14 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   flex-wrap: wrap;
   gap: 8px;
 }
+.nas-processing-status {
+  margin-bottom: 12px;
+  border-left: 3px solid #b54708;
+  padding: 9px 12px;
+  background: #fffaeb;
+  color: #7a2e0e;
+  font-size: 13px;
+}
 .nas-browser-toolbar #nasCurrentPath {
   min-width: 0;
   flex: 1;

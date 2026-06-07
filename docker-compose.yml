@@ -1,6 +1,7 @@
 services:
   invoice-tool:
     build: .
+    image: invoice-tool:latest
     container_name: invoice-tool
     restart: unless-stopped
     ports:
@@ -13,3 +14,19 @@ services:
     volumes:
       - ./data:/app/data
       - "/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures:/app/shared-photos:ro"
+  photo-worker:
+    build: .
+    image: invoice-tool:latest
+    container_name: invoice-tool-photo-worker
+    restart: unless-stopped
+    command: python photo_worker.py
+    cpus: "0.50"
+    mem_limit: 768m
+    environment:
+      SHARED_PHOTOS_DIR: "/app/shared-photos"
+      PHOTO_WORKER_INTERVAL_SECONDS: "60"
+      PHOTO_WORKER_STABLE_SECONDS: "120"
+      PHOTO_WORKER_BATCH_SIZE: "10"
+      PHOTO_BACKUP_DAYS: "7"
+    volumes:
+      - "/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures:/app/shared-photos"
