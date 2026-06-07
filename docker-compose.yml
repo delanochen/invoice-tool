@@ -20,7 +20,6 @@ services:
     container_name: invoice-tool-photo-worker
     restart: unless-stopped
     command: python photo_worker.py
-    cpus: "0.50"
     mem_limit: 768m
     environment:
       SHARED_PHOTOS_DIR: "/app/shared-photos"
