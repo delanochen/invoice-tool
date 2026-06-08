@@ -3534,6 +3534,25 @@ def build_service_report_docx(report, order):
         run = paragraph.add_run(title)
         format_run(run, size=10, bold=True, color=(15, 118, 110))
 
+    def docx_photo_stream(path):
+        buffer = BytesIO()
+        with Image.open(path) as source:
+            source.seek(0)
+            image = ImageOps.exif_transpose(source)
+            if image.mode not in {"RGB", "L"}:
+                background = Image.new("RGB", image.size, "white")
+                if "A" in image.getbands():
+                    background.paste(image, mask=image.getchannel("A"))
+                else:
+                    background.paste(image.convert("RGB"))
+                image = background
+            else:
+                image = image.convert("RGB")
+            image.thumbnail((960, 960), Image.Resampling.LANCZOS)
+            image.save(buffer, format="JPEG", quality=68, optimize=True)
+        buffer.seek(0)
+        return buffer
+
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title.paragraph_format.space_after = Pt(8)
@@ -3654,7 +3673,7 @@ def build_service_report_docx(report, order):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             try:
                 run = paragraph.add_run()
-                run.add_picture(path, width=Inches(3.15))
+                run.add_picture(docx_photo_stream(path), width=Inches(3.15))
             except Exception:
                 format_run(paragraph.add_run("图片无法嵌入"), size=8)
             caption = cell.add_paragraph(docx_text(attachment["original_filename"]))
