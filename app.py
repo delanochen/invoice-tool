@@ -1172,10 +1172,25 @@ def report_form_defaults(report=None, order=None):
 
 
 def save_report_detail_rows(report_id):
+    worker_ids = list(dict.fromkeys(value for value in request.form.getlist("worker_user_id") if value))
+    if not worker_ids:
+        raise ValueError("服务人员清单至少需要选择一人。")
+    placeholders = ",".join("?" for _ in worker_ids)
+    valid_workers = db().execute(
+        f"""
+        select id from users
+        where role in ('manager', 'finance', 'employee')
+          and id in ({placeholders})
+        """,
+        worker_ids,
+    ).fetchall()
+    valid_worker_ids = {str(row["id"]) for row in valid_workers}
+    if valid_worker_ids != set(worker_ids):
+        raise ValueError("服务人员清单包含无效用户，请重新选择。")
+
     db().execute("delete from service_report_workers where report_id = ?", (report_id,))
-    for user_id in request.form.getlist("worker_user_id"):
-        if user_id:
-            db().execute("insert into service_report_workers (report_id, user_id) values (?, ?)", (report_id, user_id))
+    for user_id in worker_ids:
+        db().execute("insert into service_report_workers (report_id, user_id) values (?, ?)", (report_id, user_id))
 
     db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
     for index, row in enumerate(parse_part_rows("saved", ["part_number", "part_name", "quantity", "status"])):
@@ -2107,7 +2122,9 @@ def service_order_detail(order_id):
 @login_required
 def new_service_report(order_id):
     order = require_service_order(order_id)
-    users_rows = db().execute("select id, name, email from users where role != 'external' order by name").fetchall()
+    users_rows = db().execute(
+        "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
+    ).fetchall()
     if request.method == "POST":
         save_token = request.form.get("save_token", "")
         if not claim_report_save_token(save_token):
@@ -2176,7 +2193,9 @@ def new_service_report(order_id):
 @login_required
 def edit_service_report(report_id):
     report, order = require_service_report(report_id)
-    users_rows = db().execute("select id, name, email from users where role != 'external' order by name").fetchall()
+    users_rows = db().execute(
+        "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
+    ).fetchall()
     if request.method == "POST":
         save_token = request.form.get("save_token", "")
         if not claim_report_save_token(save_token, report_id):

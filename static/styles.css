@@ -489,6 +489,11 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   flex-wrap: wrap;
   gap: 8px;
 }
+.field-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
 .service-report-form .form-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

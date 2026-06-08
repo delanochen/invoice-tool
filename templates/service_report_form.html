@@ -35,11 +35,12 @@
 
     <section class="subsection">
       <h2>服务人员清单</h2>
-      <div class="check-grid">
+      <div class="check-grid" id="serviceWorkers" role="group" aria-label="服务人员清单">
         {% for user in users %}
           <label class="check-chip"><input type="checkbox" name="worker_user_id" value="{{ user.id }}" {% if user.id in selected_workers %}checked{% endif %}> {{ user.name }}</label>
         {% endfor %}
       </div>
+      <p class="field-error" id="serviceWorkersError" hidden>请至少选择一名服务人员。</p>
     </section>
 
     <label class="full">现场服务描述 <textarea name="service_description" rows="6">{{ report.service_description or '' }}</textarea></label>
@@ -160,5 +161,5 @@
     </div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260607-save-lock') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260607-worker-required') }}"></script>
 {% endblock %}

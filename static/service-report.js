@@ -238,6 +238,16 @@ document.querySelectorAll("[data-local-photo]").forEach((input) => {
 serviceReportForm?.addEventListener("submit", (event) => {
   const submitter = event.submitter;
   if (submitter?.classList.contains("delete-photo")) return;
+  const workerInputs = Array.from(document.querySelectorAll("[name='worker_user_id']"));
+  const selectedWorker = workerInputs.find((input) => input.checked);
+  const workerError = document.getElementById("serviceWorkersError");
+  if (!selectedWorker) {
+    event.preventDefault();
+    workerError.hidden = false;
+    workerInputs[0]?.focus();
+    return;
+  }
+  workerError.hidden = true;
   if (serviceReportSubmitting) {
     event.preventDefault();
     return;
