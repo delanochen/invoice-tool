@@ -24,6 +24,8 @@ let currentNasImages = [];
 let nasRefreshTimer = null;
 const nasSelections = new Map();
 const pendingNasSelection = new Map();
+const localPhotoSelections = new Map();
+const localPhotoUrls = new Map();
 
 function updateNasSelectionCount() {
   nasSelectionCount.textContent = `已选择 ${pendingNasSelection.size} 张`;
@@ -72,7 +74,7 @@ function renderNasBrowser(data) {
     checkbox.checked = pendingNasSelection.has(image.path);
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) {
-        pendingNasSelection.set(image.path, image.name);
+        pendingNasSelection.set(image.path, image);
       } else {
         pendingNasSelection.delete(image.path);
       }
@@ -121,7 +123,7 @@ function updateVisibleNasSelection(mode) {
   currentNasImages.forEach((image) => {
     const selected = pendingNasSelection.has(image.path);
     if (mode === "select" || (mode === "invert" && !selected)) {
-      pendingNasSelection.set(image.path, image.name);
+      pendingNasSelection.set(image.path, image);
     } else if (mode === "clear" || (mode === "invert" && selected)) {
       pendingNasSelection.delete(image.path);
     }
@@ -138,19 +140,24 @@ function renderSelectedNasPhotos(category) {
   document.querySelectorAll(`input[data-shared-category="${category}"]`).forEach((input) => input.remove());
   const selected = nasSelections.get(category);
   if (!(selected instanceof Map)) return;
-  selected.forEach((name, path) => {
-    const chip = document.createElement("span");
-    chip.className = "nas-selection-chip";
-    chip.textContent = name;
+  selected.forEach((image, path) => {
+    const card = document.createElement("figure");
+    card.className = "selected-photo-card";
+    const thumbnail = document.createElement("img");
+    thumbnail.src = image.thumbnail;
+    thumbnail.alt = image.name;
+    const caption = document.createElement("figcaption");
+    caption.textContent = image.name;
     const removeButton = document.createElement("button");
     removeButton.type = "button";
+    removeButton.className = "danger small";
     removeButton.textContent = "移除";
     removeButton.addEventListener("click", () => {
       selected.delete(path);
       renderSelectedNasPhotos(category);
     });
-    chip.appendChild(removeButton);
-    container.appendChild(chip);
+    card.append(thumbnail, caption, removeButton);
+    container.appendChild(card);
     const hidden = document.createElement("input");
     hidden.type = "hidden";
     hidden.name = `shared_photo_${category}`;
@@ -160,6 +167,72 @@ function renderSelectedNasPhotos(category) {
   });
 }
 
+function localFileKey(file) {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function syncLocalPhotoInput(category) {
+  const input = document.querySelector(`[data-local-photo="${category}"]`);
+  const transfer = new DataTransfer();
+  (localPhotoSelections.get(category) || []).forEach((file) => transfer.items.add(file));
+  input.files = transfer.files;
+}
+
+function renderLocalPhotoPreviews(category) {
+  const container = document.querySelector(`[data-local-list="${category}"]`);
+  const previousUrls = localPhotoUrls.get(category) || [];
+  previousUrls.forEach((url) => URL.revokeObjectURL(url));
+  const nextUrls = [];
+  container.replaceChildren();
+  (localPhotoSelections.get(category) || []).forEach((file, index) => {
+    const card = document.createElement("figure");
+    card.className = "selected-photo-card";
+    const thumbnail = document.createElement("img");
+    const objectUrl = URL.createObjectURL(file);
+    nextUrls.push(objectUrl);
+    thumbnail.src = objectUrl;
+    thumbnail.alt = file.name;
+    thumbnail.addEventListener("error", () => {
+      thumbnail.removeAttribute("src");
+      thumbnail.classList.add("preview-unavailable");
+      thumbnail.alt = "HEIC 图片将在保存后显示";
+    }, { once: true });
+    const caption = document.createElement("figcaption");
+    caption.textContent = file.name;
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "danger small";
+    removeButton.textContent = "移除";
+    removeButton.addEventListener("click", () => {
+      const files = localPhotoSelections.get(category) || [];
+      files.splice(index, 1);
+      syncLocalPhotoInput(category);
+      renderLocalPhotoPreviews(category);
+    });
+    card.append(thumbnail, caption, removeButton);
+    container.appendChild(card);
+  });
+  localPhotoUrls.set(category, nextUrls);
+}
+
+document.querySelectorAll("[data-local-photo]").forEach((input) => {
+  input.addEventListener("change", () => {
+    const category = input.dataset.localPhoto;
+    const existing = localPhotoSelections.get(category) || [];
+    const known = new Set(existing.map(localFileKey));
+    Array.from(input.files).forEach((file) => {
+      const key = localFileKey(file);
+      if (!known.has(key)) {
+        existing.push(file);
+        known.add(key);
+      }
+    });
+    localPhotoSelections.set(category, existing);
+    syncLocalPhotoInput(category);
+    renderLocalPhotoPreviews(category);
+  });
+});
+
 document.addEventListener("click", (event) => {
   const nasButton = event.target.closest("[data-open-nas]");
   if (nasButton) {
@@ -167,7 +240,7 @@ document.addEventListener("click", (event) => {
     const savedSelection = nasSelections.get(activeNasCategory);
     pendingNasSelection.clear();
     if (savedSelection instanceof Map) {
-      savedSelection.forEach((name, path) => pendingNasSelection.set(path, name));
+      savedSelection.forEach((image, path) => pendingNasSelection.set(path, image));
     }
     updateNasSelectionCount();
     nasDialog.showModal();
@@ -185,14 +258,6 @@ document.addEventListener("click", (event) => {
   }
   const removeButton = event.target.closest(".remove-part");
   if (!removeButton) {
-    const deleteButton = event.target.closest(".delete-photo");
-    if (!deleteButton || !deleteButton.dataset.deleteUrl) return;
-    if (!window.confirm("确定删除这张照片吗？")) return;
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = deleteButton.dataset.deleteUrl;
-    document.body.appendChild(form);
-    form.submit();
     return;
   }
   const row = removeButton.closest("tr");

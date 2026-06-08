@@ -6,7 +6,15 @@
           <img src="{{ url_for('preview_report_attachment', attachment_id=photo.id) }}" alt="{{ photo.original_filename }}">
         </a>
         <figcaption>{{ photo.original_filename }}</figcaption>
-        <button class="danger small delete-photo" type="button" data-delete-url="{{ url_for('delete_report_attachment', attachment_id=photo.id) }}">删除</button>
+        <button
+          class="danger small delete-photo"
+          type="submit"
+          form="serviceReportForm"
+          formaction="{{ url_for('delete_report_attachment', attachment_id=photo.id) }}"
+          formmethod="post"
+          formnovalidate
+          onclick="return confirm('确定删除这张照片吗？');"
+        >删除</button>
       </figure>
     {% endfor %}
   </div>

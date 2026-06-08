@@ -46,9 +46,10 @@
     <section class="subsection">
       <h2>现场到达时间照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="arrival_photos" accept="image/*,.heic,.heif" multiple>
+        <input type="file" name="arrival_photos" accept="image/*,.heic,.heif" multiple data-local-photo="arrival">
         <button type="button" class="small" data-open-nas="arrival">从 NAS 选择</button>
       </div>
+      <div class="selected-photo-grid" data-local-list="arrival"></div>
       <div class="nas-selection-list" data-nas-list="arrival"></div>
       {% set photos = attachments.arrival %}
       {% include "_photo_thumbs.html" %}
@@ -57,9 +58,10 @@
     <section class="subsection">
       <h2>离开现场时间照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="departure_photos" accept="image/*,.heic,.heif" multiple>
+        <input type="file" name="departure_photos" accept="image/*,.heic,.heif" multiple data-local-photo="departure">
         <button type="button" class="small" data-open-nas="departure">从 NAS 选择</button>
       </div>
+      <div class="selected-photo-grid" data-local-list="departure"></div>
       <div class="nas-selection-list" data-nas-list="departure"></div>
       {% set photos = attachments.departure %}
       {% include "_photo_thumbs.html" %}
@@ -68,9 +70,10 @@
     <section class="subsection">
       <h2>自检照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="self_check_photos" accept="image/*,.heic,.heif" multiple>
+        <input type="file" name="self_check_photos" accept="image/*,.heic,.heif" multiple data-local-photo="self_check">
         <button type="button" class="small" data-open-nas="self_check">从 NAS 选择</button>
       </div>
+      <div class="selected-photo-grid" data-local-list="self_check"></div>
       <div class="nas-selection-list" data-nas-list="self_check"></div>
       {% set photos = attachments.self_check %}
       {% include "_photo_thumbs.html" %}
@@ -79,9 +82,10 @@
     <section class="subsection">
       <h2>现场服务照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="site_photos" accept="image/*,.heic,.heif" multiple>
+        <input type="file" name="site_photos" accept="image/*,.heic,.heif" multiple data-local-photo="site">
         <button type="button" class="small" data-open-nas="site">从 NAS 选择</button>
       </div>
+      <div class="selected-photo-grid" data-local-list="site"></div>
       <div class="nas-selection-list" data-nas-list="site"></div>
       {% set photos = attachments.site %}
       {% include "_photo_thumbs.html" %}
@@ -155,5 +159,5 @@
     </div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260607-photo-worker') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260607-photo-preview-delete') }}"></script>
 {% endblock %}

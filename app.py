@@ -2118,7 +2118,7 @@ def new_service_report(order_id):
             flash(str(error), "error")
             return redirect(url_for("new_service_report", order_id=order_id))
         flash("工作日报已保存。", "success")
-        return redirect(url_for("service_order_detail", order_id=order_id))
+        return redirect(url_for("edit_service_report", report_id=report_id))
     return render_template(
         "service_report_form.html",
         order=order,
@@ -2173,7 +2173,7 @@ def edit_service_report(report_id):
             flash(str(error), "error")
             return redirect(url_for("edit_service_report", report_id=report_id))
         flash("工作日报已保存。", "success")
-        return redirect(url_for("service_order_detail", order_id=order["id"]))
+        return redirect(url_for("edit_service_report", report_id=report_id))
     selected_workers = [row["id"] for row in service_report_workers(report_id)]
     saved_parts = list(report_parts("service_report_saved_parts", report_id)) or [{} for _ in range(4)]
     replaced_parts = list(report_parts("service_report_replaced_parts", report_id)) or [{} for _ in range(4)]
