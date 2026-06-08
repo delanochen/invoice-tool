@@ -12,11 +12,12 @@
       {% if is_edit %}
         <button class="danger" type="submit" form="deleteExpenseForm" onclick="return confirm('确定删除这张报销单吗？');">删除</button>
       {% endif %}
-      <button type="submit" form="expenseForm" name="action" value="save">保存</button>
-      <button class="primary" type="submit" form="expenseForm" name="action" value="submit">提交经理审核</button>
+      <button type="submit" form="expenseForm" name="action" value="save" data-expense-submit>保存</button>
+      <button class="primary" type="submit" form="expenseForm" name="action" value="submit" data-expense-submit>提交经理审核</button>
     </div>
   </header>
   <form method="post" enctype="multipart/form-data" class="panel form-stack expense-form" id="expenseForm">
+    <input type="hidden" name="save_token" value="{{ save_token }}">
     <div class="form-grid expense-header-fields">
       <label>报销编号 <input value="{{ expense.expense_number }}" readonly></label>
       <label>费用日期 <input type="date" name="expense_date" value="{{ expense.expense_date }}" required></label>
@@ -89,5 +90,5 @@
       {% endfor %}
     ];
   </script>
-  <script src="{{ url_for('static', filename='expense-form.js', v='20260606-multi-items') }}"></script>
+  <script src="{{ url_for('static', filename='expense-form.js', v='20260607-save-lock') }}"></script>
 {% endblock %}

@@ -7,11 +7,12 @@
       {% if is_edit and (g.user.role in ["admin", "manager"] or defaults.created_by == g.user.id) %}
         <button class="danger" type="submit" form="deleteInvoiceForm" onclick="return confirm('确定删除这张发票吗？');">删除发票</button>
       {% endif %}
-      <button type="submit" form="invoiceForm" name="action" value="save">保存</button>
-      <button class="primary" type="submit" form="invoiceForm" name="action" value="submit">提交经理审核</button>
+      <button type="submit" form="invoiceForm" name="action" value="save" data-invoice-submit>保存</button>
+      <button class="primary" type="submit" form="invoiceForm" name="action" value="submit" data-invoice-submit>提交经理审核</button>
     </div>
   </header>
   <form method="post" enctype="multipart/form-data" class="panel invoice-form" id="invoiceForm">
+    <input type="hidden" name="save_token" value="{{ save_token }}">
     <div class="form-grid">
       <label>发票编号 <input name="invoice_number" value="{{ defaults.invoice_number }}" {% if is_edit %}readonly{% endif %} required></label>
       <label>客户
@@ -147,5 +148,5 @@
   {% if is_edit %}
     <script src="{{ url_for('static', filename='invoice-detail.js', v='20260530-attachment-list-v2') }}"></script>
   {% endif %}
-  <script src="{{ url_for('static', filename='invoice-form.js', v='20260530-attachment-list-v2') }}"></script>
+  <script src="{{ url_for('static', filename='invoice-form.js', v='20260607-save-lock') }}"></script>
 {% endblock %}

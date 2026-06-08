@@ -26,8 +26,46 @@
       <label>公共交通时长 <input type="number" step="0.1" min="0" name="public_transport_hours" value="{{ report.public_transport_hours }}"></label>
       <label>自驾里程总计：公里 <input type="number" step="0.1" min="0" name="driving_miles" value="{{ report.driving_miles }}"></label>
       <label>合计用时 <input name="total_time" value="{{ report.total_time or '' }}"></label>
-      <label>现场到达时间 <input type="time" name="arrival_time" value="{{ report.arrival_time or '' }}"></label>
-      <label>离开现场时间 <input type="time" name="departure_time" value="{{ report.departure_time or '' }}"></label>
+      {% set arrival_parts = (report.arrival_time or '').split(':') %}
+      {% set departure_parts = (report.departure_time or '').split(':') %}
+      <label>现场到达时间
+        <span class="time-select">
+          <select name="arrival_time_hour" aria-label="现场到达小时">
+            <option value="">小时</option>
+            {% for hour in range(24) %}
+              {% set value = "%02d"|format(hour) %}
+              <option value="{{ value }}" {% if arrival_parts|length > 1 and arrival_parts[0] == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+          <span>:</span>
+          <select name="arrival_time_minute" aria-label="现场到达分钟">
+            <option value="">分钟</option>
+            {% for minute in range(60) %}
+              {% set value = "%02d"|format(minute) %}
+              <option value="{{ value }}" {% if arrival_parts|length > 1 and arrival_parts[1][:2] == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </span>
+      </label>
+      <label>离开现场时间
+        <span class="time-select">
+          <select name="departure_time_hour" aria-label="离开现场小时">
+            <option value="">小时</option>
+            {% for hour in range(24) %}
+              {% set value = "%02d"|format(hour) %}
+              <option value="{{ value }}" {% if departure_parts|length > 1 and departure_parts[0] == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+          <span>:</span>
+          <select name="departure_time_minute" aria-label="离开现场分钟">
+            <option value="">分钟</option>
+            {% for minute in range(60) %}
+              {% set value = "%02d"|format(minute) %}
+              <option value="{{ value }}" {% if departure_parts|length > 1 and departure_parts[1][:2] == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </span>
+      </label>
       <label>机柜编号 <input name="cabinet_number" value="{{ report.cabinet_number or '' }}"></label>
       <label>出发地址 <input name="departure_address" value="{{ report.departure_address or '' }}"></label>
       <label class="full-span">场地地址 <input name="site_address" value="{{ report.site_address or order.site_address }}"></label>

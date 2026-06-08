@@ -12,6 +12,8 @@ const selectedZoomOutBtn = document.querySelector("#selectedZoomOutBtn");
 const selectedZoomOriginalBtn = document.querySelector("#selectedZoomOriginalBtn");
 const selectedZoomInBtn = document.querySelector("#selectedZoomInBtn");
 const closeSelectedAttachment = document.querySelector("#closeSelectedAttachment");
+const invoiceForm = document.querySelector("#invoiceForm");
+let invoiceSubmitting = false;
 let selectedAttachmentUrls = [];
 let selectedFiles = [];
 let selectedPreviewMode = "fit";
@@ -206,4 +208,25 @@ closeSelectedAttachment?.addEventListener("click", () => {
   selectedAttachmentFrame.src = "about:blank";
   selectedAttachmentImage.removeAttribute("src");
   selectedAttachmentDialog.close();
+});
+
+invoiceForm?.addEventListener("submit", (event) => {
+  if (invoiceSubmitting) {
+    event.preventDefault();
+    return;
+  }
+  invoiceSubmitting = true;
+  const submitter = event.submitter;
+  if (submitter?.name === "action") {
+    const action = document.createElement("input");
+    action.type = "hidden";
+    action.name = "action";
+    action.value = submitter.value;
+    invoiceForm.appendChild(action);
+  }
+  document.querySelectorAll("[data-invoice-submit]").forEach((button) => {
+    button.disabled = true;
+    button.textContent = button === submitter ? "处理中..." : button.textContent;
+    button.setAttribute("aria-busy", "true");
+  });
 });

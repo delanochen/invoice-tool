@@ -1,6 +1,8 @@
 const expenseItems = document.querySelector("#expenseItems");
 const addExpenseItem = document.querySelector("#addExpenseItem");
 const expenseTotal = document.querySelector("#expenseTotal");
+const expenseForm = document.querySelector("#expenseForm");
+let expenseSubmitting = false;
 
 function escapeExpenseHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
@@ -62,3 +64,24 @@ addExpenseItem?.addEventListener("click", () => {
 
 bindExpenseRows();
 updateExpenseTotal();
+
+expenseForm?.addEventListener("submit", (event) => {
+  if (expenseSubmitting) {
+    event.preventDefault();
+    return;
+  }
+  expenseSubmitting = true;
+  const submitter = event.submitter;
+  if (submitter?.name === "action") {
+    const action = document.createElement("input");
+    action.type = "hidden";
+    action.name = "action";
+    action.value = submitter.value;
+    expenseForm.appendChild(action);
+  }
+  document.querySelectorAll("[data-expense-submit]").forEach((button) => {
+    button.disabled = true;
+    button.textContent = button === submitter ? "处理中..." : button.textContent;
+    button.setAttribute("aria-busy", "true");
+  });
+});

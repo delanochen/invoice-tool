@@ -232,6 +232,13 @@ def init_db():
                 foreign key(uploaded_by) references users(id)
             );
 
+            create table if not exists invoice_save_tokens (
+                token text primary key,
+                invoice_id integer,
+                created_at text not null,
+                foreign key(invoice_id) references invoices(id) on delete cascade
+            );
+
             create table if not exists messages (
                 id integer primary key autoincrement,
                 user_id integer not null,
@@ -366,6 +373,13 @@ def init_db():
                 sort_order integer not null default 0,
                 foreign key(expense_id) references expenses(id) on delete cascade,
                 foreign key(project_id) references projects(id)
+            );
+
+            create table if not exists expense_save_tokens (
+                token text primary key,
+                expense_id integer,
+                created_at text not null,
+                foreign key(expense_id) references expenses(id) on delete cascade
             );
 
             create table if not exists expense_attachments (
@@ -1041,6 +1055,63 @@ def finish_report_save_token(token, report_id):
         "update service_report_save_tokens set report_id = ? where token = ?",
         (report_id, token),
     )
+
+
+def claim_invoice_save_token(token, invoice_id=None):
+    token = str(token or "").strip()
+    if not token:
+        raise ValueError("保存令牌无效，请刷新页面后重试。")
+    cursor = db().execute(
+        """
+        insert or ignore into invoice_save_tokens (token, invoice_id, created_at)
+        values (?, ?, ?)
+        """,
+        (token, invoice_id, now()),
+    )
+    return cursor.rowcount == 1
+
+
+def finish_invoice_save_token(token, invoice_id):
+    db().execute(
+        "update invoice_save_tokens set invoice_id = ? where token = ?",
+        (invoice_id, token),
+    )
+
+
+def claim_expense_save_token(token, expense_id=None):
+    token = str(token or "").strip()
+    if not token:
+        raise ValueError("保存令牌无效，请刷新页面后重试。")
+    cursor = db().execute(
+        """
+        insert or ignore into expense_save_tokens (token, expense_id, created_at)
+        values (?, ?, ?)
+        """,
+        (token, expense_id, now()),
+    )
+    return cursor.rowcount == 1
+
+
+def finish_expense_save_token(token, expense_id):
+    db().execute(
+        "update expense_save_tokens set expense_id = ? where token = ?",
+        (expense_id, token),
+    )
+
+
+def posted_report_time(prefix):
+    hour = request.form.get(f"{prefix}_hour", "").strip()
+    minute = request.form.get(f"{prefix}_minute", "").strip()
+    if not hour and not minute:
+        return request.form.get(prefix, "").strip()
+    try:
+        hour_value = int(hour)
+        minute_value = int(minute)
+    except (TypeError, ValueError):
+        raise ValueError("请选择有效的现场时间。")
+    if not 0 <= hour_value <= 23 or not 0 <= minute_value <= 59:
+        raise ValueError("请选择有效的现场时间。")
+    return f"{hour_value:02d}:{minute_value:02d}"
 
 
 def get_report_attachments(report_id):
@@ -2156,8 +2227,8 @@ def new_service_report(order_id):
                     request.form.get("site_address", "").strip(),
                     request.form.get("total_time", "").strip(),
                     request.form.get("cabinet_number", "").strip(),
-                    request.form.get("arrival_time", "").strip(),
-                    request.form.get("departure_time", "").strip(),
+                    posted_report_time("arrival_time"),
+                    posted_report_time("departure_time"),
                     request.form.get("service_description", "").strip(),
                     g.user["id"],
                     now(),
@@ -2220,8 +2291,8 @@ def edit_service_report(report_id):
                     request.form.get("site_address", "").strip(),
                     request.form.get("total_time", "").strip(),
                     request.form.get("cabinet_number", "").strip(),
-                    request.form.get("arrival_time", "").strip(),
-                    request.form.get("departure_time", "").strip(),
+                    posted_report_time("arrival_time"),
+                    posted_report_time("departure_time"),
                     request.form.get("service_description", "").strip(),
                     now(),
                     report_id,
@@ -2536,6 +2607,16 @@ def new_expense(order_id):
         flash("请先由经理或管理员创建报销项目。", "error")
         return redirect(url_for("projects") if is_manager() else url_for("service_order_detail", order_id=order_id))
     if request.method == "POST":
+        save_token = request.form.get("save_token", "")
+        if not claim_expense_save_token(save_token):
+            existing = db().execute(
+                "select expense_id from expense_save_tokens where token = ?",
+                (save_token,),
+            ).fetchone()
+            if existing and existing["expense_id"]:
+                return redirect(url_for("edit_expense", expense_id=existing["expense_id"]))
+            flash("该报销正在保存，请稍候。", "error")
+            return redirect(url_for("new_expense", order_id=order_id))
         submit_for_review = request.form.get("action") == "submit"
         try:
             item_rows = expense_items_from_form()
@@ -2565,6 +2646,7 @@ def new_expense(order_id):
                 ),
             )
             expense_id = cursor.lastrowid
+            finish_expense_save_token(save_token, expense_id)
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id)
             db().commit()
@@ -2587,6 +2669,7 @@ def new_expense(order_id):
         expense_projects=expense_projects,
         is_edit=False,
         attachments=[],
+        save_token=secrets.token_urlsafe(24),
     )
 
 
@@ -2612,6 +2695,10 @@ def edit_expense(expense_id):
         (expense_id,),
     ).fetchall()
     if request.method == "POST":
+        save_token = request.form.get("save_token", "")
+        if not claim_expense_save_token(save_token, expense_id):
+            flash("该报销已经保存，请勿重复提交。", "success")
+            return redirect(url_for("edit_expense", expense_id=expense_id))
         submit_for_review = request.form.get("action") == "submit"
         try:
             item_rows = expense_items_from_form(expense_id)
@@ -2659,6 +2746,7 @@ def edit_expense(expense_id):
         expense_projects=expense_projects,
         is_edit=True,
         attachments=get_expense_attachments(expense_id),
+        save_token=secrets.token_urlsafe(24),
     )
 
 
@@ -2808,12 +2896,23 @@ def new_invoice():
         flash("请先由经理或管理员维护项目。", "error")
         return redirect(url_for("projects") if is_manager() else url_for("dashboard"))
     if request.method == "POST":
+        save_token = request.form.get("save_token", "")
+        if not claim_invoice_save_token(save_token):
+            existing = db().execute(
+                "select invoice_id from invoice_save_tokens where token = ?",
+                (save_token,),
+            ).fetchone()
+            if existing and existing["invoice_id"]:
+                return redirect(url_for("edit_invoice", invoice_id=existing["invoice_id"]))
+            flash("该发票正在保存，请稍候。", "error")
+            return redirect(url_for("new_invoice"))
         uploads = uploaded_attachments_from_request()
         if not validate_attachment_uploads(uploads):
+            db().rollback()
             return redirect(url_for("new_invoice"))
         try:
             submit_for_review = request.form.get("action") == "submit"
-            invoice_id = create_invoice_from_form(submit_for_review=submit_for_review)
+            invoice_id = create_invoice_from_form(submit_for_review=submit_for_review, save_token=save_token)
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
@@ -2844,6 +2943,7 @@ def new_invoice():
         form_items=[],
         is_edit=False,
         attachments=[],
+        save_token=secrets.token_urlsafe(24),
     )
 
 
@@ -2885,7 +2985,7 @@ def posted_service_order_id():
     return order_id
 
 
-def create_invoice_from_form(submit_for_review=False):
+def create_invoice_from_form(submit_for_review=False, save_token=None):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
@@ -2925,6 +3025,8 @@ def create_invoice_from_form(submit_for_review=False):
     if cursor is None:
         raise RuntimeError("Unable to generate a unique invoice number.")
     invoice_id = cursor.lastrowid
+    if save_token:
+        finish_invoice_save_token(save_token, invoice_id)
     for project, amount in item_rows:
         db().execute(
             """
@@ -2970,8 +3072,13 @@ def edit_invoice(invoice_id):
     ).fetchall()
     service_orders_rows = db().execute("select * from service_orders where status != 'closed' or id = ? order by created_at desc, id desc", (invoice["service_order_id"] or 0,)).fetchall()
     if request.method == "POST":
+        save_token = request.form.get("save_token", "")
+        if not claim_invoice_save_token(save_token, invoice_id):
+            flash("该发票已经保存，请勿重复提交。", "success")
+            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
         uploads = uploaded_attachments_from_request()
         if not validate_attachment_uploads(uploads, invoice_id):
+            db().rollback()
             return redirect(url_for("edit_invoice", invoice_id=invoice_id))
         try:
             submit_for_review = request.form.get("action") == "submit"
@@ -3017,6 +3124,7 @@ def edit_invoice(invoice_id):
         form_items=items,
         is_edit=True,
         attachments=get_invoice_attachments(invoice_id),
+        save_token=secrets.token_urlsafe(24),
     )
 
 
