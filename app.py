@@ -2360,7 +2360,12 @@ def delete_report_attachment(attachment_id):
 @login_required
 def export_service_report(report_id):
     report, order = require_service_report(report_id)
-    document_bytes = build_service_report_docx(report, order)
+    try:
+        document_bytes = build_service_report_docx(report, order)
+    except Exception:
+        app.logger.exception("Failed to export service report %s", report_id)
+        flash("工作日报导出失败，请检查日报内容或照片后重试。", "error")
+        return redirect(url_for("edit_service_report", report_id=report_id))
     filename = secure_filename(f"{order['client_order_number']}-{report['report_date']}-report.docx") or "service-report.docx"
     return send_file(
         BytesIO(document_bytes),
@@ -3471,6 +3476,14 @@ def build_service_report_docx(report, order):
     normal_style.font.size = Pt(9)
     normal_style.paragraph_format.space_after = Pt(2)
 
+    def docx_text(value):
+        text = "" if value is None else str(value)
+        return "".join(
+            char
+            for char in text
+            if char in "\t\n\r" or ord(char) >= 0x20
+        )
+
     def format_run(run, size=9, bold=False, color=None):
         run.font.name = "Microsoft YaHei"
         run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
@@ -3493,7 +3506,7 @@ def build_service_report_docx(report, order):
         paragraph.alignment = align
         paragraph.paragraph_format.space_after = Pt(0)
         paragraph.paragraph_format.space_before = Pt(0)
-        run = paragraph.add_run("" if text is None else str(text))
+        run = paragraph.add_run(docx_text(text))
         format_run(run, size=size, bold=bold)
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
 
@@ -3534,7 +3547,7 @@ def build_service_report_docx(report, order):
         paragraph = document.add_paragraph()
         paragraph.paragraph_format.space_after = Pt(2)
         format_run(paragraph.add_run(f"{label}："), bold=True)
-        format_run(paragraph.add_run(str(value or "")))
+        format_run(paragraph.add_run(docx_text(value)))
 
     workers = service_report_workers(report["id"])
     add_section_title("现场服务人员")
@@ -3644,7 +3657,7 @@ def build_service_report_docx(report, order):
                 run.add_picture(path, width=Inches(3.15))
             except Exception:
                 format_run(paragraph.add_run("图片无法嵌入"), size=8)
-            caption = cell.add_paragraph(attachment["original_filename"])
+            caption = cell.add_paragraph(docx_text(attachment["original_filename"]))
             caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
             for run in caption.runs:
                 format_run(run, size=7)
