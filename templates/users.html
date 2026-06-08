@@ -21,17 +21,17 @@
     {% endif %}
     <section class="panel">
       <h2>{% if can_manage %}已有用户{% else %}我的信息{% endif %}</h2>
-      <table class="list-table">
+      <table class="list-table users-table">
         <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>绑定客户</th><th>创建时间</th><th>操作</th></tr></thead>
         <tbody>
           {% for user in users %}
             <tr>
-              <td>{{ user.name }}</td>
-              <td>{{ user.email }}</td>
-              <td>{{ user.role|role_label }}</td>
-              <td>{{ user.client_name or "-" }}</td>
-              <td>{{ user.created_at[:10] }}</td>
-              <td>
+              <td data-label="姓名">{{ user.name }}</td>
+              <td data-label="邮箱">{{ user.email }}</td>
+              <td data-label="角色">{{ user.role|role_label }}</td>
+              <td data-label="绑定客户">{{ user.client_name or "-" }}</td>
+              <td data-label="创建时间">{{ user.created_at[:10] }}</td>
+              <td data-label="操作">
                 <div class="row-actions">
                   <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_user', user_id=user.id) }}'">编辑</button>
                   {% if can_manage %}

@@ -701,8 +701,16 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .invoice-totals .due { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 18px; }
 .tax-note { color: var(--muted); font-size: 12px; }
 
-@media (max-width: 900px) {
-  .sidebar { position: static; width: auto; }
+@media (max-width: 1100px) {
+  .sidebar {
+    position: static;
+    width: auto;
+    min-height: auto;
+  }
+  .sidebar nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .brand { margin-bottom: 18px; }
   .user-box { position: static; margin-top: 20px; }
   .main { margin-left: 0; padding: 20px; }
   .metric-grid, .split, .settings-layout, .attachment-grid, .form-grid, .invoice-top, .invoice-info, .invoice-bottom {
@@ -744,6 +752,53 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   }
   .page-header, .panel-title, .actions { align-items: stretch; flex-direction: column; }
   .invoice-paper { padding: 24px; }
+}
+
+@media (max-width: 640px) {
+  .sidebar { padding: 18px; }
+  .sidebar nav { grid-template-columns: 1fr; }
+  .main { padding: 16px; }
+  .page-header h1 { font-size: 26px; }
+  .panel { padding: 16px; }
+
+  .panel:has(.users-table) { overflow: visible; }
+  .users-table {
+    display: block;
+    min-width: 0;
+  }
+  .users-table thead { display: none; }
+  .users-table tbody,
+  .users-table tr,
+  .users-table td {
+    display: block;
+    width: 100%;
+  }
+  .users-table tr {
+    margin-bottom: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .users-table td {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    overflow-wrap: anywhere;
+  }
+  .users-table td:last-child { border-bottom: 0; }
+  .users-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .users-table .row-actions {
+    flex-direction: row;
+  }
+  .users-table .row-actions button,
+  .users-table .row-actions .button {
+    width: auto;
+  }
 }
 
 @media print {
