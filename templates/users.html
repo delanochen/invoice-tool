@@ -2,7 +2,7 @@
 {% block title %}用户 - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header"><div><p class="eyebrow">Users</p><h1>用户管理</h1></div></header>
-  <section class="split">
+  <section class="split{% if not can_manage %} single-column{% endif %}">
     {% if can_manage %}
       <form method="post" class="panel form-stack">
         <h2>新增用户</h2>
@@ -19,7 +19,7 @@
         <button class="primary" type="submit">创建用户</button>
       </form>
     {% endif %}
-    <section class="panel">
+    <section class="panel users-panel">
       <h2>{% if can_manage %}已有用户{% else %}我的信息{% endif %}</h2>
       <table class="list-table users-table">
         <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>绑定客户</th><th>创建时间</th><th>操作</th></tr></thead>
