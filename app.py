@@ -297,6 +297,19 @@ def init_db():
                 foreign key(user_id) references users(id)
             );
 
+            create table if not exists audit_logs (
+                id integer primary key autoincrement,
+                user_id integer,
+                user_name text not null,
+                action text not null,
+                entity_type text not null,
+                entity_id integer,
+                entity_label text not null,
+                summary text,
+                created_at text not null,
+                foreign key(user_id) references users(id) on delete set null
+            );
+
             create table if not exists service_report_saved_parts (
                 id integer primary key autoincrement,
                 report_id integer not null,
@@ -407,6 +420,26 @@ def init_db():
               and not exists (
                   select 1 from expense_items where expense_items.expense_id = expenses.id
               )
+            """
+        )
+        connection.execute(
+            """
+            delete from messages
+            where title = '发票已确认完成'
+              and exists (
+                  select 1 from messages as reviewed
+                  where reviewed.user_id = messages.user_id
+                    and reviewed.link = messages.link
+                    and reviewed.title = '发票已审核完成'
+              )
+            """
+        )
+        connection.execute(
+            """
+            update messages
+            set title = '发票已审核完成',
+                body = replace(body, '已由经理确认完成', '已审核完成')
+            where title = '发票已确认完成'
             """
         )
         seed_settings(connection)
@@ -540,8 +573,24 @@ def can_view_invoices():
     return g.user and normalized_role() in {"admin", "manager", "finance"}
 
 
+def can_create_invoice():
+    return g.user and normalized_role() in {"manager", "finance"}
+
+
+def can_create_service_order():
+    return g.user and normalized_role() in {"manager", "finance", "employee"}
+
+
+def can_create_expense():
+    return g.user and normalized_role() in {"manager", "finance", "employee"}
+
+
 def can_manage_users():
     return g.user and normalized_role() == "admin"
+
+
+def can_view_audit_logs():
+    return g.user and normalized_role() in {"admin", "manager"}
 
 
 def can_access_client(client_id):
@@ -636,6 +685,10 @@ app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
 app.jinja_env.filters["local_datetime"] = local_datetime
 app.jinja_env.globals["can_view_invoices"] = can_view_invoices
+app.jinja_env.globals["can_create_invoice"] = can_create_invoice
+app.jinja_env.globals["can_create_service_order"] = can_create_service_order
+app.jinja_env.globals["can_create_expense"] = can_create_expense
+app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 
@@ -1307,10 +1360,35 @@ def create_message(user_id, title, body, link=None):
     )
 
 
-def notify_role(roles, title, body, link=None):
+def log_action(action, entity_type, entity_id, entity_label, summary=""):
+    if not g.user:
+        return
+    db().execute(
+        """
+        insert into audit_logs (
+            user_id, user_name, action, entity_type, entity_id, entity_label, summary, created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            g.user["id"],
+            g.user["name"],
+            action,
+            entity_type,
+            entity_id,
+            str(entity_label or ""),
+            str(summary or ""),
+            now(),
+        ),
+    )
+
+
+def notify_role(roles, title, body, link=None, exclude_user_ids=None):
+    excluded = {int(user_id) for user_id in (exclude_user_ids or []) if user_id is not None}
     placeholders = ",".join("?" for _ in roles)
     rows = db().execute(f"select id from users where role in ({placeholders})", list(roles)).fetchall()
     for row in rows:
+        if row["id"] in excluded:
+            continue
         create_message(row["id"], title, body, link)
 
 
@@ -2064,6 +2142,77 @@ def expense_query():
     return render_template("expense_query.html", rows=rows, q=q, status=status, date_from=date_from, date_to=date_to, total=total, labels=EXPENSE_STATUS_LABELS)
 
 
+@app.route("/reports/audit-logs")
+@login_required
+def audit_log_report():
+    if not can_view_audit_logs():
+        abort(403)
+    entity_labels = {
+        "service_order": "工单",
+        "invoice": "发票",
+        "service_report": "工作日报",
+        "expense": "报销",
+    }
+    action_labels = {
+        "create": "创建",
+        "update": "修改",
+        "delete": "删除",
+        "submit": "提交审核",
+        "approve": "审核通过",
+        "return": "退回",
+        "void": "作废",
+        "mark_paid": "核销",
+        "unmark_paid": "取消核销",
+        "status_change": "调整状态",
+    }
+    q = request.args.get("q", "").strip()
+    entity_type = request.args.get("entity_type", "").strip()
+    action = request.args.get("action", "").strip()
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    clauses = ["1 = 1"]
+    params = []
+    if q:
+        clauses.append("(user_name like ? or entity_label like ? or summary like ?)")
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if entity_type in entity_labels:
+        clauses.append("entity_type = ?")
+        params.append(entity_type)
+    else:
+        entity_type = ""
+    if action in action_labels:
+        clauses.append("action = ?")
+        params.append(action)
+    else:
+        action = ""
+    if date_from:
+        clauses.append("date(created_at) >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("date(created_at) <= ?")
+        params.append(date_to)
+    rows = db().execute(
+        f"""
+        select * from audit_logs
+        where {" and ".join(clauses)}
+        order by datetime(created_at) desc, id desc
+        limit 1000
+        """,
+        params,
+    ).fetchall()
+    return render_template(
+        "audit_logs.html",
+        rows=rows,
+        q=q,
+        entity_type=entity_type,
+        action=action,
+        date_from=date_from,
+        date_to=date_to,
+        entity_labels=entity_labels,
+        action_labels=action_labels,
+    )
+
+
 @app.route("/service-orders")
 @login_required
 def service_orders():
@@ -2095,7 +2244,7 @@ def service_orders():
 @app.route("/service-orders/new", methods=["GET", "POST"])
 @login_required
 def new_service_order():
-    if not is_internal_user():
+    if not can_create_service_order():
         abort(403)
     if request.method == "POST":
         client_name = request.form.get("client_name", "").strip()
@@ -2104,13 +2253,15 @@ def new_service_order():
         if not client_name or not site_address or not client_order_number:
             flash("请填写客户名称、服务现场地址和服务订单号码。", "error")
             return redirect(url_for("new_service_order"))
-        db().execute(
+        order_number = next_service_order_number()
+        cursor = db().execute(
             """
             insert into service_orders (order_number, client_name, site_address, client_order_number, created_by, created_at)
             values (?, ?, ?, ?, ?, ?)
             """,
-            (next_service_order_number(), client_name, site_address, client_order_number, g.user["id"], now()),
+            (order_number, client_name, site_address, client_order_number, g.user["id"], now()),
         )
+        log_action("create", "service_order", cursor.lastrowid, order_number, f"客户：{client_name}")
         db().commit()
         flash("工单已创建。", "success")
         return redirect(url_for("service_orders"))
@@ -2136,6 +2287,7 @@ def edit_service_order(order_id):
                 order_id,
             ),
         )
+        log_action("update", "service_order", order_id, order["order_number"], "修改工单信息")
         db().commit()
         flash("工单已保存。", "success")
         return redirect(url_for("service_order_detail", order_id=order_id))
@@ -2148,10 +2300,12 @@ def service_order_detail(order_id):
     order = require_service_order(order_id)
     reports_rows = db().execute(
         """
-        select service_reports.*, group_concat(users.name, ', ') as worker_names
+        select service_reports.*, group_concat(worker_users.name, ', ') as worker_names,
+               creator_users.name as creator_name
         from service_reports
         left join service_report_workers on service_report_workers.report_id = service_reports.id
-        left join users on users.id = service_report_workers.user_id
+        left join users as worker_users on worker_users.id = service_report_workers.user_id
+        left join users as creator_users on creator_users.id = service_reports.created_by
         where service_reports.service_order_id = ?
         group by service_reports.id
         order by service_reports.report_date desc, service_reports.id desc
@@ -2239,6 +2393,13 @@ def new_service_report(order_id):
             finish_report_save_token(save_token, report_id)
             save_report_detail_rows(report_id)
             save_report_uploads(report_id)
+            log_action(
+                "create",
+                "service_report",
+                report_id,
+                f"{order['order_number']} / {request.form.get('report_date')}",
+                "创建工作日报",
+            )
             db().commit()
         except ValueError as error:
             db().rollback()
@@ -2301,6 +2462,13 @@ def edit_service_report(report_id):
             save_report_detail_rows(report_id)
             relocate_report_attachments(report_id)
             save_report_uploads(report_id)
+            log_action(
+                "update",
+                "service_report",
+                report_id,
+                f"{order['order_number']} / {request.form.get('report_date')}",
+                "修改工作日报",
+            )
             db().commit()
         except ValueError as error:
             db().rollback()
@@ -2348,6 +2516,13 @@ def delete_service_report(report_id):
     db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
     db().execute("delete from service_report_replaced_parts where report_id = ?", (report_id,))
     db().execute("delete from service_reports where id = ?", (report_id,))
+    log_action(
+        "delete",
+        "service_report",
+        report_id,
+        f"{order['order_number']} / {report['report_date']}",
+        "删除工作日报",
+    )
     db().commit()
     flash("工作日报已删除。", "success")
     return redirect(url_for("service_order_detail", order_id=order["id"]))
@@ -2599,6 +2774,8 @@ def save_expense_items(expense_id, item_rows):
 @app.route("/service-orders/<int:order_id>/expenses/new", methods=["GET", "POST"])
 @login_required
 def new_expense(order_id):
+    if not can_create_expense():
+        abort(403)
     order = require_service_order(order_id)
     expense_projects = db().execute(
         "select * from projects where project_type = 'expense' and is_active = 1 order by name"
@@ -2623,6 +2800,7 @@ def new_expense(order_id):
             total_amount = sum(item["amount"] for item in item_rows)
             project_names = ", ".join(dict.fromkeys(item["project"]["name"] for item in item_rows))
             first_project = item_rows[0]["project"]
+            expense_number = next_expense_number()
             cursor = db().execute(
                 """
                 insert into expenses (
@@ -2632,7 +2810,7 @@ def new_expense(order_id):
                 """,
                 (
                     order_id,
-                    next_expense_number(),
+                    expense_number,
                     first_project["id"],
                     project_names,
                     request.form.get("expense_date"),
@@ -2649,6 +2827,10 @@ def new_expense(order_id):
             finish_expense_save_token(save_token, expense_id)
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id)
+            expense_summary = f"工单：{order['order_number']}；金额：{money(total_amount)}"
+            log_action("create", "expense", expense_id, expense_number, expense_summary)
+            if submit_for_review:
+                log_action("submit", "expense", expense_id, expense_number, expense_summary)
             db().commit()
         except ValueError as error:
             db().rollback()
@@ -2726,6 +2908,10 @@ def edit_expense(expense_id):
             )
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id)
+            expense_summary = f"工单：{order['order_number']}；金额：{money(total_amount)}"
+            log_action("update", "expense", expense_id, expense["expense_number"], expense_summary)
+            if submit_for_review:
+                log_action("submit", "expense", expense_id, expense["expense_number"], expense_summary)
             db().commit()
         except ValueError as error:
             db().rollback()
@@ -2782,6 +2968,7 @@ def approve_expense(expense_id):
         (g.user["id"], now(), now(), expense_id),
     )
     create_message(expense["created_by"], "报销已审核通过", f"报销 {expense['expense_number']} 已通过。", url_for("expense_detail", expense_id=expense_id))
+    log_action("approve", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
     db().commit()
     flash("报销已审核通过。", "success")
     return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -2805,6 +2992,7 @@ def return_expense(expense_id):
         (reason, g.user["id"], now(), now(), expense_id),
     )
     create_message(expense["created_by"], "报销已被退回", f"报销 {expense['expense_number']} 已被退回。原因：{reason}", url_for("expense_detail", expense_id=expense_id))
+    log_action("return", "expense", expense_id, expense["expense_number"], f"原因：{reason}")
     db().commit()
     flash("报销已退回。", "success")
     return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -2814,15 +3002,17 @@ def return_expense(expense_id):
 @login_required
 def delete_expense(expense_id):
     expense, order = require_expense(expense_id)
-    if expense["created_by"] != g.user["id"] and not is_manager():
+    is_admin = normalized_role() == "admin"
+    if not is_admin and expense["created_by"] != g.user["id"] and not is_manager():
         abort(403)
-    if expense["status"] not in {"draft", "returned"}:
+    if not is_admin and expense["status"] not in {"draft", "returned"}:
         flash("只有保存未提交或被退回的报销可以删除。", "error")
         return redirect(url_for("expense_detail", expense_id=expense_id))
     shutil.rmtree(expense_attachment_dir(expense_id), ignore_errors=True)
     db().execute("delete from expense_attachments where expense_id = ?", (expense_id,))
     db().execute("delete from expense_items where expense_id = ?", (expense_id,))
     db().execute("delete from expenses where id = ?", (expense_id,))
+    log_action("delete", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
     db().commit()
     flash("报销已删除。", "success")
     return redirect(url_for("service_order_detail", order_id=order["id"]))
@@ -2876,7 +3066,7 @@ def delete_expense_attachment(attachment_id):
 @app.route("/invoices/new", methods=["GET", "POST"])
 @login_required
 def new_invoice():
-    if not can_view_invoices():
+    if not can_create_invoice():
         abort(403)
     if is_external_user():
         if not g.user["client_id"]:
@@ -3038,6 +3228,10 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
     for uploaded in uploaded_attachments_from_request():
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
+    invoice_summary = f"金额：{money(invoice_totals(invoice_id)['total'], request.form.get('currency', 'USD'))}"
+    log_action("create", "invoice", invoice_id, invoice_number, invoice_summary)
+    if submit_for_review:
+        log_action("submit", "invoice", invoice_id, invoice_number, invoice_summary)
     db().commit()
     if submit_for_review:
         invoice, client, _ = load_invoice(invoice_id)
@@ -3084,6 +3278,9 @@ def edit_invoice(invoice_id):
             submit_for_review = request.form.get("action") == "submit"
             was_returned = invoice["status"] == "returned"
             update_invoice_from_form(invoice_id, submit_for_review=submit_for_review)
+            log_action("update", "invoice", invoice_id, invoice["invoice_number"], "修改发票内容")
+            if submit_for_review:
+                log_action("submit", "invoice", invoice_id, invoice["invoice_number"], "提交审核")
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
@@ -3230,6 +3427,7 @@ def return_invoice(invoice_id):
             return_message_body(invoice, client, total, reason),
             return_link,
         )
+    log_action("return", "invoice", invoice_id, invoice["invoice_number"], f"原因：{reason}")
     db().commit()
     flash("发票已退回给发起人。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
@@ -3241,11 +3439,23 @@ def complete_invoice(invoice_id):
     invoice = require_invoice_access(invoice_id)
     if not is_manager():
         abort(403)
+    if invoice["status"] != "submitted":
+        flash("只有待审核的发票可以审核完成。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     db().execute("update invoices set status = 'completed', return_reason = null where id = ?", (invoice_id,))
-    create_message(invoice["created_by"], "发票已确认完成", f"发票 {invoice['invoice_number']} 已由经理确认完成。", url_for("invoice_detail", invoice_id=invoice_id))
-    notify_role(["admin"], "发票已审核完成", f"{g.user['name']}已审核完成发票{invoice['invoice_number']}。", url_for("invoice_detail", invoice_id=invoice_id))
+    message_link = url_for("invoice_detail", invoice_id=invoice_id)
+    message_body = f"{g.user['name']}已审核完成发票 {invoice['invoice_number']}。"
+    create_message(invoice["created_by"], "发票已审核完成", message_body, message_link)
+    notify_role(
+        ["admin"],
+        "发票已审核完成",
+        message_body,
+        message_link,
+        exclude_user_ids={invoice["created_by"], g.user["id"]},
+    )
+    log_action("approve", "invoice", invoice_id, invoice["invoice_number"], "审核完成")
     db().commit()
-    flash("发票已确认完成。", "success")
+    flash("发票已审核完成。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
 
@@ -3272,6 +3482,7 @@ def admin_update_invoice_status(invoice_id):
         f"管理员已将发票 {invoice['invoice_number']} 调整为保存未提交状态。",
         url_for("edit_invoice", invoice_id=invoice_id),
     )
+    log_action("status_change", "invoice", invoice_id, invoice["invoice_number"], "调整为保存未提交")
     db().commit()
     flash("发票状态已修改为保存未提交。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
@@ -3291,6 +3502,7 @@ def resubmit_invoice(invoice_id):
     total = invoice_totals(invoice_id)["total"]
     body = review_message_body(g.user["name"], invoice, client, total, is_resubmission=True)
     notify_role(["admin", "manager"], "退回发票已重新提交", body, url_for("invoice_detail", invoice_id=invoice_id))
+    log_action("submit", "invoice", invoice_id, invoice["invoice_number"], "退回后重新提交审核")
     db().commit()
     flash("发票已重新提交给经理审核。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
@@ -3304,6 +3516,7 @@ def void_invoice(invoice_id):
         flash("审核完成后的发票不能作废。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     db().execute("update invoices set status = 'void' where id = ?", (invoice_id,))
+    log_action("void", "invoice", invoice_id, invoice["invoice_number"], "作废发票")
     db().commit()
     flash("发票已作废。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
@@ -3313,9 +3526,10 @@ def void_invoice(invoice_id):
 @login_required
 def delete_invoice(invoice_id):
     invoice = require_invoice_access(invoice_id)
+    is_admin = normalized_role() == "admin"
     can_delete_returned = invoice["status"] in {"draft", "returned"} and (is_manager() or invoice["created_by"] == g.user["id"])
     can_delete_void = invoice["status"] == "void" and is_manager()
-    if not (can_delete_returned or can_delete_void):
+    if not (is_admin or can_delete_returned or can_delete_void):
         flash("只有作废发票，或草稿/退回状态下由管理员、经理、发起人删除的发票可以删除。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     shutil.rmtree(invoice_attachment_path(invoice_id), ignore_errors=True)
@@ -3324,6 +3538,7 @@ def delete_invoice(invoice_id):
         (url_for("invoice_detail", invoice_id=invoice_id), url_for("edit_invoice", invoice_id=invoice_id)),
     )
     db().execute("delete from invoices where id = ?", (invoice_id,))
+    log_action("delete", "invoice", invoice_id, invoice["invoice_number"], f"删除状态为 {invoice['status']} 的发票")
     db().commit()
     flash("发票已删除。", "success")
     return redirect(url_for("invoices"))
@@ -3351,6 +3566,7 @@ def mark_invoice_paid(invoice_id):
             invoice_id,
         ),
     )
+    log_action("mark_paid", "invoice", invoice_id, invoice["invoice_number"], "记录发票核销")
     db().commit()
     flash("发票已核销。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
@@ -3359,10 +3575,11 @@ def mark_invoice_paid(invoice_id):
 @app.post("/invoices/<int:invoice_id>/unmark-paid")
 @login_required
 def unmark_invoice_paid(invoice_id):
-    require_invoice_access(invoice_id)
+    invoice = require_invoice_access(invoice_id)
     if not is_manager():
         abort(403)
     db().execute("update invoices set paid_at = null, payment_amount = null, payment_note = null where id = ?", (invoice_id,))
+    log_action("unmark_paid", "invoice", invoice_id, invoice["invoice_number"], "取消发票核销")
     db().commit()
     flash("发票核销记录已取消。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))

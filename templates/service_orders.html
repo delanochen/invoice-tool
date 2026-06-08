@@ -3,7 +3,9 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Service Orders</p><h1>工单管理</h1></div>
-    <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_order') }}'">新建工单</button>
+    {% if can_create_service_order() %}
+      <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_order') }}'">新建工单</button>
+    {% endif %}
   </header>
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、客户名称或服务订单号码"></label>

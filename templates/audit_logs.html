@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}操作日志 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Audit Log</p><h1>操作日志</h1></div>
+  </header>
+  <form class="filter-bar no-print" method="get">
+    <label>关键词 <input name="q" value="{{ q }}" placeholder="操作者、编号或操作内容"></label>
+    <label>业务类型
+      <select name="entity_type">
+        <option value="">全部</option>
+        {% for value, label in entity_labels.items() %}
+          <option value="{{ value }}" {% if entity_type == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>操作
+      <select name="action">
+        <option value="">全部</option>
+        {% for value, label in action_labels.items() %}
+          <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('audit_log_report') }}'">重置</button>
+    </div>
+  </form>
+  <section class="panel">
+    <table class="list-table">
+      <thead><tr><th>时间</th><th>操作者</th><th>业务类型</th><th>对象</th><th>操作</th><th>内容</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.created_at|local_datetime }}</td>
+            <td>{{ row.user_name }}</td>
+            <td>{{ entity_labels.get(row.entity_type, row.entity_type) }}</td>
+            <td>{{ row.entity_label }}</td>
+            <td>{{ action_labels.get(row.action, row.action) }}</td>
+            <td>{{ row.summary or "-" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="empty">没有符合条件的操作日志。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

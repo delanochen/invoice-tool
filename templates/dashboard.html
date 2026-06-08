@@ -6,7 +6,9 @@
       <p class="eyebrow">Overview</p>
       <h1>开票概览</h1>
     </div>
-    <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_invoice') }}'">新建发票</button>
+    {% if can_create_invoice() %}
+      <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_invoice') }}'">新建发票</button>
+    {% endif %}
   </header>
 
   <section class="metric-grid">

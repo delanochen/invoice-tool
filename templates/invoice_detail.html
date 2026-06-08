@@ -25,7 +25,7 @@
         <button type="button" onclick="document.querySelector('#adminStatusDialog').showModal()">管理员改状态</button>
       {% endif %}
       {% if invoice.status == "submitted" and g.user.role in ["admin", "manager"] %}
-        <form method="post" action="{{ url_for('complete_invoice', invoice_id=invoice.id) }}"><button class="primary" type="submit">确认完成</button></form>
+        <form method="post" action="{{ url_for('complete_invoice', invoice_id=invoice.id) }}"><button class="primary" type="submit">审核通过</button></form>
         <button class="danger" type="button" onclick="document.querySelector('#returnDialog').showModal()">退回</button>
       {% endif %}
       {% if invoice.status in ["draft", "returned"] and (invoice.created_by == g.user.id or g.user.role in ["admin", "manager"]) %}
@@ -34,10 +34,9 @@
       {% if invoice.status not in ["void", "completed"] %}
         <form method="post" action="{{ url_for('void_invoice', invoice_id=invoice.id) }}"><button class="danger" type="submit">作废</button></form>
       {% endif %}
-      {% if invoice.status == "void" and g.user.role in ["admin", "manager"] %}
+      {% if normalized_role() == "admin" or (invoice.status == "void" and normalized_role() == "manager") %}
         <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张作废发票吗？');"><button class="danger" type="submit">删除</button></form>
-      {% endif %}
-      {% if invoice.status in ["draft", "returned"] and (invoice.created_by == g.user.id or g.user.role in ["admin", "manager"]) %}
+      {% elif invoice.status in ["draft", "returned"] and (invoice.created_by == g.user.id or normalized_role() == "manager") %}
         <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张发票吗？');"><button class="danger" type="submit">删除</button></form>
       {% endif %}
     </div>

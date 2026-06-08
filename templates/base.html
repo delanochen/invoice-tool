@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260608-users-layout-2') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260608-admin-permissions') }}">
   </head>
   <body>
     {% if g.user %}
@@ -19,7 +19,7 @@
             <a href="{{ url_for('invoices') }}">发票</a>
           {% endif %}
           <a href="{{ url_for('service_orders') }}">工单</a>
-          {% if can_view_invoices() %}
+          {% if can_create_invoice() %}
             <a href="{{ url_for('new_invoice') }}">新建发票</a>
           {% endif %}
           <details class="nav-group">
@@ -31,6 +31,9 @@
               {% endif %}
               <a href="{{ url_for('service_report_query') }}">日报查询</a>
               <a href="{{ url_for('expense_query') }}">报销查询</a>
+              {% if can_view_audit_logs() %}
+                <a href="{{ url_for('audit_log_report') }}">操作日志</a>
+              {% endif %}
             </div>
           </details>
           <a href="{{ url_for('messages') }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>

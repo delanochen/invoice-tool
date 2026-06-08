@@ -10,6 +10,8 @@
     <div class="actions">
       {% if expense.status in ["draft", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
         <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_expense', expense_id=expense.id) }}'">编辑</button>
+      {% endif %}
+      {% if normalized_role() == "admin" or (expense.status in ["draft", "returned"] and (expense.created_by == g.user.id or normalized_role() == "manager")) %}
         <form method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}" onsubmit="return confirm('确定删除这张报销单吗？');"><button class="danger" type="submit">删除</button></form>
       {% endif %}
       {% if expense.status == "submitted" and normalized_role() in ["admin", "manager"] %}
