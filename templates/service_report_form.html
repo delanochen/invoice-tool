@@ -14,10 +14,11 @@
           <button type="submit">导出 Word</button>
         </form>
       {% endif %}
-      <button class="primary" type="submit" form="serviceReportForm">保存</button>
+      <button class="primary" type="submit" form="serviceReportForm" id="saveServiceReport">保存</button>
     </div>
   </header>
   <form method="post" enctype="multipart/form-data" class="panel service-report-form" id="serviceReportForm">
+    <input type="hidden" name="save_token" value="{{ save_token }}">
     <div class="form-grid">
       <label>报告日期 <input type="date" name="report_date" value="{{ report.report_date }}" required></label>
       <label>总计服务工时：小时 <input type="number" step="0.1" min="0" name="total_service_hours" value="{{ report.total_service_hours }}"></label>
@@ -159,5 +160,5 @@
     </div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260607-photo-preview-delete') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260607-save-lock') }}"></script>
 {% endblock %}

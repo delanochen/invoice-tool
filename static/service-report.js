@@ -26,6 +26,8 @@ const nasSelections = new Map();
 const pendingNasSelection = new Map();
 const localPhotoSelections = new Map();
 const localPhotoUrls = new Map();
+const serviceReportForm = document.getElementById("serviceReportForm");
+let serviceReportSubmitting = false;
 
 function updateNasSelectionCount() {
   nasSelectionCount.textContent = `已选择 ${pendingNasSelection.size} 张`;
@@ -231,6 +233,22 @@ document.querySelectorAll("[data-local-photo]").forEach((input) => {
     syncLocalPhotoInput(category);
     renderLocalPhotoPreviews(category);
   });
+});
+
+serviceReportForm?.addEventListener("submit", (event) => {
+  const submitter = event.submitter;
+  if (submitter?.classList.contains("delete-photo")) return;
+  if (serviceReportSubmitting) {
+    event.preventDefault();
+    return;
+  }
+  serviceReportSubmitting = true;
+  const saveButton = document.getElementById("saveServiceReport");
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "保存中...";
+    saveButton.setAttribute("aria-busy", "true");
+  }
 });
 
 document.addEventListener("click", (event) => {

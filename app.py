@@ -326,6 +326,13 @@ def init_db():
                 foreign key(uploaded_by) references users(id)
             );
 
+            create table if not exists service_report_save_tokens (
+                token text primary key,
+                report_id integer,
+                created_at text not null,
+                foreign key(report_id) references service_reports(id) on delete cascade
+            );
+
             create table if not exists expenses (
                 id integer primary key autoincrement,
                 service_order_id integer not null,
@@ -1013,6 +1020,27 @@ def save_report_uploads(report_id):
             save_report_attachment(report_id, uploaded, category)
         for relative_path in request.form.getlist(f"shared_photo_{category}"):
             save_shared_report_photo(report_id, relative_path, category)
+
+
+def claim_report_save_token(token, report_id=None):
+    token = str(token or "").strip()
+    if not token:
+        raise ValueError("保存令牌无效，请刷新页面后重试。")
+    cursor = db().execute(
+        """
+        insert or ignore into service_report_save_tokens (token, report_id, created_at)
+        values (?, ?, ?)
+        """,
+        (token, report_id, now()),
+    )
+    return cursor.rowcount == 1
+
+
+def finish_report_save_token(token, report_id):
+    db().execute(
+        "update service_report_save_tokens set report_id = ? where token = ?",
+        (report_id, token),
+    )
 
 
 def get_report_attachments(report_id):
@@ -2081,6 +2109,16 @@ def new_service_report(order_id):
     order = require_service_order(order_id)
     users_rows = db().execute("select id, name, email from users where role != 'external' order by name").fetchall()
     if request.method == "POST":
+        save_token = request.form.get("save_token", "")
+        if not claim_report_save_token(save_token):
+            existing = db().execute(
+                "select report_id from service_report_save_tokens where token = ?",
+                (save_token,),
+            ).fetchone()
+            if existing and existing["report_id"]:
+                return redirect(url_for("edit_service_report", report_id=existing["report_id"]))
+            flash("该日报正在保存，请稍候。", "error")
+            return redirect(url_for("new_service_report", order_id=order_id))
         try:
             cursor = db().execute(
                 """
@@ -2110,6 +2148,7 @@ def new_service_report(order_id):
                 ),
             )
             report_id = cursor.lastrowid
+            finish_report_save_token(save_token, report_id)
             save_report_detail_rows(report_id)
             save_report_uploads(report_id)
             db().commit()
@@ -2128,6 +2167,7 @@ def new_service_report(order_id):
         saved_parts=[{} for _ in range(4)],
         replaced_parts=[{} for _ in range(4)],
         attachments=get_report_attachments(0),
+        save_token=secrets.token_urlsafe(24),
         is_edit=False,
     )
 
@@ -2138,6 +2178,10 @@ def edit_service_report(report_id):
     report, order = require_service_report(report_id)
     users_rows = db().execute("select id, name, email from users where role != 'external' order by name").fetchall()
     if request.method == "POST":
+        save_token = request.form.get("save_token", "")
+        if not claim_report_save_token(save_token, report_id):
+            flash("该日报已经保存，请勿重复提交。", "success")
+            return redirect(url_for("edit_service_report", report_id=report_id))
         try:
             db().execute(
                 """
@@ -2186,6 +2230,7 @@ def edit_service_report(report_id):
         saved_parts=saved_parts,
         replaced_parts=replaced_parts,
         attachments=get_report_attachments(report_id),
+        save_token=secrets.token_urlsafe(24),
         is_edit=True,
     )
 
