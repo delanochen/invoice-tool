@@ -2837,7 +2837,12 @@ def new_expense(order_id):
             flash(str(error), "error")
             return redirect(url_for("new_expense", order_id=order_id))
         if submit_for_review:
-            notify_role(["admin", "manager"], "新报销待审核", f"{g.user['name']}提交了报销 {cursor.lastrowid}，工单 {order['order_number']}。", url_for("expense_detail", expense_id=expense_id))
+            notify_role(
+                ["admin", "manager"],
+                "新报销待审核",
+                f"{g.user['name']}提交了报销 {expense_number}，工单 {order['order_number']}，金额 {money(total_amount)}。",
+                url_for("expense_detail", expense_id=expense_id),
+            )
             db().commit()
             flash("报销已提交经理审核。", "success")
             return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -2918,7 +2923,12 @@ def edit_expense(expense_id):
             flash(str(error), "error")
             return redirect(url_for("edit_expense", expense_id=expense_id))
         if submit_for_review:
-            notify_role(["admin", "manager"], "报销已提交审核", f"{g.user['name']}提交了报销 {expense['expense_number']}，工单 {order['order_number']}。", url_for("expense_detail", expense_id=expense_id))
+            notify_role(
+                ["admin", "manager"],
+                "报销已提交审核",
+                f"{g.user['name']}提交了报销 {expense['expense_number']}，工单 {order['order_number']}，金额 {money(total_amount)}。",
+                url_for("expense_detail", expense_id=expense_id),
+            )
             db().commit()
             flash("报销已提交经理审核。", "success")
             return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -2967,7 +2977,19 @@ def approve_expense(expense_id):
         "update expenses set status = 'approved', return_reason = null, reviewed_by = ?, reviewed_at = ?, updated_at = ? where id = ?",
         (g.user["id"], now(), now(), expense_id),
     )
-    create_message(expense["created_by"], "报销已审核通过", f"报销 {expense['expense_number']} 已通过。", url_for("expense_detail", expense_id=expense_id))
+    message_link = url_for("expense_detail", expense_id=expense_id)
+    message_body = (
+        f"{g.user['name']}已审核通过报销 {expense['expense_number']}，"
+        f"工单 {order['order_number']}，金额 {money(expense['amount'], expense['currency'])}。"
+    )
+    create_message(expense["created_by"], "报销已审核通过", message_body, message_link)
+    notify_role(
+        ["admin"],
+        "报销已审核通过",
+        message_body,
+        message_link,
+        exclude_user_ids={expense["created_by"], g.user["id"]},
+    )
     log_action("approve", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
     db().commit()
     flash("报销已审核通过。", "success")
