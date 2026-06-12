@@ -1,14 +1,20 @@
 import os
+import json
 import secrets
 import shutil
 import smtplib
 import sqlite3
+import threading
+import time
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
 from io import BytesIO
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import (
@@ -96,6 +102,15 @@ DEFAULT_SMTP_SETTINGS = {
     "tls": "true",
 }
 DEFAULT_TIMEZONE = "America/Chicago"
+NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
+NOMINATIM_USER_AGENT = os.environ.get(
+    "NOMINATIM_USER_AGENT",
+    "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
+)
+NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us").strip()
+GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+_geocode_lock = threading.Lock()
+_last_geocode_request_at = 0.0
 
 STATUS_LABELS = {
     "draft": "保存未提交",
@@ -411,6 +426,11 @@ def init_db():
         ensure_column(connection, "invoices", "service_order_id", "integer")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
         ensure_column(connection, "expenses", "project_id", "integer")
+        ensure_column(connection, "service_orders", "latitude", "real")
+        ensure_column(connection, "service_orders", "longitude", "real")
+        ensure_column(connection, "service_orders", "geocode_address", "text")
+        ensure_column(connection, "service_orders", "geocode_status", "text not null default 'pending'")
+        ensure_column(connection, "service_orders", "geocode_attempted_at", "text")
         connection.execute(
             """
             insert into expense_items (expense_id, project_id, project, amount, description, sort_order)
@@ -1382,6 +1402,116 @@ def log_action(action, entity_type, entity_id, entity_label, summary=""):
     )
 
 
+def normalized_address(value):
+    return " ".join(str(value or "").strip().split()).casefold()
+
+
+def geocode_address(address):
+    global _last_geocode_request_at
+    if not GEOCODING_ENABLED:
+        return None
+    query = {
+        "q": address,
+        "format": "jsonv2",
+        "limit": "1",
+        "addressdetails": "0",
+    }
+    if NOMINATIM_COUNTRY_CODES:
+        query["countrycodes"] = NOMINATIM_COUNTRY_CODES
+    request_url = f"{NOMINATIM_URL}?{urlencode(query)}"
+    with _geocode_lock:
+        wait_seconds = 1.05 - (time.monotonic() - _last_geocode_request_at)
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
+        request_object = Request(
+            request_url,
+            headers={
+                "User-Agent": NOMINATIM_USER_AGENT,
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en;q=0.8",
+            },
+        )
+        try:
+            with urlopen(request_object, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            _last_geocode_request_at = time.monotonic()
+    if not payload:
+        return None
+    try:
+        return float(payload[0]["lat"]), float(payload[0]["lon"])
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+
+
+def geocode_service_order(order_id, force=False):
+    order = db().execute("select * from service_orders where id = ?", (order_id,)).fetchone()
+    if not order:
+        return None
+    address = str(order["site_address"] or "").strip()
+    address_key = normalized_address(address)
+    if not address_key:
+        db().execute(
+            """
+            update service_orders
+            set latitude = null, longitude = null, geocode_address = ?, geocode_status = 'failed',
+                geocode_attempted_at = ?
+            where id = ?
+            """,
+            (address, now(), order_id),
+        )
+        return None
+    if (
+        not force
+        and order["geocode_status"] == "success"
+        and order["latitude"] is not None
+        and order["longitude"] is not None
+        and normalized_address(order["geocode_address"]) == address_key
+    ):
+        return float(order["latitude"]), float(order["longitude"])
+    cached = db().execute(
+        """
+        select latitude, longitude
+        from service_orders
+        where id != ? and geocode_status = 'success'
+          and latitude is not null and longitude is not null
+          and lower(trim(geocode_address)) = lower(trim(?))
+        order by geocode_attempted_at desc, id desc
+        limit 1
+        """,
+        (order_id, address),
+    ).fetchone()
+    if cached:
+        coordinates = float(cached["latitude"]), float(cached["longitude"])
+    else:
+        try:
+            coordinates = geocode_address(address)
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            app.logger.warning("Unable to geocode service order %s: %s", order_id, error)
+            coordinates = None
+    if coordinates:
+        db().execute(
+            """
+            update service_orders
+            set latitude = ?, longitude = ?, geocode_address = ?, geocode_status = 'success',
+                geocode_attempted_at = ?
+            where id = ?
+            """,
+            (coordinates[0], coordinates[1], address, now(), order_id),
+        )
+        return coordinates
+    db().execute(
+        """
+        update service_orders
+        set latitude = null, longitude = null, geocode_address = ?, geocode_status = 'failed',
+            geocode_attempted_at = ?
+        where id = ?
+        """,
+        (address, now(), order_id),
+    )
+    return None
+
+
 def notify_role(roles, title, body, link=None, exclude_user_ids=None):
     excluded = {int(user_id) for user_id in (exclude_user_ids or []) if user_id is not None}
     placeholders = ",".join("?" for _ in roles)
@@ -2241,6 +2371,110 @@ def service_orders():
     return render_template("service_orders.html", orders=rows, q=q)
 
 
+def service_order_map_payload(order):
+    return {
+        "id": order["id"],
+        "order_number": order["order_number"],
+        "client_name": order["client_name"],
+        "client_order_number": order["client_order_number"],
+        "site_address": order["site_address"],
+        "status": order["status"],
+        "status_label": "已关闭" if order["status"] == "closed" else "进行中",
+        "latitude": order["latitude"],
+        "longitude": order["longitude"],
+        "geocode_status": order["geocode_status"] or "pending",
+        "report_count": order["report_count"],
+        "invoice_count": order["invoice_count"],
+        "detail_url": url_for("service_order_detail", order_id=order["id"]),
+    }
+
+
+def service_order_map_rows(where_clause="1 = 1", params=()):
+    return db().execute(
+        f"""
+        select service_orders.*,
+               count(distinct service_reports.id) as report_count,
+               count(distinct invoices.id) as invoice_count
+        from service_orders
+        left join service_reports on service_reports.service_order_id = service_orders.id
+        left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
+        where {where_clause}
+        group by service_orders.id
+        order by service_orders.created_at desc, service_orders.id desc
+        """,
+        params,
+    ).fetchall()
+
+
+@app.route("/service-orders/map")
+@login_required
+def service_order_map():
+    if not is_internal_user():
+        abort(403)
+    rows = service_order_map_rows()
+    orders = [service_order_map_payload(row) for row in rows]
+    return render_template(
+        "service_order_map.html",
+        map_orders=orders,
+        geocoding_enabled=GEOCODING_ENABLED,
+    )
+
+
+@app.post("/service-orders/map/geocode-next")
+@login_required
+def geocode_next_service_order():
+    if not is_internal_user():
+        abort(403)
+    if not GEOCODING_ENABLED:
+        return jsonify({"available": False, "remaining": 0}), 503
+    order = db().execute(
+        """
+        select id from service_orders
+        where geocode_status is null or geocode_status = 'pending'
+           or geocode_address is null
+           or lower(trim(geocode_address)) != lower(trim(site_address))
+        order by created_at desc, id desc
+        limit 1
+        """
+    ).fetchone()
+    if not order:
+        return jsonify({"available": True, "remaining": 0, "order": None})
+    geocode_service_order(order["id"])
+    db().commit()
+    refreshed = service_order_map_rows("service_orders.id = ?", (order["id"],))[0]
+    remaining = db().execute(
+        """
+        select count(*) as count from service_orders
+        where geocode_status is null or geocode_status = 'pending'
+           or geocode_address is null
+           or lower(trim(geocode_address)) != lower(trim(site_address))
+        """
+    ).fetchone()["count"]
+    return jsonify(
+        {
+            "available": True,
+            "remaining": remaining,
+            "order": service_order_map_payload(refreshed),
+        }
+    )
+
+
+@app.post("/service-orders/map/retry-failed")
+@login_required
+def retry_failed_service_order_geocodes():
+    if not is_internal_user():
+        abort(403)
+    db().execute(
+        """
+        update service_orders
+        set geocode_status = 'pending', geocode_attempted_at = null
+        where geocode_status = 'failed'
+        """
+    )
+    db().commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/service-orders/new", methods=["GET", "POST"])
 @login_required
 def new_service_order():
@@ -2273,6 +2507,7 @@ def new_service_order():
 def edit_service_order(order_id):
     order = require_service_order(order_id)
     if request.method == "POST":
+        site_address = request.form.get("site_address", "").strip()
         db().execute(
             """
             update service_orders
@@ -2281,12 +2516,22 @@ def edit_service_order(order_id):
             """,
             (
                 request.form.get("client_name", "").strip(),
-                request.form.get("site_address", "").strip(),
+                site_address,
                 request.form.get("client_order_number", "").strip(),
                 request.form.get("status", "open"),
                 order_id,
             ),
         )
+        if normalized_address(order["site_address"]) != normalized_address(site_address):
+            db().execute(
+                """
+                update service_orders
+                set latitude = null, longitude = null, geocode_address = null,
+                    geocode_status = 'pending', geocode_attempted_at = null
+                where id = ?
+                """,
+                (order_id,),
+            )
         log_action("update", "service_order", order_id, order["order_number"], "修改工单信息")
         db().commit()
         flash("工单已保存。", "success")

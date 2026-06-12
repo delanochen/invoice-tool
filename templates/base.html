@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260608-admin-permissions') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260611-service-map') }}">
+    {% block head %}{% endblock %}
   </head>
   <body>
     {% if g.user %}
@@ -19,6 +20,7 @@
             <a href="{{ url_for('invoices') }}">发票</a>
           {% endif %}
           <a href="{{ url_for('service_orders') }}">工单</a>
+          <a href="{{ url_for('service_order_map') }}">工单地图</a>
           {% if can_create_invoice() %}
             <a href="{{ url_for('new_invoice') }}">新建发票</a>
           {% endif %}
@@ -73,5 +75,6 @@
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
+    {% block scripts %}{% endblock %}
   </body>
 </html>
