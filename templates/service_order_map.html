@@ -33,7 +33,7 @@
     </label>
     <div class="map-summary" aria-live="polite">
       <strong id="visibleOrderCount">0</strong>
-      <span>个已定位工单</span>
+      <span>/ <span id="totalOrderCount">{{ map_orders|length }}</span> 个工单已定位</span>
       <span id="geocodeProgress"></span>
     </div>
   </div>
@@ -67,5 +67,5 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="{{ url_for('static', filename='service-order-map.js', v='20260611-map-v1') }}"></script>
+  <script src="{{ url_for('static', filename='service-order-map.js', v='20260612-map-fix') }}"></script>
 {% endblock %}

@@ -107,8 +107,9 @@ NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
     "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
 )
-NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us").strip()
+NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "").strip()
 GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+GEOCODER_VERSION = "2"
 _geocode_lock = threading.Lock()
 _last_geocode_request_at = 0.0
 
@@ -431,6 +432,7 @@ def init_db():
         ensure_column(connection, "service_orders", "geocode_address", "text")
         ensure_column(connection, "service_orders", "geocode_status", "text not null default 'pending'")
         ensure_column(connection, "service_orders", "geocode_attempted_at", "text")
+        ensure_column(connection, "service_orders", "geocode_version", "text")
         connection.execute(
             """
             insert into expense_items (expense_id, project_id, project, amount, description, sort_order)
@@ -1406,6 +1408,10 @@ def normalized_address(value):
     return " ".join(str(value or "").strip().split()).casefold()
 
 
+class TemporaryGeocodingError(Exception):
+    pass
+
+
 def geocode_address(address):
     global _last_geocode_request_at
     if not GEOCODING_ENABLED:
@@ -1434,6 +1440,12 @@ def geocode_address(address):
         try:
             with urlopen(request_object, timeout=8) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            if error.code == 429 or error.code >= 500:
+                raise TemporaryGeocodingError(str(error)) from error
+            raise
+        except (URLError, TimeoutError, OSError) as error:
+            raise TemporaryGeocodingError(str(error)) from error
         finally:
             _last_geocode_request_at = time.monotonic()
     if not payload:
@@ -1455,10 +1467,10 @@ def geocode_service_order(order_id, force=False):
             """
             update service_orders
             set latitude = null, longitude = null, geocode_address = ?, geocode_status = 'failed',
-                geocode_attempted_at = ?
+                geocode_attempted_at = ?, geocode_version = ?
             where id = ?
             """,
-            (address, now(), order_id),
+            (address, now(), GEOCODER_VERSION, order_id),
         )
         return None
     if (
@@ -1467,6 +1479,7 @@ def geocode_service_order(order_id, force=False):
         and order["latitude"] is not None
         and order["longitude"] is not None
         and normalized_address(order["geocode_address"]) == address_key
+        and order["geocode_version"] == GEOCODER_VERSION
     ):
         return float(order["latitude"]), float(order["longitude"])
     cached = db().execute(
@@ -1486,6 +1499,8 @@ def geocode_service_order(order_id, force=False):
     else:
         try:
             coordinates = geocode_address(address)
+        except TemporaryGeocodingError:
+            raise
         except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
             app.logger.warning("Unable to geocode service order %s: %s", order_id, error)
             coordinates = None
@@ -1494,20 +1509,20 @@ def geocode_service_order(order_id, force=False):
             """
             update service_orders
             set latitude = ?, longitude = ?, geocode_address = ?, geocode_status = 'success',
-                geocode_attempted_at = ?
+                geocode_attempted_at = ?, geocode_version = ?
             where id = ?
             """,
-            (coordinates[0], coordinates[1], address, now(), order_id),
+            (coordinates[0], coordinates[1], address, now(), GEOCODER_VERSION, order_id),
         )
         return coordinates
     db().execute(
         """
         update service_orders
         set latitude = null, longitude = null, geocode_address = ?, geocode_status = 'failed',
-            geocode_attempted_at = ?
+            geocode_attempted_at = ?, geocode_version = ?
         where id = ?
         """,
-        (address, now(), order_id),
+        (address, now(), GEOCODER_VERSION, order_id),
     )
     return None
 
@@ -2433,13 +2448,20 @@ def geocode_next_service_order():
         where geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
            or lower(trim(geocode_address)) != lower(trim(site_address))
+           or coalesce(geocode_version, '') != ?
         order by created_at desc, id desc
         limit 1
-        """
+        """,
+        (GEOCODER_VERSION,),
     ).fetchone()
     if not order:
         return jsonify({"available": True, "remaining": 0, "order": None})
-    geocode_service_order(order["id"])
+    try:
+        geocode_service_order(order["id"])
+    except TemporaryGeocodingError as error:
+        db().rollback()
+        app.logger.warning("Temporary geocoding failure for service order %s: %s", order["id"], error)
+        return jsonify({"available": True, "temporary_error": True}), 503
     db().commit()
     refreshed = service_order_map_rows("service_orders.id = ?", (order["id"],))[0]
     remaining = db().execute(
@@ -2448,7 +2470,9 @@ def geocode_next_service_order():
         where geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
            or lower(trim(geocode_address)) != lower(trim(site_address))
-        """
+           or coalesce(geocode_version, '') != ?
+        """,
+        (GEOCODER_VERSION,),
     ).fetchone()["count"]
     return jsonify(
         {
@@ -2467,7 +2491,7 @@ def retry_failed_service_order_geocodes():
     db().execute(
         """
         update service_orders
-        set geocode_status = 'pending', geocode_attempted_at = null
+        set geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
         where geocode_status = 'failed'
         """
     )
@@ -2527,7 +2551,7 @@ def edit_service_order(order_id):
                 """
                 update service_orders
                 set latitude = null, longitude = null, geocode_address = null,
-                    geocode_status = 'pending', geocode_attempted_at = null
+                    geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
                 where id = ?
                 """,
                 (order_id,),

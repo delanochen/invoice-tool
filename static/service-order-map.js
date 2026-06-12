@@ -69,11 +69,11 @@ function matchesFilters(order) {
   return (!query || haystack.includes(query)) && (!status || order.status === status);
 }
 
-function ensureMarker(order) {
+function ensureMarker(order, displayPosition) {
   if (!hasCoordinates(order)) return null;
   let marker = markersById.get(order.id);
   if (!marker) {
-    marker = L.circleMarker([Number(order.latitude), Number(order.longitude)], {
+    marker = L.circleMarker(displayPosition, {
       radius: 8,
       color: "#ffffff",
       weight: 2,
@@ -84,7 +84,7 @@ function ensureMarker(order) {
     marker.bindPopup(orderDetails(order), { maxWidth: 320 });
     markersById.set(order.id, marker);
   } else {
-    marker.setLatLng([Number(order.latitude), Number(order.longitude)]);
+    marker.setLatLng(displayPosition);
     marker.setStyle({ fillColor: markerColor(order) });
     marker.setTooltipContent(orderDetails(order));
     marker.setPopupContent(orderDetails(order));
@@ -121,13 +121,31 @@ function renderUnlocatedOrders() {
 function renderMarkers({ fit = false } = {}) {
   markerLayer.clearLayers();
   const visibleMarkers = [];
-  ordersById.forEach((order) => {
-    if (!matchesFilters(order)) return;
-    const marker = ensureMarker(order);
-    if (marker) {
+  const visibleOrders = [...ordersById.values()].filter(
+    (order) => matchesFilters(order) && hasCoordinates(order)
+  );
+  const locationGroups = new Map();
+  visibleOrders.forEach((order) => {
+    const key = `${Number(order.latitude).toFixed(6)},${Number(order.longitude).toFixed(6)}`;
+    if (!locationGroups.has(key)) locationGroups.set(key, []);
+    locationGroups.get(key).push(order);
+  });
+  locationGroups.forEach((group) => {
+    group.forEach((order, index) => {
+      const latitude = Number(order.latitude);
+      const longitude = Number(order.longitude);
+      let displayPosition = [latitude, longitude];
+      if (group.length > 1) {
+        const angle = (Math.PI * 2 * index) / group.length;
+        const latitudeOffset = 0.00018 * Math.sin(angle);
+        const longitudeScale = Math.max(Math.cos(latitude * Math.PI / 180), 0.25);
+        const longitudeOffset = (0.00018 * Math.cos(angle)) / longitudeScale;
+        displayPosition = [latitude + latitudeOffset, longitude + longitudeOffset];
+      }
+      const marker = ensureMarker(order, displayPosition);
       marker.addTo(markerLayer);
       visibleMarkers.push(marker);
-    }
+    });
   });
   visibleCount.textContent = String(visibleMarkers.length);
   renderUnlocatedOrders();
@@ -170,7 +188,7 @@ async function geocodePendingOrders() {
       renderMarkers({ fit: markersById.size > 0 });
     }
   } catch (error) {
-    progressText.textContent = "部分地址暂时无法定位";
+    progressText.textContent = "定位服务暂时不可用，稍后打开页面会继续";
   }
 }
 
