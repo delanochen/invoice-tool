@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% block title %}工单地图 - 发票工具{% endblock %}
 {% block head %}
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  >
+  {% if not google_maps_enabled %}
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    >
+  {% endif %}
 {% endblock %}
 {% block content %}
   <header class="page-header">
@@ -50,22 +52,35 @@
     </aside>
   </section>
   <p class="map-attribution-note">
-    地图数据 © OpenStreetMap contributors；美国地址优先由 U.S. Census Geocoder 解析，Nominatim 提供回退定位。
+    {% if google_maps_enabled %}
+      地图和地址解析由 Google Maps Platform 实时提供；Google 坐标不会写入系统数据库。
+    {% else %}
+      免费模式：地图数据 © OpenStreetMap contributors；美国地址由 U.S. Census Geocoder 和 Nominatim 解析。
+    {% endif %}
   </p>
   <script>
     window.serviceOrderMapData = {{ map_orders|tojson }};
     window.serviceOrderMapConfig = {
       geocodeNextUrl: {{ url_for('geocode_next_service_order')|tojson }},
       retryFailedUrl: {{ url_for('retry_failed_service_order_geocodes')|tojson }},
-      geocodingEnabled: {{ geocoding_enabled|tojson }}
+      geocodingEnabled: {{ geocoding_enabled|tojson }},
+      mapProvider: {{ ('google' if google_maps_enabled else 'openstreetmap')|tojson }}
     };
   </script>
 {% endblock %}
 {% block scripts %}
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
-  <script src="{{ url_for('static', filename='service-order-map.js', v='20260612-map-fix') }}"></script>
+  {% if google_maps_enabled %}
+    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260612-google-v1') }}"></script>
+    <script
+      async
+      src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async"
+    ></script>
+  {% else %}
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="{{ url_for('static', filename='service-order-map.js', v='20260612-map-fix') }}"></script>
+  {% endif %}
 {% endblock %}

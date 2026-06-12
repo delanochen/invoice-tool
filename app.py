@@ -108,6 +108,8 @@ CENSUS_GEOCODER_URL = os.environ.get(
     "CENSUS_GEOCODER_URL",
     "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
 )
+GOOGLE_MAPS_BROWSER_API_KEY = os.environ.get("GOOGLE_MAPS_BROWSER_API_KEY", "").strip()
+GOOGLE_MAPS_ENABLED = bool(GOOGLE_MAPS_BROWSER_API_KEY)
 NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
     "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
@@ -117,6 +119,12 @@ GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() 
 GEOCODER_VERSION = "3"
 _geocode_lock = threading.Lock()
 _last_geocode_request_at = 0.0
+US_STATE_CODES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA",
+    "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT",
+    "VA", "WA", "WV", "WI", "WY", "DC",
+}
 
 STATUS_LABELS = {
     "draft": "保存未提交",
@@ -1449,6 +1457,25 @@ def configured_country_codes():
     return {code.strip().casefold() for code in NOMINATIM_COUNTRY_CODES.split(",") if code.strip()}
 
 
+def address_expectations(address):
+    uppercase_address = str(address or "").upper()
+    state_codes = [token for token in re.findall(r"\b[A-Z]{2}\b", uppercase_address) if token in US_STATE_CODES]
+    zip_codes = re.findall(r"\b(\d{5})(?:-\d{4})?\b", uppercase_address)
+    return state_codes[-1] if state_codes else None, zip_codes[-1] if zip_codes else None
+
+
+def census_result_matches_address(match, address):
+    expected_state, expected_zip = address_expectations(address)
+    components = match.get("addressComponents", {})
+    result_state = str(components.get("state", "")).upper()
+    result_zip = str(components.get("zip", ""))[:5]
+    if expected_state and result_state != expected_state:
+        return False
+    if expected_zip and result_zip and result_zip != expected_zip:
+        return False
+    return True
+
+
 def geocode_with_census(address):
     query = {
         "address": address,
@@ -1462,13 +1489,15 @@ def geocode_with_census(address):
     except (HTTPError, ValueError, json.JSONDecodeError):
         return None
     matches = payload.get("result", {}).get("addressMatches", []) if isinstance(payload, dict) else []
-    if not matches:
-        return None
-    try:
-        coordinates = matches[0]["coordinates"]
-        return float(coordinates["y"]), float(coordinates["x"])
-    except (KeyError, TypeError, ValueError, IndexError):
-        return None
+    for match in matches:
+        if not census_result_matches_address(match, address):
+            continue
+        try:
+            coordinates = match["coordinates"]
+            return float(coordinates["y"]), float(coordinates["x"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
 
 
 def nominatim_address_candidates(address):
@@ -1491,6 +1520,7 @@ def nominatim_address_candidates(address):
 
 def geocode_with_nominatim(address):
     country_codes = configured_country_codes()
+    expected_state, expected_zip = address_expectations(address)
     for candidate in nominatim_address_candidates(address):
         query = {
             "q": candidate,
@@ -1509,8 +1539,15 @@ def geocode_with_nominatim(address):
         if not payload:
             continue
         result = payload[0]
-        result_country = str(result.get("address", {}).get("country_code", "")).casefold()
+        result_address = result.get("address", {})
+        result_country = str(result_address.get("country_code", "")).casefold()
         if country_codes and result_country and result_country not in country_codes:
+            continue
+        result_state = str(result_address.get("ISO3166-2-lvl4", "")).upper().removeprefix("US-")
+        result_zip = str(result_address.get("postcode", ""))[:5]
+        if expected_state and result_state and result_state != expected_state:
+            continue
+        if expected_zip and result_zip and result_zip != expected_zip:
             continue
         try:
             return float(result["lat"]), float(result["lon"])
@@ -2518,6 +2555,8 @@ def service_order_map():
         "service_order_map.html",
         map_orders=orders,
         geocoding_enabled=GEOCODING_ENABLED,
+        google_maps_enabled=GOOGLE_MAPS_ENABLED,
+        google_maps_browser_api_key=GOOGLE_MAPS_BROWSER_API_KEY,
     )
 
 

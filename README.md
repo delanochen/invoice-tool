@@ -50,3 +50,26 @@ http://你的NAS地址:8088
 ```
 
 本次代码不考虑历史数据；要彻底重建，删除 NAS 项目目录里的 `data` 文件夹后重新 Build。
+
+## Google 工单地图
+
+系统默认继续使用免费的 OpenStreetMap、U.S. Census Geocoder 和 Nominatim。
+
+如需启用 Google 地图和更准确的 Google 地址解析：
+
+1. 在 Google Cloud 启用 `Maps JavaScript API` 和 `Geocoding API`。
+2. 创建一个浏览器 API Key，并按实际访问地址限制允许的网站来源。
+3. 在 NAS 项目目录创建 `.env`：
+
+```text
+GOOGLE_MAPS_BROWSER_API_KEY=你的浏览器API密钥
+```
+
+4. 在 Google Cloud 控制台设置每日请求配额和费用提醒。
+5. 重新创建容器：
+
+```bash
+sudo docker compose up -d --build --force-recreate
+```
+
+配置密钥后，工单地图会自动切换为 Google 地图，并在浏览器中实时解析地址。Google 坐标不会写入数据库。未配置密钥时，系统自动保留免费模式。
