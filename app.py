@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import secrets
 import shutil
 import smtplib
@@ -103,13 +104,17 @@ DEFAULT_SMTP_SETTINGS = {
 }
 DEFAULT_TIMEZONE = "America/Chicago"
 NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
+CENSUS_GEOCODER_URL = os.environ.get(
+    "CENSUS_GEOCODER_URL",
+    "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
+)
 NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
     "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
 )
-NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "").strip()
+NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us").strip()
 GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-GEOCODER_VERSION = "2"
+GEOCODER_VERSION = "3"
 _geocode_lock = threading.Lock()
 _last_geocode_request_at = 0.0
 
@@ -1412,19 +1417,8 @@ class TemporaryGeocodingError(Exception):
     pass
 
 
-def geocode_address(address):
+def fetch_geocoder_json(request_url):
     global _last_geocode_request_at
-    if not GEOCODING_ENABLED:
-        return None
-    query = {
-        "q": address,
-        "format": "jsonv2",
-        "limit": "1",
-        "addressdetails": "0",
-    }
-    if NOMINATIM_COUNTRY_CODES:
-        query["countrycodes"] = NOMINATIM_COUNTRY_CODES
-    request_url = f"{NOMINATIM_URL}?{urlencode(query)}"
     with _geocode_lock:
         wait_seconds = 1.05 - (time.monotonic() - _last_geocode_request_at)
         if wait_seconds > 0:
@@ -1448,12 +1442,103 @@ def geocode_address(address):
             raise TemporaryGeocodingError(str(error)) from error
         finally:
             _last_geocode_request_at = time.monotonic()
-    if not payload:
+    return payload
+
+
+def configured_country_codes():
+    return {code.strip().casefold() for code in NOMINATIM_COUNTRY_CODES.split(",") if code.strip()}
+
+
+def geocode_with_census(address):
+    query = {
+        "address": address,
+        "benchmark": "Public_AR_Current",
+        "format": "json",
+    }
+    try:
+        payload = fetch_geocoder_json(f"{CENSUS_GEOCODER_URL}?{urlencode(query)}")
+    except TemporaryGeocodingError:
+        raise
+    except (HTTPError, ValueError, json.JSONDecodeError):
+        return None
+    matches = payload.get("result", {}).get("addressMatches", []) if isinstance(payload, dict) else []
+    if not matches:
         return None
     try:
-        return float(payload[0]["lat"]), float(payload[0]["lon"])
+        coordinates = matches[0]["coordinates"]
+        return float(coordinates["y"]), float(coordinates["x"])
     except (KeyError, TypeError, ValueError, IndexError):
         return None
+
+
+def nominatim_address_candidates(address):
+    candidates = [address]
+    parts = [part.strip() for part in address.split(",") if part.strip()]
+    if len(parts) >= 3:
+        candidates.append(", ".join(parts[-3:]))
+    zip_match = re.search(r"\b\d{5}(?:-\d{4})?\b", address)
+    if zip_match:
+        candidates.append(f"{zip_match.group(0)}, USA")
+    unique_candidates = []
+    seen = set()
+    for candidate in candidates:
+        key = normalized_address(candidate)
+        if key and key not in seen:
+            seen.add(key)
+            unique_candidates.append(candidate)
+    return unique_candidates
+
+
+def geocode_with_nominatim(address):
+    country_codes = configured_country_codes()
+    for candidate in nominatim_address_candidates(address):
+        query = {
+            "q": candidate,
+            "format": "jsonv2",
+            "limit": "1",
+            "addressdetails": "1",
+        }
+        if NOMINATIM_COUNTRY_CODES:
+            query["countrycodes"] = NOMINATIM_COUNTRY_CODES
+        try:
+            payload = fetch_geocoder_json(f"{NOMINATIM_URL}?{urlencode(query)}")
+        except TemporaryGeocodingError:
+            raise
+        except (HTTPError, ValueError, json.JSONDecodeError):
+            continue
+        if not payload:
+            continue
+        result = payload[0]
+        result_country = str(result.get("address", {}).get("country_code", "")).casefold()
+        if country_codes and result_country and result_country not in country_codes:
+            continue
+        try:
+            return float(result["lat"]), float(result["lon"])
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    return None
+
+
+def geocode_address(address):
+    if not GEOCODING_ENABLED:
+        return None
+    temporary_error = None
+    if "us" in configured_country_codes():
+        try:
+            coordinates = geocode_with_census(address)
+            if coordinates:
+                return coordinates
+        except TemporaryGeocodingError as error:
+            temporary_error = error
+    try:
+        coordinates = geocode_with_nominatim(address)
+        if coordinates:
+            return coordinates
+    except TemporaryGeocodingError as error:
+        temporary_error = error
+    if temporary_error:
+        raise temporary_error
+    return None
 
 
 def geocode_service_order(order_id, force=False):
@@ -1489,10 +1574,11 @@ def geocode_service_order(order_id, force=False):
         where id != ? and geocode_status = 'success'
           and latitude is not null and longitude is not null
           and lower(trim(geocode_address)) = lower(trim(?))
+          and geocode_version = ?
         order by geocode_attempted_at desc, id desc
         limit 1
         """,
-        (order_id, address),
+        (order_id, address, GEOCODER_VERSION),
     ).fetchone()
     if cached:
         coordinates = float(cached["latitude"]), float(cached["longitude"])
