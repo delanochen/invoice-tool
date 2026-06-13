@@ -29,6 +29,16 @@
   </form>
 
   <form method="post" action="{{ url_for('process_expense_action') }}" id="expenseProcessingForm">
+    {% if normalized_role() in ["manager", "finance"] %}
+      <div class="form-actions no-print">
+        <button class="primary" type="submit" name="action" value="reimburse" onclick="return confirm('确认所选报销已经完成付款吗？');">报销</button>
+      </div>
+    {% elif normalized_role() == "admin" %}
+      <div class="form-actions no-print">
+        <button type="submit" name="action" value="reset_payout" onclick="return confirm('确认将所选单据重置为待报销吗？');">重置发放状态</button>
+        <button class="danger" type="submit" name="action" value="reset_workflow" onclick="return confirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？');">重置流程状态</button>
+      </div>
+    {% endif %}
     <section class="panel">
       <table class="list-table">
         <thead>
@@ -72,15 +82,5 @@
         </tbody>
       </table>
     </section>
-    {% if normalized_role() in ["manager", "finance"] %}
-      <div class="form-actions no-print">
-        <button class="primary" type="submit" name="action" value="reimburse" onclick="return confirm('确认所选报销已经完成付款吗？');">报销</button>
-      </div>
-    {% elif normalized_role() == "admin" %}
-      <div class="form-actions no-print">
-        <button type="submit" name="action" value="reset_payout" onclick="return confirm('确认将所选单据重置为待报销吗？');">重置发放状态</button>
-        <button class="danger" type="submit" name="action" value="reset_workflow" onclick="return confirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？');">重置流程状态</button>
-      </div>
-    {% endif %}
   </form>
 {% endblock %}

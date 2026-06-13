@@ -5371,6 +5371,13 @@ def get_metrics():
         where status = 'approved' and payout_status != 'paid'
         """
     ).fetchone()["total"]
+    reimbursed_expenses = db().execute(
+        """
+        select coalesce(sum(amount), 0) as total
+        from expenses
+        where status = 'approved' and payout_status = 'paid'
+        """
+    ).fetchone()["total"]
     pending_expenses = sum(float(row["amount"] or 0) for row in expense_rows if row["status"] != "approved")
     return {
         "invoice_count": invoice_count,
@@ -5379,6 +5386,7 @@ def get_metrics():
         "unpaid": unpaid,
         "total": completed,
         "pending_reimbursement": float(pending_reimbursement or 0),
+        "reimbursed_expenses": float(reimbursed_expenses or 0),
         "pending_expenses": pending_expenses,
     }
 
