@@ -318,6 +318,8 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .status.returned { background: #fff4ed; color: var(--warn); }
 .status.completed { background: #ecfdf3; color: var(--ok); }
 .status.approved { background: #ecfdf3; color: var(--ok); }
+.status.pending { background: #fff7e6; color: #9a6700; }
+.status.paid { background: #ecfdf3; color: var(--ok); }
 .status.void { background: #fff4ed; color: var(--warn); }
 .flash-stack { position: fixed; top: 16px; right: 16px; z-index: 10; display: grid; gap: 8px; }
 .flash { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; background: #fff; }

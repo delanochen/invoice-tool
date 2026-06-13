@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}报销处理 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Expense Processing</p><h1>报销处理</h1></div>
+  </header>
+
+  <section class="metric-grid">
+    <article class="metric"><span>待报销合计</span><strong>{{ pending_total|money }}</strong></article>
+    <article class="metric"><span>已报销合计</span><strong>{{ paid_total|money }}</strong></article>
+  </section>
+
+  <form class="filter-bar service-filter no-print" method="get">
+    <label>关键词
+      <input name="q" value="{{ q }}" placeholder="报销编号、工单、需方或提交人">
+    </label>
+    <label>报销状态
+      <select name="payout_status">
+        <option value="">全部</option>
+        {% for value, label in payout_labels.items() %}
+          <option value="{{ value }}" {% if payout_status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('expense_processing') }}'">重置</button>
+    </div>
+  </form>
+
+  <form method="post" action="{{ url_for('process_expense_action') }}" id="expenseProcessingForm">
+    <section class="panel">
+      <table class="list-table">
+        <thead>
+          <tr>
+            {% if normalized_role() in ["admin", "manager", "finance"] %}<th>选择</th>{% endif %}
+            <th>报销编号</th><th>工单</th><th>日期</th><th>提交人</th><th>金额</th>
+            <th>流程状态</th><th>报销状态</th><th>报销人</th><th>报销时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              {% if normalized_role() in ["admin", "manager", "finance"] %}
+                <td>
+                  {% if normalized_role() == "admin" or row.payout_status != "paid" %}
+                    <input type="radio" name="expense_id" value="{{ row.id }}" aria-label="选择报销 {{ row.expense_number }}">
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+              {% endif %}
+              <td>
+                {% if normalized_role() in ["admin", "manager", "finance"] or row.created_by == g.user.id %}
+                  <a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a>
+                {% else %}
+                  {{ row.expense_number }}
+                {% endif %}
+              </td>
+              <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
+              <td>{{ row.expense_date }}</td>
+              <td>{{ row.creator_name or "Unknown" }}</td>
+              <td>{{ row.amount|money(row.currency) }}</td>
+              <td><span class="status {{ row.status }}">{{ expense_labels[row.status] }}</span></td>
+              <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
+              <td>{{ row.reimbursed_by_name or "-" }}</td>
+              <td>{{ row.reimbursed_at|local_datetime if row.reimbursed_at else "-" }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="{% if normalized_role() in ['admin', 'manager', 'finance'] %}10{% else %}9{% endif %}" class="empty">没有符合条件的待处理报销。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% if normalized_role() in ["manager", "finance"] %}
+      <div class="form-actions no-print">
+        <button class="primary" type="submit" name="action" value="reimburse" onclick="return confirm('确认所选报销已经完成付款吗？');">报销</button>
+      </div>
+    {% elif normalized_role() == "admin" %}
+      <div class="form-actions no-print">
+        <button type="submit" name="action" value="reset_payout" onclick="return confirm('确认将所选单据重置为待报销吗？');">重置发放状态</button>
+        <button class="danger" type="submit" name="action" value="reset_workflow" onclick="return confirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？');">重置流程状态</button>
+      </div>
+    {% endif %}
+  </form>
+{% endblock %}

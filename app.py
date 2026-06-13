@@ -140,6 +140,11 @@ EXPENSE_STATUS_LABELS = {
     "approved": "已通过",
 }
 
+EXPENSE_PAYOUT_LABELS = {
+    "pending": "待报销",
+    "paid": "已报销",
+}
+
 ROLE_OPTIONS = {
     "admin": "管理员",
     "manager": "经理",
@@ -466,6 +471,9 @@ def init_db():
         ensure_column(connection, "invoices", "service_order_id", "integer")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
         ensure_column(connection, "expenses", "project_id", "integer")
+        ensure_column(connection, "expenses", "payout_status", "text not null default 'pending'")
+        ensure_column(connection, "expenses", "reimbursed_by", "integer")
+        ensure_column(connection, "expenses", "reimbursed_at", "text")
         ensure_column(connection, "service_orders", "latitude", "real")
         ensure_column(connection, "service_orders", "longitude", "real")
         ensure_column(connection, "service_orders", "geocode_address", "text")
@@ -802,6 +810,7 @@ app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
+app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
 
 
 def next_client_number():
@@ -2815,6 +2824,7 @@ def service_report_query():
 def expense_query():
     q = request.args.get("q", "").strip()
     status = request.args.get("status", "")
+    payout_status = request.args.get("payout_status", "")
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
     clauses = ["1 = 1"]
@@ -2828,6 +2838,11 @@ def expense_query():
     if status:
         clauses.append("expenses.status = ?")
         params.append(status)
+    if payout_status in EXPENSE_PAYOUT_LABELS:
+        clauses.append("expenses.payout_status = ?")
+        params.append(payout_status)
+    else:
+        payout_status = ""
     if date_from:
         clauses.append("expenses.expense_date >= ?")
         params.append(date_from)
@@ -2845,8 +2860,162 @@ def expense_query():
         """,
         params,
     ).fetchall()
-    total = sum(float(row["amount"] or 0) for row in rows if row["status"] == "approved")
-    return render_template("expense_query.html", rows=rows, q=q, status=status, date_from=date_from, date_to=date_to, total=total, labels=EXPENSE_STATUS_LABELS)
+    total = sum(
+        float(row["amount"] or 0)
+        for row in rows
+        if row["status"] == "approved" and row["payout_status"] != "paid"
+    )
+    return render_template(
+        "expense_query.html",
+        rows=rows,
+        q=q,
+        status=status,
+        payout_status=payout_status,
+        date_from=date_from,
+        date_to=date_to,
+        total=total,
+        labels=EXPENSE_STATUS_LABELS,
+        payout_labels=EXPENSE_PAYOUT_LABELS,
+    )
+
+
+@app.route("/expense-processing")
+@login_required
+def expense_processing():
+    if not is_internal_user():
+        abort(403)
+    q = request.args.get("q", "").strip()
+    payout_status = request.args.get("payout_status", "").strip()
+    clauses = ["expenses.status = 'approved'"]
+    params = []
+    if q:
+        clauses.append(
+            """
+            (expenses.expense_number like ? or service_orders.order_number like ?
+             or service_orders.client_name like ? or users.name like ?)
+            """
+        )
+        params.extend([f"%{q}%"] * 4)
+    if payout_status in EXPENSE_PAYOUT_LABELS:
+        clauses.append("expenses.payout_status = ?")
+        params.append(payout_status)
+    else:
+        payout_status = ""
+    rows = db().execute(
+        f"""
+        select expenses.*, service_orders.order_number, service_orders.client_name,
+               users.name as creator_name, reimbursers.name as reimbursed_by_name
+        from expenses
+        join service_orders on service_orders.id = expenses.service_order_id
+        left join users on users.id = expenses.created_by
+        left join users as reimbursers on reimbursers.id = expenses.reimbursed_by
+        where {" and ".join(clauses)}
+        order by
+            case when expenses.payout_status = 'pending' then 0 else 1 end,
+            expenses.expense_date desc,
+            expenses.id desc
+        """,
+        params,
+    ).fetchall()
+    totals = db().execute(
+        """
+        select
+            coalesce(sum(case when payout_status != 'paid' then amount else 0 end), 0) as pending_total,
+            coalesce(sum(case when payout_status = 'paid' then amount else 0 end), 0) as paid_total
+        from expenses
+        where status = 'approved'
+        """
+    ).fetchone()
+    return render_template(
+        "expense_processing.html",
+        rows=rows,
+        q=q,
+        payout_status=payout_status,
+        payout_labels=EXPENSE_PAYOUT_LABELS,
+        pending_total=totals["pending_total"],
+        paid_total=totals["paid_total"],
+    )
+
+
+@app.post("/expense-processing/action")
+@login_required
+def process_expense_action():
+    if not is_internal_user():
+        abort(403)
+    try:
+        expense_id = int(request.form.get("expense_id", ""))
+    except (TypeError, ValueError):
+        flash("请选择一张报销单据。", "error")
+        return redirect(url_for("expense_processing"))
+    expense = db().execute("select * from expenses where id = ?", (expense_id,)).fetchone()
+    if not expense:
+        abort(404)
+    action = request.form.get("action", "")
+    if action == "reimburse":
+        if normalized_role() not in {"manager", "finance"}:
+            abort(403)
+        if expense["status"] != "approved":
+            flash("只有已审核通过的报销可以发放。", "error")
+            return redirect(url_for("expense_processing"))
+        if expense["payout_status"] == "paid":
+            flash("这张报销单已经完成报销。", "error")
+            return redirect(url_for("expense_processing"))
+        cursor = db().execute(
+            """
+            update expenses
+            set payout_status = 'paid', reimbursed_by = ?, reimbursed_at = ?, updated_at = ?
+            where id = ? and status = 'approved' and payout_status != 'paid'
+            """,
+            (g.user["id"], now(), now(), expense_id),
+        )
+        if cursor.rowcount != 1:
+            db().rollback()
+            flash("这张报销单已经完成报销或流程状态已变化。", "error")
+            return redirect(url_for("expense_processing"))
+        message = f"报销 {expense['expense_number']} 已完成发放，金额 {money(expense['amount'], expense['currency'])}。"
+        create_message(
+            expense["created_by"],
+            "报销已发放",
+            message,
+            url_for("expense_detail", expense_id=expense_id),
+        )
+        log_action("reimburse", "expense", expense_id, expense["expense_number"], message)
+        db().commit()
+        flash("报销已标记为已报销。", "success")
+    elif action == "reset_payout":
+        if normalized_role() != "admin":
+            abort(403)
+        db().execute(
+            """
+            update expenses
+            set payout_status = 'pending', reimbursed_by = null, reimbursed_at = null, updated_at = ?
+            where id = ?
+            """,
+            (now(), expense_id),
+        )
+        log_action("reset", "expense", expense_id, expense["expense_number"], "发放状态重置为待报销")
+        db().commit()
+        flash("发放状态已重置为待报销。", "success")
+    elif action == "reset_workflow":
+        if normalized_role() != "admin":
+            abort(403)
+        db().execute(
+            """
+            update expenses
+            set status = 'submitted', return_reason = null,
+                reviewed_by = null, reviewed_at = null,
+                payout_status = 'pending', reimbursed_by = null, reimbursed_at = null,
+                updated_at = ?
+            where id = ?
+            """,
+            (now(), expense_id),
+        )
+        log_action("reset", "expense", expense_id, expense["expense_number"], "流程状态重置为待经理审核，发放状态重置为待报销")
+        db().commit()
+        flash("流程状态和发放状态已重置。", "success")
+    else:
+        flash("请选择要执行的操作。", "error")
+    return redirect(url_for("expense_processing"))
 
 
 @app.route("/reports/audit-logs")
@@ -2871,6 +3040,8 @@ def audit_log_report():
         "mark_paid": "核销",
         "unmark_paid": "取消核销",
         "status_change": "调整状态",
+        "reimburse": "报销发放",
+        "reset": "重置状态",
     }
     q = request.args.get("q", "").strip()
     entity_type = request.args.get("entity_type", "").strip()
@@ -3910,6 +4081,10 @@ def expense_detail(expense_id):
     expense, order = require_expense(expense_id)
     creator = db().execute("select name, email from users where id = ?", (expense["created_by"],)).fetchone()
     reviewer = db().execute("select name, email from users where id = ?", (expense["reviewed_by"],)).fetchone() if expense["reviewed_by"] else None
+    reimburser = db().execute(
+        "select name, email from users where id = ?",
+        (expense["reimbursed_by"],),
+    ).fetchone() if expense["reimbursed_by"] else None
     return render_template(
         "expense_detail.html",
         order=order,
@@ -3917,6 +4092,7 @@ def expense_detail(expense_id):
         items=expense_items(expense_id),
         creator=creator,
         reviewer=reviewer,
+        reimburser=reimburser,
         attachments=get_expense_attachments(expense_id),
         labels=EXPENSE_STATUS_LABELS,
     )
@@ -3932,7 +4108,12 @@ def approve_expense(expense_id):
         flash("只有待经理审核的报销可以通过。", "error")
         return redirect(url_for("expense_detail", expense_id=expense_id))
     db().execute(
-        "update expenses set status = 'approved', return_reason = null, reviewed_by = ?, reviewed_at = ?, updated_at = ? where id = ?",
+        """
+        update expenses
+        set status = 'approved', return_reason = null, reviewed_by = ?, reviewed_at = ?,
+            payout_status = 'pending', reimbursed_by = null, reimbursed_at = null, updated_at = ?
+        where id = ?
+        """,
         (g.user["id"], now(), now(), expense_id),
     )
     message_link = url_for("expense_detail", expense_id=expense_id)
@@ -5183,7 +5364,13 @@ def get_metrics():
         where status in ('approved', 'submitted', 'returned')
         """
     ).fetchall()
-    approved_expenses = sum(float(row["amount"] or 0) for row in expense_rows if row["status"] == "approved")
+    pending_reimbursement = db().execute(
+        """
+        select coalesce(sum(amount), 0) as total
+        from expenses
+        where status = 'approved' and payout_status != 'paid'
+        """
+    ).fetchone()["total"]
     pending_expenses = sum(float(row["amount"] or 0) for row in expense_rows if row["status"] != "approved")
     return {
         "invoice_count": invoice_count,
@@ -5191,7 +5378,7 @@ def get_metrics():
         "paid": paid,
         "unpaid": unpaid,
         "total": completed,
-        "approved_expenses": approved_expenses,
+        "pending_reimbursement": float(pending_reimbursement or 0),
         "pending_expenses": pending_expenses,
     }
 
