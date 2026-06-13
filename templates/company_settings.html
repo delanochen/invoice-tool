@@ -38,6 +38,19 @@
         </label>
       </div>
     </section>
+    <section class="form-stack full-span">
+      <h2>工单地图设置</h2>
+      <label>Google Maps API Key
+        <input
+          type="password"
+          name="google_maps_browser_api_key"
+          value="{{ google_maps_browser_api_key }}"
+          autocomplete="off"
+          placeholder="留空则使用免费地图"
+        >
+      </label>
+      <p class="muted-line">填写后启用 Google 工单地图；清空后恢复 OpenStreetMap 免费模式。保存后刷新地图页面即可生效。</p>
+    </section>
     <div class="full-span form-actions"><button class="primary" type="submit">保存设置</button></div>
   </form>
 {% endblock %}

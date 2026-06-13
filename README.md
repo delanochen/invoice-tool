@@ -59,7 +59,7 @@ http://你的NAS地址:8088
 
 1. 在 Google Cloud 启用 `Maps JavaScript API` 和 `Geocoding API`。
 2. 创建一个浏览器 API Key，并按实际访问地址限制允许的网站来源。
-3. 在 NAS 项目目录创建 `.env`：
+3. 可在 NAS 项目目录的 `.env` 中填写初始密钥：
 
 ```text
 GOOGLE_MAPS_BROWSER_API_KEY=你的浏览器API密钥
@@ -72,4 +72,4 @@ GOOGLE_MAPS_BROWSER_API_KEY=你的浏览器API密钥
 sudo docker compose up -d --build --force-recreate
 ```
 
-配置密钥后，工单地图会自动切换为 Google 地图，并在浏览器中实时解析地址。Google 坐标不会写入数据库。未配置密钥时，系统自动保留免费模式。
+系统首次启动时会将 `.env` 中的密钥迁移到“基础数据 > 公司设置 > 工单地图设置”。以后可直接在公司设置页面修改或清空，不需要重新构建容器。配置密钥后，工单地图会自动切换为 Google 地图，并在浏览器中实时解析地址。Google 坐标不会写入数据库。未配置密钥时，系统自动保留免费模式。

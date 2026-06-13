@@ -108,8 +108,7 @@ CENSUS_GEOCODER_URL = os.environ.get(
     "CENSUS_GEOCODER_URL",
     "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
 )
-GOOGLE_MAPS_BROWSER_API_KEY = os.environ.get("GOOGLE_MAPS_BROWSER_API_KEY", "").strip()
-GOOGLE_MAPS_ENABLED = bool(GOOGLE_MAPS_BROWSER_API_KEY)
+GOOGLE_MAPS_BROWSER_API_KEY_ENV = os.environ.get("GOOGLE_MAPS_BROWSER_API_KEY", "").strip()
 NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
     "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
@@ -500,6 +499,7 @@ def seed_settings(connection):
     for key, value in DEFAULT_SMTP_SETTINGS.items():
         defaults[f"smtp_{key}"] = value
     defaults["invoice_terms"] = DEFAULT_INVOICE_TERMS
+    defaults["google_maps_browser_api_key"] = GOOGLE_MAPS_BROWSER_API_KEY_ENV
     for key, value in defaults.items():
         connection.execute(
             "insert or ignore into settings (key, value) values (?, ?)",
@@ -547,6 +547,10 @@ def get_invoice_terms():
 
 def get_smtp_settings():
     return {key: get_setting(f"smtp_{key}", value) for key, value in DEFAULT_SMTP_SETTINGS.items()}
+
+
+def get_google_maps_browser_api_key():
+    return get_setting("google_maps_browser_api_key", GOOGLE_MAPS_BROWSER_API_KEY_ENV).strip()
 
 
 def current_user():
@@ -2131,6 +2135,10 @@ def company_settings():
             return redirect(url_for("company_settings"))
         set_setting("app_timezone", timezone_name)
         set_setting("invoice_terms", request.form.get("invoice_terms", "").strip())
+        set_setting(
+            "google_maps_browser_api_key",
+            request.form.get("google_maps_browser_api_key", "").strip(),
+        )
         db().commit()
         flash("公司设置已保存。", "success")
         return redirect(url_for("company_settings"))
@@ -2141,6 +2149,7 @@ def company_settings():
         smtp=get_smtp_settings(),
         terms=get_invoice_terms(),
         timezone_name=get_timezone_name(),
+        google_maps_browser_api_key=get_google_maps_browser_api_key(),
     )
 
 
@@ -2551,12 +2560,13 @@ def service_order_map():
         abort(403)
     rows = service_order_map_rows()
     orders = [service_order_map_payload(row) for row in rows]
+    google_maps_browser_api_key = get_google_maps_browser_api_key()
     return render_template(
         "service_order_map.html",
         map_orders=orders,
         geocoding_enabled=GEOCODING_ENABLED,
-        google_maps_enabled=GOOGLE_MAPS_ENABLED,
-        google_maps_browser_api_key=GOOGLE_MAPS_BROWSER_API_KEY,
+        google_maps_enabled=bool(google_maps_browser_api_key),
+        google_maps_browser_api_key=google_maps_browser_api_key,
     )
 
 
