@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}工单地图 - 发票工具{% endblock %}
+{% block body_class %}service-order-map-page{% endblock %}
 {% block head %}
   {% if not google_maps_enabled %}
     <link
@@ -15,7 +16,6 @@
     <div>
       <p class="eyebrow">Service Order Map</p>
       <h1>工单地图</h1>
-      <p class="muted-line">鼠标悬停查看工单摘要，点击标记进入详细信息。</p>
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_orders') }}'">列表视图</button>

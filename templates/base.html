@@ -4,10 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260611-service-map') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260613-map-viewport') }}">
     {% block head %}{% endblock %}
   </head>
-  <body>
+  <body class="{% block body_class %}{% endblock %}">
     {% if g.user %}
       <aside class="sidebar no-print">
         <div class="brand">

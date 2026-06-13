@@ -766,6 +766,33 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .map-order-popup dd { margin: 0; }
 .map-attribution-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 
+body.service-order-map-page {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.service-order-map-page .main {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.service-order-map-page .page-header { margin-bottom: 14px; }
+.service-order-map-page .map-toolbar { margin-bottom: 12px; }
+.service-order-map-page .service-map-layout {
+  min-height: 0;
+  height: 100%;
+}
+.service-order-map-page .service-order-map {
+  min-height: 0;
+  height: 100%;
+}
+.service-order-map-page .map-unlocated-panel {
+  min-height: 0;
+  max-height: none;
+}
+
 @media (max-width: 1100px) {
   .sidebar {
     position: static;
@@ -825,6 +852,26 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
     border-top: 1px solid var(--line);
     border-left: 0;
   }
+  body.service-order-map-page {
+    display: grid;
+    grid-template-rows: minmax(120px, 30vh) minmax(0, 1fr);
+  }
+  .service-order-map-page .sidebar {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .service-order-map-page .main {
+    height: auto;
+    min-height: 0;
+    padding: 16px 20px;
+  }
+  .service-order-map-page .service-map-layout {
+    grid-template-rows: minmax(0, 1fr) minmax(90px, 22%);
+  }
+  .service-order-map-page .map-unlocated-panel {
+    overflow-y: auto;
+  }
 }
 
 @container (max-width: 720px) {
@@ -879,6 +926,33 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   .service-order-map {
     height: 460px;
     min-height: 460px;
+  }
+  .service-order-map-page .page-header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .service-order-map-page .page-header .actions { flex-direction: row; }
+  .service-order-map-page .page-header h1 { font-size: 22px; }
+  .service-order-map-page .page-header .eyebrow { display: none; }
+  .service-order-map-page .map-toolbar {
+    grid-template-columns: minmax(0, 1fr) 110px;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .service-order-map-page .map-summary {
+    grid-column: 1 / -1;
+    min-height: 24px;
+  }
+  .service-order-map-page .service-order-map {
+    height: 100%;
+    min-height: 0;
+  }
+  .service-order-map-page .map-attribution-note {
+    margin-top: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
