@@ -283,6 +283,33 @@ def init_db():
                 value text not null
             );
 
+            create table if not exists buyers (
+                id integer primary key autoincrement,
+                buyer_number text not null unique,
+                country text,
+                name text not null,
+                contact_name text,
+                contact_details text,
+                detailed_address text,
+                equipment_manufacturer text,
+                latitude real,
+                longitude real,
+                geocode_address text,
+                geocode_status text not null default 'pending',
+                geocode_attempted_at text,
+                geocode_version text,
+                created_at text not null
+            );
+
+            create table if not exists work_order_types (
+                id integer primary key autoincrement,
+                code text not null unique,
+                name text not null,
+                description text,
+                is_active integer not null default 1,
+                created_at text not null
+            );
+
             create table if not exists service_orders (
                 id integer primary key autoincrement,
                 order_number text not null unique,
@@ -445,6 +472,51 @@ def init_db():
         ensure_column(connection, "service_orders", "geocode_status", "text not null default 'pending'")
         ensure_column(connection, "service_orders", "geocode_attempted_at", "text")
         ensure_column(connection, "service_orders", "geocode_version", "text")
+        ensure_column(connection, "service_orders", "buyer_id", "integer")
+        ensure_column(connection, "service_orders", "buyer_contact_name", "text")
+        ensure_column(connection, "service_orders", "buyer_contact_details", "text")
+        ensure_column(connection, "service_orders", "start_date", "text")
+        ensure_column(connection, "service_orders", "work_order_type_id", "integer")
+        existing_buyer_names = {
+            row["name"].strip().casefold(): row["id"]
+            for row in connection.execute("select id, name from buyers").fetchall()
+            if row["name"] and row["name"].strip()
+        }
+        next_buyer_sequence = connection.execute("select coalesce(max(id), 0) + 1 as value from buyers").fetchone()["value"]
+        legacy_orders = connection.execute(
+            """
+            select id, client_name, site_address
+            from service_orders
+            where buyer_id is null and trim(coalesce(client_name, '')) != ''
+            order by id
+            """
+        ).fetchall()
+        for legacy_order in legacy_orders:
+            buyer_name = legacy_order["client_name"].strip()
+            buyer_id = existing_buyer_names.get(buyer_name.casefold())
+            if not buyer_id:
+                while True:
+                    buyer_number = f"BUY{next_buyer_sequence:05d}"
+                    next_buyer_sequence += 1
+                    if not connection.execute(
+                        "select id from buyers where buyer_number = ?",
+                        (buyer_number,),
+                    ).fetchone():
+                        break
+                cursor = connection.execute(
+                    """
+                    insert into buyers (
+                        buyer_number, country, name, detailed_address, created_at
+                    ) values (?, 'United States', ?, ?, ?)
+                    """,
+                    (buyer_number, buyer_name, legacy_order["site_address"], now()),
+                )
+                buyer_id = cursor.lastrowid
+                existing_buyer_names[buyer_name.casefold()] = buyer_id
+            connection.execute(
+                "update service_orders set buyer_id = ? where id = ?",
+                (buyer_id, legacy_order["id"]),
+            )
         connection.execute(
             """
             insert into expense_items (expense_id, project_id, project, amount, description, sort_order)
@@ -743,6 +815,17 @@ def next_client_number():
     return "00001" if not row else f"{int(row['client_number']) + 1:05d}"
 
 
+def next_buyer_number():
+    row = db().execute(
+        """
+        select buyer_number from buyers
+        where buyer_number glob 'BUY[0-9][0-9][0-9][0-9][0-9]'
+        order by buyer_number desc limit 1
+        """
+    ).fetchone()
+    return "BUY00001" if not row else f"BUY{int(row['buyer_number'][3:]) + 1:05d}"
+
+
 def next_invoice_number():
     prefix = f"PP-{date.today():%y%m}"
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -907,12 +990,30 @@ def can_access_service_order(order):
 
 
 def require_service_order(order_id):
-    order = db().execute("select * from service_orders where id = ?", (order_id,)).fetchone()
+    order = db().execute(
+        """
+        select service_orders.*, work_order_types.name as work_order_type_name,
+               buyers.country as buyer_country,
+               buyers.equipment_manufacturer as buyer_equipment_manufacturer
+        from service_orders
+        left join work_order_types on work_order_types.id = service_orders.work_order_type_id
+        left join buyers on buyers.id = service_orders.buyer_id
+        where service_orders.id = ?
+        """,
+        (order_id,),
+    ).fetchone()
     if not order:
         abort(404)
     if not can_access_service_order(order):
         abort(403)
     return order
+
+
+def require_service_order_start_date(order):
+    if order["start_date"]:
+        return None
+    flash("请先编辑工单并维护开始日期，再新增发票、工作日报或报销。", "error")
+    return redirect(url_for("edit_service_order", order_id=order["id"]))
 
 
 def require_service_report(report_id):
@@ -1654,6 +1755,78 @@ def geocode_service_order(order_id, force=False):
     return None
 
 
+def geocode_buyer(buyer_id, force=False):
+    buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
+    if not buyer:
+        return None
+    address = str(buyer["detailed_address"] or "").strip()
+    address_key = normalized_address(address)
+    if not address_key:
+        db().execute(
+            """
+            update buyers
+            set latitude = null, longitude = null, geocode_address = ?, geocode_status = 'failed',
+                geocode_attempted_at = ?, geocode_version = ?
+            where id = ?
+            """,
+            (address, now(), GEOCODER_VERSION, buyer_id),
+        )
+        return None
+    if (
+        not force
+        and buyer["geocode_status"] == "success"
+        and buyer["latitude"] is not None
+        and buyer["longitude"] is not None
+        and normalized_address(buyer["geocode_address"]) == address_key
+        and buyer["geocode_version"] == GEOCODER_VERSION
+    ):
+        return float(buyer["latitude"]), float(buyer["longitude"])
+    cached = db().execute(
+        """
+        select latitude, longitude
+        from buyers
+        where id != ? and geocode_status = 'success'
+          and latitude is not null and longitude is not null
+          and lower(trim(geocode_address)) = lower(trim(?))
+          and geocode_version = ?
+        order by geocode_attempted_at desc, id desc
+        limit 1
+        """,
+        (buyer_id, address, GEOCODER_VERSION),
+    ).fetchone()
+    if cached:
+        coordinates = float(cached["latitude"]), float(cached["longitude"])
+    else:
+        try:
+            coordinates = geocode_address(address)
+        except TemporaryGeocodingError:
+            raise
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            app.logger.warning("Unable to geocode buyer %s: %s", buyer_id, error)
+            coordinates = None
+    if coordinates:
+        db().execute(
+            """
+            update buyers
+            set latitude = ?, longitude = ?, geocode_address = ?, geocode_status = 'success',
+                geocode_attempted_at = ?, geocode_version = ?
+            where id = ?
+            """,
+            (coordinates[0], coordinates[1], address, now(), GEOCODER_VERSION, buyer_id),
+        )
+        return coordinates
+    db().execute(
+        """
+        update buyers
+        set latitude = null, longitude = null, geocode_address = ?, geocode_status = 'failed',
+            geocode_attempted_at = ?, geocode_version = ?
+        where id = ?
+        """,
+        (address, now(), GEOCODER_VERSION, buyer_id),
+    )
+    return None
+
+
 def notify_role(roles, title, body, link=None, exclude_user_ids=None):
     excluded = {int(user_id) for user_id in (exclude_user_ids or []) if user_id is not None}
     placeholders = ",".join("?" for _ in roles)
@@ -1914,6 +2087,223 @@ def delete_client(client_id):
     db().commit()
     flash("客户已删除。", "success")
     return redirect(url_for("clients"))
+
+
+@app.route("/buyers", methods=["GET", "POST"])
+@login_required
+def buyers():
+    if not is_manager():
+        abort(403)
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        detailed_address = request.form.get("detailed_address", "").strip()
+        if not name or not detailed_address:
+            flash("请填写需方名称和详细地址。", "error")
+            return redirect(url_for("buyers"))
+        try:
+            db().execute(
+                """
+                insert into buyers (
+                    buyer_number, country, name, contact_name, contact_details,
+                    detailed_address, equipment_manufacturer, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    next_buyer_number(),
+                    request.form.get("country", "United States").strip() or "United States",
+                    name,
+                    request.form.get("contact_name", "").strip(),
+                    request.form.get("contact_details", "").strip(),
+                    detailed_address,
+                    request.form.get("equipment_manufacturer", "").strip(),
+                    now(),
+                ),
+            )
+            db().commit()
+            flash("需方已创建。", "success")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("需方编号重复，请重试。", "error")
+        return redirect(url_for("buyers"))
+    q = request.args.get("q", "").strip()
+    params = []
+    where = ""
+    if q:
+        where = """
+        where buyer_number like ? or name like ? or contact_name like ?
+           or contact_details like ? or detailed_address like ? or equipment_manufacturer like ?
+        """
+        params = [f"%{q}%"] * 6
+    rows = db().execute(
+        f"select * from buyers {where} order by buyer_number",
+        params,
+    ).fetchall()
+    return render_template("buyers.html", buyers=rows, q=q)
+
+
+@app.route("/buyers/<int:buyer_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_buyer(buyer_id):
+    if not is_manager():
+        abort(403)
+    buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
+    if not buyer:
+        abort(404)
+    if request.method == "POST":
+        buyer_number = request.form.get("buyer_number", "").strip().upper()
+        name = request.form.get("name", "").strip()
+        detailed_address = request.form.get("detailed_address", "").strip()
+        if not buyer_number or not name or not detailed_address:
+            flash("请填写编号、需方名称和详细地址。", "error")
+            return redirect(url_for("edit_buyer", buyer_id=buyer_id))
+        address_changed = normalized_address(buyer["detailed_address"]) != normalized_address(detailed_address)
+        try:
+            db().execute(
+                """
+                update buyers
+                set buyer_number = ?, country = ?, name = ?, contact_name = ?,
+                    contact_details = ?, detailed_address = ?, equipment_manufacturer = ?
+                where id = ?
+                """,
+                (
+                    buyer_number,
+                    request.form.get("country", "United States").strip() or "United States",
+                    name,
+                    request.form.get("contact_name", "").strip(),
+                    request.form.get("contact_details", "").strip(),
+                    detailed_address,
+                    request.form.get("equipment_manufacturer", "").strip(),
+                    buyer_id,
+                ),
+            )
+            db().execute(
+                """
+                update service_orders
+                set client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?
+                where buyer_id = ?
+                """,
+                (
+                    name,
+                    request.form.get("contact_name", "").strip(),
+                    request.form.get("contact_details", "").strip(),
+                    buyer_id,
+                ),
+            )
+            if address_changed:
+                db().execute(
+                    """
+                    update buyers
+                    set latitude = null, longitude = null, geocode_address = null,
+                        geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
+                    where id = ?
+                    """,
+                    (buyer_id,),
+                )
+            db().commit()
+            flash("需方资料已更新。", "success")
+            return redirect(url_for("buyers"))
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("需方编号重复，请换一个编号。", "error")
+    return render_template("buyer_form.html", buyer=buyer)
+
+
+@app.post("/buyers/<int:buyer_id>/delete")
+@login_required
+def delete_buyer(buyer_id):
+    if not is_manager():
+        abort(403)
+    used = db().execute(
+        "select count(*) as count from service_orders where buyer_id = ?",
+        (buyer_id,),
+    ).fetchone()["count"]
+    if used:
+        flash("这个需方已有工单，不能删除。可以编辑需方资料。", "error")
+        return redirect(url_for("buyers"))
+    db().execute("delete from buyers where id = ?", (buyer_id,))
+    db().commit()
+    flash("需方已删除。", "success")
+    return redirect(url_for("buyers"))
+
+
+@app.route("/work-order-types", methods=["GET", "POST"])
+@login_required
+def work_order_types():
+    if not is_manager():
+        abort(403)
+    if request.method == "POST":
+        code = request.form.get("code", "").strip().upper()
+        name = request.form.get("name", "").strip()
+        if not code or not name:
+            flash("请填写工单类型编码和名称。", "error")
+            return redirect(url_for("work_order_types"))
+        try:
+            db().execute(
+                """
+                insert into work_order_types (code, name, description, is_active, created_at)
+                values (?, ?, ?, 1, ?)
+                """,
+                (code, name, request.form.get("description", "").strip(), now()),
+            )
+            db().commit()
+            flash("工单类型已创建。", "success")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("工单类型编码重复。", "error")
+        return redirect(url_for("work_order_types"))
+    rows = db().execute("select * from work_order_types order by is_active desc, code").fetchall()
+    return render_template("work_order_types.html", work_order_types=rows)
+
+
+@app.route("/work-order-types/<int:type_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_work_order_type(type_id):
+    if not is_manager():
+        abort(403)
+    work_order_type = db().execute("select * from work_order_types where id = ?", (type_id,)).fetchone()
+    if not work_order_type:
+        abort(404)
+    if request.method == "POST":
+        try:
+            db().execute(
+                """
+                update work_order_types
+                set code = ?, name = ?, description = ?, is_active = ?
+                where id = ?
+                """,
+                (
+                    request.form.get("code", "").strip().upper(),
+                    request.form.get("name", "").strip(),
+                    request.form.get("description", "").strip(),
+                    1 if request.form.get("is_active", "1") == "1" else 0,
+                    type_id,
+                ),
+            )
+            db().commit()
+            flash("工单类型已更新。", "success")
+            return redirect(url_for("work_order_types"))
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("工单类型编码重复。", "error")
+    return render_template("work_order_type_form.html", work_order_type=work_order_type)
+
+
+@app.post("/work-order-types/<int:type_id>/delete")
+@login_required
+def delete_work_order_type(type_id):
+    if not is_manager():
+        abort(403)
+    used = db().execute(
+        "select count(*) as count from service_orders where work_order_type_id = ?",
+        (type_id,),
+    ).fetchone()["count"]
+    if used:
+        flash("这个工单类型已有工单使用，不能删除，可以停用。", "error")
+        return redirect(url_for("work_order_types"))
+    db().execute("delete from work_order_types where id = ?", (type_id,))
+    db().commit()
+    flash("工单类型已删除。", "success")
+    return redirect(url_for("work_order_types"))
 
 
 @app.route("/projects", methods=["GET", "POST"])
@@ -2328,10 +2718,12 @@ def service_order_query():
     rows = db().execute(
         f"""
         select service_orders.*,
+               work_order_types.name as work_order_type_name,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count,
                coalesce(sum(case when expenses.status = 'approved' then expenses.amount else 0 end), 0) as approved_expense_total
         from service_orders
+        left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         left join expenses on expenses.service_order_id = service_orders.id
@@ -2342,6 +2734,44 @@ def service_order_query():
         params,
     ).fetchall()
     return render_template("service_order_query.html", orders=rows, q=q, status=status)
+
+
+@app.route("/reports/buyers")
+@login_required
+def buyer_query():
+    if not is_internal_user():
+        abort(403)
+    q = request.args.get("q", "").strip()
+    country = request.args.get("country", "").strip()
+    clauses = ["1 = 1"]
+    params = []
+    if q:
+        clauses.append(
+            """
+            (buyers.buyer_number like ? or buyers.name like ? or buyers.contact_name like ?
+             or buyers.contact_details like ? or buyers.detailed_address like ?
+             or buyers.equipment_manufacturer like ?)
+            """
+        )
+        params.extend([f"%{q}%"] * 6)
+    if country:
+        clauses.append("buyers.country = ?")
+        params.append(country)
+    rows = buyer_map_rows(" and ".join(clauses), params)
+    countries = db().execute(
+        """
+        select distinct country from buyers
+        where trim(coalesce(country, '')) != ''
+        order by country
+        """
+    ).fetchall()
+    return render_template(
+        "buyer_query.html",
+        buyers=rows,
+        countries=countries,
+        q=q,
+        country=country,
+    )
 
 
 @app.route("/reports/service-reports")
@@ -2496,17 +2926,23 @@ def service_orders():
     if not is_internal_user():
         abort(403)
     q = request.args.get("q", "").strip()
+    buyer_id = request.args.get("buyer_id", "").strip()
     clauses = ["1 = 1"]
     params = []
     if q:
         clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_orders.client_order_number like ?)")
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if buyer_id.isdigit():
+        clauses.append("service_orders.buyer_id = ?")
+        params.append(int(buyer_id))
     rows = db().execute(
         f"""
         select service_orders.*,
+               work_order_types.name as work_order_type_name,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count
         from service_orders
+        left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         where {" and ".join(clauses)}
@@ -2515,39 +2951,84 @@ def service_orders():
         """,
         params,
     ).fetchall()
-    return render_template("service_orders.html", orders=rows, q=q)
+    return render_template("service_orders.html", orders=rows, q=q, buyer_id=buyer_id)
 
 
-def service_order_map_payload(order):
-    return {
-        "id": order["id"],
-        "order_number": order["order_number"],
-        "client_name": order["client_name"],
-        "client_order_number": order["client_order_number"],
-        "site_address": order["site_address"],
-        "status": order["status"],
-        "status_label": "已关闭" if order["status"] == "closed" else "进行中",
-        "latitude": order["latitude"],
-        "longitude": order["longitude"],
-        "geocode_status": order["geocode_status"] or "pending",
-        "report_count": order["report_count"],
-        "invoice_count": order["invoice_count"],
-        "detail_url": url_for("service_order_detail", order_id=order["id"]),
+def buyer_map_payload(buyer):
+    payload = {
+        "id": buyer["id"],
+        "buyer_number": buyer["buyer_number"],
+        "name": buyer["name"],
+        "contact_name": buyer["contact_name"],
+        "contact_details": buyer["contact_details"],
+        "country": buyer["country"],
+        "detailed_address": buyer["detailed_address"],
+        "equipment_manufacturer": buyer["equipment_manufacturer"],
+        "latitude": buyer["latitude"],
+        "longitude": buyer["longitude"],
+        "geocode_status": buyer["geocode_status"] or "pending",
+        "work_order_total": buyer["work_order_total"],
+        "work_order_completed": buyer["work_order_completed"],
+        "status": (
+            "completed"
+            if buyer["work_order_total"] and buyer["work_order_total"] == buyer["work_order_completed"]
+            else "active"
+        ),
+        "detail_url": url_for("service_orders", buyer_id=buyer["id"]),
     }
+    if can_view_invoices():
+        payload["paid_invoice_amount"] = buyer["paid_invoice_amount"]
+        payload["completed_invoice_amount"] = buyer["completed_invoice_amount"]
+    return payload
 
 
-def service_order_map_rows(where_clause="1 = 1", params=()):
+def buyer_map_rows(where_clause="1 = 1", params=()):
     return db().execute(
         f"""
-        select service_orders.*,
-               count(distinct service_reports.id) as report_count,
-               count(distinct invoices.id) as invoice_count
-        from service_orders
-        left join service_reports on service_reports.service_order_id = service_orders.id
-        left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
+        with order_stats as (
+            select buyer_id,
+                   count(*) as work_order_total,
+                   sum(case when status = 'closed' then 1 else 0 end) as work_order_completed
+            from service_orders
+            where buyer_id is not null
+            group by buyer_id
+        ),
+        invoice_amounts as (
+            select invoices.id, invoices.service_order_id, invoices.status, invoices.paid_at,
+                   invoices.payment_amount,
+                   coalesce(sum(invoice_items.amount * (1 + invoice_items.tax_rate / 100.0)), 0) as invoice_total
+            from invoices
+            left join invoice_items on invoice_items.invoice_id = invoices.id
+            where invoices.status != 'void'
+            group by invoices.id
+        ),
+        invoice_stats as (
+            select service_orders.buyer_id,
+                   sum(
+                       case when invoice_amounts.paid_at is not null
+                       then coalesce(invoice_amounts.payment_amount, invoice_amounts.invoice_total)
+                       else 0 end
+                   ) as paid_invoice_amount,
+                   sum(
+                       case when invoice_amounts.status = 'completed'
+                       then invoice_amounts.invoice_total
+                       else 0 end
+                   ) as completed_invoice_amount
+            from service_orders
+            join invoice_amounts on invoice_amounts.service_order_id = service_orders.id
+            where service_orders.buyer_id is not null
+            group by service_orders.buyer_id
+        )
+        select buyers.*,
+               coalesce(order_stats.work_order_total, 0) as work_order_total,
+               coalesce(order_stats.work_order_completed, 0) as work_order_completed,
+               coalesce(invoice_stats.paid_invoice_amount, 0) as paid_invoice_amount,
+               coalesce(invoice_stats.completed_invoice_amount, 0) as completed_invoice_amount
+        from buyers
+        left join order_stats on order_stats.buyer_id = buyers.id
+        left join invoice_stats on invoice_stats.buyer_id = buyers.id
         where {where_clause}
-        group by service_orders.id
-        order by service_orders.created_at desc, service_orders.id desc
+        order by buyers.name, buyers.id
         """,
         params,
     ).fetchall()
@@ -2558,12 +3039,19 @@ def service_order_map_rows(where_clause="1 = 1", params=()):
 def service_order_map():
     if not is_internal_user():
         abort(403)
-    rows = service_order_map_rows()
-    orders = [service_order_map_payload(row) for row in rows]
+    rows = buyer_map_rows()
+    buyers_payload = [buyer_map_payload(row) for row in rows]
     google_maps_browser_api_key = get_google_maps_browser_api_key()
     return render_template(
         "service_order_map.html",
-        map_orders=orders,
+        map_buyers=buyers_payload,
+        show_invoice_amounts=can_view_invoices(),
+        headquarters={
+            "name": "Prasinos Power LLC",
+            "address": "518 Anacacho Dr, Spring, TX 77386",
+            "latitude": 30.11295,
+            "longitude": -95.41663,
+        },
         geocoding_enabled=GEOCODING_ENABLED,
         google_maps_enabled=bool(google_maps_browser_api_key),
         google_maps_browser_api_key=google_maps_browser_api_key,
@@ -2577,34 +3065,34 @@ def geocode_next_service_order():
         abort(403)
     if not GEOCODING_ENABLED:
         return jsonify({"available": False, "remaining": 0}), 503
-    order = db().execute(
+    buyer = db().execute(
         """
-        select id from service_orders
+        select id from buyers
         where geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
-           or lower(trim(geocode_address)) != lower(trim(site_address))
+           or lower(trim(geocode_address)) != lower(trim(detailed_address))
            or coalesce(geocode_version, '') != ?
         order by created_at desc, id desc
         limit 1
         """,
         (GEOCODER_VERSION,),
     ).fetchone()
-    if not order:
-        return jsonify({"available": True, "remaining": 0, "order": None})
+    if not buyer:
+        return jsonify({"available": True, "remaining": 0, "buyer": None})
     try:
-        geocode_service_order(order["id"])
+        geocode_buyer(buyer["id"])
     except TemporaryGeocodingError as error:
         db().rollback()
-        app.logger.warning("Temporary geocoding failure for service order %s: %s", order["id"], error)
+        app.logger.warning("Temporary geocoding failure for buyer %s: %s", buyer["id"], error)
         return jsonify({"available": True, "temporary_error": True}), 503
     db().commit()
-    refreshed = service_order_map_rows("service_orders.id = ?", (order["id"],))[0]
+    refreshed = buyer_map_rows("buyers.id = ?", (buyer["id"],))[0]
     remaining = db().execute(
         """
-        select count(*) as count from service_orders
+        select count(*) as count from buyers
         where geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
-           or lower(trim(geocode_address)) != lower(trim(site_address))
+           or lower(trim(geocode_address)) != lower(trim(detailed_address))
            or coalesce(geocode_version, '') != ?
         """,
         (GEOCODER_VERSION,),
@@ -2613,7 +3101,7 @@ def geocode_next_service_order():
         {
             "available": True,
             "remaining": remaining,
-            "order": service_order_map_payload(refreshed),
+            "buyer": buyer_map_payload(refreshed),
         }
     )
 
@@ -2625,7 +3113,7 @@ def retry_failed_service_order_geocodes():
         abort(403)
     db().execute(
         """
-        update service_orders
+        update buyers
         set geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
         where geocode_status = 'failed'
         """
@@ -2639,63 +3127,123 @@ def retry_failed_service_order_geocodes():
 def new_service_order():
     if not can_create_service_order():
         abort(403)
+    buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
+    work_order_types_rows = db().execute(
+        "select * from work_order_types where is_active = 1 order by code, name"
+    ).fetchall()
+    if not buyers_rows:
+        flash("请先由管理员或经理维护需方资料。", "error")
+        return redirect(url_for("buyers") if is_manager() else url_for("service_orders"))
+    if not work_order_types_rows:
+        flash("请先由管理员或经理维护工单类型。", "error")
+        return redirect(url_for("work_order_types") if is_manager() else url_for("service_orders"))
     if request.method == "POST":
-        client_name = request.form.get("client_name", "").strip()
+        buyer = db().execute(
+            "select * from buyers where id = ?",
+            (request.form.get("buyer_id"),),
+        ).fetchone()
+        work_order_type = db().execute(
+            "select * from work_order_types where id = ? and is_active = 1",
+            (request.form.get("work_order_type_id"),),
+        ).fetchone()
         site_address = request.form.get("site_address", "").strip()
         client_order_number = request.form.get("client_order_number", "").strip()
-        if not client_name or not site_address or not client_order_number:
-            flash("请填写客户名称、服务现场地址和服务订单号码。", "error")
+        if not buyer or not work_order_type or not site_address or not client_order_number:
+            flash("请选择需方和工单类型，并填写服务现场地址、服务订单号码。", "error")
             return redirect(url_for("new_service_order"))
         order_number = next_service_order_number()
         cursor = db().execute(
             """
-            insert into service_orders (order_number, client_name, site_address, client_order_number, created_by, created_at)
-            values (?, ?, ?, ?, ?, ?)
+            insert into service_orders (
+                order_number, buyer_id, client_name, buyer_contact_name, buyer_contact_details,
+                site_address, client_order_number, start_date, work_order_type_id, created_by, created_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (order_number, client_name, site_address, client_order_number, g.user["id"], now()),
+            (
+                order_number,
+                buyer["id"],
+                buyer["name"],
+                buyer["contact_name"],
+                buyer["contact_details"],
+                site_address,
+                client_order_number,
+                request.form.get("start_date") or None,
+                work_order_type["id"],
+                g.user["id"],
+                now(),
+            ),
         )
-        log_action("create", "service_order", cursor.lastrowid, order_number, f"客户：{client_name}")
+        log_action("create", "service_order", cursor.lastrowid, order_number, f"需方：{buyer['name']}")
         db().commit()
         flash("工单已创建。", "success")
         return redirect(url_for("service_orders"))
-    return render_template("service_order_form.html", order=None, form_title="新建工单")
+    return render_template(
+        "service_order_form.html",
+        order=None,
+        buyers=buyers_rows,
+        work_order_types=work_order_types_rows,
+        form_title="新建工单",
+    )
 
 
 @app.route("/service-orders/<int:order_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_service_order(order_id):
     order = require_service_order(order_id)
+    buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
+    work_order_types_rows = db().execute(
+        """
+        select * from work_order_types
+        where is_active = 1 or id = ?
+        order by is_active desc, code, name
+        """,
+        (order["work_order_type_id"],),
+    ).fetchall()
     if request.method == "POST":
+        buyer = db().execute(
+            "select * from buyers where id = ?",
+            (request.form.get("buyer_id"),),
+        ).fetchone()
+        work_order_type = db().execute(
+            "select * from work_order_types where id = ?",
+            (request.form.get("work_order_type_id"),),
+        ).fetchone()
         site_address = request.form.get("site_address", "").strip()
+        if not buyer or not work_order_type or not site_address:
+            flash("请选择有效的需方和工单类型，并填写服务现场地址。", "error")
+            return redirect(url_for("edit_service_order", order_id=order_id))
         db().execute(
             """
             update service_orders
-            set client_name = ?, site_address = ?, client_order_number = ?, status = ?
+            set buyer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
+                site_address = ?, client_order_number = ?, start_date = ?,
+                work_order_type_id = ?, status = ?
             where id = ?
             """,
             (
-                request.form.get("client_name", "").strip(),
+                buyer["id"],
+                buyer["name"],
+                buyer["contact_name"],
+                buyer["contact_details"],
                 site_address,
                 request.form.get("client_order_number", "").strip(),
+                request.form.get("start_date") or None,
+                work_order_type["id"],
                 request.form.get("status", "open"),
                 order_id,
             ),
         )
-        if normalized_address(order["site_address"]) != normalized_address(site_address):
-            db().execute(
-                """
-                update service_orders
-                set latitude = null, longitude = null, geocode_address = null,
-                    geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
-                where id = ?
-                """,
-                (order_id,),
-            )
         log_action("update", "service_order", order_id, order["order_number"], "修改工单信息")
         db().commit()
         flash("工单已保存。", "success")
         return redirect(url_for("service_order_detail", order_id=order_id))
-    return render_template("service_order_form.html", order=order, form_title="编辑工单")
+    return render_template(
+        "service_order_form.html",
+        order=order,
+        buyers=buyers_rows,
+        work_order_types=work_order_types_rows,
+        form_title="编辑工单",
+    )
 
 
 @app.route("/service-orders/<int:order_id>")
@@ -2751,6 +3299,9 @@ def service_order_detail(order_id):
 @login_required
 def new_service_report(order_id):
     order = require_service_order(order_id)
+    start_date_redirect = require_service_order_start_date(order)
+    if start_date_redirect:
+        return start_date_redirect
     users_rows = db().execute(
         "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
     ).fetchall()
@@ -3181,6 +3732,9 @@ def new_expense(order_id):
     if not can_create_expense():
         abort(403)
     order = require_service_order(order_id)
+    start_date_redirect = require_service_order_start_date(order)
+    if start_date_redirect:
+        return start_date_redirect
     expense_projects = db().execute(
         "select * from projects where project_type = 'expense' and is_active = 1 order by name"
     ).fetchall()
@@ -3494,6 +4048,12 @@ def delete_expense_attachment(attachment_id):
 def new_invoice():
     if not can_create_invoice():
         abort(403)
+    requested_order_id = request.args.get("service_order_id", "")
+    if request.method == "GET" and requested_order_id.isdigit():
+        requested_order = require_service_order(int(requested_order_id))
+        start_date_redirect = require_service_order_start_date(requested_order)
+        if start_date_redirect:
+            return start_date_redirect
     if is_external_user():
         if not g.user["client_id"]:
             flash("请联系管理员绑定客户。", "error")
@@ -3589,15 +4149,19 @@ def posted_client_id():
         raise ValueError("请选择客户。")
 
 
-def posted_service_order_id():
+def posted_service_order_id(require_start_date=False, required=False):
     value = request.form.get("service_order_id")
     if not value:
+        if required:
+            raise ValueError("请选择关联工单。")
         return None
     try:
         order_id = int(value)
     except (TypeError, ValueError):
         raise ValueError("请选择有效工单。")
-    require_service_order(order_id)
+    order = require_service_order(order_id)
+    if require_start_date and not order["start_date"]:
+        raise ValueError("所选工单还没有开始日期，请先编辑工单并维护开始日期。")
     return order_id
 
 
@@ -3605,7 +4169,7 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
-    service_order_id = posted_service_order_id()
+    service_order_id = posted_service_order_id(require_start_date=True, required=True)
     invoice_number = request.form.get("invoice_number", "").strip()
     if not invoice_number:
         invoice_number = next_invoice_number()
@@ -4374,7 +4938,7 @@ def build_service_report_docx(report, order):
     format_run(title.add_run("现场服务日报"), size=18, bold=True)
 
     for label, value in (
-        ("客户名称", order["client_name"]),
+        ("需方名称", order["client_name"]),
         ("服务现场地址", order["site_address"]),
         ("服务订单号码", order["client_order_number"]),
     ):

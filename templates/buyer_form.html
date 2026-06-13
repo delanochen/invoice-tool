@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}编辑需方 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Buyers</p><h1>编辑需方</h1></div>
+    <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">返回需方列表</button>
+  </header>
+  <form method="post" class="panel form-stack narrow-form">
+    <label>编号 <input name="buyer_number" value="{{ buyer.buyer_number }}" required></label>
+    <label>国家 <input name="country" value="{{ buyer.country or 'United States' }}"></label>
+    <label>名称 <input name="name" value="{{ buyer.name }}" required></label>
+    <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
+    <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
+    <label>详细地址 <textarea name="detailed_address" rows="5" required>{{ buyer.detailed_address or '' }}</textarea></label>
+    <label>配套机厂家 <input name="equipment_manufacturer" value="{{ buyer.equipment_manufacturer or '' }}"></label>
+    <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
+  </form>
+{% endblock %}

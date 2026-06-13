@@ -3,7 +3,7 @@
 {% block content %}
   <header class="page-header"><div><p class="eyebrow">Reports</p><h1>日报查询</h1></div></header>
   <form class="filter-bar service-filter no-print" method="get">
-    <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、客户名称、机柜编号"></label>
+    <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、需方名称、机柜编号"></label>
     <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
     <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
     <div class="filter-actions">
@@ -13,7 +13,7 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>报告日期</th><th>工单</th><th>客户</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>机柜编号</th></tr></thead>
+      <thead><tr><th>报告日期</th><th>工单</th><th>需方</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>机柜编号</th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>

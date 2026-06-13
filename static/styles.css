@@ -764,6 +764,13 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .map-order-popup dt { color: var(--muted); }
 .map-order-popup dd { margin: 0; }
+.headquarters-star {
+  color: #b42318;
+  font-size: 20px;
+  line-height: 22px;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.95);
+}
 .map-attribution-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 
 body.service-order-map-page {

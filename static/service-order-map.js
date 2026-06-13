@@ -6,187 +6,145 @@ const progressText = document.querySelector("#geocodeProgress");
 const unlocatedContainer = document.querySelector("#unlocatedOrders");
 const retryButton = document.querySelector("#retryFailedGeocodes");
 const mapConfig = window.serviceOrderMapConfig || {};
-const ordersById = new Map((window.serviceOrderMapData || []).map((order) => [order.id, order]));
+const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [buyer.id, buyer]));
 const markersById = new Map();
-
 const serviceMap = L.map(mapElement, { zoomControl: true }).setView([39.5, -98.35], 4);
+const markerLayer = L.layerGroup().addTo(serviceMap);
+
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
   attribution: "&copy; OpenStreetMap contributors"
 }).addTo(serviceMap);
-const markerLayer = L.layerGroup().addTo(serviceMap);
-let resizeTimer;
-window.addEventListener("resize", () => {
-  window.clearTimeout(resizeTimer);
-  resizeTimer = window.setTimeout(() => serviceMap.invalidateSize({ pan: false }), 120);
-});
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
   })[character]);
 }
 
-function markerColor(order) {
-  return order.status === "closed" ? "#667085" : "#0f766e";
+function money(value) {
+  return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function orderDetails(order) {
-  const invoiceLabel = order.invoice_count > 0 ? `已关联 ${order.invoice_count} 张` : "未关联";
+function buyerDetails(buyer) {
+  const invoices = mapConfig.showInvoiceAmounts ? `
+    <dt>发票</dt>
+    <dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
+  ` : "";
   return `
     <div class="map-order-popup">
-      <strong>${escapeHtml(order.order_number)}</strong>
-      <span>${escapeHtml(order.client_name)}</span>
-      <span>${escapeHtml(order.site_address)}</span>
+      <strong>${escapeHtml(buyer.name)}</strong>
+      <span>${escapeHtml(buyer.detailed_address)}</span>
       <dl>
-        <dt>服务订单</dt><dd>${escapeHtml(order.client_order_number)}</dd>
-        <dt>状态</dt><dd>${escapeHtml(order.status_label)}</dd>
-        <dt>日报</dt><dd>${escapeHtml(order.report_count)}</dd>
-        <dt>发票</dt><dd>${escapeHtml(invoiceLabel)}</dd>
+        <dt>联系人</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
+        <dt>联系方式</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
+        <dt>工单数</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
+        ${invoices}
       </dl>
-      <a href="${escapeHtml(order.detail_url)}">查看工单详情</a>
+      <a href="${escapeHtml(buyer.detail_url)}">工单查看</a>
     </div>
   `;
 }
 
-function hasCoordinates(order) {
-  return Number.isFinite(Number(order.latitude)) && Number.isFinite(Number(order.longitude));
+function hasCoordinates(buyer) {
+  return Number.isFinite(Number(buyer.latitude)) && Number.isFinite(Number(buyer.longitude));
 }
 
-function matchesFilters(order) {
+function matchesFilters(buyer) {
   const query = searchInput.value.trim().toLocaleLowerCase();
   const status = statusSelect.value;
   const haystack = [
-    order.order_number,
-    order.client_name,
-    order.client_order_number,
-    order.site_address
+    buyer.buyer_number, buyer.name, buyer.contact_name, buyer.contact_details,
+    buyer.detailed_address, buyer.equipment_manufacturer
   ].join(" ").toLocaleLowerCase();
-  return (!query || haystack.includes(query)) && (!status || order.status === status);
+  return (!query || haystack.includes(query)) && (!status || buyer.status === status);
 }
 
-function ensureMarker(order, displayPosition) {
-  if (!hasCoordinates(order)) return null;
-  let marker = markersById.get(order.id);
+function ensureMarker(buyer, position) {
+  let marker = markersById.get(buyer.id);
+  const color = buyer.status === "completed" ? "#667085" : "#0f766e";
   if (!marker) {
-    marker = L.circleMarker(displayPosition, {
-      radius: 8,
-      color: "#ffffff",
-      weight: 2,
-      fillColor: markerColor(order),
-      fillOpacity: 0.95
+    marker = L.circleMarker(position, {
+      radius: 8, color: "#ffffff", weight: 2, fillColor: color, fillOpacity: 0.95
     });
-    marker.bindTooltip(orderDetails(order), { sticky: true, direction: "top", opacity: 0.98 });
-    marker.bindPopup(orderDetails(order), { maxWidth: 320 });
-    markersById.set(order.id, marker);
+    marker.bindTooltip(buyerDetails(buyer), { sticky: true, direction: "top", opacity: 0.98 });
+    marker.bindPopup(buyerDetails(buyer), { maxWidth: 340 });
+    markersById.set(buyer.id, marker);
   } else {
-    marker.setLatLng(displayPosition);
-    marker.setStyle({ fillColor: markerColor(order) });
-    marker.setTooltipContent(orderDetails(order));
-    marker.setPopupContent(orderDetails(order));
+    marker.setLatLng(position);
+    marker.setStyle({ fillColor: color });
+    marker.setTooltipContent(buyerDetails(buyer));
+    marker.setPopupContent(buyerDetails(buyer));
   }
   return marker;
 }
 
-function renderUnlocatedOrders() {
-  const unlocated = [...ordersById.values()].filter((order) => !hasCoordinates(order));
+function addHeadquartersMarker() {
+  const headquarters = mapConfig.headquarters;
+  if (!headquarters) return;
+  const icon = L.divIcon({
+    className: "headquarters-star",
+    html: '<span aria-hidden="true">★</span>',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11]
+  });
+  L.marker([headquarters.latitude, headquarters.longitude], { icon, title: headquarters.name })
+    .bindTooltip(`<strong>${escapeHtml(headquarters.name)}</strong><br>${escapeHtml(headquarters.address)}`)
+    .addTo(serviceMap);
+}
+
+function renderUnlocatedBuyers() {
+  const unlocated = [...buyersById.values()].filter((buyer) => !hasCoordinates(buyer));
   unlocatedContainer.replaceChildren();
   if (!unlocated.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "所有工单均已定位。";
+    empty.textContent = "所有需方均已定位。";
     unlocatedContainer.appendChild(empty);
   } else {
-    unlocated.forEach((order) => {
+    unlocated.forEach((buyer) => {
       const item = document.createElement("a");
       item.className = "unlocated-order";
-      item.href = order.detail_url;
-      const title = document.createElement("strong");
-      title.textContent = order.order_number;
-      const address = document.createElement("span");
-      address.textContent = order.site_address;
-      const status = document.createElement("small");
-      status.textContent = order.geocode_status === "failed" ? "无法识别地址" : "等待定位";
-      item.append(title, address, status);
+      item.href = buyer.detail_url;
+      item.innerHTML = `<strong>${escapeHtml(buyer.name)}</strong><span>${escapeHtml(buyer.detailed_address)}</span><small>${buyer.geocode_status === "failed" ? "无法识别地址" : "等待定位"}</small>`;
       unlocatedContainer.appendChild(item);
     });
   }
-  retryButton.hidden = !unlocated.some((order) => order.geocode_status === "failed");
+  retryButton.hidden = !unlocated.some((buyer) => buyer.geocode_status === "failed");
 }
 
 function renderMarkers({ fit = false } = {}) {
   markerLayer.clearLayers();
-  const visibleMarkers = [];
-  const visibleOrders = [...ordersById.values()].filter(
-    (order) => matchesFilters(order) && hasCoordinates(order)
-  );
-  const locationGroups = new Map();
-  visibleOrders.forEach((order) => {
-    const key = `${Number(order.latitude).toFixed(6)},${Number(order.longitude).toFixed(6)}`;
-    if (!locationGroups.has(key)) locationGroups.set(key, []);
-    locationGroups.get(key).push(order);
-  });
-  locationGroups.forEach((group) => {
-    group.forEach((order, index) => {
-      const latitude = Number(order.latitude);
-      const longitude = Number(order.longitude);
-      let displayPosition = [latitude, longitude];
-      if (group.length > 1) {
-        const angle = (Math.PI * 2 * index) / group.length;
-        const latitudeOffset = 0.00018 * Math.sin(angle);
-        const longitudeScale = Math.max(Math.cos(latitude * Math.PI / 180), 0.25);
-        const longitudeOffset = (0.00018 * Math.cos(angle)) / longitudeScale;
-        displayPosition = [latitude + latitudeOffset, longitude + longitudeOffset];
-      }
-      const marker = ensureMarker(order, displayPosition);
+  const markers = [];
+  [...buyersById.values()]
+    .filter((buyer) => matchesFilters(buyer) && hasCoordinates(buyer))
+    .forEach((buyer) => {
+      const marker = ensureMarker(buyer, [Number(buyer.latitude), Number(buyer.longitude)]);
       marker.addTo(markerLayer);
-      visibleMarkers.push(marker);
+      markers.push(marker);
     });
-  });
-  visibleCount.textContent = String(visibleMarkers.length);
-  renderUnlocatedOrders();
-  if (fit && visibleMarkers.length) {
-    const uniqueLocations = new Map();
-    visibleMarkers.forEach((marker) => {
-      const point = marker.getLatLng();
-      uniqueLocations.set(`${point.lat.toFixed(6)},${point.lng.toFixed(6)}`, point);
-    });
-    if (uniqueLocations.size === 1) {
-      serviceMap.setView([...uniqueLocations.values()][0], 11);
-    } else {
-      const bounds = L.featureGroup(visibleMarkers).getBounds();
-      serviceMap.fitBounds(bounds.pad(0.15), { maxZoom: 13 });
-    }
+  visibleCount.textContent = String(markers.length);
+  renderUnlocatedBuyers();
+  if (fit && markers.length) {
+    if (markers.length === 1) serviceMap.setView(markers[0].getLatLng(), 11);
+    else serviceMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.15), { maxZoom: 13 });
   }
 }
 
-async function geocodePendingOrders() {
-  if (!mapConfig.geocodingEnabled) {
-    progressText.textContent = "地址解析未启用";
-    return;
-  }
+async function geocodePendingBuyers() {
+  if (!mapConfig.geocodingEnabled) return;
   try {
     const response = await fetch(mapConfig.geocodeNextUrl, {
-      method: "POST",
-      headers: { "X-Requested-With": "XMLHttpRequest" }
+      method: "POST", headers: { "X-Requested-With": "XMLHttpRequest" }
     });
     if (!response.ok) throw new Error("geocode request failed");
     const result = await response.json();
-    if (result.order) {
-      ordersById.set(result.order.id, result.order);
-      renderMarkers({ fit: markersById.size === 0 });
-    }
+    if (result.buyer) buyersById.set(result.buyer.id, result.buyer);
+    renderMarkers({ fit: Boolean(result.buyer) });
     if (result.remaining > 0) {
       progressText.textContent = `正在定位，剩余 ${result.remaining} 个`;
-      window.setTimeout(geocodePendingOrders, 250);
-    } else {
-      progressText.textContent = "";
-      renderMarkers({ fit: markersById.size > 0 });
-    }
+      window.setTimeout(geocodePendingBuyers, 250);
+    } else progressText.textContent = "";
   } catch (error) {
     progressText.textContent = "定位服务暂时不可用，稍后打开页面会继续";
   }
@@ -196,28 +154,21 @@ searchInput.addEventListener("input", () => renderMarkers({ fit: true }));
 statusSelect.addEventListener("change", () => renderMarkers({ fit: true }));
 retryButton.addEventListener("click", async () => {
   retryButton.disabled = true;
-  progressText.textContent = "准备重新定位";
   try {
     const response = await fetch(mapConfig.retryFailedUrl, {
-      method: "POST",
-      headers: { "X-Requested-With": "XMLHttpRequest" }
+      method: "POST", headers: { "X-Requested-With": "XMLHttpRequest" }
     });
     if (!response.ok) throw new Error("retry request failed");
-    ordersById.forEach((order) => {
-      if (order.geocode_status === "failed") order.geocode_status = "pending";
+    buyersById.forEach((buyer) => {
+      if (buyer.geocode_status === "failed") buyer.geocode_status = "pending";
     });
-    renderUnlocatedOrders();
-    await geocodePendingOrders();
-  } catch (error) {
-    progressText.textContent = "重新定位失败";
+    await geocodePendingBuyers();
   } finally {
     retryButton.disabled = false;
   }
 });
 
+addHeadquartersMarker();
 renderMarkers({ fit: true });
-window.setTimeout(() => {
-  serviceMap.invalidateSize({ pan: false });
-  renderMarkers({ fit: true });
-}, 150);
-geocodePendingOrders();
+window.setTimeout(() => serviceMap.invalidateSize({ pan: false }), 150);
+geocodePendingBuyers();

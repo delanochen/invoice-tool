@@ -23,10 +23,12 @@
         </select>
       </label>
       <label>关联工单
-        <select name="service_order_id">
-          <option value="">不关联工单</option>
+        <select name="service_order_id" {% if not is_edit %}required{% endif %}>
+          {% if is_edit %}<option value="">不关联工单</option>{% else %}<option value="">请选择工单</option>{% endif %}
           {% for order in service_orders %}
-            <option value="{{ order.id }}" {% if defaults.service_order_id and defaults.service_order_id == order.id %}selected{% endif %}>{{ order.order_number }} · {{ order.client_name }} · {{ order.client_order_number }}</option>
+            <option value="{{ order.id }}" {% if defaults.service_order_id and defaults.service_order_id == order.id %}selected{% endif %}>
+              {{ order.order_number }} · {{ order.client_name }} · {{ order.client_order_number }}{% if not order.start_date %} · 未维护开始日期{% endif %}
+            </option>
           {% endfor %}
         </select>
       </label>

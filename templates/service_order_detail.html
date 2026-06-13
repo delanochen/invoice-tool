@@ -20,7 +20,11 @@
   </header>
   <section class="panel">
     <div class="detail-grid">
-      <p><strong>客户名称</strong><span>{{ order.client_name }}</span></p>
+      <p><strong>需方名称</strong><span>{{ order.client_name }}</span></p>
+      <p><strong>工单类型</strong><span>{{ order.work_order_type_name or "-" }}</span></p>
+      <p><strong>开始日期</strong><span>{{ order.start_date or "未维护" }}</span></p>
+      <p><strong>联系人</strong><span>{{ order.buyer_contact_name or "-" }}</span></p>
+      <p><strong>联系方式</strong><span>{{ order.buyer_contact_details or "-" }}</span></p>
       <p><strong>服务订单号码</strong><span>{{ order.client_order_number }}</span></p>
       <p class="full-span"><strong>服务现场地址</strong><span>{{ order.site_address }}</span></p>
       {% if can_view_invoices() %}

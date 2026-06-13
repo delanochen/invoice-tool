@@ -12,16 +12,51 @@
     {% if order %}
       <label>工单编号 <input value="{{ order.order_number }}" readonly></label>
     {% endif %}
-    <label>客户名称 <input name="client_name" value="{{ order.client_name if order else '' }}" required></label>
-    <label>服务现场地址 <textarea name="site_address" rows="3" required>{{ order.site_address if order else '' }}</textarea></label>
+    <label>需方名称
+      <select name="buyer_id" id="buyerSelect" required>
+        <option value="">请选择需方</option>
+        {% for buyer in buyers %}
+          <option
+            value="{{ buyer.id }}"
+            data-contact="{{ buyer.contact_name or '' }}"
+            data-contact-details="{{ buyer.contact_details or '' }}"
+            data-address="{{ buyer.detailed_address or '' }}"
+            data-country="{{ buyer.country or '' }}"
+            data-manufacturer="{{ buyer.equipment_manufacturer or '' }}"
+            {% if order and order.buyer_id == buyer.id %}selected{% endif %}
+          >{{ buyer.buyer_number }} · {{ buyer.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="form-grid buyer-preview">
+      <label>联系人 <input id="buyerContact" value="{{ order.buyer_contact_name if order else '' }}" readonly></label>
+      <label>联系方式 <input id="buyerContactDetails" value="{{ order.buyer_contact_details if order else '' }}" readonly></label>
+      <label>国家 <input id="buyerCountry" value="{{ order.buyer_country if order else '' }}" readonly></label>
+      <label>配套机厂家 <input id="buyerManufacturer" value="{{ order.buyer_equipment_manufacturer if order else '' }}" readonly></label>
+    </div>
+    <label>服务现场地址 <textarea name="site_address" id="siteAddress" rows="3" required>{{ order.site_address if order else '' }}</textarea></label>
     <label>服务订单号码 <input name="client_order_number" value="{{ order.client_order_number if order else '' }}" required></label>
+    <label>工单类型
+      <select name="work_order_type_id" required>
+        <option value="">请选择工单类型</option>
+        {% for item in work_order_types %}
+          <option value="{{ item.id }}" {% if order and order.work_order_type_id == item.id %}selected{% endif %}>
+            {{ item.code }} · {{ item.name }}{% if not item.is_active %}（已停用）{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>开始日期 <input type="date" name="start_date" value="{{ order.start_date if order and order.start_date else '' }}"></label>
     {% if order %}
       <label>状态
         <select name="status">
           <option value="open" {% if order.status != "closed" %}selected{% endif %}>进行中</option>
-          <option value="closed" {% if order.status == "closed" %}selected{% endif %}>已关闭</option>
+          <option value="closed" {% if order.status == "closed" %}selected{% endif %}>已完成</option>
         </select>
       </label>
     {% endif %}
   </form>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='service-order-form.js', v='20260613-buyers-v1') }}"></script>
 {% endblock %}

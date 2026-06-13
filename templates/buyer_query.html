@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}需方查询 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Reports</p><h1>需方查询</h1></div></header>
+  <form class="filter-bar service-filter no-print" method="get">
+    <label>关键词
+      <input name="q" value="{{ q }}" placeholder="编号、名称、联系人、地址或配套机厂家">
+    </label>
+    <label>国家
+      <select name="country">
+        <option value="">全部</option>
+        {% for item in countries %}
+          <option value="{{ item.country }}" {% if country == item.country %}selected{% endif %}>{{ item.country }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('buyer_query') }}'">重置</button>
+    </div>
+  </form>
+  <section class="panel">
+    <table class="list-table">
+      <thead>
+        <tr>
+          <th>编号</th><th>国家</th><th>名称</th><th>联系人</th><th>联系方式</th>
+          <th>详细地址</th><th>配套机厂家</th><th>工单完成数/总数</th>
+          {% if can_view_invoices() %}<th>已核销/已完成发票</th>{% endif %}
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for buyer in buyers %}
+          <tr>
+            <td>{{ buyer.buyer_number }}</td>
+            <td>{{ buyer.country or "-" }}</td>
+            <td>{{ buyer.name }}</td>
+            <td>{{ buyer.contact_name or "-" }}</td>
+            <td>{{ buyer.contact_details or "-" }}</td>
+            <td>{{ buyer.detailed_address }}</td>
+            <td>{{ buyer.equipment_manufacturer or "-" }}</td>
+            <td>{{ buyer.work_order_completed }} / {{ buyer.work_order_total }}</td>
+            {% if can_view_invoices() %}
+              <td>{{ buyer.paid_invoice_amount|money }} / {{ buyer.completed_invoice_amount|money }}</td>
+            {% endif %}
+            <td><a href="{{ url_for('service_orders', buyer_id=buyer.id) }}">工单查看</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="{% if can_view_invoices() %}10{% else %}9{% endif %}" class="empty">没有符合条件的需方。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

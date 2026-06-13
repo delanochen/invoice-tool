@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}编辑工单类型 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Work Order Types</p><h1>编辑工单类型</h1></div>
+    <button type="button" onclick="window.location.href='{{ url_for('work_order_types') }}'">返回类型列表</button>
+  </header>
+  <form method="post" class="panel form-stack narrow-form">
+    <label>编码 <input name="code" value="{{ work_order_type.code }}" required></label>
+    <label>名称 <input name="name" value="{{ work_order_type.name }}" required></label>
+    <label>说明 <textarea name="description" rows="6">{{ work_order_type.description or '' }}</textarea></label>
+    <label>状态
+      <select name="is_active">
+        <option value="1" {% if work_order_type.is_active %}selected{% endif %}>启用</option>
+        <option value="0" {% if not work_order_type.is_active %}selected{% endif %}>停用</option>
+      </select>
+    </label>
+    <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
+  </form>
+{% endblock %}

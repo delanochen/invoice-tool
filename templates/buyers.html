@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}需方 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Buyers</p><h1>需方资料</h1></div></header>
+  <form class="panel filter-bar no-print" method="get">
+    <label>查找需方 <input name="q" value="{{ q or '' }}" placeholder="编号、名称、联系人、地址或配套机厂家"></label>
+    <div class="filter-actions">
+      <button type="submit">查找</button>
+      <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">重置</button>
+    </div>
+  </form>
+  <section class="split">
+    <form method="post" class="panel form-stack">
+      <h2>新增需方</h2>
+      <label>编号 <input value="自动生成" disabled></label>
+      <label>国家 <input name="country" value="United States"></label>
+      <label>名称 <input name="name" required></label>
+      <label>联系人 <input name="contact_name"></label>
+      <label>联系方式 <input name="contact_details"></label>
+      <label>详细地址 <textarea name="detailed_address" rows="4" required></textarea></label>
+      <label>配套机厂家 <input name="equipment_manufacturer"></label>
+      <button class="primary" type="submit">保存需方</button>
+    </form>
+    <section class="panel">
+      <h2>需方列表</h2>
+      <table class="list-table">
+        <thead><tr><th>编号</th><th>国家</th><th>名称</th><th>联系人</th><th>联系方式</th><th>详细地址</th><th>配套机厂家</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for buyer in buyers %}
+            <tr>
+              <td>{{ buyer.buyer_number }}</td><td>{{ buyer.country }}</td><td>{{ buyer.name }}</td>
+              <td>{{ buyer.contact_name or "-" }}</td><td>{{ buyer.contact_details or "-" }}</td>
+              <td>{{ buyer.detailed_address }}</td><td>{{ buyer.equipment_manufacturer or "-" }}</td>
+              <td><div class="row-actions">
+                <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_buyer', buyer_id=buyer.id) }}'">编辑</button>
+                <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个需方吗？已有工单的需方不会被删除。');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="8" class="empty">还没有需方资料。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </section>
+{% endblock %}

@@ -20,13 +20,14 @@
             <a href="{{ url_for('invoices') }}">发票</a>
           {% endif %}
           <a href="{{ url_for('service_orders') }}">工单</a>
-          <a href="{{ url_for('service_order_map') }}">工单地图</a>
+          <a href="{{ url_for('service_order_map') }}">需方地图</a>
           {% if can_create_invoice() %}
             <a href="{{ url_for('new_invoice') }}">新建发票</a>
           {% endif %}
           <details class="nav-group">
             <summary>报表</summary>
             <div class="nav-submenu">
+              <a href="{{ url_for('buyer_query') }}">需方查询</a>
               <a href="{{ url_for('service_order_query') }}">工单查询</a>
               {% if can_view_invoices() %}
                 <a href="{{ url_for('invoice_query') }}">发票查询</a>
@@ -47,6 +48,8 @@
                   <a href="{{ url_for('clients') }}">客户</a>
                 {% endif %}
                 {% if normalized_role() in ["admin", "manager"] %}
+                  <a href="{{ url_for('buyers') }}">需方</a>
+                  <a href="{{ url_for('work_order_types') }}">工单类型</a>
                   <a href="{{ url_for('projects') }}">项目</a>
                 {% endif %}
                 {% if normalized_role() == "admin" %}
