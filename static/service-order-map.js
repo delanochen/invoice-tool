@@ -47,7 +47,19 @@ function buyerDetails(buyer) {
 }
 
 function hasCoordinates(buyer) {
-  return Number.isFinite(Number(buyer.latitude)) && Number.isFinite(Number(buyer.longitude));
+  if (
+    buyer.latitude === null || buyer.latitude === undefined || buyer.latitude === "" ||
+    buyer.longitude === null || buyer.longitude === undefined || buyer.longitude === ""
+  ) {
+    return false;
+  }
+  const latitude = Number(buyer.latitude);
+  const longitude = Number(buyer.longitude);
+  return (
+    Number.isFinite(latitude) && Number.isFinite(longitude) &&
+    latitude >= -90 && latitude <= 90 &&
+    longitude >= -180 && longitude <= 180
+  );
 }
 
 function matchesFilters(buyer) {
