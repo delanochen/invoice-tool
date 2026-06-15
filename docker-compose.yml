@@ -15,6 +15,16 @@ services:
     volumes:
       - ./data:/app/data
       - "/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures:/app/shared-photos:ro"
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: invoice-tool-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}"
+    depends_on:
+      - invoice-tool
+
   photo-worker:
     build: .
     image: invoice-tool:latest
