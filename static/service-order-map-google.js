@@ -97,8 +97,8 @@ function groupVisibleBuyers(buyers) {
       position: { lat: Number(buyer.latitude), lng: Number(buyer.longitude) }
     }));
   }
-  const markerRadius = 8;
-  const clusterRadius = 17;
+  const markerRadius = 11;
+  const clusterRadius = 14;
   const overlapPadding = 4;
   const groups = [];
   buyers.forEach((buyer) => {
@@ -144,7 +144,7 @@ function ensureMarker(group) {
   const isCluster = group.buyers.length > 1;
   const icon = {
     path: google.maps.SymbolPath.CIRCLE,
-    scale: isCluster ? 17 : 8,
+    scale: isCluster ? 14 : 11,
     fillColor: color,
     fillOpacity: 0.96,
     strokeColor: "#ffffff",
@@ -154,7 +154,7 @@ function ensureMarker(group) {
   const label = isCluster ? {
     text: String(group.buyers.length),
     color: "#ffffff",
-    fontSize: "15px",
+    fontSize: "14px",
     fontWeight: "700"
   } : null;
   if (!marker) {
@@ -179,7 +179,7 @@ function addHeadquartersMarker() {
     map: serviceMap,
     position: { lat: headquarters.latitude, lng: headquarters.longitude },
     title: headquarters.name,
-    label: { text: "★", color: "#b42318", fontSize: "20px", fontWeight: "700" },
+    label: { text: "★", color: "#b42318", fontSize: "28px", fontWeight: "700" },
     icon: {
       path: google.maps.SymbolPath.CIRCLE,
       scale: 1,
