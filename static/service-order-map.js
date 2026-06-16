@@ -117,8 +117,8 @@ function renderUnlocatedBuyers() {
     unlocated.forEach((buyer) => {
       const item = document.createElement("a");
       item.className = "unlocated-order";
-      item.href = buyer.detail_url;
-      item.innerHTML = `<strong>${escapeHtml(buyer.name)}</strong><span>${escapeHtml(buyer.detailed_address)}</span><small>${buyer.geocode_status === "failed" ? "无法识别地址" : "等待定位"}</small>`;
+      item.href = buyer.edit_url || buyer.detail_url;
+      item.innerHTML = `<strong>${escapeHtml(buyer.buyer_number)} · ${escapeHtml(buyer.name)}</strong><span>${escapeHtml(buyer.detailed_address)}</span><small>${buyer.geocode_status === "failed" ? "无法识别地址" : "等待定位"}</small>`;
       unlocatedContainer.appendChild(item);
     });
   }
@@ -158,7 +158,7 @@ async function geocodePendingBuyers() {
       window.setTimeout(geocodePendingBuyers, 250);
     } else progressText.textContent = "";
   } catch (error) {
-    progressText.textContent = "定位服务暂时不可用，稍后打开页面会继续";
+    progressText.textContent = "定位服务暂时不可用，稍后打开页面会继续。";
   }
 }
 

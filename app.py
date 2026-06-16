@@ -3211,6 +3211,8 @@ def buyer_map_payload(buyer):
         ),
         "detail_url": url_for("service_orders", buyer_id=buyer["id"]),
     }
+    if is_manager():
+        payload["edit_url"] = url_for("edit_buyer", buyer_id=buyer["id"])
     if can_view_invoices():
         payload["paid_invoice_amount"] = buyer["paid_invoice_amount"]
         payload["completed_invoice_amount"] = buyer["completed_invoice_amount"]

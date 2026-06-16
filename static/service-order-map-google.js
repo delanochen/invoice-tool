@@ -45,7 +45,7 @@ function buyerClusterDetails(buyers) {
   if (buyers.length === 1) return buyerDetails(buyers[0]);
   const items = buyers.map((buyer) => `
     <a class="map-cluster-buyer" href="${escapeHtml(buyer.detail_url)}">
-      <strong>${escapeHtml(buyer.name)}</strong>
+      <strong>${escapeHtml(buyer.buyer_number)} · ${escapeHtml(buyer.name)}</strong>
       <span>${escapeHtml(buyer.detailed_address)}</span>
     </a>
   `).join("");
@@ -206,8 +206,8 @@ function renderUnlocatedBuyers() {
     unlocated.forEach((buyer) => {
       const item = document.createElement("a");
       item.className = "unlocated-order";
-      item.href = buyer.detail_url;
-      item.innerHTML = `<strong>${escapeHtml(buyer.name)}</strong><span>${escapeHtml(buyer.detailed_address)}</span><small>${buyer.geocode_status === "failed" ? "无法识别地址" : "等待定位"}</small>`;
+      item.href = buyer.edit_url || buyer.detail_url;
+      item.innerHTML = `<strong>${escapeHtml(buyer.buyer_number)} · ${escapeHtml(buyer.name)}</strong><span>${escapeHtml(buyer.detailed_address)}</span><small>${buyer.geocode_status === "failed" ? "无法识别地址" : "等待定位"}</small>`;
       unlocatedContainer.appendChild(item);
     });
   }
