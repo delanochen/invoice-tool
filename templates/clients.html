@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}客户 - 发票工具{% endblock %}
 {% block content %}
-  <header class="page-header"><div><p class="eyebrow">Clients</p><h1>客户资料</h1></div></header>
+  <header class="page-header">
+    <div><p class="eyebrow">Clients</p><h1>客户资料</h1></div>
+    {% if g.user.role != "external" %}
+      <button class="primary" type="button" data-dialog-open="newClientDialog">新增客户</button>
+    {% endif %}
+  </header>
 
   {% if g.user.role != "external" %}
     <form class="panel filter-bar no-print" method="get">
@@ -13,50 +18,81 @@
     </form>
   {% endif %}
 
-  <section class="split">
-    {% if g.user.role != "external" %}
-      <form method="post" class="panel form-stack">
-        <h2>新增客户</h2>
-        <label>客户编号 <input value="自动生成" disabled></label>
-        <label>客户公司名称 <input name="name" required></label>
-        <label>客户简称 <input name="short_name" required></label>
-        <label>联系人 <input name="contact_name"></label>
-        <label>邮箱 <input type="email" name="email"></label>
-        <label>国家/地区 <input name="country" value="China"></label>
-        <label>地址 <textarea name="address" rows="5"></textarea></label>
-        <button class="primary" type="submit">保存客户</button>
-      </form>
-    {% endif %}
-
-    <section class="panel">
-      <h2>客户列表</h2>
-      <table class="list-table">
-        <thead><tr><th>编号</th><th>名称</th><th>简称</th><th>联系人</th><th>邮箱</th><th>国家</th>{% if g.user.role != "external" %}<th>操作</th>{% endif %}</tr></thead>
-        <tbody>
-          {% for client in clients %}
-            <tr>
-              <td>{{ client.client_number }}</td>
-              <td>{{ client.name }}</td>
-              <td>{{ client.short_name }}</td>
-              <td>{{ client.contact_name }}</td>
-              <td>{{ client.email }}</td>
-              <td>{{ client.country }}</td>
-              {% if g.user.role != "external" %}
-                <td>
-                  <div class="row-actions">
-                    <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_client', client_id=client.id) }}'">编辑</button>
-                    <form method="post" action="{{ url_for('delete_client', client_id=client.id) }}" onsubmit="return confirm('确定删除这个客户吗？已有发票的客户不会被删除。');">
-                      <button class="danger small" type="submit">删除</button>
-                    </form>
-                  </div>
-                </td>
-              {% endif %}
-            </tr>
-          {% else %}
-            <tr><td colspan="{% if g.user.role != 'external' %}7{% else %}6{% endif %}" class="empty">没有符合条件的客户。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </section>
+  <section class="panel records-panel">
+    <div class="panel-title"><h2>客户列表</h2><span class="muted-line">{{ clients|length }} 个客户</span></div>
+    <div class="record-grid">
+      {% for client in clients %}
+        <article class="record-card">
+          <div class="record-card-header">
+            <div>
+              <span class="record-number">{{ client.client_number }}</span>
+              <h3>{{ client.name }}</h3>
+              <p>{{ client.short_name or "-" }}</p>
+            </div>
+            {% if g.user.role != "external" %}
+              <div class="row-actions">
+                <button class="small" type="button" data-dialog-open="editClient{{ client.id }}">编辑</button>
+                <form method="post" action="{{ url_for('delete_client', client_id=client.id) }}" onsubmit="return confirm('确定删除这个客户吗？已有发票的客户不会被删除。');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div>
+            {% endif %}
+          </div>
+          <dl class="record-fields">
+            <div><dt>联系人</dt><dd>{{ client.contact_name or "-" }}</dd></div>
+            <div><dt>邮箱</dt><dd>{{ client.email or "-" }}</dd></div>
+            <div><dt>国家/地区</dt><dd>{{ client.country or "-" }}</dd></div>
+            <div class="wide"><dt>地址</dt><dd>{{ client.address or "-" }}</dd></div>
+          </dl>
+        </article>
+      {% else %}
+        <p class="empty">没有符合条件的客户。</p>
+      {% endfor %}
+    </div>
   </section>
+
+  {% if g.user.role != "external" %}
+    <dialog id="newClientDialog" class="modal-dialog">
+      <form method="post" class="form-stack">
+        <div class="dialog-header">
+          <h2>新增客户</h2>
+          <button class="small" type="button" data-dialog-close>关闭</button>
+        </div>
+        <div class="form-grid two-columns">
+          <label>客户编号 <input value="自动生成" disabled></label>
+          <label>客户公司名称 <input name="name" required></label>
+          <label>客户简称 <input name="short_name" required></label>
+          <label>联系人 <input name="contact_name"></label>
+          <label>邮箱 <input type="email" name="email"></label>
+          <label>国家/地区 <input name="country" value="China"></label>
+          <label class="full-span">地址 <textarea name="address" rows="4"></textarea></label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">保存客户</button></div>
+      </form>
+    </dialog>
+
+    {% for client in clients %}
+      <dialog id="editClient{{ client.id }}" class="modal-dialog">
+        <form method="post" action="{{ url_for('edit_client', client_id=client.id) }}" class="form-stack">
+          <div class="dialog-header">
+            <h2>编辑客户</h2>
+            <button class="small" type="button" data-dialog-close>关闭</button>
+          </div>
+          <div class="form-grid two-columns">
+            <label>客户编号 <input name="client_number" value="{{ client.client_number }}" pattern="[0-9]{5}" required></label>
+            <label>客户公司名称 <input name="name" value="{{ client.name }}" required></label>
+            <label>客户简称 <input name="short_name" value="{{ client.short_name }}" required></label>
+            <label>联系人 <input name="contact_name" value="{{ client.contact_name or '' }}"></label>
+            <label>邮箱 <input type="email" name="email" value="{{ client.email or '' }}"></label>
+            <label>国家/地区 <input name="country" value="{{ client.country or 'China' }}"></label>
+            <label class="full-span">地址 <textarea name="address" rows="4">{{ client.address or '' }}</textarea></label>
+          </div>
+          <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
+        </form>
+      </dialog>
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
 {% endblock %}
