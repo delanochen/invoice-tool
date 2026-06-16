@@ -109,13 +109,15 @@ CENSUS_GEOCODER_URL = os.environ.get(
     "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
 )
 GOOGLE_MAPS_BROWSER_API_KEY_ENV = os.environ.get("GOOGLE_MAPS_BROWSER_API_KEY", "").strip()
+GOOGLE_GEOCODING_API_KEY_ENV = os.environ.get("GOOGLE_GEOCODING_API_KEY", "").strip()
+GOOGLE_GEOCODING_URL = os.environ.get("GOOGLE_GEOCODING_URL", "https://maps.googleapis.com/maps/api/geocode/json")
 NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
     "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
 )
 NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us").strip()
 GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-GEOCODER_VERSION = "3"
+GEOCODER_VERSION = "4"
 _geocode_lock = threading.Lock()
 _last_geocode_request_at = 0.0
 US_STATE_CODES = {
@@ -580,6 +582,7 @@ def seed_settings(connection):
         defaults[f"smtp_{key}"] = value
     defaults["invoice_terms"] = DEFAULT_INVOICE_TERMS
     defaults["google_maps_browser_api_key"] = GOOGLE_MAPS_BROWSER_API_KEY_ENV
+    defaults["google_geocoding_api_key"] = GOOGLE_GEOCODING_API_KEY_ENV
     for key, value in defaults.items():
         connection.execute(
             "insert or ignore into settings (key, value) values (?, ?)",
@@ -631,6 +634,10 @@ def get_smtp_settings():
 
 def get_google_maps_browser_api_key():
     return get_setting("google_maps_browser_api_key", GOOGLE_MAPS_BROWSER_API_KEY_ENV).strip()
+
+
+def get_google_geocoding_api_key():
+    return get_setting("google_geocoding_api_key", GOOGLE_GEOCODING_API_KEY_ENV).strip()
 
 
 def current_user():
@@ -1590,6 +1597,52 @@ def census_result_matches_address(match, address):
     return True
 
 
+def geocode_with_google(address):
+    api_key = get_google_geocoding_api_key()
+    if not api_key:
+        return None
+    expected_state, expected_zip = address_expectations(address)
+    query = {
+        "address": address,
+        "key": api_key,
+        "region": "us",
+    }
+    try:
+        payload = fetch_geocoder_json(f"{GOOGLE_GEOCODING_URL}?{urlencode(query)}")
+    except TemporaryGeocodingError:
+        raise
+    except (HTTPError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    status = payload.get("status")
+    if status in {"OVER_QUERY_LIMIT", "RESOURCE_EXHAUSTED", "UNKNOWN_ERROR"}:
+        raise TemporaryGeocodingError(f"Google geocoding status: {status}")
+    if status != "OK":
+        app.logger.info("Google geocoding returned %s for address %s", status, address)
+        return None
+    for result in payload.get("results", []):
+        components = result.get("address_components", [])
+        result_state = ""
+        result_zip = ""
+        for component in components:
+            types = set(component.get("types", []))
+            if "administrative_area_level_1" in types:
+                result_state = str(component.get("short_name", "")).upper()
+            if "postal_code" in types:
+                result_zip = str(component.get("long_name", ""))[:5]
+        if expected_state and result_state and result_state != expected_state:
+            continue
+        if expected_zip and result_zip and result_zip != expected_zip:
+            continue
+        try:
+            location = result["geometry"]["location"]
+            return float(location["lat"]), float(location["lng"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
 def geocode_with_census(address):
     query = {
         "address": address,
@@ -1674,6 +1727,12 @@ def geocode_address(address):
     if not GEOCODING_ENABLED:
         return None
     temporary_error = None
+    try:
+        coordinates = geocode_with_google(address)
+        if coordinates:
+            return coordinates
+    except TemporaryGeocodingError as error:
+        temporary_error = error
     if "us" in configured_country_codes():
         try:
             coordinates = geocode_with_census(address)
@@ -2538,6 +2597,10 @@ def company_settings():
             "google_maps_browser_api_key",
             request.form.get("google_maps_browser_api_key", "").strip(),
         )
+        set_setting(
+            "google_geocoding_api_key",
+            request.form.get("google_geocoding_api_key", "").strip(),
+        )
         db().commit()
         flash("公司设置已保存。", "success")
         return redirect(url_for("company_settings"))
@@ -2549,6 +2612,7 @@ def company_settings():
         terms=get_invoice_terms(),
         timezone_name=get_timezone_name(),
         google_maps_browser_api_key=get_google_maps_browser_api_key(),
+        google_geocoding_api_key=get_google_geocoding_api_key(),
     )
 
 

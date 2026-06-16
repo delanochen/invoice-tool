@@ -49,7 +49,16 @@
           placeholder="留空则使用免费地图"
         >
       </label>
-      <p class="muted-line">填写后启用 Google 需方地图；清空后恢复 OpenStreetMap 免费模式。保存后刷新地图页面即可生效。</p>
+      <label>Google Geocoding API Key
+        <input
+          type="password"
+          name="google_geocoding_api_key"
+          value="{{ google_geocoding_api_key }}"
+          autocomplete="off"
+          placeholder="用于后端保存需方经纬度"
+        >
+      </label>
+      <p class="muted-line">Maps Key用于浏览器显示Google地图；Geocoding Key用于后端解析需方地址并保存经纬度。保存后刷新地图页面即可生效。</p>
     </section>
     <div class="full-span form-actions"><button class="primary" type="submit">保存设置</button></div>
   </form>
