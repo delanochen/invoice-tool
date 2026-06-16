@@ -9,7 +9,6 @@ const mapConfig = window.serviceOrderMapConfig || {};
 const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [buyer.id, buyer]));
 const markersById = new Map();
 let serviceMap;
-let googleGeocoder;
 let activeInfoWindow;
 
 function escapeHtml(value) {
@@ -83,17 +82,14 @@ function ensureMarker(buyer) {
     strokeColor: "#ffffff",
     strokeWeight: 2
   };
+  const position = { lat: Number(buyer.latitude), lng: Number(buyer.longitude) };
   if (!marker) {
-    marker = new google.maps.Marker({
-      position: { lat: Number(buyer.latitude), lng: Number(buyer.longitude) },
-      title: buyer.name,
-      icon
-    });
+    marker = new google.maps.Marker({ position, title: buyer.name, icon });
     marker.addListener("mouseover", () => openBuyerInfo(buyersById.get(buyer.id), marker));
     marker.addListener("click", () => openBuyerInfo(buyersById.get(buyer.id), marker));
     markersById.set(buyer.id, marker);
   } else {
-    marker.setPosition({ lat: Number(buyer.latitude), lng: Number(buyer.longitude) });
+    marker.setPosition(position);
     marker.setIcon(icon);
   }
   return marker;
@@ -102,32 +98,23 @@ function ensureMarker(buyer) {
 function addHeadquartersMarker() {
   const headquarters = mapConfig.headquarters;
   if (!headquarters) return;
-  const placeMarker = (position) => {
-    const marker = new google.maps.Marker({
-      map: serviceMap,
-      position,
-      title: headquarters.name,
-      label: { text: "★", color: "#b42318", fontSize: "20px", fontWeight: "700" },
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 1,
-        fillOpacity: 0,
-        strokeOpacity: 0
-      }
-    });
-    const info = new google.maps.InfoWindow({
-      content: `<strong>${escapeHtml(headquarters.name)}</strong><br>${escapeHtml(headquarters.address)}`
-    });
-    marker.addListener("mouseover", () => info.open({ map: serviceMap, anchor: marker }));
-    marker.addListener("mouseout", () => info.close());
-  };
-  googleGeocoder.geocode({ address: headquarters.address, region: "US" }, (results, status) => {
-    if (status === "OK" && results[0]) {
-      placeMarker(results[0].geometry.location);
-    } else {
-      placeMarker({ lat: headquarters.latitude, lng: headquarters.longitude });
+  const marker = new google.maps.Marker({
+    map: serviceMap,
+    position: { lat: headquarters.latitude, lng: headquarters.longitude },
+    title: headquarters.name,
+    label: { text: "★", color: "#b42318", fontSize: "20px", fontWeight: "700" },
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 1,
+      fillOpacity: 0,
+      strokeOpacity: 0
     }
   });
+  const info = new google.maps.InfoWindow({
+    content: `<strong>${escapeHtml(headquarters.name)}</strong><br>${escapeHtml(headquarters.address)}`
+  });
+  marker.addListener("mouseover", () => info.open({ map: serviceMap, anchor: marker }));
+  marker.addListener("mouseout", () => info.close());
 }
 
 function renderUnlocatedBuyers() {
@@ -170,42 +157,24 @@ function renderMarkers({ fit = false } = {}) {
   }
 }
 
-function geocodeBuyer(buyer) {
-  return new Promise((resolve, reject) => {
-    googleGeocoder.geocode(
-      { address: buyer.detailed_address, region: "US" },
-      (results, status) => {
-        if (status === "OK" && results[0]) {
-          buyer.latitude = results[0].geometry.location.lat();
-          buyer.longitude = results[0].geometry.location.lng();
-          buyer.geocode_status = "success";
-          resolve(true);
-        } else if (status === "ZERO_RESULTS") {
-          buyer.geocode_status = "failed";
-          resolve(false);
-        } else reject(new Error(status));
-      }
-    );
-  });
-}
-
-async function geocodeGoogleBuyers(onlyFailed = false) {
-  const buyers = [...buyersById.values()].filter(
-    (buyer) => !hasCoordinates(buyer) && (!onlyFailed || buyer.geocode_status === "failed")
-  );
-  let completed = 0;
+async function geocodePendingBuyers() {
+  if (!mapConfig.geocodingEnabled) return;
   try {
-    for (const buyer of buyers) {
-      await geocodeBuyer(buyer);
-      completed += 1;
-      progressText.textContent = `Google 正在定位，剩余 ${buyers.length - completed} 个`;
-      renderMarkers({ fit: completed === buyers.length });
-      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    const response = await fetch(mapConfig.geocodeNextUrl, {
+      method: "POST", headers: { "X-Requested-With": "XMLHttpRequest" }
+    });
+    if (!response.ok) throw new Error("geocode request failed");
+    const result = await response.json();
+    if (result.buyer) buyersById.set(result.buyer.id, result.buyer);
+    renderMarkers({ fit: Boolean(result.buyer) });
+    if (result.remaining > 0) {
+      progressText.textContent = `正在定位，剩余 ${result.remaining} 个`;
+      window.setTimeout(geocodePendingBuyers, 250);
+    } else {
+      progressText.textContent = "";
     }
-    progressText.textContent = "";
   } catch (error) {
-    progressText.textContent = "Google 定位暂时不可用，请检查 API 配置、配额或域名限制";
-    renderMarkers({ fit: true });
+    progressText.textContent = "定位服务暂时不可用，稍后打开页面会继续。";
   }
 }
 
@@ -214,20 +183,24 @@ statusSelect.addEventListener("change", () => renderMarkers({ fit: true }));
 retryButton.addEventListener("click", async () => {
   retryButton.disabled = true;
   try {
+    const response = await fetch(mapConfig.retryFailedUrl, {
+      method: "POST", headers: { "X-Requested-With": "XMLHttpRequest" }
+    });
+    if (!response.ok) throw new Error("retry request failed");
     buyersById.forEach((buyer) => {
       if (buyer.geocode_status === "failed") {
         buyer.latitude = null;
         buyer.longitude = null;
+        buyer.geocode_status = "pending";
       }
     });
-    await geocodeGoogleBuyers(true);
+    await geocodePendingBuyers();
   } finally {
     retryButton.disabled = false;
   }
 });
 
 window.initServiceOrderGoogleMap = function initServiceOrderGoogleMap() {
-  googleGeocoder = new google.maps.Geocoder();
   serviceMap = new google.maps.Map(mapElement, {
     center: { lat: 39.5, lng: -98.35 },
     zoom: 4,
@@ -237,5 +210,5 @@ window.initServiceOrderGoogleMap = function initServiceOrderGoogleMap() {
   });
   addHeadquartersMarker();
   renderMarkers({ fit: true });
-  geocodeGoogleBuyers();
+  geocodePendingBuyers();
 };
