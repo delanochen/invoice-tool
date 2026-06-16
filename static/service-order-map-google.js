@@ -10,6 +10,7 @@ const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [bu
 const markersByKey = new Map();
 let serviceMap;
 let activeInfoWindow;
+let mapProjectionOverlay;
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -83,23 +84,50 @@ function matchesFilters(buyer) {
   return (!query || haystack.includes(query)) && (!status || buyer.status === status);
 }
 
-function clusterKey(buyer) {
-  return `${Number(buyer.latitude).toFixed(4)},${Number(buyer.longitude).toFixed(4)}`;
+function buyerLatLng(buyer) {
+  return new google.maps.LatLng(Number(buyer.latitude), Number(buyer.longitude));
 }
 
 function groupVisibleBuyers(buyers) {
-  const groupsByKey = new Map();
+  const projection = mapProjectionOverlay?.getProjection();
+  if (!projection) {
+    return buyers.map((buyer) => ({
+      key: String(buyer.id),
+      buyers: [buyer],
+      position: { lat: Number(buyer.latitude), lng: Number(buyer.longitude) }
+    }));
+  }
+  const markerRadius = 8;
+  const clusterRadius = 17;
+  const overlapPadding = 4;
+  const groups = [];
   buyers.forEach((buyer) => {
-    const key = clusterKey(buyer);
-    if (!groupsByKey.has(key)) {
-      groupsByKey.set(key, []);
+    const latLng = buyerLatLng(buyer);
+    const point = projection.fromLatLngToDivPixel(latLng);
+    let targetGroup = null;
+    for (const group of groups) {
+      const groupRadius = group.buyers.length > 1 ? clusterRadius : markerRadius;
+      const dx = point.x - group.point.x;
+      const dy = point.y - group.point.y;
+      const distance = Math.sqrt((dx * dx) + (dy * dy));
+      if (distance <= markerRadius + groupRadius + overlapPadding) {
+        targetGroup = group;
+        break;
+      }
     }
-    groupsByKey.get(key).push(buyer);
+    if (!targetGroup) {
+      groups.push({ buyers: [], point: { x: point.x, y: point.y } });
+      targetGroup = groups[groups.length - 1];
+    }
+    targetGroup.buyers.push(buyer);
+    targetGroup.point.x = ((targetGroup.point.x * (targetGroup.buyers.length - 1)) + point.x) / targetGroup.buyers.length;
+    targetGroup.point.y = ((targetGroup.point.y * (targetGroup.buyers.length - 1)) + point.y) / targetGroup.buyers.length;
   });
-  return [...groupsByKey.entries()].map(([key, buyersInGroup]) => {
-    const latitude = buyersInGroup.reduce((sum, buyer) => sum + Number(buyer.latitude), 0) / buyersInGroup.length;
-    const longitude = buyersInGroup.reduce((sum, buyer) => sum + Number(buyer.longitude), 0) / buyersInGroup.length;
-    return { key, buyers: buyersInGroup, position: { lat: latitude, lng: longitude } };
+  return groups.map((group) => {
+    const latitude = group.buyers.reduce((sum, buyer) => sum + Number(buyer.latitude), 0) / group.buyers.length;
+    const longitude = group.buyers.reduce((sum, buyer) => sum + Number(buyer.longitude), 0) / group.buyers.length;
+    const key = group.buyers.map((buyer) => buyer.id).sort((a, b) => Number(a) - Number(b)).join("-");
+    return { key, buyers: group.buyers, position: { lat: latitude, lng: longitude } };
   });
 }
 
@@ -187,6 +215,10 @@ function renderUnlocatedBuyers() {
 }
 
 function renderMarkers({ fit = false } = {}) {
+  if (activeInfoWindow) {
+    activeInfoWindow.close();
+    activeInfoWindow = null;
+  }
   markersByKey.forEach((marker) => marker.setMap(null));
   const visibleBuyers = [...buyersById.values()].filter((buyer) => matchesFilters(buyer) && hasCoordinates(buyer));
   const groups = groupVisibleBuyers(visibleBuyers);
@@ -256,7 +288,13 @@ window.initServiceOrderGoogleMap = function initServiceOrderGoogleMap() {
     streetViewControl: false,
     fullscreenControl: true
   });
+  mapProjectionOverlay = new google.maps.OverlayView();
+  mapProjectionOverlay.onAdd = function onAdd() {};
+  mapProjectionOverlay.draw = function draw() {};
+  mapProjectionOverlay.onRemove = function onRemove() {};
+  mapProjectionOverlay.setMap(serviceMap);
   addHeadquartersMarker();
-  renderMarkers({ fit: true });
+  google.maps.event.addListenerOnce(serviceMap, "idle", () => renderMarkers({ fit: true }));
+  serviceMap.addListener("idle", () => renderMarkers());
   geocodePendingBuyers();
 };

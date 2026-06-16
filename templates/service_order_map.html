@@ -62,7 +62,7 @@
 {% endblock %}
 {% block scripts %}
   {% if google_maps_enabled %}
-    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260615-cluster-count-v1') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260615-overlap-cluster-v1') }}"></script>
     <script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async"></script>
   {% else %}
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
