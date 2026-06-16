@@ -766,6 +766,21 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .map-order-popup dt { color: var(--muted); }
 .map-order-popup dd { margin: 0; }
+.map-cluster-popup { min-width: 280px; }
+.map-cluster-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.map-cluster-buyer {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  color: var(--ink);
+}
+.map-cluster-buyer span { color: var(--muted); font-size: 13px; }
 .headquarters-star {
   color: #b42318;
   font-size: 20px;

@@ -7,7 +7,7 @@ const unlocatedContainer = document.querySelector("#unlocatedOrders");
 const retryButton = document.querySelector("#retryFailedGeocodes");
 const mapConfig = window.serviceOrderMapConfig || {};
 const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [buyer.id, buyer]));
-const markersById = new Map();
+const markersByKey = new Map();
 let serviceMap;
 let activeInfoWindow;
 
@@ -40,6 +40,23 @@ function buyerDetails(buyer) {
   `;
 }
 
+function buyerClusterDetails(buyers) {
+  if (buyers.length === 1) return buyerDetails(buyers[0]);
+  const items = buyers.map((buyer) => `
+    <a class="map-cluster-buyer" href="${escapeHtml(buyer.detail_url)}">
+      <strong>${escapeHtml(buyer.name)}</strong>
+      <span>${escapeHtml(buyer.detailed_address)}</span>
+    </a>
+  `).join("");
+  return `
+    <div class="map-order-popup map-cluster-popup">
+      <strong>${buyers.length} 个需方</strong>
+      <span>此区域有多个需方地址很近。</span>
+      <div class="map-cluster-list">${items}</div>
+    </div>
+  `;
+}
+
 function hasCoordinates(buyer) {
   if (
     buyer.latitude === null || buyer.latitude === undefined || buyer.latitude === "" ||
@@ -66,31 +83,63 @@ function matchesFilters(buyer) {
   return (!query || haystack.includes(query)) && (!status || buyer.status === status);
 }
 
-function openBuyerInfo(buyer, marker) {
+function clusterKey(buyer) {
+  return `${Number(buyer.latitude).toFixed(4)},${Number(buyer.longitude).toFixed(4)}`;
+}
+
+function groupVisibleBuyers(buyers) {
+  const groupsByKey = new Map();
+  buyers.forEach((buyer) => {
+    const key = clusterKey(buyer);
+    if (!groupsByKey.has(key)) {
+      groupsByKey.set(key, []);
+    }
+    groupsByKey.get(key).push(buyer);
+  });
+  return [...groupsByKey.entries()].map(([key, buyersInGroup]) => {
+    const latitude = buyersInGroup.reduce((sum, buyer) => sum + Number(buyer.latitude), 0) / buyersInGroup.length;
+    const longitude = buyersInGroup.reduce((sum, buyer) => sum + Number(buyer.longitude), 0) / buyersInGroup.length;
+    return { key, buyers: buyersInGroup, position: { lat: latitude, lng: longitude } };
+  });
+}
+
+function openBuyerInfo(buyers, marker) {
   if (activeInfoWindow) activeInfoWindow.close();
-  activeInfoWindow = new google.maps.InfoWindow({ content: buyerDetails(buyer) });
+  activeInfoWindow = new google.maps.InfoWindow({ content: buyerClusterDetails(buyers) });
   activeInfoWindow.open({ map: serviceMap, anchor: marker });
 }
 
-function ensureMarker(buyer) {
-  let marker = markersById.get(buyer.id);
+function ensureMarker(group) {
+  let marker = markersByKey.get(group.key);
+  const hasActiveOrder = group.buyers.some((buyer) => buyer.status !== "completed");
+  const color = hasActiveOrder ? "#0f766e" : "#667085";
+  const isCluster = group.buyers.length > 1;
   const icon = {
     path: google.maps.SymbolPath.CIRCLE,
-    scale: 8,
-    fillColor: buyer.status === "completed" ? "#667085" : "#0f766e",
-    fillOpacity: 0.95,
+    scale: isCluster ? 17 : 8,
+    fillColor: color,
+    fillOpacity: 0.96,
     strokeColor: "#ffffff",
-    strokeWeight: 2
+    strokeWeight: isCluster ? 3 : 2
   };
-  const position = { lat: Number(buyer.latitude), lng: Number(buyer.longitude) };
+  const title = group.buyers.map((buyer) => buyer.name).join(", ");
+  const label = isCluster ? {
+    text: String(group.buyers.length),
+    color: "#ffffff",
+    fontSize: "15px",
+    fontWeight: "700"
+  } : null;
   if (!marker) {
-    marker = new google.maps.Marker({ position, title: buyer.name, icon });
-    marker.addListener("mouseover", () => openBuyerInfo(buyersById.get(buyer.id), marker));
-    marker.addListener("click", () => openBuyerInfo(buyersById.get(buyer.id), marker));
-    markersById.set(buyer.id, marker);
+    marker = new google.maps.Marker({ position: group.position, title, icon, label, zIndex: isCluster ? 20 : 10 });
+    marker.addListener("mouseover", () => openBuyerInfo(group.buyers, marker));
+    marker.addListener("click", () => openBuyerInfo(group.buyers, marker));
+    markersByKey.set(group.key, marker);
   } else {
-    marker.setPosition(position);
+    marker.setPosition(group.position);
+    marker.setTitle(title);
     marker.setIcon(icon);
+    marker.setLabel(label);
+    marker.setZIndex(isCluster ? 20 : 10);
   }
   return marker;
 }
@@ -138,16 +187,15 @@ function renderUnlocatedBuyers() {
 }
 
 function renderMarkers({ fit = false } = {}) {
-  markersById.forEach((marker) => marker.setMap(null));
-  const markers = [];
-  [...buyersById.values()]
-    .filter((buyer) => matchesFilters(buyer) && hasCoordinates(buyer))
-    .forEach((buyer) => {
-      const marker = ensureMarker(buyer);
-      marker.setMap(serviceMap);
-      markers.push(marker);
-    });
-  visibleCount.textContent = String(markers.length);
+  markersByKey.forEach((marker) => marker.setMap(null));
+  const visibleBuyers = [...buyersById.values()].filter((buyer) => matchesFilters(buyer) && hasCoordinates(buyer));
+  const groups = groupVisibleBuyers(visibleBuyers);
+  const markers = groups.map((group) => {
+    const marker = ensureMarker(group);
+    marker.setMap(serviceMap);
+    return marker;
+  });
+  visibleCount.textContent = String(visibleBuyers.length);
   renderUnlocatedBuyers();
   if (fit && markers.length) {
     const bounds = new google.maps.LatLngBounds();
