@@ -409,6 +409,24 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .file-picker-row small {
   color: var(--muted);
 }
+.table-scroll {
+  overflow-x: auto;
+}
+.compact-table input {
+  min-width: 92px;
+}
+.compact-table input[name="worker_name"] {
+  min-width: 130px;
+}
+.inline-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  margin-right: 8px;
+  vertical-align: middle;
+}
 .attachment-table { margin-top: 12px; }
 .attachment-panel { max-width: 900px; margin: 18px auto 0; }
 .attachment-upload { max-width: 520px; margin-top: 18px; }

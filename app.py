@@ -8,6 +8,7 @@ import sqlite3
 import threading
 import time
 import zipfile
+from copy import copy
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
@@ -42,6 +43,9 @@ from docx.shared import Inches, Pt, RGBColor
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from image_processing import compress_image
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -55,6 +59,9 @@ DB_PATH = os.path.join(DATA_DIR, "invoices.db")
 ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
 REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
 EXPENSE_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "expense-attachments")
+CUSTOMER_REIMBURSEMENT_DIR = os.path.join(DATA_DIR, "customer-reimbursements")
+TEMPLATES_DIR = os.path.join(DATA_DIR, "templates")
+CUSTOMER_REIMBURSEMENT_TEMPLATE = os.path.join(TEMPLATES_DIR, "费用报销单模板.xlsx")
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
@@ -154,6 +161,22 @@ ROLE_OPTIONS = {
     "employee": "员工",
 }
 
+PROJECT_TYPE_LABELS = {
+    "invoice": "发票项目",
+    "expense": "员工报销",
+    "customer_expense": "甲方报销",
+}
+
+CUSTOMER_REIMBURSEMENT_PROJECTS = {
+    "标准工时": 70,
+    "交通工时": 35,
+    "加班工时": 105,
+    "节假日工时": 140,
+    "里程费": 1,
+}
+
+CUSTOMER_REIMBURSEMENT_FILLED_COLUMNS = ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "T", "U", "W")
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
@@ -168,6 +191,8 @@ def db():
         os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(REPORT_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(EXPENSE_ATTACHMENTS_DIR, exist_ok=True)
+        os.makedirs(CUSTOMER_REIMBURSEMENT_DIR, exist_ok=True)
+        os.makedirs(TEMPLATES_DIR, exist_ok=True)
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
     return g.db
@@ -219,6 +244,7 @@ def init_db():
                 name text not null,
                 project_type text not null default 'invoice',
                 default_amount real not null default 0,
+                unit_price real not null default 0,
                 tax_rate real not null default 0,
                 is_active integer not null default 1,
                 created_at text not null
@@ -468,10 +494,71 @@ def init_db():
                 foreign key(expense_id) references expenses(id) on delete cascade,
                 foreign key(uploaded_by) references users(id)
             );
+
+            create table if not exists customer_reimbursements (
+                id integer primary key autoincrement,
+                service_order_id integer not null,
+                file_name text not null,
+                stored_filename text not null,
+                labor_total real not null default 0,
+                lodging_total real not null default 0,
+                travel_total real not null default 0,
+                mileage_total real not null default 0,
+                total_amount real not null default 0,
+                invoice_id integer,
+                created_by integer not null,
+                created_at text not null,
+                foreign key(service_order_id) references service_orders(id) on delete cascade,
+                foreign key(invoice_id) references invoices(id) on delete set null,
+                foreign key(created_by) references users(id)
+            );
+
+            create table if not exists customer_reimbursement_items (
+                id integer primary key autoincrement,
+                customer_reimbursement_id integer not null,
+                worker_name text not null,
+                project_date text not null,
+                standard_hours real not null default 0,
+                transport_hours real not null default 0,
+                overtime_hours real not null default 0,
+                holiday_hours real not null default 0,
+                standard_rate real not null default 0,
+                transport_rate real not null default 0,
+                overtime_rate real not null default 0,
+                holiday_rate real not null default 0,
+                labor_total real not null default 0,
+                lodging real not null default 0,
+                airfare real not null default 0,
+                baggage real not null default 0,
+                rental_car real not null default 0,
+                fuel real not null default 0,
+                parking real not null default 0,
+                taxi real not null default 0,
+                miles real not null default 0,
+                mileage_rate real not null default 0,
+                mileage_total real not null default 0,
+                other real not null default 0,
+                total real not null default 0,
+                sort_order integer not null default 0,
+                foreign key(customer_reimbursement_id) references customer_reimbursements(id) on delete cascade
+            );
+
+            create table if not exists customer_reimbursement_attachments (
+                id integer primary key autoincrement,
+                customer_reimbursement_id integer not null,
+                original_filename text not null,
+                stored_filename text not null,
+                content_type text,
+                uploaded_by integer not null,
+                uploaded_at text not null,
+                foreign key(customer_reimbursement_id) references customer_reimbursements(id) on delete cascade,
+                foreign key(uploaded_by) references users(id)
+            );
             """
         )
         ensure_column(connection, "invoices", "service_order_id", "integer")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
+        ensure_column(connection, "projects", "unit_price", "real not null default 0")
         ensure_column(connection, "expenses", "project_id", "integer")
         ensure_column(connection, "expenses", "payout_status", "text not null default 'pending'")
         ensure_column(connection, "expenses", "reimbursed_by", "integer")
@@ -558,6 +645,7 @@ def init_db():
             where title = '发票已确认完成'
             """
         )
+        seed_customer_reimbursement_projects(connection)
         seed_settings(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
         admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
@@ -711,6 +799,10 @@ def can_create_expense():
     return g.user and normalized_role() in {"manager", "finance", "employee"}
 
 
+def can_manage_customer_reimbursement():
+    return g.user and normalized_role() in {"admin", "manager", "finance"}
+
+
 def can_manage_users():
     return g.user and normalized_role() == "admin"
 
@@ -814,10 +906,12 @@ app.jinja_env.globals["can_view_invoices"] = can_view_invoices
 app.jinja_env.globals["can_create_invoice"] = can_create_invoice
 app.jinja_env.globals["can_create_service_order"] = can_create_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
+app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
 app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
+app.jinja_env.globals["project_type_labels"] = PROJECT_TYPE_LABELS
 
 
 def next_client_number():
@@ -1209,6 +1303,31 @@ def order_photo_status(order_dir):
     }
 
 
+def seed_customer_reimbursement_projects(connection):
+    for name, unit_price in CUSTOMER_REIMBURSEMENT_PROJECTS.items():
+        row = connection.execute(
+            "select id, project_type from projects where name = ? and project_type = 'customer_expense'",
+            (name,),
+        ).fetchone()
+        if row:
+            connection.execute(
+                """
+                update projects
+                set unit_price = ?, is_active = 1
+                where id = ?
+                """,
+                (unit_price, row["id"]),
+            )
+            continue
+        connection.execute(
+            """
+            insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+            values (?, 'customer_expense', 0, ?, 0, 1, ?)
+            """,
+            (name, unit_price, now()),
+        )
+
+
 def save_shared_report_photo(report_id, relative_path, category):
     source_path = resolve_shared_photo(relative_path, require_file=True)
     order_number, _ = report_storage_context(report_id)
@@ -1337,6 +1456,430 @@ def get_report_attachments(report_id):
     for row in rows:
         grouped.setdefault(row["category"], []).append(row)
     return grouped
+
+
+def customer_reimbursement_dir(reimbursement_id):
+    path = os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(reimbursement_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def customer_reimbursement_attachment_dir(reimbursement_id):
+    path = os.path.join(customer_reimbursement_dir(reimbursement_id), "attachments")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def customer_reimbursement_file_path(reimbursement):
+    return os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(reimbursement["id"]), reimbursement["stored_filename"])
+
+
+def customer_reimbursement_attachment_path(attachment):
+    return os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(attachment["customer_reimbursement_id"]), "attachments", attachment["stored_filename"])
+
+
+def require_customer_reimbursement(reimbursement_id):
+    if not can_manage_customer_reimbursement():
+        abort(403)
+    reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement_id,)).fetchone()
+    if not reimbursement:
+        abort(404)
+    order = require_service_order(reimbursement["service_order_id"])
+    return reimbursement, order
+
+
+def customer_reimbursement_rates():
+    rows = db().execute(
+        """
+        select name, unit_price
+        from projects
+        where project_type = 'customer_expense' and is_active = 1
+        """
+    ).fetchall()
+    rates = {name: 0.0 for name in CUSTOMER_REIMBURSEMENT_PROJECTS}
+    rates.update({row["name"]: float(row["unit_price"] or 0) for row in rows})
+    return rates
+
+
+def parse_report_minutes(value):
+    if not value or ":" not in str(value):
+        return None
+    try:
+        hour_text, minute_text = str(value).split(":", 1)
+        return int(hour_text) * 60 + int(minute_text)
+    except ValueError:
+        return None
+
+
+def observed_us_holidays(year):
+    def observed(day):
+        if day.weekday() == 5:
+            return day - timedelta(days=1)
+        if day.weekday() == 6:
+            return day + timedelta(days=1)
+        return day
+
+    def nth_weekday(month, weekday, nth):
+        current = date(year, month, 1)
+        while current.weekday() != weekday:
+            current += timedelta(days=1)
+        return current + timedelta(days=7 * (nth - 1))
+
+    def last_weekday(month, weekday):
+        current = date(year, month + 1, 1) - timedelta(days=1) if month < 12 else date(year, 12, 31)
+        while current.weekday() != weekday:
+            current -= timedelta(days=1)
+        return current
+
+    return {
+        observed(date(year, 1, 1)),
+        nth_weekday(1, 0, 3),
+        nth_weekday(2, 0, 3),
+        last_weekday(5, 0),
+        observed(date(year, 6, 19)),
+        observed(date(year, 7, 4)),
+        nth_weekday(9, 0, 1),
+        nth_weekday(10, 0, 2),
+        observed(date(year, 11, 11)),
+        nth_weekday(11, 3, 4),
+        observed(date(year, 12, 25)),
+    }
+
+
+def is_us_weekend_or_holiday(day):
+    return day.weekday() >= 5 or day in observed_us_holidays(day.year)
+
+
+def report_duration_hours(report):
+    arrival = parse_report_minutes(report["arrival_time"])
+    departure = parse_report_minutes(report["departure_time"])
+    if arrival is None or departure is None or departure <= arrival:
+        return float(report["total_service_hours"] or 0)
+    return round((departure - arrival) / 60, 2)
+
+
+def customer_reimbursement_seed_rows(order_id):
+    rates = customer_reimbursement_rates()
+    reports = db().execute(
+        """
+        select service_reports.*
+        from service_reports
+        where service_reports.service_order_id = ?
+        order by service_reports.report_date asc, service_reports.id asc
+        """,
+        (order_id,),
+    ).fetchall()
+    rows = []
+    for report in reports:
+        workers = db().execute(
+            """
+            select users.name
+            from service_report_workers
+            join users on users.id = service_report_workers.user_id
+            where service_report_workers.report_id = ?
+            order by users.name
+            """,
+            (report["id"],),
+        ).fetchall()
+        if not workers:
+            continue
+        try:
+            report_day = date.fromisoformat(report["report_date"])
+        except ValueError:
+            report_day = None
+        work_hours = report_duration_hours(report)
+        transport_hours = float(report["public_transport_hours"] or 0)
+        if report_day and is_us_weekend_or_holiday(report_day):
+            standard_hours = 0
+            overtime_hours = 0
+            holiday_hours = work_hours
+        else:
+            standard_hours = min(work_hours, 8)
+            overtime_hours = max(work_hours - 8, 0)
+            holiday_hours = 0
+        for worker in workers:
+            row = {
+                "worker_name": worker["name"],
+                "project_date": report["report_date"],
+                "standard_hours": standard_hours,
+                "transport_hours": transport_hours,
+                "overtime_hours": overtime_hours,
+                "holiday_hours": holiday_hours,
+                "standard_rate": rates["标准工时"],
+                "transport_rate": rates["交通工时"],
+                "overtime_rate": rates["加班工时"],
+                "holiday_rate": rates["节假日工时"],
+                "lodging": 0,
+                "airfare": 0,
+                "baggage": 0,
+                "rental_car": 0,
+                "fuel": 0,
+                "parking": 0,
+                "taxi": 0,
+                "miles": 0,
+                "mileage_rate": rates["里程费"],
+                "other": 0,
+            }
+            rows.append(calculate_customer_reimbursement_item(row, len(rows)))
+    return rows
+
+
+def calculate_customer_reimbursement_item(row, sort_order=0):
+    labor_total = (
+        float(row.get("standard_hours") or 0) * float(row.get("standard_rate") or 0)
+        + float(row.get("transport_hours") or 0) * float(row.get("transport_rate") or 0)
+        + float(row.get("overtime_hours") or 0) * float(row.get("overtime_rate") or 0)
+        + float(row.get("holiday_hours") or 0) * float(row.get("holiday_rate") or 0)
+    )
+    mileage_total = float(row.get("miles") or 0) * float(row.get("mileage_rate") or 0)
+    travel_total = sum(float(row.get(key) or 0) for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"))
+    row["labor_total"] = round(labor_total, 2)
+    row["mileage_total"] = round(mileage_total, 2)
+    row["total"] = round(labor_total + mileage_total + travel_total, 2)
+    row["sort_order"] = sort_order
+    return row
+
+
+def customer_reimbursement_totals(items):
+    labor_total = sum(float(item["labor_total"] or 0) for item in items)
+    lodging_total = sum(float(item["lodging"] or 0) for item in items)
+    travel_total = sum(
+        float(item[key] or 0)
+        for item in items
+        for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
+    )
+    mileage_total = sum(float(item["mileage_total"] or 0) for item in items)
+    total_amount = sum(float(item["total"] or 0) for item in items)
+    return {
+        "labor_total": round(labor_total, 2),
+        "lodging_total": round(lodging_total, 2),
+        "travel_total": round(travel_total, 2),
+        "mileage_total": round(mileage_total, 2),
+        "total_amount": round(total_amount, 2),
+    }
+
+
+def customer_reimbursement_items(reimbursement_id):
+    return db().execute(
+        """
+        select *
+        from customer_reimbursement_items
+        where customer_reimbursement_id = ?
+        order by sort_order, id
+        """,
+        (reimbursement_id,),
+    ).fetchall()
+
+
+def get_customer_reimbursement_attachments(reimbursement_id):
+    return db().execute(
+        """
+        select customer_reimbursement_attachments.*, users.name as uploader_name
+        from customer_reimbursement_attachments
+        left join users on users.id = customer_reimbursement_attachments.uploaded_by
+        where customer_reimbursement_id = ?
+        order by uploaded_at desc, id desc
+        """,
+        (reimbursement_id,),
+    ).fetchall()
+
+
+def save_customer_reimbursement_attachment(reimbursement_id, uploaded):
+    if not uploaded or not uploaded.filename:
+        return
+    if not allowed_attachment(uploaded.filename):
+        raise ValueError(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。")
+    source_filename = uploaded.filename or "attachment"
+    extension = source_filename.rsplit(".", 1)[1].lower()
+    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
+    stored_filename = f"{secrets.token_hex(12)}.{extension}"
+    uploaded.save(os.path.join(customer_reimbursement_attachment_dir(reimbursement_id), stored_filename))
+    db().execute(
+        """
+        insert into customer_reimbursement_attachments (
+            customer_reimbursement_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, ?, ?)
+        """,
+        (reimbursement_id, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+    )
+
+
+def save_customer_reimbursement_uploads(reimbursement_id):
+    for uploaded in uploaded_attachments_from_request():
+        save_customer_reimbursement_attachment(reimbursement_id, uploaded)
+
+
+def customer_reimbursement_items_from_form():
+    field_names = [
+        "worker_name", "project_date", "standard_hours", "transport_hours", "overtime_hours", "holiday_hours",
+        "standard_rate", "transport_rate", "overtime_rate", "holiday_rate", "lodging", "airfare", "baggage",
+        "rental_car", "fuel", "parking", "taxi", "miles", "mileage_rate", "other",
+    ]
+    posted = {name: request.form.getlist(name) for name in field_names}
+    count = max((len(values) for values in posted.values()), default=0)
+    rows = []
+    for index in range(count):
+        worker_name = posted["worker_name"][index].strip() if index < len(posted["worker_name"]) else ""
+        project_date = posted["project_date"][index].strip() if index < len(posted["project_date"]) else ""
+        if not worker_name and not project_date:
+            continue
+        row = {"worker_name": worker_name, "project_date": project_date}
+        for name in field_names[2:]:
+            row[name] = to_float(posted[name][index] if index < len(posted[name]) else 0)
+        if not row["worker_name"] or not row["project_date"]:
+            raise ValueError("甲方费用报销表每一行都必须有姓名和项目时间。")
+        rows.append(calculate_customer_reimbursement_item(row, len(rows)))
+    if not rows:
+        raise ValueError("甲方费用报销表至少需要一行明细。")
+    return rows
+
+
+def save_customer_reimbursement_items(reimbursement_id, rows):
+    db().execute("delete from customer_reimbursement_items where customer_reimbursement_id = ?", (reimbursement_id,))
+    for row in rows:
+        db().execute(
+            """
+            insert into customer_reimbursement_items (
+                customer_reimbursement_id, worker_name, project_date, standard_hours, transport_hours,
+                overtime_hours, holiday_hours, standard_rate, transport_rate, overtime_rate, holiday_rate,
+                labor_total, lodging, airfare, baggage, rental_car, fuel, parking, taxi, miles, mileage_rate,
+                mileage_total, other, total, sort_order
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reimbursement_id, row["worker_name"], row["project_date"], row["standard_hours"], row["transport_hours"],
+                row["overtime_hours"], row["holiday_hours"], row["standard_rate"], row["transport_rate"],
+                row["overtime_rate"], row["holiday_rate"], row["labor_total"], row["lodging"], row["airfare"],
+                row["baggage"], row["rental_car"], row["fuel"], row["parking"], row["taxi"], row["miles"],
+                row["mileage_rate"], row["mileage_total"], row["other"], row["total"], row["sort_order"],
+            ),
+        )
+
+
+def latest_customer_reimbursement(order_id):
+    return db().execute(
+        """
+        select customer_reimbursements.*, users.name as creator_name
+        from customer_reimbursements
+        left join users on users.id = customer_reimbursements.created_by
+        where service_order_id = ?
+        order by created_at desc, id desc
+        limit 1
+        """,
+        (order_id,),
+    ).fetchone()
+
+
+def create_customer_reimbursement(order):
+    file_name = f"费用报销单{order['client_order_number']}.xlsx"
+    cursor = db().execute(
+        """
+        insert into customer_reimbursements (
+            service_order_id, file_name, stored_filename, created_by, created_at
+        ) values (?, ?, ?, ?, ?)
+        """,
+        (order["id"], file_name, f"{secrets.token_hex(12)}.xlsx", g.user["id"], now()),
+    )
+    reimbursement_id = cursor.lastrowid
+    rows = customer_reimbursement_seed_rows(order["id"])
+    if not rows:
+        raise ValueError("这个工单还没有可用于生成甲方费用报销表的工作日报。")
+    save_customer_reimbursement_items(reimbursement_id, rows)
+    update_customer_reimbursement_totals(reimbursement_id, rows)
+    return db().execute("select * from customer_reimbursements where id = ?", (reimbursement_id,)).fetchone()
+
+
+def update_customer_reimbursement_totals(reimbursement_id, rows=None):
+    rows = rows if rows is not None else customer_reimbursement_items(reimbursement_id)
+    totals = customer_reimbursement_totals(rows)
+    db().execute(
+        """
+        update customer_reimbursements
+        set labor_total = ?, lodging_total = ?, travel_total = ?, mileage_total = ?, total_amount = ?
+        where id = ?
+        """,
+        (
+            totals["labor_total"], totals["lodging_total"], totals["travel_total"],
+            totals["mileage_total"], totals["total_amount"], reimbursement_id,
+        ),
+    )
+    return totals
+
+
+def copy_excel_row_style(ws, source_row, target_row):
+    for column in range(1, ws.max_column + 1):
+        source = ws.cell(source_row, column)
+        target = ws.cell(target_row, column)
+        if source.has_style:
+            target._style = copy(source._style)
+        if source.number_format:
+            target.number_format = source.number_format
+        if source.alignment:
+            target.alignment = copy(source.alignment)
+    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+
+
+def build_basic_customer_reimbursement_workbook():
+    workbook = Workbook()
+    ws = workbook.active
+    ws.title = "费用报销单"
+    headers = [
+        "姓名", "项目时间", "标准工时", "交通工时", "加班工时", "节假日工时",
+        "标准工时费/小时", "交通工时费/小时", "加班工时费/小时", "节假日工时费/小时", "工时费合计",
+        "住宿", "机票", "行李", "租车", "加油", "停车", "打车", "英里数", "里程费/英里", "里程费", "其他", "合计",
+    ]
+    ws.append(headers)
+    ws.append(["Total"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0F766E")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for index, width in enumerate([16, 14, 10, 10, 10, 12, 14, 14, 14, 14, 14, 10, 10, 10, 10, 10, 10, 10, 10, 12, 10, 10, 12], 1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+    return workbook
+
+
+def build_customer_reimbursement_xlsx(reimbursement, order, rows):
+    if os.path.exists(CUSTOMER_REIMBURSEMENT_TEMPLATE):
+        workbook = load_workbook(CUSTOMER_REIMBURSEMENT_TEMPLATE)
+        ws = workbook.active
+        start_row = 3
+        total_row = 12
+        if len(rows) > 9:
+            ws.insert_rows(total_row, len(rows) - 9)
+            for row_index in range(total_row, total_row + len(rows) - 9):
+                copy_excel_row_style(ws, total_row - 1, row_index)
+            total_row += len(rows) - 9
+    else:
+        workbook = build_basic_customer_reimbursement_workbook()
+        ws = workbook.active
+        start_row = 2
+        total_row = 2
+        if rows:
+            ws.insert_rows(total_row, len(rows))
+            total_row += len(rows)
+
+    for offset, item in enumerate(rows):
+        row_index = start_row + offset
+        values = [
+            item["worker_name"], item["project_date"], item["standard_hours"], item["transport_hours"],
+            item["overtime_hours"], item["holiday_hours"], item["standard_rate"], item["transport_rate"],
+            item["overtime_rate"], item["holiday_rate"], item["labor_total"], item["lodging"], item["airfare"],
+            item["baggage"], item["rental_car"], item["fuel"], item["parking"], item["taxi"], item["miles"],
+            item["mileage_rate"], item["mileage_total"], item["other"], item["total"],
+        ]
+        for col_index, value in enumerate(values, 1):
+            ws.cell(row_index, col_index).value = value
+    if total_row:
+        ws.cell(total_row, 1).value = "Total"
+        for col in (3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23):
+            letter = get_column_letter(col)
+            ws.cell(total_row, col).value = f"=SUM({letter}{start_row}:{letter}{start_row + len(rows) - 1})"
+    ws.freeze_panes = "A3"
+    path = customer_reimbursement_file_path(reimbursement)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    workbook.save(path)
+    return path
 
 
 def can_access_expense(expense):
@@ -2381,17 +2924,18 @@ def projects():
         abort(403)
     if request.method == "POST":
         project_type = request.form.get("project_type", "invoice")
-        if project_type not in {"invoice", "expense"}:
+        if project_type not in PROJECT_TYPE_LABELS:
             project_type = "invoice"
         db().execute(
             """
-            insert into projects (name, project_type, default_amount, tax_rate, is_active, created_at)
-            values (?, ?, ?, ?, ?, ?)
+            insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+            values (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 request.form.get("name", "").strip(),
                 project_type,
                 to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
+                to_float(request.form.get("unit_price")),
                 to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
                 1 if request.form.get("is_active", "1") == "1" else 0,
                 now(),
@@ -2414,7 +2958,7 @@ def edit_project(project_id):
         abort(404)
     if request.method == "POST":
         project_type = request.form.get("project_type", "invoice")
-        if project_type not in {"invoice", "expense"}:
+        if project_type not in PROJECT_TYPE_LABELS:
             project_type = "invoice"
         invoice_used = db().execute(
             "select count(*) as count from invoice_items where project_id = ?",
@@ -2429,13 +2973,14 @@ def edit_project(project_id):
             return redirect(url_for("edit_project", project_id=project_id))
         db().execute(
             """
-            update projects set name = ?, project_type = ?, default_amount = ?, tax_rate = ?, is_active = ?
+            update projects set name = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
             where id = ?
             """,
             (
                 request.form.get("name", "").strip(),
                 project_type,
                 to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
+                to_float(request.form.get("unit_price")),
                 to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
                 1 if request.form.get("is_active", "1") == "1" else 0,
                 project_id,
@@ -3521,15 +4066,119 @@ def service_order_detail(order_id):
         """,
         expense_params,
     ).fetchall()
+    customer_reimbursement = latest_customer_reimbursement(order_id) if can_manage_customer_reimbursement() else None
     return render_template(
         "service_order_detail.html",
         order=order,
         reports=reports_rows,
         invoices=invoices_rows,
         expenses=expenses_rows,
+        customer_reimbursement=customer_reimbursement,
         labels=STATUS_LABELS,
         expense_labels=EXPENSE_STATUS_LABELS,
     )
+
+
+@app.route("/service-orders/<int:order_id>/customer-reimbursement", methods=["GET", "POST"])
+@login_required
+def customer_reimbursement_form(order_id):
+    if not can_manage_customer_reimbursement():
+        abort(403)
+    order = require_service_order(order_id)
+    start_date_redirect = require_service_order_start_date(order)
+    if start_date_redirect:
+        return start_date_redirect
+    reimbursement = latest_customer_reimbursement(order_id)
+    if not reimbursement:
+        try:
+            reimbursement = create_customer_reimbursement(order)
+            build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
+            log_action("create", "customer_reimbursement", reimbursement["id"], reimbursement["file_name"], f"工单：{order['order_number']}")
+            db().commit()
+            flash("甲方费用报销表已根据工作日报生成，请补充费用和附件。", "success")
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("service_order_detail", order_id=order_id))
+    if request.method == "POST":
+        try:
+            rows = customer_reimbursement_items_from_form()
+            save_customer_reimbursement_items(reimbursement["id"], rows)
+            totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
+            save_customer_reimbursement_uploads(reimbursement["id"])
+            reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
+            build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
+            log_action(
+                "update",
+                "customer_reimbursement",
+                reimbursement["id"],
+                reimbursement["file_name"],
+                f"金额：{money(totals['total_amount'])}",
+            )
+            db().commit()
+            flash("甲方费用报销表已保存并重新生成 Excel。", "success")
+            return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+    items = customer_reimbursement_items(reimbursement["id"])
+    return render_template(
+        "customer_reimbursement_form.html",
+        order=order,
+        reimbursement=reimbursement,
+        items=items,
+        totals=customer_reimbursement_totals(items),
+        attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
+    )
+
+
+@app.get("/customer-reimbursements/<int:reimbursement_id>/download")
+@login_required
+def download_customer_reimbursement(reimbursement_id):
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    path = customer_reimbursement_file_path(reimbursement)
+    if not os.path.exists(path):
+        build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement_id))
+    return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
+
+
+@app.get("/customer-reimbursement-attachments/<int:attachment_id>/download")
+@login_required
+def download_customer_reimbursement_attachment(attachment_id):
+    attachment = db().execute("select * from customer_reimbursement_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_customer_reimbursement(attachment["customer_reimbursement_id"])
+    return send_file(customer_reimbursement_attachment_path(attachment), as_attachment=True, download_name=attachment["original_filename"])
+
+
+@app.get("/customer-reimbursement-attachments/<int:attachment_id>/preview")
+@login_required
+def preview_customer_reimbursement_attachment(attachment_id):
+    attachment = db().execute("select * from customer_reimbursement_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_customer_reimbursement(attachment["customer_reimbursement_id"])
+    return send_file(customer_reimbursement_attachment_path(attachment), mimetype=attachment["content_type"] or None)
+
+
+@app.post("/customer-reimbursement-attachments/<int:attachment_id>/delete")
+@login_required
+def delete_customer_reimbursement_attachment(attachment_id):
+    attachment = db().execute("select * from customer_reimbursement_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    reimbursement, order = require_customer_reimbursement(attachment["customer_reimbursement_id"])
+    try:
+        os.remove(customer_reimbursement_attachment_path(attachment))
+    except FileNotFoundError:
+        pass
+    db().execute("delete from customer_reimbursement_attachments where id = ?", (attachment_id,))
+    log_action("delete", "customer_reimbursement_attachment", attachment_id, attachment["original_filename"], f"工单：{order['order_number']}")
+    db().commit()
+    flash("附件已删除。", "success")
+    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
 @app.route("/service-orders/<int:order_id>/reports/new", methods=["GET", "POST"])
@@ -3924,10 +4573,10 @@ def expense_items_from_form(expense_id=None):
             (project_id, expense_id or 0),
         ).fetchone()
         if not project:
-            raise ValueError("选择的报销项目不存在或已停用，请重新选择。")
+            raise ValueError("选择的员工报销项目不存在或已停用，请重新选择。")
         amount = to_float(amounts[index] if index < len(amounts) else 0)
         if amount <= 0:
-            raise ValueError("每个报销项目的金额必须大于 0。")
+            raise ValueError("每个员工报销项目的金额必须大于 0。")
         description = descriptions[index].strip() if index < len(descriptions) else ""
         rows.append(
             {
@@ -3938,7 +4587,7 @@ def expense_items_from_form(expense_id=None):
             }
         )
     if not rows:
-        raise ValueError("请至少添加一个报销项目。")
+        raise ValueError("请至少添加一个员工报销项目。")
     return rows
 
 
@@ -3976,7 +4625,7 @@ def new_expense(order_id):
         "select * from projects where project_type = 'expense' and is_active = 1 order by name"
     ).fetchall()
     if not expense_projects:
-        flash("请先由经理或管理员创建报销项目。", "error")
+        flash("请先由经理或管理员创建员工报销项目。", "error")
         return redirect(url_for("projects") if is_manager() else url_for("service_order_detail", order_id=order_id))
     if request.method == "POST":
         save_token = request.form.get("save_token", "")
@@ -4921,6 +5570,46 @@ def build_invoice_zip(invoice, client, items):
     return archive_name, buffer.getvalue()
 
 
+def customer_reimbursement_email_attachments(invoice):
+    if not invoice["service_order_id"]:
+        return []
+    reimbursement = latest_customer_reimbursement(invoice["service_order_id"])
+    if not reimbursement:
+        return []
+    order = db().execute("select * from service_orders where id = ?", (invoice["service_order_id"],)).fetchone()
+    if not order:
+        return []
+    xlsx_path = customer_reimbursement_file_path(reimbursement)
+    if not os.path.exists(xlsx_path):
+        build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
+    attachments = []
+    if os.path.exists(xlsx_path):
+        with open(xlsx_path, "rb") as file:
+            attachments.append(
+                {
+                    "filename": reimbursement["file_name"],
+                    "content": file.read(),
+                    "maintype": "application",
+                    "subtype": "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }
+            )
+    for attachment in get_customer_reimbursement_attachments(reimbursement["id"]):
+        path = customer_reimbursement_attachment_path(attachment)
+        if not os.path.exists(path):
+            continue
+        maintype, _, subtype = (attachment["content_type"] or "application/octet-stream").partition("/")
+        with open(path, "rb") as file:
+            attachments.append(
+                {
+                    "filename": attachment["original_filename"],
+                    "content": file.read(),
+                    "maintype": maintype or "application",
+                    "subtype": subtype or "octet-stream",
+                }
+            )
+    return attachments
+
+
 def render_invoice_export_html(invoice, client, items):
     return render_template(
         "invoice_export.html",
@@ -5325,6 +6014,15 @@ def send_invoice_email(invoice_id):
     if not client["email"]:
         raise RuntimeError("客户没有邮箱，无法发送。")
     archive_name, archive_bytes = build_invoice_zip(invoice, client, items)
+    mail_attachments = [
+        {
+            "filename": f"{archive_name}.zip",
+            "content": archive_bytes,
+            "maintype": "application",
+            "subtype": "zip",
+        }
+    ]
+    mail_attachments.extend(customer_reimbursement_email_attachments(invoice))
     html = render_template(
         "email_invoice.html",
         invoice=invoice,
@@ -5339,14 +6037,7 @@ def send_invoice_email(invoice_id):
         to=client["email"],
         subject=f"Invoice {invoice['invoice_number']} from {get_company_profile()['name']}",
         html=html,
-        attachments=[
-            {
-                "filename": f"{archive_name}.zip",
-                "content": archive_bytes,
-                "maintype": "application",
-                "subtype": "zip",
-            }
-        ],
+        attachments=mail_attachments,
     )
     db().execute("update invoices set sent_at = ? where id = ?", (now(), invoice_id))
     db().commit()

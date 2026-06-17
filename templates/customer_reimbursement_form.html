@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}甲方费用报销表 - {{ order.order_number }}{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Customer Reimbursement</p>
+      <h1>甲方费用报销表</h1>
+      <p class="muted-line">{{ order.order_number }} · {{ order.client_order_number }}</p>
+    </div>
+    <div class="actions">
+      <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
+      <button type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=reimbursement.id) }}'">下载 Excel</button>
+      <button class="primary" type="submit" form="customerReimbursementForm">保存并生成 Excel</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="metric-grid">
+      <div class="metric"><span>工时费小计</span><strong>{{ totals.labor_total|money }}</strong></div>
+      <div class="metric"><span>差旅费小计</span><strong>{{ totals.travel_total|money }}</strong></div>
+      <div class="metric"><span>里程费小计</span><strong>{{ totals.mileage_total|money }}</strong></div>
+      <div class="metric"><span>合计</span><strong>{{ totals.total_amount|money }}</strong></div>
+    </div>
+  </section>
+
+  <form id="customerReimbursementForm" method="post" enctype="multipart/form-data" class="panel form-stack">
+    <div class="panel-title">
+      <h2>明细</h2>
+      <button class="small" type="button" id="addCustomerReimbursementRow">添加行</button>
+    </div>
+    <div class="table-scroll">
+      <table class="list-table compact-table" id="customerReimbursementTable">
+        <thead>
+          <tr>
+            <th>姓名</th><th>项目时间</th><th>标准</th><th>交通</th><th>加班</th><th>节假日</th>
+            <th>标准单价</th><th>交通单价</th><th>加班单价</th><th>节假日单价</th><th>工时费</th>
+            <th>住宿</th><th>机票</th><th>行李</th><th>租车</th><th>加油</th><th>停车</th><th>打车</th>
+            <th>英里</th><th>里程单价</th><th>里程费</th><th>其他</th><th>合计</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td><input name="worker_name" value="{{ item.worker_name }}" required></td>
+              <td><input name="project_date" type="date" value="{{ item.project_date }}" required></td>
+              <td><input name="standard_hours" type="number" step="0.01" min="0" value="{{ item.standard_hours }}"></td>
+              <td><input name="transport_hours" type="number" step="0.01" min="0" value="{{ item.transport_hours }}"></td>
+              <td><input name="overtime_hours" type="number" step="0.01" min="0" value="{{ item.overtime_hours }}"></td>
+              <td><input name="holiday_hours" type="number" step="0.01" min="0" value="{{ item.holiday_hours }}"></td>
+              <td><input name="standard_rate" type="number" step="0.01" min="0" value="{{ item.standard_rate }}"></td>
+              <td><input name="transport_rate" type="number" step="0.01" min="0" value="{{ item.transport_rate }}"></td>
+              <td><input name="overtime_rate" type="number" step="0.01" min="0" value="{{ item.overtime_rate }}"></td>
+              <td><input name="holiday_rate" type="number" step="0.01" min="0" value="{{ item.holiday_rate }}"></td>
+              <td>{{ item.labor_total|money }}</td>
+              <td><input name="lodging" type="number" step="0.01" min="0" value="{{ item.lodging }}"></td>
+              <td><input name="airfare" type="number" step="0.01" min="0" value="{{ item.airfare }}"></td>
+              <td><input name="baggage" type="number" step="0.01" min="0" value="{{ item.baggage }}"></td>
+              <td><input name="rental_car" type="number" step="0.01" min="0" value="{{ item.rental_car }}"></td>
+              <td><input name="fuel" type="number" step="0.01" min="0" value="{{ item.fuel }}"></td>
+              <td><input name="parking" type="number" step="0.01" min="0" value="{{ item.parking }}"></td>
+              <td><input name="taxi" type="number" step="0.01" min="0" value="{{ item.taxi }}"></td>
+              <td><input name="miles" type="number" step="0.01" min="0" value="{{ item.miles }}"></td>
+              <td><input name="mileage_rate" type="number" step="0.01" min="0" value="{{ item.mileage_rate }}"></td>
+              <td>{{ item.mileage_total|money }}</td>
+              <td><input name="other" type="number" step="0.01" min="0" value="{{ item.other }}"></td>
+              <td>{{ item.total|money }}</td>
+              <td><button class="danger small remove-customer-reimbursement-row" type="button">删除</button></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <section class="edit-attachments">
+      <div class="panel-title"><h2>附件</h2><span class="muted-line">酒店、机票、租车、加油、停车等凭证</span></div>
+      <div class="full file-picker-row">
+        <span>上传附件</span>
+        <input id="customerReimbursementAttachments" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+      </div>
+      <div id="selectedCustomerReimbursementFiles" class="selected-photo-grid"></div>
+      <table class="list-table attachment-table">
+        <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for attachment in attachments %}
+            <tr>
+              <td>
+                {% if (attachment.content_type or "").startswith("image/") %}
+                  <a href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}" target="_blank">
+                    <img class="inline-thumb" src="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                    {{ attachment.original_filename }}
+                  </a>
+                {% else %}
+                  {{ attachment.original_filename }}
+                {% endif %}
+              </td>
+              <td>{{ attachment.uploader_name or "-" }}</td>
+              <td>{{ attachment.uploaded_at|local_datetime }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_attachment', attachment_id=attachment.id) }}'">下载</button>
+                  <form method="post" action="{{ url_for('delete_customer_reimbursement_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');">
+                    <button class="danger small" type="submit">删除</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty">还没有附件。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </form>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='customer-reimbursement.js', v='20260616-v1') }}"></script>
+{% endblock %}

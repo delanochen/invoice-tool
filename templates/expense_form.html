@@ -25,7 +25,7 @@
     <h2>报销明细</h2>
     <div id="expenseItems" class="items-editor expense-items-editor">
       <div class="expense-item-head" aria-hidden="true">
-        <span>报销项目</span>
+        <span>员工报销项目</span>
         <span>金额（USD）</span>
         <span>明细说明</span>
         <span>操作</span>
@@ -33,8 +33,8 @@
       {% set rows = form_items if form_items else [{}] %}
       {% for item in rows %}
         <div class="expense-item-row">
-          <select name="project_id" class="expense-project-select" aria-label="报销项目" required>
-            <option value="">选择报销项目</option>
+          <select name="project_id" class="expense-project-select" aria-label="员工报销项目" required>
+            <option value="">选择员工报销项目</option>
             {% for project in expense_projects %}
               <option value="{{ project.id }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.name }}{% if not project.is_active %}（已停用）{% endif %}</option>
             {% endfor %}
@@ -46,7 +46,7 @@
       {% endfor %}
     </div>
     <div class="expense-items-footer">
-      <button type="button" class="ghost" id="addExpenseItem">添加报销项目</button>
+      <button type="button" class="ghost" id="addExpenseItem">添加员工报销项目</button>
       <strong>合计：<span id="expenseTotal">{{ expense.amount or 0 }}</span> USD</strong>
     </div>
     <input type="hidden" name="currency" value="USD">

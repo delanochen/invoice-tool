@@ -68,6 +68,54 @@
       </tbody>
     </table>
   </section>
+  <section class="panel">
+    <div class="panel-title">
+      <h2>员工报销</h2>
+      {% if can_create_expense() %}
+        <button class="small" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
+      {% endif %}
+    </div>
+    <table class="list-table">
+      <thead><tr><th>报销编号</th><th>项目</th><th>费用日期</th><th>提交人</th><th>金额</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for expense in expenses %}
+          <tr>
+            <td><a href="{{ url_for('expense_detail', expense_id=expense.id) }}">{{ expense.expense_number }}</a></td>
+            <td>{{ expense.project }}</td>
+            <td>{{ expense.expense_date }}</td>
+            <td>{{ expense.creator_name or "Unknown" }}</td>
+            <td>{{ expense.amount|money(expense.currency) }}</td>
+            <td><span class="status {{ expense.status }}">{{ expense_labels[expense.status] }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="empty">这个工单还没有员工报销。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% if can_manage_customer_reimbursement() %}
+    <section class="panel">
+      <div class="panel-title">
+        <h2>甲方费用报销表</h2>
+        <button class="small" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">
+          {% if customer_reimbursement %}编辑甲方费用报销表{% else %}生成甲方费用报销表{% endif %}
+        </button>
+      </div>
+      {% if customer_reimbursement %}
+        <div class="metric-grid">
+          <div class="metric"><span>工时费小计</span><strong>{{ customer_reimbursement.labor_total|money }}</strong></div>
+          <div class="metric"><span>差旅费小计</span><strong>{{ customer_reimbursement.travel_total|money }}</strong></div>
+          <div class="metric"><span>里程费小计</span><strong>{{ customer_reimbursement.mileage_total|money }}</strong></div>
+          <div class="metric"><span>合计</span><strong>{{ customer_reimbursement.total_amount|money }}</strong></div>
+        </div>
+        <div class="row-actions">
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 Excel</button>
+        </div>
+      {% else %}
+        <p class="empty">还没有甲方费用报销表。生成后可补充住宿、交通费、英里数和附件。</p>
+      {% endif %}
+    </section>
+  {% endif %}
   {% if can_view_invoices() %}
     <section class="panel">
       <h2>关联发票</h2>
@@ -88,29 +136,4 @@
       </table>
     </section>
   {% endif %}
-  <section class="panel">
-    <div class="panel-title">
-      <h2>报销</h2>
-      {% if can_create_expense() %}
-        <button class="small" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增报销</button>
-      {% endif %}
-    </div>
-    <table class="list-table">
-      <thead><tr><th>报销编号</th><th>项目</th><th>费用日期</th><th>提交人</th><th>金额</th><th>状态</th></tr></thead>
-      <tbody>
-        {% for expense in expenses %}
-          <tr>
-            <td><a href="{{ url_for('expense_detail', expense_id=expense.id) }}">{{ expense.expense_number }}</a></td>
-            <td>{{ expense.project }}</td>
-            <td>{{ expense.expense_date }}</td>
-            <td>{{ expense.creator_name or "Unknown" }}</td>
-            <td>{{ expense.amount|money(expense.currency) }}</td>
-            <td><span class="status {{ expense.status }}">{{ expense_labels[expense.status] }}</span></td>
-          </tr>
-        {% else %}
-          <tr><td colspan="6" class="empty">这个工单还没有报销。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
 {% endblock %}
