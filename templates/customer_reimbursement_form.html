@@ -33,24 +33,27 @@
         <thead>
           <tr>
             <th>姓名</th><th>项目时间</th><th>标准</th><th>交通</th><th>加班</th><th>节假日</th>
-            <th>标准单价</th><th>交通单价</th><th>加班单价</th><th>节假日单价</th><th>工时费</th>
+            <th>工时费</th>
             <th>住宿</th><th>机票</th><th>行李</th><th>租车</th><th>加油</th><th>停车</th><th>打车</th>
-            <th>英里</th><th>里程单价</th><th>里程费</th><th>其他</th><th>合计</th><th>操作</th>
+            <th>英里</th><th>里程费</th><th>其他</th><th>合计</th><th>操作</th>
           </tr>
         </thead>
         <tbody>
           {% for item in items %}
             <tr>
-              <td><input name="worker_name" value="{{ item.worker_name }}" required></td>
+              <td>
+                <input name="worker_name" value="{{ item.worker_name }}" required>
+                <input name="standard_rate" type="hidden" value="{{ item.standard_rate }}">
+                <input name="transport_rate" type="hidden" value="{{ item.transport_rate }}">
+                <input name="overtime_rate" type="hidden" value="{{ item.overtime_rate }}">
+                <input name="holiday_rate" type="hidden" value="{{ item.holiday_rate }}">
+                <input name="mileage_rate" type="hidden" value="{{ item.mileage_rate }}">
+              </td>
               <td><input name="project_date" type="date" value="{{ item.project_date }}" required></td>
               <td><input name="standard_hours" type="number" step="0.01" min="0" value="{{ item.standard_hours }}"></td>
               <td><input name="transport_hours" type="number" step="0.01" min="0" value="{{ item.transport_hours }}"></td>
               <td><input name="overtime_hours" type="number" step="0.01" min="0" value="{{ item.overtime_hours }}"></td>
               <td><input name="holiday_hours" type="number" step="0.01" min="0" value="{{ item.holiday_hours }}"></td>
-              <td><input name="standard_rate" type="number" step="0.01" min="0" value="{{ item.standard_rate }}"></td>
-              <td><input name="transport_rate" type="number" step="0.01" min="0" value="{{ item.transport_rate }}"></td>
-              <td><input name="overtime_rate" type="number" step="0.01" min="0" value="{{ item.overtime_rate }}"></td>
-              <td><input name="holiday_rate" type="number" step="0.01" min="0" value="{{ item.holiday_rate }}"></td>
               <td>{{ item.labor_total|money }}</td>
               <td><input name="lodging" type="number" step="0.01" min="0" value="{{ item.lodging }}"></td>
               <td><input name="airfare" type="number" step="0.01" min="0" value="{{ item.airfare }}"></td>
@@ -60,7 +63,6 @@
               <td><input name="parking" type="number" step="0.01" min="0" value="{{ item.parking }}"></td>
               <td><input name="taxi" type="number" step="0.01" min="0" value="{{ item.taxi }}"></td>
               <td><input name="miles" type="number" step="0.01" min="0" value="{{ item.miles }}"></td>
-              <td><input name="mileage_rate" type="number" step="0.01" min="0" value="{{ item.mileage_rate }}"></td>
               <td>{{ item.mileage_total|money }}</td>
               <td><input name="other" type="number" step="0.01" min="0" value="{{ item.other }}"></td>
               <td>{{ item.total|money }}</td>
