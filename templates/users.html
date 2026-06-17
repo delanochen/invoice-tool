@@ -8,36 +8,34 @@
     {% endif %}
   </header>
 
-  <section class="panel records-panel">
+  <section class="panel users-panel">
     <div class="panel-title"><h2>{% if can_manage %}已有用户{% else %}我的信息{% endif %}</h2><span class="muted-line">{{ users|length }} 个用户</span></div>
-    <div class="record-grid">
-      {% for user in users %}
-        <article class="record-card">
-          <div class="record-card-header">
-            <div>
-              <span class="record-number">{{ user.role|role_label }}</span>
-              <h3>{{ user.name }}</h3>
-              <p>{{ user.email }}</p>
-            </div>
-            <div class="row-actions">
-              <button class="small" type="button" data-dialog-open="editUser{{ user.id }}">编辑</button>
-              {% if can_manage %}
-                <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" onsubmit="return confirm('确定删除这个用户吗？已经创建过发票的用户不会被删除。');">
-                  <button class="danger small" type="submit">删除</button>
-                </form>
-              {% endif %}
-            </div>
-          </div>
-          <dl class="record-fields">
-            <div><dt>角色</dt><dd>{{ user.role|role_label }}</dd></div>
-            <div><dt>绑定客户</dt><dd>{{ user.client_name or "-" }}</dd></div>
-            <div><dt>创建时间</dt><dd>{{ user.created_at[:10] }}</dd></div>
-          </dl>
-        </article>
-      {% else %}
-        <p class="empty">还没有用户。</p>
-      {% endfor %}
-    </div>
+    <table class="list-table users-table">
+      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>绑定客户</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for user in users %}
+          <tr>
+            <td data-label="姓名">{{ user.name }}</td>
+            <td data-label="邮箱">{{ user.email }}</td>
+            <td data-label="角色">{{ user.role|role_label }}</td>
+            <td data-label="绑定客户">{{ user.client_name or "-" }}</td>
+            <td data-label="创建时间">{{ user.created_at[:10] }}</td>
+            <td data-label="操作">
+              <div class="row-actions">
+                <button class="small" type="button" data-dialog-open="editUser{{ user.id }}">编辑</button>
+                {% if can_manage %}
+                  <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" onsubmit="return confirm('确定删除这个用户吗？已经创建过发票的用户不会被删除。');">
+                    <button class="danger small" type="submit">删除</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="empty">还没有用户。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </section>
 
   {% if can_manage %}

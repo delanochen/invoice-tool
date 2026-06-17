@@ -14,36 +14,45 @@
     </div>
   </form>
 
-  <section class="panel records-panel">
+  <section class="panel">
     <div class="panel-title"><h2>需方列表</h2><span class="muted-line">{{ buyers|length }} 个需方</span></div>
-    <div class="record-grid">
-      {% for buyer in buyers %}
-        <article class="record-card">
-          <div class="record-card-header">
-            <div>
-              <span class="record-number">{{ buyer.buyer_number }}</span>
-              <h3>{{ buyer.name }}</h3>
-              <p>{{ buyer.equipment_manufacturer or "-" }}</p>
-            </div>
-            <div class="row-actions">
-              <button class="small" type="button" data-dialog-open="editBuyer{{ buyer.id }}">编辑</button>
-              <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个需方吗？已有工单的需方不会被删除。');">
-                <button class="danger small" type="submit">删除</button>
-              </form>
-            </div>
-          </div>
-          <dl class="record-fields">
-            <div><dt>国家</dt><dd>{{ buyer.country or "-" }}</dd></div>
-            <div><dt>联系人</dt><dd>{{ buyer.contact_name or "-" }}</dd></div>
-            <div><dt>联系方式</dt><dd>{{ buyer.contact_details or "-" }}</dd></div>
-            <div><dt>配套机厂家</dt><dd>{{ buyer.equipment_manufacturer or "-" }}</dd></div>
-            <div class="wide"><dt>详细地址</dt><dd>{{ buyer.detailed_address or "-" }}</dd></div>
-          </dl>
-        </article>
-      {% else %}
-        <p class="empty">还没有需方资料。</p>
-      {% endfor %}
-    </div>
+    <table class="list-table">
+      <thead>
+        <tr>
+          <th>编号</th>
+          <th>国家</th>
+          <th>名称</th>
+          <th>联系人</th>
+          <th>联系方式</th>
+          <th>详细地址</th>
+          <th>配套机厂家</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for buyer in buyers %}
+          <tr>
+            <td>{{ buyer.buyer_number }}</td>
+            <td>{{ buyer.country or "-" }}</td>
+            <td>{{ buyer.name }}</td>
+            <td>{{ buyer.contact_name or "-" }}</td>
+            <td>{{ buyer.contact_details or "-" }}</td>
+            <td>{{ buyer.detailed_address or "-" }}</td>
+            <td>{{ buyer.equipment_manufacturer or "-" }}</td>
+            <td>
+              <div class="row-actions">
+                <button class="small" type="button" data-dialog-open="editBuyer{{ buyer.id }}">编辑</button>
+                <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个需方吗？已有工单的需方不会被删除。');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="empty">还没有需方资料。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </section>
 
   <dialog id="newBuyerDialog" class="modal-dialog">

@@ -179,62 +179,6 @@ h1, h2, h3, p { margin-top: 0; }
 .metric strong { font-size: 22px; }
 .panel { margin-bottom: 16px; padding: 20px; }
 .panel:has(.list-table) { overflow-x: auto; }
-.records-panel { overflow: visible; }
-.record-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
-}
-.record-card {
-  display: grid;
-  gap: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 16px;
-  background: #fff;
-}
-.record-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-.record-card h3 {
-  margin: 4px 0;
-  font-size: 18px;
-  line-height: 1.35;
-}
-.record-card p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.45;
-}
-.record-number {
-  display: inline-flex;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-.record-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 16px;
-  margin: 0;
-}
-.record-fields div { min-width: 0; }
-.record-fields .wide { grid-column: 1 / -1; }
-.record-fields dt {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-.record-fields dd {
-  margin: 3px 0 0;
-  overflow-wrap: anywhere;
-  line-height: 1.45;
-}
 .modal-dialog {
   width: min(760px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
@@ -1019,12 +963,6 @@ body.service-order-map-page {
   .main { padding: 16px; }
   .page-header h1 { font-size: 26px; }
   .panel { padding: 16px; }
-  .record-grid { grid-template-columns: 1fr; }
-  .record-card-header {
-    display: grid;
-    gap: 12px;
-  }
-  .record-fields { grid-template-columns: 1fr; }
   .modal-dialog {
     width: calc(100vw - 20px);
     max-height: calc(100dvh - 20px);

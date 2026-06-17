@@ -6,35 +6,32 @@
     <button class="primary" type="button" data-dialog-open="newProjectDialog">新增项目</button>
   </header>
 
-  <section class="panel records-panel">
+  <section class="panel">
     <div class="panel-title"><h2>项目列表</h2><span class="muted-line">{{ projects|length }} 个项目</span></div>
-    <div class="record-grid">
-      {% for project in projects %}
-        <article class="record-card">
-          <div class="record-card-header">
-            <div>
-              <span class="record-number">{{ "报销项目" if project.project_type == "expense" else "发票项目" }}</span>
-              <h3>{{ project.name }}</h3>
-              <p>{{ "启用" if project.is_active else "停用" }}</p>
-            </div>
-            <div class="row-actions">
-              <button class="small" type="button" data-dialog-open="editProject{{ project.id }}">编辑</button>
-              <form method="post" action="{{ url_for('delete_project', project_id=project.id) }}" onsubmit="return confirm('确定删除这个项目吗？已有发票或报销记录的项目不会被删除。');">
-                <button class="danger small" type="submit">删除</button>
-              </form>
-            </div>
-          </div>
-          <dl class="record-fields">
-            <div><dt>默认金额</dt><dd>{% if project.project_type == "invoice" %}{{ project.default_amount|money }}{% else %}-{% endif %}</dd></div>
-            <div><dt>税率</dt><dd>{% if project.project_type == "invoice" %}{{ "%.2f"|format(project.tax_rate) }}%{% else %}-{% endif %}</dd></div>
-            <div><dt>类型</dt><dd>{{ "报销项目" if project.project_type == "expense" else "发票项目" }}</dd></div>
-            <div><dt>状态</dt><dd>{{ "启用" if project.is_active else "停用" }}</dd></div>
-          </dl>
-        </article>
-      {% else %}
-        <p class="empty">还没有项目。</p>
-      {% endfor %}
-    </div>
+    <table class="list-table">
+      <thead><tr><th>项目名称</th><th>类型</th><th>默认金额</th><th>税率</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for project in projects %}
+          <tr>
+            <td>{{ project.name }}</td>
+            <td>{{ "报销项目" if project.project_type == "expense" else "发票项目" }}</td>
+            <td>{% if project.project_type == "invoice" %}{{ project.default_amount|money }}{% else %}-{% endif %}</td>
+            <td>{% if project.project_type == "invoice" %}{{ "%.2f"|format(project.tax_rate) }}%{% else %}-{% endif %}</td>
+            <td>{{ "启用" if project.is_active else "停用" }}</td>
+            <td>
+              <div class="row-actions">
+                <button class="small" type="button" data-dialog-open="editProject{{ project.id }}">编辑</button>
+                <form method="post" action="{{ url_for('delete_project', project_id=project.id) }}" onsubmit="return confirm('确定删除这个项目吗？已有发票或报销记录的项目不会被删除。');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="empty">还没有项目。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </section>
 
   <dialog id="newProjectDialog" class="modal-dialog">

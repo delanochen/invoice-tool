@@ -6,34 +6,31 @@
     <button class="primary" type="button" data-dialog-open="newWorkOrderTypeDialog">新增工单类型</button>
   </header>
 
-  <section class="panel records-panel">
+  <section class="panel">
     <div class="panel-title"><h2>类型列表</h2><span class="muted-line">{{ work_order_types|length }} 个类型</span></div>
-    <div class="record-grid">
-      {% for item in work_order_types %}
-        <article class="record-card">
-          <div class="record-card-header">
-            <div>
-              <span class="record-number">{{ item.code }}</span>
-              <h3>{{ item.name }}</h3>
-              <p>{{ "启用" if item.is_active else "停用" }}</p>
-            </div>
-            <div class="row-actions">
-              <button class="small" type="button" data-dialog-open="editWorkOrderType{{ item.id }}">编辑</button>
-              <form method="post" action="{{ url_for('delete_work_order_type', type_id=item.id) }}" onsubmit="return confirm('确定删除这个工单类型吗？');">
-                <button class="danger small" type="submit">删除</button>
-              </form>
-            </div>
-          </div>
-          <dl class="record-fields">
-            <div><dt>编码</dt><dd>{{ item.code }}</dd></div>
-            <div><dt>状态</dt><dd>{{ "启用" if item.is_active else "停用" }}</dd></div>
-            <div class="wide"><dt>说明</dt><dd>{{ item.description or "-" }}</dd></div>
-          </dl>
-        </article>
-      {% else %}
-        <p class="empty">还没有工单类型。</p>
-      {% endfor %}
-    </div>
+    <table class="list-table">
+      <thead><tr><th>编码</th><th>名称</th><th>说明</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for item in work_order_types %}
+          <tr>
+            <td>{{ item.code }}</td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.description or "-" }}</td>
+            <td>{{ "启用" if item.is_active else "停用" }}</td>
+            <td>
+              <div class="row-actions">
+                <button class="small" type="button" data-dialog-open="editWorkOrderType{{ item.id }}">编辑</button>
+                <form method="post" action="{{ url_for('delete_work_order_type', type_id=item.id) }}" onsubmit="return confirm('确定删除这个工单类型吗？');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="empty">还没有工单类型。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </section>
 
   <dialog id="newWorkOrderTypeDialog" class="modal-dialog">
