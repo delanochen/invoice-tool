@@ -2,6 +2,8 @@ const table = document.getElementById("customerReimbursementTable");
 const addRowButton = document.getElementById("addCustomerReimbursementRow");
 const attachmentInput = document.getElementById("customerReimbursementAttachments");
 const selectedFiles = document.getElementById("selectedCustomerReimbursementFiles");
+const reimbursementForm = document.getElementById("customerReimbursementForm");
+let reimbursementSubmitting = false;
 
 function cloneCustomerReimbursementRow() {
   const body = table?.querySelector("tbody");
@@ -9,9 +11,6 @@ function cloneCustomerReimbursementRow() {
   if (!body || !lastRow) return;
   const nextRow = lastRow.cloneNode(true);
   nextRow.querySelectorAll("input").forEach((input) => {
-    if (["standard_rate", "transport_rate", "overtime_rate", "holiday_rate", "mileage_rate"].includes(input.name)) {
-      return;
-    }
     input.value = input.type === "date" ? input.value : "";
   });
   body.appendChild(nextRow);
@@ -48,3 +47,23 @@ table?.addEventListener("click", (event) => {
 });
 
 attachmentInput?.addEventListener("change", renderSelectedFiles);
+
+reimbursementForm?.addEventListener("submit", (event) => {
+  if (reimbursementSubmitting) {
+    event.preventDefault();
+    return;
+  }
+  reimbursementSubmitting = true;
+  const submitter = event.submitter;
+  if (submitter?.name === "action") {
+    const action = document.createElement("input");
+    action.type = "hidden";
+    action.name = "action";
+    action.value = submitter.value;
+    reimbursementForm.appendChild(action);
+  }
+  document.querySelectorAll(`button[form="${reimbursementForm.id}"]`).forEach((button) => {
+    button.disabled = true;
+    if (button === submitter) button.textContent = "处理中...";
+  });
+});

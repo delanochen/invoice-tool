@@ -13,6 +13,9 @@
   </header>
   <form method="post" enctype="multipart/form-data" class="panel invoice-form" id="invoiceForm">
     <input type="hidden" name="save_token" value="{{ save_token }}">
+    {% if defaults.customer_reimbursement_id %}
+      <input type="hidden" name="customer_reimbursement_id" value="{{ defaults.customer_reimbursement_id }}">
+    {% endif %}
     <div class="form-grid">
       <label>发票编号 <input name="invoice_number" value="{{ defaults.invoice_number }}" {% if is_edit %}readonly{% endif %} required></label>
       <label>客户

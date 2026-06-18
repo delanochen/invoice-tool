@@ -1,4 +1,5 @@
 import os
+import html
 import json
 import re
 import secrets
@@ -8,7 +9,6 @@ import sqlite3
 import threading
 import time
 import zipfile
-from copy import copy
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
@@ -43,14 +43,15 @@ from docx.shared import Inches, Pt, RGBColor
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from image_processing import compress_image
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.pagesizes import A3, A4, landscape
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
+from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, TableStyle
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,8 +61,6 @@ ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
 REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
 EXPENSE_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "expense-attachments")
 CUSTOMER_REIMBURSEMENT_DIR = os.path.join(DATA_DIR, "customer-reimbursements")
-TEMPLATES_DIR = os.path.join(DATA_DIR, "templates")
-CUSTOMER_REIMBURSEMENT_TEMPLATE = os.path.join(TEMPLATES_DIR, "费用报销单模板.xlsx")
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
@@ -175,7 +174,11 @@ CUSTOMER_REIMBURSEMENT_PROJECTS = {
     "里程费": 1,
 }
 
-CUSTOMER_REIMBURSEMENT_FILLED_COLUMNS = ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "T", "U", "W")
+CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
+    "Technical Services": "labor_total",
+    "Travel Expenses Reimbursement": "travel_total",
+    "Mileage Reimbursement": "mileage_total",
+}
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
@@ -192,7 +195,6 @@ def db():
         os.makedirs(REPORT_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(EXPENSE_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(CUSTOMER_REIMBURSEMENT_DIR, exist_ok=True)
-        os.makedirs(TEMPLATES_DIR, exist_ok=True)
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
     return g.db
@@ -346,12 +348,14 @@ def init_db():
             create table if not exists service_orders (
                 id integer primary key autoincrement,
                 order_number text not null unique,
+                client_id integer,
                 client_name text not null,
                 site_address text not null,
                 client_order_number text not null,
                 status text not null default 'open',
                 created_by integer not null,
                 created_at text not null,
+                foreign key(client_id) references clients(id),
                 foreign key(created_by) references users(id)
             );
 
@@ -570,10 +574,35 @@ def init_db():
         ensure_column(connection, "service_orders", "geocode_attempted_at", "text")
         ensure_column(connection, "service_orders", "geocode_version", "text")
         ensure_column(connection, "service_orders", "buyer_id", "integer")
+        ensure_column(connection, "service_orders", "client_id", "integer")
         ensure_column(connection, "service_orders", "buyer_contact_name", "text")
         ensure_column(connection, "service_orders", "buyer_contact_details", "text")
         ensure_column(connection, "service_orders", "start_date", "text")
         ensure_column(connection, "service_orders", "work_order_type_id", "integer")
+        connection.execute(
+            """
+            update service_orders
+            set client_id = (
+                select clients.id
+                from clients
+                where lower(trim(clients.name)) = lower(trim(service_orders.client_name))
+                   or lower(trim(clients.short_name)) = lower(trim(service_orders.client_name))
+                order by clients.id
+                limit 1
+            )
+            where client_id is null
+            """
+        )
+        connection.execute(
+            """
+            update service_orders
+            set client_id = (
+                select id from clients where client_number = '00001' limit 1
+            )
+            where client_id is null
+              and exists (select 1 from clients where client_number = '00001')
+            """
+        )
         existing_buyer_names = {
             row["name"].strip().casefold(): row["id"]
             for row in connection.execute("select id, name from buyers").fetchall()
@@ -1104,10 +1133,13 @@ def require_service_order(order_id):
         """
         select service_orders.*, work_order_types.name as work_order_type_name,
                buyers.country as buyer_country,
-               buyers.equipment_manufacturer as buyer_equipment_manufacturer
+               buyers.equipment_manufacturer as buyer_equipment_manufacturer,
+               clients.name as billing_client_name,
+               clients.email as billing_client_email
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
+        left join clients on clients.id = service_orders.client_id
         where service_orders.id = ?
         """,
         (order_id,),
@@ -1325,6 +1357,20 @@ def seed_customer_reimbursement_projects(connection):
             values (?, 'customer_expense', 0, ?, 0, 1, ?)
             """,
             (name, unit_price, now()),
+        )
+    for name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS:
+        row = connection.execute(
+            "select id from projects where name = ? and project_type = 'invoice'",
+            (name,),
+        ).fetchone()
+        if row:
+            continue
+        connection.execute(
+            """
+            insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+            values (?, 'invoice', 0, 0, 0, 1, ?)
+            """,
+            (name, now()),
         )
 
 
@@ -1712,9 +1758,9 @@ def save_customer_reimbursement_uploads(reimbursement_id):
 def customer_reimbursement_items_from_form():
     field_names = [
         "worker_name", "project_date", "standard_hours", "transport_hours", "overtime_hours", "holiday_hours",
-        "standard_rate", "transport_rate", "overtime_rate", "holiday_rate", "lodging", "airfare", "baggage",
-        "rental_car", "fuel", "parking", "taxi", "miles", "mileage_rate", "other",
+        "lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "miles", "other",
     ]
+    rates = customer_reimbursement_rates()
     posted = {name: request.form.getlist(name) for name in field_names}
     count = max((len(values) for values in posted.values()), default=0)
     rows = []
@@ -1726,6 +1772,15 @@ def customer_reimbursement_items_from_form():
         row = {"worker_name": worker_name, "project_date": project_date}
         for name in field_names[2:]:
             row[name] = to_float(posted[name][index] if index < len(posted[name]) else 0)
+        row.update(
+            {
+                "standard_rate": rates["标准工时"],
+                "transport_rate": rates["交通工时"],
+                "overtime_rate": rates["加班工时"],
+                "holiday_rate": rates["节假日工时"],
+                "mileage_rate": rates["里程费"],
+            }
+        )
         if not row["worker_name"] or not row["project_date"]:
             raise ValueError("甲方费用报销表每一行都必须有姓名和项目时间。")
         rows.append(calculate_customer_reimbursement_item(row, len(rows)))
@@ -1770,15 +1825,46 @@ def latest_customer_reimbursement(order_id):
     ).fetchone()
 
 
+def customer_reimbursement_invoice_items(reimbursement):
+    projects = db().execute(
+        """
+        select *
+        from projects
+        where project_type = 'invoice' and name in (?, ?, ?)
+        """,
+        tuple(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS.keys()),
+    ).fetchall()
+    projects_by_name = {project["name"]: project for project in projects}
+    missing = [name for name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS if name not in projects_by_name]
+    if missing:
+        raise ValueError(f"请先在项目维护中创建发票项目：{', '.join(missing)}。")
+    items = []
+    for project_name, amount_field in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS.items():
+        amount = float(reimbursement[amount_field] or 0)
+        if amount <= 0:
+            continue
+        project = projects_by_name[project_name]
+        items.append(
+            {
+                "project_id": project["id"],
+                "amount": round(amount, 2),
+                "tax_rate": project["tax_rate"],
+            }
+        )
+    if not items:
+        raise ValueError("甲方费用报销表金额为 0，无法生成发票。")
+    return items
+
+
 def create_customer_reimbursement(order):
-    file_name = f"费用报销单{order['client_order_number']}.xlsx"
+    file_name = f"费用报销单{order['client_order_number']}.pdf"
     cursor = db().execute(
         """
         insert into customer_reimbursements (
             service_order_id, file_name, stored_filename, created_by, created_at
         ) values (?, ?, ?, ?, ?)
         """,
-        (order["id"], file_name, f"{secrets.token_hex(12)}.xlsx", g.user["id"], now()),
+        (order["id"], file_name, f"{secrets.token_hex(12)}.pdf", g.user["id"], now()),
     )
     reimbursement_id = cursor.lastrowid
     rows = customer_reimbursement_seed_rows(order["id"])
@@ -1806,80 +1892,270 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     return totals
 
 
-def copy_excel_row_style(ws, source_row, target_row):
-    for column in range(1, ws.max_column + 1):
-        source = ws.cell(source_row, column)
-        target = ws.cell(target_row, column)
-        if source.has_style:
-            target._style = copy(source._style)
-        if source.number_format:
-            target.number_format = source.number_format
-        if source.alignment:
-            target.alignment = copy(source.alignment)
-    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+def ensure_customer_reimbursement_pdf_record(reimbursement, order):
+    if reimbursement["file_name"].lower().endswith(".pdf") and reimbursement["stored_filename"].lower().endswith(".pdf"):
+        return reimbursement
+    db().execute(
+        """
+        update customer_reimbursements
+        set file_name = ?, stored_filename = ?
+        where id = ?
+        """,
+        (
+            f"费用报销单{order['client_order_number']}.pdf",
+            f"{secrets.token_hex(12)}.pdf",
+            reimbursement["id"],
+        ),
+    )
+    return db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
 
 
-def build_basic_customer_reimbursement_workbook():
-    workbook = Workbook()
-    ws = workbook.active
-    ws.title = "费用报销单"
-    headers = [
-        "姓名", "项目时间", "标准工时", "交通工时", "加班工时", "节假日工时",
-        "标准工时费/小时", "交通工时费/小时", "加班工时费/小时", "节假日工时费/小时", "工时费合计",
-        "住宿", "机票", "行李", "租车", "加油", "停车", "打车", "英里数", "里程费/英里", "里程费", "其他", "合计",
-    ]
-    ws.append(headers)
-    ws.append(["Total"])
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="0F766E")
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for index, width in enumerate([16, 14, 10, 10, 10, 12, 14, 14, 14, 14, 14, 10, 10, 10, 10, 10, 10, 10, 10, 12, 10, 10, 12], 1):
-        ws.column_dimensions[get_column_letter(index)].width = width
-    return workbook
+def reimbursement_number(value):
+    number = float(value or 0)
+    return f"{number:,.2f}" if number else ""
 
 
-def build_customer_reimbursement_xlsx(reimbursement, order, rows):
-    if os.path.exists(CUSTOMER_REIMBURSEMENT_TEMPLATE):
-        workbook = load_workbook(CUSTOMER_REIMBURSEMENT_TEMPLATE)
-        ws = workbook.active
-        start_row = 3
-        total_row = 12
-        if len(rows) > 9:
-            ws.insert_rows(total_row, len(rows) - 9)
-            for row_index in range(total_row, total_row + len(rows) - 9):
-                copy_excel_row_style(ws, total_row - 1, row_index)
-            total_row += len(rows) - 9
-    else:
-        workbook = build_basic_customer_reimbursement_workbook()
-        ws = workbook.active
-        start_row = 2
-        total_row = 2
-        if rows:
-            ws.insert_rows(total_row, len(rows))
-            total_row += len(rows)
+def reimbursement_paragraph(value, style):
+    text = "" if value is None else str(value)
+    return Paragraph(text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>"), style)
 
-    for offset, item in enumerate(rows):
-        row_index = start_row + offset
-        values = [
-            item["worker_name"], item["project_date"], item["standard_hours"], item["transport_hours"],
-            item["overtime_hours"], item["holiday_hours"], item["standard_rate"], item["transport_rate"],
-            item["overtime_rate"], item["holiday_rate"], item["labor_total"], item["lodging"], item["airfare"],
-            item["baggage"], item["rental_car"], item["fuel"], item["parking"], item["taxi"], item["miles"],
-            item["mileage_rate"], item["mileage_total"], item["other"], item["total"],
-        ]
-        for col_index, value in enumerate(values, 1):
-            ws.cell(row_index, col_index).value = value
-    if total_row:
-        ws.cell(total_row, 1).value = "Total"
-        for col in (3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23):
-            letter = get_column_letter(col)
-            ws.cell(total_row, col).value = f"=SUM({letter}{start_row}:{letter}{start_row + len(rows) - 1})"
-    ws.freeze_panes = "A3"
+
+def build_customer_reimbursement_pdf(reimbursement, order, rows):
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
     path = customer_reimbursement_file_path(reimbursement)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    workbook.save(path)
+
+    title_style = ParagraphStyle(
+        "CustomerReimbursementTitle",
+        fontName="STSong-Light",
+        fontSize=16,
+        leading=20,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#10233F"),
+    )
+    meta_style = ParagraphStyle(
+        "CustomerReimbursementMeta",
+        fontName="STSong-Light",
+        fontSize=8,
+        leading=11,
+        alignment=TA_LEFT,
+        textColor=colors.HexColor("#475467"),
+    )
+    header_style = ParagraphStyle(
+        "CustomerReimbursementHeader",
+        fontName="STSong-Light",
+        fontSize=6,
+        leading=7,
+        alignment=TA_CENTER,
+        textColor=colors.white,
+    )
+    cell_style = ParagraphStyle(
+        "CustomerReimbursementCell",
+        fontName="STSong-Light",
+        fontSize=6,
+        leading=7,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#101828"),
+    )
+    total_style = ParagraphStyle(
+        "CustomerReimbursementTotal",
+        parent=cell_style,
+        fontSize=6.5,
+    )
+
+    document = SimpleDocTemplate(
+        path,
+        pagesize=landscape(A3),
+        leftMargin=9 * mm,
+        rightMargin=9 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
+        title=reimbursement["file_name"],
+        author=get_company_profile()["name"],
+    )
+
+    header_group = [
+        "姓名", "项目时间", "工时", "", "", "", "", "", "", "", "", "住宿",
+        "交通", "", "", "", "", "", "里程", "", "", "其他", "合计",
+    ]
+    header_detail = [
+        "", "", "标准\n工时", "交通\n工时", "加班\n工时", "节假日\n工时",
+        "标准工时费/小时", "交通工时费/小时", "加班工时费/小时", "节假日工时费/小时",
+        "工时费\n合计", "", "机票", "行李", "租车", "加油", "停车", "打车",
+        "英里数", "里程费/英里", "里程费", "", "",
+    ]
+    table_data = [
+        [reimbursement_paragraph(value, header_style) for value in header_group],
+        [reimbursement_paragraph(value, header_style) for value in header_detail],
+    ]
+
+    for item in rows:
+        values = [
+            item["worker_name"],
+            item["project_date"],
+            reimbursement_number(item["standard_hours"]),
+            reimbursement_number(item["transport_hours"]),
+            reimbursement_number(item["overtime_hours"]),
+            reimbursement_number(item["holiday_hours"]),
+            reimbursement_number(item["standard_rate"]),
+            reimbursement_number(item["transport_rate"]),
+            reimbursement_number(item["overtime_rate"]),
+            reimbursement_number(item["holiday_rate"]),
+            reimbursement_number(item["labor_total"]),
+            reimbursement_number(item["lodging"]),
+            reimbursement_number(item["airfare"]),
+            reimbursement_number(item["baggage"]),
+            reimbursement_number(item["rental_car"]),
+            reimbursement_number(item["fuel"]),
+            reimbursement_number(item["parking"]),
+            reimbursement_number(item["taxi"]),
+            reimbursement_number(item["miles"]),
+            reimbursement_number(item["mileage_rate"]),
+            reimbursement_number(item["mileage_total"]),
+            reimbursement_number(item["other"]),
+            reimbursement_number(item["total"]),
+        ]
+        table_data.append([reimbursement_paragraph(value, cell_style) for value in values])
+
+    sum_fields = {
+        2: "standard_hours", 3: "transport_hours", 4: "overtime_hours", 5: "holiday_hours",
+        10: "labor_total", 11: "lodging", 12: "airfare", 13: "baggage", 14: "rental_car",
+        15: "fuel", 16: "parking", 17: "taxi", 18: "miles", 20: "mileage_total",
+        21: "other", 22: "total",
+    }
+    total_values = ["Total", ""] + [""] * 21
+    for column_index, field_name in sum_fields.items():
+        total_values[column_index] = reimbursement_number(sum(float(item[field_name] or 0) for item in rows))
+    table_data.append([reimbursement_paragraph(value, total_style) for value in total_values])
+
+    column_widths = [
+        22 * mm, 21 * mm, 12 * mm, 12 * mm, 12 * mm, 13 * mm,
+        18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 13 * mm,
+        13 * mm, 13 * mm, 13 * mm, 13 * mm, 13 * mm, 13 * mm,
+        13 * mm, 15 * mm, 13 * mm, 13 * mm, 16 * mm,
+    ]
+    table = LongTable(table_data, colWidths=column_widths, repeatRows=2, hAlign="CENTER")
+    last_row = len(table_data) - 1
+    table.setStyle(
+        TableStyle(
+            [
+                ("SPAN", (0, 0), (0, 1)),
+                ("SPAN", (1, 0), (1, 1)),
+                ("SPAN", (2, 0), (10, 0)),
+                ("SPAN", (11, 0), (11, 1)),
+                ("SPAN", (12, 0), (17, 0)),
+                ("SPAN", (18, 0), (20, 0)),
+                ("SPAN", (21, 0), (21, 1)),
+                ("SPAN", (22, 0), (22, 1)),
+                ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#0F766E")),
+                ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#166F68")),
+                ("BACKGROUND", (0, last_row), (-1, last_row), colors.HexColor("#E7F6F2")),
+                ("TEXTCOLOR", (0, last_row), (-1, last_row), colors.HexColor("#10233F")),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#98A2B3")),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#475467")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+
+    story = [
+        Paragraph("费用报销单", title_style),
+        Spacer(1, 3 * mm),
+        Paragraph(
+            f"工单编号：{order['order_number']}　　服务订单号码：{order['client_order_number']}　　需方：{order['client_name']}",
+            meta_style,
+        ),
+        Spacer(1, 3 * mm),
+        table,
+        Spacer(1, 4 * mm),
+        Paragraph("备注：", meta_style),
+    ]
+
+    def draw_page_number(page_canvas, doc):
+        page_canvas.saveState()
+        page_canvas.setFont("STSong-Light", 7)
+        page_canvas.setFillColor(colors.HexColor("#667085"))
+        page_canvas.drawRightString(landscape(A3)[0] - 9 * mm, 5 * mm, f"第 {doc.page} 页")
+        page_canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
     return path
+
+
+def remove_customer_reimbursement_pdf(reimbursement):
+    path = customer_reimbursement_file_path(reimbursement)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def customer_reimbursement_outgoing_attachments(reimbursement, order):
+    reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
+    pdf_path = build_customer_reimbursement_pdf(
+        reimbursement,
+        order,
+        customer_reimbursement_items(reimbursement["id"]),
+    )
+    attachments = []
+    with open(pdf_path, "rb") as file:
+        attachments.append(
+            {
+                "filename": reimbursement["file_name"],
+                "content": file.read(),
+                "maintype": "application",
+                "subtype": "pdf",
+            }
+        )
+    for attachment in get_customer_reimbursement_attachments(reimbursement["id"]):
+        path = customer_reimbursement_attachment_path(attachment)
+        if not os.path.exists(path):
+            continue
+        maintype, _, subtype = (attachment["content_type"] or "application/octet-stream").partition("/")
+        with open(path, "rb") as file:
+            attachments.append(
+                {
+                    "filename": attachment["original_filename"],
+                    "content": file.read(),
+                    "maintype": maintype or "application",
+                    "subtype": subtype or "octet-stream",
+                }
+            )
+    return reimbursement, attachments
+
+
+def deliver_customer_reimbursement_email(reimbursement, order):
+    client = db().execute("select * from clients where id = ?", (order["client_id"],)).fetchone() if order["client_id"] else None
+    if not client:
+        raise ValueError("这个工单还没有关联客户，请先编辑工单选择客户。")
+    recipient = (client["email"] or "").strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", recipient):
+        raise ValueError(f"客户 {client['name']} 没有有效邮箱，请先维护客户主数据。")
+    subject = f"Customer Reimbursement Statement {order['client_order_number']}"
+    body = (
+        f"Dear {client['contact_name'] or client['name']},\n\n"
+        "Please find the customer reimbursement statement and supporting documents attached."
+    )
+    reimbursement, attachments = customer_reimbursement_outgoing_attachments(reimbursement, order)
+    send_email(
+        to=recipient,
+        subject=subject,
+        html=f"<p>{html.escape(body).replace(chr(10), '<br>')}</p>",
+        attachments=attachments,
+    )
+    log_action(
+        "send",
+        "customer_reimbursement",
+        reimbursement["id"],
+        reimbursement["file_name"],
+        f"发送至：{recipient}；附件：{len(attachments)} 个",
+    )
+    return recipient
 
 
 def can_access_expense(expense):
@@ -3637,6 +3913,7 @@ def audit_log_report():
         "invoice": "发票",
         "service_report": "工作日报",
         "expense": "报销",
+        "customer_reimbursement": "甲方费用报销表",
     }
     action_labels = {
         "create": "创建",
@@ -3651,6 +3928,7 @@ def audit_log_report():
         "status_change": "调整状态",
         "reimburse": "报销发放",
         "reset": "重置状态",
+        "send": "发送邮件",
     }
     q = request.args.get("q", "").strip()
     entity_type = request.args.get("entity_type", "").strip()
@@ -3910,12 +4188,16 @@ def new_service_order():
     if not can_create_service_order():
         abort(403)
     buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
+    clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
         "select * from work_order_types where is_active = 1 order by code, name"
     ).fetchall()
     if not buyers_rows:
         flash("请先由管理员或经理维护需方资料。", "error")
         return redirect(url_for("buyers") if is_manager() else url_for("service_orders"))
+    if not clients_rows:
+        flash("请先由管理员或经理维护客户资料。", "error")
+        return redirect(url_for("clients") if is_manager() else url_for("service_orders"))
     if not work_order_types_rows:
         flash("请先由管理员或经理维护工单类型。", "error")
         return redirect(url_for("work_order_types") if is_manager() else url_for("service_orders"))
@@ -3928,21 +4210,26 @@ def new_service_order():
             "select * from work_order_types where id = ? and is_active = 1",
             (request.form.get("work_order_type_id"),),
         ).fetchone()
+        client = db().execute(
+            "select * from clients where id = ?",
+            (request.form.get("client_id"),),
+        ).fetchone()
         site_address = request.form.get("site_address", "").strip()
         client_order_number = request.form.get("client_order_number", "").strip()
-        if not buyer or not work_order_type or not site_address or not client_order_number:
-            flash("请选择需方和工单类型，并填写服务现场地址、服务订单号码。", "error")
+        if not buyer or not client or not work_order_type or not site_address or not client_order_number:
+            flash("请选择客户、需方和工单类型，并填写服务现场地址、服务订单号码。", "error")
             return redirect(url_for("new_service_order"))
         order_number = next_service_order_number()
         cursor = db().execute(
             """
             insert into service_orders (
-                order_number, buyer_id, client_name, buyer_contact_name, buyer_contact_details,
+                order_number, client_id, buyer_id, client_name, buyer_contact_name, buyer_contact_details,
                 site_address, client_order_number, start_date, work_order_type_id, created_by, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_number,
+                client["id"],
                 buyer["id"],
                 buyer["name"],
                 buyer["contact_name"],
@@ -3962,6 +4249,7 @@ def new_service_order():
     return render_template(
         "service_order_form.html",
         order=None,
+        clients=clients_rows,
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         form_title="新建工单",
@@ -3973,6 +4261,7 @@ def new_service_order():
 def edit_service_order(order_id):
     order = require_service_order(order_id)
     buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
+    clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
         """
         select * from work_order_types
@@ -3990,19 +4279,24 @@ def edit_service_order(order_id):
             "select * from work_order_types where id = ?",
             (request.form.get("work_order_type_id"),),
         ).fetchone()
+        client = db().execute(
+            "select * from clients where id = ?",
+            (request.form.get("client_id"),),
+        ).fetchone()
         site_address = request.form.get("site_address", "").strip()
-        if not buyer or not work_order_type or not site_address:
-            flash("请选择有效的需方和工单类型，并填写服务现场地址。", "error")
+        if not buyer or not client or not work_order_type or not site_address:
+            flash("请选择有效的客户、需方和工单类型，并填写服务现场地址。", "error")
             return redirect(url_for("edit_service_order", order_id=order_id))
         db().execute(
             """
             update service_orders
-            set buyer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
+            set client_id = ?, buyer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
                 site_address = ?, client_order_number = ?, start_date = ?,
                 work_order_type_id = ?, status = ?
             where id = ?
             """,
             (
+                client["id"],
                 buyer["id"],
                 buyer["name"],
                 buyer["contact_name"],
@@ -4022,6 +4316,7 @@ def edit_service_order(order_id):
     return render_template(
         "service_order_form.html",
         order=order,
+        clients=clients_rows,
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         form_title="编辑工单",
@@ -4092,7 +4387,7 @@ def customer_reimbursement_form(order_id):
     if not reimbursement:
         try:
             reimbursement = create_customer_reimbursement(order)
-            build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
+            build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
             log_action("create", "customer_reimbursement", reimbursement["id"], reimbursement["file_name"], f"工单：{order['order_number']}")
             db().commit()
             flash("甲方费用报销表已根据工作日报生成，请补充费用和附件。", "success")
@@ -4100,14 +4395,20 @@ def customer_reimbursement_form(order_id):
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("service_order_detail", order_id=order_id))
+    else:
+        reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
+        db().commit()
     if request.method == "POST":
         try:
+            action = request.form.get("action", "save")
             rows = customer_reimbursement_items_from_form()
             save_customer_reimbursement_items(reimbursement["id"], rows)
             totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
             save_customer_reimbursement_uploads(reimbursement["id"])
             reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
-            build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
+            remove_customer_reimbursement_pdf(reimbursement)
+            if action == "generate_pdf":
+                build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
             log_action(
                 "update",
                 "customer_reimbursement",
@@ -4116,7 +4417,34 @@ def customer_reimbursement_form(order_id):
                 f"金额：{money(totals['total_amount'])}",
             )
             db().commit()
-            flash("甲方费用报销表已保存并重新生成 Excel。", "success")
+            if action == "generate_pdf":
+                return send_file(
+                    customer_reimbursement_file_path(reimbursement),
+                    as_attachment=True,
+                    download_name=reimbursement["file_name"],
+                )
+            if action == "send_email":
+                try:
+                    recipient = deliver_customer_reimbursement_email(reimbursement, order)
+                except (ValueError, RuntimeError) as error:
+                    flash(str(error), "error")
+                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                db().commit()
+                flash(f"甲方费用报销表已发送至 {recipient}。", "success")
+                return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+            if action == "generate_invoice":
+                if not can_create_invoice():
+                    abort(403)
+                if reimbursement["invoice_id"]:
+                    return redirect(url_for("invoice_detail", invoice_id=reimbursement["invoice_id"]))
+                return redirect(
+                    url_for(
+                        "new_invoice",
+                        service_order_id=order["id"],
+                        customer_reimbursement_id=reimbursement["id"],
+                    )
+                )
+            flash("甲方费用报销表已保存。", "success")
             return redirect(url_for("customer_reimbursement_form", order_id=order_id))
         except ValueError as error:
             db().rollback()
@@ -4137,10 +4465,32 @@ def customer_reimbursement_form(order_id):
 @login_required
 def download_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
     path = customer_reimbursement_file_path(reimbursement)
     if not os.path.exists(path):
-        build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement_id))
+        build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement_id))
+    db().commit()
     return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
+
+
+@app.get("/customer-reimbursements/<int:reimbursement_id>/preview")
+@login_required
+def preview_customer_reimbursement(reimbursement_id):
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
+    path = build_customer_reimbursement_pdf(
+        reimbursement,
+        order,
+        customer_reimbursement_items(reimbursement_id),
+    )
+    db().commit()
+    return send_file(
+        path,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=reimbursement["file_name"],
+        conditional=True,
+    )
 
 
 @app.get("/customer-reimbursement-attachments/<int:attachment_id>/download")
@@ -4945,11 +5295,28 @@ def new_invoice():
     if not can_create_invoice():
         abort(403)
     requested_order_id = request.args.get("service_order_id", "")
+    requested_reimbursement_id = request.args.get("customer_reimbursement_id", "")
+    source_reimbursement = None
+    prefilled_items = []
     if request.method == "GET" and requested_order_id.isdigit():
         requested_order = require_service_order(int(requested_order_id))
         start_date_redirect = require_service_order_start_date(requested_order)
         if start_date_redirect:
             return start_date_redirect
+    if request.method == "GET" and requested_reimbursement_id.isdigit():
+        source_reimbursement, source_order = require_customer_reimbursement(int(requested_reimbursement_id))
+        start_date_redirect = require_service_order_start_date(source_order)
+        if start_date_redirect:
+            return start_date_redirect
+        if source_reimbursement["invoice_id"]:
+            flash("这份甲方费用报销表已经生成过发票。", "success")
+            return redirect(url_for("invoice_detail", invoice_id=source_reimbursement["invoice_id"]))
+        requested_order_id = str(source_order["id"])
+        try:
+            prefilled_items = customer_reimbursement_invoice_items(source_reimbursement)
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("customer_reimbursement_form", order_id=source_order["id"]))
     if is_external_user():
         if not g.user["client_id"]:
             flash("请联系管理员绑定客户。", "error")
@@ -5003,7 +5370,9 @@ def new_invoice():
         "invoice_number": next_invoice_number(),
         "issue_date": today.isoformat(),
         "due_date": (today + timedelta(days=30)).isoformat(),
-        "service_order_id": int(request.args.get("service_order_id")) if request.args.get("service_order_id", "").isdigit() else None,
+        "service_order_id": int(requested_order_id) if requested_order_id.isdigit() else None,
+        "customer_reimbursement_id": source_reimbursement["id"] if source_reimbursement else None,
+        "client_id": source_order["client_id"] if source_reimbursement else None,
     }
     return render_template(
         "invoice_form.html",
@@ -5011,8 +5380,8 @@ def new_invoice():
         projects=projects_rows,
         service_orders=service_orders_rows,
         defaults=defaults,
-        form_title="新建发票",
-        form_items=[],
+        form_title="根据甲方费用报销表生成发票" if source_reimbursement else "新建发票",
+        form_items=prefilled_items,
         is_edit=False,
         attachments=[],
         save_token=secrets.token_urlsafe(24),
@@ -5066,6 +5435,25 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
     if not can_access_client(client_id):
         abort(403)
     service_order_id = posted_service_order_id(require_start_date=True, required=True)
+    source_reimbursement = None
+    reimbursement_id = request.form.get("customer_reimbursement_id", "")
+    if reimbursement_id:
+        if not reimbursement_id.isdigit():
+            raise ValueError("甲方费用报销表来源无效。")
+        source_reimbursement = db().execute(
+            "select * from customer_reimbursements where id = ?",
+            (int(reimbursement_id),),
+        ).fetchone()
+        if not source_reimbursement or source_reimbursement["service_order_id"] != service_order_id:
+            raise ValueError("甲方费用报销表与所选工单不匹配。")
+        if source_reimbursement["invoice_id"]:
+            raise ValueError("这份甲方费用报销表已经生成过发票。")
+        source_order = db().execute(
+            "select client_id from service_orders where id = ?",
+            (service_order_id,),
+        ).fetchone()
+        if source_order and source_order["client_id"] and client_id != source_order["client_id"]:
+            raise ValueError("发票客户必须与工单关联客户一致。")
     invoice_number = request.form.get("invoice_number", "").strip()
     if not invoice_number:
         invoice_number = next_invoice_number()
@@ -5114,6 +5502,11 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
     for uploaded in uploaded_attachments_from_request():
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
+    if source_reimbursement:
+        db().execute(
+            "update customer_reimbursements set invoice_id = ? where id = ? and invoice_id is null",
+            (invoice_id, source_reimbursement["id"]),
+        )
     invoice_summary = f"金额：{money(invoice_totals(invoice_id)['total'], request.form.get('currency', 'USD'))}"
     log_action("create", "invoice", invoice_id, invoice_number, invoice_summary)
     if submit_for_review:
@@ -5423,6 +5816,7 @@ def delete_invoice(invoice_id):
         "update messages set link = null where link = ? or link = ?",
         (url_for("invoice_detail", invoice_id=invoice_id), url_for("edit_invoice", invoice_id=invoice_id)),
     )
+    db().execute("update customer_reimbursements set invoice_id = null where invoice_id = ?", (invoice_id,))
     db().execute("delete from invoices where id = ?", (invoice_id,))
     log_action("delete", "invoice", invoice_id, invoice["invoice_number"], f"删除状态为 {invoice['status']} 的发票")
     db().commit()
@@ -5579,34 +5973,7 @@ def customer_reimbursement_email_attachments(invoice):
     order = db().execute("select * from service_orders where id = ?", (invoice["service_order_id"],)).fetchone()
     if not order:
         return []
-    xlsx_path = customer_reimbursement_file_path(reimbursement)
-    if not os.path.exists(xlsx_path):
-        build_customer_reimbursement_xlsx(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
-    attachments = []
-    if os.path.exists(xlsx_path):
-        with open(xlsx_path, "rb") as file:
-            attachments.append(
-                {
-                    "filename": reimbursement["file_name"],
-                    "content": file.read(),
-                    "maintype": "application",
-                    "subtype": "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                }
-            )
-    for attachment in get_customer_reimbursement_attachments(reimbursement["id"]):
-        path = customer_reimbursement_attachment_path(attachment)
-        if not os.path.exists(path):
-            continue
-        maintype, _, subtype = (attachment["content_type"] or "application/octet-stream").partition("/")
-        with open(path, "rb") as file:
-            attachments.append(
-                {
-                    "filename": attachment["original_filename"],
-                    "content": file.read(),
-                    "maintype": maintype or "application",
-                    "subtype": subtype or "octet-stream",
-                }
-            )
+    _, attachments = customer_reimbursement_outgoing_attachments(reimbursement, order)
     return attachments
 
 
@@ -6056,7 +6423,7 @@ def send_email(to, subject, html, attachments=None):
     message["From"] = smtp_settings["from"] or user or "billing@example.com"
     message["To"] = to
     message["Subject"] = subject
-    message.set_content("Please view this invoice in an HTML-compatible email client.")
+    message.set_content("Please see the attached documents.")
     message.add_alternative(html, subtype="html")
     for attachment in attachments or []:
         message.add_attachment(

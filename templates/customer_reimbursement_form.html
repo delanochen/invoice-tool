@@ -9,8 +9,15 @@
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
-      <button type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=reimbursement.id) }}'">下载 Excel</button>
-      <button class="primary" type="submit" form="customerReimbursementForm">保存并生成 Excel</button>
+      <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
+      <button type="button" onclick="window.open('{{ url_for('preview_customer_reimbursement', reimbursement_id=reimbursement.id) }}', '_blank')">预览 PDF</button>
+      <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
+      <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将保存当前内容并发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
+      {% if reimbursement.invoice_id %}
+        <button class="primary" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=reimbursement.invoice_id) }}'">查看发票</button>
+      {% elif can_create_invoice() %}
+        <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="generate_invoice">生成发票</button>
+      {% endif %}
     </div>
   </header>
 
@@ -41,14 +48,7 @@
         <tbody>
           {% for item in items %}
             <tr>
-              <td>
-                <input name="worker_name" value="{{ item.worker_name }}" required>
-                <input name="standard_rate" type="hidden" value="{{ item.standard_rate }}">
-                <input name="transport_rate" type="hidden" value="{{ item.transport_rate }}">
-                <input name="overtime_rate" type="hidden" value="{{ item.overtime_rate }}">
-                <input name="holiday_rate" type="hidden" value="{{ item.holiday_rate }}">
-                <input name="mileage_rate" type="hidden" value="{{ item.mileage_rate }}">
-              </td>
+              <td><input name="worker_name" value="{{ item.worker_name }}" required></td>
               <td><input name="project_date" type="date" value="{{ item.project_date }}" required></td>
               <td><input name="standard_hours" type="number" step="0.01" min="0" value="{{ item.standard_hours }}"></td>
               <td><input name="transport_hours" type="number" step="0.01" min="0" value="{{ item.transport_hours }}"></td>

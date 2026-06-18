@@ -20,6 +20,7 @@
   </header>
   <section class="panel">
     <div class="detail-grid">
+      <p><strong>客户</strong><span>{{ order.billing_client_name or "未关联" }}</span></p>
       <p><strong>需方名称</strong><span>{{ order.client_name }}</span></p>
       <p><strong>工单类型</strong><span>{{ order.work_order_type_name or "-" }}</span></p>
       <p><strong>开始日期</strong><span>{{ order.start_date or "未维护" }}</span></p>
@@ -109,7 +110,7 @@
           <div class="metric"><span>合计</span><strong>{{ customer_reimbursement.total_amount|money }}</strong></div>
         </div>
         <div class="row-actions">
-          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 Excel</button>
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
         </div>
       {% else %}
         <p class="empty">还没有甲方费用报销表。生成后可补充住宿、交通费、英里数和附件。</p>

@@ -12,6 +12,16 @@
     {% if order %}
       <label>工单编号 <input value="{{ order.order_number }}" readonly></label>
     {% endif %}
+    <label>客户
+      <select name="client_id" required>
+        <option value="">请选择客户</option>
+        {% for client in clients %}
+          <option value="{{ client.id }}" {% if order and order.client_id == client.id %}selected{% endif %}>
+            {{ client.client_number }} · {{ client.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
     <label>需方名称
       <select name="buyer_id" id="buyerSelect" required>
         <option value="">请选择需方</option>
