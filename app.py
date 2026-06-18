@@ -45,7 +45,7 @@ from pillow_heif import register_heif_opener
 from image_processing import compress_image
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib.pagesizes import A3, A4, landscape
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
@@ -1965,11 +1965,11 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
 
     document = SimpleDocTemplate(
         path,
-        pagesize=landscape(A3),
-        leftMargin=9 * mm,
-        rightMargin=9 * mm,
-        topMargin=10 * mm,
-        bottomMargin=10 * mm,
+        pagesize=landscape(A4),
+        leftMargin=5 * mm,
+        rightMargin=5 * mm,
+        topMargin=7 * mm,
+        bottomMargin=7 * mm,
         title=reimbursement["file_name"],
         author=get_company_profile()["name"],
     )
@@ -2029,10 +2029,11 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
     table_data.append([reimbursement_paragraph(value, total_style) for value in total_values])
 
     column_widths = [
-        22 * mm, 21 * mm, 12 * mm, 12 * mm, 12 * mm, 13 * mm,
-        18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 13 * mm,
-        13 * mm, 13 * mm, 13 * mm, 13 * mm, 13 * mm, 13 * mm,
-        13 * mm, 15 * mm, 13 * mm, 13 * mm, 16 * mm,
+        width * 0.8 * mm
+        for width in (
+            22, 21, 12, 12, 12, 13, 18, 18, 18, 18, 18, 13,
+            13, 13, 13, 13, 13, 13, 13, 15, 13, 13, 16,
+        )
     ]
     table = LongTable(table_data, colWidths=column_widths, repeatRows=2, hAlign="CENTER")
     last_row = len(table_data) - 1
@@ -2080,7 +2081,7 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
         page_canvas.saveState()
         page_canvas.setFont("STSong-Light", 7)
         page_canvas.setFillColor(colors.HexColor("#667085"))
-        page_canvas.drawRightString(landscape(A3)[0] - 9 * mm, 5 * mm, f"第 {doc.page} 页")
+        page_canvas.drawRightString(landscape(A4)[0] - 5 * mm, 3 * mm, f"第 {doc.page} 页")
         page_canvas.restoreState()
 
     document.build(story, onFirstPage=draw_page_number, onLaterPages=draw_page_number)
