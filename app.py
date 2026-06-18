@@ -704,6 +704,20 @@ def init_db():
             where status in ('submitted', 'returned')
             """
         )
+        connection.execute(
+            """
+            update users
+            set name = '陈永明'
+            where name like '陈永%' and instr(name, '�') > 0
+            """
+        )
+        connection.execute(
+            """
+            update customer_reimbursement_items
+            set worker_name = '陈永明'
+            where worker_name like '陈永%' and instr(worker_name, '�') > 0
+            """
+        )
         seed_customer_reimbursement_projects(connection)
         seed_settings(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
@@ -2814,6 +2828,9 @@ def register():
         name = request.form.get("name", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
+        if "�" in name:
+            flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
+            return redirect(url_for("register"))
         if len(password) < 8:
             flash("密码至少需要 8 位。", "error")
             return redirect(url_for("register"))
@@ -3336,11 +3353,15 @@ def users():
         abort(403)
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
+        name = request.form.get("name", "").strip() or email
         password = request.form.get("password", "")
         role = request.form.get("role", "employee")
         if role not in ROLE_OPTIONS:
             role = "employee"
         client_id = None
+        if "�" in name:
+            flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
+            return redirect(url_for("users"))
         if len(password) < 8:
             flash("密码至少需要 8 位。", "error")
             return redirect(url_for("users"))
@@ -3351,7 +3372,7 @@ def users():
                 values (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    request.form.get("name", "").strip() or email,
+                    name,
                     email,
                     generate_password_hash(password),
                     role,
@@ -3388,19 +3409,23 @@ def edit_user(user_id):
         abort(404)
     if request.method == "POST":
         email = request.form.get("email", user["email"]).strip().lower() if can_manage_users() else user["email"]
+        name = request.form.get("name", "").strip() or email
         role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
         if role not in ROLE_OPTIONS and can_manage_users():
             role = "employee"
         client_id = None
         password = request.form.get("password", "")
         admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
+        if "�" in name:
+            flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
+            return redirect(url_for("edit_user", user_id=user_id))
         if can_manage_users() and user["role"] == "admin" and role != "admin" and admin_count <= 1:
             flash("至少需要保留一个管理员。", "error")
             return redirect(url_for("edit_user", user_id=user_id))
         try:
             db().execute(
                 "update users set name = ?, email = ?, role = ?, client_id = ? where id = ?",
-                (request.form.get("name", "").strip() or email, email, role, client_id, user_id),
+                (name, email, role, client_id, user_id),
             )
             if password:
                 if len(password) < 8:
