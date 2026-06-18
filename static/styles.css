@@ -418,6 +418,15 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .compact-table input[name="worker_name"] {
   min-width: 130px;
 }
+.plain-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.plain-fieldset:disabled {
+  opacity: 0.82;
+}
 .inline-thumb {
   width: 48px;
   height: 48px;

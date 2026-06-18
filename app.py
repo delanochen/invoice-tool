@@ -153,6 +153,13 @@ EXPENSE_PAYOUT_LABELS = {
     "paid": "已报销",
 }
 
+CUSTOMER_REIMBURSEMENT_STATUS_LABELS = {
+    "draft": "保存未提交",
+    "submitted": "待经理审核",
+    "returned": "已退回",
+    "approved": "已通过",
+}
+
 ROLE_OPTIONS = {
     "admin": "管理员",
     "manager": "经理",
@@ -504,6 +511,10 @@ def init_db():
                 service_order_id integer not null,
                 file_name text not null,
                 stored_filename text not null,
+                status text not null default 'draft',
+                return_reason text,
+                reviewed_by integer,
+                reviewed_at text,
                 labor_total real not null default 0,
                 lodging_total real not null default 0,
                 travel_total real not null default 0,
@@ -514,7 +525,8 @@ def init_db():
                 created_at text not null,
                 foreign key(service_order_id) references service_orders(id) on delete cascade,
                 foreign key(invoice_id) references invoices(id) on delete set null,
-                foreign key(created_by) references users(id)
+                foreign key(created_by) references users(id),
+                foreign key(reviewed_by) references users(id)
             );
 
             create table if not exists customer_reimbursement_items (
@@ -563,6 +575,10 @@ def init_db():
         ensure_column(connection, "invoices", "service_order_id", "integer")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
         ensure_column(connection, "projects", "unit_price", "real not null default 0")
+        ensure_column(connection, "customer_reimbursements", "status", "text not null default 'draft'")
+        ensure_column(connection, "customer_reimbursements", "return_reason", "text")
+        ensure_column(connection, "customer_reimbursements", "reviewed_by", "integer")
+        ensure_column(connection, "customer_reimbursements", "reviewed_at", "text")
         ensure_column(connection, "expenses", "project_id", "integer")
         ensure_column(connection, "expenses", "payout_status", "text not null default 'pending'")
         ensure_column(connection, "expenses", "reimbursed_by", "integer")
@@ -672,6 +688,20 @@ def init_db():
             set title = '发票已审核完成',
                 body = replace(body, '已由经理确认完成', '已审核完成')
             where title = '发票已确认完成'
+            """
+        )
+        connection.execute(
+            """
+            update customer_reimbursements
+            set status = 'approved'
+            where invoice_id is not null and status != 'approved'
+            """
+        )
+        connection.execute(
+            """
+            update invoices
+            set status = 'completed', return_reason = null
+            where status in ('submitted', 'returned')
             """
         )
         seed_customer_reimbursement_projects(connection)
@@ -940,6 +970,7 @@ app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
+app.jinja_env.globals["customer_reimbursement_labels"] = CUSTOMER_REIMBURSEMENT_STATUS_LABELS
 app.jinja_env.globals["project_type_labels"] = PROJECT_TYPE_LABELS
 
 
@@ -1819,6 +1850,19 @@ def latest_customer_reimbursement(order_id):
         left join users on users.id = customer_reimbursements.created_by
         where service_order_id = ?
         order by created_at desc, id desc
+        limit 1
+        """,
+        (order_id,),
+    ).fetchone()
+
+
+def service_order_active_invoice(order_id):
+    return db().execute(
+        """
+        select *
+        from invoices
+        where service_order_id = ? and status != 'void'
+        order by issue_date desc, id desc
         limit 1
         """,
         (order_id,),
@@ -4402,10 +4446,56 @@ def customer_reimbursement_form(order_id):
     if request.method == "POST":
         try:
             action = request.form.get("action", "save")
+            if reimbursement["status"] not in {"draft", "returned"}:
+                if action == "generate_pdf":
+                    path = build_customer_reimbursement_pdf(
+                        reimbursement,
+                        order,
+                        customer_reimbursement_items(reimbursement["id"]),
+                    )
+                    return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
+                if action == "send_email":
+                    if reimbursement["status"] != "approved":
+                        raise ValueError("甲方费用报销表审核通过后才能发送邮件。")
+                    recipient = deliver_customer_reimbursement_email(reimbursement, order)
+                    db().commit()
+                    flash(f"甲方费用报销表已发送至 {recipient}。", "success")
+                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                if action == "generate_invoice":
+                    if reimbursement["status"] != "approved":
+                        raise ValueError("甲方费用报销表审核通过后才能生成发票。")
+                    if not can_create_invoice():
+                        abort(403)
+                    linked_invoice = service_order_active_invoice(order_id)
+                    if linked_invoice:
+                        if not reimbursement["invoice_id"]:
+                            db().execute(
+                                "update customer_reimbursements set invoice_id = ? where id = ?",
+                                (linked_invoice["id"], reimbursement["id"]),
+                            )
+                            db().commit()
+                        return redirect(url_for("invoice_detail", invoice_id=linked_invoice["id"]))
+                    return redirect(
+                        url_for(
+                            "new_invoice",
+                            service_order_id=order["id"],
+                            customer_reimbursement_id=reimbursement["id"],
+                        )
+                    )
+                raise ValueError("只有保存未提交或已退回的甲方费用报销表可以修改。")
             rows = customer_reimbursement_items_from_form()
             save_customer_reimbursement_items(reimbursement["id"], rows)
             totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
             save_customer_reimbursement_uploads(reimbursement["id"])
+            next_status = "submitted" if action == "submit" else reimbursement["status"]
+            db().execute(
+                """
+                update customer_reimbursements
+                set status = ?, return_reason = null
+                where id = ?
+                """,
+                (next_status, reimbursement["id"]),
+            )
             reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
             remove_customer_reimbursement_pdf(reimbursement)
             if action == "generate_pdf":
@@ -4418,6 +4508,27 @@ def customer_reimbursement_form(order_id):
                 f"金额：{money(totals['total_amount'])}",
             )
             db().commit()
+            if action == "submit":
+                notify_role(
+                    ["admin", "manager"],
+                    "新甲方费用报销表待审核",
+                    (
+                        f"{g.user['name']}提交了工单 {order['order_number']} 的甲方费用报销表，"
+                        f"金额 {money(totals['total_amount'])}。"
+                    ),
+                    url_for("customer_reimbursement_form", order_id=order_id),
+                    exclude_user_ids={g.user["id"]},
+                )
+                log_action(
+                    "submit",
+                    "customer_reimbursement",
+                    reimbursement["id"],
+                    reimbursement["file_name"],
+                    f"金额：{money(totals['total_amount'])}",
+                )
+                db().commit()
+                flash("甲方费用报销表已提交经理审核。", "success")
+                return redirect(url_for("customer_reimbursement_form", order_id=order_id))
             if action == "generate_pdf":
                 return send_file(
                     customer_reimbursement_file_path(reimbursement),
@@ -4425,6 +4536,8 @@ def customer_reimbursement_form(order_id):
                     download_name=reimbursement["file_name"],
                 )
             if action == "send_email":
+                if reimbursement["status"] != "approved":
+                    raise ValueError("甲方费用报销表审核通过后才能发送邮件。")
                 try:
                     recipient = deliver_customer_reimbursement_email(reimbursement, order)
                 except (ValueError, RuntimeError) as error:
@@ -4434,10 +4547,19 @@ def customer_reimbursement_form(order_id):
                 flash(f"甲方费用报销表已发送至 {recipient}。", "success")
                 return redirect(url_for("customer_reimbursement_form", order_id=order_id))
             if action == "generate_invoice":
+                if reimbursement["status"] != "approved":
+                    raise ValueError("甲方费用报销表审核通过后才能生成发票。")
                 if not can_create_invoice():
                     abort(403)
-                if reimbursement["invoice_id"]:
-                    return redirect(url_for("invoice_detail", invoice_id=reimbursement["invoice_id"]))
+                linked_invoice = service_order_active_invoice(order_id)
+                if linked_invoice:
+                    if not reimbursement["invoice_id"]:
+                        db().execute(
+                            "update customer_reimbursements set invoice_id = ? where id = ?",
+                            (linked_invoice["id"], reimbursement["id"]),
+                        )
+                        db().commit()
+                    return redirect(url_for("invoice_detail", invoice_id=linked_invoice["id"]))
                 return redirect(
                     url_for(
                         "new_invoice",
@@ -4452,6 +4574,18 @@ def customer_reimbursement_form(order_id):
             flash(str(error), "error")
             return redirect(url_for("customer_reimbursement_form", order_id=order_id))
     items = customer_reimbursement_items(reimbursement["id"])
+    linked_invoice = service_order_active_invoice(order_id)
+    if linked_invoice and reimbursement["invoice_id"] != linked_invoice["id"]:
+        db().execute(
+            "update customer_reimbursements set invoice_id = ? where id = ?",
+            (linked_invoice["id"], reimbursement["id"]),
+        )
+        db().commit()
+        reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
+    reviewer = db().execute(
+        "select name from users where id = ?",
+        (reimbursement["reviewed_by"],),
+    ).fetchone() if reimbursement["reviewed_by"] else None
     return render_template(
         "customer_reimbursement_form.html",
         order=order,
@@ -4459,6 +4593,9 @@ def customer_reimbursement_form(order_id):
         items=items,
         totals=customer_reimbursement_totals(items),
         attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
+        linked_invoice=linked_invoice,
+        reviewer=reviewer,
+        can_edit=reimbursement["status"] in {"draft", "returned"},
     )
 
 
@@ -4494,6 +4631,84 @@ def preview_customer_reimbursement(reimbursement_id):
     )
 
 
+@app.post("/customer-reimbursements/<int:reimbursement_id>/approve")
+@login_required
+def approve_customer_reimbursement(reimbursement_id):
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    if not is_manager():
+        abort(403)
+    if reimbursement["status"] != "submitted":
+        flash("只有待经理审核的甲方费用报销表可以审核通过。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    db().execute(
+        """
+        update customer_reimbursements
+        set status = 'approved', return_reason = null, reviewed_by = ?, reviewed_at = ?
+        where id = ?
+        """,
+        (g.user["id"], now(), reimbursement_id),
+    )
+    message = (
+        f"{g.user['name']}已审核通过工单 {order['order_number']} 的甲方费用报销表，"
+        f"金额 {money(reimbursement['total_amount'])}。"
+    )
+    create_message(
+        reimbursement["created_by"],
+        "甲方费用报销表已审核通过",
+        message,
+        url_for("customer_reimbursement_form", order_id=order["id"]),
+    )
+    log_action(
+        "approve",
+        "customer_reimbursement",
+        reimbursement_id,
+        reimbursement["file_name"],
+        f"金额：{money(reimbursement['total_amount'])}",
+    )
+    db().commit()
+    flash("甲方费用报销表已审核通过。", "success")
+    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+
+
+@app.post("/customer-reimbursements/<int:reimbursement_id>/return")
+@login_required
+def return_customer_reimbursement(reimbursement_id):
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    if not is_manager():
+        abort(403)
+    if reimbursement["status"] != "submitted":
+        flash("只有待经理审核的甲方费用报销表可以退回。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    reason = request.form.get("return_reason", "").strip()
+    if not reason:
+        flash("请填写退回原因。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    db().execute(
+        """
+        update customer_reimbursements
+        set status = 'returned', return_reason = ?, reviewed_by = ?, reviewed_at = ?
+        where id = ?
+        """,
+        (reason, g.user["id"], now(), reimbursement_id),
+    )
+    create_message(
+        reimbursement["created_by"],
+        "甲方费用报销表已被退回",
+        f"工单 {order['order_number']} 的甲方费用报销表已被退回。原因：{reason}",
+        url_for("customer_reimbursement_form", order_id=order["id"]),
+    )
+    log_action(
+        "return",
+        "customer_reimbursement",
+        reimbursement_id,
+        reimbursement["file_name"],
+        f"原因：{reason}",
+    )
+    db().commit()
+    flash("甲方费用报销表已退回。", "success")
+    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+
+
 @app.get("/customer-reimbursement-attachments/<int:attachment_id>/download")
 @login_required
 def download_customer_reimbursement_attachment(attachment_id):
@@ -4521,6 +4736,9 @@ def delete_customer_reimbursement_attachment(attachment_id):
     if not attachment:
         abort(404)
     reimbursement, order = require_customer_reimbursement(attachment["customer_reimbursement_id"])
+    if reimbursement["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或已退回的甲方费用报销表可以删除附件。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
     try:
         os.remove(customer_reimbursement_attachment_path(attachment))
     except FileNotFoundError:
@@ -5299,6 +5517,11 @@ def new_invoice():
     requested_reimbursement_id = request.args.get("customer_reimbursement_id", "")
     source_reimbursement = None
     prefilled_items = []
+    if request.method == "GET" and not requested_reimbursement_id.isdigit():
+        flash("请从审核通过的甲方费用报销表生成发票。", "error")
+        if requested_order_id.isdigit():
+            return redirect(url_for("customer_reimbursement_form", order_id=int(requested_order_id)))
+        return redirect(url_for("service_orders"))
     if request.method == "GET" and requested_order_id.isdigit():
         requested_order = require_service_order(int(requested_order_id))
         start_date_redirect = require_service_order_start_date(requested_order)
@@ -5312,6 +5535,18 @@ def new_invoice():
         if source_reimbursement["invoice_id"]:
             flash("这份甲方费用报销表已经生成过发票。", "success")
             return redirect(url_for("invoice_detail", invoice_id=source_reimbursement["invoice_id"]))
+        linked_invoice = service_order_active_invoice(source_order["id"])
+        if linked_invoice:
+            db().execute(
+                "update customer_reimbursements set invoice_id = ? where id = ?",
+                (linked_invoice["id"], source_reimbursement["id"]),
+            )
+            db().commit()
+            flash("这个工单已经有关联发票。", "success")
+            return redirect(url_for("invoice_detail", invoice_id=linked_invoice["id"]))
+        if source_reimbursement["status"] != "approved":
+            flash("甲方费用报销表审核通过后才能生成发票。", "error")
+            return redirect(url_for("customer_reimbursement_form", order_id=source_order["id"]))
         requested_order_id = str(source_order["id"])
         try:
             prefilled_items = customer_reimbursement_invoice_items(source_reimbursement)
@@ -5351,8 +5586,7 @@ def new_invoice():
             db().rollback()
             return redirect(url_for("new_invoice"))
         try:
-            submit_for_review = request.form.get("action") == "submit"
-            invoice_id = create_invoice_from_form(submit_for_review=submit_for_review, save_token=save_token)
+            invoice_id = create_invoice_from_form(save_token=save_token)
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
@@ -5361,11 +5595,8 @@ def new_invoice():
             db().rollback()
             flash("保存发票时发生数据库冲突，请重新提交。", "error")
             return redirect(url_for("new_invoice"))
-        if submit_for_review:
-            flash("发票已提交给经理审核。", "success")
-            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-        flash("发票草稿已保存。", "success")
-        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+        flash("发票已生成。", "success")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     today = date.today()
     defaults = {
         "invoice_number": next_invoice_number(),
@@ -5431,7 +5662,7 @@ def posted_service_order_id(require_start_date=False, required=False):
     return order_id
 
 
-def create_invoice_from_form(submit_for_review=False, save_token=None):
+def create_invoice_from_form(save_token=None):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
@@ -5447,8 +5678,12 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
         ).fetchone()
         if not source_reimbursement or source_reimbursement["service_order_id"] != service_order_id:
             raise ValueError("甲方费用报销表与所选工单不匹配。")
+        if source_reimbursement["status"] != "approved":
+            raise ValueError("甲方费用报销表审核通过后才能生成发票。")
         if source_reimbursement["invoice_id"]:
             raise ValueError("这份甲方费用报销表已经生成过发票。")
+        if service_order_active_invoice(service_order_id):
+            raise ValueError("这个工单已经有关联发票，不能重复生成。")
         source_order = db().execute(
             "select client_id from service_orders where id = ?",
             (service_order_id,),
@@ -5461,7 +5696,7 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
     if invoice_number_exists(invoice_number):
         invoice_number = next_invoice_number()
     item_rows = invoice_items_from_form()
-    status = "submitted" if submit_for_review else "draft"
+    status = "completed"
     cursor = None
     for _ in range(30):
         try:
@@ -5510,14 +5745,7 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
         )
     invoice_summary = f"金额：{money(invoice_totals(invoice_id)['total'], request.form.get('currency', 'USD'))}"
     log_action("create", "invoice", invoice_id, invoice_number, invoice_summary)
-    if submit_for_review:
-        log_action("submit", "invoice", invoice_id, invoice_number, invoice_summary)
     db().commit()
-    if submit_for_review:
-        invoice, client, _ = load_invoice(invoice_id)
-        body = review_message_body(g.user["name"], invoice, client, invoice_totals(invoice_id)["total"])
-        notify_role(["admin", "manager"], "新发票待审核", body, url_for("invoice_detail", invoice_id=invoice_id))
-        db().commit()
     return invoice_id
 
 
@@ -5525,8 +5753,8 @@ def create_invoice_from_form(submit_for_review=False, save_token=None):
 @login_required
 def edit_invoice(invoice_id):
     invoice, client, items = load_invoice(invoice_id)
-    if invoice["status"] not in {"draft", "returned"}:
-        flash("只有草稿或被退回的发票可以编辑。", "error")
+    if invoice["status"] != "draft":
+        flash("只有管理员调整为草稿的发票可以编辑。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     if invoice["created_by"] != g.user["id"] and not is_manager():
         abort(403)
@@ -5555,12 +5783,8 @@ def edit_invoice(invoice_id):
             db().rollback()
             return redirect(url_for("edit_invoice", invoice_id=invoice_id))
         try:
-            submit_for_review = request.form.get("action") == "submit"
-            was_returned = invoice["status"] == "returned"
-            update_invoice_from_form(invoice_id, submit_for_review=submit_for_review)
+            update_invoice_from_form(invoice_id)
             log_action("update", "invoice", invoice_id, invoice["invoice_number"], "修改发票内容")
-            if submit_for_review:
-                log_action("submit", "invoice", invoice_id, invoice["invoice_number"], "提交审核")
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
@@ -5569,16 +5793,9 @@ def edit_invoice(invoice_id):
             db().rollback()
             flash("发票编号已经存在，请更换一个发票编号后再保存。", "error")
             return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-        if submit_for_review:
-            invoice, client, _ = load_invoice(invoice_id)
-            body = review_message_body(g.user["name"], invoice, client, invoice_totals(invoice_id)["total"], is_resubmission=was_returned)
-            notify_role(["admin", "manager"], "发票已提交审核", body, url_for("invoice_detail", invoice_id=invoice_id))
-            db().commit()
-            flash("发票已提交给经理审核。", "success")
-            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
         db().commit()
         flash("发票已保存。", "success")
-        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     defaults = {
         "id": invoice["id"],
         "invoice_number": invoice["invoice_number"],
@@ -5605,7 +5822,7 @@ def edit_invoice(invoice_id):
     )
 
 
-def update_invoice_from_form(invoice_id, submit_for_review=False):
+def update_invoice_from_form(invoice_id):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
@@ -5640,15 +5857,14 @@ def update_invoice_from_form(invoice_id, submit_for_review=False):
     for uploaded in uploaded_attachments_from_request():
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
-    if submit_for_review:
-        db().execute("update invoices set status = 'submitted', return_reason = null where id = ?", (invoice_id,))
+    db().execute("update invoices set status = 'completed', return_reason = null where id = ?", (invoice_id,))
 
 
 @app.route("/invoices/<int:invoice_id>")
 @login_required
 def invoice_detail(invoice_id):
     invoice, client, items = load_invoice(invoice_id)
-    if invoice["status"] in {"draft", "returned"} and invoice["created_by"] == g.user["id"]:
+    if invoice["status"] == "draft" and invoice["created_by"] == g.user["id"]:
         return redirect(url_for("edit_invoice", invoice_id=invoice_id))
     creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
     service_order = None
@@ -5669,74 +5885,6 @@ def invoice_detail(invoice_id):
         labels=STATUS_LABELS,
         today=date.today().isoformat(),
     )
-
-
-@app.post("/invoices/<int:invoice_id>/return")
-@login_required
-def return_invoice(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    if not is_manager():
-        abort(403)
-    if invoice["status"] != "submitted":
-        flash("只有待经理审核的发票可以退回。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    reason = request.form.get("return_reason", "").strip()
-    if not reason:
-        flash("请填写退回原因。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    db().execute("update invoices set status = 'returned', return_reason = ? where id = ?", (reason, invoice_id))
-    client = db().execute("select * from clients where id = ?", (invoice["client_id"],)).fetchone()
-    total = invoice_totals(invoice_id)["total"]
-    return_link = url_for("invoice_detail", invoice_id=invoice_id)
-    existing_return_message = db().execute(
-        """
-        select id from messages
-        where user_id = ? and title = '发票已被退回' and link = ? and is_read = 0
-        """,
-        (invoice["created_by"], return_link),
-    ).fetchone()
-    if existing_return_message:
-        db().execute(
-            "update messages set body = ?, created_at = ? where id = ?",
-            (return_message_body(invoice, client, total, reason), now(), existing_return_message["id"]),
-        )
-    else:
-        create_message(
-            invoice["created_by"],
-            "发票已被退回",
-            return_message_body(invoice, client, total, reason),
-            return_link,
-        )
-    log_action("return", "invoice", invoice_id, invoice["invoice_number"], f"原因：{reason}")
-    db().commit()
-    flash("发票已退回给发起人。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-
-
-@app.post("/invoices/<int:invoice_id>/complete")
-@login_required
-def complete_invoice(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    if not is_manager():
-        abort(403)
-    if invoice["status"] != "submitted":
-        flash("只有待审核的发票可以审核完成。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    db().execute("update invoices set status = 'completed', return_reason = null where id = ?", (invoice_id,))
-    message_link = url_for("invoice_detail", invoice_id=invoice_id)
-    message_body = f"{g.user['name']}已审核完成发票 {invoice['invoice_number']}。"
-    create_message(invoice["created_by"], "发票已审核完成", message_body, message_link)
-    notify_role(
-        ["admin"],
-        "发票已审核完成",
-        message_body,
-        message_link,
-        exclude_user_ids={invoice["created_by"], g.user["id"]},
-    )
-    log_action("approve", "invoice", invoice_id, invoice["invoice_number"], "审核完成")
-    db().commit()
-    flash("发票已审核完成。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
 
 @app.post("/invoices/<int:invoice_id>/admin-status")
@@ -5765,26 +5913,6 @@ def admin_update_invoice_status(invoice_id):
     log_action("status_change", "invoice", invoice_id, invoice["invoice_number"], "调整为保存未提交")
     db().commit()
     flash("发票状态已修改为保存未提交。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-
-
-@app.post("/invoices/<int:invoice_id>/resubmit")
-@login_required
-def resubmit_invoice(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    if invoice["created_by"] != g.user["id"] and not is_manager():
-        abort(403)
-    if invoice["status"] in {"draft", "returned"}:
-        flash("请先编辑发票内容，然后提交经理审核。", "error")
-        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-    db().execute("update invoices set status = 'submitted', return_reason = null where id = ?", (invoice_id,))
-    client = db().execute("select * from clients where id = ?", (invoice["client_id"],)).fetchone()
-    total = invoice_totals(invoice_id)["total"]
-    body = review_message_body(g.user["name"], invoice, client, total, is_resubmission=True)
-    notify_role(["admin", "manager"], "退回发票已重新提交", body, url_for("invoice_detail", invoice_id=invoice_id))
-    log_action("submit", "invoice", invoice_id, invoice["invoice_number"], "退回后重新提交审核")
-    db().commit()
-    flash("发票已重新提交给经理审核。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
 

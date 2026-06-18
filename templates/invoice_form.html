@@ -7,8 +7,7 @@
       {% if is_edit and (g.user.role in ["admin", "manager"] or defaults.created_by == g.user.id) %}
         <button class="danger" type="submit" form="deleteInvoiceForm" onclick="return confirm('确定删除这张发票吗？');">删除发票</button>
       {% endif %}
-      <button type="submit" form="invoiceForm" name="action" value="save" data-invoice-submit>保存</button>
-      <button class="primary" type="submit" form="invoiceForm" name="action" value="submit" data-invoice-submit>提交经理审核</button>
+      <button class="primary" type="submit" form="invoiceForm" name="action" value="save" data-invoice-submit>保存发票</button>
     </div>
   </header>
   <form method="post" enctype="multipart/form-data" class="panel invoice-form" id="invoiceForm">

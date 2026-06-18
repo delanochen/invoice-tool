@@ -4,22 +4,53 @@
   <header class="page-header">
     <div>
       <p class="eyebrow">Customer Reimbursement</p>
-      <h1>甲方费用报销表</h1>
+      <h1>甲方费用报销表 <span class="status {{ reimbursement.status }}">{{ customer_reimbursement_labels[reimbursement.status] }}</span></h1>
       <p class="muted-line">{{ order.order_number }} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
-      <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
       <button type="button" onclick="window.open('{{ url_for('preview_customer_reimbursement', reimbursement_id=reimbursement.id) }}', '_blank')">预览 PDF</button>
       <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
-      <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将保存当前内容并发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
-      {% if reimbursement.invoice_id %}
-        <button class="primary" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=reimbursement.invoice_id) }}'">查看发票</button>
-      {% elif can_create_invoice() %}
-        <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="generate_invoice">生成发票</button>
+      {% if can_edit %}
+        <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
+        <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit">提交经理审核</button>
+      {% endif %}
+      {% if reimbursement.status == "submitted" and normalized_role() in ["admin", "manager"] %}
+        <form method="post" action="{{ url_for('approve_customer_reimbursement', reimbursement_id=reimbursement.id) }}">
+          <button class="primary" type="submit">审核通过</button>
+        </form>
+        <button class="danger" type="button" onclick="document.querySelector('#returnCustomerReimbursementDialog').showModal()">退回</button>
+      {% endif %}
+      {% if reimbursement.status == "approved" %}
+        <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
+        {% if linked_invoice %}
+          <button class="primary" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=linked_invoice.id) }}'">查看发票</button>
+        {% elif can_create_invoice() %}
+          <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="generate_invoice">生成发票</button>
+        {% endif %}
       {% endif %}
     </div>
   </header>
+
+  {% if reimbursement.status == "returned" and reimbursement.return_reason %}
+    <section class="panel"><div class="flash error">退回原因：{{ reimbursement.return_reason }}</div></section>
+  {% endif %}
+  {% if reviewer %}
+    <p class="muted-line">最近审核人：{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</p>
+  {% endif %}
+
+  {% if reimbursement.status == "submitted" and normalized_role() in ["admin", "manager"] %}
+    <dialog id="returnCustomerReimbursementDialog" class="modal">
+      <form method="post" action="{{ url_for('return_customer_reimbursement', reimbursement_id=reimbursement.id) }}" class="form-stack">
+        <h2>退回甲方费用报销表</h2>
+        <label>退回原因 <textarea name="return_reason" rows="5" required></textarea></label>
+        <div class="form-actions">
+          <button type="button" onclick="document.querySelector('#returnCustomerReimbursementDialog').close()">取消</button>
+          <button class="danger" type="submit">确认退回</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
 
   <section class="panel">
     <div class="metric-grid">
@@ -31,6 +62,7 @@
   </section>
 
   <form id="customerReimbursementForm" method="post" enctype="multipart/form-data" class="panel form-stack">
+    <fieldset class="plain-fieldset" {% if not can_edit %}disabled{% endif %}>
     <div class="panel-title">
       <h2>明细</h2>
       <button class="small" type="button" id="addCustomerReimbursementRow">添加行</button>
@@ -112,6 +144,7 @@
         </tbody>
       </table>
     </section>
+    </fieldset>
   </form>
 {% endblock %}
 {% block scripts %}

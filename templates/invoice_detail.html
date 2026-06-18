@@ -24,11 +24,7 @@
       {% if g.user.role == "admin" and not invoice.paid_at and invoice.status != "draft" %}
         <button type="button" onclick="document.querySelector('#adminStatusDialog').showModal()">管理员改状态</button>
       {% endif %}
-      {% if invoice.status == "submitted" and g.user.role in ["admin", "manager"] %}
-        <form method="post" action="{{ url_for('complete_invoice', invoice_id=invoice.id) }}"><button class="primary" type="submit">审核通过</button></form>
-        <button class="danger" type="button" onclick="document.querySelector('#returnDialog').showModal()">退回</button>
-      {% endif %}
-      {% if invoice.status in ["draft", "returned"] and (invoice.created_by == g.user.id or g.user.role in ["admin", "manager"]) %}
+      {% if invoice.status == "draft" and (invoice.created_by == g.user.id or g.user.role in ["admin", "manager"]) %}
         <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_invoice', invoice_id=invoice.id) }}'">编辑</button>
       {% endif %}
       {% if invoice.status not in ["void", "completed"] %}
@@ -36,7 +32,7 @@
       {% endif %}
       {% if normalized_role() == "admin" or (invoice.status == "void" and normalized_role() == "manager") %}
         <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张作废发票吗？');"><button class="danger" type="submit">删除</button></form>
-      {% elif invoice.status in ["draft", "returned"] and (invoice.created_by == g.user.id or normalized_role() == "manager") %}
+      {% elif invoice.status == "draft" and (invoice.created_by == g.user.id or normalized_role() == "manager") %}
         <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张发票吗？');"><button class="danger" type="submit">删除</button></form>
       {% endif %}
     </div>
@@ -55,19 +51,6 @@
         <div class="form-actions">
           <button type="button" onclick="document.querySelector('#adminStatusDialog').close()">取消</button>
           <button class="primary" type="submit">确认修改</button>
-        </div>
-      </form>
-    </dialog>
-  {% endif %}
-
-  {% if invoice.status == "submitted" and g.user.role in ["admin", "manager"] %}
-    <dialog id="returnDialog" class="modal no-print">
-      <form method="post" action="{{ url_for('return_invoice', invoice_id=invoice.id) }}" class="form-stack">
-        <h2>退回发票</h2>
-        <label>退回原因 <textarea name="return_reason" rows="5" required></textarea></label>
-        <div class="form-actions">
-          <button type="button" onclick="document.querySelector('#returnDialog').close()">取消</button>
-          <button class="danger" type="submit">确认退回</button>
         </div>
       </form>
     </dialog>
@@ -103,9 +86,6 @@
     <iframe id="attachmentPreviewFrame" title="附件预览"></iframe>
   </dialog>
 
-  {% if invoice.status == "returned" and invoice.return_reason %}
-    <section class="panel no-print"><div class="flash error">退回原因：{{ invoice.return_reason }}</div></section>
-  {% endif %}
   {% if invoice.paid_at %}
     <section class="panel no-print">
       <div class="flash success">已核销：{{ invoice.paid_at }}，收款金额 {{ invoice.payment_amount|money(invoice.currency) }}{% if invoice.payment_note %}<br>{{ invoice.payment_note }}{% endif %}</div>
