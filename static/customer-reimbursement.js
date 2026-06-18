@@ -4,6 +4,21 @@ const attachmentInput = document.getElementById("customerReimbursementAttachment
 const selectedFiles = document.getElementById("selectedCustomerReimbursementFiles");
 const reimbursementForm = document.getElementById("customerReimbursementForm");
 let reimbursementSubmitting = false;
+let reimbursementResetTimer = null;
+
+function resetReimbursementSubmitState() {
+  reimbursementSubmitting = false;
+  window.clearTimeout(reimbursementResetTimer);
+  reimbursementResetTimer = null;
+  reimbursementForm?.querySelectorAll('input[data-submit-action="true"]').forEach((input) => input.remove());
+  document.querySelectorAll(`button[form="${reimbursementForm?.id}"]`).forEach((button) => {
+    button.disabled = false;
+    if (button.dataset.originalText) {
+      button.textContent = button.dataset.originalText;
+      delete button.dataset.originalText;
+    }
+  });
+}
 
 function cloneCustomerReimbursementRow() {
   const body = table?.querySelector("tbody");
@@ -60,10 +75,22 @@ reimbursementForm?.addEventListener("submit", (event) => {
     action.type = "hidden";
     action.name = "action";
     action.value = submitter.value;
+    action.dataset.submitAction = "true";
     reimbursementForm.appendChild(action);
   }
   document.querySelectorAll(`button[form="${reimbursementForm.id}"]`).forEach((button) => {
+    button.dataset.originalText = button.textContent;
     button.disabled = true;
     if (button === submitter) button.textContent = "处理中...";
   });
+  if (submitter?.value === "generate_pdf") {
+    reimbursementResetTimer = window.setTimeout(resetReimbursementSubmitState, 1500);
+  }
 });
+
+window.addEventListener("focus", () => {
+  if (reimbursementSubmitting && reimbursementResetTimer) {
+    resetReimbursementSubmitState();
+  }
+});
+window.addEventListener("pageshow", resetReimbursementSubmitState);
