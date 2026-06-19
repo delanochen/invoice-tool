@@ -156,14 +156,17 @@
           </section>
         {% endif %}
         {% if user_attachments[user.id] %}
-          <section class="subsection">
+          <section class="subsection" data-user-attachments>
             <h3>已有附件</h3>
+            <p class="empty" data-attachment-empty hidden>暂无附件。</p>
             {% for attachment in user_attachments[user.id] %}
-              <div class="attachment-row">
+              <div class="attachment-row" data-attachment-row>
                 <a href="{{ url_for('download_user_attachment', attachment_id=attachment.id) }}">{{ attachment.original_filename }}</a>
-                <form method="post" action="{{ url_for('delete_user_attachment', attachment_id=attachment.id) }}">
-                  <button class="danger small" type="submit">删除</button>
-                </form>
+                <button
+                  class="danger small"
+                  type="button"
+                  data-delete-user-attachment="{{ url_for('delete_user_attachment', attachment_id=attachment.id) }}"
+                >删除</button>
               </div>
             {% endfor %}
           </section>
@@ -176,4 +179,5 @@
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260619-external-roles') }}"></script>
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
+  <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
 {% endblock %}
