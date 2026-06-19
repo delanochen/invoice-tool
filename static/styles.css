@@ -1022,6 +1022,23 @@ body.service-order-map-page {
     align-items: center;
     margin-bottom: 8px;
   }
+  body.service-order-map-page {
+    display: block;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+  .service-order-map-page .sidebar {
+    display: none;
+  }
+  .service-order-map-page .main {
+    display: block;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 10px;
+  }
   .service-order-map-page .page-header .actions { flex-direction: row; }
   .service-order-map-page .page-header h1 { font-size: 22px; }
   .service-order-map-page .page-header .eyebrow { display: none; }
@@ -1034,9 +1051,20 @@ body.service-order-map-page {
     grid-column: 1 / -1;
     min-height: 24px;
   }
+  .service-order-map-page .service-map-layout {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
   .service-order-map-page .service-order-map {
-    height: 100%;
-    min-height: 0;
+    height: clamp(480px, calc(100dvh - 190px), 760px);
+    min-height: 480px;
+    border-radius: 7px 7px 0 0;
+  }
+  .service-order-map-page .map-unlocated-panel {
+    max-height: 240px;
+    overflow-y: auto;
+    border-top: 1px solid var(--line);
   }
   .service-order-map-page .map-attribution-note {
     margin-top: 4px;
