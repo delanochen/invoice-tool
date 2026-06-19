@@ -4773,6 +4773,7 @@ def new_service_order():
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         form_title="新建工单",
+        start_date_only=False,
     )
 
 
@@ -4780,8 +4781,31 @@ def new_service_order():
 @login_required
 def edit_service_order(order_id):
     order = require_service_order(order_id)
-    if not is_internal_user():
-        abort(403)
+    if is_external_user():
+        if request.method == "POST":
+            db().execute(
+                "update service_orders set start_date = ? where id = ?",
+                (request.form.get("start_date") or None, order_id),
+            )
+            log_action(
+                "update",
+                "service_order",
+                order_id,
+                order["order_number"],
+                "修改工单开始日期",
+            )
+            db().commit()
+            flash("工单开始日期已保存。", "success")
+            return redirect(url_for("service_order_detail", order_id=order_id))
+        return render_template(
+            "service_order_form.html",
+            order=order,
+            clients=[],
+            buyers=[],
+            work_order_types=[],
+            form_title="修改工单开始日期",
+            start_date_only=True,
+        )
     buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
     clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
@@ -4842,6 +4866,7 @@ def edit_service_order(order_id):
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         form_title="编辑工单",
+        start_date_only=False,
     )
 
 

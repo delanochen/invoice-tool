@@ -9,6 +9,15 @@
     </div>
   </header>
   <form method="post" class="panel form-stack narrow-form" id="serviceOrderForm">
+    {% if start_date_only %}
+      <div class="detail-grid">
+        <p><strong>工单编号</strong><span>{{ order.order_number }}</span></p>
+        <p><strong>需方名称</strong><span>{{ order.client_name }}</span></p>
+        <p><strong>服务订单号码</strong><span>{{ order.client_order_number }}</span></p>
+        <p><strong>服务现场地址</strong><span>{{ order.site_address }}</span></p>
+      </div>
+      <label>开始日期 <input type="date" name="start_date" value="{{ order.start_date or '' }}"></label>
+    {% else %}
     {% if order %}
       <label>工单编号 <input value="{{ order.order_number }}" readonly></label>
     {% endif %}
@@ -64,6 +73,7 @@
           <option value="closed" {% if order.status == "closed" %}selected{% endif %}>已完成</option>
         </select>
       </label>
+    {% endif %}
     {% endif %}
   </form>
 {% endblock %}
