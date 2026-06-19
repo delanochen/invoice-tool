@@ -20,13 +20,16 @@
             <a href="{{ url_for('invoices') }}">发票</a>
           {% endif %}
           <a href="{{ url_for('service_orders') }}">工单</a>
-          <a href="{{ url_for('service_order_map') }}">需方地图</a>
-          {% if g.user.role != "external" %}
+          {% if not is_external_employee() %}
+            <a href="{{ url_for('service_order_map') }}">需方地图</a>
+          {% endif %}
+          {% if not is_external_manager() and not is_external_employee() %}
             <a href="{{ url_for('expense_processing') }}">报销处理</a>
           {% endif %}
           {% if can_create_invoice() %}
             <a href="{{ url_for('new_invoice') }}">新建发票</a>
           {% endif %}
+          {% if not is_external_manager() and not is_external_employee() %}
           <details class="nav-group">
             <summary>报表</summary>
             <div class="nav-submenu">
@@ -42,8 +45,9 @@
               {% endif %}
             </div>
           </details>
+          {% endif %}
           <a href="{{ url_for('messages') }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>
-          {% if g.user.role != "external" %}
+          {% if not is_external_manager() and not is_external_employee() %}
             <details class="nav-group">
               <summary>基础数据</summary>
               <div class="nav-submenu">
@@ -56,11 +60,18 @@
                   <a href="{{ url_for('projects') }}">项目</a>
                 {% endif %}
                 {% if normalized_role() == "admin" %}
-                  <a href="{{ url_for('company_settings') }}">公司设置</a>
+                  <a href="{{ url_for('company_info') }}">公司信息</a>
+                  <a href="{{ url_for('system_settings') }}">系统设置</a>
                 {% endif %}
                 <a href="{{ url_for('users') }}">用户</a>
               </div>
             </details>
+          {% else %}
+            {% if is_external_manager() %}
+              <a href="{{ url_for('clients') }}">客户信息</a>
+              <a href="{{ url_for('buyers') }}">需方</a>
+            {% endif %}
+            <a href="{{ url_for('users') }}">我的资料</a>
           {% endif %}
         </nav>
         <div class="user-box">

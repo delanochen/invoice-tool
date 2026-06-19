@@ -8,13 +8,17 @@
       <p class="muted-line">{{ order.client_name }} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
-      <button type="button" onclick="window.location.href='{{ url_for('edit_service_order', order_id=order.id) }}'">编辑工单</button>
+      {% if not is_external_manager() and not is_external_employee() %}
+        <button type="button" onclick="window.location.href='{{ url_for('edit_service_order', order_id=order.id) }}'">编辑工单</button>
+      {% endif %}
       {% if invoices and can_view_invoices() %}
         <button type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=invoices[0].id) }}'">查看发票</button>
       {% elif can_create_invoice() and customer_reimbursement and customer_reimbursement.status == "approved" %}
         <button type="button" onclick="window.location.href='{{ url_for('new_invoice', service_order_id=order.id, customer_reimbursement_id=customer_reimbursement.id) }}'">生成发票</button>
       {% endif %}
-      <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+      {% if can_create_service_report(order) %}
+        <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+      {% endif %}
       {% if can_create_expense() %}
         <button type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增报销</button>
       {% endif %}
@@ -39,7 +43,9 @@
   <section class="panel">
     <div class="panel-title">
       <h2>工作日报</h2>
-      <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+      {% if can_create_service_report(order) %}
+        <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+      {% endif %}
     </div>
     <table class="list-table">
       <thead><tr><th>报告日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>操作</th></tr></thead>
@@ -53,7 +59,11 @@
             <td>{{ report.travel_hours }}</td>
             <td>
               <div class="row-actions">
-                <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_service_report', report_id=report.id) }}'">编辑</button>
+                {% if is_external_manager() %}
+                  <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_service_report', report_id=report.id) }}'">查看</button>
+                {% elif not is_external_employee() or report.created_by == g.user.id %}
+                  <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_service_report', report_id=report.id) }}'">编辑</button>
+                {% endif %}
                 <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
                   <button class="small" type="submit">导出 Word</button>
                 </form>
@@ -71,6 +81,7 @@
       </tbody>
     </table>
   </section>
+  {% if not is_external_manager() and not is_external_employee() %}
   <section class="panel">
     <div class="panel-title">
       <h2>员工报销</h2>
@@ -96,13 +107,16 @@
       </tbody>
     </table>
   </section>
-  {% if can_manage_customer_reimbursement() %}
+  {% endif %}
+  {% if can_view_customer_reimbursement() %}
     <section class="panel">
       <div class="panel-title">
         <h2>甲方费用报销表</h2>
-        <button class="small" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">
-          {% if customer_reimbursement %}编辑甲方费用报销表{% else %}生成甲方费用报销表{% endif %}
-        </button>
+        {% if customer_reimbursement or can_manage_customer_reimbursement() %}
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">
+            {% if can_manage_customer_reimbursement() %}{% if customer_reimbursement %}编辑甲方费用报销表{% else %}生成甲方费用报销表{% endif %}{% else %}查看甲方费用报销表{% endif %}
+          </button>
+        {% endif %}
       </div>
       {% if customer_reimbursement %}
         <div class="metric-grid">

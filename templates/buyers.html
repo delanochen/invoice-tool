@@ -56,7 +56,15 @@
   </section>
 
   <dialog id="newBuyerDialog" class="modal-dialog">
-    <form method="post" class="form-stack">
+      <form method="post" class="form-stack">
+        {% if not is_external_manager() %}
+          <label>所属客户
+            <select name="client_id">
+              <option value="">未指定</option>
+              {% for client in clients %}<option value="{{ client.id }}">{{ client.client_number }} · {{ client.name }}</option>{% endfor %}
+            </select>
+          </label>
+        {% endif %}
       <div class="dialog-header">
         <h2>新增需方</h2>
         <button class="small" type="button" data-dialog-close>关闭</button>

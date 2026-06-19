@@ -3,60 +3,74 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Users</p><h1>用户管理</h1></div>
-    {% if can_manage %}
+    {% if can_assign %}
       <button class="primary" type="button" data-dialog-open="newUserDialog">新增用户</button>
     {% endif %}
   </header>
 
   <section class="panel users-panel">
-    <div class="panel-title"><h2>{% if can_manage %}已有用户{% else %}我的信息{% endif %}</h2><span class="muted-line">{{ users|length }} 个用户</span></div>
+    <div class="panel-title"><h2>{% if can_assign %}用户与工单授权{% else %}我的信息{% endif %}</h2><span class="muted-line">{{ users|length }} 个用户</span></div>
     <table class="list-table users-table">
-      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>绑定客户</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>绑定客户</th><th>附件</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for user in users %}
           <tr>
-            <td data-label="姓名">{{ user.name }}</td>
-            <td data-label="邮箱">{{ user.email }}</td>
-            <td data-label="角色">{{ user.role|role_label }}</td>
-            <td data-label="绑定客户">{{ user.client_name or "-" }}</td>
-            <td data-label="创建时间">{{ user.created_at[:10] }}</td>
-            <td data-label="操作">
-              <div class="row-actions">
-                <button class="small" type="button" data-dialog-open="editUser{{ user.id }}">编辑</button>
-                {% if can_manage %}
-                  <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" onsubmit="return confirm('确定删除这个用户吗？已经创建过发票的用户不会被删除。');">
-                    <button class="danger small" type="submit">删除</button>
-                  </form>
-                {% endif %}
-              </div>
-            </td>
+            <td>{{ user.name }}</td>
+            <td>{{ user.email }}</td>
+            <td>{{ user.role|role_label }}</td>
+            <td>{{ user.client_name or "-" }}</td>
+            <td>{{ user_attachments[user.id]|length }}</td>
+            <td>{{ user.created_at[:10] }}</td>
+            <td><div class="row-actions">
+              <button class="small" type="button" data-dialog-open="editUser{{ user.id }}">编辑</button>
+              {% if can_manage %}
+                <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" onsubmit="return confirm('确定删除这个用户吗？');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              {% endif %}
+            </div></td>
           </tr>
         {% else %}
-          <tr><td colspan="6" class="empty">还没有用户。</td></tr>
+          <tr><td colspan="7" class="empty">还没有用户。</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </section>
 
-  {% if can_manage %}
+  {% if can_assign %}
     <dialog id="newUserDialog" class="modal-dialog">
-      <form method="post" class="form-stack">
-        <div class="dialog-header">
-          <h2>新增用户</h2>
-          <button class="small" type="button" data-dialog-close>关闭</button>
-        </div>
+      <form method="post" enctype="multipart/form-data" class="form-stack">
+        <div class="dialog-header"><h2>新增用户</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
         <div class="form-grid two-columns">
           <label>姓名 <input name="name" required></label>
           <label>邮箱 <input type="email" name="email" required></label>
           <label>密码 <input type="password" name="password" minlength="8" required></label>
+          {% if can_manage %}
           <label>角色
             <select name="role">
-              {% for value, label in role_options.items() %}
-                <option value="{{ value }}">{{ label }}</option>
-              {% endfor %}
+              {% for value, label in role_options.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
             </select>
           </label>
+          {% else %}
+            <input type="hidden" name="role" value="external_employee">
+            <label>角色 <input value="外部员工" readonly></label>
+          {% endif %}
+          <label>外部用户对应客户
+            <select name="client_id">
+              <option value="">不绑定</option>
+              {% for client in clients %}<option value="{{ client.id }}">{{ client.client_number }} · {{ client.name }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>用户附件 <input type="file" name="attachments" multiple></label>
         </div>
+        <section class="subsection">
+          <h3>外部员工工单授权</h3>
+          <div class="check-grid">
+            {% for order in service_orders %}
+              <label class="check-chip"><input type="checkbox" name="service_order_id" value="{{ order.id }}"> {{ order.order_number }} · {{ order.client_name }}</label>
+            {% endfor %}
+          </div>
+        </section>
         <div class="form-actions"><button class="primary" type="submit">创建用户</button></div>
       </form>
     </dialog>
@@ -64,11 +78,8 @@
 
   {% for user in users %}
     <dialog id="editUser{{ user.id }}" class="modal-dialog">
-      <form method="post" action="{{ url_for('edit_user', user_id=user.id) }}" class="form-stack">
-        <div class="dialog-header">
-          <h2>编辑用户</h2>
-          <button class="small" type="button" data-dialog-close>关闭</button>
-        </div>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('edit_user', user_id=user.id) }}" class="form-stack">
+        <div class="dialog-header"><h2>编辑用户</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
         <div class="form-grid two-columns">
           <label>姓名 <input name="name" value="{{ user.name }}" required></label>
           <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
@@ -80,16 +91,48 @@
                 {% endfor %}
               </select>
             </label>
+            <label>外部用户对应客户
+              <select name="client_id">
+                <option value="">不绑定</option>
+                {% for client in clients %}
+                  <option value="{{ client.id }}" {% if user.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
           {% else %}
             <label>角色 <input value="{{ user.role|role_label }}" readonly></label>
           {% endif %}
           <label>新密码 <input type="password" name="password" minlength="8" placeholder="留空则不修改密码"></label>
+          <label>新增附件 <input type="file" name="attachments" multiple></label>
         </div>
+        {% if can_assign and normalized_role(user.role) == "external_employee" %}
+          <section class="subsection">
+            <h3>外部员工工单授权</h3>
+            <div class="check-grid">
+              {% for order in service_orders %}
+                <label class="check-chip"><input type="checkbox" name="service_order_id" value="{{ order.id }}" {% if order.id in user_order_ids[user.id] %}checked{% endif %}> {{ order.order_number }} · {{ order.client_name }}</label>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+        {% if user_attachments[user.id] %}
+          <section class="subsection">
+            <h3>已有附件</h3>
+            {% for attachment in user_attachments[user.id] %}
+              <div class="attachment-row">
+                <a href="{{ url_for('download_user_attachment', attachment_id=attachment.id) }}">{{ attachment.original_filename }}</a>
+                <form method="post" action="{{ url_for('delete_user_attachment', attachment_id=attachment.id) }}">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div>
+            {% endfor %}
+          </section>
+        {% endif %}
         <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
       </form>
     </dialog>
   {% endfor %}
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
+  <script src="{{ url_for('static', filename='modal-forms.js', v='20260619-external-roles') }}"></script>
 {% endblock %}

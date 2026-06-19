@@ -61,6 +61,8 @@ ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
 REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
 EXPENSE_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "expense-attachments")
 CUSTOMER_REIMBURSEMENT_DIR = os.path.join(DATA_DIR, "customer-reimbursements")
+COMPANY_ATTACHMENT_DIR = os.path.join(DATA_DIR, "company-attachments")
+USER_ATTACHMENT_DIR = os.path.join(DATA_DIR, "user-attachments")
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
@@ -79,6 +81,8 @@ DEFAULT_COMPANY_PROFILE = {
     "address": "6131 Fenske Lane, Needville, TX 77461, US",
     "email": "info@prasinospower.com",
     "phone": "+1 910 910 9191",
+    "registration_number": "805498356",
+    "ein": "99-2440677",
     "tax_note": (
         "No Texas sales tax is charged on this invoice because the customer is located outside "
         "the United States. Customer is responsible for any applicable local taxes, withholding, "
@@ -165,6 +169,8 @@ ROLE_OPTIONS = {
     "manager": "经理",
     "finance": "财务",
     "employee": "员工",
+    "external_manager": "外部管理员",
+    "external_employee": "外部员工",
 }
 
 PROJECT_TYPE_LABELS = {
@@ -202,6 +208,8 @@ def db():
         os.makedirs(REPORT_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(EXPENSE_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(CUSTOMER_REIMBURSEMENT_DIR, exist_ok=True)
+        os.makedirs(COMPANY_ATTACHMENT_DIR, exist_ok=True)
+        os.makedirs(USER_ATTACHMENT_DIR, exist_ok=True)
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
     return g.db
@@ -323,6 +331,39 @@ def init_db():
             create table if not exists settings (
                 key text primary key,
                 value text not null
+            );
+
+            create table if not exists company_attachments (
+                id integer primary key autoincrement,
+                original_filename text not null,
+                stored_filename text not null,
+                content_type text,
+                uploaded_by integer not null,
+                uploaded_at text not null,
+                foreign key(uploaded_by) references users(id)
+            );
+
+            create table if not exists user_attachments (
+                id integer primary key autoincrement,
+                user_id integer not null,
+                original_filename text not null,
+                stored_filename text not null,
+                content_type text,
+                uploaded_by integer not null,
+                uploaded_at text not null,
+                foreign key(user_id) references users(id) on delete cascade,
+                foreign key(uploaded_by) references users(id)
+            );
+
+            create table if not exists user_service_orders (
+                user_id integer not null,
+                service_order_id integer not null,
+                assigned_by integer not null,
+                assigned_at text not null,
+                primary key(user_id, service_order_id),
+                foreign key(user_id) references users(id) on delete cascade,
+                foreign key(service_order_id) references service_orders(id) on delete cascade,
+                foreign key(assigned_by) references users(id)
             );
 
             create table if not exists buyers (
@@ -595,6 +636,15 @@ def init_db():
         ensure_column(connection, "service_orders", "buyer_contact_details", "text")
         ensure_column(connection, "service_orders", "start_date", "text")
         ensure_column(connection, "service_orders", "work_order_type_id", "integer")
+        ensure_column(connection, "buyers", "client_id", "integer")
+        connection.execute(
+            """
+            update buyers
+            set client_id = (select id from clients where client_number = '00001' limit 1)
+            where client_id is null
+              and exists (select 1 from clients where client_number = '00001')
+            """
+        )
         connection.execute(
             """
             update service_orders
@@ -704,6 +754,7 @@ def init_db():
             where status in ('submitted', 'returned')
             """
         )
+        connection.execute("update users set role = 'external_manager' where role = 'external'")
         connection.execute(
             """
             update users
@@ -801,6 +852,88 @@ def get_google_geocoding_api_key():
     return get_setting("google_geocoding_api_key", GOOGLE_GEOCODING_API_KEY_ENV).strip()
 
 
+def save_named_attachment(uploaded, directory, table, owner_column=None, owner_id=None):
+    if not uploaded or not uploaded.filename:
+        return
+    if not allowed_attachment(uploaded.filename):
+        raise ValueError(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。")
+    source_filename = uploaded.filename or "attachment"
+    extension = source_filename.rsplit(".", 1)[1].lower()
+    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
+    stored_filename = f"{secrets.token_hex(12)}.{extension}"
+    os.makedirs(directory, exist_ok=True)
+    uploaded.save(os.path.join(directory, stored_filename))
+    if owner_column:
+        db().execute(
+            f"""
+            insert into {table} (
+                {owner_column}, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+            ) values (?, ?, ?, ?, ?, ?)
+            """,
+            (owner_id, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+        )
+    else:
+        db().execute(
+            f"""
+            insert into {table} (
+                original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+            ) values (?, ?, ?, ?, ?)
+            """,
+            (original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+        )
+
+
+def get_company_attachments():
+    return db().execute(
+        """
+        select company_attachments.*, users.name as uploader_name
+        from company_attachments
+        left join users on users.id = company_attachments.uploaded_by
+        order by uploaded_at desc, id desc
+        """
+    ).fetchall()
+
+
+def get_user_attachments(user_id):
+    return db().execute(
+        """
+        select user_attachments.*, users.name as uploader_name
+        from user_attachments
+        left join users on users.id = user_attachments.uploaded_by
+        where user_attachments.user_id = ?
+        order by uploaded_at desc, user_attachments.id desc
+        """,
+        (user_id,),
+    ).fetchall()
+
+
+def assigned_service_order_ids(user_id):
+    return {
+        row["service_order_id"]
+        for row in db().execute(
+            "select service_order_id from user_service_orders where user_id = ?",
+            (user_id,),
+        ).fetchall()
+    }
+
+
+def save_user_service_order_assignments(user_id, role):
+    db().execute("delete from user_service_orders where user_id = ?", (user_id,))
+    if role != "external_employee":
+        return
+    order_ids = {int(value) for value in request.form.getlist("service_order_id") if value.isdigit()}
+    for order_id in order_ids:
+        order = db().execute("select client_id from service_orders where id = ?", (order_id,)).fetchone()
+        if order and (not is_external_manager() or order["client_id"] == g.user["client_id"]):
+            db().execute(
+                """
+                insert into user_service_orders (user_id, service_order_id, assigned_by, assigned_at)
+                values (?, ?, ?, ?)
+                """,
+                (user_id, order_id, g.user["id"], now()),
+            )
+
+
 def current_user():
     user_id = session.get("user_id")
     if not user_id:
@@ -836,7 +969,15 @@ def admin_required(view):
 
 
 def is_external_user():
-    return g.user and g.user["role"] == "external"
+    return g.user and normalized_role() in {"external_manager", "external_employee"}
+
+
+def is_external_manager():
+    return g.user and normalized_role() == "external_manager"
+
+
+def is_external_employee():
+    return g.user and normalized_role() == "external_employee"
 
 
 def normalized_role(role=None):
@@ -845,6 +986,8 @@ def normalized_role(role=None):
         return "finance"
     if role == "user":
         return "employee"
+    if role == "external":
+        return "external_manager"
     return role
 
 
@@ -857,7 +1000,7 @@ def is_manager():
 
 
 def can_view_invoices():
-    return g.user and normalized_role() in {"admin", "manager", "finance"}
+    return g.user and normalized_role() in {"admin", "manager", "finance", "external_manager"}
 
 
 def can_create_invoice():
@@ -876,8 +1019,46 @@ def can_manage_customer_reimbursement():
     return g.user and normalized_role() in {"admin", "manager", "finance"}
 
 
+def can_view_customer_reimbursement():
+    return can_manage_customer_reimbursement() or is_external_manager()
+
+
+def can_create_service_report(order=None):
+    if not g.user:
+        return False
+    if is_internal_user():
+        return True
+    if is_external_employee() and order is not None:
+        return can_access_service_order(order)
+    return False
+
+
 def can_manage_users():
     return g.user and normalized_role() == "admin"
+
+
+def can_assign_external_employees():
+    return can_manage_users() or is_external_manager()
+
+
+def can_manage_user_record(user):
+    if can_manage_users() or user["id"] == g.user["id"]:
+        return True
+    return (
+        is_external_manager()
+        and normalized_role(user["role"]) == "external_employee"
+        and user["client_id"] == g.user["client_id"]
+    )
+
+
+def can_manage_buyers():
+    return is_manager() or is_external_manager()
+
+
+def can_access_buyer(buyer):
+    if is_manager():
+        return True
+    return is_external_manager() and bool(g.user["client_id"]) and buyer["client_id"] == g.user["client_id"]
 
 
 def can_view_audit_logs():
@@ -889,7 +1070,7 @@ def can_access_client(client_id):
         return False
     if is_internal_user():
         return True
-    return g.user["client_id"] == client_id
+    return is_external_manager() and g.user["client_id"] == client_id
 
 
 def require_invoice_access(invoice_id):
@@ -904,15 +1085,30 @@ def require_invoice_access(invoice_id):
 
 
 def client_filter_clause(alias="invoices"):
-    if is_external_user():
+    if is_external_manager():
         if not g.user["client_id"]:
             return "1 = 0", []
         return f"{alias}.client_id = ?", [g.user["client_id"]]
+    if is_external_employee():
+        return (
+            f"{alias}.service_order_id in (select service_order_id from user_service_orders where user_id = ?)",
+            [g.user["id"]],
+        )
     return "1 = 1", []
 
 
 def role_label(role):
-    labels = {"admin": "管理员", "manager": "经理", "finance": "财务", "employee": "员工", "user": "员工", "internal": "财务", "external": "员工"}
+    labels = {
+        "admin": "管理员",
+        "manager": "经理",
+        "finance": "财务",
+        "employee": "员工",
+        "user": "员工",
+        "internal": "财务",
+        "external": "外部管理员",
+        "external_manager": "外部管理员",
+        "external_employee": "外部员工",
+    }
     return labels.get(role, role)
 
 
@@ -980,6 +1176,11 @@ app.jinja_env.globals["can_create_invoice"] = can_create_invoice
 app.jinja_env.globals["can_create_service_order"] = can_create_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
+app.jinja_env.globals["can_view_customer_reimbursement"] = can_view_customer_reimbursement
+app.jinja_env.globals["can_create_service_report"] = can_create_service_report
+app.jinja_env.globals["is_external_manager"] = is_external_manager
+app.jinja_env.globals["is_external_employee"] = is_external_employee
+app.jinja_env.globals["can_assign_external_employees"] = can_assign_external_employees
 app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
@@ -1170,6 +1371,13 @@ def can_access_service_order(order):
         return False
     if is_internal_user():
         return True
+    if is_external_manager():
+        return bool(g.user["client_id"]) and order["client_id"] == g.user["client_id"]
+    if is_external_employee():
+        return db().execute(
+            "select 1 from user_service_orders where user_id = ? and service_order_id = ?",
+            (g.user["id"], order["id"]),
+        ).fetchone() is not None
     return False
 
 
@@ -1570,7 +1778,7 @@ def customer_reimbursement_attachment_path(attachment):
 
 
 def require_customer_reimbursement(reimbursement_id):
-    if not can_manage_customer_reimbursement():
+    if not can_view_customer_reimbursement():
         abort(403)
     reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement_id,)).fetchone()
     if not reimbursement:
@@ -2337,7 +2545,7 @@ def save_report_detail_rows(report_id):
     valid_workers = db().execute(
         f"""
         select id from users
-        where role in ('manager', 'finance', 'employee')
+        where role in ('manager', 'finance', 'employee', 'external_employee')
           and id in ({placeholders})
         """,
         worker_ids,
@@ -2838,15 +3046,15 @@ def register():
             cursor = db().execute(
                 """
                 insert into users (name, email, password_hash, role, created_at)
-                values (?, ?, ?, 'employee', ?)
+                values (?, ?, ?, 'external_employee', ?)
                 """,
                 (name or email, email, generate_password_hash(password), now()),
             )
             user_id = cursor.lastrowid
             notify_role(
-                ["admin"],
-                "新员工账号已注册",
-                f"{name or email} 已注册员工账号。",
+                ["admin", "manager"],
+                "新外部员工账号已注册",
+                f"{name or email} 已注册外部员工账号，请分配可访问的工单。",
                 url_for("edit_user", user_id=user_id),
             )
             db().commit()
@@ -2936,9 +3144,9 @@ def dashboard():
 @app.route("/clients", methods=["GET", "POST"])
 @login_required
 def clients():
-    if normalized_role() == "employee":
+    if normalized_role() in {"employee", "external_employee"}:
         abort(403)
-    if is_external_user() and not g.user["client_id"]:
+    if is_external_manager() and not g.user["client_id"]:
         flash("外部用户尚未绑定客户。", "error")
         return redirect(url_for("dashboard"))
     if request.method == "POST":
@@ -2967,7 +3175,7 @@ def clients():
             flash("客户编号重复，请重试。", "error")
         return redirect(url_for("clients"))
     q = request.args.get("q", "").strip()
-    if is_external_user():
+    if is_external_manager():
         rows = db().execute("select * from clients where id = ?", (g.user["client_id"],)).fetchall()
     else:
         params = []
@@ -3041,7 +3249,7 @@ def delete_client(client_id):
 @app.route("/buyers", methods=["GET", "POST"])
 @login_required
 def buyers():
-    if not is_manager():
+    if not can_manage_buyers():
         abort(403)
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -3053,12 +3261,15 @@ def buyers():
             db().execute(
                 """
                 insert into buyers (
-                    buyer_number, country, name, contact_name, contact_details,
+                    buyer_number, client_id, country, name, contact_name, contact_details,
                     detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_buyer_number(),
+                    g.user["client_id"] if is_external_manager() else (
+                        int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else None
+                    ),
                     request.form.get("country", "United States").strip() or "United States",
                     name,
                     request.form.get("contact_name", "").strip(),
@@ -3076,28 +3287,39 @@ def buyers():
         return redirect(url_for("buyers"))
     q = request.args.get("q", "").strip()
     params = []
-    where = ""
+    clauses = []
+    if is_external_manager():
+        clauses.append("buyers.client_id = ?")
+        params.append(g.user["client_id"])
     if q:
-        where = """
-        where buyer_number like ? or name like ? or contact_name like ?
-           or contact_details like ? or detailed_address like ? or equipment_manufacturer like ?
-        """
+        clauses.append(
+            """(
+            buyer_number like ? or name like ? or contact_name like ?
+            or contact_details like ? or detailed_address like ? or equipment_manufacturer like ?
+            )"""
+        )
         params = [f"%{q}%"] * 6
+        if is_external_manager():
+            params.insert(0, g.user["client_id"])
+    where = f"where {' and '.join(clauses)}" if clauses else ""
     rows = db().execute(
         f"select * from buyers {where} order by buyer_number",
         params,
     ).fetchall()
-    return render_template("buyers.html", buyers=rows, q=q)
+    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
+    return render_template("buyers.html", buyers=rows, clients=clients_rows, q=q)
 
 
 @app.route("/buyers/<int:buyer_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_buyer(buyer_id):
-    if not is_manager():
+    if not can_manage_buyers():
         abort(403)
     buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
     if not buyer:
         abort(404)
+    if not can_access_buyer(buyer):
+        abort(403)
     if request.method == "POST":
         buyer_number = request.form.get("buyer_number", "").strip().upper()
         name = request.form.get("name", "").strip()
@@ -3110,12 +3332,15 @@ def edit_buyer(buyer_id):
             db().execute(
                 """
                 update buyers
-                set buyer_number = ?, country = ?, name = ?, contact_name = ?,
+                set buyer_number = ?, client_id = ?, country = ?, name = ?, contact_name = ?,
                     contact_details = ?, detailed_address = ?, equipment_manufacturer = ?
                 where id = ?
                 """,
                 (
                     buyer_number,
+                    g.user["client_id"] if is_external_manager() else (
+                        int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else buyer["client_id"]
+                    ),
                     request.form.get("country", "United States").strip() or "United States",
                     name,
                     request.form.get("contact_name", "").strip(),
@@ -3154,13 +3379,19 @@ def edit_buyer(buyer_id):
         except sqlite3.IntegrityError:
             db().rollback()
             flash("需方编号重复，请换一个编号。", "error")
-    return render_template("buyer_form.html", buyer=buyer)
+    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
+    return render_template("buyer_form.html", buyer=buyer, clients=clients_rows)
 
 
 @app.post("/buyers/<int:buyer_id>/delete")
 @login_required
 def delete_buyer(buyer_id):
-    if not is_manager():
+    if not can_manage_buyers():
+        abort(403)
+    buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
+    if not buyer:
+        abort(404)
+    if not can_access_buyer(buyer):
         abort(403)
     used = db().execute(
         "select count(*) as count from service_orders where buyer_id = ?",
@@ -3349,16 +3580,23 @@ def delete_project(project_id):
 @app.route("/users", methods=["GET", "POST"])
 @login_required
 def users():
-    if request.method == "POST" and not can_manage_users():
+    if request.method == "POST" and not can_assign_external_employees():
         abort(403)
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         name = request.form.get("name", "").strip() or email
         password = request.form.get("password", "")
         role = request.form.get("role", "employee")
+        if is_external_manager():
+            role = "external_employee"
         if role not in ROLE_OPTIONS:
             role = "employee"
-        client_id = None
+        client_id = (
+            g.user["client_id"]
+            if is_external_manager()
+            else int(request.form["client_id"]) if role in {"external_manager", "external_employee"} and request.form.get("client_id", "").isdigit()
+            else None
+        )
         if "�" in name:
             flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
             return redirect(url_for("users"))
@@ -3366,7 +3604,7 @@ def users():
             flash("密码至少需要 8 位。", "error")
             return redirect(url_for("users"))
         try:
-            db().execute(
+            cursor = db().execute(
                 """
                 insert into users (name, email, password_hash, role, client_id, created_at)
                 values (?, ?, ?, ?, ?, ?)
@@ -3380,10 +3618,24 @@ def users():
                     now(),
                 ),
             )
+            user_id = cursor.lastrowid
+            save_user_service_order_assignments(user_id, role)
+            for uploaded in uploaded_attachments_from_request():
+                save_named_attachment(
+                    uploaded,
+                    os.path.join(USER_ATTACHMENT_DIR, str(user_id)),
+                    "user_attachments",
+                    "user_id",
+                    user_id,
+                )
             db().commit()
             flash("用户已创建。", "success")
         except sqlite3.IntegrityError:
+            db().rollback()
             flash("这个邮箱已经存在。", "error")
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
         return redirect(url_for("users"))
     if can_manage_users():
         rows = db().execute(
@@ -3393,27 +3645,68 @@ def users():
             order by users.created_at desc
             """
         ).fetchall()
+    elif is_external_manager():
+        rows = db().execute(
+            """
+            select users.*, clients.name as client_name
+            from users left join clients on clients.id = users.client_id
+            where users.id = ?
+               or (users.role = 'external_employee' and users.client_id = ?)
+            order by users.created_at desc
+            """,
+            (g.user["id"], g.user["client_id"]),
+        ).fetchall()
     else:
         rows = db().execute("select users.*, null as client_name from users where id = ?", (g.user["id"],)).fetchall()
-    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template("users.html", users=rows, clients=clients_rows, role_options=ROLE_OPTIONS, can_manage=can_manage_users())
+    clients_rows = (
+        db().execute("select id, client_number, name from clients where id = ?", (g.user["client_id"],)).fetchall()
+        if is_external_manager()
+        else db().execute("select id, client_number, name from clients order by client_number").fetchall()
+    )
+    service_orders_rows = (
+        db().execute(
+            "select id, order_number, client_name from service_orders where client_id = ? order by created_at desc, id desc",
+            (g.user["client_id"],),
+        ).fetchall()
+        if is_external_manager()
+        else db().execute("select id, order_number, client_name from service_orders order by created_at desc, id desc").fetchall()
+    )
+    return render_template(
+        "users.html",
+        users=rows,
+        clients=clients_rows,
+        service_orders=service_orders_rows,
+        user_attachments={user["id"]: get_user_attachments(user["id"]) for user in rows},
+        user_order_ids={user["id"]: assigned_service_order_ids(user["id"]) for user in rows},
+        role_options=ROLE_OPTIONS,
+        can_manage=can_manage_users(),
+        can_assign=can_assign_external_employees(),
+    )
 
 
 @app.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_user(user_id):
-    if not can_manage_users() and user_id != g.user["id"]:
+    if not can_manage_users() and user_id != g.user["id"] and not is_external_manager():
         abort(403)
     user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
     if not user:
         abort(404)
+    if is_external_manager() and user_id != g.user["id"]:
+        if normalized_role(user["role"]) != "external_employee" or user["client_id"] != g.user["client_id"]:
+            abort(403)
     if request.method == "POST":
         email = request.form.get("email", user["email"]).strip().lower() if can_manage_users() else user["email"]
         name = request.form.get("name", "").strip() or email
         role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
         if role not in ROLE_OPTIONS and can_manage_users():
             role = "employee"
-        client_id = None
+        client_id = (
+            user["client_id"]
+            if not can_manage_users()
+            else int(request.form["client_id"]) if role in {"external_manager", "external_employee"} and request.form.get("client_id", "").isdigit()
+            else None
+        )
         password = request.form.get("password", "")
         admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
         if "�" in name:
@@ -3427,19 +3720,91 @@ def edit_user(user_id):
                 "update users set name = ?, email = ?, role = ?, client_id = ? where id = ?",
                 (name, email, role, client_id, user_id),
             )
+            if can_assign_external_employees():
+                save_user_service_order_assignments(user_id, role)
             if password:
                 if len(password) < 8:
                     flash("新密码至少需要 8 位。", "error")
                     return redirect(url_for("edit_user", user_id=user_id))
                 db().execute("update users set password_hash = ? where id = ?", (generate_password_hash(password), user_id))
+            for uploaded in uploaded_attachments_from_request():
+                save_named_attachment(
+                    uploaded,
+                    os.path.join(USER_ATTACHMENT_DIR, str(user_id)),
+                    "user_attachments",
+                    "user_id",
+                    user_id,
+                )
             db().commit()
             flash("用户资料已更新。", "success")
         except sqlite3.IntegrityError:
+            db().rollback()
             flash("这个邮箱已经存在。", "error")
             return redirect(url_for("edit_user", user_id=user_id))
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("edit_user", user_id=user_id))
         return redirect(url_for("users"))
-    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template("user_form.html", user=user, clients=clients_rows, role_options=ROLE_OPTIONS, can_manage=can_manage_users())
+    clients_rows = (
+        db().execute("select id, client_number, name from clients where id = ?", (g.user["client_id"],)).fetchall()
+        if is_external_manager()
+        else db().execute("select id, client_number, name from clients order by client_number").fetchall()
+    )
+    service_orders_rows = (
+        db().execute(
+            "select id, order_number, client_name from service_orders where client_id = ? order by created_at desc, id desc",
+            (g.user["client_id"],),
+        ).fetchall()
+        if is_external_manager()
+        else db().execute("select id, order_number, client_name from service_orders order by created_at desc, id desc").fetchall()
+    )
+    return render_template(
+        "user_form.html",
+        user=user,
+        clients=clients_rows,
+        service_orders=service_orders_rows,
+        selected_order_ids=assigned_service_order_ids(user_id),
+        attachments=get_user_attachments(user_id),
+        role_options=ROLE_OPTIONS,
+        can_manage=can_manage_users(),
+        can_assign=can_assign_external_employees(),
+    )
+
+
+@app.get("/user-attachments/<int:attachment_id>/download")
+@login_required
+def download_user_attachment(attachment_id):
+    attachment = db().execute("select * from user_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    owner = db().execute("select * from users where id = ?", (attachment["user_id"],)).fetchone()
+    if not owner or not can_manage_user_record(owner):
+        abort(403)
+    return send_file(
+        os.path.join(USER_ATTACHMENT_DIR, str(attachment["user_id"]), attachment["stored_filename"]),
+        as_attachment=True,
+        download_name=attachment["original_filename"],
+    )
+
+
+@app.post("/user-attachments/<int:attachment_id>/delete")
+@login_required
+def delete_user_attachment(attachment_id):
+    attachment = db().execute("select * from user_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    owner = db().execute("select * from users where id = ?", (attachment["user_id"],)).fetchone()
+    if not owner or not can_manage_user_record(owner):
+        abort(403)
+    try:
+        os.remove(os.path.join(USER_ATTACHMENT_DIR, str(attachment["user_id"]), attachment["stored_filename"]))
+    except FileNotFoundError:
+        pass
+    db().execute("delete from user_attachments where id = ?", (attachment_id,))
+    db().commit()
+    flash("用户附件已删除。", "success")
+    return redirect(url_for("users"))
 
 
 @app.post("/users/<int:user_id>/delete")
@@ -3466,23 +3831,15 @@ def delete_user(user_id):
     return redirect(url_for("users"))
 
 
-@app.route("/settings/company", methods=["GET", "POST"])
+@app.route("/settings/system", methods=["GET", "POST"])
 @admin_required
-def company_settings():
+def system_settings():
     if request.method == "POST":
-        for key in DEFAULT_COMPANY_PROFILE:
-            set_setting(f"company_{key}", request.form.get(f"company_{key}", "").strip())
+        set_setting("company_tax_note", request.form.get("company_tax_note", "").strip())
         for key in DEFAULT_PAYMENT_INSTRUCTIONS:
             set_setting(f"payment_{key}", request.form.get(f"payment_{key}", "").strip())
         for key in DEFAULT_SMTP_SETTINGS:
             set_setting(f"smtp_{key}", request.form.get(f"smtp_{key}", "").strip())
-        timezone_name = request.form.get("app_timezone", DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
-        try:
-            ZoneInfo(timezone_name)
-        except ZoneInfoNotFoundError:
-            flash("系统时区无效，请使用类似 America/Chicago 的时区名称。", "error")
-            return redirect(url_for("company_settings"))
-        set_setting("app_timezone", timezone_name)
         set_setting("invoice_terms", request.form.get("invoice_terms", "").strip())
         set_setting(
             "google_maps_browser_api_key",
@@ -3493,18 +3850,83 @@ def company_settings():
             request.form.get("google_geocoding_api_key", "").strip(),
         )
         db().commit()
-        flash("公司设置已保存。", "success")
-        return redirect(url_for("company_settings"))
+        flash("系统设置已保存。", "success")
+        return redirect(url_for("system_settings"))
     return render_template(
         "company_settings.html",
         company=get_company_profile(),
         payment=get_payment_instructions(),
         smtp=get_smtp_settings(),
         terms=get_invoice_terms(),
-        timezone_name=get_timezone_name(),
         google_maps_browser_api_key=get_google_maps_browser_api_key(),
         google_geocoding_api_key=get_google_geocoding_api_key(),
     )
+
+
+@app.route("/company-info", methods=["GET", "POST"])
+@admin_required
+def company_info():
+    if request.method == "POST":
+        for key in ("name", "address", "email", "phone", "registration_number", "ein"):
+            set_setting(f"company_{key}", request.form.get(f"company_{key}", "").strip())
+        timezone_name = request.form.get("app_timezone", DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
+        try:
+            ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            flash("系统时区无效，请使用类似 America/Chicago 的时区名称。", "error")
+            return redirect(url_for("company_info"))
+        set_setting("app_timezone", timezone_name)
+        try:
+            for uploaded in uploaded_attachments_from_request():
+                save_named_attachment(uploaded, COMPANY_ATTACHMENT_DIR, "company_attachments")
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("company_info"))
+        db().commit()
+        flash("公司信息已保存。", "success")
+        return redirect(url_for("company_info"))
+    return render_template(
+        "company_info.html",
+        company=get_company_profile(),
+        timezone_name=get_timezone_name(),
+        attachments=get_company_attachments(),
+    )
+
+
+@app.get("/company-attachments/<int:attachment_id>/download")
+@admin_required
+def download_company_attachment(attachment_id):
+    attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    return send_file(
+        os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]),
+        as_attachment=True,
+        download_name=attachment["original_filename"],
+    )
+
+
+@app.post("/company-attachments/<int:attachment_id>/delete")
+@admin_required
+def delete_company_attachment(attachment_id):
+    attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    try:
+        os.remove(os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]))
+    except FileNotFoundError:
+        pass
+    db().execute("delete from company_attachments where id = ?", (attachment_id,))
+    db().commit()
+    flash("公司附件已删除。", "success")
+    return redirect(url_for("company_info"))
+
+
+@app.get("/settings/company")
+@admin_required
+def legacy_company_settings():
+    return redirect(url_for("system_settings"))
 
 
 @app.route("/invoices")
@@ -4051,12 +4473,21 @@ def audit_log_report():
 @app.route("/service-orders")
 @login_required
 def service_orders():
-    if not is_internal_user():
-        abort(403)
     q = request.args.get("q", "").strip()
     buyer_id = request.args.get("buyer_id", "").strip()
     clauses = ["1 = 1"]
     params = []
+    if is_external_manager():
+        if not g.user["client_id"]:
+            clauses.append("1 = 0")
+        else:
+            clauses.append("service_orders.client_id = ?")
+            params.append(g.user["client_id"])
+    elif is_external_employee():
+        clauses.append(
+            "service_orders.id in (select service_order_id from user_service_orders where user_id = ?)"
+        )
+        params.append(g.user["id"])
     if q:
         clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_orders.client_order_number like ?)")
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
@@ -4104,7 +4535,7 @@ def buyer_map_payload(buyer):
         ),
         "detail_url": url_for("service_orders", buyer_id=buyer["id"]),
     }
-    if is_manager():
+    if can_manage_buyers():
         payload["edit_url"] = url_for("edit_buyer", buyer_id=buyer["id"])
     if can_view_invoices():
         payload["paid_invoice_amount"] = buyer["paid_invoice_amount"]
@@ -4167,9 +4598,13 @@ def buyer_map_rows(where_clause="1 = 1", params=()):
 @app.route("/service-orders/map")
 @login_required
 def service_order_map():
-    if not is_internal_user():
+    if not is_internal_user() and not is_external_manager():
         abort(403)
-    rows = buyer_map_rows()
+    rows = (
+        buyer_map_rows("buyers.client_id = ?", (g.user["client_id"],))
+        if is_external_manager()
+        else buyer_map_rows()
+    )
     buyers_payload = [buyer_map_payload(row) for row in rows]
     google_maps_browser_api_key = get_google_maps_browser_api_key()
     return render_template(
@@ -4191,21 +4626,28 @@ def service_order_map():
 @app.post("/service-orders/map/geocode-next")
 @login_required
 def geocode_next_service_order():
-    if not is_internal_user():
+    if not is_internal_user() and not is_external_manager():
         abort(403)
     if not GEOCODING_ENABLED:
         return jsonify({"available": False, "remaining": 0}), 503
+    client_clause = "and client_id = ?" if is_external_manager() else ""
+    geocode_params = [GEOCODER_VERSION]
+    if is_external_manager():
+        geocode_params.append(g.user["client_id"])
     buyer = db().execute(
-        """
+        f"""
         select id from buyers
-        where geocode_status is null or geocode_status = 'pending'
+        where (
+           geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
            or lower(trim(geocode_address)) != lower(trim(detailed_address))
            or coalesce(geocode_version, '') != ?
+        )
+        {client_clause}
         order by created_at desc, id desc
         limit 1
         """,
-        (GEOCODER_VERSION,),
+        geocode_params,
     ).fetchone()
     if not buyer:
         return jsonify({"available": True, "remaining": 0, "buyer": None})
@@ -4218,14 +4660,17 @@ def geocode_next_service_order():
     db().commit()
     refreshed = buyer_map_rows("buyers.id = ?", (buyer["id"],))[0]
     remaining = db().execute(
-        """
+        f"""
         select count(*) as count from buyers
-        where geocode_status is null or geocode_status = 'pending'
+        where (
+           geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
            or lower(trim(geocode_address)) != lower(trim(detailed_address))
            or coalesce(geocode_version, '') != ?
+        )
+        {client_clause}
         """,
-        (GEOCODER_VERSION,),
+        geocode_params,
     ).fetchone()["count"]
     return jsonify(
         {
@@ -4239,14 +4684,19 @@ def geocode_next_service_order():
 @app.post("/service-orders/map/retry-failed")
 @login_required
 def retry_failed_service_order_geocodes():
-    if not is_internal_user():
+    if not is_internal_user() and not is_external_manager():
         abort(403)
+    client_clause = "and client_id = ?" if is_external_manager() else ""
+    params = [g.user["client_id"]] if is_external_manager() else []
     db().execute(
-        """
+        f"""
         update buyers
         set geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
         where geocode_status = 'failed'
+        {client_clause}
         """
+        ,
+        params,
     )
     db().commit()
     return jsonify({"ok": True})
@@ -4330,6 +4780,8 @@ def new_service_order():
 @login_required
 def edit_service_order(order_id):
     order = require_service_order(order_id)
+    if not is_internal_user():
+        abort(403)
     buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
     clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
@@ -4420,18 +4872,21 @@ def service_order_detail(order_id):
         """,
         (order_id,),
     ).fetchall()
-    expense_access = "" if normalized_role() in {"admin", "manager", "finance"} else "and expenses.created_by = ?"
-    expense_params = [order_id] if not expense_access else [order_id, g.user["id"]]
-    expenses_rows = db().execute(
-        f"""
-        select expenses.*, users.name as creator_name
-        from expenses left join users on users.id = expenses.created_by
-        where expenses.service_order_id = ? {expense_access}
-        order by expenses.created_at desc, expenses.id desc
-        """,
-        expense_params,
-    ).fetchall()
-    customer_reimbursement = latest_customer_reimbursement(order_id) if can_manage_customer_reimbursement() else None
+    if is_external_user():
+        expenses_rows = []
+    else:
+        expense_access = "" if normalized_role() in {"admin", "manager", "finance"} else "and expenses.created_by = ?"
+        expense_params = [order_id] if not expense_access else [order_id, g.user["id"]]
+        expenses_rows = db().execute(
+            f"""
+            select expenses.*, users.name as creator_name
+            from expenses left join users on users.id = expenses.created_by
+            where expenses.service_order_id = ? {expense_access}
+            order by expenses.created_at desc, expenses.id desc
+            """,
+            expense_params,
+        ).fetchall()
+    customer_reimbursement = latest_customer_reimbursement(order_id) if can_view_customer_reimbursement() else None
     return render_template(
         "service_order_detail.html",
         order=order,
@@ -4447,14 +4902,19 @@ def service_order_detail(order_id):
 @app.route("/service-orders/<int:order_id>/customer-reimbursement", methods=["GET", "POST"])
 @login_required
 def customer_reimbursement_form(order_id):
-    if not can_manage_customer_reimbursement():
+    if not can_view_customer_reimbursement():
         abort(403)
     order = require_service_order(order_id)
+    if request.method == "POST" and not can_manage_customer_reimbursement():
+        abort(403)
     start_date_redirect = require_service_order_start_date(order)
     if start_date_redirect:
         return start_date_redirect
     reimbursement = latest_customer_reimbursement(order_id)
     if not reimbursement:
+        if not can_manage_customer_reimbursement():
+            flash("该工单还没有甲方费用报销表。", "error")
+            return redirect(url_for("service_order_detail", order_id=order_id))
         try:
             reimbursement = create_customer_reimbursement(order)
             build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
@@ -4620,7 +5080,7 @@ def customer_reimbursement_form(order_id):
         attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
         linked_invoice=linked_invoice,
         reviewer=reviewer,
-        can_edit=reimbursement["status"] in {"draft", "returned"},
+        can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
     )
 
 
@@ -4761,6 +5221,8 @@ def delete_customer_reimbursement_attachment(attachment_id):
     if not attachment:
         abort(404)
     reimbursement, order = require_customer_reimbursement(attachment["customer_reimbursement_id"])
+    if not can_manage_customer_reimbursement():
+        abort(403)
     if reimbursement["status"] not in {"draft", "returned"}:
         flash("只有保存未提交或已退回的甲方费用报销表可以删除附件。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
@@ -4779,12 +5241,20 @@ def delete_customer_reimbursement_attachment(attachment_id):
 @login_required
 def new_service_report(order_id):
     order = require_service_order(order_id)
+    if not can_create_service_report(order):
+        abort(403)
     start_date_redirect = require_service_order_start_date(order)
     if start_date_redirect:
         return start_date_redirect
-    users_rows = db().execute(
-        "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
-    ).fetchall()
+    if is_external_employee():
+        users_rows = db().execute(
+            "select id, name, email from users where id = ?",
+            (g.user["id"],),
+        ).fetchall()
+    else:
+        users_rows = db().execute(
+            "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
+        ).fetchall()
     if request.method == "POST":
         save_token = request.form.get("save_token", "")
         if not claim_report_save_token(save_token):
@@ -4853,6 +5323,7 @@ def new_service_report(order_id):
         attachments=get_report_attachments(0),
         save_token=secrets.token_urlsafe(24),
         is_edit=False,
+        can_edit_report=True,
     )
 
 
@@ -4860,10 +5331,20 @@ def new_service_report(order_id):
 @login_required
 def edit_service_report(report_id):
     report, order = require_service_report(report_id)
-    users_rows = db().execute(
-        "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
-    ).fetchall()
+    if is_external_employee() and report["created_by"] != g.user["id"]:
+        abort(403)
+    if is_external_employee():
+        users_rows = db().execute(
+            "select id, name, email from users where id = ?",
+            (g.user["id"],),
+        ).fetchall()
+    else:
+        users_rows = db().execute(
+            "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
+        ).fetchall()
     if request.method == "POST":
+        if is_external_manager():
+            abort(403)
         save_token = request.form.get("save_token", "")
         if not claim_report_save_token(save_token, report_id):
             flash("该日报已经保存，请勿重复提交。", "success")
@@ -4925,6 +5406,7 @@ def edit_service_report(report_id):
         attachments=get_report_attachments(report_id),
         save_token=secrets.token_urlsafe(24),
         is_edit=True,
+        can_edit_report=not is_external_manager(),
     )
 
 
@@ -6023,6 +6505,8 @@ def unmark_invoice_paid(invoice_id):
 @login_required
 def send_invoice(invoice_id):
     invoice = require_invoice_access(invoice_id)
+    if is_external_user():
+        abort(403)
     if invoice["status"] != "completed":
         flash("只有经理审核完成后的发票才能发送邮件。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
@@ -6657,6 +7141,10 @@ def get_metrics():
         """
     ).fetchone()["total"]
     pending_expenses = sum(float(row["amount"] or 0) for row in expense_rows if row["status"] != "approved")
+    if is_external_user():
+        pending_reimbursement = 0
+        reimbursed_expenses = 0
+        pending_expenses = 0
     return {
         "invoice_count": invoice_count,
         "completed": completed,

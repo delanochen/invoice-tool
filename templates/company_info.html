@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}公司信息 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Company</p><h1>公司信息</h1></div></header>
+  <form method="post" enctype="multipart/form-data" class="panel form-stack">
+    <div class="form-grid two-columns">
+      <label>公司名称 <input name="company_name" value="{{ company.name }}" required></label>
+      <label>邮箱 <input type="email" name="company_email" value="{{ company.email }}"></label>
+      <label>电话 <input name="company_phone" value="{{ company.phone }}"></label>
+      <label>系统时区 <input name="app_timezone" value="{{ timezone_name }}" placeholder="America/Chicago" required></label>
+      <label>登记号码 <input name="company_registration_number" value="{{ company.registration_number }}"></label>
+      <label>EIN 号码 <input name="company_ein" value="{{ company.ein }}"></label>
+      <label class="full-span">地址 <textarea name="company_address" rows="4">{{ company.address }}</textarea></label>
+      <label class="full-span">公司附件
+        <input type="file" name="attachments" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx">
+      </label>
+    </div>
+    <div class="form-actions"><button class="primary" type="submit">保存公司信息</button></div>
+  </form>
+  <section class="panel">
+    <div class="panel-title"><h2>公司附件</h2><span class="muted-line">{{ attachments|length }} 个</span></div>
+    <table class="list-table">
+      <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for attachment in attachments %}
+          <tr>
+            <td>{{ attachment.original_filename }}</td>
+            <td>{{ attachment.uploader_name or "-" }}</td>
+            <td>{{ attachment.uploaded_at|local_datetime }}</td>
+            <td><div class="row-actions">
+              <a class="button small" href="{{ url_for('download_company_attachment', attachment_id=attachment.id) }}">下载</a>
+              <form method="post" action="{{ url_for('delete_company_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除该附件吗？');">
+                <button class="danger small" type="submit">删除</button>
+              </form>
+            </div></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">还没有公司附件。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

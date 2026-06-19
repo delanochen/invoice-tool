@@ -10,7 +10,9 @@
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
       <button type="button" onclick="window.open('{{ url_for('preview_customer_reimbursement', reimbursement_id=reimbursement.id) }}', '_blank')">预览 PDF</button>
-      <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
+      {% if can_manage_customer_reimbursement() %}
+        <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
+      {% endif %}
       {% if can_edit %}
         <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
         <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit">提交经理审核</button>
@@ -22,7 +24,9 @@
         <button class="danger" type="button" onclick="document.querySelector('#returnCustomerReimbursementDialog').showModal()">退回</button>
       {% endif %}
       {% if reimbursement.status == "approved" %}
-        <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
+        {% if can_manage_customer_reimbursement() %}
+          <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
+        {% endif %}
         {% if linked_invoice %}
           <button class="primary" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=linked_invoice.id) }}'">查看发票</button>
         {% elif can_create_invoice() %}

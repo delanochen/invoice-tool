@@ -4,7 +4,9 @@
   <header class="page-header">
     <div><p class="eyebrow">Service Orders</p><h1>工单管理</h1></div>
     <div class="actions">
-      <button type="button" onclick="window.location.href='{{ url_for('service_order_map') }}'">需方地图</button>
+      {% if not is_external_manager() and not is_external_employee() %}
+        <button type="button" onclick="window.location.href='{{ url_for('service_order_map') }}'">需方地图</button>
+      {% endif %}
       {% if can_create_service_order() %}
         <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_order') }}'">新建工单</button>
       {% endif %}

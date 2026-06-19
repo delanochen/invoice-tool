@@ -10,9 +10,9 @@
     <div class="actions">
       <button onclick="window.print()">发票预览</button>
       <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button type="submit">导出 ZIP</button></form>
-      {% if invoice.status == "completed" %}
+      {% if invoice.status == "completed" and not is_external_manager() %}
         <form method="post" action="{{ url_for('send_invoice', invoice_id=invoice.id) }}"><button type="submit">发送邮件</button></form>
-      {% else %}
+      {% elif not is_external_manager() %}
         <button type="button" disabled>发送邮件</button>
       {% endif %}
       {% if invoice.status == "completed" and not invoice.paid_at and g.user.role in ["admin", "manager", "user", "internal"] %}

@@ -3,12 +3,12 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Clients</p><h1>客户资料</h1></div>
-    {% if g.user.role != "external" %}
+    {% if not is_external_manager() %}
       <button class="primary" type="button" data-dialog-open="newClientDialog">新增客户</button>
     {% endif %}
   </header>
 
-  {% if g.user.role != "external" %}
+  {% if not is_external_manager() %}
     <form class="panel filter-bar no-print" method="get">
       <label>查找客户 <input name="q" value="{{ q or '' }}" placeholder="客户编号、公司名称、简称、联系人或邮箱"></label>
       <div class="filter-actions">
@@ -30,7 +30,7 @@
           <th>邮箱</th>
           <th>国家/地区</th>
           <th>地址</th>
-          {% if g.user.role != "external" %}<th>操作</th>{% endif %}
+          {% if not is_external_manager() %}<th>操作</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -43,7 +43,7 @@
             <td>{{ client.email or "-" }}</td>
             <td>{{ client.country or "-" }}</td>
             <td>{{ client.address or "-" }}</td>
-            {% if g.user.role != "external" %}
+            {% if not is_external_manager() %}
               <td>
                 <div class="row-actions">
                   <button class="small" type="button" data-dialog-open="editClient{{ client.id }}">编辑</button>
@@ -55,13 +55,13 @@
             {% endif %}
           </tr>
         {% else %}
-          <tr><td colspan="{% if g.user.role != 'external' %}8{% else %}7{% endif %}" class="empty">没有符合条件的客户。</td></tr>
+          <tr><td colspan="{% if not is_external_manager() %}8{% else %}7{% endif %}" class="empty">没有符合条件的客户。</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </section>
 
-  {% if g.user.role != "external" %}
+  {% if not is_external_manager() %}
     <dialog id="newClientDialog" class="modal-dialog">
       <form method="post" class="form-stack">
         <div class="dialog-header">

@@ -6,6 +6,16 @@
     <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">返回需方列表</button>
   </header>
   <form method="post" class="panel form-stack narrow-form">
+    {% if not is_external_manager() %}
+      <label>所属客户
+        <select name="client_id">
+          <option value="">未指定</option>
+          {% for client in clients %}
+            <option value="{{ client.id }}" {% if buyer.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% endif %}
     <label>编号 <input name="buyer_number" value="{{ buyer.buyer_number }}" required></label>
     <label>国家 <input name="country" value="{{ buyer.country or 'United States' }}"></label>
     <label>名称 <input name="name" value="{{ buyer.name }}" required></label>
