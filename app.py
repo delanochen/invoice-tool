@@ -3107,7 +3107,7 @@ def message_detail(message_id):
 @app.route("/")
 @login_required
 def dashboard():
-    if not can_view_invoices():
+    if not can_view_invoices() or is_external_user():
         return redirect(url_for("service_orders"))
     metrics = get_metrics()
     selected_project_ids = request.args.getlist("project_id")
