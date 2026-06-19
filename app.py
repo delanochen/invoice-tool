@@ -5243,9 +5243,10 @@ def new_service_report(order_id):
     order = require_service_order(order_id)
     if not can_create_service_report(order):
         abort(403)
-    start_date_redirect = require_service_order_start_date(order)
-    if start_date_redirect:
-        return start_date_redirect
+    if not is_external_employee():
+        start_date_redirect = require_service_order_start_date(order)
+        if start_date_redirect:
+            return start_date_redirect
     if is_external_employee():
         users_rows = db().execute(
             "select id, name, email from users where id = ?",
