@@ -15,7 +15,9 @@
           <span>Prasinos Power</span>
         </div>
         <nav>
-          <a href="{{ url_for('dashboard') }}">概览</a>
+          {% if can_view_invoices() %}
+            <a href="{{ url_for('dashboard') }}">概览</a>
+          {% endif %}
           {% if can_view_invoices() %}
             <a href="{{ url_for('invoices') }}">发票</a>
           {% endif %}
