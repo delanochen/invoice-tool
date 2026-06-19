@@ -427,6 +427,20 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .plain-fieldset:disabled {
   opacity: 0.82;
 }
+.assignment-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.assignment-table {
+  margin: 0;
+}
+.assignment-table th:first-child,
+.assignment-table td:first-child {
+  width: 64px;
+  text-align: center;
+}
 .inline-thumb {
   width: 48px;
   height: 48px;

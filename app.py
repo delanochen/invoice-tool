@@ -3665,11 +3665,11 @@ def users():
     )
     service_orders_rows = (
         db().execute(
-            "select id, order_number, client_name from service_orders where client_id = ? order by created_at desc, id desc",
+            "select id, order_number, client_name, status from service_orders where client_id = ? order by status != 'closed' desc, created_at desc, id desc",
             (g.user["client_id"],),
         ).fetchall()
         if is_external_manager()
-        else db().execute("select id, order_number, client_name from service_orders order by created_at desc, id desc").fetchall()
+        else db().execute("select id, order_number, client_name, status from service_orders order by status != 'closed' desc, created_at desc, id desc").fetchall()
     )
     return render_template(
         "users.html",
@@ -3753,11 +3753,11 @@ def edit_user(user_id):
     )
     service_orders_rows = (
         db().execute(
-            "select id, order_number, client_name from service_orders where client_id = ? order by created_at desc, id desc",
+            "select id, order_number, client_name, status from service_orders where client_id = ? order by status != 'closed' desc, created_at desc, id desc",
             (g.user["client_id"],),
         ).fetchall()
         if is_external_manager()
-        else db().execute("select id, order_number, client_name from service_orders order by created_at desc, id desc").fetchall()
+        else db().execute("select id, order_number, client_name, status from service_orders order by status != 'closed' desc, created_at desc, id desc").fetchall()
     )
     return render_template(
         "user_form.html",

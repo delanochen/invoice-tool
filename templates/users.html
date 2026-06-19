@@ -65,10 +65,30 @@
         </div>
         <section class="subsection">
           <h3>外部员工工单授权</h3>
-          <div class="check-grid">
-            {% for order in service_orders %}
-              <label class="check-chip"><input type="checkbox" name="service_order_id" value="{{ order.id }}"> {{ order.order_number }} · {{ order.client_name }}</label>
-            {% endfor %}
+          <label>工单状态
+            <select data-order-status-filter="newUserOrders">
+              <option value="open" selected>未关闭</option>
+              <option value="closed">已关闭</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <div class="assignment-table-wrap">
+            <table class="list-table assignment-table" id="newUserOrders">
+              <thead><tr><th>选择</th><th>工单编号</th><th>需方</th><th>状态</th></tr></thead>
+              <tbody>
+                {% for order in service_orders %}
+                  <tr data-order-status="{{ order.status }}">
+                    <td><input type="checkbox" name="service_order_id" value="{{ order.id }}" aria-label="选择工单 {{ order.order_number }}"></td>
+                    <td>{{ order.order_number }}</td>
+                    <td>{{ order.client_name }}</td>
+                    <td>{{ "已关闭" if order.status == "closed" else "未关闭" }}</td>
+                  </tr>
+                {% else %}
+                  <tr data-empty-row><td colspan="4" class="empty">没有可分配的工单。</td></tr>
+                {% endfor %}
+                <tr data-filter-empty hidden><td colspan="4" class="empty">当前状态下没有工单。</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
         <div class="form-actions"><button class="primary" type="submit">创建用户</button></div>
@@ -108,10 +128,30 @@
         {% if can_assign and normalized_role(user.role) == "external_employee" %}
           <section class="subsection">
             <h3>外部员工工单授权</h3>
-            <div class="check-grid">
-              {% for order in service_orders %}
-                <label class="check-chip"><input type="checkbox" name="service_order_id" value="{{ order.id }}" {% if order.id in user_order_ids[user.id] %}checked{% endif %}> {{ order.order_number }} · {{ order.client_name }}</label>
-              {% endfor %}
+            <label>工单状态
+              <select data-order-status-filter="editUserOrders{{ user.id }}">
+                <option value="open" selected>未关闭</option>
+                <option value="closed">已关闭</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <div class="assignment-table-wrap">
+              <table class="list-table assignment-table" id="editUserOrders{{ user.id }}">
+                <thead><tr><th>选择</th><th>工单编号</th><th>需方</th><th>状态</th></tr></thead>
+                <tbody>
+                  {% for order in service_orders %}
+                    <tr data-order-status="{{ order.status }}">
+                      <td><input type="checkbox" name="service_order_id" value="{{ order.id }}" {% if order.id in user_order_ids[user.id] %}checked{% endif %} aria-label="选择工单 {{ order.order_number }}"></td>
+                      <td>{{ order.order_number }}</td>
+                      <td>{{ order.client_name }}</td>
+                      <td>{{ "已关闭" if order.status == "closed" else "未关闭" }}</td>
+                    </tr>
+                  {% else %}
+                    <tr data-empty-row><td colspan="4" class="empty">没有可分配的工单。</td></tr>
+                  {% endfor %}
+                  <tr data-filter-empty hidden><td colspan="4" class="empty">当前状态下没有工单。</td></tr>
+                </tbody>
+              </table>
             </div>
           </section>
         {% endif %}
@@ -135,4 +175,5 @@
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260619-external-roles') }}"></script>
+  <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
 {% endblock %}
