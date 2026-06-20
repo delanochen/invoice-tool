@@ -6,6 +6,7 @@ const progressText = document.querySelector("#geocodeProgress");
 const unlocatedContainer = document.querySelector("#unlocatedOrders");
 const retryButton = document.querySelector("#retryFailedGeocodes");
 const mapConfig = window.serviceOrderMapConfig || {};
+const t = (value) => window.uiTranslate ? window.uiTranslate(value) : value;
 const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [buyer.id, buyer]));
 const markersByKey = new Map();
 let serviceMap;
@@ -24,19 +25,19 @@ function money(value) {
 
 function buyerDetails(buyer) {
   const invoices = mapConfig.showInvoiceAmounts ? `
-    <dt>发票</dt><dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
+    <dt>${t("发票")}</dt><dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
   ` : "";
   return `
     <div class="map-order-popup">
       <strong>${escapeHtml(buyer.name)}</strong>
       <span>${escapeHtml(buyer.detailed_address)}</span>
       <dl>
-        <dt>联系人</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
-        <dt>联系方式</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
-        <dt>工单数</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
+        <dt>${t("联系人")}</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
+        <dt>${t("联系方式")}</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
+        <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
         ${invoices}
       </dl>
-      <a href="${escapeHtml(buyer.detail_url)}">工单查看</a>
+      <a href="${escapeHtml(buyer.detail_url)}">${t("工单查看")}</a>
     </div>
   `;
 }
@@ -51,8 +52,8 @@ function buyerClusterDetails(buyers) {
   `).join("");
   return `
     <div class="map-order-popup map-cluster-popup">
-      <strong>${buyers.length} 个需方</strong>
-      <span>此区域有多个需方地址很近。</span>
+      <strong>${buyers.length} ${t("个需方")}</strong>
+      <span>${t("此区域有多个需方地址很近。")}</span>
       <div class="map-cluster-list">${items}</div>
     </div>
   `;
@@ -200,14 +201,14 @@ function renderUnlocatedBuyers() {
   if (!unlocated.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "所有需方均已定位。";
+    empty.textContent = t("所有需方均已定位。");
     unlocatedContainer.appendChild(empty);
   } else {
     unlocated.forEach((buyer) => {
       const item = document.createElement("a");
       item.className = "unlocated-order";
       item.href = buyer.edit_url || buyer.detail_url;
-      item.innerHTML = `<strong>${escapeHtml(buyer.buyer_number)} · ${escapeHtml(buyer.name)}</strong><span>${escapeHtml(buyer.detailed_address)}</span><small>${buyer.geocode_status === "failed" ? "无法识别地址" : "等待定位"}</small>`;
+      item.innerHTML = `<strong>${escapeHtml(buyer.buyer_number)} · ${escapeHtml(buyer.name)}</strong><span>${escapeHtml(buyer.detailed_address)}</span><small>${buyer.geocode_status === "failed" ? t("无法识别地址") : t("等待定位")}</small>`;
       unlocatedContainer.appendChild(item);
     });
   }
@@ -248,13 +249,13 @@ async function geocodePendingBuyers() {
     if (result.buyer) buyersById.set(result.buyer.id, result.buyer);
     renderMarkers({ fit: Boolean(result.buyer) });
     if (result.remaining > 0) {
-      progressText.textContent = `正在定位，剩余 ${result.remaining} 个`;
+      progressText.textContent = `${t("正在定位，剩余")} ${result.remaining}`;
       window.setTimeout(geocodePendingBuyers, 250);
     } else {
       progressText.textContent = "";
     }
   } catch (error) {
-    progressText.textContent = "定位服务暂时不可用，稍后打开页面会继续。";
+    progressText.textContent = t("定位服务暂时不可用，稍后打开页面会继续。");
   }
 }
 

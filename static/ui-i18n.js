@@ -1,7 +1,4 @@
 (() => {
-  const language = document.documentElement.lang;
-  if (language === "zh-CN") return;
-
   const en = {
     "发票工具": "Invoice Tool",
     "登录": "Sign in",
@@ -22,6 +19,7 @@
     "返回登录": "Back to sign in",
     "概览": "Overview",
     "发票": "Invoices",
+    "发票查询": "Invoice search",
     "工单": "Work orders",
     "需方地图": "Buyer map",
     "报销处理": "Expense processing",
@@ -58,6 +56,8 @@
     "最近发票": "Recent invoices",
     "查看全部": "View all",
     "编号": "Number",
+    "到期": "Due date",
+    "到期日期": "Due date",
     "日期": "Date",
     "状态": "Status",
     "核销": "Payment",
@@ -68,6 +68,10 @@
     "重置": "Reset",
     "关键词": "Keyword",
     "全部": "All",
+    "全部状态": "All statuses",
+    "开票人": "Created by",
+    "全部开票人": "All creators",
+    "编号、客户编号、名称或简称": "Number, client number, name, or short name",
     "洲": "Continent",
     "区域": "Region",
     "开始日期": "Start date",
@@ -203,7 +207,83 @@
     "没有符合条件的日报。": "No matching daily reports.",
     "没有符合条件的报销。": "No matching expenses.",
     "没有符合条件的报表数据。": "No matching report data.",
-    "没有符合条件的需方。": "No matching buyers."
+    "没有符合条件的需方。": "No matching buyers.",
+    "没有符合条件的发票。": "No matching invoices.",
+    "全部开票人": "All creators",
+    "全部状态": "All statuses",
+    "工单管理": "Work order management",
+    "编辑工单": "Edit work order",
+    "修改开始日期": "Change start date",
+    "开票状态": "Invoice status",
+    "工单状态": "Work order status",
+    "填写人": "Entered by",
+    "编辑企业报销": "Edit enterprise reimbursement",
+    "工时费小计": "Labor subtotal",
+    "差旅费小计": "Travel subtotal",
+    "里程费小计": "Mileage subtotal",
+    "下载 PDF": "Download PDF",
+    "关联发票": "Linked invoice",
+    "发票编号": "Invoice number",
+    "编辑用户": "Edit user",
+    "新密码": "New password",
+    "留空则不修改密码": "Leave blank to keep the current password",
+    "新增附件": "Add attachments",
+    "选择文件": "Choose files",
+    "未选择任何文件": "No files selected",
+    "选择了 1 个文件": "1 file selected",
+    "个文件已选择": "files selected",
+    "工单列表": "Work order list",
+    "工单查看": "View work orders",
+    "工单进度": "Work order progress",
+    "工单数": "Work orders",
+    "有进行中工单": "Has active work orders",
+    "工单全部完成": "All work orders completed",
+    "需方编号、名称、联系人或地址": "Buyer number, name, contact, or address",
+    "个需方已定位": "buyers located",
+    "未定位需方": "Unlocated buyers",
+    "重新定位": "Retry geocoding",
+    "请检查详细地址是否包含门牌号、城市、州和邮编。": "Check that the detailed address includes a street number, city, state, and ZIP code.",
+    "所有需方均已定位。": "All buyers are located.",
+    "无法识别地址": "Address not recognized",
+    "等待定位": "Waiting for geocoding",
+    "正在定位，剩余": "Geocoding, remaining",
+    "定位服务暂时不可用，稍后打开页面会继续。": "The geocoding service is temporarily unavailable. It will continue when the page is opened later.",
+    "此区域有多个需方地址很近。": "Several buyer addresses are close together in this area.",
+    "个需方": "buyers",
+    "地图和地址解析由 Google Maps Platform 实时提供。": "Maps and address geocoding are provided in real time by Google Maps Platform.",
+    "免费模式：地图数据 © OpenStreetMap contributors；地址由 U.S. Census Geocoder 和 Nominatim 解析。": "Free mode: map data © OpenStreetMap contributors; addresses are geocoded by U.S. Census Geocoder and Nominatim.",
+    "客户列表": "Client list",
+    "需方列表": "Buyer list",
+    "类型列表": "Type list",
+    "项目列表": "Project list",
+    "用户管理": "User management",
+    "用户与工单授权": "Users and work order access",
+    "我的信息": "My information",
+    "明细": "Details",
+    "项目明细": "Project details",
+    "附件清单": "Attachment list",
+    "查看": "View",
+    "未开票": "Not invoiced",
+    "已开票": "Invoiced",
+    "未维护": "Not set",
+    "未指定": "Not specified",
+    "未关联": "Not linked",
+    "已读": "Read",
+    "未读": "Unread",
+    "暂无消息。": "No messages.",
+    "批准启用": "Approve and enable",
+    "确认修改": "Confirm changes",
+    "查找": "Find",
+    "全选": "Select all",
+    "反选": "Invert selection",
+    "取消全选": "Clear selection",
+    "添加行": "Add row",
+    "添加一行": "Add row",
+    "添加项目": "Add project",
+    "继续上传附件（可多选）": "Upload more attachments (multiple allowed)",
+    "支持 Word、Excel、PDF、图片，可多选。": "Supports Word, Excel, PDF, and images; multiple files allowed.",
+    "支持 Word、Excel、PDF、图片。": "Supports Word, Excel, PDF, and images.",
+    "支持图片、PDF、Word、Excel，可多选。": "Supports images, PDF, Word, and Excel; multiple files allowed."
   };
 
   const nl = {
@@ -226,6 +306,7 @@
     "返回登录": "Terug naar inloggen",
     "概览": "Overzicht",
     "发票": "Facturen",
+    "发票查询": "Facturen zoeken",
     "工单": "Werkorders",
     "需方地图": "Koperskaart",
     "报销处理": "Onkostenverwerking",
@@ -262,6 +343,8 @@
     "最近发票": "Recente facturen",
     "查看全部": "Alles bekijken",
     "编号": "Nummer",
+    "到期": "Vervaldatum",
+    "到期日期": "Vervaldatum",
     "日期": "Datum",
     "状态": "Status",
     "核销": "Betaling",
@@ -272,6 +355,10 @@
     "重置": "Resetten",
     "关键词": "Zoekterm",
     "全部": "Alle",
+    "全部状态": "Alle statussen",
+    "开票人": "Aangemaakt door",
+    "全部开票人": "Alle makers",
+    "编号、客户编号、名称或简称": "Nummer, klantnummer, naam of korte naam",
     "洲": "Continent",
     "区域": "Regio",
     "开始日期": "Startdatum",
@@ -405,35 +492,199 @@
     "没有符合条件的日报。": "Geen overeenkomende dagrapporten.",
     "没有符合条件的报销。": "Geen overeenkomende onkosten.",
     "没有符合条件的报表数据。": "Geen overeenkomende rapportgegevens.",
-    "没有符合条件的需方。": "Geen overeenkomende kopers."
+    "没有符合条件的需方。": "Geen overeenkomende kopers.",
+    "没有符合条件的发票。": "Geen overeenkomende facturen.",
+    "工单管理": "Werkorderbeheer",
+    "编辑工单": "Werkorder bewerken",
+    "修改开始日期": "Startdatum wijzigen",
+    "开票状态": "Factuurstatus",
+    "工单状态": "Werkorderstatus",
+    "填写人": "Ingevoerd door",
+    "编辑企业报销": "Bedrijfsvergoeding bewerken",
+    "工时费小计": "Subtotaal arbeidskosten",
+    "差旅费小计": "Subtotaal reiskosten",
+    "里程费小计": "Subtotaal kilometervergoeding",
+    "下载 PDF": "PDF downloaden",
+    "关联发票": "Gekoppelde factuur",
+    "发票编号": "Factuurnummer",
+    "编辑用户": "Gebruiker bewerken",
+    "新密码": "Nieuw wachtwoord",
+    "留空则不修改密码": "Laat leeg om het huidige wachtwoord te behouden",
+    "新增附件": "Bijlagen toevoegen",
+    "选择文件": "Bestanden kiezen",
+    "未选择任何文件": "Geen bestanden geselecteerd",
+    "选择了 1 个文件": "1 bestand geselecteerd",
+    "个文件已选择": "bestanden geselecteerd",
+    "工单列表": "Werkorderlijst",
+    "工单查看": "Werkorders bekijken",
+    "工单进度": "Werkordervoortgang",
+    "工单数": "Werkorders",
+    "有进行中工单": "Heeft actieve werkorders",
+    "工单全部完成": "Alle werkorders voltooid",
+    "需方编号、名称、联系人或地址": "Kopernummer, naam, contactpersoon of adres",
+    "个需方已定位": "kopers gelokaliseerd",
+    "未定位需方": "Niet-gelokaliseerde kopers",
+    "重新定位": "Geocodering opnieuw proberen",
+    "请检查详细地址是否包含门牌号、城市、州和邮编。": "Controleer of het volledige adres een huisnummer, plaats, staat en postcode bevat.",
+    "所有需方均已定位。": "Alle kopers zijn gelokaliseerd.",
+    "无法识别地址": "Adres niet herkend",
+    "等待定位": "Wacht op geocodering",
+    "正在定位，剩余": "Bezig met geocoderen, resterend",
+    "定位服务暂时不可用，稍后打开页面会继续。": "De geocoderingsservice is tijdelijk niet beschikbaar en gaat later verder.",
+    "此区域有多个需方地址很近。": "In dit gebied liggen meerdere koperadressen dicht bij elkaar.",
+    "个需方": "kopers",
+    "地图和地址解析由 Google Maps Platform 实时提供。": "Kaarten en adresgeocodering worden realtime geleverd door Google Maps Platform.",
+    "免费模式：地图数据 © OpenStreetMap contributors；地址由 U.S. Census Geocoder 和 Nominatim 解析。": "Gratis modus: kaartgegevens © OpenStreetMap contributors; adressen worden gegeocodeerd door U.S. Census Geocoder en Nominatim.",
+    "客户列表": "Klantenlijst",
+    "需方列表": "Koperslijst",
+    "类型列表": "Typelijst",
+    "项目列表": "Projectlijst",
+    "用户管理": "Gebruikersbeheer",
+    "用户与工单授权": "Gebruikers en werkordertoegang",
+    "我的信息": "Mijn informatie",
+    "明细": "Details",
+    "项目明细": "Projectdetails",
+    "附件清单": "Lijst met bijlagen",
+    "查看": "Bekijken",
+    "未开票": "Niet gefactureerd",
+    "已开票": "Gefactureerd",
+    "未维护": "Niet ingesteld",
+    "未指定": "Niet opgegeven",
+    "未关联": "Niet gekoppeld",
+    "已读": "Gelezen",
+    "未读": "Ongelezen",
+    "暂无消息。": "Geen berichten.",
+    "批准启用": "Goedkeuren en activeren",
+    "确认修改": "Wijzigingen bevestigen",
+    "查找": "Zoeken",
+    "全选": "Alles selecteren",
+    "反选": "Selectie omkeren",
+    "取消全选": "Selectie wissen",
+    "添加行": "Rij toevoegen",
+    "添加一行": "Rij toevoegen",
+    "添加项目": "Project toevoegen",
+    "继续上传附件（可多选）": "Meer bijlagen uploaden (meerdere toegestaan)",
+    "支持 Word、Excel、PDF、图片，可多选。": "Ondersteunt Word, Excel, PDF en afbeeldingen; meerdere bestanden toegestaan.",
+    "支持 Word、Excel、PDF、图片。": "Ondersteunt Word, Excel, PDF en afbeeldingen.",
+    "支持图片、PDF、Word、Excel，可多选。": "Ondersteunt afbeeldingen, PDF, Word en Excel; meerdere bestanden toegestaan."
   };
 
+  const language = typeof document === "undefined" ? "en" : document.documentElement.lang;
   const translations = language === "nl" ? nl : en;
-  const translate = (value) => translations[value.trim()] || null;
+  const translationEntries = Object.entries(translations).sort(
+    ([left], [right]) => right.length - left.length
+  );
+  const translate = (value, allowPartial = false) => {
+    const trimmed = value.trim();
+    if (translations[trimmed]) return translations[trimmed];
+    if (!allowPartial) return null;
+    let result = value;
+    for (const [source, target] of translationEntries) {
+      if (result.includes(source)) result = result.split(source).join(target);
+    }
+    return result === value ? null : result;
+  };
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = { en, nl, translate };
+  }
+  if (typeof window !== "undefined") {
+    window.uiLanguage = language;
+    window.uiTranslate = (value, allowPartial = true) => translate(String(value), allowPartial) || String(value);
+  }
+  if (typeof document === "undefined" || language === "zh-CN") return;
 
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentElement?.closest("script, style")) continue;
-    const translated = translate(node.nodeValue);
+    const allowPartial = Boolean(
+      node.parentElement?.closest(
+        "label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .status, .map-summary, .map-attribution-note"
+      )
+    );
+    const translated = translate(node.nodeValue, allowPartial);
     if (translated) {
-      const leading = node.nodeValue.match(/^\s*/)?.[0] || "";
-      const trailing = node.nodeValue.match(/\s*$/)?.[0] || "";
-      node.nodeValue = `${leading}${translated}${trailing}`;
+      node.nodeValue = allowPartial
+        ? translated
+        : `${node.nodeValue.match(/^\s*/)?.[0] || ""}${translated}${node.nodeValue.match(/\s*$/)?.[0] || ""}`;
     }
   }
 
   for (const element of document.querySelectorAll("[placeholder], [title], [aria-label]")) {
     for (const attribute of ["placeholder", "title", "aria-label"]) {
       if (!element.hasAttribute(attribute)) continue;
-      const translated = translate(element.getAttribute(attribute));
+      const translated = translate(element.getAttribute(attribute), true);
       if (translated) element.setAttribute(attribute, translated);
     }
   }
 
-  document.title = document.title
-    .split(" - ")
-    .map((part) => translations[part] || part)
-    .join(" - ");
+  document.title = translate(document.title, true) || document.title;
+
+  for (const input of document.querySelectorAll("form.filter-bar input[type='date']")) {
+    input.lang = language === "nl" ? "nl-NL" : "en-US";
+    if (input.value) continue;
+    input.type = "text";
+    input.placeholder = "YYYY-MM-DD";
+    input.inputMode = "numeric";
+    input.addEventListener("focus", () => {
+      input.type = "date";
+      input.showPicker?.();
+    });
+    input.addEventListener("blur", () => {
+      if (!input.value) {
+        input.type = "text";
+        input.placeholder = "YYYY-MM-DD";
+      }
+    });
+  }
+
+  for (const input of document.querySelectorAll("input[type='file']")) {
+    input.classList.add("translated-file-input");
+    const control = document.createElement("span");
+    control.className = "translated-file-control";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "small";
+    button.textContent = translations["选择文件"];
+    const status = document.createElement("span");
+    status.className = "translated-file-status";
+    status.textContent = translations["未选择任何文件"];
+    button.addEventListener("click", () => input.click());
+    input.addEventListener("change", () => {
+      const count = input.files?.length || 0;
+      if (!count) status.textContent = translations["未选择任何文件"];
+      else if (count === 1) status.textContent = input.files[0].name;
+      else status.textContent = `${count} ${translations["个文件已选择"]}`;
+    });
+    control.append(button, status);
+    input.insertAdjacentElement("afterend", control);
+  }
+
+  const translateElement = (element) => {
+    if (element.nodeType === Node.TEXT_NODE) {
+      const parent = element.parentElement;
+      if (!parent?.closest("label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .status, .map-summary, .map-attribution-note")) return;
+      const translated = translate(element.nodeValue, true);
+      if (translated) element.nodeValue = translated;
+      return;
+    }
+    if (!(element instanceof Element)) return;
+    const targets = element.matches("label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .status, .map-summary, .map-attribution-note")
+      ? [element]
+      : [...element.querySelectorAll("label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .status, .map-summary, .map-attribution-note")];
+    for (const target of targets) {
+      for (const node of [...target.childNodes]) {
+        if (node.nodeType !== Node.TEXT_NODE) continue;
+        const translated = translate(node.nodeValue, true);
+        if (translated) node.nodeValue = translated;
+      }
+    }
+  };
+  new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) translateElement(node);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 })();

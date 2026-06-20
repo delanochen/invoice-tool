@@ -1111,3 +1111,23 @@ body.service-order-map-page {
   margin: 0.35rem 0;
   font-size: 0.85rem;
 }
+
+.translated-file-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.translated-file-control {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.7rem;
+}
+
+.translated-file-status {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
