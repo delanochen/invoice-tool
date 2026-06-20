@@ -177,6 +177,8 @@ SUPPORTED_LANGUAGES = {
     "zh-CN": {"label": "简体中文", "flag": "🇨🇳"},
     "en": {"label": "English", "flag": "🇺🇸"},
     "nl": {"label": "Nederlands", "flag": "🇳🇱"},
+    "de": {"label": "Deutsch", "flag": "🇩🇪"},
+    "es": {"label": "Español", "flag": "🇪🇸"},
 }
 DEFAULT_LANGUAGE = "zh-CN"
 
@@ -832,6 +834,8 @@ def seed_countries(connection):
                 "zh-CN": ("美国", "美洲"),
                 "en": ("United States", "Americas"),
                 "nl": ("Verenigde Staten", "Amerika"),
+                "de": ("Vereinigte Staaten", "Amerika"),
+                "es": ("Estados Unidos", "América"),
             },
         ),
         (
@@ -842,6 +846,8 @@ def seed_countries(connection):
                 "zh-CN": ("中国", "亚洲"),
                 "en": ("China", "Asia"),
                 "nl": ("China", "Azië"),
+                "de": ("China", "Asien"),
+                "es": ("China", "Asia"),
             },
         ),
         (
@@ -852,6 +858,8 @@ def seed_countries(connection):
                 "zh-CN": ("荷兰", "欧洲"),
                 "en": ("Netherlands", "Europe"),
                 "nl": ("Nederland", "Europa"),
+                "de": ("Niederlande", "Europa"),
+                "es": ("Países Bajos", "Europa"),
             },
         ),
     ]
