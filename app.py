@@ -15,7 +15,7 @@ from functools import wraps
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -3297,6 +3297,24 @@ def register():
 def logout():
     clear_session_preserving_language()
     return redirect(url_for("login"))
+
+
+@app.post("/language")
+def switch_language():
+    language = request.form.get("language", "")
+    if language in SUPPORTED_LANGUAGES:
+        session["language"] = language
+    next_url = request.form.get("next", "").strip()
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = url_for("dashboard") if g.user else url_for("login")
+    else:
+        parsed = urlsplit(next_url)
+        cleaned_query = urlencode(
+            [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "lang"],
+            doseq=True,
+        )
+        next_url = urlunsplit(("", "", parsed.path, cleaned_query, parsed.fragment))
+    return redirect(next_url)
 
 
 @app.route("/messages")

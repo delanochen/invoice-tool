@@ -79,11 +79,14 @@
         </nav>
         <div class="user-box">
           <span>{{ g.user.name }}</span>
-          <select class="sidebar-language" aria-label="语言" onchange="const url = new URL(window.location.href); url.searchParams.set('lang', this.value); window.location.href = url.toString();">
-            {% for code, language in supported_languages.items() %}
-              <option value="{{ code }}" {% if current_language == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>
-            {% endfor %}
-          </select>
+          <form method="post" action="{{ url_for('switch_language') }}" class="sidebar-language-form">
+            <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+            <select class="sidebar-language" name="language" aria-label="语言" onchange="this.form.submit()">
+              {% for code, language in supported_languages.items() %}
+                <option value="{{ code }}" {% if current_language == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>
+              {% endfor %}
+            </select>
+          </form>
           <a href="{{ url_for('logout') }}">退出</a>
         </div>
       </aside>
