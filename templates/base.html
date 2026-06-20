@@ -60,6 +60,7 @@
                   <a href="{{ url_for('buyers') }}">需方</a>
                   <a href="{{ url_for('work_order_types') }}">工单类型</a>
                   <a href="{{ url_for('projects') }}">项目</a>
+                  <a href="{{ url_for('countries') }}">国家</a>
                 {% endif %}
                 {% if normalized_role() == "admin" %}
                   <a href="{{ url_for('company_info') }}">公司信息</a>

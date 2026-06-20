@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}国家配置 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Countries</p><h1>国家配置</h1></div>
+    <button class="primary" type="button" data-dialog-open="countryDialog">新增国家</button>
+  </header>
+
+  <section class="panel">
+    <table class="list-table">
+      <thead><tr><th>代码</th><th>区域代码</th><th>当前语言名称</th><th>翻译</th><th>状态</th><th>排序</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for country in countries %}
+          <tr>
+            <td>{{ country.code }}</td>
+            <td>{{ country.region_code }}</td>
+            <td>{{ country.region_name }} · {{ country.name }}</td>
+            <td>
+              {% for translation in translations[country.code] %}
+                <div>{{ translation.language_code }}：{{ translation.region_name }} · {{ translation.name }}</div>
+              {% endfor %}
+            </td>
+            <td>{{ "启用" if country.is_active else "停用" }}</td>
+            <td>{{ country.sort_order }}</td>
+            <td><button class="small" type="button" data-dialog-open="country{{ country.code }}">编辑</button></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {% macro country_form(country=None) %}
+    <form method="post" class="form-stack">
+      <div class="form-grid two-columns">
+        <label>国家代码 <input name="code" maxlength="3" value="{{ country.code if country else '' }}" {% if country %}readonly{% endif %} required></label>
+        <label>区域代码 <input name="region_code" value="{{ country.region_code if country else '' }}" placeholder="例如 americas" required></label>
+        <label>排序 <input type="number" name="sort_order" value="{{ country.sort_order if country else 0 }}"></label>
+        <label>状态
+          <select name="is_active">
+            <option value="1" {% if not country or country.is_active %}selected{% endif %}>启用</option>
+            <option value="0" {% if country and not country.is_active %}selected{% endif %}>停用</option>
+          </select>
+        </label>
+      </div>
+      <fieldset class="plain-fieldset" data-translation-list>
+        <legend>多语言名称</legend>
+        <div class="assignment-table-wrap">
+          <table class="list-table">
+            <thead><tr><th>语言代码</th><th>国家名称</th><th>区域名称</th><th></th></tr></thead>
+            <tbody data-translation-rows>
+              {% set rows = translations[country.code] if country else [] %}
+              {% for item in rows %}
+                <tr>
+                  <td><input name="language_code" value="{{ item.language_code }}" required></td>
+                  <td><input name="translation_name" value="{{ item.name }}" required></td>
+                  <td><input name="translation_region_name" value="{{ item.region_name }}" required></td>
+                  <td><button class="danger small" type="button" data-remove-translation>删除</button></td>
+                </tr>
+              {% else %}
+                <tr>
+                  <td><input name="language_code" value="zh-CN" required></td>
+                  <td><input name="translation_name" required></td>
+                  <td><input name="translation_region_name" required></td>
+                  <td><button class="danger small" type="button" data-remove-translation>删除</button></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <button class="small" type="button" data-add-translation>增加语言</button>
+      </fieldset>
+      <div class="form-actions"><button class="primary" type="submit">保存</button></div>
+    </form>
+  {% endmacro %}
+
+  <dialog id="countryDialog" class="modal-dialog">
+    <div class="dialog-header"><h2>新增国家</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    {{ country_form() }}
+  </dialog>
+  {% for country in countries %}
+    <dialog id="country{{ country.code }}" class="modal-dialog">
+      <div class="dialog-header"><h2>编辑 {{ country.name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+      {{ country_form(country) }}
+    </dialog>
+  {% endfor %}
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='modal-forms.js', v='20260620-countries') }}"></script>
+  <script src="{{ url_for('static', filename='countries.js', v='20260620-i18n') }}"></script>
+{% endblock %}

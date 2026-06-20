@@ -31,6 +31,8 @@
       <p><strong>客户</strong><span>{{ order.billing_client_name or "未关联" }}</span></p>
       <p><strong>需方名称</strong><span>{{ order.client_name }}</span></p>
       <p><strong>工单类型</strong><span>{{ order.work_order_type_name or "-" }}</span></p>
+      <p><strong>区域</strong><span>{{ order.region_name or order.region_code }}</span></p>
+      <p><strong>国家</strong><span>{{ order.country_name or order.country_code }}</span></p>
       <p><strong>开始日期</strong><span>{{ order.start_date or "未维护" }}</span></p>
       <p><strong>联系人</strong><span>{{ order.buyer_contact_name or "-" }}</span></p>
       <p><strong>联系方式</strong><span>{{ order.buyer_contact_details or "-" }}</span></p>

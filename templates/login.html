@@ -4,6 +4,13 @@
   <form method="post" class="login-card">
     <img class="login-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
     <h1>登录</h1>
+    <label>语言
+      <select name="language" onchange="window.location.href='{{ url_for('login') }}?lang=' + encodeURIComponent(this.value)">
+        {% for code, language in supported_languages.items() %}
+          <option value="{{ code }}" {% if current_language == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>邮箱 <input type="email" name="email" required autofocus></label>
     <label>密码 <input type="password" name="password" required></label>
     <button class="primary" type="submit">登录</button>

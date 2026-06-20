@@ -11,7 +11,7 @@
   <section class="panel users-panel">
     <div class="panel-title"><h2>{% if can_assign %}用户与工单授权{% else %}我的信息{% endif %}</h2><span class="muted-line">{{ users|length }} 个用户</span></div>
     <table class="list-table users-table">
-      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>状态</th><th>绑定客户</th><th>附件</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for user in users %}
           <tr>
@@ -19,6 +19,7 @@
             <td>{{ user.email }}</td>
             <td>{{ user.role|role_label }}</td>
             <td><span class="status {{ 'completed' if user.is_active else 'returned' }}">{{ "启用" if user.is_active else "停用" }}</span></td>
+            <td>{{ user.region_name }} / {{ user.country_name }}</td>
             <td>{{ user.client_name or "-" }}</td>
             <td>{{ user_attachments[user.id]|length }}</td>
             <td>{{ user.created_at[:10] }}</td>
@@ -40,7 +41,7 @@
             </div></td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="empty">还没有用户。</td></tr>
+          <tr><td colspan="9" class="empty">还没有用户。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -68,6 +69,13 @@
             <select name="client_id">
               <option value="">不绑定</option>
               {% for client in clients %}<option value="{{ client.id }}">{{ client.client_number }} · {{ client.name }}</option>{% endfor %}
+            </select>
+          </label>
+          <label>国家与区域
+            <select name="country_code" required>
+              {% for country in countries %}
+                <option value="{{ country.code }}" {% if country.code == "US" %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
+              {% endfor %}
             </select>
           </label>
           <label>用户附件 <input type="file" name="attachments" multiple></label>
@@ -130,6 +138,17 @@
             </label>
           {% else %}
             <label>角色 <input value="{{ user.role|role_label }}" readonly></label>
+          {% endif %}
+          {% if can_assign %}
+            <label>国家与区域
+              <select name="country_code" required>
+                {% for country in countries %}
+                  <option value="{{ country.code }}" {% if user.country_code == country.code %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% else %}
+            <label>国家与区域 <input value="{{ user.region_name }} · {{ user.country_name }}" readonly></label>
           {% endif %}
           <label>新密码 <input type="password" name="password" minlength="8" placeholder="留空则不修改密码"></label>
           <label>新增附件 <input type="file" name="attachments" multiple></label>

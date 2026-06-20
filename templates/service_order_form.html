@@ -55,6 +55,15 @@
     </div>
     <label>服务现场地址 <textarea name="site_address" id="siteAddress" rows="3" required>{{ order.site_address if order else '' }}</textarea></label>
     <label>服务订单号码 <input name="client_order_number" value="{{ order.client_order_number if order else '' }}" required></label>
+    <label>国家与区域
+      <select name="country_code" required>
+        {% for country in countries %}
+          <option value="{{ country.code }}" {% if (order and order.country_code == country.code) or (not order and country.code == "US") %}selected{% endif %}>
+            {{ country.region_name }} · {{ country.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
     <label>工单类型
       <select name="work_order_type_id" required>
         <option value="">请选择工单类型</option>

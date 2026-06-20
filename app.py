@@ -173,6 +173,13 @@ ROLE_OPTIONS = {
     "external_employee": "外部员工",
 }
 
+SUPPORTED_LANGUAGES = {
+    "zh-CN": {"label": "简体中文", "flag": "🇨🇳"},
+    "en": {"label": "English", "flag": "🇺🇸"},
+    "nl": {"label": "Nederlands", "flag": "🇳🇱"},
+}
+DEFAULT_LANGUAGE = "zh-CN"
+
 PROJECT_TYPE_LABELS = {
     "invoice": "发票项目",
     "expense": "员工报销",
@@ -331,6 +338,23 @@ def init_db():
             create table if not exists settings (
                 key text primary key,
                 value text not null
+            );
+
+            create table if not exists countries (
+                code text primary key,
+                region_code text not null,
+                is_active integer not null default 1,
+                sort_order integer not null default 0,
+                created_at text not null
+            );
+
+            create table if not exists country_translations (
+                country_code text not null,
+                language_code text not null,
+                name text not null,
+                region_name text not null,
+                primary key(country_code, language_code),
+                foreign key(country_code) references countries(code) on delete cascade
             );
 
             create table if not exists company_attachments (
@@ -615,6 +639,8 @@ def init_db():
         )
         ensure_column(connection, "invoices", "service_order_id", "integer")
         ensure_column(connection, "users", "is_active", "integer not null default 1")
+        ensure_column(connection, "users", "region_code", "text not null default 'americas'")
+        ensure_column(connection, "users", "country_code", "text not null default 'US'")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
         ensure_column(connection, "projects", "unit_price", "real not null default 0")
         ensure_column(connection, "customer_reimbursements", "status", "text not null default 'draft'")
@@ -637,7 +663,17 @@ def init_db():
         ensure_column(connection, "service_orders", "buyer_contact_details", "text")
         ensure_column(connection, "service_orders", "start_date", "text")
         ensure_column(connection, "service_orders", "work_order_type_id", "integer")
+        ensure_column(connection, "service_orders", "region_code", "text not null default 'americas'")
+        ensure_column(connection, "service_orders", "country_code", "text not null default 'US'")
         ensure_column(connection, "buyers", "client_id", "integer")
+        connection.execute(
+            "update users set region_code = 'americas', country_code = 'US' "
+            "where trim(coalesce(region_code, '')) = '' or trim(coalesce(country_code, '')) = ''"
+        )
+        connection.execute(
+            "update service_orders set region_code = 'americas', country_code = 'US' "
+            "where trim(coalesce(region_code, '')) = '' or trim(coalesce(country_code, '')) = ''"
+        )
         connection.execute(
             """
             update buyers
@@ -771,6 +807,7 @@ def init_db():
             """
         )
         seed_customer_reimbursement_projects(connection)
+        seed_countries(connection)
         seed_settings(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
         admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
@@ -783,6 +820,112 @@ def init_db():
                 ("Admin", admin_email, generate_password_hash(admin_password), now()),
             )
         connection.commit()
+
+
+def seed_countries(connection):
+    countries = [
+        (
+            "US",
+            "americas",
+            10,
+            {
+                "zh-CN": ("美国", "美洲"),
+                "en": ("United States", "Americas"),
+                "nl": ("Verenigde Staten", "Amerika"),
+            },
+        ),
+        (
+            "CN",
+            "asia",
+            20,
+            {
+                "zh-CN": ("中国", "亚洲"),
+                "en": ("China", "Asia"),
+                "nl": ("China", "Azië"),
+            },
+        ),
+        (
+            "NL",
+            "europe",
+            30,
+            {
+                "zh-CN": ("荷兰", "欧洲"),
+                "en": ("Netherlands", "Europe"),
+                "nl": ("Nederland", "Europa"),
+            },
+        ),
+    ]
+    for code, region_code, sort_order, translations in countries:
+        connection.execute(
+            """
+            insert or ignore into countries (code, region_code, is_active, sort_order, created_at)
+            values (?, ?, 1, ?, ?)
+            """,
+            (code, region_code, sort_order, now()),
+        )
+        for language_code, (name, region_name) in translations.items():
+            connection.execute(
+                """
+                insert or ignore into country_translations
+                    (country_code, language_code, name, region_name)
+                values (?, ?, ?, ?)
+                """,
+                (code, language_code, name, region_name),
+            )
+
+
+def current_language():
+    language = session.get("language", DEFAULT_LANGUAGE)
+    return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+
+
+def country_rows(include_inactive=False):
+    active_clause = "" if include_inactive else "where countries.is_active = 1"
+    language = current_language()
+    return db().execute(
+        f"""
+        select countries.*,
+               coalesce(local.name, chinese.name, english.name, countries.code) as name,
+               coalesce(local.region_name, chinese.region_name, english.region_name, countries.region_code) as region_name
+        from countries
+        left join country_translations local
+          on local.country_code = countries.code and local.language_code = ?
+        left join country_translations chinese
+          on chinese.country_code = countries.code and chinese.language_code = 'zh-CN'
+        left join country_translations english
+          on english.country_code = countries.code and english.language_code = 'en'
+        {active_clause}
+        order by countries.sort_order, name, countries.code
+        """,
+        (language,),
+    ).fetchall()
+
+
+def country_by_code(code, include_inactive=False):
+    clause = "" if include_inactive else "and is_active = 1"
+    return db().execute(
+        f"select * from countries where code = ? {clause}",
+        ((code or "").strip().upper(),),
+    ).fetchone()
+
+
+def country_translations(country_code):
+    return db().execute(
+        """
+        select * from country_translations
+        where country_code = ?
+        order by case language_code when 'zh-CN' then 0 when 'en' then 1 when 'nl' then 2 else 3 end,
+                 language_code
+        """,
+        (country_code,),
+    ).fetchall()
+
+
+def country_from_form(default_code="US"):
+    country = country_by_code(request.form.get("country_code") or default_code, include_inactive=True)
+    if not country:
+        country = country_by_code(default_code, include_inactive=True)
+    return country
 
 
 def seed_settings(connection):
@@ -948,6 +1091,9 @@ def current_user():
 
 @app.before_request
 def load_user():
+    requested_language = request.args.get("lang")
+    if requested_language in SUPPORTED_LANGUAGES:
+        session["language"] = requested_language
     g.user = current_user()
 
 
@@ -1398,14 +1544,22 @@ def require_service_order(order_id):
                buyers.country as buyer_country,
                buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                clients.name as billing_client_name,
-               clients.email as billing_client_email
+               clients.email as billing_client_email,
+               coalesce(country_local.name, country_zh.name, country_en.name, service_orders.country_code) as country_name,
+               coalesce(country_local.region_name, country_zh.region_name, country_en.region_name, service_orders.region_code) as region_name
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
         left join clients on clients.id = service_orders.client_id
+        left join country_translations country_local
+          on country_local.country_code = service_orders.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
+        left join country_translations country_en
+          on country_en.country_code = service_orders.country_code and country_en.language_code = 'en'
         where service_orders.id = ?
         """,
-        (order_id,),
+        (current_language(), order_id),
     ).fetchone()
     if not order:
         abort(404)
@@ -3024,12 +3178,19 @@ def unread_message_count():
 
 @app.context_processor
 def inject_globals():
-    return {"unread_message_count": unread_message_count()}
+    return {
+        "unread_message_count": unread_message_count(),
+        "current_language": current_language(),
+        "supported_languages": SUPPORTED_LANGUAGES,
+    }
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        language = request.form.get("language")
+        if language in SUPPORTED_LANGUAGES:
+            session["language"] = language
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         user = db().execute("select * from users where email = ?", (email,)).fetchone()
@@ -3052,6 +3213,7 @@ def register():
         password = request.form.get("registration_password", "")
         password_confirm = request.form.get("registration_password_confirm", "")
         account_type = request.form.get("account_type", "external_employee")
+        country = country_from_form()
         if account_type not in {"employee", "external_employee"}:
             account_type = "external_employee"
         if "�" in name:
@@ -3066,10 +3228,20 @@ def register():
         try:
             cursor = db().execute(
                 """
-                insert into users (name, email, password_hash, role, is_active, created_at)
-                values (?, ?, ?, ?, 0, ?)
+                insert into users (
+                    name, email, password_hash, role, is_active, region_code, country_code, created_at
+                )
+                values (?, ?, ?, ?, 0, ?, ?, ?)
                 """,
-                (name or email, email, generate_password_hash(password), account_type, now()),
+                (
+                    name or email,
+                    email,
+                    generate_password_hash(password),
+                    account_type,
+                    country["region_code"],
+                    country["code"],
+                    now(),
+                ),
             )
             user_id = cursor.lastrowid
             account_label = "员工" if account_type == "employee" else "外部员工"
@@ -3084,7 +3256,7 @@ def register():
             return redirect(url_for("login"))
         except sqlite3.IntegrityError:
             flash("这个邮箱已经注册。", "error")
-    return render_template("register.html")
+    return render_template("register.html", countries=country_rows())
 
 
 @app.route("/logout")
@@ -3599,6 +3771,67 @@ def delete_project(project_id):
     return redirect(url_for("projects"))
 
 
+@app.route("/countries", methods=["GET", "POST"])
+@login_required
+def countries():
+    if not is_manager():
+        abort(403)
+    if request.method == "POST":
+        code = request.form.get("code", "").strip().upper()
+        region_code = request.form.get("region_code", "").strip().lower()
+        if not re.fullmatch(r"[A-Z]{2,3}", code) or not re.fullmatch(r"[a-z][a-z0-9_-]*", region_code):
+            flash("国家代码应为 2-3 位大写字母，区域代码应使用小写字母、数字、下划线或连字符。", "error")
+            return redirect(url_for("countries"))
+        translations = []
+        seen_languages = set()
+        for language_code, name, region_name in zip(
+            request.form.getlist("language_code"),
+            request.form.getlist("translation_name"),
+            request.form.getlist("translation_region_name"),
+        ):
+            language_code = language_code.strip()
+            name = name.strip()
+            region_name = region_name.strip()
+            if not language_code or not name or not region_name or language_code in seen_languages:
+                continue
+            seen_languages.add(language_code)
+            translations.append((language_code, name, region_name))
+        if not translations:
+            flash("请至少填写一种语言的国家名称和区域名称。", "error")
+            return redirect(url_for("countries"))
+        db().execute(
+            """
+            insert into countries (code, region_code, is_active, sort_order, created_at)
+            values (?, ?, ?, ?, ?)
+            on conflict(code) do update set
+                region_code = excluded.region_code,
+                is_active = excluded.is_active,
+                sort_order = excluded.sort_order
+            """,
+            (
+                code,
+                region_code,
+                1 if request.form.get("is_active", "1") == "1" else 0,
+                int(request.form.get("sort_order") or 0),
+                now(),
+            ),
+        )
+        db().execute("delete from country_translations where country_code = ?", (code,))
+        db().executemany(
+            """
+            insert into country_translations (country_code, language_code, name, region_name)
+            values (?, ?, ?, ?)
+            """,
+            [(code, language_code, name, region_name) for language_code, name, region_name in translations],
+        )
+        db().commit()
+        flash("国家配置已保存。", "success")
+        return redirect(url_for("countries"))
+    rows = country_rows(include_inactive=True)
+    translations = {country["code"]: country_translations(country["code"]) for country in rows}
+    return render_template("countries.html", countries=rows, translations=translations)
+
+
 @app.route("/users", methods=["GET", "POST"])
 @login_required
 def users():
@@ -3609,6 +3842,7 @@ def users():
         name = request.form.get("name", "").strip() or email
         password = request.form.get("password", "")
         role = request.form.get("role", "employee")
+        country = country_from_form()
         if is_external_manager():
             role = "external_employee"
         if role not in ROLE_OPTIONS:
@@ -3628,8 +3862,10 @@ def users():
         try:
             cursor = db().execute(
                 """
-                insert into users (name, email, password_hash, role, client_id, created_at)
-                values (?, ?, ?, ?, ?, ?)
+                insert into users (
+                    name, email, password_hash, role, client_id, region_code, country_code, created_at
+                )
+                values (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -3637,6 +3873,8 @@ def users():
                     generate_password_hash(password),
                     role,
                     client_id,
+                    country["region_code"],
+                    country["code"],
                     now(),
                 ),
             )
@@ -3662,34 +3900,66 @@ def users():
     if can_manage_users():
         rows = db().execute(
             """
-            select users.*, clients.name as client_name
+            select users.*, clients.name as client_name,
+                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
+                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
             from users left join clients on clients.id = users.client_id
+            left join country_translations country_local
+              on country_local.country_code = users.country_code and country_local.language_code = ?
+            left join country_translations country_zh
+              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
             order by users.created_at desc
-            """
+            """,
+            (current_language(),),
         ).fetchall()
     elif normalized_role() == "manager":
         rows = db().execute(
             """
-            select users.*, clients.name as client_name
+            select users.*, clients.name as client_name,
+                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
+                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
             from users left join clients on clients.id = users.client_id
+            left join country_translations country_local
+              on country_local.country_code = users.country_code and country_local.language_code = ?
+            left join country_translations country_zh
+              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
             where users.id = ? or users.role in ('employee', 'external_employee')
             order by users.is_active asc, users.created_at desc
             """,
-            (g.user["id"],),
+            (current_language(), g.user["id"]),
         ).fetchall()
     elif is_external_manager():
         rows = db().execute(
             """
-            select users.*, clients.name as client_name
+            select users.*, clients.name as client_name,
+                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
+                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
             from users left join clients on clients.id = users.client_id
+            left join country_translations country_local
+              on country_local.country_code = users.country_code and country_local.language_code = ?
+            left join country_translations country_zh
+              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
             where users.id = ?
                or (users.role = 'external_employee' and users.client_id = ?)
             order by users.created_at desc
             """,
-            (g.user["id"], g.user["client_id"]),
+            (current_language(), g.user["id"], g.user["client_id"]),
         ).fetchall()
     else:
-        rows = db().execute("select users.*, null as client_name from users where id = ?", (g.user["id"],)).fetchall()
+        rows = db().execute(
+            """
+            select users.*, null as client_name,
+                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
+                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
+            from users
+            left join country_translations country_local
+              on country_local.country_code = users.country_code and country_local.language_code = ?
+            left join country_translations country_zh
+              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
+            where users.id = ?
+            """,
+            (current_language(), g.user["id"]),
+        ).fetchall()
     clients_rows = (
         db().execute("select id, client_number, name from clients where id = ?", (g.user["client_id"],)).fetchall()
         if is_external_manager()
@@ -3714,6 +3984,7 @@ def users():
         can_manage=can_manage_users(),
         can_assign=can_assign_external_employees(),
         can_approve=can_approve_users(),
+        countries=country_rows(),
     )
 
 
@@ -3741,6 +4012,9 @@ def edit_user(user_id):
             else None
         )
         password = request.form.get("password", "")
+        country = country_from_form(user["country_code"]) if can_assign_external_employees() else country_by_code(
+            user["country_code"], include_inactive=True
+        )
         admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
         if "�" in name:
             flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
@@ -3750,8 +4024,12 @@ def edit_user(user_id):
             return redirect(url_for("edit_user", user_id=user_id))
         try:
             db().execute(
-                "update users set name = ?, email = ?, role = ?, client_id = ? where id = ?",
-                (name, email, role, client_id, user_id),
+                """
+                update users
+                set name = ?, email = ?, role = ?, client_id = ?, region_code = ?, country_code = ?
+                where id = ?
+                """,
+                (name, email, role, client_id, country["region_code"], country["code"], user_id),
             )
             if can_assign_external_employees():
                 save_user_service_order_assignments(user_id, role)
@@ -3803,6 +4081,7 @@ def edit_user(user_id):
         can_manage=can_manage_users(),
         can_assign=can_assign_external_employees(),
         can_approve=can_approve_users(),
+        countries=country_rows(),
     )
 
 
@@ -4781,6 +5060,7 @@ def new_service_order():
         flash("请先由管理员或经理维护工单类型。", "error")
         return redirect(url_for("work_order_types") if is_manager() else url_for("service_orders"))
     if request.method == "POST":
+        country = country_from_form()
         buyer = db().execute(
             "select * from buyers where id = ?",
             (request.form.get("buyer_id"),),
@@ -4803,8 +5083,9 @@ def new_service_order():
             """
             insert into service_orders (
                 order_number, client_id, buyer_id, client_name, buyer_contact_name, buyer_contact_details,
-                site_address, client_order_number, start_date, work_order_type_id, created_by, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                site_address, client_order_number, start_date, work_order_type_id,
+                region_code, country_code, created_by, created_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_number,
@@ -4817,6 +5098,8 @@ def new_service_order():
                 client_order_number,
                 request.form.get("start_date") or None,
                 work_order_type["id"],
+                country["region_code"],
+                country["code"],
                 g.user["id"],
                 now(),
             ),
@@ -4833,6 +5116,7 @@ def new_service_order():
         work_order_types=work_order_types_rows,
         form_title="新建工单",
         start_date_only=False,
+        countries=country_rows(),
     )
 
 
@@ -4867,6 +5151,7 @@ def edit_service_order(order_id):
             work_order_types=[],
             form_title="修改工单开始日期",
             start_date_only=True,
+            countries=[],
         )
     buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
     clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
@@ -4879,6 +5164,7 @@ def edit_service_order(order_id):
         (order["work_order_type_id"],),
     ).fetchall()
     if request.method == "POST":
+        country = country_from_form(order["country_code"])
         buyer = db().execute(
             "select * from buyers where id = ?",
             (request.form.get("buyer_id"),),
@@ -4900,7 +5186,7 @@ def edit_service_order(order_id):
             update service_orders
             set client_id = ?, buyer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
                 site_address = ?, client_order_number = ?, start_date = ?,
-                work_order_type_id = ?, status = ?
+                work_order_type_id = ?, status = ?, region_code = ?, country_code = ?
             where id = ?
             """,
             (
@@ -4914,6 +5200,8 @@ def edit_service_order(order_id):
                 request.form.get("start_date") or None,
                 work_order_type["id"],
                 request.form.get("status", "open"),
+                country["region_code"],
+                country["code"],
                 order_id,
             ),
         )
@@ -4929,6 +5217,7 @@ def edit_service_order(order_id):
         work_order_types=work_order_types_rows,
         form_title="编辑工单",
         start_date_only=False,
+        countries=country_rows(),
     )
 
 

@@ -55,6 +55,17 @@
     {% else %}
       <label>角色 <input value="{{ user.role|role_label }}" readonly></label>
     {% endif %}
+    {% if can_assign %}
+      <label>国家与区域
+        <select name="country_code" required>
+          {% for country in countries %}
+            <option value="{{ country.code }}" {% if user.country_code == country.code %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% else %}
+      <label>国家代码 <input value="{{ user.region_code }} · {{ user.country_code }}" readonly></label>
+    {% endif %}
     {% if can_assign and normalized_role(user.role) == "external_employee" and not can_manage %}
       <fieldset class="plain-fieldset">
         <legend>外部员工工单授权</legend>

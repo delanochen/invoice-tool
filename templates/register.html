@@ -16,6 +16,13 @@
         <option value="external_employee">外部员工</option>
       </select>
     </label>
+    <label>国家
+      <select name="country_code" required>
+        {% for country in countries %}
+          <option value="{{ country.code }}" {% if country.code == "US" %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <button class="primary" type="submit">注册</button>
     <p class="muted-line">注册后账号默认为停用，需由管理员或经理批准启用后才能登录。</p>
     <p class="muted-line"><a href="{{ url_for('login') }}">返回登录</a></p>
