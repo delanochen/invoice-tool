@@ -3048,9 +3048,9 @@ def login():
 def register():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        password_confirm = request.form.get("password_confirm", "")
+        email = request.form.get("registration_email", "").strip().lower()
+        password = request.form.get("registration_password", "")
+        password_confirm = request.form.get("registration_password_confirm", "")
         account_type = request.form.get("account_type", "external_employee")
         if account_type not in {"employee", "external_employee"}:
             account_type = "external_employee"

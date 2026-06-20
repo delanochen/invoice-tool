@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% block title %}注册 - 发票工具{% endblock %}
 {% block content %}
-  <form method="post" class="login-card">
+  <form method="post" class="login-card" autocomplete="off">
     <img class="login-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
     <h1>员工账号注册</h1>
-    <label>姓名 <input name="name" required></label>
-    <label>邮箱 <input type="email" name="email" required></label>
-    <label>密码 <input type="password" name="password" minlength="8" required></label>
-    <label>确认密码 <input type="password" name="password_confirm" minlength="8" required></label>
+    <input class="autofill-decoy" type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">
+    <input class="autofill-decoy" type="password" name="current-password" autocomplete="current-password" tabindex="-1" aria-hidden="true">
+    <label>姓名 <input name="name" value="" autocomplete="name" required></label>
+    <label>邮箱 <input type="email" name="registration_email" value="" autocomplete="off" data-registration-empty required></label>
+    <label>密码 <input type="password" name="registration_password" value="" minlength="8" autocomplete="new-password" data-registration-empty required></label>
+    <label>确认密码 <input type="password" name="registration_password_confirm" value="" minlength="8" autocomplete="new-password" data-registration-empty required></label>
     <label>账号类型
       <select name="account_type" required>
         <option value="employee">员工</option>
@@ -18,4 +20,7 @@
     <p class="muted-line">注册后账号默认为停用，需由管理员或经理批准启用后才能登录。</p>
     <p class="muted-line"><a href="{{ url_for('login') }}">返回登录</a></p>
   </form>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='register.js', v='20260619-empty-fields') }}"></script>
 {% endblock %}

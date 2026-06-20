@@ -136,6 +136,14 @@ button:disabled {
 }
 .main { margin-left: 236px; padding: 32px; }
 .auth-main { display: grid; min-height: 100vh; place-items: center; padding: 24px; }
+.autofill-decoy {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
 
 .login-card, .panel, .metric {
   border: 1px solid var(--line);
