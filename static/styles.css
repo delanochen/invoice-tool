@@ -1105,3 +1105,9 @@ body.service-order-map-page {
   .invoice-totals .due { margin-top: 7px; padding-top: 7px; font-size: 15px; }
   .tax-note { font-size: 10px; }
 }
+.sidebar-language {
+  width: 100%;
+  min-width: 0;
+  margin: 0.35rem 0;
+  font-size: 0.85rem;
+}

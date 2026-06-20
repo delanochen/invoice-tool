@@ -879,6 +879,12 @@ def current_language():
     return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
 
 
+def clear_session_preserving_language():
+    language = current_language()
+    session.clear()
+    session["language"] = language
+
+
 def country_rows(include_inactive=False):
     active_clause = "" if include_inactive else "where countries.is_active = 1"
     language = current_language()
@@ -1112,7 +1118,7 @@ def current_user():
         return None
     user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
     if user and not user["is_active"]:
-        session.clear()
+        clear_session_preserving_language()
         return None
     return user
 
@@ -3226,7 +3232,7 @@ def login():
             if not user["is_active"]:
                 flash("账号尚未启用，请等待管理员或经理批准。", "error")
                 return redirect(url_for("login"))
-            session.clear()
+            clear_session_preserving_language()
             session["user_id"] = user["id"]
             return redirect(request.args.get("next") or url_for("dashboard"))
         flash("邮箱或密码不正确。", "error")
@@ -3289,7 +3295,7 @@ def register():
 
 @app.route("/logout")
 def logout():
-    session.clear()
+    clear_session_preserving_language()
     return redirect(url_for("login"))
 
 
