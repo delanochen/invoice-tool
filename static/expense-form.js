@@ -47,15 +47,15 @@ function bindExpenseRows() {
 }
 
 addExpenseItem?.addEventListener("click", () => {
-  const row = document.createElement("div");
+  const row = document.createElement("tr");
   row.className = "expense-item-row";
   row.innerHTML = `
-    <select name="project_id" class="expense-project-select" aria-label="报销项目" required>
+    <td><select name="project_id" class="expense-project-select" aria-label="报销项目" required>
       ${expenseProjectOptions()}
-    </select>
-    <input type="number" step="0.01" min="0.01" name="item_amount" placeholder="金额（USD）" aria-label="金额" required>
-    <input name="item_description" placeholder="明细说明" aria-label="明细说明">
-    <button type="button" class="ghost remove-expense-item">删除</button>
+    </select></td>
+    <td><input type="number" step="0.01" min="0.01" name="item_amount" placeholder="金额（USD）" aria-label="金额" required></td>
+    <td><input name="item_description" placeholder="明细说明" aria-label="明细说明"></td>
+    <td><button type="button" class="ghost remove-expense-item">删除</button></td>
   `;
   expenseItems.appendChild(row);
   bindExpenseRows();

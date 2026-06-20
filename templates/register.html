@@ -3,12 +3,19 @@
 {% block content %}
   <form method="post" class="login-card">
     <img class="login-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
-    <h1>外部账号注册</h1>
+    <h1>员工账号注册</h1>
     <label>姓名 <input name="name" required></label>
     <label>邮箱 <input type="email" name="email" required></label>
     <label>密码 <input type="password" name="password" minlength="8" required></label>
+    <label>确认密码 <input type="password" name="password_confirm" minlength="8" required></label>
+    <label>账号类型
+      <select name="account_type" required>
+        <option value="employee">员工</option>
+        <option value="external_employee">外部员工</option>
+      </select>
+    </label>
     <button class="primary" type="submit">注册</button>
-    <p class="muted-line">注册后请联系管理员绑定客户，绑定前无法创建或查询发票。</p>
+    <p class="muted-line">注册后账号默认为停用，需由管理员或经理批准启用后才能登录。</p>
     <p class="muted-line"><a href="{{ url_for('login') }}">返回登录</a></p>
   </form>
 {% endblock %}

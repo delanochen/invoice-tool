@@ -160,13 +160,13 @@ function renderAttachmentList() {
 }
 
 addLine?.addEventListener("click", () => {
-  const row = document.createElement("div");
+  const row = document.createElement("tr");
   row.className = "item-row";
   row.innerHTML = `
-    <select name="project_id" class="project-select" required>${projectOptionsHtml()}</select>
-    <input name="amount" type="number" step="0.01" min="0.01" value="0" aria-label="金额">
-    <input name="item_tax_rate" type="number" step="0.01" min="0" value="0" aria-label="税率" readonly>
-    <button type="button" class="ghost remove-line">删除</button>
+    <td><select name="project_id" class="project-select" required>${projectOptionsHtml()}</select></td>
+    <td><input name="amount" type="number" step="0.01" min="0.01" value="0" aria-label="金额"></td>
+    <td><input name="item_tax_rate" type="number" step="0.01" min="0" value="0" aria-label="税率" readonly></td>
+    <td><button type="button" class="ghost remove-line">删除</button></td>
   `;
   items.appendChild(row);
   bindRemoveButtons();

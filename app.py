@@ -614,6 +614,7 @@ def init_db():
             """
         )
         ensure_column(connection, "invoices", "service_order_id", "integer")
+        ensure_column(connection, "users", "is_active", "integer not null default 1")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
         ensure_column(connection, "projects", "unit_price", "real not null default 0")
         ensure_column(connection, "customer_reimbursements", "status", "text not null default 'draft'")
@@ -938,7 +939,11 @@ def current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    return db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    if user and not user["is_active"]:
+        session.clear()
+        return None
+    return user
 
 
 @app.before_request
@@ -996,6 +1001,10 @@ def is_internal_user():
 
 
 def is_manager():
+    return g.user and normalized_role() in {"admin", "manager"}
+
+
+def can_approve_users():
     return g.user and normalized_role() in {"admin", "manager"}
 
 
@@ -1181,6 +1190,7 @@ app.jinja_env.globals["can_create_service_report"] = can_create_service_report
 app.jinja_env.globals["is_external_manager"] = is_external_manager
 app.jinja_env.globals["is_external_employee"] = is_external_employee
 app.jinja_env.globals["can_assign_external_employees"] = can_assign_external_employees
+app.jinja_env.globals["can_approve_users"] = can_approve_users
 app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
@@ -2546,6 +2556,7 @@ def save_report_detail_rows(report_id):
         f"""
         select id from users
         where role in ('manager', 'finance', 'employee', 'external_employee')
+          and is_active = 1
           and id in ({placeholders})
         """,
         worker_ids,
@@ -3023,6 +3034,9 @@ def login():
         password = request.form.get("password", "")
         user = db().execute("select * from users where email = ?", (email,)).fetchone()
         if user and check_password_hash(user["password_hash"], password):
+            if not user["is_active"]:
+                flash("账号尚未启用，请等待管理员或经理批准。", "error")
+                return redirect(url_for("login"))
             session.clear()
             session["user_id"] = user["id"]
             return redirect(request.args.get("next") or url_for("dashboard"))
@@ -3036,29 +3050,37 @@ def register():
         name = request.form.get("name", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
+        password_confirm = request.form.get("password_confirm", "")
+        account_type = request.form.get("account_type", "external_employee")
+        if account_type not in {"employee", "external_employee"}:
+            account_type = "external_employee"
         if "�" in name:
             flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
             return redirect(url_for("register"))
         if len(password) < 8:
             flash("密码至少需要 8 位。", "error")
             return redirect(url_for("register"))
+        if password != password_confirm:
+            flash("两次输入的密码不一致。", "error")
+            return redirect(url_for("register"))
         try:
             cursor = db().execute(
                 """
-                insert into users (name, email, password_hash, role, created_at)
-                values (?, ?, ?, 'external_employee', ?)
+                insert into users (name, email, password_hash, role, is_active, created_at)
+                values (?, ?, ?, ?, 0, ?)
                 """,
-                (name or email, email, generate_password_hash(password), now()),
+                (name or email, email, generate_password_hash(password), account_type, now()),
             )
             user_id = cursor.lastrowid
+            account_label = "员工" if account_type == "employee" else "外部员工"
             notify_role(
                 ["admin", "manager"],
-                "新外部员工账号已注册",
-                f"{name or email} 已注册外部员工账号，请分配可访问的工单。",
-                url_for("edit_user", user_id=user_id),
+                f"新{account_label}账号待批准",
+                f"{name or email} 已注册{account_label}账号，请审核并启用。",
+                url_for("users"),
             )
             db().commit()
-            flash("注册成功。", "success")
+            flash("注册成功，请等待管理员或经理批准启用。", "success")
             return redirect(url_for("login"))
         except sqlite3.IntegrityError:
             flash("这个邮箱已经注册。", "error")
@@ -3645,6 +3667,16 @@ def users():
             order by users.created_at desc
             """
         ).fetchall()
+    elif normalized_role() == "manager":
+        rows = db().execute(
+            """
+            select users.*, clients.name as client_name
+            from users left join clients on clients.id = users.client_id
+            where users.id = ? or users.role in ('employee', 'external_employee')
+            order by users.is_active asc, users.created_at desc
+            """,
+            (g.user["id"],),
+        ).fetchall()
     elif is_external_manager():
         rows = db().execute(
             """
@@ -3681,6 +3713,7 @@ def users():
         role_options=ROLE_OPTIONS,
         can_manage=can_manage_users(),
         can_assign=can_assign_external_employees(),
+        can_approve=can_approve_users(),
     )
 
 
@@ -3769,7 +3802,31 @@ def edit_user(user_id):
         role_options=ROLE_OPTIONS,
         can_manage=can_manage_users(),
         can_assign=can_assign_external_employees(),
+        can_approve=can_approve_users(),
     )
+
+
+@app.post("/users/<int:user_id>/status")
+@login_required
+def update_user_status(user_id):
+    if not can_approve_users():
+        abort(403)
+    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    if not user:
+        abort(404)
+    if normalized_role(user["role"]) not in {"employee", "external_employee"}:
+        abort(403)
+    is_active = 1 if request.form.get("is_active") == "1" else 0
+    db().execute("update users set is_active = ? where id = ?", (is_active, user_id))
+    if is_active:
+        create_message(
+            user_id,
+            "账号已启用",
+            f"{g.user['name']} 已批准并启用你的账号。",
+        )
+    db().commit()
+    flash("用户状态已更新。", "success")
+    return redirect(url_for("users"))
 
 
 @app.get("/user-attachments/<int:attachment_id>/download")
@@ -5281,7 +5338,7 @@ def new_service_report(order_id):
         ).fetchall()
     else:
         users_rows = db().execute(
-            "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
+            "select id, name, email from users where role in ('manager', 'finance', 'employee') and is_active = 1 order by name"
         ).fetchall()
     if request.method == "POST":
         save_token = request.form.get("save_token", "")
@@ -5368,7 +5425,7 @@ def edit_service_report(report_id):
         ).fetchall()
     else:
         users_rows = db().execute(
-            "select id, name, email from users where role in ('manager', 'finance', 'employee') order by name"
+            "select id, name, email from users where role in ('manager', 'finance', 'employee') and is_active = 1 order by name"
         ).fetchall()
     if request.method == "POST":
         if is_external_manager():

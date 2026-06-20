@@ -11,18 +11,27 @@
   <section class="panel users-panel">
     <div class="panel-title"><h2>{% if can_assign %}用户与工单授权{% else %}我的信息{% endif %}</h2><span class="muted-line">{{ users|length }} 个用户</span></div>
     <table class="list-table users-table">
-      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>绑定客户</th><th>附件</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>状态</th><th>绑定客户</th><th>附件</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for user in users %}
           <tr>
             <td>{{ user.name }}</td>
             <td>{{ user.email }}</td>
             <td>{{ user.role|role_label }}</td>
+            <td><span class="status {{ 'completed' if user.is_active else 'returned' }}">{{ "启用" if user.is_active else "停用" }}</span></td>
             <td>{{ user.client_name or "-" }}</td>
             <td>{{ user_attachments[user.id]|length }}</td>
             <td>{{ user.created_at[:10] }}</td>
             <td><div class="row-actions">
-              <button class="small" type="button" data-dialog-open="editUser{{ user.id }}">编辑</button>
+              {% if can_manage or user.id == g.user.id or is_external_manager() %}
+                <button class="small" type="button" data-dialog-open="editUser{{ user.id }}">编辑</button>
+              {% endif %}
+              {% if can_approve and normalized_role(user.role) in ["employee", "external_employee"] %}
+                <form method="post" action="{{ url_for('update_user_status', user_id=user.id) }}">
+                  <input type="hidden" name="is_active" value="{{ 0 if user.is_active else 1 }}">
+                  <button class="small {% if user.is_active %}danger{% else %}primary{% endif %}" type="submit">{{ "停用" if user.is_active else "批准启用" }}</button>
+                </form>
+              {% endif %}
               {% if can_manage %}
                 <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" onsubmit="return confirm('确定删除这个用户吗？');">
                   <button class="danger small" type="submit">删除</button>
@@ -31,7 +40,7 @@
             </div></td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="empty">还没有用户。</td></tr>
+          <tr><td colspan="8" class="empty">还没有用户。</td></tr>
         {% endfor %}
       </tbody>
     </table>
