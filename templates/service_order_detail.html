@@ -8,9 +8,11 @@
       <p class="muted-line">{{ order.client_name }} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
-      <button type="button" onclick="window.location.href='{{ url_for('edit_service_order', order_id=order.id) }}'">
-        {% if is_external_manager() or is_external_employee() %}修改开始日期{% else %}编辑工单{% endif %}
-      </button>
+      {% if not (normalized_role() in ["employee", "external_employee", "external_manager"] and order.status == "closed") %}
+        <button type="button" onclick="window.location.href='{{ url_for('edit_service_order', order_id=order.id) }}'">
+          {% if is_external_manager() or is_external_employee() %}修改开始日期{% else %}编辑工单{% endif %}
+        </button>
+      {% endif %}
       {% if invoices and can_view_invoices() %}
         <button type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=invoices[0].id) }}'">查看发票</button>
       {% elif can_create_invoice() and customer_reimbursement and customer_reimbursement.status == "approved" %}

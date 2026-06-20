@@ -4840,6 +4840,9 @@ def new_service_order():
 @login_required
 def edit_service_order(order_id):
     order = require_service_order(order_id)
+    if normalized_role() in {"employee", "external_employee", "external_manager"} and order["status"] == "closed":
+        flash("已关闭的工单不能编辑。", "error")
+        return redirect(url_for("service_order_detail", order_id=order_id))
     if is_external_user():
         if request.method == "POST":
             db().execute(
