@@ -6,11 +6,19 @@
     <label>关键词
       <input name="q" value="{{ q }}" placeholder="编号、名称、联系人、地址或配套机厂家">
     </label>
+    <label>洲
+      <select name="region_code">
+        <option value="">全部</option>
+        {% for region in regions %}
+          <option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>国家
-      <select name="country">
+      <select name="country_code">
         <option value="">全部</option>
         {% for item in countries %}
-          <option value="{{ item.country }}" {% if country == item.country %}selected{% endif %}>{{ item.country }}</option>
+          <option value="{{ item.code }}" {% if country_code == item.code %}selected{% endif %}>{{ item.name }}</option>
         {% endfor %}
       </select>
     </label>

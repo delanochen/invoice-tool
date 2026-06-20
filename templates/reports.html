@@ -6,6 +6,22 @@
   <form class="filter-bar report-filter no-print" method="get">
     <label>客户 <input name="client" value="{{ client_q }}" placeholder="客户编号或名称"></label>
     <label>客户简称 <input name="short_name" value="{{ short_q }}" placeholder="客户简称"></label>
+    <label>洲
+      <select name="region_code">
+        <option value="">全部</option>
+        {% for region in regions %}
+          <option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>国家
+      <select name="country_code">
+        <option value="">全部</option>
+        {% for country in countries %}
+          <option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
     <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
     <details class="multi-select">

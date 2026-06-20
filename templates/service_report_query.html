@@ -4,6 +4,18 @@
   <header class="page-header"><div><p class="eyebrow">Reports</p><h1>日报查询</h1></div></header>
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、需方名称、机柜编号"></label>
+    <label>洲
+      <select name="region_code">
+        <option value="">全部</option>
+        {% for region in regions %}<option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>国家
+      <select name="country_code">
+        <option value="">全部</option>
+        {% for country in countries %}<option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>{% endfor %}
+      </select>
+    </label>
     <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
     <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
     <div class="filter-actions">
@@ -13,20 +25,22 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>报告日期</th><th>工单</th><th>需方</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>机柜编号</th></tr></thead>
+      <thead><tr><th>报告日期</th><th>工单</th><th>需方</th><th>洲</th><th>国家</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>机柜编号</th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>
             <td><a href="{{ url_for('edit_service_report', report_id=row.id) }}">{{ row.report_date }}</a></td>
             <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
             <td>{{ row.client_name }}</td>
+            <td>{{ row.region_name }}</td>
+            <td>{{ row.country_name }}</td>
             <td>{{ row.worker_names or "-" }}</td>
             <td>{{ row.total_service_hours }}</td>
             <td>{{ row.travel_hours }}</td>
             <td>{{ row.cabinet_number or "-" }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="empty">没有符合条件的日报。</td></tr>
+          <tr><td colspan="9" class="empty">没有符合条件的日报。</td></tr>
         {% endfor %}
       </tbody>
     </table>

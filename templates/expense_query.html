@@ -10,6 +10,18 @@
   </header>
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词 <input name="q" value="{{ q }}" placeholder="报销编号、报销项目、工单、需方"></label>
+    <label>洲
+      <select name="region_code">
+        <option value="">全部</option>
+        {% for region in regions %}<option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>国家
+      <select name="country_code">
+        <option value="">全部</option>
+        {% for country in countries %}<option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>{% endfor %}
+      </select>
+    </label>
     <label>状态
       <select name="status">
         <option value="">全部</option>
@@ -35,13 +47,15 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>报销编号</th><th>工单</th><th>需方</th><th>报销项目</th><th>日期</th><th>提交人</th><th>总金额</th><th>流程状态</th><th>报销状态</th></tr></thead>
+      <thead><tr><th>报销编号</th><th>工单</th><th>需方</th><th>洲</th><th>国家</th><th>报销项目</th><th>日期</th><th>提交人</th><th>总金额</th><th>流程状态</th><th>报销状态</th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>
             <td><a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a></td>
             <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
             <td>{{ row.client_name }}</td>
+            <td>{{ row.region_name }}</td>
+            <td>{{ row.country_name }}</td>
             <td>{{ row.project }}</td>
             <td>{{ row.expense_date }}</td>
             <td>{{ row.creator_name or "Unknown" }}</td>
@@ -50,7 +64,7 @@
             <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
           </tr>
         {% else %}
-          <tr><td colspan="9" class="empty">没有符合条件的报销。</td></tr>
+          <tr><td colspan="11" class="empty">没有符合条件的报销。</td></tr>
         {% endfor %}
       </tbody>
     </table>

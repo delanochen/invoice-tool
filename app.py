@@ -928,6 +928,34 @@ def country_from_form(default_code="US"):
     return country
 
 
+def report_location_filters(table_alias="service_orders"):
+    region_code = request.args.get("region_code", "").strip().lower()
+    country_code = request.args.get("country_code", "").strip().upper()
+    countries = country_rows(include_inactive=True)
+    valid_country_codes = {country["code"] for country in countries}
+    valid_region_codes = {country["region_code"] for country in countries}
+    if country_code not in valid_country_codes:
+        country_code = ""
+    if region_code not in valid_region_codes:
+        region_code = ""
+    clauses = []
+    params = []
+    if region_code:
+        clauses.append(f"{table_alias}.region_code = ?")
+        params.append(region_code)
+    if country_code:
+        clauses.append(f"{table_alias}.country_code = ?")
+        params.append(country_code)
+    regions = []
+    seen_regions = set()
+    for country in countries:
+        if country["region_code"] in seen_regions:
+            continue
+        seen_regions.add(country["region_code"])
+        regions.append({"code": country["region_code"], "name": country["region_name"]})
+    return region_code, country_code, countries, regions, clauses, params
+
+
 def seed_settings(connection):
     defaults = {}
     for key, value in DEFAULT_COMPANY_PROFILE.items():
@@ -4340,6 +4368,7 @@ def invoice_query():
     short_q = request.args.get("short_name", "").strip()
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
+    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
     available_statuses = set(STATUS_LABELS.keys())
     selected_statuses = [value for value in request.args.getlist("status") if value in available_statuses]
     selected_paid_statuses = [value for value in request.args.getlist("paid_status") if value in {"paid", "unpaid"}]
@@ -4350,6 +4379,8 @@ def invoice_query():
     access_clause, access_params = client_filter_clause("invoices")
     clauses = [access_clause]
     params = list(access_params)
+    clauses.extend(location_clauses)
+    params.extend(location_params)
     if selected_statuses:
         placeholders = ",".join("?" for _ in selected_statuses)
         clauses.append(f"invoices.status in ({placeholders})")
@@ -4385,6 +4416,7 @@ def invoice_query():
         from invoice_items
         join invoices on invoices.id = invoice_items.invoice_id
         join clients on clients.id = invoices.client_id
+        left join service_orders on service_orders.id = invoices.service_order_id
         where {" and ".join(clauses)}
         order by invoices.issue_date desc, invoices.id desc, invoice_items.id asc
         """,
@@ -4415,6 +4447,10 @@ def invoice_query():
         tax_total=tax_total,
         grand_total=grand_total,
         labels=STATUS_LABELS,
+        countries=countries,
+        regions=regions,
+        region_code=region_code,
+        country_code=country_code,
     )
 
 
@@ -4431,8 +4467,11 @@ def service_order_query():
         abort(403)
     q = request.args.get("q", "").strip()
     status = request.args.get("status", "")
+    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
     clauses = ["1 = 1"]
     params = []
+    clauses.extend(location_clauses)
+    params.extend(location_params)
     if q:
         clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_orders.client_order_number like ?)")
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
@@ -4443,11 +4482,17 @@ def service_order_query():
         f"""
         select service_orders.*,
                work_order_types.name as work_order_type_name,
+               coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
+               coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count,
                coalesce(sum(case when expenses.status = 'approved' then expenses.amount else 0 end), 0) as approved_expense_total
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
+        left join country_translations country_local
+          on country_local.country_code = service_orders.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         left join expenses on expenses.service_order_id = service_orders.id
@@ -4455,9 +4500,18 @@ def service_order_query():
         group by service_orders.id
         order by service_orders.created_at desc, service_orders.id desc
         """,
-        params,
+        [current_language(), *params],
     ).fetchall()
-    return render_template("service_order_query.html", orders=rows, q=q, status=status)
+    return render_template(
+        "service_order_query.html",
+        orders=rows,
+        q=q,
+        status=status,
+        countries=countries,
+        regions=regions,
+        region_code=region_code,
+        country_code=country_code,
+    )
 
 
 @app.route("/reports/buyers")
@@ -4466,7 +4520,7 @@ def buyer_query():
     if not is_internal_user():
         abort(403)
     q = request.args.get("q", "").strip()
-    country = request.args.get("country", "").strip()
+    region_code, country_code, countries, regions, _, _ = report_location_filters()
     clauses = ["1 = 1"]
     params = []
     if q:
@@ -4478,23 +4532,25 @@ def buyer_query():
             """
         )
         params.extend([f"%{q}%"] * 6)
-    if country:
-        clauses.append("buyers.country = ?")
-        params.append(country)
+    if region_code:
+        clauses.append(
+            "exists (select 1 from service_orders where service_orders.buyer_id = buyers.id and service_orders.region_code = ?)"
+        )
+        params.append(region_code)
+    if country_code:
+        clauses.append(
+            "exists (select 1 from service_orders where service_orders.buyer_id = buyers.id and service_orders.country_code = ?)"
+        )
+        params.append(country_code)
     rows = buyer_map_rows(" and ".join(clauses), params)
-    countries = db().execute(
-        """
-        select distinct country from buyers
-        where trim(coalesce(country, '')) != ''
-        order by country
-        """
-    ).fetchall()
     return render_template(
         "buyer_query.html",
         buyers=rows,
         countries=countries,
+        regions=regions,
         q=q,
-        country=country,
+        region_code=region_code,
+        country_code=country_code,
     )
 
 
@@ -4506,8 +4562,11 @@ def service_report_query():
     q = request.args.get("q", "").strip()
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
+    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
     clauses = ["1 = 1"]
     params = []
+    clauses.extend(location_clauses)
+    params.extend(location_params)
     if q:
         clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_reports.cabinet_number like ?)")
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
@@ -4520,18 +4579,34 @@ def service_report_query():
     rows = db().execute(
         f"""
         select service_reports.*, service_orders.order_number, service_orders.client_name,
+               coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
+               coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
                group_concat(users.name, ', ') as worker_names
         from service_reports
         join service_orders on service_orders.id = service_reports.service_order_id
+        left join country_translations country_local
+          on country_local.country_code = service_orders.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
         left join service_report_workers on service_report_workers.report_id = service_reports.id
         left join users on users.id = service_report_workers.user_id
         where {" and ".join(clauses)}
         group by service_reports.id
         order by service_reports.report_date desc, service_reports.id desc
         """,
-        params,
+        [current_language(), *params],
     ).fetchall()
-    return render_template("service_report_query.html", rows=rows, q=q, date_from=date_from, date_to=date_to)
+    return render_template(
+        "service_report_query.html",
+        rows=rows,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+        countries=countries,
+        regions=regions,
+        region_code=region_code,
+        country_code=country_code,
+    )
 
 
 @app.route("/reports/expenses")
@@ -4542,8 +4617,11 @@ def expense_query():
     payout_status = request.args.get("payout_status", "")
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
+    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
     clauses = ["1 = 1"]
     params = []
+    clauses.extend(location_clauses)
+    params.extend(location_params)
     if normalized_role() == "employee":
         clauses.append("expenses.created_by = ?")
         params.append(g.user["id"])
@@ -4566,14 +4644,20 @@ def expense_query():
         params.append(date_to)
     rows = db().execute(
         f"""
-        select expenses.*, service_orders.order_number, service_orders.client_name, users.name as creator_name
+        select expenses.*, service_orders.order_number, service_orders.client_name, users.name as creator_name,
+               coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
+               coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name
         from expenses
         join service_orders on service_orders.id = expenses.service_order_id
         left join users on users.id = expenses.created_by
+        left join country_translations country_local
+          on country_local.country_code = service_orders.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
         where {" and ".join(clauses)}
         order by expenses.expense_date desc, expenses.id desc
         """,
-        params,
+        [current_language(), *params],
     ).fetchall()
     total = sum(
         float(row["amount"] or 0)
@@ -4591,6 +4675,10 @@ def expense_query():
         total=total,
         labels=EXPENSE_STATUS_LABELS,
         payout_labels=EXPENSE_PAYOUT_LABELS,
+        countries=countries,
+        regions=regions,
+        region_code=region_code,
+        country_code=country_code,
     )
 
 
