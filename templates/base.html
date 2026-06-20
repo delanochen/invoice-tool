@@ -48,7 +48,7 @@
             </div>
           </details>
           {% endif %}
-          <a href="{{ url_for('messages') }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>
+          <a href="{{ url_for('messages') }}" data-message-nav data-unread-count="{{ unread_message_count }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>
           {% if not is_external_manager() and not is_external_employee() %}
             <details class="nav-group">
               <summary>基础数据</summary>
