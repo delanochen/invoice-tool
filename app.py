@@ -176,7 +176,7 @@ ROLE_OPTIONS = {
 PROJECT_TYPE_LABELS = {
     "invoice": "发票项目",
     "expense": "员工报销",
-    "customer_expense": "甲方报销",
+    "customer_expense": "企业报销",
 }
 
 CUSTOMER_REIMBURSEMENT_PROJECTS = {
@@ -2045,10 +2045,10 @@ def customer_reimbursement_items_from_form():
             }
         )
         if not row["worker_name"] or not row["project_date"]:
-            raise ValueError("甲方费用报销表每一行都必须有姓名和项目时间。")
+            raise ValueError("企业报销每一行都必须有姓名和项目时间。")
         rows.append(calculate_customer_reimbursement_item(row, len(rows)))
     if not rows:
-        raise ValueError("甲方费用报销表至少需要一行明细。")
+        raise ValueError("企业报销至少需要一行明细。")
     return rows
 
 
@@ -2128,7 +2128,7 @@ def customer_reimbursement_invoice_items(reimbursement):
             }
         )
     if not items:
-        raise ValueError("甲方费用报销表金额为 0，无法生成发票。")
+        raise ValueError("企业报销金额为 0，无法生成发票。")
     return items
 
 
@@ -2145,7 +2145,7 @@ def create_customer_reimbursement(order):
     reimbursement_id = cursor.lastrowid
     rows = customer_reimbursement_seed_rows(order["id"])
     if not rows:
-        raise ValueError("这个工单还没有可用于生成甲方费用报销表的工作日报。")
+        raise ValueError("这个工单还没有可用于生成企业报销的工作日报。")
     save_customer_reimbursement_items(reimbursement_id, rows)
     update_customer_reimbursement_totals(reimbursement_id, rows)
     return db().execute("select * from customer_reimbursements where id = ?", (reimbursement_id,)).fetchone()
@@ -4464,7 +4464,7 @@ def audit_log_report():
         "invoice": "发票",
         "service_report": "工作日报",
         "expense": "报销",
-        "customer_reimbursement": "甲方费用报销表",
+        "customer_reimbursement": "企业报销",
     }
     action_labels = {
         "create": "创建",
@@ -5000,14 +5000,14 @@ def customer_reimbursement_form(order_id):
     reimbursement = latest_customer_reimbursement(order_id)
     if not reimbursement:
         if not can_manage_customer_reimbursement():
-            flash("该工单还没有甲方费用报销表。", "error")
+            flash("该工单还没有企业报销。", "error")
             return redirect(url_for("service_order_detail", order_id=order_id))
         try:
             reimbursement = create_customer_reimbursement(order)
             build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
             log_action("create", "customer_reimbursement", reimbursement["id"], reimbursement["file_name"], f"工单：{order['order_number']}")
             db().commit()
-            flash("甲方费用报销表已根据工作日报生成，请补充费用和附件。", "success")
+            flash("企业报销已根据工作日报生成，请补充费用和附件。", "success")
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
@@ -5028,14 +5028,14 @@ def customer_reimbursement_form(order_id):
                     return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
                 if action == "send_email":
                     if reimbursement["status"] != "approved":
-                        raise ValueError("甲方费用报销表审核通过后才能发送邮件。")
+                        raise ValueError("企业报销审核通过后才能发送邮件。")
                     recipient = deliver_customer_reimbursement_email(reimbursement, order)
                     db().commit()
-                    flash(f"甲方费用报销表已发送至 {recipient}。", "success")
+                    flash(f"企业报销已发送至 {recipient}。", "success")
                     return redirect(url_for("customer_reimbursement_form", order_id=order_id))
                 if action == "generate_invoice":
                     if reimbursement["status"] != "approved":
-                        raise ValueError("甲方费用报销表审核通过后才能生成发票。")
+                        raise ValueError("企业报销审核通过后才能生成发票。")
                     if not can_create_invoice():
                         abort(403)
                     linked_invoice = service_order_active_invoice(order_id)
@@ -5054,7 +5054,7 @@ def customer_reimbursement_form(order_id):
                             customer_reimbursement_id=reimbursement["id"],
                         )
                     )
-                raise ValueError("只有保存未提交或已退回的甲方费用报销表可以修改。")
+                raise ValueError("只有保存未提交或已退回的企业报销可以修改。")
             rows = customer_reimbursement_items_from_form()
             save_customer_reimbursement_items(reimbursement["id"], rows)
             totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
@@ -5083,9 +5083,9 @@ def customer_reimbursement_form(order_id):
             if action == "submit":
                 notify_role(
                     ["admin", "manager"],
-                    "新甲方费用报销表待审核",
+                    "新企业报销待审核",
                     (
-                        f"{g.user['name']}提交了工单 {order['order_number']} 的甲方费用报销表，"
+                        f"{g.user['name']}提交了工单 {order['order_number']} 的企业报销，"
                         f"金额 {money(totals['total_amount'])}。"
                     ),
                     url_for("customer_reimbursement_form", order_id=order_id),
@@ -5099,7 +5099,7 @@ def customer_reimbursement_form(order_id):
                     f"金额：{money(totals['total_amount'])}",
                 )
                 db().commit()
-                flash("甲方费用报销表已提交经理审核。", "success")
+                flash("企业报销已提交经理审核。", "success")
                 return redirect(url_for("customer_reimbursement_form", order_id=order_id))
             if action == "generate_pdf":
                 return send_file(
@@ -5109,18 +5109,18 @@ def customer_reimbursement_form(order_id):
                 )
             if action == "send_email":
                 if reimbursement["status"] != "approved":
-                    raise ValueError("甲方费用报销表审核通过后才能发送邮件。")
+                    raise ValueError("企业报销审核通过后才能发送邮件。")
                 try:
                     recipient = deliver_customer_reimbursement_email(reimbursement, order)
                 except (ValueError, RuntimeError) as error:
                     flash(str(error), "error")
                     return redirect(url_for("customer_reimbursement_form", order_id=order_id))
                 db().commit()
-                flash(f"甲方费用报销表已发送至 {recipient}。", "success")
+                flash(f"企业报销已发送至 {recipient}。", "success")
                 return redirect(url_for("customer_reimbursement_form", order_id=order_id))
             if action == "generate_invoice":
                 if reimbursement["status"] != "approved":
-                    raise ValueError("甲方费用报销表审核通过后才能生成发票。")
+                    raise ValueError("企业报销审核通过后才能生成发票。")
                 if not can_create_invoice():
                     abort(403)
                 linked_invoice = service_order_active_invoice(order_id)
@@ -5139,7 +5139,7 @@ def customer_reimbursement_form(order_id):
                         customer_reimbursement_id=reimbursement["id"],
                     )
                 )
-            flash("甲方费用报销表已保存。", "success")
+            flash("企业报销已保存。", "success")
             return redirect(url_for("customer_reimbursement_form", order_id=order_id))
         except ValueError as error:
             db().rollback()
@@ -5210,7 +5210,7 @@ def approve_customer_reimbursement(reimbursement_id):
     if not is_manager():
         abort(403)
     if reimbursement["status"] != "submitted":
-        flash("只有待经理审核的甲方费用报销表可以审核通过。", "error")
+        flash("只有待经理审核的企业报销可以审核通过。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
     db().execute(
         """
@@ -5221,12 +5221,12 @@ def approve_customer_reimbursement(reimbursement_id):
         (g.user["id"], now(), reimbursement_id),
     )
     message = (
-        f"{g.user['name']}已审核通过工单 {order['order_number']} 的甲方费用报销表，"
+        f"{g.user['name']}已审核通过工单 {order['order_number']} 的企业报销，"
         f"金额 {money(reimbursement['total_amount'])}。"
     )
     create_message(
         reimbursement["created_by"],
-        "甲方费用报销表已审核通过",
+        "企业报销已审核通过",
         message,
         url_for("customer_reimbursement_form", order_id=order["id"]),
     )
@@ -5238,7 +5238,7 @@ def approve_customer_reimbursement(reimbursement_id):
         f"金额：{money(reimbursement['total_amount'])}",
     )
     db().commit()
-    flash("甲方费用报销表已审核通过。", "success")
+    flash("企业报销已审核通过。", "success")
     return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
@@ -5249,7 +5249,7 @@ def return_customer_reimbursement(reimbursement_id):
     if not is_manager():
         abort(403)
     if reimbursement["status"] != "submitted":
-        flash("只有待经理审核的甲方费用报销表可以退回。", "error")
+        flash("只有待经理审核的企业报销可以退回。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
     reason = request.form.get("return_reason", "").strip()
     if not reason:
@@ -5265,8 +5265,8 @@ def return_customer_reimbursement(reimbursement_id):
     )
     create_message(
         reimbursement["created_by"],
-        "甲方费用报销表已被退回",
-        f"工单 {order['order_number']} 的甲方费用报销表已被退回。原因：{reason}",
+        "企业报销已被退回",
+        f"工单 {order['order_number']} 的企业报销已被退回。原因：{reason}",
         url_for("customer_reimbursement_form", order_id=order["id"]),
     )
     log_action(
@@ -5277,7 +5277,7 @@ def return_customer_reimbursement(reimbursement_id):
         f"原因：{reason}",
     )
     db().commit()
-    flash("甲方费用报销表已退回。", "success")
+    flash("企业报销已退回。", "success")
     return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
@@ -5311,7 +5311,7 @@ def delete_customer_reimbursement_attachment(attachment_id):
     if not can_manage_customer_reimbursement():
         abort(403)
     if reimbursement["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或已退回的甲方费用报销表可以删除附件。", "error")
+        flash("只有保存未提交或已退回的企业报销可以删除附件。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
     try:
         os.remove(customer_reimbursement_attachment_path(attachment))
@@ -6113,7 +6113,7 @@ def new_invoice():
     source_reimbursement = None
     prefilled_items = []
     if request.method == "GET" and not requested_reimbursement_id.isdigit():
-        flash("请从审核通过的甲方费用报销表生成发票。", "error")
+        flash("请从审核通过的企业报销生成发票。", "error")
         if requested_order_id.isdigit():
             return redirect(url_for("customer_reimbursement_form", order_id=int(requested_order_id)))
         return redirect(url_for("service_orders"))
@@ -6128,7 +6128,7 @@ def new_invoice():
         if start_date_redirect:
             return start_date_redirect
         if source_reimbursement["invoice_id"]:
-            flash("这份甲方费用报销表已经生成过发票。", "success")
+            flash("这份企业报销已经生成过发票。", "success")
             return redirect(url_for("invoice_detail", invoice_id=source_reimbursement["invoice_id"]))
         linked_invoice = service_order_active_invoice(source_order["id"])
         if linked_invoice:
@@ -6140,7 +6140,7 @@ def new_invoice():
             flash("这个工单已经有关联发票。", "success")
             return redirect(url_for("invoice_detail", invoice_id=linked_invoice["id"]))
         if source_reimbursement["status"] != "approved":
-            flash("甲方费用报销表审核通过后才能生成发票。", "error")
+            flash("企业报销审核通过后才能生成发票。", "error")
             return redirect(url_for("customer_reimbursement_form", order_id=source_order["id"]))
         requested_order_id = str(source_order["id"])
         try:
@@ -6207,7 +6207,7 @@ def new_invoice():
         projects=projects_rows,
         service_orders=service_orders_rows,
         defaults=defaults,
-        form_title="根据甲方费用报销表生成发票" if source_reimbursement else "新建发票",
+        form_title="根据企业报销生成发票" if source_reimbursement else "新建发票",
         form_items=prefilled_items,
         is_edit=False,
         attachments=[],
@@ -6266,17 +6266,17 @@ def create_invoice_from_form(save_token=None):
     reimbursement_id = request.form.get("customer_reimbursement_id", "")
     if reimbursement_id:
         if not reimbursement_id.isdigit():
-            raise ValueError("甲方费用报销表来源无效。")
+            raise ValueError("企业报销来源无效。")
         source_reimbursement = db().execute(
             "select * from customer_reimbursements where id = ?",
             (int(reimbursement_id),),
         ).fetchone()
         if not source_reimbursement or source_reimbursement["service_order_id"] != service_order_id:
-            raise ValueError("甲方费用报销表与所选工单不匹配。")
+            raise ValueError("企业报销与所选工单不匹配。")
         if source_reimbursement["status"] != "approved":
-            raise ValueError("甲方费用报销表审核通过后才能生成发票。")
+            raise ValueError("企业报销审核通过后才能生成发票。")
         if source_reimbursement["invoice_id"]:
-            raise ValueError("这份甲方费用报销表已经生成过发票。")
+            raise ValueError("这份企业报销已经生成过发票。")
         if service_order_active_invoice(service_order_id):
             raise ValueError("这个工单已经有关联发票，不能重复生成。")
         source_order = db().execute(

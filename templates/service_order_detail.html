@@ -113,10 +113,10 @@
   {% if can_view_customer_reimbursement() %}
     <section class="panel">
       <div class="panel-title">
-        <h2>甲方费用报销表</h2>
+        <h2>企业报销</h2>
         {% if customer_reimbursement or can_manage_customer_reimbursement() %}
           <button class="small" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">
-            {% if can_manage_customer_reimbursement() %}{% if customer_reimbursement %}编辑甲方费用报销表{% else %}生成甲方费用报销表{% endif %}{% else %}查看甲方费用报销表{% endif %}
+            {% if can_manage_customer_reimbursement() %}{% if customer_reimbursement %}编辑企业报销{% else %}生成企业报销{% endif %}{% else %}查看企业报销{% endif %}
           </button>
         {% endif %}
       </div>
@@ -131,7 +131,7 @@
           <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
         </div>
       {% else %}
-        <p class="empty">还没有甲方费用报销表。生成后可补充住宿、交通费、英里数和附件。</p>
+        <p class="empty">还没有企业报销。生成后可补充住宿、交通费、英里数和附件。</p>
       {% endif %}
     </section>
   {% endif %}
