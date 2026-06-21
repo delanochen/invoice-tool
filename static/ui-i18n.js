@@ -100,6 +100,16 @@
     "总金额": "Total amount",
     "流程状态": "Workflow status",
     "报销状态": "Reimbursement status",
+    "报销编号、工单、需方或提交人": "Expense number, work order, buyer, or submitter",
+    "报销": "Mark reimbursed",
+    "重置发放状态": "Reset reimbursement status",
+    "重置流程状态": "Reset workflow status",
+    "报销人": "Reimbursed by",
+    "报销时间": "Reimbursed at",
+    "没有符合条件的待处理报销。": "No matching reimbursements to process.",
+    "确认所选报销已经完成付款吗？": "Confirm that the selected expense has been paid?",
+    "确认将所选单据重置为待报销吗？": "Reset the selected expense to pending reimbursement?",
+    "确认将所选单据重置为待经理审核，并同时重置发放状态吗？": "Reset the selected expense to pending manager review and reset its reimbursement status?",
     "发票状态": "Invoice status",
     "核销状态": "Payment status",
     "项目": "Project",
@@ -429,6 +439,16 @@
     "总金额": "Totaalbedrag",
     "流程状态": "Workflowstatus",
     "报销状态": "Vergoedingsstatus",
+    "报销编号、工单、需方或提交人": "Onkostennummer, werkorder, koper of indiener",
+    "报销": "Als vergoed markeren",
+    "重置发放状态": "Vergoedingsstatus resetten",
+    "重置流程状态": "Workflowstatus resetten",
+    "报销人": "Vergoed door",
+    "报销时间": "Vergoed op",
+    "没有符合条件的待处理报销。": "Geen overeenkomende vergoedingen om te verwerken.",
+    "确认所选报销已经完成付款吗？": "Bevestigen dat de geselecteerde onkosten zijn betaald?",
+    "确认将所选单据重置为待报销吗？": "De geselecteerde onkosten terugzetten naar te vergoeden?",
+    "确认将所选单据重置为待经理审核，并同时重置发放状态吗？": "De geselecteerde onkosten terugzetten naar managerbeoordeling en de vergoedingsstatus resetten?",
     "发票状态": "Factuurstatus",
     "核销状态": "Betalingsstatus",
     "客户简称": "Korte klantnaam",
@@ -655,6 +675,16 @@
 
   const de = {
     ...en,
+    "报销编号、工单、需方或提交人": "Spesennummer, Arbeitsauftrag, Käufer oder Einreicher",
+    "报销": "Als erstattet markieren",
+    "重置发放状态": "Erstattungsstatus zurücksetzen",
+    "重置流程状态": "Workflowstatus zurücksetzen",
+    "报销人": "Erstattet von",
+    "报销时间": "Erstattet am",
+    "没有符合条件的待处理报销。": "Keine passenden Erstattungen zur Bearbeitung.",
+    "确认所选报销已经完成付款吗？": "Bestätigen, dass die ausgewählten Spesen bezahlt wurden?",
+    "确认将所选单据重置为待报销吗？": "Die ausgewählten Spesen auf ausstehende Erstattung zurücksetzen?",
+    "确认将所选单据重置为待经理审核，并同时重置发放状态吗？": "Die ausgewählten Spesen auf ausstehende Managerprüfung zurücksetzen und den Erstattungsstatus zurücksetzen?",
     "内部记录：开票人": "Interner Vermerk: erstellt von",
     "发票预览": "Rechnungsvorschau",
     "导出 ZIP": "ZIP exportieren",
@@ -853,6 +883,16 @@
 
   const es = {
     ...en,
+    "报销编号、工单、需方或提交人": "Número de gasto, orden, comprador o remitente",
+    "报销": "Marcar como reembolsado",
+    "重置发放状态": "Restablecer estado de reembolso",
+    "重置流程状态": "Restablecer estado del flujo",
+    "报销人": "Reembolsado por",
+    "报销时间": "Reembolsado el",
+    "没有符合条件的待处理报销。": "No hay reembolsos coincidentes para procesar.",
+    "确认所选报销已经完成付款吗？": "¿Confirmar que el gasto seleccionado ha sido pagado?",
+    "确认将所选单据重置为待报销吗？": "¿Restablecer el gasto seleccionado a pendiente de reembolso?",
+    "确认将所选单据重置为待经理审核，并同时重置发放状态吗？": "¿Restablecer el gasto seleccionado a revisión del gerente y restablecer su estado de reembolso?",
     "内部记录：开票人": "Registro interno: creado por",
     "发票预览": "Vista previa de factura",
     "导出 ZIP": "Exportar ZIP",
@@ -1072,6 +1112,7 @@
   if (typeof window !== "undefined") {
     window.uiLanguage = language;
     window.uiTranslate = (value, allowPartial = true) => translate(String(value), allowPartial) || String(value);
+    window.uiConfirm = (value) => window.confirm(window.uiTranslate(value));
   }
   if (typeof document === "undefined" || language === "zh-CN") return;
 
