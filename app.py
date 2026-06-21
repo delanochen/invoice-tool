@@ -4492,7 +4492,7 @@ def invoice_query():
         params.extend(effective_project_ids)
     rows = db().execute(
         f"""
-        select invoices.invoice_number, invoices.issue_date, invoices.currency, invoices.status, invoices.paid_at,
+        select invoices.id, invoices.invoice_number, invoices.issue_date, invoices.currency, invoices.status, invoices.paid_at,
                clients.client_number, clients.name as client_name, clients.short_name,
                invoice_items.description as project_name, invoice_items.amount, invoice_items.tax_rate
         from invoice_items

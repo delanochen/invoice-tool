@@ -18,9 +18,6 @@
           {% if can_view_invoices() and not is_external_manager() %}
             <a href="{{ url_for('dashboard') }}">概览</a>
           {% endif %}
-          {% if can_view_invoices() %}
-            <a href="{{ url_for('invoices') }}">发票</a>
-          {% endif %}
           <a href="{{ url_for('service_orders') }}">工单</a>
           {% if not is_external_employee() %}
             <a href="{{ url_for('service_order_map') }}">需方地图</a>
@@ -31,19 +28,22 @@
           {% if can_create_invoice() %}
             <a href="{{ url_for('new_invoice') }}">新建发票</a>
           {% endif %}
-          {% if not is_external_manager() and not is_external_employee() %}
+          {% if not is_external_employee() %}
           <details class="nav-group">
             <summary>报表</summary>
             <div class="nav-submenu">
-              <a href="{{ url_for('buyer_query') }}">需方查询</a>
-              <a href="{{ url_for('service_order_query') }}">工单查询</a>
               {% if can_view_invoices() %}
+                <a href="{{ url_for('invoices') }}">发票查询</a>
                 <a href="{{ url_for('invoice_query') }}">发票明细查询</a>
               {% endif %}
-              <a href="{{ url_for('service_report_query') }}">日报查询</a>
-              <a href="{{ url_for('expense_query') }}">报销明细查询</a>
-              {% if can_view_audit_logs() %}
-                <a href="{{ url_for('audit_log_report') }}">操作日志</a>
+              {% if not is_external_manager() %}
+                <a href="{{ url_for('buyer_query') }}">需方查询</a>
+                <a href="{{ url_for('service_order_query') }}">工单查询</a>
+                <a href="{{ url_for('service_report_query') }}">日报查询</a>
+                <a href="{{ url_for('expense_query') }}">报销明细查询</a>
+                {% if can_view_audit_logs() %}
+                  <a href="{{ url_for('audit_log_report') }}">操作日志</a>
+                {% endif %}
               {% endif %}
             </div>
           </details>

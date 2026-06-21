@@ -72,7 +72,7 @@
           {% set row = item.row %}
           <tr>
             <td>{{ row.issue_date }}</td>
-            <td>{{ row.invoice_number }}</td>
+            <td><a href="{{ url_for('invoice_detail', invoice_id=row.id) }}">{{ row.invoice_number }}</a></td>
             <td>{{ row.client_number }}</td>
             <td>{{ row.client_name }}</td>
             <td>{{ row.short_name }}</td>
