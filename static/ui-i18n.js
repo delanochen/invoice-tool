@@ -203,6 +203,7 @@
     "工作日报": "Daily work report",
     "报告日期": "Report date",
     "服务人员清单": "Service personnel list",
+    "当前工单国家没有可选的启用服务人员。": "No active service personnel are available for this work order's country.",
     "费用日期": "Expense date",
     "业务类型": "Business type",
     "新增用户": "Add user",
@@ -540,6 +541,7 @@
     "工作日报": "Dagelijks werkrapport",
     "报告日期": "Rapportdatum",
     "服务人员清单": "Lijst servicemedewerkers",
+    "当前工单国家没有可选的启用服务人员。": "Er zijn geen actieve servicemedewerkers beschikbaar voor het land van deze werkorder.",
     "费用日期": "Onkostendatum",
     "业务类型": "Bedrijfstype",
     "新增用户": "Gebruiker toevoegen",
@@ -675,6 +677,7 @@
 
   const de = {
     ...en,
+    "当前工单国家没有可选的启用服务人员。": "Für das Land dieses Arbeitsauftrags sind keine aktiven Servicemitarbeiter verfügbar.",
     "报销编号、工单、需方或提交人": "Spesennummer, Arbeitsauftrag, Käufer oder Einreicher",
     "报销": "Als erstattet markieren",
     "重置发放状态": "Erstattungsstatus zurücksetzen",
@@ -883,6 +886,7 @@
 
   const es = {
     ...en,
+    "当前工单国家没有可选的启用服务人员。": "No hay personal de servicio activo disponible para el país de esta orden de trabajo.",
     "报销编号、工单、需方或提交人": "Número de gasto, orden, comprador o remitente",
     "报销": "Marcar como reembolsado",
     "重置发放状态": "Restablecer estado de reembolso",

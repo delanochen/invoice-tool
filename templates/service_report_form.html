@@ -77,6 +77,8 @@
       <div class="check-grid" id="serviceWorkers" role="group" aria-label="服务人员清单">
         {% for user in users %}
           <label class="check-chip"><input type="checkbox" name="worker_user_id" value="{{ user.id }}" {% if user.id in selected_workers %}checked{% endif %}> {{ user.name }}</label>
+        {% else %}
+          <p class="empty">当前工单国家没有可选的启用服务人员。</p>
         {% endfor %}
       </div>
       <p class="field-error" id="serviceWorkersError" hidden>请至少选择一名服务人员。</p>

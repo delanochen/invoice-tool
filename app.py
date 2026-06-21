@@ -2709,6 +2709,39 @@ def service_report_workers(report_id):
     ).fetchall()
 
 
+def service_report_worker_options(order, report_id=None):
+    params = [order["country_code"]]
+    historical_clause = ""
+    if report_id:
+        historical_clause = """
+          or users.id in (
+              select user_id from service_report_workers where report_id = ?
+          )
+        """
+        params.append(report_id)
+    role_clause = (
+        "users.id = ?"
+        if is_external_employee()
+        else "users.role in ('manager', 'finance', 'employee')"
+    )
+    if is_external_employee():
+        params.insert(0, g.user["id"])
+    return db().execute(
+        f"""
+        select users.id, users.name, users.email, users.country_code
+        from users
+        where {role_clause}
+          and users.is_active = 1
+          and (
+              users.country_code = ?
+              {historical_clause}
+          )
+        order by users.name
+        """,
+        params,
+    ).fetchall()
+
+
 def report_parts(table, report_id):
     return db().execute(f"select * from {table} where report_id = ? order by sort_order, id", (report_id,)).fetchall()
 
@@ -2748,14 +2781,31 @@ def save_report_detail_rows(report_id):
     if not worker_ids:
         raise ValueError("服务人员清单至少需要选择一人。")
     placeholders = ",".join("?" for _ in worker_ids)
+    report_order = db().execute(
+        """
+        select service_orders.country_code
+        from service_reports
+        join service_orders on service_orders.id = service_reports.service_order_id
+        where service_reports.id = ?
+        """,
+        (report_id,),
+    ).fetchone()
+    if not report_order:
+        raise ValueError("工作日报关联的工单不存在。")
     valid_workers = db().execute(
         f"""
         select id from users
         where role in ('manager', 'finance', 'employee', 'external_employee')
           and is_active = 1
+          and (
+              country_code = ?
+              or id in (
+                  select user_id from service_report_workers where report_id = ?
+              )
+          )
           and id in ({placeholders})
         """,
-        worker_ids,
+        (report_order["country_code"], report_id, *worker_ids),
     ).fetchall()
     valid_worker_ids = {str(row["id"]) for row in valid_workers}
     if valid_worker_ids != set(worker_ids):
@@ -5743,15 +5793,7 @@ def new_service_report(order_id):
         start_date_redirect = require_service_order_start_date(order)
         if start_date_redirect:
             return start_date_redirect
-    if is_external_employee():
-        users_rows = db().execute(
-            "select id, name, email from users where id = ?",
-            (g.user["id"],),
-        ).fetchall()
-    else:
-        users_rows = db().execute(
-            "select id, name, email from users where role in ('manager', 'finance', 'employee') and is_active = 1 order by name"
-        ).fetchall()
+    users_rows = service_report_worker_options(order)
     if request.method == "POST":
         save_token = request.form.get("save_token", "")
         if not claim_report_save_token(save_token):
@@ -5830,15 +5872,7 @@ def edit_service_report(report_id):
     report, order = require_service_report(report_id)
     if is_external_employee() and report["created_by"] != g.user["id"]:
         abort(403)
-    if is_external_employee():
-        users_rows = db().execute(
-            "select id, name, email from users where id = ?",
-            (g.user["id"],),
-        ).fetchall()
-    else:
-        users_rows = db().execute(
-            "select id, name, email from users where role in ('manager', 'finance', 'employee') and is_active = 1 order by name"
-        ).fetchall()
+    users_rows = service_report_worker_options(order, report_id=report_id)
     if request.method == "POST":
         if is_external_manager():
             abort(403)
