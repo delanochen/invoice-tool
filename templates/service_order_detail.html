@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}{{ order.order_number }} - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header">
@@ -115,10 +115,10 @@
   {% if can_view_customer_reimbursement() %}
     <section class="panel">
       <div class="panel-title">
-        <h2>企业报销</h2>
+        <h2>工单结算</h2>
         {% if customer_reimbursement or can_manage_customer_reimbursement() %}
           <button class="small" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">
-            {% if can_manage_customer_reimbursement() %}{% if customer_reimbursement %}编辑企业报销{% else %}生成企业报销{% endif %}{% else %}查看企业报销{% endif %}
+            {% if can_manage_customer_reimbursement() %}{% if customer_reimbursement %}编辑工单结算{% else %}生成工单结算{% endif %}{% else %}查看工单结算{% endif %}
           </button>
         {% endif %}
       </div>
@@ -133,7 +133,7 @@
           <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
         </div>
       {% else %}
-        <p class="empty">还没有企业报销。生成后可补充住宿、交通费、英里数和附件。</p>
+        <p class="empty">还没有工单结算。生成后可补充住宿、交通费、英里数和附件。</p>
       {% endif %}
     </section>
   {% endif %}
@@ -158,3 +158,4 @@
     </section>
   {% endif %}
 {% endblock %}
+

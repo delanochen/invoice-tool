@@ -1,10 +1,10 @@
-{% extends "base.html" %}
-{% block title %}企业报销 - {{ order.order_number }}{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}工单结算 - {{ order.order_number }}{% endblock %}
 {% block content %}
   <header class="page-header">
     <div>
       <p class="eyebrow">Customer Reimbursement</p>
-      <h1>企业报销 <span class="status {{ reimbursement.status }}">{{ customer_reimbursement_labels[reimbursement.status] }}</span></h1>
+      <h1>工单结算 <span class="status {{ reimbursement.status }}">{{ customer_reimbursement_labels[reimbursement.status] }}</span></h1>
       <p class="muted-line">{{ order.order_number }} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
@@ -46,7 +46,7 @@
   {% if reimbursement.status == "submitted" and normalized_role() in ["admin", "manager"] %}
     <dialog id="returnCustomerReimbursementDialog" class="modal">
       <form method="post" action="{{ url_for('return_customer_reimbursement', reimbursement_id=reimbursement.id) }}" class="form-stack">
-        <h2>退回企业报销</h2>
+        <h2>退回工单结算</h2>
         <label>退回原因 <textarea name="return_reason" rows="5" required></textarea></label>
         <div class="form-actions">
           <button type="button" onclick="document.querySelector('#returnCustomerReimbursementDialog').close()">取消</button>
@@ -154,3 +154,4 @@
 {% block scripts %}
   <script src="{{ url_for('static', filename='customer-reimbursement.js', v='20260617-download-reset') }}"></script>
 {% endblock %}
+

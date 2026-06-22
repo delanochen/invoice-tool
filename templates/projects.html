@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}项目 - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header">
@@ -47,7 +47,7 @@
           <select name="project_type">
             <option value="invoice">发票项目</option>
             <option value="expense">员工报销</option>
-            <option value="customer_expense">企业报销</option>
+            <option value="customer_expense">工单结算</option>
           </select>
         </label>
         <label>单价 <input name="unit_price" type="number" step="0.01" min="0" value="0"></label>
@@ -74,7 +74,7 @@
             <select name="project_type">
               <option value="invoice" {% if project.project_type == "invoice" %}selected{% endif %}>发票项目</option>
               <option value="expense" {% if project.project_type == "expense" %}selected{% endif %}>员工报销</option>
-              <option value="customer_expense" {% if project.project_type == "customer_expense" %}selected{% endif %}>企业报销</option>
+              <option value="customer_expense" {% if project.project_type == "customer_expense" %}selected{% endif %}>工单结算</option>
             </select>
           </label>
           <label>单价 <input name="unit_price" type="number" step="0.01" min="0" value="{{ project.unit_price }}"></label>
@@ -95,3 +95,4 @@
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
 {% endblock %}
+
