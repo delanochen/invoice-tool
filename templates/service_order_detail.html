@@ -29,7 +29,17 @@
   <section class="panel">
     <div class="detail-grid">
       <p><strong>客户</strong><span>{{ order.billing_client_name or "未关联" }}</span></p>
-      <p><strong>合同</strong><span>{% if order.contract_id %}<a href="{{ url_for('contract_detail', contract_id=order.contract_id) }}">{{ order.contract_number }} · {{ order.contract_title }}</a>{% else %}未关联{% endif %}</span></p>
+      <p><strong>合同</strong><span>
+        {% if order.contract_id %}
+          {% if can_view_contracts() %}
+            <a href="{{ url_for('contract_detail', contract_id=order.contract_id) }}">{{ order.contract_number }} · {{ order.contract_title }}</a>
+          {% else %}
+            {{ order.contract_number }} · {{ order.contract_title }}
+          {% endif %}
+        {% else %}
+          未关联
+        {% endif %}
+      </span></p>
       <p><strong>需方名称</strong><span>{{ order.client_name }}</span></p>
       <p><strong>工单类型</strong><span>{{ order.work_order_type_name or "-" }}</span></p>
       <p><strong>区域</strong><span>{{ order.region_name or order.region_code }}</span></p>

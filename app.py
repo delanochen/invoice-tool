@@ -1257,7 +1257,7 @@ def can_view_contracts():
 
 
 def can_manage_contracts():
-    return g.user and normalized_role() in {"admin", "manager"}
+    return g.user and normalized_role() in {"admin", "manager", "finance"}
 
 
 def can_create_invoice():

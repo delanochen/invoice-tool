@@ -18,10 +18,10 @@
           {% if can_view_invoices() and not is_external_manager() %}
             <a href="{{ url_for('dashboard') }}">概览</a>
           {% endif %}
-          <a href="{{ url_for('service_orders') }}">工单</a>
           {% if can_view_contracts() %}
             <a href="{{ url_for('contracts') }}">合同</a>
           {% endif %}
+          <a href="{{ url_for('service_orders') }}">工单</a>
           {% if not is_external_employee() %}
             <a href="{{ url_for('service_order_map') }}">需方地图</a>
           {% endif %}
