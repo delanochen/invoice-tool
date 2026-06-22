@@ -28,7 +28,17 @@
           <tr>
             <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
             <td>{{ order.client_name }}</td>
-            <td>{% if order.contract_id %}<a href="{{ url_for('contract_detail', contract_id=order.contract_id) }}">{{ order.contract_number }}</a>{% else %}-{% endif %}</td>
+            <td>
+              {% if order.contract_id %}
+                {% if can_view_contracts() %}
+                  <a href="{{ url_for('contract_detail', contract_id=order.contract_id) }}">{{ order.contract_number }}</a>
+                {% else %}
+                  {{ order.contract_number }}
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
             <td>{{ order.work_order_type_name or "-" }}</td>
             <td>{{ order.start_date or "-" }}</td>
             <td>{{ order.client_order_number }}</td>
