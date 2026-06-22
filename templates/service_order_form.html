@@ -31,6 +31,18 @@
         {% endfor %}
       </select>
     </label>
+    <label>关联合同
+      <select name="contract_id">
+        <option value="">不关联合同</option>
+        {% for contract in contracts %}
+          <option value="{{ contract.id }}"
+            {% if (order and order.contract_id == contract.id) or (not order and request.args.get('contract_id')|int == contract.id) %}selected{% endif %}>
+            {{ contract.contract_number }} · {{ contract.client_name }} · {{ contract.title }}
+          </option>
+        {% endfor %}
+      </select>
+      <small>合同可选；所选合同必须属于上面的客户。</small>
+    </label>
     <label>需方名称
       <select name="buyer_id" id="buyerSelect" required>
         <option value="">请选择需方</option>

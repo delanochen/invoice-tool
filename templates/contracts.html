@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}合同 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Contracts</p><h1>合同管理</h1></div>
+    {% if can_manage_contracts() %}
+      <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_contract') }}'">新建合同</button>
+    {% endif %}
+  </header>
+
+  <form class="panel filter-bar no-print" method="get">
+    <label>关键词
+      <input name="q" value="{{ q }}" placeholder="合同编号、名称、客户或项目">
+    </label>
+    <label>合同类型
+      <select name="contract_type">
+        <option value="">全部类型</option>
+        {% for value, label in contract_type_labels.items() %}
+          <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>状态
+      <select name="status">
+        <option value="">全部状态</option>
+        {% for value, label in contract_status_labels.items() %}
+          <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('contracts') }}'">重置</button>
+    </div>
+  </form>
+
+  <section class="panel">
+    <div class="panel-title"><h2>合同列表</h2><span class="muted-line">{{ contracts|length }} 份合同</span></div>
+    <table class="list-table">
+      <thead>
+        <tr><th>合同编号</th><th>合同名称</th><th>客户</th><th>类型</th><th>合同金额</th><th>期限</th><th>工单</th><th>状态</th></tr>
+      </thead>
+      <tbody>
+        {% for contract in contracts %}
+          <tr>
+            <td><a href="{{ url_for('contract_detail', contract_id=contract.id) }}">{{ contract.contract_number }}</a></td>
+            <td>{{ contract.title }}</td>
+            <td>{{ contract.client_name }}</td>
+            <td>{{ contract_type_labels[contract.contract_type] }}</td>
+            <td>{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}-{% endif %}</td>
+            <td>{{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</td>
+            <td>{{ contract.work_order_count }}</td>
+            <td><span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="empty">没有符合条件的合同。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

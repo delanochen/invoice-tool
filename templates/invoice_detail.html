@@ -112,6 +112,9 @@
         <p><span>Invoice No.</span><strong>{{ invoice.invoice_number }}</strong></p>
         {% if service_order %}
           <p><span>Service Order</span><strong><a href="{{ url_for('service_order_detail', order_id=service_order.id) }}">{{ service_order.order_number }}</a></strong></p>
+          {% if service_order.contract_id %}
+            <p><span>Contract</span><strong><a href="{{ url_for('contract_detail', contract_id=service_order.contract_id) }}">{{ service_order.contract_number }}</a></strong></p>
+          {% endif %}
         {% endif %}
         <p><span>Issue Date</span><strong>{{ invoice.issue_date }}</strong></p>
         <p><span>Due Date</span><strong>{{ invoice.due_date }}</strong></p>

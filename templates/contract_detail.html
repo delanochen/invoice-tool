@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ contract.contract_number }} - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">{{ contract_type_labels[contract.contract_type] }}</p>
+      <h1>{{ contract.contract_number }}</h1>
+      <p class="muted-line">{{ contract.title }} · {{ client.name }}</p>
+    </div>
+    <div class="actions">
+      <button type="button" onclick="window.location.href='{{ url_for('contracts') }}'">返回列表</button>
+      {% if can_manage_contracts() %}
+        <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_contract', contract_id=contract.id) }}'">编辑合同</button>
+      {% endif %}
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="detail-grid">
+      <p><strong>客户</strong><span>{{ client.client_number }} · {{ client.name }}</span></p>
+      <p><strong>类型</strong><span>{{ contract_type_labels[contract.contract_type] }}</span></p>
+      <p><strong>状态</strong><span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span></p>
+      <p><strong>签订日期</strong><span>{{ contract.signed_date or "-" }}</span></p>
+      <p><strong>开始日期</strong><span>{{ contract.start_date or "-" }}</span></p>
+      <p><strong>结束日期</strong><span>{{ contract.end_date or "-" }}</span></p>
+      <p><strong>合同金额</strong><span>{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}-{% endif %}</span></p>
+      <p><strong>付款条款</strong><span>{{ contract.payment_terms or "-" }}</span></p>
+      {% if contract.contract_type == "project" %}
+        <p class="full-span"><strong>项目名称</strong><span>{{ contract.project_name }}</span></p>
+      {% else %}
+        <p class="full-span"><strong>价格表 / 计费约定</strong><span class="pre-line">{{ contract.rate_card or "-" }}</span></p>
+      {% endif %}
+      <p class="full-span"><strong>备注</strong><span class="pre-line">{{ contract.notes or "-" }}</span></p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><h2>合同附件</h2><span class="muted-line">{{ attachments|length }} 个文件</span></div>
+    <table class="list-table">
+      <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for attachment in attachments %}
+          <tr>
+            <td><a href="{{ url_for('preview_contract_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a></td>
+            <td>{{ attachment.uploader_name or "-" }}</td>
+            <td>{{ attachment.uploaded_at|local_datetime }}</td>
+            <td><button class="small" type="button" onclick="window.location.href='{{ url_for('download_contract_attachment', attachment_id=attachment.id) }}'">下载</button></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">还没有合同附件。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>关联工单</h2>
+      {% if can_create_service_order() %}
+        <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_order', contract_id=contract.id) }}'">新建工单</button>
+      {% endif %}
+    </div>
+    <table class="list-table">
+      <thead><tr><th>工单编号</th><th>需方</th><th>类型</th><th>服务订单号码</th><th>状态</th></tr></thead>
+      <tbody>
+        {% for order in work_orders %}
+          <tr>
+            <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
+            <td>{{ order.client_name }}</td>
+            <td>{{ order.work_order_type_name or "-" }}</td>
+            <td>{{ order.client_order_number }}</td>
+            <td>{{ "已关闭" if order.status == "closed" else "进行中" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="empty">还没有关联合同的工单。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {% if can_view_invoices() %}
+    <section class="panel">
+      <h2>关联发票</h2>
+      <table class="list-table">
+        <thead><tr><th>发票编号</th><th>开票日期</th><th>到期日期</th><th>状态</th><th>收款</th></tr></thead>
+        <tbody>
+          {% for invoice in invoices %}
+            <tr>
+              <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
+              <td>{{ invoice.issue_date }}</td>
+              <td>{{ invoice.due_date }}</td>
+              <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
+              <td>{{ invoice|payment_label }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty">关联合同的工单还没有发票。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if can_manage_contracts() %}
+    <form method="post" action="{{ url_for('delete_contract', contract_id=contract.id) }}" onsubmit="return confirm('确定删除这份合同吗？有关联工单的合同不能删除。');">
+      <button class="danger" type="submit">删除合同</button>
+    </form>
+  {% endif %}
+{% endblock %}

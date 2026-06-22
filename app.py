@@ -58,6 +58,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "invoices.db")
 ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
+CONTRACT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "contract-attachments")
 REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
 EXPENSE_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "expense-attachments")
 CUSTOMER_REIMBURSEMENT_DIR = os.path.join(DATA_DIR, "customer-reimbursements")
@@ -188,6 +189,20 @@ PROJECT_TYPE_LABELS = {
     "customer_expense": "工单结算",
 }
 
+CONTRACT_TYPE_LABELS = {
+    "framework": "框架合同",
+    "project": "项目合同",
+}
+
+CONTRACT_STATUS_LABELS = {
+    "draft": "草稿",
+    "review": "审核中",
+    "signed": "已签署",
+    "active": "执行中",
+    "completed": "已完成",
+    "terminated": "已终止",
+}
+
 CUSTOMER_REIMBURSEMENT_PROJECTS = {
     "标准工时": 70,
     "交通工时": 35,
@@ -214,6 +229,7 @@ def db():
     if "db" not in g:
         os.makedirs(DATA_DIR, exist_ok=True)
         os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+        os.makedirs(CONTRACT_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(REPORT_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(EXPENSE_ATTACHMENTS_DIR, exist_ok=True)
         os.makedirs(CUSTOMER_REIMBURSEMENT_DIR, exist_ok=True)
@@ -274,6 +290,41 @@ def init_db():
                 tax_rate real not null default 0,
                 is_active integer not null default 1,
                 created_at text not null
+            );
+
+            create table if not exists contracts (
+                id integer primary key autoincrement,
+                contract_number text not null unique,
+                client_id integer not null,
+                contract_type text not null,
+                title text not null,
+                status text not null default 'draft',
+                signed_date text,
+                start_date text,
+                end_date text,
+                currency text not null default 'USD',
+                amount real,
+                payment_terms text,
+                rate_card text,
+                project_name text,
+                notes text,
+                created_by integer not null,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(client_id) references clients(id),
+                foreign key(created_by) references users(id)
+            );
+
+            create table if not exists contract_attachments (
+                id integer primary key autoincrement,
+                contract_id integer not null,
+                original_filename text not null,
+                stored_filename text not null,
+                content_type text,
+                uploaded_by integer not null,
+                uploaded_at text not null,
+                foreign key(contract_id) references contracts(id) on delete cascade,
+                foreign key(uploaded_by) references users(id)
             );
 
             create table if not exists invoices (
@@ -640,6 +691,7 @@ def init_db():
             """
         )
         ensure_column(connection, "invoices", "service_order_id", "integer")
+        ensure_column(connection, "service_orders", "contract_id", "integer")
         ensure_column(connection, "users", "is_active", "integer not null default 1")
         ensure_column(connection, "users", "region_code", "text not null default 'americas'")
         ensure_column(connection, "users", "country_code", "text not null default 'US'")
@@ -1200,6 +1252,14 @@ def can_view_invoices():
     return g.user and normalized_role() in {"admin", "manager", "finance", "external_manager"}
 
 
+def can_view_contracts():
+    return g.user and normalized_role() in {"admin", "manager", "finance", "external_manager"}
+
+
+def can_manage_contracts():
+    return g.user and normalized_role() in {"admin", "manager"}
+
+
 def can_create_invoice():
     return g.user and normalized_role() in {"manager", "finance"}
 
@@ -1279,6 +1339,17 @@ def require_invoice_access(invoice_id):
     if not can_access_client(invoice["client_id"]):
         abort(403)
     return invoice
+
+
+def require_contract_access(contract_id):
+    if not can_view_contracts():
+        abort(403)
+    contract = db().execute("select * from contracts where id = ?", (contract_id,)).fetchone()
+    if not contract:
+        abort(404)
+    if not can_access_client(contract["client_id"]):
+        abort(403)
+    return contract
 
 
 def client_filter_clause(alias="invoices"):
@@ -1370,6 +1441,8 @@ app.jinja_env.filters["payment_label"] = payment_label
 app.jinja_env.filters["local_datetime"] = local_datetime
 app.jinja_env.globals["can_view_invoices"] = can_view_invoices
 app.jinja_env.globals["can_create_invoice"] = can_create_invoice
+app.jinja_env.globals["can_view_contracts"] = can_view_contracts
+app.jinja_env.globals["can_manage_contracts"] = can_manage_contracts
 app.jinja_env.globals["can_create_service_order"] = can_create_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
@@ -1385,6 +1458,8 @@ app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
 app.jinja_env.globals["customer_reimbursement_labels"] = CUSTOMER_REIMBURSEMENT_STATUS_LABELS
 app.jinja_env.globals["project_type_labels"] = PROJECT_TYPE_LABELS
+app.jinja_env.globals["contract_type_labels"] = CONTRACT_TYPE_LABELS
+app.jinja_env.globals["contract_status_labels"] = CONTRACT_STATUS_LABELS
 
 
 def next_client_number():
@@ -1418,6 +1493,132 @@ def next_invoice_number():
         if not db().execute("select id from invoices where invoice_number = ?", (invoice_number,)).fetchone():
             return invoice_number
     raise RuntimeError("Unable to generate a unique invoice number.")
+
+
+def next_contract_number():
+    prefix = f"CT{date.today():%y}"
+    row = db().execute(
+        """
+        select contract_number from contracts
+        where contract_number like ?
+        order by contract_number desc limit 1
+        """,
+        (f"{prefix}%",),
+    ).fetchone()
+    if not row:
+        return f"{prefix}001"
+    suffix = row["contract_number"][len(prefix):]
+    try:
+        return f"{prefix}{int(suffix) + 1:03d}"
+    except ValueError:
+        return f"{prefix}{secrets.randbelow(900) + 100}"
+
+
+def contract_attachment_dir(contract_id):
+    path = os.path.join(CONTRACT_ATTACHMENTS_DIR, str(contract_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def contract_attachment_path(attachment):
+    return os.path.join(
+        CONTRACT_ATTACHMENTS_DIR,
+        str(attachment["contract_id"]),
+        attachment["stored_filename"],
+    )
+
+
+def save_contract_uploads(contract_id):
+    existing = {
+        row["original_filename"].strip().casefold()
+        for row in db().execute(
+            "select original_filename from contract_attachments where contract_id = ?",
+            (contract_id,),
+        ).fetchall()
+    }
+    for uploaded in request.files.getlist("attachments"):
+        if not uploaded or not uploaded.filename:
+            continue
+        if not allowed_attachment(uploaded.filename):
+            raise ValueError(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。")
+        original_filename = os.path.basename(uploaded.filename).strip()
+        if original_filename.casefold() in existing:
+            raise ValueError(f"附件“{original_filename}”已经存在。")
+        extension = original_filename.rsplit(".", 1)[1].lower()
+        stored_filename = f"{secrets.token_hex(12)}.{extension}"
+        uploaded.save(os.path.join(contract_attachment_dir(contract_id), stored_filename))
+        db().execute(
+            """
+            insert into contract_attachments (
+                contract_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+            ) values (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                contract_id,
+                original_filename,
+                stored_filename,
+                uploaded.content_type,
+                g.user["id"],
+                now(),
+            ),
+        )
+        existing.add(original_filename.casefold())
+
+
+def contract_form_values(contract=None):
+    contract_type = request.form.get("contract_type", "framework")
+    status = request.form.get("status", "draft")
+    if contract_type not in CONTRACT_TYPE_LABELS:
+        raise ValueError("请选择有效的合同类型。")
+    if status not in CONTRACT_STATUS_LABELS:
+        raise ValueError("请选择有效的合同状态。")
+    try:
+        client_id = int(request.form.get("client_id", ""))
+    except (TypeError, ValueError):
+        raise ValueError("请选择客户。")
+    client = db().execute("select * from clients where id = ?", (client_id,)).fetchone()
+    if not client or not can_access_client(client_id):
+        raise ValueError("选择的客户不存在或无权访问。")
+    contract_number = request.form.get("contract_number", "").strip() or (
+        contract["contract_number"] if contract else next_contract_number()
+    )
+    title = request.form.get("title", "").strip()
+    if not title:
+        raise ValueError("请填写合同名称。")
+    start_date = request.form.get("start_date") or None
+    end_date = request.form.get("end_date") or None
+    if start_date and end_date and end_date < start_date:
+        raise ValueError("合同结束日期不能早于开始日期。")
+    amount_text = request.form.get("amount", "").strip()
+    amount = to_float(amount_text) if amount_text else None
+    if amount is not None and amount < 0:
+        raise ValueError("合同金额不能小于零。")
+    project_name = request.form.get("project_name", "").strip()
+    rate_card = request.form.get("rate_card", "").strip()
+    if contract_type == "project":
+        if not project_name:
+            raise ValueError("项目合同必须填写项目名称。")
+        if amount is None:
+            raise ValueError("项目合同必须填写合同金额。")
+        rate_card = ""
+    else:
+        project_name = ""
+    return {
+        "contract_number": contract_number,
+        "client_id": client_id,
+        "contract_type": contract_type,
+        "title": title,
+        "status": status,
+        "signed_date": request.form.get("signed_date") or None,
+        "start_date": start_date,
+        "end_date": end_date,
+        "currency": request.form.get("currency", "USD"),
+        "amount": amount,
+        "payment_terms": request.form.get("payment_terms", "").strip(),
+        "rate_card": rate_card,
+        "project_name": project_name,
+        "notes": request.form.get("notes", "").strip(),
+    }
 
 
 def next_service_order_number():
@@ -1587,12 +1788,16 @@ def require_service_order(order_id):
                buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                clients.name as billing_client_name,
                clients.email as billing_client_email,
+               contracts.contract_number,
+               contracts.title as contract_title,
+               contracts.contract_type,
                coalesce(country_local.name, country_zh.name, country_en.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, country_en.region_name, service_orders.region_code) as region_name
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
         left join clients on clients.id = service_orders.client_id
+        left join contracts on contracts.id = service_orders.contract_id
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
         left join country_translations country_zh
@@ -3445,6 +3650,301 @@ def dashboard():
     )
 
 
+@app.route("/contracts")
+@login_required
+def contracts():
+    if not can_view_contracts():
+        abort(403)
+    q = request.args.get("q", "").strip()
+    contract_type = request.args.get("contract_type", "").strip()
+    status = request.args.get("status", "").strip()
+    clauses = ["1 = 1"]
+    params = []
+    if is_external_manager():
+        clauses.append("contracts.client_id = ?")
+        params.append(g.user["client_id"] or 0)
+    if q:
+        clauses.append(
+            "(contracts.contract_number like ? or contracts.title like ? "
+            "or clients.name like ? or contracts.project_name like ?)"
+        )
+        params.extend([f"%{q}%"] * 4)
+    if contract_type in CONTRACT_TYPE_LABELS:
+        clauses.append("contracts.contract_type = ?")
+        params.append(contract_type)
+    if status in CONTRACT_STATUS_LABELS:
+        clauses.append("contracts.status = ?")
+        params.append(status)
+    rows = db().execute(
+        f"""
+        select contracts.*, clients.name as client_name,
+               count(distinct service_orders.id) as work_order_count
+        from contracts
+        join clients on clients.id = contracts.client_id
+        left join service_orders on service_orders.contract_id = contracts.id
+        where {" and ".join(clauses)}
+        group by contracts.id
+        order by
+          case contracts.status when 'active' then 0 when 'signed' then 1 when 'review' then 2 else 3 end,
+          coalesce(contracts.end_date, '9999-12-31'), contracts.id desc
+        """,
+        params,
+    ).fetchall()
+    return render_template(
+        "contracts.html",
+        contracts=rows,
+        q=q,
+        selected_type=contract_type,
+        selected_status=status,
+    )
+
+
+@app.route("/contracts/new", methods=["GET", "POST"])
+@login_required
+def new_contract():
+    if not can_manage_contracts():
+        abort(403)
+    clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
+    if not clients_rows:
+        flash("请先创建客户。", "error")
+        return redirect(url_for("clients"))
+    if request.method == "POST":
+        try:
+            values = contract_form_values()
+            cursor = db().execute(
+                """
+                insert into contracts (
+                    contract_number, client_id, contract_type, title, status, signed_date,
+                    start_date, end_date, currency, amount, payment_terms, rate_card,
+                    project_name, notes, created_by, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    values["contract_number"], values["client_id"], values["contract_type"],
+                    values["title"], values["status"], values["signed_date"], values["start_date"],
+                    values["end_date"], values["currency"], values["amount"],
+                    values["payment_terms"], values["rate_card"], values["project_name"],
+                    values["notes"], g.user["id"], now(), now(),
+                ),
+            )
+            contract_id = cursor.lastrowid
+            save_contract_uploads(contract_id)
+            log_action(
+                "create",
+                "contract",
+                contract_id,
+                values["contract_number"],
+                f"{CONTRACT_TYPE_LABELS[values['contract_type']]} · {values['title']}",
+            )
+            db().commit()
+            flash("合同已创建。", "success")
+            return redirect(url_for("contract_detail", contract_id=contract_id))
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("合同编号已经存在，请更换合同编号。", "error")
+    defaults = dict(request.form) if request.method == "POST" else {
+        "contract_number": next_contract_number(),
+        "contract_type": "framework",
+        "status": "draft",
+        "currency": "USD",
+    }
+    return render_template(
+        "contract_form.html",
+        contract=None,
+        clients=clients_rows,
+        defaults=defaults,
+        attachments=[],
+        form_title="新建合同",
+    )
+
+
+@app.route("/contracts/<int:contract_id>")
+@login_required
+def contract_detail(contract_id):
+    contract = require_contract_access(contract_id)
+    client = db().execute("select * from clients where id = ?", (contract["client_id"],)).fetchone()
+    attachments = db().execute(
+        """
+        select contract_attachments.*, users.name as uploader_name
+        from contract_attachments
+        left join users on users.id = contract_attachments.uploaded_by
+        where contract_attachments.contract_id = ?
+        order by contract_attachments.uploaded_at desc, contract_attachments.id desc
+        """,
+        (contract_id,),
+    ).fetchall()
+    work_orders = db().execute(
+        """
+        select service_orders.*, work_order_types.name as work_order_type_name
+        from service_orders
+        left join work_order_types on work_order_types.id = service_orders.work_order_type_id
+        where service_orders.contract_id = ?
+        order by service_orders.created_at desc, service_orders.id desc
+        """,
+        (contract_id,),
+    ).fetchall()
+    invoices = db().execute(
+        """
+        select distinct invoices.*
+        from invoices
+        join service_orders on service_orders.id = invoices.service_order_id
+        where service_orders.contract_id = ? and invoices.status != 'void'
+        order by invoices.issue_date desc, invoices.id desc
+        """,
+        (contract_id,),
+    ).fetchall()
+    return render_template(
+        "contract_detail.html",
+        contract=contract,
+        client=client,
+        attachments=attachments,
+        work_orders=work_orders,
+        invoices=invoices,
+        labels=STATUS_LABELS,
+    )
+
+
+@app.route("/contracts/<int:contract_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_contract(contract_id):
+    if not can_manage_contracts():
+        abort(403)
+    contract = require_contract_access(contract_id)
+    clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
+    if request.method == "POST":
+        try:
+            values = contract_form_values(contract)
+            linked_clients = db().execute(
+                """
+                select count(*) as count from service_orders
+                where contract_id = ? and client_id != ?
+                """,
+                (contract_id, values["client_id"]),
+            ).fetchone()["count"]
+            if linked_clients:
+                raise ValueError("合同已有其他客户的工单，不能更改合同客户。")
+            db().execute(
+                """
+                update contracts
+                set contract_number = ?, client_id = ?, contract_type = ?, title = ?, status = ?,
+                    signed_date = ?, start_date = ?, end_date = ?, currency = ?, amount = ?,
+                    payment_terms = ?, rate_card = ?, project_name = ?, notes = ?, updated_at = ?
+                where id = ?
+                """,
+                (
+                    values["contract_number"], values["client_id"], values["contract_type"],
+                    values["title"], values["status"], values["signed_date"], values["start_date"],
+                    values["end_date"], values["currency"], values["amount"],
+                    values["payment_terms"], values["rate_card"], values["project_name"],
+                    values["notes"], now(), contract_id,
+                ),
+            )
+            save_contract_uploads(contract_id)
+            log_action("update", "contract", contract_id, values["contract_number"], "修改合同资料")
+            db().commit()
+            flash("合同已更新。", "success")
+            return redirect(url_for("contract_detail", contract_id=contract_id))
+        except ValueError as error:
+            db().rollback()
+            flash(str(error), "error")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("合同编号已经存在，请更换合同编号。", "error")
+    attachments = db().execute(
+        "select * from contract_attachments where contract_id = ? order by uploaded_at desc, id desc",
+        (contract_id,),
+    ).fetchall()
+    defaults = dict(request.form) if request.method == "POST" else dict(contract)
+    return render_template(
+        "contract_form.html",
+        contract=contract,
+        clients=clients_rows,
+        defaults=defaults,
+        attachments=attachments,
+        form_title="编辑合同",
+    )
+
+
+@app.post("/contracts/<int:contract_id>/delete")
+@login_required
+def delete_contract(contract_id):
+    if not can_manage_contracts():
+        abort(403)
+    contract = require_contract_access(contract_id)
+    work_order_count = db().execute(
+        "select count(*) as count from service_orders where contract_id = ?",
+        (contract_id,),
+    ).fetchone()["count"]
+    if work_order_count:
+        flash("合同已有工单关联，不能删除；可以将状态改为已终止。", "error")
+        return redirect(url_for("contract_detail", contract_id=contract_id))
+    shutil.rmtree(os.path.join(CONTRACT_ATTACHMENTS_DIR, str(contract_id)), ignore_errors=True)
+    db().execute("delete from contracts where id = ?", (contract_id,))
+    log_action("delete", "contract", contract_id, contract["contract_number"], contract["title"])
+    db().commit()
+    flash("合同已删除。", "success")
+    return redirect(url_for("contracts"))
+
+
+@app.route("/contract-attachments/<int:attachment_id>")
+@login_required
+def preview_contract_attachment(attachment_id):
+    attachment = db().execute(
+        "select * from contract_attachments where id = ?",
+        (attachment_id,),
+    ).fetchone()
+    if not attachment:
+        abort(404)
+    require_contract_access(attachment["contract_id"])
+    return send_file(
+        contract_attachment_path(attachment),
+        mimetype=attachment["content_type"] or "application/octet-stream",
+        download_name=attachment["original_filename"],
+    )
+
+
+@app.route("/contract-attachments/<int:attachment_id>/download")
+@login_required
+def download_contract_attachment(attachment_id):
+    attachment = db().execute(
+        "select * from contract_attachments where id = ?",
+        (attachment_id,),
+    ).fetchone()
+    if not attachment:
+        abort(404)
+    require_contract_access(attachment["contract_id"])
+    return send_file(
+        contract_attachment_path(attachment),
+        as_attachment=True,
+        download_name=attachment["original_filename"],
+    )
+
+
+@app.post("/contract-attachments/<int:attachment_id>/delete")
+@login_required
+def delete_contract_attachment(attachment_id):
+    if not can_manage_contracts():
+        abort(403)
+    attachment = db().execute(
+        "select * from contract_attachments where id = ?",
+        (attachment_id,),
+    ).fetchone()
+    if not attachment:
+        abort(404)
+    require_contract_access(attachment["contract_id"])
+    try:
+        os.remove(contract_attachment_path(attachment))
+    except FileNotFoundError:
+        pass
+    db().execute("delete from contract_attachments where id = ?", (attachment_id,))
+    db().commit()
+    flash("合同附件已删除。", "success")
+    return redirect(url_for("edit_contract", contract_id=attachment["contract_id"]))
+
+
 @app.route("/clients", methods=["GET", "POST"])
 @login_required
 def clients():
@@ -3541,8 +4041,9 @@ def delete_client(client_id):
     if is_external_user():
         abort(403)
     invoice_count = db().execute("select count(*) as count from invoices where client_id = ?", (client_id,)).fetchone()["count"]
-    if invoice_count:
-        flash("这个客户已有发票记录，不能删除。可以编辑客户资料以保留历史发票。", "error")
+    contract_count = db().execute("select count(*) as count from contracts where client_id = ?", (client_id,)).fetchone()["count"]
+    if invoice_count or contract_count:
+        flash("这个客户已有合同或发票记录，不能删除。可以编辑客户资料以保留历史记录。", "error")
         return redirect(url_for("clients"))
     db().execute("delete from clients where id = ?", (client_id,))
     db().commit()
@@ -5006,10 +5507,12 @@ def service_orders():
         f"""
         select service_orders.*,
                work_order_types.name as work_order_type_name,
+               contracts.contract_number,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
+        left join contracts on contracts.id = service_orders.contract_id
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         where {" and ".join(clauses)}
@@ -5220,6 +5723,14 @@ def new_service_order():
     work_order_types_rows = db().execute(
         "select * from work_order_types where is_active = 1 order by code, name"
     ).fetchall()
+    contracts_rows = db().execute(
+        """
+        select contracts.*, clients.name as client_name
+        from contracts join clients on clients.id = contracts.client_id
+        where contracts.status in ('signed', 'active')
+        order by clients.name, contracts.contract_number
+        """
+    ).fetchall()
     if not buyers_rows:
         flash("请先由管理员或经理维护需方资料。", "error")
         return redirect(url_for("buyers") if is_manager() else url_for("service_orders"))
@@ -5243,23 +5754,34 @@ def new_service_order():
             "select * from clients where id = ?",
             (request.form.get("client_id"),),
         ).fetchone()
+        contract_id = request.form.get("contract_id") or None
+        contract = None
+        if contract_id:
+            contract = db().execute(
+                "select * from contracts where id = ?",
+                (contract_id,),
+            ).fetchone()
         site_address = request.form.get("site_address", "").strip()
         client_order_number = request.form.get("client_order_number", "").strip()
         if not buyer or not client or not work_order_type or not site_address or not client_order_number:
             flash("请选择客户、需方和工单类型，并填写服务现场地址、服务订单号码。", "error")
             return redirect(url_for("new_service_order"))
+        if contract_id and (not contract or contract["client_id"] != client["id"]):
+            flash("关联合同必须属于所选客户。", "error")
+            return redirect(url_for("new_service_order"))
         order_number = next_service_order_number()
         cursor = db().execute(
             """
             insert into service_orders (
-                order_number, client_id, buyer_id, client_name, buyer_contact_name, buyer_contact_details,
+                order_number, client_id, contract_id, buyer_id, client_name, buyer_contact_name, buyer_contact_details,
                 site_address, client_order_number, start_date, work_order_type_id,
                 region_code, country_code, created_by, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_number,
                 client["id"],
+                contract["id"] if contract else None,
                 buyer["id"],
                 buyer["name"],
                 buyer["contact_name"],
@@ -5284,6 +5806,7 @@ def new_service_order():
         clients=clients_rows,
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
+        contracts=contracts_rows,
         form_title="新建工单",
         start_date_only=False,
         countries=country_rows(),
@@ -5333,6 +5856,15 @@ def edit_service_order(order_id):
         """,
         (order["work_order_type_id"],),
     ).fetchall()
+    contracts_rows = db().execute(
+        """
+        select contracts.*, clients.name as client_name
+        from contracts join clients on clients.id = contracts.client_id
+        where contracts.status in ('signed', 'active') or contracts.id = ?
+        order by clients.name, contracts.contract_number
+        """,
+        (order["contract_id"] or 0,),
+    ).fetchall()
     if request.method == "POST":
         country = country_from_form(order["country_code"])
         buyer = db().execute(
@@ -5347,20 +5879,28 @@ def edit_service_order(order_id):
             "select * from clients where id = ?",
             (request.form.get("client_id"),),
         ).fetchone()
+        contract_id = request.form.get("contract_id") or None
+        contract = None
+        if contract_id:
+            contract = db().execute("select * from contracts where id = ?", (contract_id,)).fetchone()
         site_address = request.form.get("site_address", "").strip()
         if not buyer or not client or not work_order_type or not site_address:
             flash("请选择有效的客户、需方和工单类型，并填写服务现场地址。", "error")
             return redirect(url_for("edit_service_order", order_id=order_id))
+        if contract_id and (not contract or contract["client_id"] != client["id"]):
+            flash("关联合同必须属于所选客户。", "error")
+            return redirect(url_for("edit_service_order", order_id=order_id))
         db().execute(
             """
             update service_orders
-            set client_id = ?, buyer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
+            set client_id = ?, contract_id = ?, buyer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
                 site_address = ?, client_order_number = ?, start_date = ?,
                 work_order_type_id = ?, status = ?, region_code = ?, country_code = ?
             where id = ?
             """,
             (
                 client["id"],
+                contract["id"] if contract else None,
                 buyer["id"],
                 buyer["name"],
                 buyer["contact_name"],
@@ -5385,6 +5925,7 @@ def edit_service_order(order_id):
         clients=clients_rows,
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
+        contracts=contracts_rows,
         form_title="编辑工单",
         start_date_only=False,
         countries=country_rows(),
@@ -6907,7 +7448,15 @@ def invoice_detail(invoice_id):
     creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
     service_order = None
     if invoice["service_order_id"]:
-        service_order = db().execute("select * from service_orders where id = ?", (invoice["service_order_id"],)).fetchone()
+        service_order = db().execute(
+            """
+            select service_orders.*, contracts.contract_number, contracts.title as contract_title
+            from service_orders
+            left join contracts on contracts.id = service_orders.contract_id
+            where service_orders.id = ?
+            """,
+            (invoice["service_order_id"],),
+        ).fetchone()
     return render_template(
         "invoice_detail.html",
         invoice=invoice,

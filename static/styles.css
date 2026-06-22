@@ -344,6 +344,9 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .status.submitted { background: #eff8ff; color: var(--blue); }
 .status.returned { background: #fff4ed; color: var(--warn); }
 .status.completed { background: #ecfdf3; color: var(--ok); }
+.status.active, .status.signed { background: #ecfdf3; color: var(--ok); }
+.status.review { background: #eff8ff; color: var(--blue); }
+.status.terminated { background: #fff4ed; color: var(--warn); }
 .status.approved { background: #ecfdf3; color: var(--ok); }
 .status.pending { background: #fff7e6; color: #9a6700; }
 .status.paid { background: #ecfdf3; color: var(--ok); }
@@ -550,6 +553,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   margin: 0;
 }
 .detail-grid strong { color: var(--muted); font-size: 13px; }
+.pre-line { white-space: pre-line; }
 .subsection {
   margin-top: 22px;
   padding-top: 18px;
