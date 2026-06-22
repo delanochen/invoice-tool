@@ -101,7 +101,7 @@
   {% endif %}
 
   {% if can_manage_contracts() %}
-    <form method="post" action="{{ url_for('delete_contract', contract_id=contract.id) }}" onsubmit="return confirm('确定删除这份合同吗？有关联工单的合同不能删除。');">
+    <form method="post" action="{{ url_for('delete_contract', contract_id=contract.id) }}" onsubmit="return confirm(window.uiTranslate('确定删除这份合同吗？有关联工单的合同不能删除。'));">
       <button class="danger" type="submit">删除合同</button>
     </form>
   {% endif %}

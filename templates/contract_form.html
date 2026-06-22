@@ -84,7 +84,7 @@
               <td>
                 <div class="row-actions">
                   <button class="small" type="button" onclick="window.location.href='{{ url_for('download_contract_attachment', attachment_id=attachment.id) }}'">下载</button>
-                  <form method="post" action="{{ url_for('delete_contract_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');">
+                  <form method="post" action="{{ url_for('delete_contract_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm(window.uiTranslate('确定删除这个附件吗？'));">
                     <button class="danger small" type="submit">删除</button>
                   </form>
                 </div>
