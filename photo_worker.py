@@ -140,6 +140,44 @@ def timestamp_output_relative(relative, source):
     return relative.parent / f"{timestamp}.jpg"
 
 
+def is_datetime_named_picture(path):
+    return re.fullmatch(r"\d{8}_\d{6}(?:-\d+)?\.jpe?g", path.name, re.IGNORECASE) is not None
+
+
+def rename_existing_pictures_by_datetime(order_dir):
+    pictures_dir = order_dir / "pictures"
+    thumbnails_dir = order_dir / "thumbnails"
+    if not pictures_dir.is_dir():
+        return 0
+    renamed = 0
+    for path in sorted(pictures_dir.rglob("*")):
+        if not path.is_file() or path.name.startswith(".") or is_ignored(path.relative_to(pictures_dir)):
+            continue
+        if is_datetime_named_picture(path):
+            continue
+        relative = path.relative_to(pictures_dir)
+        target_relative = timestamp_output_relative(relative, path)
+        target = unique_datetime_path(pictures_dir / target_relative)
+        if target == path:
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            old_thumbnail = thumbnails_dir / relative
+            new_thumbnail = thumbnails_dir / target.relative_to(pictures_dir)
+            path.rename(target)
+            if old_thumbnail.exists():
+                new_thumbnail.parent.mkdir(parents=True, exist_ok=True)
+                old_thumbnail.rename(unique_datetime_path(new_thumbnail))
+            renamed += 1
+            log(f"renamed picture {path} -> {target}")
+        except OSError as error:
+            log(f"unable to rename picture {path}: {error}")
+    if renamed:
+        clean_empty_directories(pictures_dir)
+        clean_empty_directories(thumbnails_dir)
+    return renamed
+
+
 def file_sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as file:
@@ -269,6 +307,7 @@ def run_once():
     for order_dir in order_directories():
         clean_backups(order_dir)
         clean_duplicate_pictures(order_dir)
+        rename_existing_pictures_by_datetime(order_dir)
         for source in [*interrupted_sources(order_dir), *pending_sources(order_dir)]:
             process_source(order_dir, source)
             processed += 1

@@ -8125,10 +8125,6 @@ def build_service_report_docx(report, order):
                 run.add_picture(docx_photo_stream(path), width=Inches(3.15))
             except Exception:
                 format_run(paragraph.add_run("图片无法嵌入"), size=8)
-            caption = cell.add_paragraph(docx_text(attachment["original_filename"]))
-            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for run in caption.runs:
-                format_run(run, size=7)
 
     document.add_paragraph()
     sign_table = document.add_table(rows=2, cols=2)
