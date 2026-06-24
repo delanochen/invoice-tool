@@ -140,6 +140,27 @@ def timestamp_output_relative(relative, source):
     return relative.parent / f"{timestamp}.jpg"
 
 
+def original_backup_for_picture(order_dir, picture_relative):
+    backup_dir = order_dir / "original_backup" / picture_relative.parent
+    exact = backup_dir / picture_relative.name
+    if exact.is_file() and is_supported_image(exact):
+        return exact
+    if not backup_dir.is_dir():
+        return None
+    stem = picture_relative.stem.casefold()
+    candidates = [
+        path
+        for path in backup_dir.iterdir()
+        if path.is_file()
+        and not path.name.startswith(".")
+        and path.stem.casefold() == stem
+        and is_supported_image(path)
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda path: (path.suffix.casefold() not in {".heic", ".heif"}, path.name.casefold()))[0]
+
+
 def is_datetime_named_picture(path):
     return re.fullmatch(r"\d{8}_\d{6}(?:-\d+)?\.jpe?g", path.name, re.IGNORECASE) is not None
 
@@ -156,7 +177,9 @@ def rename_existing_pictures_by_datetime(order_dir):
         if is_datetime_named_picture(path):
             continue
         relative = path.relative_to(pictures_dir)
-        target_relative = timestamp_output_relative(relative, path)
+        original = original_backup_for_picture(order_dir, relative)
+        timestamp_source = original or path
+        target_relative = timestamp_output_relative(relative, timestamp_source)
         target = unique_datetime_path(pictures_dir / target_relative)
         if target == path:
             continue
@@ -169,7 +192,10 @@ def rename_existing_pictures_by_datetime(order_dir):
                 new_thumbnail.parent.mkdir(parents=True, exist_ok=True)
                 old_thumbnail.rename(unique_datetime_path(new_thumbnail))
             renamed += 1
-            log(f"renamed picture {path} -> {target}")
+            if original:
+                log(f"renamed picture {path} -> {target}; timestamp source {original}")
+            else:
+                log(f"renamed picture {path} -> {target}; timestamp source processed file")
         except OSError as error:
             log(f"unable to rename picture {path}: {error}")
     if renamed:
