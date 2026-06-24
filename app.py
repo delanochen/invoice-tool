@@ -8000,7 +8000,7 @@ def build_service_report_docx(report, order):
     travel_table.rows[0].cells[0].merge(travel_table.rows[0].cells[1])
     set_cell_text(
         travel_table.rows[0].cells[0],
-        f"公共交通时长：{report['public_transport_hours'] or 0} 小时    自驾里程总计：{report['driving_miles'] or 0} 公里",
+        f"公共交通时长：{report['public_transport_hours'] or 0} 小时    自驾里程总计：{report['driving_miles'] or 0} 英里",
         bold=True,
     )
     set_cell_text(travel_table.rows[1].cells[0], f"出发地址：{report['departure_address'] or ''}")
