@@ -6,6 +6,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from PIL import Image
+
 from image_processing import compress_image, create_thumbnail, is_supported_image
 
 
@@ -98,6 +100,46 @@ def unique_path(path, source):
     return candidate
 
 
+def unique_datetime_path(path):
+    if not path.exists():
+        return path
+    counter = 2
+    candidate = path.with_name(f"{path.stem}-{counter}{path.suffix}")
+    while candidate.exists():
+        counter += 1
+        candidate = path.with_name(f"{path.stem}-{counter}{path.suffix}")
+    return candidate
+
+
+def image_taken_datetime(path):
+    try:
+        with Image.open(path) as image:
+            exif = image.getexif()
+            for tag in (36867, 36868, 306):
+                value = exif.get(tag)
+                if not value:
+                    continue
+                if isinstance(value, bytes):
+                    value = value.decode("utf-8", errors="ignore")
+                value = str(value).strip()
+                for pattern in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+                    try:
+                        return datetime.strptime(value[:19], pattern)
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError:
+        return datetime.now()
+
+
+def timestamp_output_relative(relative, source):
+    timestamp = image_taken_datetime(source).strftime("%Y%m%d_%H%M%S")
+    return relative.parent / f"{timestamp}.jpg"
+
+
 def file_sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as file:
@@ -177,8 +219,8 @@ def process_source(order_dir, source):
         processing_path = source
     except ValueError:
         processing_path = move_file(source, order_dir / "processing" / relative)
-    output_relative = relative.with_suffix(".jpg")
-    output_path = unique_path(order_dir / "pictures" / output_relative, processing_path)
+    output_relative = timestamp_output_relative(relative, processing_path)
+    output_path = unique_datetime_path(order_dir / "pictures" / output_relative)
     try:
         compress_image(processing_path, output_path)
         processed_relative = output_path.relative_to(order_dir / "pictures")
