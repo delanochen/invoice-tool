@@ -8,8 +8,8 @@
       <tbody>
         {% for message in messages %}
           <tr class="{% if not message.is_read %}message-unread{% endif %}" data-message-row data-is-read="{{ 1 if message.is_read else 0 }}">
-            <td><a href="{{ url_for('message_detail', message_id=message.id) }}" data-message-link>{{ message.title }}</a></td>
-            <td>{{ message.body }}</td>
+            <td><a href="{{ url_for('message_detail', message_id=message.id) }}" data-message-link data-message-title>{{ message.title }}</a></td>
+            <td data-message-body>{{ message.body }}</td>
             <td>{{ message.created_at|local_datetime }}</td>
             <td data-message-status>{{ "已读" if message.is_read else "未读" }}</td>
           </tr>
@@ -21,5 +21,5 @@
   </section>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='messages.js', v='20260619-read-state') }}"></script>
+  <script src="{{ url_for('static', filename='messages.js', v='20260624-i18n-v1') }}"></script>
 {% endblock %}
