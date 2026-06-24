@@ -417,6 +417,39 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .file-picker-row small {
   color: var(--muted);
 }
+.selected-attachment-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: -4px;
+}
+.selected-attachment-panel[hidden] { display: none; }
+.selected-attachment-panel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.selected-attachment-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.selected-attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 14px;
+}
+.selected-attachment-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .table-scroll {
   overflow-x: auto;
 }

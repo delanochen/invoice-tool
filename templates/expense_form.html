@@ -52,8 +52,12 @@
     <label>报销单说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
     <div class="file-picker-row">
       <span>附件</span>
-      <input type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+      <input id="expenseAttachmentsInput" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
       <small>支持图片、PDF、Word、Excel，可多选。</small>
+    </div>
+    <div class="selected-attachment-panel" data-expense-attachment-panel hidden>
+      <h3>已选择附件</h3>
+      <ul class="selected-attachment-list" data-expense-attachment-list></ul>
     </div>
     {% if attachments %}
       <table class="list-table attachment-table">
@@ -89,5 +93,5 @@
       {% endfor %}
     ];
   </script>
-  <script src="{{ url_for('static', filename='expense-form.js', v='20260619-table-rows') }}"></script>
+  <script src="{{ url_for('static', filename='expense-form.js', v='20260623-append-attachments') }}"></script>
 {% endblock %}
