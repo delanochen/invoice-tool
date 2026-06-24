@@ -30,6 +30,7 @@ const serviceReportForm = document.getElementById("serviceReportForm");
 let serviceReportSubmitting = false;
 
 function reportText(value) {
+  if (document.documentElement.lang === "zh-CN" || window.uiLanguage === "zh-CN") return value;
   return window.uiTranslate?.(value) || value;
 }
 
