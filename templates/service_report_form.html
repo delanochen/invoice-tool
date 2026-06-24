@@ -193,7 +193,7 @@
     </div>
     <div id="nasProcessingStatus" class="nas-processing-status" hidden></div>
     <div class="nas-browser-toolbar">
-      <span id="nasSelectionCount">已选择 0 张</span>
+      <span id="nasSelectionCount" class="translatable-text">已选择 0 张</span>
       <div class="nas-selection-actions">
         <button type="button" id="selectAllNasPhotos">全选</button>
         <button type="button" id="clearAllNasPhotos">取消全选</button>
@@ -203,5 +203,5 @@
     </div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260607-worker-required') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260623-i18n-v1') }}"></script>
 {% endblock %}

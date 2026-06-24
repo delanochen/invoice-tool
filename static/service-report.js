@@ -29,8 +29,12 @@ const localPhotoUrls = new Map();
 const serviceReportForm = document.getElementById("serviceReportForm");
 let serviceReportSubmitting = false;
 
+function reportText(value) {
+  return window.uiTranslate?.(value) || value;
+}
+
 function updateNasSelectionCount() {
-  nasSelectionCount.textContent = `已选择 ${pendingNasSelection.size} 张`;
+  nasSelectionCount.textContent = reportText(`已选择 ${pendingNasSelection.size} 张`);
 }
 
 function renderNasProcessingStatus(status = {}) {
@@ -38,12 +42,14 @@ function renderNasProcessingStatus(status = {}) {
   const processing = Number(status.processing || 0);
   const failed = Number(status.failed || 0);
   const parts = [];
-  if (waiting) parts.push(`${waiting} 张等待处理`);
-  if (processing) parts.push(`${processing} 张正在处理`);
-  if (failed) parts.push(`${failed} 张处理失败`);
+  if (waiting) parts.push(`${waiting} ${reportText("张等待处理")}`);
+  if (processing) parts.push(`${processing} ${reportText("张正在处理")}`);
+  if (failed) parts.push(`${failed} ${reportText("张处理失败")}`);
+  const separator = window.uiLanguage === "zh-CN" ? "，" : ", ";
+  const sentenceSeparator = window.uiLanguage === "zh-CN" ? "。" : ". ";
   nasProcessingStatus.hidden = parts.length === 0;
   nasProcessingStatus.textContent = parts.length
-    ? `${parts.join("，")}。窗口会自动刷新。`
+    ? `${parts.join(separator)}${sentenceSeparator}${reportText("窗口会自动刷新。")}`
     : "";
 }
 
@@ -56,14 +62,14 @@ function renderNasBrowser(data) {
   if (!data.available) {
     const message = document.createElement("p");
     message.className = "empty";
-    message.textContent = "共享照片目录尚未挂载或不可访问。";
+    message.textContent = reportText("共享照片目录尚未挂载或不可访问。");
     nasBrowser.appendChild(message);
     return;
   }
   if (data.folder_exists === false) {
     const message = document.createElement("p");
     message.className = "empty nas-folder-warning";
-    message.textContent = "请先创建与工单同名的文件夹，并上传图片";
+    message.textContent = reportText("请先创建与工单同名的文件夹，并上传图片");
     nasBrowser.appendChild(message);
     return;
   }
@@ -96,26 +102,26 @@ function renderNasBrowser(data) {
     message.className = "empty";
     const status = data.status || {};
     message.textContent = Number(status.waiting || 0) + Number(status.processing || 0) > 0
-      ? "新照片正在等待处理，完成后会自动显示。"
-      : "这个工单还没有处理完成的照片。";
+      ? reportText("新照片正在等待处理，完成后会自动显示。")
+      : reportText("这个工单还没有处理完成的照片。");
     nasBrowser.appendChild(message);
   }
 }
 
 async function loadNasFolder(path = "", showLoading = true) {
   currentNasImages = [];
-  if (showLoading) nasBrowser.innerHTML = '<p class="empty">正在读取照片...</p>';
+  if (showLoading) nasBrowser.innerHTML = `<p class="empty">${reportText("正在读取照片...")}</p>`;
   const url = new URL(nasDialog.dataset.browseUrl, window.location.origin);
   url.searchParams.set("path", path);
   let response;
   try {
     response = await fetch(url);
   } catch (error) {
-    nasBrowser.innerHTML = '<p class="empty">无法读取这个照片目录。</p>';
+    nasBrowser.innerHTML = `<p class="empty">${reportText("无法读取这个照片目录。")}</p>`;
     return;
   }
   if (!response.ok) {
-    nasBrowser.innerHTML = '<p class="empty">无法读取这个照片目录。</p>';
+    nasBrowser.innerHTML = `<p class="empty">${reportText("无法读取这个照片目录。")}</p>`;
     return;
   }
   renderNasBrowser(await response.json());
@@ -153,7 +159,7 @@ function renderSelectedNasPhotos(category) {
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "danger small";
-    removeButton.textContent = "移除";
+    removeButton.textContent = reportText("移除");
     removeButton.addEventListener("click", () => {
       selected.delete(path);
       renderSelectedNasPhotos(category);
@@ -197,14 +203,14 @@ function renderLocalPhotoPreviews(category) {
     thumbnail.addEventListener("error", () => {
       thumbnail.removeAttribute("src");
       thumbnail.classList.add("preview-unavailable");
-      thumbnail.alt = "HEIC 图片将在保存后显示";
+      thumbnail.alt = reportText("HEIC 图片将在保存后显示");
     }, { once: true });
     const caption = document.createElement("figcaption");
     caption.textContent = file.name;
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "danger small";
-    removeButton.textContent = "移除";
+    removeButton.textContent = reportText("移除");
     removeButton.addEventListener("click", () => {
       const files = localPhotoSelections.get(category) || [];
       files.splice(index, 1);
@@ -256,7 +262,7 @@ serviceReportForm?.addEventListener("submit", (event) => {
   const saveButton = document.getElementById("saveServiceReport");
   if (saveButton) {
     saveButton.disabled = true;
-    saveButton.textContent = "保存中...";
+    saveButton.textContent = reportText("保存中...");
     saveButton.setAttribute("aria-busy", "true");
   }
 });
