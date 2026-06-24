@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timedelta
@@ -97,6 +98,71 @@ def unique_path(path, source):
     return candidate
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def normalized_duplicate_name(path):
+    stem = re.sub(r"\s*\(\d+\)$", "", path.stem).strip().casefold()
+    return path.parent, stem, path.suffix.casefold()
+
+
+def duplicate_keep_rank(path):
+    match = re.search(r"\s*\((\d+)\)$", path.stem)
+    duplicate_number = int(match.group(1)) if match else 0
+    try:
+        modified = path.stat().st_mtime
+    except OSError:
+        modified = 0
+    return duplicate_number, modified, path.name.casefold()
+
+
+def clean_duplicate_pictures(order_dir):
+    pictures_dir = order_dir / "pictures"
+    thumbnails_dir = order_dir / "thumbnails"
+    if not pictures_dir.is_dir():
+        return 0
+    groups = {}
+    for path in pictures_dir.rglob("*"):
+        if not path.is_file() or path.name.startswith(".") or is_ignored(path.relative_to(pictures_dir)):
+            continue
+        groups.setdefault(normalized_duplicate_name(path.relative_to(pictures_dir)), []).append(path)
+
+    removed = 0
+    for candidates in groups.values():
+        if len(candidates) < 2:
+            continue
+        by_hash = {}
+        for path in candidates:
+            try:
+                by_hash.setdefault(file_sha256(path), []).append(path)
+            except OSError as error:
+                log(f"unable to hash picture {path}: {error}")
+        for duplicates in by_hash.values():
+            if len(duplicates) < 2:
+                continue
+            keep = sorted(duplicates, key=duplicate_keep_rank)[0]
+            for duplicate in duplicates:
+                if duplicate == keep:
+                    continue
+                try:
+                    relative = duplicate.relative_to(pictures_dir)
+                    duplicate.unlink()
+                    (thumbnails_dir / relative).unlink(missing_ok=True)
+                    removed += 1
+                    log(f"removed duplicate picture {duplicate}; kept {keep}")
+                except OSError as error:
+                    log(f"unable to remove duplicate picture {duplicate}: {error}")
+    if removed:
+        clean_empty_directories(pictures_dir)
+        clean_empty_directories(thumbnails_dir)
+    return removed
+
+
 def move_file(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     target = unique_path(target, source)
@@ -160,6 +226,7 @@ def run_once():
     processed = 0
     for order_dir in order_directories():
         clean_backups(order_dir)
+        clean_duplicate_pictures(order_dir)
         for source in [*interrupted_sources(order_dir), *pending_sources(order_dir)]:
             process_source(order_dir, source)
             processed += 1

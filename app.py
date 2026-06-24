@@ -1,4 +1,5 @@
 ﻿import os
+import hashlib
 import html
 import json
 import re
@@ -1918,18 +1919,62 @@ def compress_report_image(source, target_path):
     compress_image(source, target_path)
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def normalized_report_photo_name(filename):
+    name = os.path.basename(filename or "").strip()
+    stem, _ = os.path.splitext(name)
+    stem = re.sub(r"\s*\(\d+\)$", "", stem).strip()
+    return stem.casefold()
+
+
+def is_duplicate_report_photo(report_id, category, original_filename, candidate_hash):
+    candidate_name = normalized_report_photo_name(original_filename)
+    rows = db().execute(
+        """
+        select * from service_report_attachments
+        where report_id = ? and category = ?
+        """,
+        (report_id, category),
+    ).fetchall()
+    for row in rows:
+        existing_path = report_attachment_path(row)
+        if os.path.isfile(existing_path):
+            try:
+                if file_sha256(existing_path) == candidate_hash:
+                    return True
+            except OSError:
+                pass
+        elif candidate_name and normalized_report_photo_name(row["original_filename"]) == candidate_name:
+            return True
+    return False
+
+
 def save_report_attachment(report_id, uploaded, category):
     if not uploaded or not uploaded.filename:
-        return
+        return False
     if not allowed_image(uploaded.filename):
         raise ValueError("日报照片仅支持 PNG、JPG、JPEG、WEBP、GIF。")
     source_filename = uploaded.filename or "photo"
     extension = source_filename.rsplit(".", 1)[1].lower()
     original_filename = os.path.basename(source_filename).strip() or f"photo.{extension}"
+    target_dir = report_attachment_dir(report_id, category)
+    temporary_filename = f".{secrets.token_hex(12)}.jpg.tmp"
+    temporary_path = os.path.join(target_dir, temporary_filename)
+    compress_report_image(uploaded.stream, temporary_path)
+    candidate_hash = file_sha256(temporary_path)
+    if is_duplicate_report_photo(report_id, category, original_filename, candidate_hash):
+        os.remove(temporary_path)
+        return False
     image_filename = f"{secrets.token_hex(12)}.jpg"
     stored_filename = report_attachment_relative_path(report_id, category, image_filename)
-    target_path = os.path.join(report_attachment_dir(report_id, category), image_filename)
-    compress_report_image(uploaded.stream, target_path)
+    os.replace(temporary_path, os.path.join(target_dir, image_filename))
     content_type = "image/jpeg"
     db().execute(
         """
@@ -1939,6 +1984,7 @@ def save_report_attachment(report_id, uploaded, category):
         """,
         (report_id, category, original_filename, stored_filename, content_type, g.user["id"], now()),
     )
+    return True
 
 
 def shared_photos_root():
@@ -2048,6 +2094,8 @@ def save_shared_report_photo(report_id, relative_path, category):
         raise ValueError("只能选择已完成处理的 NAS 照片。")
     if source_path.suffix.lower() not in {".jpg", ".jpeg"}:
         raise ValueError("NAS 照片尚未完成处理。")
+    if is_duplicate_report_photo(report_id, category, source_path.name, file_sha256(source_path)):
+        return False
     image_filename = f"{secrets.token_hex(12)}.jpg"
     stored_filename = report_attachment_relative_path(report_id, category, image_filename)
     shutil.copyfile(source_path, os.path.join(report_attachment_dir(report_id, category), image_filename))
@@ -2059,6 +2107,7 @@ def save_shared_report_photo(report_id, relative_path, category):
         """,
         (report_id, category, source_path.name, stored_filename, g.user["id"], now()),
     )
+    return True
 
 
 def save_report_uploads(report_id):
