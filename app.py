@@ -2025,6 +2025,15 @@ def count_shared_images(path):
     )
 
 
+def valid_image_file(path):
+    try:
+        with Image.open(path) as image:
+            image.verify()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def order_photo_status(order_dir):
     state_names = {"incoming", "pictures", "thumbnails", "processing", "failed", "original_backup"}
     waiting = count_shared_images(order_dir / "incoming")
@@ -6614,11 +6623,12 @@ def browse_shared_photos():
         except OSError:
             abort(403)
         for entry in entries:
-            relative_parts = entry.relative_to(shared_photos_root()).parts
-            if len(relative_parts) >= 3 and relative_parts[1].casefold() == "pictures":
-                thumbnail_path = shared_photos_root() / relative_parts[0] / "thumbnails" / Path(*relative_parts[2:])
-                if not thumbnail_path.is_file():
-                    continue
+            try:
+                entry.relative_to(current)
+            except ValueError:
+                continue
+            if not valid_image_file(entry):
+                continue
             relative = shared_photo_relative(entry)
             display_name = entry.relative_to(current).as_posix()
             images.append(
@@ -6650,7 +6660,7 @@ def shared_photo_thumbnail():
     relative_parts = source_path.relative_to(shared_photos_root()).parts
     if len(relative_parts) >= 3 and relative_parts[1].casefold() == "pictures":
         thumbnail_path = shared_photos_root() / relative_parts[0] / "thumbnails" / Path(*relative_parts[2:])
-        if thumbnail_path.is_file():
+        if thumbnail_path.is_file() and valid_image_file(thumbnail_path):
             return send_file(thumbnail_path, mimetype="image/jpeg", max_age=3600)
     buffer = BytesIO()
     try:

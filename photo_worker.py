@@ -111,6 +111,15 @@ def unique_datetime_path(path):
     return candidate
 
 
+def valid_image_file(path):
+    try:
+        with Image.open(path) as image:
+            image.verify()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def image_taken_datetime(path):
     try:
         with Image.open(path) as image:
@@ -129,14 +138,14 @@ def image_taken_datetime(path):
                         pass
     except Exception:
         pass
-    try:
-        return datetime.fromtimestamp(path.stat().st_mtime)
-    except OSError:
-        return datetime.now()
+    return None
 
 
 def timestamp_output_relative(relative, source):
-    timestamp = image_taken_datetime(source).strftime("%Y%m%d_%H%M%S")
+    taken_at = image_taken_datetime(source)
+    if not taken_at:
+        return None
+    timestamp = taken_at.strftime("%Y%m%d_%H%M%S")
     return relative.parent / f"{timestamp}.jpg"
 
 
@@ -182,6 +191,9 @@ def rename_existing_pictures_by_datetime(order_dir):
             log(f"skipped legacy picture rename without original backup: {path}")
             continue
         target_relative = timestamp_output_relative(relative, original)
+        if not target_relative:
+            log(f"skipped legacy picture rename without EXIF timestamp: {original}")
+            continue
         target = unique_datetime_path(pictures_dir / target_relative)
         if target == path:
             continue
@@ -203,28 +215,38 @@ def rename_existing_pictures_by_datetime(order_dir):
     return renamed
 
 
-def quarantine_pictures_without_thumbnails(order_dir):
+def repair_or_quarantine_pictures(order_dir):
     pictures_dir = order_dir / "pictures"
     thumbnails_dir = order_dir / "thumbnails"
     quarantine_dir = order_dir / "failed" / "orphaned_pictures"
     if not pictures_dir.is_dir():
         return 0
-    moved = 0
+    changed = 0
     for path in sorted(pictures_dir.rglob("*")):
         if not path.is_file() or path.name.startswith(".") or is_ignored(path.relative_to(pictures_dir)):
             continue
         relative = path.relative_to(pictures_dir)
-        if (thumbnails_dir / relative).is_file():
+        thumbnail = thumbnails_dir / relative
+        if not valid_image_file(path):
+            try:
+                target = move_file(path, quarantine_dir / relative)
+                changed += 1
+                log(f"moved invalid picture {path} -> {target}")
+            except OSError as error:
+                log(f"unable to move invalid picture {path}: {error}")
+            continue
+        if thumbnail.is_file() and valid_image_file(thumbnail):
             continue
         try:
-            target = move_file(path, quarantine_dir / relative)
-            moved += 1
-            log(f"moved picture without thumbnail {path} -> {target}")
+            thumbnail.unlink(missing_ok=True)
+            create_thumbnail(path, thumbnail)
+            changed += 1
+            log(f"regenerated missing or invalid thumbnail {thumbnail}")
         except OSError as error:
-            log(f"unable to move picture without thumbnail {path}: {error}")
-    if moved:
+            log(f"unable to repair thumbnail for {path}: {error}")
+    if changed:
         clean_empty_directories(pictures_dir)
-    return moved
+    return changed
 
 
 def file_sha256(path):
@@ -306,7 +328,7 @@ def process_source(order_dir, source):
         processing_path = source
     except ValueError:
         processing_path = move_file(source, order_dir / "processing" / relative)
-    output_relative = timestamp_output_relative(relative, processing_path)
+    output_relative = timestamp_output_relative(relative, processing_path) or relative.with_suffix(".jpg")
     output_path = unique_datetime_path(order_dir / "pictures" / output_relative)
     try:
         compress_image(processing_path, output_path)
@@ -357,7 +379,7 @@ def run_once():
         clean_backups(order_dir)
         clean_duplicate_pictures(order_dir)
         rename_existing_pictures_by_datetime(order_dir)
-        quarantine_pictures_without_thumbnails(order_dir)
+        repair_or_quarantine_pictures(order_dir)
         for source in [*interrupted_sources(order_dir), *pending_sources(order_dir)]:
             process_source(order_dir, source)
             processed += 1
