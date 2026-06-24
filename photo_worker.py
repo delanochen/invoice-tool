@@ -178,8 +178,10 @@ def rename_existing_pictures_by_datetime(order_dir):
             continue
         relative = path.relative_to(pictures_dir)
         original = original_backup_for_picture(order_dir, relative)
-        timestamp_source = original or path
-        target_relative = timestamp_output_relative(relative, timestamp_source)
+        if not original:
+            log(f"skipped legacy picture rename without original backup: {path}")
+            continue
+        target_relative = timestamp_output_relative(relative, original)
         target = unique_datetime_path(pictures_dir / target_relative)
         if target == path:
             continue
@@ -192,16 +194,37 @@ def rename_existing_pictures_by_datetime(order_dir):
                 new_thumbnail.parent.mkdir(parents=True, exist_ok=True)
                 old_thumbnail.rename(unique_datetime_path(new_thumbnail))
             renamed += 1
-            if original:
-                log(f"renamed picture {path} -> {target}; timestamp source {original}")
-            else:
-                log(f"renamed picture {path} -> {target}; timestamp source processed file")
+            log(f"renamed picture {path} -> {target}; timestamp source {original}")
         except OSError as error:
             log(f"unable to rename picture {path}: {error}")
     if renamed:
         clean_empty_directories(pictures_dir)
         clean_empty_directories(thumbnails_dir)
     return renamed
+
+
+def quarantine_pictures_without_thumbnails(order_dir):
+    pictures_dir = order_dir / "pictures"
+    thumbnails_dir = order_dir / "thumbnails"
+    quarantine_dir = order_dir / "failed" / "orphaned_pictures"
+    if not pictures_dir.is_dir():
+        return 0
+    moved = 0
+    for path in sorted(pictures_dir.rglob("*")):
+        if not path.is_file() or path.name.startswith(".") or is_ignored(path.relative_to(pictures_dir)):
+            continue
+        relative = path.relative_to(pictures_dir)
+        if (thumbnails_dir / relative).is_file():
+            continue
+        try:
+            target = move_file(path, quarantine_dir / relative)
+            moved += 1
+            log(f"moved picture without thumbnail {path} -> {target}")
+        except OSError as error:
+            log(f"unable to move picture without thumbnail {path}: {error}")
+    if moved:
+        clean_empty_directories(pictures_dir)
+    return moved
 
 
 def file_sha256(path):
@@ -334,6 +357,7 @@ def run_once():
         clean_backups(order_dir)
         clean_duplicate_pictures(order_dir)
         rename_existing_pictures_by_datetime(order_dir)
+        quarantine_pictures_without_thumbnails(order_dir)
         for source in [*interrupted_sources(order_dir), *pending_sources(order_dir)]:
             process_source(order_dir, source)
             processed += 1

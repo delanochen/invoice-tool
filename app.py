@@ -6614,6 +6614,11 @@ def browse_shared_photos():
         except OSError:
             abort(403)
         for entry in entries:
+            relative_parts = entry.relative_to(shared_photos_root()).parts
+            if len(relative_parts) >= 3 and relative_parts[1].casefold() == "pictures":
+                thumbnail_path = shared_photos_root() / relative_parts[0] / "thumbnails" / Path(*relative_parts[2:])
+                if not thumbnail_path.is_file():
+                    continue
             relative = shared_photo_relative(entry)
             display_name = entry.relative_to(current).as_posix()
             images.append(
