@@ -2687,6 +2687,17 @@ def service_order_active_invoice(order_id):
     ).fetchone()
 
 
+def customer_reimbursement_linked_invoice(reimbursement, order_id):
+    if reimbursement and reimbursement["invoice_id"]:
+        invoice = db().execute(
+            "select * from invoices where id = ?",
+            (reimbursement["invoice_id"],),
+        ).fetchone()
+        if invoice:
+            return invoice
+    return service_order_active_invoice(order_id)
+
+
 def customer_reimbursement_invoice_items(reimbursement):
     projects = db().execute(
         """
@@ -6342,7 +6353,7 @@ def customer_reimbursement_form(order_id):
             flash(str(error), "error")
             return redirect(url_for("customer_reimbursement_form", order_id=order_id))
     items = customer_reimbursement_items(reimbursement["id"])
-    linked_invoice = service_order_active_invoice(order_id)
+    linked_invoice = customer_reimbursement_linked_invoice(reimbursement, order_id)
     if linked_invoice and reimbursement["invoice_id"] != linked_invoice["id"]:
         db().execute(
             "update customer_reimbursements set invoice_id = ? where id = ?",
@@ -6474,6 +6485,41 @@ def return_customer_reimbursement(reimbursement_id):
     )
     db().commit()
     flash("工单结算已退回。", "success")
+    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+
+
+@app.post("/customer-reimbursements/<int:reimbursement_id>/reset")
+@login_required
+def reset_customer_reimbursement(reimbursement_id):
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    if not can_manage_customer_reimbursement():
+        abort(403)
+    if reimbursement["status"] != "approved":
+        flash("只有已审核通过的工单结算可以重置。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    linked_invoice = customer_reimbursement_linked_invoice(reimbursement, order["id"])
+    if linked_invoice:
+        flash("这份工单结算已经生成发票。请先删除对应发票，再重置工单结算后进行修改。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    db().execute(
+        """
+        update customer_reimbursements
+        set status = 'draft', return_reason = null, reviewed_by = null, reviewed_at = null,
+            invoice_id = null
+        where id = ?
+        """,
+        (reimbursement_id,),
+    )
+    remove_customer_reimbursement_pdf(reimbursement)
+    log_action(
+        "reset",
+        "customer_reimbursement",
+        reimbursement_id,
+        reimbursement["file_name"],
+        "重置为保存未提交，允许重新编辑",
+    )
+    db().commit()
+    flash("工单结算已重置为保存未提交，可以重新编辑。修改后请重新提交经理审核。", "success")
     return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 

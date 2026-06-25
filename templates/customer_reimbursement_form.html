@@ -32,9 +32,30 @@
         {% elif can_create_invoice() %}
           <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="generate_invoice">生成发票</button>
         {% endif %}
+        {% if can_manage_customer_reimbursement() %}
+          {% if linked_invoice %}
+            <button type="button" onclick="document.querySelector('#resetCustomerReimbursementNotice').scrollIntoView({behavior: 'smooth', block: 'center'});">重新编辑</button>
+          {% else %}
+            <form method="post" action="{{ url_for('reset_customer_reimbursement', reimbursement_id=reimbursement.id) }}" onsubmit="return uiConfirm('确定重置这份工单结算并重新编辑吗？重置后需要重新提交经理审核。');">
+              <button type="submit">重置为可编辑</button>
+            </form>
+          {% endif %}
+        {% endif %}
       {% endif %}
     </div>
   </header>
+
+  {% if reimbursement.status == "approved" and linked_invoice %}
+    <section class="panel" id="resetCustomerReimbursementNotice">
+      <div class="flash error">
+        工单结算已生成对应发票 {{ linked_invoice.invoice_number }}。如果需要重新编辑工单结算，请先删除对应发票，再返回本页重置工单结算。
+      </div>
+    </section>
+  {% elif reimbursement.status == "approved" and can_manage_customer_reimbursement() %}
+    <section class="panel">
+      <div class="flash success">这份工单结算已审核通过但尚未生成发票。如需修改，可以先重置为可编辑状态，修改后需要重新提交经理审核。</div>
+    </section>
+  {% endif %}
 
   {% if reimbursement.status == "returned" and reimbursement.return_reason %}
     <section class="panel"><div class="flash error">退回原因：{{ reimbursement.return_reason }}</div></section>
