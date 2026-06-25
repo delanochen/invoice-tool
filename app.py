@@ -2969,6 +2969,45 @@ def remove_customer_reimbursement_pdf(reimbursement):
         pass
 
 
+def service_report_docx_filename(order, report, used_filenames=None):
+    filename = secure_filename(
+        f"{order['client_order_number']}-{report['report_date']}-report.docx"
+    ) or f"service-report-{report['id']}.docx"
+    if used_filenames is None or filename not in used_filenames:
+        return filename
+    stem, extension = os.path.splitext(filename)
+    return f"{stem}-{report['id']}{extension or '.docx'}"
+
+
+def service_order_report_word_attachments(order):
+    reports = db().execute(
+        """
+        select * from service_reports
+        where service_order_id = ?
+        order by report_date, id
+        """,
+        (order["id"],),
+    ).fetchall()
+    attachments = []
+    used_filenames = set()
+    for report in reports:
+        try:
+            content = build_service_report_docx(report, order)
+        except Exception as error:
+            raise ValueError(f"工作日报 {report['report_date']} Word 文件生成失败，请检查日报内容或照片。") from error
+        filename = service_report_docx_filename(order, report, used_filenames)
+        used_filenames.add(filename)
+        attachments.append(
+            {
+                "filename": filename,
+                "content": content,
+                "maintype": "application",
+                "subtype": "vnd.openxmlformats-officedocument.wordprocessingml.document",
+            }
+        )
+    return attachments
+
+
 def customer_reimbursement_outgoing_attachments(reimbursement, order):
     reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
     pdf_path = build_customer_reimbursement_pdf(
@@ -3000,6 +3039,7 @@ def customer_reimbursement_outgoing_attachments(reimbursement, order):
                     "subtype": subtype or "octet-stream",
                 }
             )
+    attachments.extend(service_order_report_word_attachments(order))
     return reimbursement, attachments
 
 
