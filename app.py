@@ -2012,16 +2012,18 @@ def shared_photo_relative(path):
     return path.resolve().relative_to(shared_photos_root()).as_posix()
 
 
-def count_shared_images(path):
+def count_shared_images(path, excluded_dirs=None):
     if not path.is_dir():
         return 0
+    excluded = {name.casefold() for name in (excluded_dirs or set())}
     return sum(
         1
         for entry in path.rglob("*")
         if entry.is_file()
         and not entry.name.startswith(".")
         and entry.suffix.lower().lstrip(".") in ALLOWED_IMAGE_EXTENSIONS
-        and "@eadir" not in {part.casefold() for part in entry.relative_to(path).parts}
+        and not ({part.casefold() for part in entry.relative_to(path).parts} & ({"@eadir"} | excluded))
+        and valid_image_file(entry)
     )
 
 
@@ -2050,7 +2052,8 @@ def order_photo_status(order_dir):
     return {
         "waiting": waiting,
         "processing": count_shared_images(order_dir / "processing"),
-        "failed": count_shared_images(order_dir / "failed"),
+        "completed": count_shared_images(order_dir / "pictures"),
+        "failed": count_shared_images(order_dir / "failed", excluded_dirs={"orphaned_pictures"}),
     }
 
 
@@ -6588,7 +6591,7 @@ def browse_shared_photos():
                 "parent": None,
                 "folders": [],
                 "images": [],
-                "status": {"waiting": 0, "processing": 0, "failed": 0},
+                "status": {"waiting": 0, "processing": 0, "completed": 0, "failed": 0},
             }
         )
     requested_path = request.args.get("path", "")
@@ -6602,7 +6605,7 @@ def browse_shared_photos():
                 "parent": None,
                 "folders": [],
                 "images": [],
-                "status": {"waiting": 0, "processing": 0, "failed": 0},
+                "status": {"waiting": 0, "processing": 0, "completed": 0, "failed": 0},
             }
         )
     current = order_dir / "pictures"

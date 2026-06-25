@@ -41,16 +41,24 @@ function updateNasSelectionCount() {
 function renderNasProcessingStatus(status = {}) {
   const waiting = Number(status.waiting || 0);
   const processing = Number(status.processing || 0);
+  const completed = Number(status.completed || 0);
   const failed = Number(status.failed || 0);
+  const active = waiting + processing;
   const parts = [];
-  if (waiting) parts.push(`${waiting} ${reportText("张等待处理")}`);
-  if (processing) parts.push(`${processing} ${reportText("张正在处理")}`);
-  if (failed) parts.push(`${failed} ${reportText("张处理失败")}`);
+  if (active) {
+    if (waiting) parts.push(`${waiting} ${reportText("张等待处理")}`);
+    if (processing) parts.push(`${processing} ${reportText("张正在处理")}`);
+    if (completed) parts.push(`${completed} ${reportText("张已处理成功")}`);
+    if (failed) parts.push(`${failed} ${reportText("张处理失败")}`);
+  } else if (completed || failed) {
+    parts.push(`${completed} ${reportText("张已处理成功")}`);
+    parts.push(`${failed} ${reportText("张处理失败")}`);
+  }
   const separator = window.uiLanguage === "zh-CN" ? "，" : ", ";
   const sentenceSeparator = window.uiLanguage === "zh-CN" ? "。" : ". ";
   nasProcessingStatus.hidden = parts.length === 0;
   nasProcessingStatus.textContent = parts.length
-    ? `${parts.join(separator)}${sentenceSeparator}${reportText("窗口会自动刷新。")}`
+    ? `${parts.join(separator)}${active ? `${sentenceSeparator}${reportText("窗口会自动刷新。")}` : ""}`
     : "";
 }
 
