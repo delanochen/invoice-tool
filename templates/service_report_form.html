@@ -176,6 +176,41 @@
         </tbody>
       </table>
     </section>
+
+    <section class="subsection">
+      <h2>里程佐证</h2>
+      <div class="form-field">
+        <span class="field-label">上传里程佐证</span>
+        <input type="file" name="mileage_proof_attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+        <small>支持 Word、Excel、PDF、图片，可多选。不会放入工作日报 Word，会在生成发票时作为发票附件带出。</small>
+      </div>
+      {% set mileage_proofs = attachments.mileage_proof %}
+      {% if mileage_proofs %}
+        <table class="list-table attachment-table">
+          <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for attachment in mileage_proofs %}
+              <tr>
+                <td><a href="{{ url_for('preview_report_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a></td>
+                <td>{{ attachment.uploader_name or "Unknown" }}</td>
+                <td>{{ attachment.uploaded_at[:10] }}</td>
+                <td>
+                  <button
+                    class="danger small"
+                    type="submit"
+                    form="serviceReportForm"
+                    formaction="{{ url_for('delete_report_attachment', attachment_id=attachment.id) }}"
+                    formmethod="post"
+                    formnovalidate
+                    onclick="return uiConfirm('确定删除这个里程佐证附件吗？');"
+                  >删除</button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </section>
     </fieldset>
   </form>
   <dialog

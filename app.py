@@ -73,6 +73,7 @@ REPORT_PHOTO_FOLDERS = {
     "departure": "离开现场时间照片",
     "self_check": "自检照片",
     "site": "现场服务照片",
+    "mileage_proof": "里程佐证",
 }
 
 register_heif_opener()
@@ -1750,6 +1751,67 @@ def save_uploaded_attachment(invoice_id, uploaded):
     )
 
 
+def unique_invoice_attachment_filename(invoice_id, original_filename):
+    original_filename = os.path.basename(original_filename or "").strip() or "attachment"
+    stem, extension = os.path.splitext(original_filename)
+    stem = stem or "attachment"
+    existing = existing_attachment_names(invoice_id)
+    candidate = original_filename
+    counter = 2
+    while normalized_attachment_filename(candidate) in existing:
+        candidate = f"{stem}-{counter}{extension}"
+        counter += 1
+    return candidate
+
+
+def copy_file_to_invoice_attachment(invoice_id, source_path, original_filename, content_type=None, uploaded_by=None):
+    if not os.path.isfile(source_path):
+        return False
+    original_filename = unique_invoice_attachment_filename(invoice_id, original_filename)
+    extension = os.path.splitext(original_filename)[1].lstrip(".").lower() or "dat"
+    stored_filename = f"{secrets.token_hex(12)}.{extension}"
+    shutil.copyfile(source_path, os.path.join(invoice_attachment_dir(invoice_id), stored_filename))
+    db().execute(
+        """
+        insert into invoice_attachments (
+            invoice_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, ?, ?)
+        """,
+        (invoice_id, original_filename, stored_filename, content_type, uploaded_by or g.user["id"], now()),
+    )
+    return True
+
+
+def copy_mileage_proofs_to_invoice(invoice_id, service_order_id):
+    rows = db().execute(
+        """
+        select service_report_attachments.*, service_reports.report_date
+        from service_report_attachments
+        join service_reports on service_reports.id = service_report_attachments.report_id
+        where service_reports.service_order_id = ?
+          and service_report_attachments.category = 'mileage_proof'
+        order by service_reports.report_date asc, service_report_attachments.uploaded_at asc,
+                 service_report_attachments.id asc
+        """,
+        (service_order_id,),
+    ).fetchall()
+    copied = 0
+    for row in rows:
+        original_name = row["original_filename"] or "mileage-proof"
+        report_date = (row["report_date"] or "").strip()
+        if report_date:
+            original_name = f"里程佐证-{report_date}-{original_name}"
+        if copy_file_to_invoice_attachment(
+            invoice_id,
+            report_attachment_path(row),
+            original_name,
+            row["content_type"],
+            row["uploaded_by"],
+        ):
+            copied += 1
+    return copied
+
+
 def uploaded_attachments_from_request():
     return [
         file
@@ -1863,7 +1925,7 @@ def report_attachment_relative_path(report_id, category, stored_filename):
     order_number, report_date = report_storage_context(report_id)
     category_folder = REPORT_PHOTO_FOLDERS.get(category)
     if not category_folder:
-        raise ValueError("未知的日报照片类别。")
+        raise ValueError("未知的日报附件类别。")
     return Path(order_number, report_date, category_folder, os.path.basename(stored_filename)).as_posix()
 
 
@@ -1987,6 +2049,38 @@ def save_report_attachment(report_id, uploaded, category):
         ) values (?, ?, ?, ?, ?, ?, ?)
         """,
         (report_id, category, original_filename, stored_filename, content_type, g.user["id"], now()),
+    )
+    return True
+
+
+def save_report_file_attachment(report_id, uploaded, category):
+    if not uploaded or not uploaded.filename:
+        return False
+    if not allowed_attachment(uploaded.filename):
+        raise ValueError(f"里程佐证只支持 {ALLOWED_ATTACHMENT_LABEL}。")
+    source_filename = uploaded.filename or "attachment"
+    extension = source_filename.rsplit(".", 1)[1].lower()
+    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
+    if "." not in original_filename:
+        original_filename = f"{original_filename}.{extension}"
+    target_dir = report_attachment_dir(report_id, category)
+    temporary_filename = f".{secrets.token_hex(12)}.{extension}.tmp"
+    temporary_path = os.path.join(target_dir, temporary_filename)
+    uploaded.save(temporary_path)
+    candidate_hash = file_sha256(temporary_path)
+    if is_duplicate_report_photo(report_id, category, original_filename, candidate_hash):
+        os.remove(temporary_path)
+        return False
+    stored_basename = f"{secrets.token_hex(12)}.{extension}"
+    stored_filename = report_attachment_relative_path(report_id, category, stored_basename)
+    os.replace(temporary_path, os.path.join(target_dir, stored_basename))
+    db().execute(
+        """
+        insert into service_report_attachments (
+            report_id, category, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (report_id, category, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
     )
     return True
 
@@ -2137,6 +2231,8 @@ def save_report_uploads(report_id):
             save_report_attachment(report_id, uploaded, category)
         for relative_path in request.form.getlist(f"shared_photo_{category}"):
             save_shared_report_photo(report_id, relative_path, category)
+    for uploaded in uploaded_report_files("mileage_proof_attachments"):
+        save_report_file_attachment(report_id, uploaded, "mileage_proof")
 
 
 def claim_report_save_token(token, report_id=None):
@@ -2227,7 +2323,7 @@ def get_report_attachments(report_id):
         """,
         (report_id,),
     ).fetchall()
-    grouped = {"self_check": [], "site": [], "arrival": [], "departure": []}
+    grouped = {"self_check": [], "site": [], "arrival": [], "departure": [], "mileage_proof": []}
     for row in rows:
         grouped.setdefault(row["category"], []).append(row)
     return grouped
@@ -6733,7 +6829,7 @@ def delete_report_attachment(attachment_id):
         pass
     db().execute("delete from service_report_attachments where id = ?", (attachment_id,))
     db().commit()
-    flash("照片已删除。", "success")
+    flash("附件已删除。", "success")
     return redirect(url_for("edit_service_report", report_id=report["id"]))
 
 
@@ -7399,6 +7495,8 @@ def create_invoice_from_form(save_token=None):
     for uploaded in uploaded_attachments_from_request():
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
+    if source_reimbursement:
+        copy_mileage_proofs_to_invoice(invoice_id, service_order_id)
     if source_reimbursement:
         db().execute(
             "update customer_reimbursements set invoice_id = ? where id = ? and invoice_id is null",
