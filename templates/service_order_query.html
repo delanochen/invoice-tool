@@ -30,12 +30,13 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>工单编号</th><th>需方名称</th><th>洲</th><th>国家</th><th>工单类型</th><th>开始日期</th><th>服务订单号码</th><th>日报</th>{% if can_view_invoices() %}<th>发票</th>{% endif %}<th>状态</th></tr></thead>
+      <thead><tr><th>工单编号</th><th>需方名称</th><th>配套机厂家</th><th>洲</th><th>国家</th><th>工单类型</th><th>开始日期</th><th>服务订单号码</th><th>日报</th>{% if can_view_invoices() %}<th>发票</th>{% endif %}<th>状态</th></tr></thead>
       <tbody>
         {% for order in orders %}
           <tr>
             <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
             <td>{{ order.client_name }}</td>
+            <td>{{ order.buyer_equipment_manufacturer or "-" }}</td>
             <td>{{ order.region_name }}</td>
             <td>{{ order.country_name }}</td>
             <td>{{ order.work_order_type_name or "-" }}</td>
@@ -46,7 +47,7 @@
             <td>{{ "已关闭" if order.status == "closed" else "进行中" }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="{% if can_view_invoices() %}10{% else %}9{% endif %}" class="empty">没有符合条件的工单。</td></tr>
+          <tr><td colspan="{% if can_view_invoices() %}11{% else %}10{% endif %}" class="empty">没有符合条件的工单。</td></tr>
         {% endfor %}
       </tbody>
     </table>

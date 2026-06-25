@@ -5126,6 +5126,7 @@ def service_order_query():
         f"""
         select service_orders.*,
                work_order_types.name as work_order_type_name,
+               buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
                count(distinct service_reports.id) as report_count,
@@ -5133,6 +5134,7 @@ def service_order_query():
                coalesce(sum(case when expenses.status = 'approved' then expenses.amount else 0 end), 0) as approved_expense_total
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
+        left join buyers on buyers.id = service_orders.buyer_id
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
         left join country_translations country_zh
@@ -5568,11 +5570,13 @@ def service_orders():
         f"""
         select service_orders.*,
                work_order_types.name as work_order_type_name,
+               buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                contracts.contract_number,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
+        left join buyers on buyers.id = service_orders.buyer_id
         left join contracts on contracts.id = service_orders.contract_id
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
