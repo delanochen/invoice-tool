@@ -11,6 +11,7 @@ import threading
 import time
 import zipfile
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
 from functools import wraps
 from io import BytesIO
@@ -1412,6 +1413,27 @@ def to_float(value, default=0):
         return float(default)
 
 
+CENT = Decimal("0.01")
+
+
+def decimal_value(value, default="0"):
+    try:
+        return Decimal(str(value if value is not None and value != "" else default))
+    except (InvalidOperation, ValueError):
+        return Decimal(str(default))
+
+
+def money_decimal(value):
+    amount = decimal_value(value)
+    if abs(amount) < CENT:
+        amount = Decimal("0")
+    return amount.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def money_float(value):
+    return float(money_decimal(value))
+
+
 def invoice_totals(invoice_id):
     rows = db().execute("select amount, tax_rate from invoice_items where invoice_id = ?", (invoice_id,)).fetchall()
     subtotal = sum(float(row["amount"] or 0) for row in rows)
@@ -2497,36 +2519,36 @@ def customer_reimbursement_seed_rows(order_id):
 
 def calculate_customer_reimbursement_item(row, sort_order=0):
     labor_total = (
-        float(row.get("standard_hours") or 0) * float(row.get("standard_rate") or 0)
-        + float(row.get("transport_hours") or 0) * float(row.get("transport_rate") or 0)
-        + float(row.get("overtime_hours") or 0) * float(row.get("overtime_rate") or 0)
-        + float(row.get("holiday_hours") or 0) * float(row.get("holiday_rate") or 0)
+        decimal_value(row.get("standard_hours")) * money_decimal(row.get("standard_rate"))
+        + decimal_value(row.get("transport_hours")) * money_decimal(row.get("transport_rate"))
+        + decimal_value(row.get("overtime_hours")) * money_decimal(row.get("overtime_rate"))
+        + decimal_value(row.get("holiday_hours")) * money_decimal(row.get("holiday_rate"))
     )
-    mileage_total = float(row.get("miles") or 0) * float(row.get("mileage_rate") or 0)
-    travel_total = sum(float(row.get(key) or 0) for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"))
-    row["labor_total"] = round(labor_total, 2)
-    row["mileage_total"] = round(mileage_total, 2)
-    row["total"] = round(labor_total + mileage_total + travel_total, 2)
+    mileage_total = decimal_value(row.get("miles")) * money_decimal(row.get("mileage_rate"))
+    travel_total = sum((money_decimal(row.get(key)) for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")), Decimal("0"))
+    row["labor_total"] = money_float(labor_total)
+    row["mileage_total"] = money_float(mileage_total)
+    row["total"] = money_float(money_decimal(labor_total) + money_decimal(mileage_total) + travel_total)
     row["sort_order"] = sort_order
     return row
 
 
 def customer_reimbursement_totals(items):
-    labor_total = sum(float(item["labor_total"] or 0) for item in items)
-    lodging_total = sum(float(item["lodging"] or 0) for item in items)
+    labor_total = sum((money_decimal(item["labor_total"]) for item in items), Decimal("0"))
+    lodging_total = sum((money_decimal(item["lodging"]) for item in items), Decimal("0"))
     travel_total = sum(
-        float(item[key] or 0)
+        money_decimal(item[key])
         for item in items
         for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
-    )
-    mileage_total = sum(float(item["mileage_total"] or 0) for item in items)
-    total_amount = sum(float(item["total"] or 0) for item in items)
+    ) or Decimal("0")
+    mileage_total = sum((money_decimal(item["mileage_total"]) for item in items), Decimal("0"))
+    total_amount = sum((money_decimal(item["total"]) for item in items), Decimal("0"))
     return {
-        "labor_total": round(labor_total, 2),
-        "lodging_total": round(lodging_total, 2),
-        "travel_total": round(travel_total, 2),
-        "mileage_total": round(mileage_total, 2),
-        "total_amount": round(total_amount, 2),
+        "labor_total": money_float(labor_total),
+        "lodging_total": money_float(lodging_total),
+        "travel_total": money_float(travel_total),
+        "mileage_total": money_float(mileage_total),
+        "total_amount": money_float(total_amount),
     }
 
 
@@ -2585,6 +2607,7 @@ def customer_reimbursement_items_from_form():
         "worker_name", "project_date", "standard_hours", "transport_hours", "overtime_hours", "holiday_hours",
         "lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "miles", "other",
     ]
+    money_fields = {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}
     rates = customer_reimbursement_rates()
     posted = {name: request.form.getlist(name) for name in field_names}
     count = max((len(values) for values in posted.values()), default=0)
@@ -2596,7 +2619,8 @@ def customer_reimbursement_items_from_form():
             continue
         row = {"worker_name": worker_name, "project_date": project_date}
         for name in field_names[2:]:
-            row[name] = to_float(posted[name][index] if index < len(posted[name]) else 0)
+            value = posted[name][index] if index < len(posted[name]) else 0
+            row[name] = money_float(value) if name in money_fields else to_float(value)
         row.update(
             {
                 "standard_rate": rates["标准工时"],
