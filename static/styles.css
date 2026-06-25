@@ -244,6 +244,15 @@ label {
   font-size: 14px;
   font-weight: 600;
 }
+.form-field {
+  display: grid;
+  gap: 6px;
+}
+.field-label {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
 .full { margin-top: 16px; }
 .filter-bar {
   display: grid;

@@ -1577,7 +1577,8 @@
 
   const language = typeof document === "undefined" ? "en" : document.documentElement.lang;
   const dictionaries = { en, nl, de, es };
-  const translations = dictionaries[language] || en;
+  const isChinese = language === "zh-CN";
+  const translations = isChinese ? {} : dictionaries[language] || en;
   const translationEntries = Object.entries(translations).sort(
     ([left], [right]) => right.length - left.length
   );
@@ -1597,7 +1598,10 @@
   }
   if (typeof window !== "undefined") {
     window.uiLanguage = language;
-    window.uiTranslate = (value, allowPartial = true) => translate(String(value), allowPartial) || String(value);
+    window.uiTranslate = (value, allowPartial = true) => {
+      const text = String(value);
+      return isChinese ? text : translate(text, allowPartial) || text;
+    };
     window.uiConfirm = (value) => window.confirm(window.uiTranslate(value));
   }
   if (typeof document === "undefined" || language === "zh-CN") return;

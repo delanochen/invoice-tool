@@ -1295,6 +1295,10 @@ def can_manage_users():
     return g.user and normalized_role() == "admin"
 
 
+def can_manage_company_info():
+    return g.user and normalized_role() == "admin"
+
+
 def can_assign_external_employees():
     return can_manage_users() or is_external_manager()
 
@@ -3540,6 +3544,7 @@ def inject_globals():
         "unread_message_count": unread_message_count(),
         "current_language": current_language(),
         "supported_languages": SUPPORTED_LANGUAGES,
+        "can_manage_company_info": can_manage_company_info,
     }
 
 
@@ -4874,8 +4879,12 @@ def system_settings():
 
 
 @app.route("/company-info", methods=["GET", "POST"])
-@admin_required
+@login_required
 def company_info():
+    if not is_internal_user():
+        abort(403)
+    if request.method == "POST" and not can_manage_company_info():
+        abort(403)
     if request.method == "POST":
         for key in ("name", "address", "email", "phone", "registration_number", "ein"):
             set_setting(f"company_{key}", request.form.get(f"company_{key}", "").strip())
@@ -4905,8 +4914,10 @@ def company_info():
 
 
 @app.get("/company-attachments/<int:attachment_id>/download")
-@admin_required
+@login_required
 def download_company_attachment(attachment_id):
+    if not is_internal_user():
+        abort(403)
     attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
     if not attachment:
         abort(404)
