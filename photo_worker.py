@@ -258,13 +258,22 @@ def file_sha256(path):
 
 
 def normalized_duplicate_name(path):
-    stem = re.sub(r"\s*\(\d+\)$", "", path.stem).strip().casefold()
+    stem = re.sub(r"\s*\(\d+\)$", "", path.stem).strip()
+    if re.fullmatch(r"\d{8}_\d{6}-\d+", stem):
+        stem = re.sub(r"-\d+$", "", stem)
+    stem = stem.casefold()
     return path.parent, stem, path.suffix.casefold()
 
 
 def duplicate_keep_rank(path):
-    match = re.search(r"\s*\((\d+)\)$", path.stem)
-    duplicate_number = int(match.group(1)) if match else 0
+    paren_match = re.search(r"\s*\((\d+)\)$", path.stem)
+    dash_match = re.fullmatch(r"\d{8}_\d{6}-(\d+)", path.stem)
+    if paren_match:
+        duplicate_number = int(paren_match.group(1))
+    elif dash_match:
+        duplicate_number = int(dash_match.group(1))
+    else:
+        duplicate_number = 0
     try:
         modified = path.stat().st_mtime
     except OSError:
@@ -382,6 +391,7 @@ def run_once():
         repair_or_quarantine_pictures(order_dir)
         for source in [*interrupted_sources(order_dir), *pending_sources(order_dir)]:
             process_source(order_dir, source)
+            clean_duplicate_pictures(order_dir)
             processed += 1
             if processed >= BATCH_SIZE:
                 return processed
