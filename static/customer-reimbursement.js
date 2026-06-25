@@ -63,6 +63,17 @@ table?.addEventListener("click", (event) => {
 
 attachmentInput?.addEventListener("change", renderSelectedFiles);
 
+reimbursementForm?.addEventListener("keydown", (event) => {
+  const target = event.target;
+  if (
+    event.key === "Enter" &&
+    target instanceof HTMLInputElement &&
+    !["button", "checkbox", "file", "hidden", "radio", "reset", "submit"].includes(target.type)
+  ) {
+    event.preventDefault();
+  }
+});
+
 reimbursementForm?.addEventListener("submit", (event) => {
   if (reimbursementSubmitting) {
     event.preventDefault();

@@ -13,6 +13,8 @@
           formaction="{{ url_for('delete_report_attachment', attachment_id=photo.id) }}"
           formmethod="post"
           formnovalidate
+          name="redirect_anchor"
+          value="#report-photos-{{ (photo.category or '')|replace('_', '-') }}"
           onclick="return confirm('确定删除这张照片吗？');"
         >删除</button>
       </figure>

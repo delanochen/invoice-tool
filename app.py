@@ -6900,7 +6900,10 @@ def delete_report_attachment(attachment_id):
     db().execute("delete from service_report_attachments where id = ?", (attachment_id,))
     db().commit()
     flash("附件已删除。", "success")
-    return redirect(url_for("edit_service_report", report_id=report["id"]))
+    redirect_anchor = request.form.get("redirect_anchor", "").strip()
+    if not re.fullmatch(r"#[A-Za-z0-9_-]+", redirect_anchor):
+        redirect_anchor = ""
+    return redirect(url_for("edit_service_report", report_id=report["id"]) + redirect_anchor)
 
 
 @app.post("/service-reports/<int:report_id>/export")
