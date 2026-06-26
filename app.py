@@ -7,6 +7,7 @@ import secrets
 import shutil
 import smtplib
 import sqlite3
+import tempfile
 import threading
 import time
 import zipfile
@@ -6890,16 +6891,16 @@ def download_shared_photos():
         relative_parts = source_path.relative_to(shared_photos_root()).parts
         if len(relative_parts) < 3 or relative_parts[1].casefold() != "pictures":
             abort(403)
-        if not valid_image_file(source_path):
-            abort(404)
         files.append((source_path, Path(*relative_parts[2:]).as_posix()))
     if not files:
         abort(400)
 
     archive_root = secure_filename(Path(selected_paths[0]).parts[0]) or "nas-photos"
     used_names = set()
-    buffer = BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    archive_file = tempfile.NamedTemporaryFile(prefix=f"{archive_root}-", suffix=".zip", delete=False)
+    archive_path = archive_file.name
+    archive_file.close()
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
         for source_path, display_name in files:
             arcname = f"{archive_root}/{display_name}"
             if arcname in used_names:
@@ -6910,13 +6911,22 @@ def download_shared_photos():
                 arcname = f"{archive_root}/{stem}-{suffix}{extension}"
             used_names.add(arcname)
             archive.write(source_path, arcname=arcname)
-    buffer.seek(0)
-    return send_file(
-        buffer,
+
+    response = send_file(
+        archive_path,
         mimetype="application/zip",
         as_attachment=True,
         download_name=f"{archive_root}-photos.zip",
     )
+
+    def remove_archive():
+        try:
+            os.remove(archive_path)
+        except FileNotFoundError:
+            pass
+
+    response.call_on_close(remove_archive)
+    return response
 
 
 @app.route("/shared-photos/thumbnail")
