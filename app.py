@@ -6875,6 +6875,50 @@ def browse_shared_photos():
     )
 
 
+@app.post("/shared-photos/download")
+@login_required
+def download_shared_photos():
+    if not is_internal_user():
+        abort(403)
+    selected_paths = list(dict.fromkeys(path for path in request.form.getlist("path") if path))
+    if not selected_paths:
+        abort(400)
+
+    files = []
+    for relative_path in selected_paths:
+        source_path = resolve_shared_photo(relative_path, require_file=True)
+        relative_parts = source_path.relative_to(shared_photos_root()).parts
+        if len(relative_parts) < 3 or relative_parts[1].casefold() != "pictures":
+            abort(403)
+        if not valid_image_file(source_path):
+            abort(404)
+        files.append((source_path, Path(*relative_parts[2:]).as_posix()))
+    if not files:
+        abort(400)
+
+    archive_root = secure_filename(Path(selected_paths[0]).parts[0]) or "nas-photos"
+    used_names = set()
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for source_path, display_name in files:
+            arcname = f"{archive_root}/{display_name}"
+            if arcname in used_names:
+                stem, extension = os.path.splitext(display_name)
+                suffix = 2
+                while f"{archive_root}/{stem}-{suffix}{extension}" in used_names:
+                    suffix += 1
+                arcname = f"{archive_root}/{stem}-{suffix}{extension}"
+            used_names.add(arcname)
+            archive.write(source_path, arcname=arcname)
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"{archive_root}-photos.zip",
+    )
+
+
 @app.route("/shared-photos/thumbnail")
 @login_required
 def shared_photo_thumbnail():

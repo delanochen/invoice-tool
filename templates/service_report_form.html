@@ -219,6 +219,7 @@
     id="nasPhotoDialog"
     class="modal nas-photo-dialog"
     data-browse-url="{{ url_for('browse_shared_photos') }}"
+    data-download-url="{{ url_for('download_shared_photos') }}"
     data-order-number="{{ order.order_number }}"
   >
     <div class="modal-header">
@@ -236,9 +237,10 @@
         <button type="button" id="clearAllNasPhotos">取消全选</button>
         <button type="button" id="invertNasPhotos">反选</button>
       </div>
+      <button type="button" id="downloadNasSelection">下载所选照片</button>
       <button class="primary" type="button" id="confirmNasSelection">添加所选照片</button>
     </div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260625-delete-anchor') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260626-nas-download') }}"></script>
 {% endblock %}

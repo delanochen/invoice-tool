@@ -151,6 +151,27 @@ function updateVisibleNasSelection(mode) {
   updateNasSelectionCount();
 }
 
+function downloadSelectedNasPhotos() {
+  if (!pendingNasSelection.size) {
+    window.alert(reportText("请先选择要下载的照片。"));
+    return;
+  }
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = nasDialog.dataset.downloadUrl;
+  form.target = "_blank";
+  pendingNasSelection.forEach((image, path) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "path";
+    input.value = path;
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
+
 function renderSelectedNasPhotos(category) {
   const container = document.querySelector(`[data-nas-list="${category}"]`);
   container.replaceChildren();
@@ -317,6 +338,7 @@ nasDialog?.addEventListener("close", () => {
 document.getElementById("selectAllNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("select"));
 document.getElementById("clearAllNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("clear"));
 document.getElementById("invertNasPhotos")?.addEventListener("click", () => updateVisibleNasSelection("invert"));
+document.getElementById("downloadNasSelection")?.addEventListener("click", downloadSelectedNasPhotos);
 document.getElementById("confirmNasSelection")?.addEventListener("click", () => {
   const selection = new Map(pendingNasSelection);
   nasSelections.set(activeNasCategory, selection);
