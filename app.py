@@ -2112,6 +2112,12 @@ def shared_photos_root():
     return Path(SHARED_PHOTOS_DIR).resolve()
 
 
+def ensure_service_order_picture_folder(order_number):
+    folder = shared_photos_root() / secure_filename(order_number) / "pictures"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
 def resolve_shared_photo(relative_path="", require_file=False, allow_missing=False):
     root = shared_photos_root()
     candidate = (root / str(relative_path or "")).resolve()
@@ -6045,8 +6051,16 @@ def new_service_order():
             ),
         )
         log_action("create", "service_order", cursor.lastrowid, order_number, f"需方：{buyer['name']}")
+        folder_created = True
+        try:
+            ensure_service_order_picture_folder(order_number)
+        except OSError:
+            folder_created = False
+            app.logger.exception("Failed to create NAS pictures folder for service order %s", order_number)
+            flash("工单已创建，但 NAS 照片文件夹创建失败，请检查共享照片目录挂载或权限。", "error")
         db().commit()
-        flash("工单已创建。", "success")
+        if folder_created:
+            flash("工单已创建，NAS 照片文件夹已自动创建。", "success")
         return redirect(url_for("service_orders"))
     return render_template(
         "service_order_form.html",
