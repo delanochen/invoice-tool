@@ -15,7 +15,7 @@ services:
       GOOGLE_GEOCODING_API_KEY: "${GOOGLE_GEOCODING_API_KEY:-}"
     volumes:
       - ./data:/app/data
-      - "/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures:/app/shared-photos:ro"
+      - "/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures:/app/shared-photos"
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: invoice-tool-cloudflared

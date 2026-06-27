@@ -20,6 +20,7 @@
       {% endif %}
       {% if can_create_service_report(order) %}
         <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+        <button type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>
       {% endif %}
       {% if can_create_expense() %}
         <button type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增报销</button>
@@ -61,6 +62,7 @@
       <h2>工作日报</h2>
       {% if can_create_service_report(order) %}
         <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+        <button class="small" type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>
       {% endif %}
     </div>
     <table class="list-table">
@@ -168,6 +170,21 @@
         </tbody>
       </table>
     </section>
+  {% endif %}
+  {% if can_create_service_report(order) %}
+    <dialog id="googlePhotosImportDialog" class="modal">
+      <form method="post" action="{{ url_for('import_google_photos_for_service_order', order_id=order.id) }}" class="form-stack">
+        <h2>导入 Google Photos 分享链接</h2>
+        <label>分享链接
+          <input name="google_photos_url" type="url" placeholder="https://photos.app.goo.gl/..." required>
+        </label>
+        <p class="muted-line">仅支持无需登录即可访问的 Google Photos 分享链接。导入完成后会邮件和系统消息通知你。</p>
+        <div class="form-actions">
+          <button type="button" onclick="document.querySelector('#googlePhotosImportDialog').close()">取消</button>
+          <button class="primary" type="submit">开始导入</button>
+        </div>
+      </form>
+    </dialog>
   {% endif %}
 {% endblock %}
 

@@ -133,6 +133,9 @@ NOMINATIM_USER_AGENT = os.environ.get(
 NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us").strip()
 GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 GEOCODER_VERSION = "4"
+GOOGLE_PHOTOS_ALLOWED_HOSTS = {"photos.app.goo.gl", "photos.google.com", "www.photos.google.com"}
+GOOGLE_PHOTOS_MAX_IMPORT = 1000
+GOOGLE_PHOTOS_MAX_IMAGE_BYTES = 30 * 1024 * 1024
 _geocode_lock = threading.Lock()
 _last_geocode_request_at = 0.0
 US_STATE_CODES = {
@@ -2116,6 +2119,235 @@ def ensure_service_order_picture_folder(order_number):
     folder = shared_photos_root() / secure_filename(order_number) / "pictures"
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def service_order_incoming_folder(order_number, source_name="uploads"):
+    folder = shared_photos_root() / secure_filename(order_number) / "incoming" / secure_filename(source_name)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def is_google_photos_share_url(value):
+    parsed = urlsplit((value or "").strip())
+    host = parsed.netloc.lower().split(":")[0]
+    return parsed.scheme in {"http", "https"} and host in GOOGLE_PHOTOS_ALLOWED_HOSTS
+
+
+def google_photos_page_html(share_url):
+    request_headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; PrasinosPowerInvoiceTool/1.0)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    try:
+        with urlopen(Request(share_url, headers=request_headers), timeout=30) as response:
+            content_type = response.headers.get_content_type()
+            if content_type and "html" not in content_type:
+                raise ValueError("链接返回的不是 Google Photos 分享页面。")
+            return response.read(12 * 1024 * 1024).decode("utf-8", errors="ignore")
+    except HTTPError as error:
+        if error.code in {401, 403}:
+            raise ValueError("这个 Google Photos 分享链接需要登录或没有访问权限，服务器无法直接导入。") from error
+        raise ValueError(f"读取 Google Photos 分享链接失败：HTTP {error.code}") from error
+    except URLError as error:
+        raise ValueError(f"读取 Google Photos 分享链接失败：{error.reason}") from error
+
+
+def normalize_embedded_google_url(value):
+    text = html.unescape(value or "")
+    replacements = {
+        "\\/": "/",
+        "\\u003d": "=",
+        "\\u0026": "&",
+        "\\u003f": "?",
+        "\\u0025": "%",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def google_image_score(url):
+    size_match = re.search(r"=w(\d+)-h(\d+)", url)
+    if size_match:
+        return int(size_match.group(1)) * int(size_match.group(2))
+    square_match = re.search(r"=s(\d+)", url)
+    if square_match:
+        size = int(square_match.group(1))
+        return size * size
+    return len(url)
+
+
+def extract_google_photo_urls(page_html):
+    normalized = normalize_embedded_google_url(page_html)
+    matches = re.findall(r"https://lh3\.googleusercontent\.com/[^\s\"'<>\\\])]+", normalized)
+    by_photo = {}
+    for raw_url in matches:
+        url = raw_url.rstrip(".,;")
+        photo_key = url.split("=", 1)[0]
+        if not photo_key:
+            continue
+        if photo_key not in by_photo or google_image_score(url) > google_image_score(by_photo[photo_key]):
+            by_photo[photo_key] = url
+    urls = list(by_photo.values())
+    return urls[:GOOGLE_PHOTOS_MAX_IMPORT], len(urls)
+
+
+def downloaded_image_extension(content_type, url):
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+        "image/heic": ".heic",
+        "image/heif": ".heif",
+    }
+    if content_type in mapping:
+        return mapping[content_type]
+    suffix = Path(urlsplit(url).path).suffix.lower()
+    if suffix.lstrip(".") in ALLOWED_IMAGE_EXTENSIONS:
+        return suffix
+    return ".jpg"
+
+
+def unique_download_path(folder, filename):
+    candidate = folder / secure_filename(filename)
+    if not candidate.exists():
+        return candidate
+    counter = 2
+    while True:
+        next_candidate = candidate.with_name(f"{candidate.stem}-{counter}{candidate.suffix}")
+        if not next_candidate.exists():
+            return next_candidate
+        counter += 1
+
+
+def download_google_photo_image(url, target_dir, index):
+    request_headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; PrasinosPowerInvoiceTool/1.0)",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    with urlopen(Request(url, headers=request_headers), timeout=45) as response:
+        content_type = response.headers.get_content_type()
+        if not (content_type or "").startswith("image/"):
+            raise ValueError(f"不是图片内容：{content_type or 'unknown'}")
+        extension = downloaded_image_extension(content_type, url)
+        target_path = unique_download_path(target_dir, f"google-photo-{index:03d}{extension}")
+        total = 0
+        digest = hashlib.sha256()
+        with open(target_path, "wb") as file:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > GOOGLE_PHOTOS_MAX_IMAGE_BYTES:
+                    file.close()
+                    try:
+                        target_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    raise ValueError("图片超过 30MB，已跳过。")
+                digest.update(chunk)
+                file.write(chunk)
+        return target_path, digest.hexdigest(), total
+
+
+def import_google_photos_share_to_incoming(order, share_url):
+    if not is_google_photos_share_url(share_url):
+        raise ValueError("请输入 Google Photos 分享链接。")
+    page_html = google_photos_page_html(share_url)
+    image_urls, total_found = extract_google_photo_urls(page_html)
+    if not image_urls:
+        raise ValueError("没有从这个分享链接中识别到可下载照片。链接可能需要登录，或 Google 页面结构发生变化。")
+    target_dir = service_order_incoming_folder(order["order_number"], "google-photos")
+    imported = []
+    skipped = []
+    seen_hashes = set()
+    for index, image_url in enumerate(image_urls, start=1):
+        try:
+            path, digest, size = download_google_photo_image(image_url, target_dir, index)
+            if digest in seen_hashes:
+                path.unlink(missing_ok=True)
+                skipped.append(f"第 {index} 张：重复照片")
+                continue
+            seen_hashes.add(digest)
+            imported.append({"path": path, "size": size})
+        except Exception as error:
+            skipped.append(f"第 {index} 张：{error}")
+    if not imported and skipped:
+        raise ValueError("照片下载失败：" + "；".join(skipped[:5]))
+    truncated_count = max(0, total_found - len(image_urls))
+    return imported, skipped, target_dir, total_found, truncated_count
+
+
+def send_google_photos_import_result(user, order, share_url, imported, skipped, target_dir, total_found=0, truncated_count=0, error=None):
+    success_count = len(imported or [])
+    skipped_count = len(skipped or [])
+    if error:
+        title = f"Google Photos 导入失败：{order['order_number']}"
+        lines = [
+            f"工单：{order['order_number']}",
+            f"链接：{share_url}",
+            f"失败原因：{error}",
+        ]
+    else:
+        title = f"Google Photos 导入完成：{order['order_number']}"
+        lines = [
+            f"工单：{order['order_number']}",
+            f"链接：{share_url}",
+            f"识别到照片：{total_found} 张",
+            f"尝试导入：{success_count + skipped_count} 张",
+            f"导入照片：{success_count} 张",
+            f"跳过/失败：{skipped_count} 张",
+            f"保存位置：{target_dir}",
+            "照片已放入 incoming/google-photos，photo_worker 会自动处理到 pictures。",
+        ]
+        if truncated_count:
+            lines.append(f"注意：识别到的照片超过系统单次导入上限 {GOOGLE_PHOTOS_MAX_IMPORT} 张，仍有 {truncated_count} 张未导入。")
+        if skipped:
+            lines.append("前几条跳过/失败信息：")
+            lines.extend(skipped[:10])
+    body = "\n".join(lines)
+    create_message(user["id"], title, body, f"/service-orders/{order['id']}")
+    email = (user["email"] or "").strip()
+    if email:
+        try:
+            send_email(
+                to=email,
+                subject=title,
+                html=f"<p>{html.escape(body).replace(chr(10), '<br>')}</p>",
+            )
+        except Exception:
+            app.logger.exception("Unable to send Google Photos import result email to %s", email)
+
+
+def run_google_photos_import_job(order_id, user_id, share_url):
+    with app.app_context():
+        order = db().execute("select * from service_orders where id = ?", (order_id,)).fetchone()
+        user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+        if not order or not user:
+            return
+        try:
+            imported, skipped, target_dir, total_found, truncated_count = import_google_photos_share_to_incoming(order, share_url)
+            send_google_photos_import_result(user, order, share_url, imported, skipped, target_dir, total_found, truncated_count)
+            db().commit()
+        except Exception as error:
+            db().rollback()
+            try:
+                send_google_photos_import_result(user, order, share_url, [], [], "", error=str(error))
+                db().commit()
+            except Exception:
+                db().rollback()
+                app.logger.exception("Unable to notify Google Photos import result for order %s", order["order_number"])
+
+
+def start_google_photos_import_job(order_id, user_id, share_url):
+    thread = threading.Thread(
+        target=run_google_photos_import_job,
+        args=(order_id, user_id, share_url),
+        daemon=True,
+    )
+    thread.start()
 
 
 def resolve_shared_photo(relative_path="", require_file=False, allow_missing=False):
@@ -6254,6 +6486,28 @@ def service_order_detail(order_id):
         labels=STATUS_LABELS,
         expense_labels=EXPENSE_STATUS_LABELS,
     )
+
+
+@app.post("/service-orders/<int:order_id>/import-google-photos")
+@login_required
+def import_google_photos_for_service_order(order_id):
+    order = require_service_order(order_id)
+    if not can_create_service_report(order):
+        abort(403)
+    share_url = request.form.get("google_photos_url", "").strip()
+    if not is_google_photos_share_url(share_url):
+        flash("请输入有效的 Google Photos 分享链接。", "error")
+        return redirect(url_for("service_order_detail", order_id=order_id))
+    try:
+        ensure_service_order_picture_folder(order["order_number"])
+        service_order_incoming_folder(order["order_number"], "google-photos")
+    except OSError:
+        app.logger.exception("Failed to prepare Google Photos import folder for service order %s", order["order_number"])
+        flash("无法写入 NAS 照片目录，请检查共享照片目录挂载或权限。", "error")
+        return redirect(url_for("service_order_detail", order_id=order_id))
+    start_google_photos_import_job(order_id, g.user["id"], share_url)
+    flash("Google Photos 分享链接导入任务已开始。完成后会通过邮件和系统消息通知你。", "success")
+    return redirect(url_for("service_order_detail", order_id=order_id))
 
 
 @app.route("/service-orders/<int:order_id>/customer-reimbursement", methods=["GET", "POST"])
