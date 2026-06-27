@@ -2139,6 +2139,14 @@ def shared_photo_relative(path):
     return path.resolve().relative_to(shared_photos_root()).as_posix()
 
 
+def resolve_shared_picture(relative_path):
+    source_path = resolve_shared_photo(relative_path, require_file=True)
+    relative_parts = source_path.relative_to(shared_photos_root()).parts
+    if len(relative_parts) < 3 or relative_parts[1].casefold() != "pictures":
+        abort(403)
+    return source_path, relative_parts
+
+
 def count_shared_images(path, excluded_dirs=None):
     if not path.is_dir():
         return 0
@@ -6875,6 +6883,7 @@ def browse_shared_photos():
                     "name": display_name,
                     "path": relative,
                     "thumbnail": url_for("shared_photo_thumbnail", path=relative),
+                    "preview": url_for("shared_photo_preview", path=relative),
                 }
             )
     return jsonify(
@@ -6901,10 +6910,7 @@ def download_shared_photos():
 
     files = []
     for relative_path in selected_paths:
-        source_path = resolve_shared_photo(relative_path, require_file=True)
-        relative_parts = source_path.relative_to(shared_photos_root()).parts
-        if len(relative_parts) < 3 or relative_parts[1].casefold() != "pictures":
-            abort(403)
+        source_path, relative_parts = resolve_shared_picture(relative_path)
         files.append((source_path, Path(*relative_parts[2:]).as_posix()))
     if not files:
         abort(400)
@@ -6941,6 +6947,15 @@ def download_shared_photos():
 
     response.call_on_close(remove_archive)
     return response
+
+
+@app.route("/shared-photos/preview")
+@login_required
+def shared_photo_preview():
+    if not is_internal_user():
+        abort(403)
+    source_path, _ = resolve_shared_picture(request.args.get("path", ""))
+    return send_file(source_path, as_attachment=False, conditional=True)
 
 
 @app.route("/shared-photos/thumbnail")

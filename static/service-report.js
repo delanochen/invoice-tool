@@ -18,6 +18,9 @@ const nasBrowser = document.getElementById("nasPhotoBrowser");
 const nasCurrentPath = document.getElementById("nasCurrentPath");
 const nasSelectionCount = document.getElementById("nasSelectionCount");
 const nasProcessingStatus = document.getElementById("nasProcessingStatus");
+const nasPhotoPreviewDialog = document.getElementById("nasPhotoPreviewDialog");
+const nasPhotoPreviewImage = document.getElementById("nasPhotoPreviewImage");
+const nasPhotoPreviewTitle = document.getElementById("nasPhotoPreviewTitle");
 let activeNasCategory = "";
 let currentNasPath = "";
 let currentNasImages = [];
@@ -36,6 +39,19 @@ function reportText(value) {
 
 function updateNasSelectionCount() {
   nasSelectionCount.textContent = reportText(`已选择 ${pendingNasSelection.size} 张`);
+}
+
+function openNasPhotoPreview(image) {
+  if (!nasPhotoPreviewDialog || !nasPhotoPreviewImage) return;
+  nasPhotoPreviewImage.src = image.preview || image.thumbnail;
+  nasPhotoPreviewImage.alt = image.name;
+  if (nasPhotoPreviewTitle) nasPhotoPreviewTitle.textContent = image.name || reportText("照片预览");
+  nasPhotoPreviewDialog.showModal();
+}
+
+function closeNasPhotoPreview() {
+  if (!nasPhotoPreviewDialog) return;
+  nasPhotoPreviewDialog.close();
 }
 
 function renderNasProcessingStatus(status = {}) {
@@ -101,6 +117,12 @@ function renderNasBrowser(data) {
     thumbnail.src = image.thumbnail;
     thumbnail.alt = image.name;
     thumbnail.loading = "lazy";
+    thumbnail.title = reportText("点击放大查看");
+    thumbnail.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openNasPhotoPreview(image);
+    });
     const caption = document.createElement("span");
     caption.textContent = image.name;
     label.append(checkbox, thumbnail, caption);
@@ -331,6 +353,13 @@ document.addEventListener("click", (event) => {
 });
 
 document.getElementById("closeNasDialog")?.addEventListener("click", () => nasDialog.close());
+document.getElementById("closeNasPhotoPreview")?.addEventListener("click", closeNasPhotoPreview);
+nasPhotoPreviewDialog?.addEventListener("click", (event) => {
+  if (event.target === nasPhotoPreviewDialog) closeNasPhotoPreview();
+});
+nasPhotoPreviewDialog?.addEventListener("close", () => {
+  if (nasPhotoPreviewImage) nasPhotoPreviewImage.removeAttribute("src");
+});
 nasDialog?.addEventListener("close", () => {
   window.clearInterval(nasRefreshTimer);
   nasRefreshTimer = null;

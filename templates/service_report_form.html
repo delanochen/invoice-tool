@@ -242,5 +242,14 @@
     </div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260626-nas-download') }}"></script>
+  <dialog id="nasPhotoPreviewDialog" class="modal nas-photo-preview-dialog">
+    <div class="modal-header">
+      <h2 id="nasPhotoPreviewTitle">照片预览</h2>
+      <button type="button" id="closeNasPhotoPreview">关闭</button>
+    </div>
+    <div class="nas-photo-preview-wrap">
+      <img id="nasPhotoPreviewImage" alt="">
+    </div>
+  </dialog>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260626-nas-preview') }}"></script>
 {% endblock %}
