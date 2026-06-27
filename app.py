@@ -2177,13 +2177,28 @@ def google_image_score(url):
     return len(url)
 
 
+def google_photo_url_key(url):
+    return url.split("=", 1)[0]
+
+
+def google_photo_download_candidates(url):
+    base = google_photo_url_key(url)
+    candidates = [
+        f"{base}=d",
+        f"{base}=s0",
+        f"{base}=s0-d",
+        url,
+    ]
+    return list(dict.fromkeys(candidates))
+
+
 def extract_google_photo_urls(page_html):
     normalized = normalize_embedded_google_url(page_html)
     matches = re.findall(r"https://lh3\.googleusercontent\.com/[^\s\"'<>\\\])]+", normalized)
     by_photo = {}
     for raw_url in matches:
         url = raw_url.rstrip(".,;")
-        photo_key = url.split("=", 1)[0]
+        photo_key = google_photo_url_key(url)
         if not photo_key:
             continue
         if photo_key not in by_photo or google_image_score(url) > google_image_score(by_photo[photo_key]):
@@ -2226,30 +2241,40 @@ def download_google_photo_image(url, target_dir, index):
         "User-Agent": "Mozilla/5.0 (compatible; PrasinosPowerInvoiceTool/1.0)",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
     }
-    with urlopen(Request(url, headers=request_headers), timeout=45) as response:
-        content_type = response.headers.get_content_type()
-        if not (content_type or "").startswith("image/"):
-            raise ValueError(f"不是图片内容：{content_type or 'unknown'}")
-        extension = downloaded_image_extension(content_type, url)
-        target_path = unique_download_path(target_dir, f"google-photo-{index:03d}{extension}")
-        total = 0
-        digest = hashlib.sha256()
-        with open(target_path, "wb") as file:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > GOOGLE_PHOTOS_MAX_IMAGE_BYTES:
-                    file.close()
-                    try:
-                        target_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    raise ValueError("图片超过 30MB，已跳过。")
-                digest.update(chunk)
-                file.write(chunk)
-        return target_path, digest.hexdigest(), total
+    last_error = None
+    for candidate_url in google_photo_download_candidates(url):
+        try:
+            with urlopen(Request(candidate_url, headers=request_headers), timeout=45) as response:
+                content_type = response.headers.get_content_type()
+                if not (content_type or "").startswith("image/"):
+                    raise ValueError(f"不是图片内容：{content_type or 'unknown'}")
+                extension = downloaded_image_extension(content_type, candidate_url)
+                target_path = unique_download_path(target_dir, f"google-photo-{index:03d}{extension}")
+                total = 0
+                digest = hashlib.sha256()
+                with open(target_path, "wb") as file:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > GOOGLE_PHOTOS_MAX_IMAGE_BYTES:
+                            file.close()
+                            try:
+                                target_path.unlink()
+                            except FileNotFoundError:
+                                pass
+                            raise ValueError("图片超过 30MB，已跳过。")
+                        digest.update(chunk)
+                        file.write(chunk)
+                return target_path, digest.hexdigest(), total
+        except ValueError as error:
+            if "超过 30MB" in str(error):
+                raise
+            last_error = error
+        except (HTTPError, URLError, OSError) as error:
+            last_error = error
+    raise ValueError(f"无法下载原图：{last_error}")
 
 
 def import_google_photos_share_to_incoming(order, share_url):
