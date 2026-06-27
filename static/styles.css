@@ -802,6 +802,19 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.nas-photo-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.nas-photo-preview-actions span {
+  min-width: 54px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
 .nas-photo-preview-wrap {
   display: grid;
   place-items: center;
@@ -818,6 +831,11 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   width: auto;
   height: auto;
   object-fit: contain;
+  cursor: zoom-in;
+}
+.nas-photo-preview-wrap img.is-zoomed,
+.nas-photo-preview-wrap img.is-original {
+  cursor: zoom-out;
 }
 .editable-parts input,
 .editable-parts select {

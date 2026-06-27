@@ -245,11 +245,18 @@
   <dialog id="nasPhotoPreviewDialog" class="modal nas-photo-preview-dialog">
     <div class="modal-header">
       <h2 id="nasPhotoPreviewTitle">照片预览</h2>
-      <button type="button" id="closeNasPhotoPreview">关闭</button>
+      <div class="nas-photo-preview-actions">
+        <button type="button" id="zoomOutNasPhoto">缩小</button>
+        <button type="button" id="zoomInNasPhoto">放大</button>
+        <button type="button" id="fitNasPhoto">自适应</button>
+        <button type="button" id="originalNasPhoto">原图</button>
+        <span id="nasPhotoZoomLevel">100%</span>
+        <button type="button" id="closeNasPhotoPreview">关闭</button>
+      </div>
     </div>
     <div class="nas-photo-preview-wrap">
       <img id="nasPhotoPreviewImage" alt="">
     </div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260626-nas-preview') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260626-nas-zoom') }}"></script>
 {% endblock %}
