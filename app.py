@@ -8387,6 +8387,50 @@ def customer_reimbursement_email_attachments(invoice):
     return attachments
 
 
+def unique_email_attachment_filename(filename, used_names):
+    filename = os.path.basename(filename or "").strip() or "attachment"
+    stem, extension = os.path.splitext(filename)
+    candidate = filename
+    counter = 2
+    while candidate.casefold() in used_names:
+        candidate = f"{stem or 'attachment'}-{counter}{extension}"
+        counter += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+
+def invoice_email_attachments(invoice, client, items):
+    invoice_name = secure_filename(invoice["invoice_number"]) or f"invoice-{invoice['id']}"
+    attachments = [
+        {
+            "filename": f"{invoice_name}.pdf",
+            "content": render_invoice_pdf(invoice, client, items),
+            "maintype": "application",
+            "subtype": "pdf",
+        }
+    ]
+    for attachment in get_invoice_attachments(invoice["id"]):
+        path = attachment_file_path(attachment)
+        if not os.path.exists(path):
+            continue
+        maintype, _, subtype = (attachment["content_type"] or "application/octet-stream").partition("/")
+        with open(path, "rb") as file:
+            attachments.append(
+                {
+                    "filename": attachment["original_filename"],
+                    "content": file.read(),
+                    "maintype": maintype or "application",
+                    "subtype": subtype or "octet-stream",
+                }
+            )
+    attachments.extend(customer_reimbursement_email_attachments(invoice))
+
+    used_names = set()
+    for attachment in attachments:
+        attachment["filename"] = unique_email_attachment_filename(attachment["filename"], used_names)
+    return attachments
+
+
 def render_invoice_export_html(invoice, client, items):
     return render_template(
         "invoice_export.html",
@@ -8786,16 +8830,7 @@ def send_invoice_email(invoice_id):
     invoice, client, items = load_invoice(invoice_id)
     if not client["email"]:
         raise RuntimeError("客户没有邮箱，无法发送。")
-    archive_name, archive_bytes = build_invoice_zip(invoice, client, items)
-    mail_attachments = [
-        {
-            "filename": f"{archive_name}.zip",
-            "content": archive_bytes,
-            "maintype": "application",
-            "subtype": "zip",
-        }
-    ]
-    mail_attachments.extend(customer_reimbursement_email_attachments(invoice))
+    mail_attachments = invoice_email_attachments(invoice, client, items)
     html = render_template(
         "email_invoice.html",
         invoice=invoice,
