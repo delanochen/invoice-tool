@@ -2177,6 +2177,41 @@ def google_image_score(url):
     return len(url)
 
 
+def google_image_dimensions(url):
+    size_match = re.search(r"=w(\d+)-h(\d+)", url)
+    if size_match:
+        return int(size_match.group(1)), int(size_match.group(2))
+    square_match = re.search(r"=s(\d+)", url)
+    if square_match:
+        size = int(square_match.group(1))
+        return size, size
+    return None
+
+
+def is_likely_google_account_image(url):
+    parsed = urlsplit(url)
+    lower = url.casefold()
+    account_keywords = (
+        "avatar",
+        "profile",
+        "userphoto",
+        "photo.jpg",
+        "account",
+        "person",
+        "people",
+        "anonymous",
+        "googleusercontent.com/a/",
+    )
+    if any(keyword in lower for keyword in account_keywords):
+        return True
+    dimensions = google_image_dimensions(url)
+    if dimensions:
+        width, height = dimensions
+        if width <= 300 and height <= 300:
+            return True
+    return False
+
+
 def google_photo_url_key(url):
     return url.split("=", 1)[0]
 
@@ -2198,6 +2233,8 @@ def extract_google_photo_urls(page_html):
     by_photo = {}
     for raw_url in matches:
         url = raw_url.rstrip(".,;")
+        if is_likely_google_account_image(url):
+            continue
         photo_key = google_photo_url_key(url)
         if not photo_key:
             continue
