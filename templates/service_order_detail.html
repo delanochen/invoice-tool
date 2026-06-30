@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Service Order</p>
       <h1>{{ order.order_number }}</h1>
-      <p class="muted-line">{{ order.client_name }}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</p>
+      <p class="muted-line">{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
       {% if not (normalized_role() in ["employee", "external_employee", "external_manager"] and order.status == "closed") %}
@@ -41,7 +41,8 @@
           未关联
         {% endif %}
       </span></p>
-      <p><strong>需方名称</strong><span>{{ order.client_name }}</span></p>
+      <p><strong>站点名称</strong><span>{{ order.client_name }}</span></p>
+      <p><strong>业主</strong><span>{{ order.buyer_owner or "-" }}</span></p>
       <p><strong>配套机厂家</strong><span>{{ order.buyer_equipment_manufacturer or "-" }}</span></p>
       <p><strong>工单类型</strong><span>{{ order.work_order_type_name or "-" }}</span></p>
       <p><strong>区域</strong><span>{{ order.region_name or order.region_code }}</span></p>

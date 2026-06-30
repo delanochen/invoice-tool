@@ -9,7 +9,7 @@
     </div>
   </header>
   <form class="filter-bar service-filter no-print" method="get">
-    <label>关键词 <input name="q" value="{{ q }}" placeholder="报销编号、报销项目、工单、需方"></label>
+    <label>关键词 <input name="q" value="{{ q }}" placeholder="报销编号、报销项目、工单、站点名称"></label>
     <label>洲
       <select name="region_code">
         <option value="">全部</option>
@@ -47,7 +47,7 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>报销编号</th><th>工单</th><th>需方</th><th>洲</th><th>国家</th><th>报销项目</th><th>日期</th><th>提交人</th><th>总金额</th><th>流程状态</th><th>报销状态</th></tr></thead>
+      <thead><tr><th>报销编号</th><th>工单</th><th>站点名称</th><th>洲</th><th>国家</th><th>报销项目</th><th>日期</th><th>提交人</th><th>总金额</th><th>流程状态</th><th>报销状态</th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>

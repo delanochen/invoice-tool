@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}业主 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Owners</p><h1>业主资料</h1></div>
+    <button class="primary" type="button" data-dialog-open="newOwnerDialog">新增业主</button>
+  </header>
+
+  <form class="panel filter-bar no-print" method="get">
+    <label>查找业主 <input name="q" value="{{ q or '' }}" placeholder="编号或名称"></label>
+    <div class="filter-actions">
+      <button type="submit">查找</button>
+      <button type="button" onclick="window.location.href='{{ url_for('owners') }}'">重置</button>
+    </div>
+  </form>
+
+  <section class="panel">
+    <div class="panel-title"><h2>业主列表</h2><span class="muted-line">{{ owners|length }} 个业主</span></div>
+    <table class="list-table">
+      <thead>
+        <tr>
+          <th>业主编号</th>
+          <th>业主名称</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for owner in owners %}
+          <tr>
+            <td>{{ owner.owner_number }}</td>
+            <td>{{ owner.name }}</td>
+            <td>
+              <div class="row-actions">
+                <button class="small" type="button" data-dialog-open="editOwner{{ owner.id }}">编辑</button>
+                <form method="post" action="{{ url_for('delete_owner', owner_id=owner.id) }}" onsubmit="return confirm('确定删除这个业主吗？已有站点的业主不会被删除。');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">还没有业主资料。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <dialog id="newOwnerDialog" class="modal-dialog">
+    <form method="post" class="form-stack">
+      <div class="dialog-header">
+        <h2>新增业主</h2>
+        <button class="small" type="button" data-dialog-close>关闭</button>
+      </div>
+      <div class="form-grid two-columns">
+        <label>业主编号 <input value="自动生成" disabled></label>
+        <label>业主名称 <input name="name" required></label>
+      </div>
+      <div class="form-actions"><button class="primary" type="submit">保存业主</button></div>
+    </form>
+  </dialog>
+
+  {% for owner in owners %}
+    <dialog id="editOwner{{ owner.id }}" class="modal-dialog">
+      <form method="post" action="{{ url_for('edit_owner', owner_id=owner.id) }}" class="form-stack">
+        <div class="dialog-header">
+          <h2>编辑业主</h2>
+          <button class="small" type="button" data-dialog-close>关闭</button>
+        </div>
+        <div class="form-grid two-columns">
+          <label>业主编号 <input name="owner_number" value="{{ owner.owner_number }}" required></label>
+          <label>业主名称 <input name="name" value="{{ owner.name }}" required></label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">保存业主</button></div>
+      </form>
+    </dialog>
+  {% endfor %}
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='modal-forms.js', v='20260630-owner-data-v1') }}"></script>
+{% endblock %}

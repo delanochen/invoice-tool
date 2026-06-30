@@ -12,7 +12,8 @@
     {% if start_date_only %}
       <div class="detail-grid">
         <p><strong>工单编号</strong><span>{{ order.order_number }}</span></p>
-        <p><strong>需方名称</strong><span>{{ order.client_name }}</span></p>
+        <p><strong>站点名称</strong><span>{{ order.client_name }}</span></p>
+        <p><strong>业主</strong><span>{{ order.buyer_owner or "-" }}</span></p>
         <p><strong>服务订单号码</strong><span>{{ order.client_order_number }}</span></p>
         <p><strong>服务现场地址</strong><span>{{ order.site_address }}</span></p>
       </div>
@@ -43,7 +44,7 @@
       </select>
       <small>合同可选；所选合同必须属于上面的客户。</small>
     </label>
-    <label>需方名称
+    <label>站点名称
       <select name="buyer_id" id="buyerSelect" required>
         <option value="">请选择需方</option>
         {% for buyer in buyers %}
@@ -51,17 +52,19 @@
             value="{{ buyer.id }}"
             data-contact="{{ buyer.contact_name or '' }}"
             data-contact-details="{{ buyer.contact_details or '' }}"
+            data-owner="{{ buyer.owner_name or '' }}"
             data-address="{{ buyer.detailed_address or '' }}"
             data-country="{{ buyer.country or '' }}"
             data-manufacturer="{{ buyer.equipment_manufacturer or '' }}"
             {% if order and order.buyer_id == buyer.id %}selected{% endif %}
-          >{{ buyer.buyer_number }} · {{ buyer.name }}</option>
+          >{{ buyer.buyer_number }} · {{ buyer.name }}{% if buyer.owner_name %} · {{ buyer.owner_name }}{% endif %}</option>
         {% endfor %}
       </select>
     </label>
     <div class="form-grid buyer-preview">
       <label>联系人 <input id="buyerContact" value="{{ order.buyer_contact_name if order else '' }}" readonly></label>
       <label>联系方式 <input id="buyerContactDetails" value="{{ order.buyer_contact_details if order else '' }}" readonly></label>
+      <label>业主 <input id="buyerOwner" value="{{ order.buyer_owner if order else '' }}" readonly></label>
       <label>国家 <input id="buyerCountry" value="{{ order.buyer_country if order else '' }}" readonly></label>
       <label>配套机厂家 <input id="buyerManufacturer" value="{{ order.buyer_equipment_manufacturer if order else '' }}" readonly></label>
     </div>
@@ -99,5 +102,5 @@
   </form>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='service-order-form.js', v='20260613-buyers-v1') }}"></script>
+  <script src="{{ url_for('static', filename='service-order-form.js', v='20260629-owner-v1') }}"></script>
 {% endblock %}

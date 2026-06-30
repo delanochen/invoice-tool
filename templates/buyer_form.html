@@ -18,7 +18,14 @@
     {% endif %}
     <label>编号 <input name="buyer_number" value="{{ buyer.buyer_number }}" required></label>
     <label>国家 <input name="country" value="{{ buyer.country or 'United States' }}"></label>
-    <label>名称 <input name="name" value="{{ buyer.name }}" required></label>
+    <label>站点名称 <input name="name" value="{{ buyer.name }}" required></label>
+    <label>业主
+      <select name="owner_id">
+        {% for owner in owners %}
+          <option value="{{ owner.id }}" {% if buyer.owner_id == owner.id %}selected{% endif %}>{{ owner.owner_number }} · {{ owner.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
     <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
     <label>详细地址 <textarea name="detailed_address" rows="5" required>{{ buyer.detailed_address or '' }}</textarea></label>

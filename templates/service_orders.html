@@ -14,7 +14,7 @@
   </header>
   <form class="filter-bar service-filter no-print" method="get">
     <input type="hidden" name="buyer_id" value="{{ buyer_id or '' }}">
-    <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、需方名称或服务订单号码"></label>
+    <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、站点名称、业主或服务订单号码"></label>
     <div class="filter-actions">
       <button type="submit">查询</button>
       <button type="button" onclick="window.location.href='{{ url_for('service_orders') }}'">重置</button>
@@ -22,12 +22,13 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>工单编号</th><th>需方名称</th><th>配套机厂家</th><th>合同</th><th>工单类型</th><th>开始日期</th><th>服务订单号码</th><th>服务现场地址</th><th>日报</th>{% if can_view_invoices() %}<th>发票</th>{% endif %}<th>状态</th></tr></thead>
+      <thead><tr><th>工单编号</th><th>站点名称</th><th>业主</th><th>配套机厂家</th><th>合同</th><th>工单类型</th><th>开始日期</th><th>服务订单号码</th><th>服务现场地址</th><th>日报</th>{% if can_view_invoices() %}<th>发票</th>{% endif %}<th>状态</th></tr></thead>
       <tbody>
         {% for order in orders %}
           <tr>
             <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
             <td>{{ order.client_name }}</td>
+            <td>{{ order.buyer_owner or "-" }}</td>
             <td>{{ order.buyer_equipment_manufacturer or "-" }}</td>
             <td>
               {% if order.contract_id %}
@@ -51,7 +52,7 @@
             <td>{{ "已关闭" if order.status == "closed" else "进行中" }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="{% if can_view_invoices() %}11{% else %}10{% endif %}" class="empty">还没有工单。</td></tr>
+          <tr><td colspan="{% if can_view_invoices() %}12{% else %}11{% endif %}" class="empty">还没有工单。</td></tr>
         {% endfor %}
       </tbody>
     </table>

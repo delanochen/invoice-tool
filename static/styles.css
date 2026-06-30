@@ -868,10 +868,16 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 
 .map-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px auto;
+  grid-template-columns: minmax(220px, 1fr) 180px 180px 180px auto;
   align-items: end;
   gap: 12px;
   margin-bottom: 14px;
+}
+.map-filter-select {
+  min-width: 0;
+}
+.map-filter-select summary {
+  min-height: 42px;
 }
 .map-summary {
   display: flex;

@@ -35,6 +35,49 @@ const localPhotoUrls = new Map();
 const serviceReportForm = document.getElementById("serviceReportForm");
 let serviceReportSubmitting = false;
 
+function parseReportNumber(value) {
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatReportNumber(value) {
+  return Number(value.toFixed(2)).toString();
+}
+
+function selectedReportTime(prefix) {
+  const hour = serviceReportForm?.elements[`${prefix}_hour`]?.value;
+  const minute = serviceReportForm?.elements[`${prefix}_minute`]?.value;
+  if (!hour || !minute) return null;
+  return Number.parseInt(hour, 10) * 60 + Number.parseInt(minute, 10);
+}
+
+function calculateRoundedServiceHours() {
+  const arrival = selectedReportTime("arrival_time");
+  const departure = selectedReportTime("departure_time");
+  if (arrival === null || departure === null || departure <= arrival) return 0;
+  const durationMinutes = departure - arrival;
+  let roundedMinutes = Math.floor(durationMinutes / 15) * 15;
+  if (durationMinutes % 15 > 7) roundedMinutes += 15;
+  return roundedMinutes / 60;
+}
+
+function updateReportCalculatedFields() {
+  if (!serviceReportForm) return;
+  const totalServiceInput = serviceReportForm.elements.total_service_hours;
+  const travelInput = serviceReportForm.elements.travel_hours;
+  const publicTransportInput = serviceReportForm.elements.public_transport_hours;
+  const totalTimeInput = serviceReportForm.elements.total_time;
+  const workerCount = serviceReportForm.querySelectorAll("[name='worker_user_id']:checked").length;
+  if (totalServiceInput) {
+    totalServiceInput.value = formatReportNumber(calculateRoundedServiceHours() * workerCount);
+  }
+  if (totalTimeInput) {
+    totalTimeInput.value = formatReportNumber(
+      parseReportNumber(travelInput?.value) + parseReportNumber(publicTransportInput?.value)
+    );
+  }
+}
+
 function reportText(value) {
   if (document.documentElement.lang === "zh-CN" || window.uiLanguage === "zh-CN") return value;
   return window.uiTranslate?.(value) || value;
@@ -331,9 +374,18 @@ document.querySelectorAll("[data-local-photo]").forEach((input) => {
   });
 });
 
+serviceReportForm?.querySelectorAll(
+  "[name='arrival_time_hour'], [name='arrival_time_minute'], [name='departure_time_hour'], [name='departure_time_minute'], [name='worker_user_id'], [name='travel_hours'], [name='public_transport_hours']"
+).forEach((input) => {
+  input.addEventListener("input", updateReportCalculatedFields);
+  input.addEventListener("change", updateReportCalculatedFields);
+});
+updateReportCalculatedFields();
+
 serviceReportForm?.addEventListener("submit", (event) => {
   const submitter = event.submitter;
   if (submitter?.classList.contains("delete-photo")) return;
+  updateReportCalculatedFields();
   const workerInputs = Array.from(document.querySelectorAll("[name='worker_user_id']"));
   const selectedWorker = workerInputs.find((input) => input.checked);
   const workerError = document.getElementById("serviceWorkersError");

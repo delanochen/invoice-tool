@@ -224,6 +224,25 @@ CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
     "Mileage Reimbursement": "mileage_total",
 }
 
+DEFAULT_OWNER_NAMES = [
+    "未知",
+    "Qcells",
+    "Stella",
+    "Stem",
+    "SunGrid",
+    "Adapture Renewables",
+    "Aypa",
+    "spearmint",
+    "plus power",
+]
+
+DEFAULT_SITE_OWNER_NAMES = {
+    "edinburg": "Stella",
+    "revolution": "spearmint",
+    "ebony": "plus power",
+    "anemoi": "plus power",
+}
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
@@ -285,6 +304,13 @@ def init_db():
                 email text,
                 address text,
                 country text not null default 'China',
+                created_at text not null
+            );
+
+            create table if not exists owners (
+                id integer primary key autoincrement,
+                owner_number text not null unique,
+                name text not null,
                 created_at text not null
             );
 
@@ -455,6 +481,7 @@ def init_db():
                 buyer_number text not null unique,
                 country text,
                 name text not null,
+                owner text,
                 contact_name text,
                 contact_details text,
                 detailed_address text,
@@ -727,6 +754,83 @@ def init_db():
         ensure_column(connection, "service_orders", "region_code", "text not null default 'americas'")
         ensure_column(connection, "service_orders", "country_code", "text not null default 'US'")
         ensure_column(connection, "buyers", "client_id", "integer")
+        ensure_column(connection, "buyers", "owner", "text")
+        ensure_column(connection, "buyers", "owner_id", "integer")
+        existing_owner_names = [
+            row["owner"]
+            for row in connection.execute(
+                """
+                select distinct trim(owner) as owner
+                from buyers
+                where trim(coalesce(owner, '')) != ''
+                  and owner_id is null
+                order by trim(owner)
+                """
+            ).fetchall()
+        ]
+        next_owner_sequence = connection.execute("select coalesce(max(id), 0) + 1 as value from owners").fetchone()["value"]
+        for owner_name in DEFAULT_OWNER_NAMES:
+            if connection.execute(
+                "select 1 from owners where lower(trim(name)) = lower(trim(?))",
+                (owner_name,),
+            ).fetchone():
+                continue
+            while True:
+                owner_number = f"OWN{next_owner_sequence:05d}"
+                next_owner_sequence += 1
+                if not connection.execute("select id from owners where owner_number = ?", (owner_number,)).fetchone():
+                    break
+            connection.execute(
+                "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
+                (owner_number, owner_name, now()),
+            )
+        for owner_name in existing_owner_names:
+            existing_owner = connection.execute(
+                "select id from owners where lower(trim(name)) = lower(trim(?))",
+                (owner_name,),
+            ).fetchone()
+            if existing_owner:
+                owner_id = existing_owner["id"]
+            else:
+                while True:
+                    owner_number = f"OWN{next_owner_sequence:05d}"
+                    next_owner_sequence += 1
+                    if not connection.execute("select id from owners where owner_number = ?", (owner_number,)).fetchone():
+                        break
+                cursor = connection.execute(
+                    "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
+                    (owner_number, owner_name, now()),
+                )
+                owner_id = cursor.lastrowid
+            connection.execute(
+                "update buyers set owner_id = ? where owner_id is null and lower(trim(owner)) = lower(trim(?))",
+                (owner_id, owner_name),
+            )
+        for site_name, owner_name in DEFAULT_SITE_OWNER_NAMES.items():
+            owner = connection.execute(
+                "select id, name from owners where lower(trim(name)) = lower(trim(?))",
+                (owner_name,),
+            ).fetchone()
+            if owner:
+                connection.execute(
+                    """
+                    update buyers
+                    set owner_id = ?, owner = ?
+                    where lower(trim(name)) = lower(trim(?))
+                    """,
+                    (owner["id"], owner["name"], site_name),
+                )
+        unknown_owner_row = connection.execute("select id, name from owners where name = ?", ("未知",)).fetchone()
+        if unknown_owner_row:
+            connection.execute(
+                """
+                update buyers
+                set owner_id = ?, owner = ?
+                where owner_id is null
+                   or trim(coalesce(owner, '')) = ''
+                """,
+                (unknown_owner_row["id"], unknown_owner_row["name"]),
+            )
         connection.execute(
             "update users set region_code = 'americas', country_code = 'US' "
             "where trim(coalesce(region_code, '')) = '' or trim(coalesce(country_code, '')) = ''"
@@ -1320,11 +1424,15 @@ def can_manage_user_record(user):
 
 
 def can_manage_buyers():
-    return is_manager() or is_external_manager()
+    return g.user and normalized_role() in {"admin", "manager", "finance", "external_manager"}
+
+
+def can_manage_owners():
+    return g.user and normalized_role() in {"admin", "manager", "finance"}
 
 
 def can_access_buyer(buyer):
-    if is_manager():
+    if g.user and normalized_role() in {"admin", "manager", "finance"}:
         return True
     return is_external_manager() and bool(g.user["client_id"]) and buyer["client_id"] == g.user["client_id"]
 
@@ -1514,6 +1622,37 @@ def next_buyer_number():
         """
     ).fetchone()
     return "BUY00001" if not row else f"BUY{int(row['buyer_number'][3:]) + 1:05d}"
+
+
+def next_owner_number():
+    row = db().execute(
+        """
+        select owner_number from owners
+        where owner_number glob 'OWN[0-9][0-9][0-9][0-9][0-9]'
+        order by owner_number desc limit 1
+        """
+    ).fetchone()
+    return "OWN00001" if not row else f"OWN{int(row['owner_number'][3:]) + 1:05d}"
+
+
+def unknown_owner():
+    owner = db().execute("select * from owners where name = ?", ("未知",)).fetchone()
+    if owner:
+        return owner
+    cursor = db().execute(
+        "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
+        (next_owner_number(), "未知", now()),
+    )
+    return db().execute("select * from owners where id = ?", (cursor.lastrowid,)).fetchone()
+
+
+def owner_options():
+    return db().execute(
+        """
+        select id, owner_number, name from owners
+        order by case when name = '未知' then 0 else 1 end, owner_number
+        """
+    ).fetchall()
 
 
 def next_invoice_number():
@@ -1878,6 +2017,7 @@ def require_service_order(order_id):
         """
         select service_orders.*, work_order_types.name as work_order_type_name,
                buyers.country as buyer_country,
+               coalesce(owners.name, buyers.owner) as buyer_owner,
                buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                clients.name as billing_client_name,
                clients.email as billing_client_email,
@@ -1889,6 +2029,7 @@ def require_service_order(order_id):
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
+        left join owners on owners.id = buyers.owner_id
         left join clients on clients.id = service_orders.client_id
         left join contracts on contracts.id = service_orders.contract_id
         left join country_translations country_local
@@ -2644,6 +2785,10 @@ def posted_report_time(prefix):
     return f"{hour_value:02d}:{minute_value:02d}"
 
 
+def report_worker_ids_from_form():
+    return list(dict.fromkeys(value for value in request.form.getlist("worker_user_id") if value))
+
+
 def get_report_attachments(report_id):
     rows = db().execute(
         """
@@ -2713,6 +2858,32 @@ def parse_report_minutes(value):
         return None
 
 
+def rounded_report_service_hours(arrival_time, departure_time):
+    arrival = parse_report_minutes(arrival_time)
+    departure = parse_report_minutes(departure_time)
+    if arrival is None or departure is None or departure <= arrival:
+        return 0
+    duration_minutes = departure - arrival
+    rounded_minutes = (duration_minutes // 15) * 15
+    if duration_minutes % 15 > 7:
+        rounded_minutes += 15
+    return round(rounded_minutes / 60, 2)
+
+
+def format_report_hours(value):
+    return f"{float(value):.2f}".rstrip("0").rstrip(".")
+
+
+def calculated_report_total_time():
+    return format_report_hours(
+        to_float(request.form.get("travel_hours")) + to_float(request.form.get("public_transport_hours"))
+    )
+
+
+def calculated_report_total_service_hours(arrival_time, departure_time):
+    return rounded_report_service_hours(arrival_time, departure_time) * len(report_worker_ids_from_form())
+
+
 def observed_us_holidays(year):
     def observed(day):
         if day.weekday() == 5:
@@ -2752,12 +2923,12 @@ def is_us_weekend_or_holiday(day):
     return day.weekday() >= 5 or day in observed_us_holidays(day.year)
 
 
-def report_duration_hours(report):
-    arrival = parse_report_minutes(report["arrival_time"])
-    departure = parse_report_minutes(report["departure_time"])
-    if arrival is None or departure is None or departure <= arrival:
-        return float(report["total_service_hours"] or 0)
-    return round((departure - arrival) / 60, 2)
+def report_duration_hours(report, worker_count=1):
+    rounded_hours = rounded_report_service_hours(report["arrival_time"], report["departure_time"])
+    if rounded_hours:
+        return rounded_hours
+    fallback_hours = float(report["total_service_hours"] or 0)
+    return round(fallback_hours / max(worker_count, 1), 2)
 
 
 def customer_reimbursement_seed_rows(order_id):
@@ -2789,7 +2960,7 @@ def customer_reimbursement_seed_rows(order_id):
             report_day = date.fromisoformat(report["report_date"])
         except ValueError:
             report_day = None
-        work_hours = report_duration_hours(report)
+        work_hours = report_duration_hours(report, len(workers))
         transport_hours = float(report["public_transport_hours"] or 0)
         if report_day and is_us_weekend_or_holiday(report_day):
             standard_hours = 0
@@ -3527,7 +3698,7 @@ def report_form_defaults(report=None, order=None):
 
 
 def save_report_detail_rows(report_id):
-    worker_ids = list(dict.fromkeys(value for value in request.form.getlist("worker_user_id") if value))
+    worker_ids = report_worker_ids_from_form()
     if not worker_ids:
         raise ValueError("服务人员清单至少需要选择一人。")
     placeholders = ",".join("?" for _ in worker_ids)
@@ -4597,24 +4768,132 @@ def delete_client(client_id):
     return redirect(url_for("clients"))
 
 
+@app.route("/owners", methods=["GET", "POST"])
+@login_required
+def owners():
+    if not can_manage_owners():
+        abort(403)
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        if not name:
+            flash("请填写业主名称。", "error")
+            return redirect(url_for("owners"))
+        if db().execute("select 1 from owners where lower(trim(name)) = lower(trim(?))", (name,)).fetchone():
+            flash("业主名称已存在。", "error")
+            return redirect(url_for("owners"))
+        try:
+            db().execute(
+                "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
+                (next_owner_number(), name, now()),
+            )
+            db().commit()
+            flash("业主已创建。", "success")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("业主编号重复，请重试。", "error")
+        return redirect(url_for("owners"))
+    q = request.args.get("q", "").strip()
+    params = []
+    where = ""
+    if q:
+        where = "where owner_number like ? or name like ?"
+        params = [f"%{q}%", f"%{q}%"]
+    rows = db().execute(
+        f"select * from owners {where} order by case when name = '未知' then 0 else 1 end, owner_number asc",
+        params,
+    ).fetchall()
+    return render_template("owners.html", owners=rows, q=q)
+
+
+@app.route("/owners/<int:owner_id>/edit", methods=["POST"])
+@login_required
+def edit_owner(owner_id):
+    if not can_manage_owners():
+        abort(403)
+    owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
+    if not owner:
+        abort(404)
+    owner_number = request.form.get("owner_number", "").strip().upper()
+    name = request.form.get("name", "").strip()
+    if not owner_number or not name:
+        flash("请填写业主编号和名称。", "error")
+        return redirect(url_for("owners"))
+    if db().execute(
+        "select 1 from owners where id != ? and lower(trim(name)) = lower(trim(?))",
+        (owner_id, name),
+    ).fetchone():
+        flash("业主名称已存在。", "error")
+        return redirect(url_for("owners"))
+    try:
+        db().execute(
+            "update owners set owner_number = ?, name = ? where id = ?",
+            (owner_number, name, owner_id),
+        )
+        db().execute(
+            "update buyers set owner = ? where owner_id = ?",
+            (name, owner_id),
+        )
+        db().commit()
+        flash("业主资料已更新。", "success")
+    except sqlite3.IntegrityError:
+        db().rollback()
+        flash("业主编号重复，请换一个编号。", "error")
+    return redirect(url_for("owners"))
+
+
+@app.post("/owners/<int:owner_id>/delete")
+@login_required
+def delete_owner(owner_id):
+    if not can_manage_owners():
+        abort(403)
+    owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
+    if not owner:
+        abort(404)
+    if owner["name"] == "未知":
+        flash("默认业主不能删除。", "error")
+        return redirect(url_for("owners"))
+    used = db().execute(
+        "select count(*) as count from buyers where owner_id = ?",
+        (owner_id,),
+    ).fetchone()["count"]
+    if used:
+        flash("这个业主已有站点，不能删除。可以编辑业主资料。", "error")
+        return redirect(url_for("owners"))
+    db().execute("delete from owners where id = ?", (owner_id,))
+    db().commit()
+    flash("业主已删除。", "success")
+    return redirect(url_for("owners"))
+
+
 @app.route("/buyers", methods=["GET", "POST"])
 @login_required
 def buyers():
     if not can_manage_buyers():
         abort(403)
+    owners_rows = owner_options()
     if request.method == "POST":
         name = request.form.get("name", "").strip()
+        owner = None
+        owner_id = int(request.form["owner_id"]) if request.form.get("owner_id", "").isdigit() else None
+        if owner_id:
+            owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
+            if not owner:
+                flash("请选择有效的业主。", "error")
+                return redirect(url_for("buyers"))
+        else:
+            owner = unknown_owner()
+            owner_id = owner["id"]
         detailed_address = request.form.get("detailed_address", "").strip()
         if not name or not detailed_address:
-            flash("请填写需方名称和详细地址。", "error")
+            flash("请填写站点名称和详细地址。", "error")
             return redirect(url_for("buyers"))
         try:
             db().execute(
                 """
                 insert into buyers (
-                    buyer_number, client_id, country, name, contact_name, contact_details,
+                    buyer_number, client_id, country, name, owner_id, owner, contact_name, contact_details,
                     detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_buyer_number(),
@@ -4623,6 +4902,8 @@ def buyers():
                     ),
                     request.form.get("country", "United States").strip() or "United States",
                     name,
+                    owner_id,
+                    owner["name"] if owner else "",
                     request.form.get("contact_name", "").strip(),
                     request.form.get("contact_details", "").strip(),
                     detailed_address,
@@ -4645,20 +4926,27 @@ def buyers():
     if q:
         clauses.append(
             """(
-            buyer_number like ? or name like ? or contact_name like ?
-            or contact_details like ? or detailed_address like ? or equipment_manufacturer like ?
+            buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
+            or buyers.contact_details like ? or buyers.detailed_address like ? or buyers.equipment_manufacturer like ?
             )"""
         )
-        params = [f"%{q}%"] * 6
+        params = [f"%{q}%"] * 7
         if is_external_manager():
             params.insert(0, g.user["client_id"])
     where = f"where {' and '.join(clauses)}" if clauses else ""
     rows = db().execute(
-        f"select * from buyers {where} order by buyer_number",
+        f"""
+        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name,
+               owners.owner_number as owner_number
+        from buyers
+        left join owners on owners.id = buyers.owner_id
+        {where}
+        order by owner_name, buyers.name, buyers.buyer_number
+        """,
         params,
     ).fetchall()
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template("buyers.html", buyers=rows, clients=clients_rows, q=q)
+    return render_template("buyers.html", buyers=rows, clients=clients_rows, owners=owners_rows, q=q)
 
 
 @app.route("/buyers/<int:buyer_id>/edit", methods=["GET", "POST"])
@@ -4674,16 +4962,26 @@ def edit_buyer(buyer_id):
     if request.method == "POST":
         buyer_number = request.form.get("buyer_number", "").strip().upper()
         name = request.form.get("name", "").strip()
+        owner = None
+        owner_id = int(request.form["owner_id"]) if request.form.get("owner_id", "").isdigit() else None
+        if owner_id:
+            owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
+            if not owner:
+                flash("请选择有效的业主。", "error")
+                return redirect(url_for("edit_buyer", buyer_id=buyer_id))
+        else:
+            owner = unknown_owner()
+            owner_id = owner["id"]
         detailed_address = request.form.get("detailed_address", "").strip()
         if not buyer_number or not name or not detailed_address:
-            flash("请填写编号、需方名称和详细地址。", "error")
+            flash("请填写编号、站点名称和详细地址。", "error")
             return redirect(url_for("edit_buyer", buyer_id=buyer_id))
         address_changed = normalized_address(buyer["detailed_address"]) != normalized_address(detailed_address)
         try:
             db().execute(
                 """
                 update buyers
-                set buyer_number = ?, client_id = ?, country = ?, name = ?, contact_name = ?,
+                set buyer_number = ?, client_id = ?, country = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
                     contact_details = ?, detailed_address = ?, equipment_manufacturer = ?
                 where id = ?
                 """,
@@ -4694,6 +4992,8 @@ def edit_buyer(buyer_id):
                     ),
                     request.form.get("country", "United States").strip() or "United States",
                     name,
+                    owner_id,
+                    owner["name"] if owner else "",
                     request.form.get("contact_name", "").strip(),
                     request.form.get("contact_details", "").strip(),
                     detailed_address,
@@ -4731,7 +5031,8 @@ def edit_buyer(buyer_id):
             db().rollback()
             flash("需方编号重复，请换一个编号。", "error")
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template("buyer_form.html", buyer=buyer, clients=clients_rows)
+    owners_rows = owner_options()
+    return render_template("buyer_form.html", buyer=buyer, clients=clients_rows, owners=owners_rows)
 
 
 @app.post("/buyers/<int:buyer_id>/delete")
@@ -5608,8 +5909,10 @@ def service_order_query():
     clauses.extend(location_clauses)
     params.extend(location_params)
     if q:
-        clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_orders.client_order_number like ?)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+        clauses.append(
+            "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_orders.client_order_number like ?)"
+        )
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
     if status:
         clauses.append("service_orders.status = ?")
         params.append(status)
@@ -5617,6 +5920,7 @@ def service_order_query():
         f"""
         select service_orders.*,
                work_order_types.name as work_order_type_name,
+               coalesce(owners.name, buyers.owner) as buyer_owner,
                buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
@@ -5626,6 +5930,7 @@ def service_order_query():
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
+        left join owners on owners.id = buyers.owner_id
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
         left join country_translations country_zh
@@ -5663,12 +5968,12 @@ def buyer_query():
     if q:
         clauses.append(
             """
-            (buyers.buyer_number like ? or buyers.name like ? or buyers.contact_name like ?
+            (buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
              or buyers.contact_details like ? or buyers.detailed_address like ?
              or buyers.equipment_manufacturer like ?)
             """
         )
-        params.extend([f"%{q}%"] * 6)
+        params.extend([f"%{q}%"] * 7)
     if region_code:
         clauses.append(
             "exists (select 1 from service_orders where service_orders.buyer_id = buyers.id and service_orders.region_code = ?)"
@@ -5705,8 +6010,10 @@ def service_report_query():
     clauses.extend(location_clauses)
     params.extend(location_params)
     if q:
-        clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_reports.cabinet_number like ?)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+        clauses.append(
+            "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_reports.cabinet_number like ?)"
+        )
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
     if date_from:
         clauses.append("service_reports.report_date >= ?")
         params.append(date_from)
@@ -5716,11 +6023,14 @@ def service_report_query():
     rows = db().execute(
         f"""
         select service_reports.*, service_orders.order_number, service_orders.client_name,
+               coalesce(owners.name, buyers.owner) as buyer_owner,
                coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
                group_concat(users.name, ', ') as worker_names
         from service_reports
         join service_orders on service_orders.id = service_reports.service_order_id
+        left join buyers on buyers.id = service_orders.buyer_id
+        left join owners on owners.id = buyers.owner_id
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
         left join country_translations country_zh
@@ -6052,8 +6362,10 @@ def service_orders():
         )
         params.append(g.user["id"])
     if q:
-        clauses.append("(service_orders.order_number like ? or service_orders.client_name like ? or service_orders.client_order_number like ?)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+        clauses.append(
+            "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_orders.client_order_number like ?)"
+        )
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
     if buyer_id.isdigit():
         clauses.append("service_orders.buyer_id = ?")
         params.append(int(buyer_id))
@@ -6061,6 +6373,7 @@ def service_orders():
         f"""
         select service_orders.*,
                work_order_types.name as work_order_type_name,
+               coalesce(owners.name, buyers.owner) as buyer_owner,
                buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                contracts.contract_number,
                count(distinct service_reports.id) as report_count,
@@ -6068,6 +6381,7 @@ def service_orders():
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
+        left join owners on owners.id = buyers.owner_id
         left join contracts on contracts.id = service_orders.contract_id
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
@@ -6085,6 +6399,7 @@ def buyer_map_payload(buyer):
         "id": buyer["id"],
         "buyer_number": buyer["buyer_number"],
         "name": buyer["name"],
+        "owner": buyer["owner_name"],
         "contact_name": buyer["contact_name"],
         "contact_details": buyer["contact_details"],
         "country": buyer["country"],
@@ -6148,15 +6463,18 @@ def buyer_map_rows(where_clause="1 = 1", params=()):
             group by service_orders.buyer_id
         )
         select buyers.*,
+               coalesce(owners.name, buyers.owner) as owner_name,
+               owners.owner_number as owner_number,
                coalesce(order_stats.work_order_total, 0) as work_order_total,
                coalesce(order_stats.work_order_completed, 0) as work_order_completed,
                coalesce(invoice_stats.paid_invoice_amount, 0) as paid_invoice_amount,
                coalesce(invoice_stats.completed_invoice_amount, 0) as completed_invoice_amount
         from buyers
+        left join owners on owners.id = buyers.owner_id
         left join order_stats on order_stats.buyer_id = buyers.id
         left join invoice_stats on invoice_stats.buyer_id = buyers.id
         where {where_clause}
-        order by buyers.name, buyers.id
+        order by owner_name, buyers.name, buyers.id
         """,
         params,
     ).fetchall()
@@ -6274,7 +6592,14 @@ def retry_failed_service_order_geocodes():
 def new_service_order():
     if not can_create_service_order():
         abort(403)
-    buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
+    buyers_rows = db().execute(
+        """
+        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name
+        from buyers
+        left join owners on owners.id = buyers.owner_id
+        order by owner_name, buyers.name, buyers.buyer_number
+        """
+    ).fetchall()
     clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
         "select * from work_order_types where is_active = 1 order by code, name"
@@ -6288,8 +6613,8 @@ def new_service_order():
         """
     ).fetchall()
     if not buyers_rows:
-        flash("请先由管理员或经理维护需方资料。", "error")
-        return redirect(url_for("buyers") if is_manager() else url_for("service_orders"))
+        flash("请先由会计或经理维护需方资料。", "error")
+        return redirect(url_for("buyers") if can_manage_buyers() else url_for("service_orders"))
     if not clients_rows:
         flash("请先由管理员或经理维护客户资料。", "error")
         return redirect(url_for("clients") if is_manager() else url_for("service_orders"))
@@ -6352,7 +6677,7 @@ def new_service_order():
                 now(),
             ),
         )
-        log_action("create", "service_order", cursor.lastrowid, order_number, f"需方：{buyer['name']}")
+        log_action("create", "service_order", cursor.lastrowid, order_number, f"站点：{buyer['name']}")
         folder_created = True
         try:
             ensure_service_order_picture_folder(order_number)
@@ -6410,7 +6735,14 @@ def edit_service_order(order_id):
             start_date_only=True,
             countries=[],
         )
-    buyers_rows = db().execute("select * from buyers order by name, buyer_number").fetchall()
+    buyers_rows = db().execute(
+        """
+        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name
+        from buyers
+        left join owners on owners.id = buyers.owner_id
+        order by owner_name, buyers.name, buyers.buyer_number
+        """
+    ).fetchall()
     clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
         """
@@ -6968,6 +7300,10 @@ def new_service_report(order_id):
             flash("该日报正在保存，请稍候。", "error")
             return redirect(url_for("new_service_report", order_id=order_id))
         try:
+            arrival_time = posted_report_time("arrival_time")
+            departure_time = posted_report_time("departure_time")
+            total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
+            total_time = calculated_report_total_time()
             cursor = db().execute(
                 """
                 insert into service_reports (
@@ -6979,16 +7315,16 @@ def new_service_report(order_id):
                 (
                     order_id,
                     request.form.get("report_date"),
-                    to_float(request.form.get("total_service_hours")),
+                    total_service_hours,
                     to_float(request.form.get("travel_hours")),
                     to_float(request.form.get("public_transport_hours")),
                     to_float(request.form.get("driving_miles")),
                     request.form.get("departure_address", "").strip(),
                     request.form.get("site_address", "").strip(),
-                    request.form.get("total_time", "").strip(),
+                    total_time,
                     request.form.get("cabinet_number", "").strip(),
-                    posted_report_time("arrival_time"),
-                    posted_report_time("departure_time"),
+                    arrival_time,
+                    departure_time,
                     request.form.get("service_description", "").strip(),
                     g.user["id"],
                     now(),
@@ -7043,6 +7379,10 @@ def edit_service_report(report_id):
             flash("该日报已经保存，请勿重复提交。", "success")
             return redirect(url_for("edit_service_report", report_id=report_id))
         try:
+            arrival_time = posted_report_time("arrival_time")
+            departure_time = posted_report_time("departure_time")
+            total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
+            total_time = calculated_report_total_time()
             db().execute(
                 """
                 update service_reports
@@ -7053,16 +7393,16 @@ def edit_service_report(report_id):
                 """,
                 (
                     request.form.get("report_date"),
-                    to_float(request.form.get("total_service_hours")),
+                    total_service_hours,
                     to_float(request.form.get("travel_hours")),
                     to_float(request.form.get("public_transport_hours")),
                     to_float(request.form.get("driving_miles")),
                     request.form.get("departure_address", "").strip(),
                     request.form.get("site_address", "").strip(),
-                    request.form.get("total_time", "").strip(),
+                    total_time,
                     request.form.get("cabinet_number", "").strip(),
-                    posted_report_time("arrival_time"),
-                    posted_report_time("departure_time"),
+                    arrival_time,
+                    departure_time,
                     request.form.get("service_description", "").strip(),
                     now(),
                     report_id,
@@ -8695,7 +9035,8 @@ def build_service_report_docx(report, order):
     format_run(title.add_run("现场服务日报"), size=18, bold=True)
 
     for label, value in (
-        ("需方名称", order["client_name"]),
+        ("站点名称", order["client_name"]),
+        ("业主", order["buyer_owner"]),
         ("服务现场地址", order["site_address"]),
         ("服务订单号码", order["client_order_number"]),
     ):

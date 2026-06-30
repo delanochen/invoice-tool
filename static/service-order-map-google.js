@@ -1,6 +1,7 @@
 const mapElement = document.querySelector("#serviceOrderMap");
 const searchInput = document.querySelector("#mapSearch");
 const statusSelect = document.querySelector("#mapStatus");
+const filterOptionContainers = document.querySelectorAll("[data-map-filter-options]");
 const visibleCount = document.querySelector("#visibleOrderCount");
 const progressText = document.querySelector("#geocodeProgress");
 const unlocatedContainer = document.querySelector("#unlocatedOrders");
@@ -23,6 +24,39 @@ function money(value) {
   return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function filterText(value) {
+  return String(value || "").trim();
+}
+
+function selectedFilterValues(field) {
+  return new Set(
+    Array.from(document.querySelectorAll(`[data-map-filter-options="${field}"] input:checked`))
+      .map((input) => input.value)
+  );
+}
+
+function renderMapFilterOptions() {
+  filterOptionContainers.forEach((container) => {
+    const field = container.dataset.mapFilterOptions;
+    const values = Array.from(new Set(
+      [...buyersById.values()].map((buyer) => filterText(buyer[field])).filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    container.replaceChildren();
+    const details = container.closest("details");
+    if (details) details.hidden = values.length === 0;
+    values.forEach((value) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = value;
+      const span = document.createElement("span");
+      span.textContent = value;
+      label.append(input, span);
+      container.appendChild(label);
+    });
+  });
+}
+
 function buyerDetails(buyer) {
   const invoices = mapConfig.showInvoiceAmounts ? `
     <dt>${t("发票")}</dt><dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
@@ -32,6 +66,7 @@ function buyerDetails(buyer) {
       <strong>${escapeHtml(buyer.name)}</strong>
       <span>${escapeHtml(buyer.detailed_address)}</span>
       <dl>
+        <dt>${t("业主")}</dt><dd>${escapeHtml(buyer.owner || "-")}</dd>
         <dt>${t("联系人")}</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
         <dt>${t("联系方式")}</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
@@ -78,11 +113,18 @@ function hasCoordinates(buyer) {
 function matchesFilters(buyer) {
   const query = searchInput.value.trim().toLocaleLowerCase();
   const status = statusSelect.value;
+  const selectedSites = selectedFilterValues("name");
+  const selectedOwners = selectedFilterValues("owner");
   const haystack = [
-    buyer.buyer_number, buyer.name, buyer.contact_name, buyer.contact_details,
+    buyer.buyer_number, buyer.name, buyer.owner, buyer.contact_name, buyer.contact_details,
     buyer.detailed_address, buyer.equipment_manufacturer
   ].join(" ").toLocaleLowerCase();
-  return (!query || haystack.includes(query)) && (!status || buyer.status === status);
+  return (
+    (!query || haystack.includes(query)) &&
+    (!status || buyer.status === status) &&
+    (!selectedSites.size || selectedSites.has(filterText(buyer.name))) &&
+    (!selectedOwners.size || selectedOwners.has(filterText(buyer.owner)))
+  );
 }
 
 function buyerLatLng(buyer) {
@@ -246,7 +288,10 @@ async function geocodePendingBuyers() {
     });
     if (!response.ok) throw new Error("geocode request failed");
     const result = await response.json();
-    if (result.buyer) buyersById.set(result.buyer.id, result.buyer);
+    if (result.buyer) {
+      buyersById.set(result.buyer.id, result.buyer);
+      renderMapFilterOptions();
+    }
     renderMarkers({ fit: Boolean(result.buyer) });
     if (result.remaining > 0) {
       progressText.textContent = `${t("正在定位，剩余")} ${result.remaining}`;
@@ -261,6 +306,9 @@ async function geocodePendingBuyers() {
 
 searchInput.addEventListener("input", () => renderMarkers({ fit: true }));
 statusSelect.addEventListener("change", () => renderMarkers({ fit: true }));
+filterOptionContainers.forEach((container) => {
+  container.addEventListener("change", () => renderMarkers({ fit: true }));
+});
 retryButton.addEventListener("click", async () => {
   retryButton.disabled = true;
   try {
@@ -295,6 +343,7 @@ window.initServiceOrderGoogleMap = function initServiceOrderGoogleMap() {
   mapProjectionOverlay.onRemove = function onRemove() {};
   mapProjectionOverlay.setMap(serviceMap);
   addHeadquartersMarker();
+  renderMapFilterOptions();
   google.maps.event.addListenerOnce(serviceMap, "idle", () => renderMarkers({ fit: true }));
   serviceMap.addListener("idle", () => renderMarkers());
   geocodePendingBuyers();

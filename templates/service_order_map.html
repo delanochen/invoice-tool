@@ -15,7 +15,7 @@
   </header>
   <div class="map-toolbar no-print">
     <label>关键词
-      <input id="mapSearch" placeholder="需方编号、名称、联系人或地址">
+      <input id="mapSearch" placeholder="需方编号、站点名称、业主、联系人或地址">
     </label>
     <label>工单进度
       <select id="mapStatus">
@@ -24,6 +24,14 @@
         <option value="completed">工单全部完成</option>
       </select>
     </label>
+    <details class="multi-select map-filter-select" id="mapSiteFilter">
+      <summary>站点名称</summary>
+      <div class="multi-select-menu" data-map-filter-options="name"></div>
+    </details>
+    <details class="multi-select map-filter-select" id="mapOwnerFilter">
+      <summary>业主</summary>
+      <div class="multi-select-menu" data-map-filter-options="owner"></div>
+    </details>
     <div class="map-summary" aria-live="polite">
       <strong id="visibleOrderCount">0</strong>
       <span>/ <span id="totalOrderCount">{{ map_buyers|length }}</span> 个需方已定位</span>
@@ -62,10 +70,10 @@
 {% endblock %}
 {% block scripts %}
   {% if google_maps_enabled %}
-    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260620-i18n-v2') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260629-map-filters-v1') }}"></script>
     <script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async"></script>
   {% else %}
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="{{ url_for('static', filename='service-order-map.js', v='20260620-i18n-v2') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map.js', v='20260629-map-filters-v1') }}"></script>
   {% endif %}
 {% endblock %}

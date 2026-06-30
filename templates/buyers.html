@@ -7,7 +7,7 @@
   </header>
 
   <form class="panel filter-bar no-print" method="get">
-    <label>查找需方 <input name="q" value="{{ q or '' }}" placeholder="编号、名称、联系人、地址或配套机厂家"></label>
+    <label>查找需方 <input name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、地址或配套机厂家"></label>
     <div class="filter-actions">
       <button type="submit">查找</button>
       <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">重置</button>
@@ -21,7 +21,8 @@
         <tr>
           <th>编号</th>
           <th>国家</th>
-          <th>名称</th>
+          <th>站点名称</th>
+          <th>业主</th>
           <th>联系人</th>
           <th>联系方式</th>
           <th>详细地址</th>
@@ -35,6 +36,7 @@
             <td>{{ buyer.buyer_number }}</td>
             <td>{{ buyer.country or "-" }}</td>
             <td>{{ buyer.name }}</td>
+            <td>{{ buyer.owner_name or "-" }}</td>
             <td>{{ buyer.contact_name or "-" }}</td>
             <td>{{ buyer.contact_details or "-" }}</td>
             <td>{{ buyer.detailed_address or "-" }}</td>
@@ -49,7 +51,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="empty">还没有需方资料。</td></tr>
+          <tr><td colspan="9" class="empty">还没有需方资料。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -72,7 +74,14 @@
       <div class="form-grid two-columns">
         <label>编号 <input value="自动生成" disabled></label>
         <label>国家 <input name="country" value="United States"></label>
-        <label>名称 <input name="name" required></label>
+        <label>站点名称 <input name="name" required></label>
+        <label>业主
+          <select name="owner_id">
+            {% for owner in owners %}
+              <option value="{{ owner.id }}">{{ owner.owner_number }} · {{ owner.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <label>联系人 <input name="contact_name"></label>
         <label>联系方式 <input name="contact_details"></label>
         <label>配套机厂家 <input name="equipment_manufacturer"></label>
@@ -92,7 +101,14 @@
         <div class="form-grid two-columns">
           <label>编号 <input name="buyer_number" value="{{ buyer.buyer_number }}" required></label>
           <label>国家 <input name="country" value="{{ buyer.country or 'United States' }}"></label>
-          <label>名称 <input name="name" value="{{ buyer.name }}" required></label>
+          <label>站点名称 <input name="name" value="{{ buyer.name }}" required></label>
+          <label>业主
+            <select name="owner_id">
+              {% for owner in owners %}
+                <option value="{{ owner.id }}" {% if buyer.owner_id == owner.id %}selected{% endif %}>{{ owner.owner_number }} · {{ owner.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
           <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
           <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
           <label>配套机厂家 <input name="equipment_manufacturer" value="{{ buyer.equipment_manufacturer or '' }}"></label>
