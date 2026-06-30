@@ -147,7 +147,11 @@
             <tr>
               <td>
                 {% if (attachment.content_type or "").startswith("image/") %}
-                  <a href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}" target="_blank">
+                  <a
+                    href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}"
+                    data-image-preview
+                    data-preview-name="{{ attachment.original_filename }}"
+                  >
                     <img class="inline-thumb" src="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
                     {{ attachment.original_filename }}
                   </a>

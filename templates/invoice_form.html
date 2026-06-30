@@ -88,7 +88,15 @@
           <tbody>
             {% for attachment in attachments %}
               <tr>
-                <td><a href="{{ url_for('preview_attachment', attachment_id=attachment.id) }}" class="attachment-preview-link" data-preview-name="{{ attachment.original_filename }}" data-content-type="{{ attachment.content_type or '' }}">{{ attachment.original_filename }}</a></td>
+                <td>
+                  <a
+                    href="{{ url_for('preview_attachment', attachment_id=attachment.id) }}"
+                    class="attachment-preview-link"
+                    data-preview-name="{{ attachment.original_filename }}"
+                    data-content-type="{{ attachment.content_type or '' }}"
+                    {% if (attachment.content_type or '').startswith('image/') %}data-image-preview{% endif %}
+                  >{{ attachment.original_filename }}</a>
+                </td>
                 <td>{{ attachment.uploader_name or "Unknown" }}</td>
                 <td>{{ attachment.uploaded_at[:10] }}</td>
                 <td>

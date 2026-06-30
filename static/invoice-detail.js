@@ -101,7 +101,7 @@ function fileKey(file) {
   return file.name.trim().toLocaleLowerCase();
 }
 
-document.querySelectorAll(".attachment-preview-link").forEach((link) => {
+document.querySelectorAll(".attachment-preview-link:not([data-image-preview])").forEach((link) => {
   link.addEventListener("click", (event) => {
     event.preventDefault();
     attachmentPreviewTitle.textContent = link.dataset.previewName || "附件预览";

@@ -111,7 +111,21 @@
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
+    <dialog id="imageAttachmentPreviewDialog" class="modal preview-modal image-attachment-preview-modal no-print">
+      <div class="modal-header">
+        <h2 id="imageAttachmentPreviewTitle">附件预览</h2>
+        <div class="preview-tools">
+          <button type="button" data-image-preview-fit>自适应</button>
+          <button type="button" data-image-preview-out>缩小</button>
+          <button type="button" data-image-preview-original>原图</button>
+          <button type="button" data-image-preview-in>放大</button>
+          <button type="button" data-image-preview-close>关闭</button>
+        </div>
+      </div>
+      <div class="image-preview-wrap"><img id="imageAttachmentPreviewImage" alt="附件预览"></div>
+    </dialog>
     <script src="{{ url_for('static', filename='ui-i18n.js', v='20260630-site-email-v1') }}"></script>
+    <script src="{{ url_for('static', filename='attachment-preview.js', v='20260630-image-preview-v1') }}"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

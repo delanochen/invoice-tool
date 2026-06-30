@@ -73,7 +73,17 @@
       <tbody>
         {% for attachment in attachments %}
           <tr>
-            <td><a href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a></td>
+            <td>
+              <a
+                href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}"
+                {% if (attachment.content_type or '').startswith('image/') %}
+                  data-image-preview
+                  data-preview-name="{{ attachment.original_filename }}"
+                {% else %}
+                  target="_blank"
+                {% endif %}
+              >{{ attachment.original_filename }}</a>
+            </td>
             <td>{{ attachment.uploader_name or "Unknown" }}</td>
             <td>{{ attachment.uploaded_at[:10] }}</td>
             <td><button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button></td>

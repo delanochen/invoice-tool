@@ -102,7 +102,13 @@
         <p class="empty" data-attachment-empty hidden>暂无附件。</p>
         {% for attachment in attachments %}
           <div class="attachment-row" data-attachment-row>
-            <a href="{{ url_for('download_user_attachment', attachment_id=attachment.id) }}">{{ attachment.original_filename }}</a>
+            <a
+              href="{% if (attachment.content_type or '').startswith('image/') %}{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}{% else %}{{ url_for('download_user_attachment', attachment_id=attachment.id) }}{% endif %}"
+              {% if (attachment.content_type or '').startswith('image/') %}
+                data-image-preview
+                data-preview-name="{{ attachment.original_filename }}"
+              {% endif %}
+            >{{ attachment.original_filename }}</a>
             <button
               class="danger small"
               type="button"

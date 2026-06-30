@@ -191,7 +191,17 @@
           <tbody>
             {% for attachment in mileage_proofs %}
               <tr>
-                <td><a href="{{ url_for('preview_report_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a></td>
+                <td>
+                  <a
+                    href="{{ url_for('preview_report_attachment', attachment_id=attachment.id) }}"
+                    {% if (attachment.content_type or '').startswith('image/') %}
+                      data-image-preview
+                      data-preview-name="{{ attachment.original_filename }}"
+                    {% else %}
+                      target="_blank"
+                    {% endif %}
+                  >{{ attachment.original_filename }}</a>
+                </td>
                 <td>{{ attachment.uploader_name or "Unknown" }}</td>
                 <td>{{ attachment.uploaded_at[:10] }}</td>
                 <td>

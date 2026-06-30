@@ -5600,6 +5600,24 @@ def download_user_attachment(attachment_id):
     )
 
 
+@app.get("/user-attachments/<int:attachment_id>/preview")
+@login_required
+def preview_user_attachment(attachment_id):
+    attachment = db().execute("select * from user_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    owner = db().execute("select * from users where id = ?", (attachment["user_id"],)).fetchone()
+    if not owner or not can_manage_user_record(owner):
+        abort(403)
+    return send_file(
+        os.path.join(USER_ATTACHMENT_DIR, str(attachment["user_id"]), attachment["stored_filename"]),
+        as_attachment=False,
+        download_name=attachment["original_filename"],
+        mimetype=attachment["content_type"] or None,
+        conditional=True,
+    )
+
+
 @app.post("/user-attachments/<int:attachment_id>/delete")
 @login_required
 def delete_user_attachment(attachment_id):
@@ -5724,6 +5742,23 @@ def download_company_attachment(attachment_id):
         os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]),
         as_attachment=True,
         download_name=attachment["original_filename"],
+    )
+
+
+@app.get("/company-attachments/<int:attachment_id>/preview")
+@login_required
+def preview_company_attachment(attachment_id):
+    if not is_internal_user():
+        abort(403)
+    attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    return send_file(
+        os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]),
+        as_attachment=False,
+        download_name=attachment["original_filename"],
+        mimetype=attachment["content_type"] or None,
+        conditional=True,
     )
 
 
