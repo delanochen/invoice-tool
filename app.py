@@ -4890,6 +4890,21 @@ def buyers():
         if not name or not detailed_address:
             flash("请填写站点名称和详细地址。", "error")
             return redirect(url_for("buyers"))
+        client_id = g.user["client_id"] if is_external_manager() else (
+            int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else None
+        )
+        existing_site = db().execute(
+            """
+            select buyer_number from buyers
+            where coalesce(client_id, 0) = coalesce(?, 0)
+              and lower(trim(name)) = lower(trim(?))
+              and lower(trim(detailed_address)) = lower(trim(?))
+            """,
+            (client_id, name, detailed_address),
+        ).fetchone()
+        if existing_site:
+            flash(f"站点已存在，编号：{existing_site['buyer_number']}。", "error")
+            return redirect(url_for("buyers"))
         try:
             db().execute(
                 """
@@ -4900,9 +4915,7 @@ def buyers():
                 """,
                 (
                     next_buyer_number(),
-                    g.user["client_id"] if is_external_manager() else (
-                        int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else None
-                    ),
+                    client_id,
                     request.form.get("country", "United States").strip() or "United States",
                     name,
                     owner_id,

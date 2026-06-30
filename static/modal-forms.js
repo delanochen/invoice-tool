@@ -17,3 +17,11 @@ document.querySelectorAll(".modal-dialog").forEach((dialog) => {
     if (event.target === dialog) dialog.close();
   });
 });
+
+document.querySelectorAll(".modal-dialog form").forEach((form) => {
+  form.addEventListener("submit", () => {
+    form.querySelectorAll('button[type="submit"]').forEach((button) => {
+      button.disabled = true;
+    });
+  });
+});
