@@ -130,9 +130,9 @@ NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
     "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
 )
-NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us").strip()
+NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us,ca").strip()
 GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-GEOCODER_VERSION = "4"
+GEOCODER_VERSION = "5"
 GOOGLE_PHOTOS_ALLOWED_HOSTS = {"photos.app.goo.gl", "photos.google.com", "www.photos.google.com"}
 GOOGLE_PHOTOS_MAX_IMPORT = 1000
 GOOGLE_PHOTOS_MAX_IMAGE_BYTES = 30 * 1024 * 1024
