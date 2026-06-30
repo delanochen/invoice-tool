@@ -16,6 +16,9 @@
       {% if can_edit %}
         <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
         <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit">提交经理审核</button>
+        <form method="post" action="{{ url_for('delete_customer_reimbursement', reimbursement_id=reimbursement.id) }}" onsubmit="return uiConfirm('确定删除这份工单结算草稿吗？明细和附件也会一起删除。');">
+          <button class="danger" type="submit">删除工单结算</button>
+        </form>
       {% endif %}
       {% if reimbursement.status == "submitted" and normalized_role() in ["admin", "manager"] %}
         <form method="post" action="{{ url_for('approve_customer_reimbursement', reimbursement_id=reimbursement.id) }}">
@@ -79,14 +82,14 @@
 
   <section class="panel">
     <div class="metric-grid">
-      <div class="metric"><span>工时费小计</span><strong>{{ totals.labor_total|money }}</strong></div>
-      <div class="metric"><span>差旅费小计</span><strong>{{ totals.travel_total|money }}</strong></div>
-      <div class="metric"><span>里程费小计</span><strong>{{ totals.mileage_total|money }}</strong></div>
-      <div class="metric"><span>合计</span><strong>{{ totals.total_amount|money }}</strong></div>
+      <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>
+      <div class="metric"><span>差旅费小计</span><strong data-reimbursement-total="travel">{{ totals.travel_total|money }}</strong></div>
+      <div class="metric"><span>里程费小计</span><strong data-reimbursement-total="mileage">{{ totals.mileage_total|money }}</strong></div>
+      <div class="metric"><span>合计</span><strong data-reimbursement-total="total">{{ totals.total_amount|money }}</strong></div>
     </div>
   </section>
 
-  <form id="customerReimbursementForm" method="post" enctype="multipart/form-data" class="panel form-stack">
+  <form id="customerReimbursementForm" method="post" enctype="multipart/form-data" class="panel form-stack" data-live-totals="{{ 'true' if can_edit else 'false' }}">
     <fieldset class="plain-fieldset" {% if not can_edit %}disabled{% endif %}>
     <div class="panel-title">
       <h2>明细</h2>
@@ -111,7 +114,7 @@
               <td><input name="transport_hours" type="number" step="0.01" min="0" value="{{ item.transport_hours }}"></td>
               <td><input name="overtime_hours" type="number" step="0.01" min="0" value="{{ item.overtime_hours }}"></td>
               <td><input name="holiday_hours" type="number" step="0.01" min="0" value="{{ item.holiday_hours }}"></td>
-              <td>{{ item.labor_total|money }}</td>
+              <td data-row-total="labor">{{ item.labor_total|money }}</td>
               <td><input name="lodging" type="number" step="0.01" min="0" value="{{ item.lodging }}"></td>
               <td><input name="airfare" type="number" step="0.01" min="0" value="{{ item.airfare }}"></td>
               <td><input name="baggage" type="number" step="0.01" min="0" value="{{ item.baggage }}"></td>
@@ -120,9 +123,9 @@
               <td><input name="parking" type="number" step="0.01" min="0" value="{{ item.parking }}"></td>
               <td><input name="taxi" type="number" step="0.01" min="0" value="{{ item.taxi }}"></td>
               <td><input name="miles" type="number" step="0.01" min="0" value="{{ item.miles }}"></td>
-              <td>{{ item.mileage_total|money }}</td>
+              <td data-row-total="mileage">{{ item.mileage_total|money }}</td>
               <td><input name="other" type="number" step="0.01" min="0" value="{{ item.other }}"></td>
-              <td>{{ item.total|money }}</td>
+              <td data-row-total="total">{{ item.total|money }}</td>
               <td><button class="danger small remove-customer-reimbursement-row" type="button">删除</button></td>
             </tr>
           {% endfor %}
@@ -130,7 +133,7 @@
       </table>
     </div>
 
-    <section class="edit-attachments">
+    <section class="edit-attachments" id="customerReimbursementAttachmentsSection">
       <div class="panel-title"><h2>附件</h2><span class="muted-line">酒店、机票、租车、加油、停车等凭证</span></div>
       <div class="full file-picker-row">
         <span>上传附件</span>
@@ -157,9 +160,9 @@
               <td>
                 <div class="row-actions">
                   <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_attachment', attachment_id=attachment.id) }}'">下载</button>
-                  <form method="post" action="{{ url_for('delete_customer_reimbursement_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');">
-                    <button class="danger small" type="submit">删除</button>
-                  </form>
+                  {% if can_edit %}
+                    <button class="danger small" type="submit" form="deleteCustomerReimbursementAttachment{{ attachment.id }}">删除</button>
+                  {% endif %}
                 </div>
               </td>
             </tr>
@@ -171,8 +174,27 @@
     </section>
     </fieldset>
   </form>
+  {% if can_edit %}
+    {% for attachment in attachments %}
+      <form
+        id="deleteCustomerReimbursementAttachment{{ attachment.id }}"
+        method="post"
+        action="{{ url_for('delete_customer_reimbursement_attachment', attachment_id=attachment.id) }}"
+        onsubmit="return uiConfirm('确定删除这个附件吗？');"
+      ></form>
+    {% endfor %}
+  {% endif %}
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='customer-reimbursement.js', v='20260625-enter-no-submit') }}"></script>
+  <script>
+    window.customerReimbursementRates = {{ {
+      "standard": rates["标准工时"],
+      "transport": rates["交通工时"],
+      "overtime": rates["加班工时"],
+      "holiday": rates["节假日工时"],
+      "mileage": rates["里程费"]
+    }|tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='customer-reimbursement.js', v='20260630-live-totals') }}"></script>
 {% endblock %}
 

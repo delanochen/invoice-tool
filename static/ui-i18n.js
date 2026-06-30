@@ -514,6 +514,10 @@
     "合同已删除。": "Contract deleted.",
     "合同附件已删除。": "Contract attachment deleted.",
     "确定删除这个附件吗？": "Delete this attachment?",
+    "删除工单结算": "Delete work order settlement",
+    "确定删除这份工单结算草稿吗？明细和附件也会一起删除。": "Delete this draft work order settlement? Details and attachments will also be deleted.",
+    "只有保存未提交或已退回的工单结算草稿可以删除。": "Only draft or returned work order settlement drafts can be deleted.",
+    "工单结算草稿已删除。": "Work order settlement draft deleted.",
     "确定删除这份合同吗？有关联工单的合同不能删除。": "Delete this contract? Contracts linked to work orders cannot be deleted."
   };
 
@@ -1028,6 +1032,10 @@
     "合同已删除。": "Contract verwijderd.",
     "合同附件已删除。": "Contractbijlage verwijderd.",
     "确定删除这个附件吗？": "Deze bijlage verwijderen?",
+    "删除工单结算": "Werkorderafrekening verwijderen",
+    "确定删除这份工单结算草稿吗？明细和附件也会一起删除。": "Deze concept-werkorderafrekening verwijderen? Details en bijlagen worden ook verwijderd.",
+    "只有保存未提交或已退回的工单结算草稿可以删除。": "Alleen concept- of teruggestuurde werkorderafrekeningen kunnen worden verwijderd.",
+    "工单结算草稿已删除。": "Concept-werkorderafrekening verwijderd.",
     "确定删除这份合同吗？有关联工单的合同不能删除。": "Dit contract verwijderen? Contracten met gekoppelde werkorders kunnen niet worden verwijderd."
   };
 
@@ -1087,6 +1095,10 @@
     "合同已删除。": "Vertrag gelöscht.",
     "合同附件已删除。": "Vertragsanhang gelöscht.",
     "确定删除这个附件吗？": "Diesen Anhang löschen?",
+    "删除工单结算": "Arbeitsauftragsabrechnung löschen",
+    "确定删除这份工单结算草稿吗？明细和附件也会一起删除。": "Diesen Entwurf der Arbeitsauftragsabrechnung löschen? Details und Anhänge werden ebenfalls gelöscht.",
+    "只有保存未提交或已退回的工单结算草稿可以删除。": "Nur Entwürfe oder zurückgesendete Arbeitsauftragsabrechnungen können gelöscht werden.",
+    "工单结算草稿已删除。": "Entwurf der Arbeitsauftragsabrechnung wurde gelöscht.",
     "确定删除这份合同吗？有关联工单的合同不能删除。": "Diesen Vertrag löschen? Verträge mit verknüpften Arbeitsaufträgen können nicht gelöscht werden.",
     "当前工单国家没有可选的启用服务人员。": "Für das Land dieses Arbeitsauftrags sind keine aktiven Servicemitarbeiter verfügbar.",
     "报销编号、工单、站点或提交人": "Spesennummer, Arbeitsauftrag, Standort oder Einreicher",
@@ -1483,6 +1495,10 @@
     "合同已删除。": "Contrato eliminado.",
     "合同附件已删除。": "Adjunto del contrato eliminado.",
     "确定删除这个附件吗？": "¿Eliminar este adjunto?",
+    "删除工单结算": "Eliminar liquidación de orden",
+    "确定删除这份工单结算草稿吗？明细和附件也会一起删除。": "¿Eliminar este borrador de liquidación de orden? También se eliminarán los detalles y adjuntos.",
+    "只有保存未提交或已退回的工单结算草稿可以删除。": "Solo se pueden eliminar borradores o liquidaciones devueltas.",
+    "工单结算草稿已删除。": "Borrador de liquidación de orden eliminado.",
     "确定删除这份合同吗？有关联工单的合同不能删除。": "¿Eliminar este contrato? No se pueden eliminar contratos vinculados a órdenes de trabajo.",
     "当前工单国家没有可选的启用服务人员。": "No hay personal de servicio activo disponible para el país de esta orden de trabajo.",
     "报销编号、工单、站点或提交人": "Número de gasto, orden, sitio o remitente",

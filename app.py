@@ -7101,6 +7101,7 @@ def customer_reimbursement_form(order_id):
         reimbursement=reimbursement,
         items=items,
         totals=customer_reimbursement_totals(items),
+        rates=customer_reimbursement_rates(),
         attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
         linked_invoice=linked_invoice,
         reviewer=reviewer,
@@ -7253,6 +7254,32 @@ def reset_customer_reimbursement(reimbursement_id):
     return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
+@app.post("/customer-reimbursements/<int:reimbursement_id>/delete")
+@login_required
+def delete_customer_reimbursement(reimbursement_id):
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    if not can_manage_customer_reimbursement():
+        abort(403)
+    if reimbursement["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或已退回的工单结算草稿可以删除。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    reimbursement_dir = os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(reimbursement_id))
+    db().execute("delete from customer_reimbursement_attachments where customer_reimbursement_id = ?", (reimbursement_id,))
+    db().execute("delete from customer_reimbursement_items where customer_reimbursement_id = ?", (reimbursement_id,))
+    db().execute("delete from customer_reimbursements where id = ?", (reimbursement_id,))
+    shutil.rmtree(reimbursement_dir, ignore_errors=True)
+    log_action(
+        "delete",
+        "customer_reimbursement",
+        reimbursement_id,
+        reimbursement["file_name"],
+        f"工单：{order['order_number']}，状态：{CUSTOMER_REIMBURSEMENT_STATUS_LABELS.get(reimbursement['status'], reimbursement['status'])}",
+    )
+    db().commit()
+    flash("工单结算草稿已删除。", "success")
+    return redirect(url_for("service_order_detail", order_id=order["id"]))
+
+
 @app.get("/customer-reimbursement-attachments/<int:attachment_id>/download")
 @login_required
 def download_customer_reimbursement_attachment(attachment_id):
@@ -7284,7 +7311,7 @@ def delete_customer_reimbursement_attachment(attachment_id):
         abort(403)
     if reimbursement["status"] not in {"draft", "returned"}:
         flash("只有保存未提交或已退回的工单结算可以删除附件。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"], _anchor="customerReimbursementAttachmentsSection"))
     try:
         os.remove(customer_reimbursement_attachment_path(attachment))
     except FileNotFoundError:
@@ -7293,7 +7320,7 @@ def delete_customer_reimbursement_attachment(attachment_id):
     log_action("delete", "customer_reimbursement_attachment", attachment_id, attachment["original_filename"], f"工单：{order['order_number']}")
     db().commit()
     flash("附件已删除。", "success")
-    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    return redirect(url_for("customer_reimbursement_form", order_id=order["id"], _anchor="customerReimbursementAttachmentsSection"))
 
 
 @app.route("/service-orders/<int:order_id>/reports/new", methods=["GET", "POST"])
