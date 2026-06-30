@@ -69,6 +69,7 @@ function buyerDetails(buyer) {
         <dt>${t("业主")}</dt><dd>${escapeHtml(buyer.owner || "-")}</dd>
         <dt>${t("联系人")}</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
         <dt>${t("联系方式")}</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
+        <dt>${t("电子邮箱地址")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
         ${invoices}
       </dl>
@@ -87,8 +88,8 @@ function buyerClusterDetails(buyers) {
   `).join("");
   return `
     <div class="map-order-popup map-cluster-popup">
-      <strong>${buyers.length} ${t("个需方")}</strong>
-      <span>${t("此区域有多个需方地址很近。")}</span>
+      <strong>${buyers.length} ${t("个站点")}</strong>
+      <span>${t("此区域有多个站点地址很近。")}</span>
       <div class="map-cluster-list">${items}</div>
     </div>
   `;
@@ -116,7 +117,7 @@ function matchesFilters(buyer) {
   const selectedSites = selectedFilterValues("name");
   const selectedOwners = selectedFilterValues("owner");
   const haystack = [
-    buyer.buyer_number, buyer.name, buyer.owner, buyer.contact_name, buyer.contact_details,
+    buyer.buyer_number, buyer.name, buyer.owner, buyer.contact_name, buyer.contact_details, buyer.email,
     buyer.detailed_address, buyer.equipment_manufacturer
   ].join(" ").toLocaleLowerCase();
   return (
@@ -243,7 +244,7 @@ function renderUnlocatedBuyers() {
   if (!unlocated.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = t("所有需方均已定位。");
+    empty.textContent = t("所有站点均已定位。");
     unlocatedContainer.appendChild(empty);
   } else {
     unlocated.forEach((buyer) => {

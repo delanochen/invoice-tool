@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}需方 - 发票工具{% endblock %}
+{% block title %}站点 - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header">
-    <div><p class="eyebrow">Buyers</p><h1>需方资料</h1></div>
-    <button class="primary" type="button" data-dialog-open="newBuyerDialog">新增需方</button>
+    <div><p class="eyebrow">Sites</p><h1>站点资料</h1></div>
+    <button class="primary" type="button" data-dialog-open="newBuyerDialog">新增站点</button>
   </header>
 
   <form class="panel filter-bar no-print" method="get">
-    <label>查找需方 <input name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、地址或配套机厂家"></label>
+    <label>查找站点 <input name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、邮箱、地址或配套机厂家"></label>
     <div class="filter-actions">
       <button type="submit">查找</button>
       <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">重置</button>
@@ -15,7 +15,7 @@
   </form>
 
   <section class="panel">
-    <div class="panel-title"><h2>需方列表</h2><span class="muted-line">{{ buyers|length }} 个需方</span></div>
+    <div class="panel-title"><h2>站点列表</h2><span class="muted-line">{{ buyers|length }} 个站点</span></div>
     <table class="list-table">
       <thead>
         <tr>
@@ -25,6 +25,7 @@
           <th>业主</th>
           <th>联系人</th>
           <th>联系方式</th>
+          <th>电子邮箱地址</th>
           <th>详细地址</th>
           <th>配套机厂家</th>
           <th>操作</th>
@@ -39,19 +40,20 @@
             <td>{{ buyer.owner_name or "-" }}</td>
             <td>{{ buyer.contact_name or "-" }}</td>
             <td>{{ buyer.contact_details or "-" }}</td>
+            <td>{{ buyer.email or "-" }}</td>
             <td>{{ buyer.detailed_address or "-" }}</td>
             <td>{{ buyer.equipment_manufacturer or "-" }}</td>
             <td>
               <div class="row-actions">
                 <button class="small" type="button" data-dialog-open="editBuyer{{ buyer.id }}">编辑</button>
-                <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个需方吗？已有工单的需方不会被删除。');">
+                <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
                   <button class="danger small" type="submit">删除</button>
                 </form>
               </div>
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="9" class="empty">还没有需方资料。</td></tr>
+          <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -68,7 +70,7 @@
           </label>
         {% endif %}
       <div class="dialog-header">
-        <h2>新增需方</h2>
+        <h2>新增站点</h2>
         <button class="small" type="button" data-dialog-close>关闭</button>
       </div>
       <div class="form-grid two-columns">
@@ -84,10 +86,11 @@
         </label>
         <label>联系人 <input name="contact_name"></label>
         <label>联系方式 <input name="contact_details"></label>
+        <label>电子邮箱地址 <input type="email" name="email"></label>
         <label>配套机厂家 <input name="equipment_manufacturer"></label>
         <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required></textarea></label>
       </div>
-      <div class="form-actions"><button class="primary" type="submit">保存需方</button></div>
+      <div class="form-actions"><button class="primary" type="submit">保存站点</button></div>
     </form>
   </dialog>
 
@@ -95,7 +98,7 @@
     <dialog id="editBuyer{{ buyer.id }}" class="modal-dialog">
       <form method="post" action="{{ url_for('edit_buyer', buyer_id=buyer.id) }}" class="form-stack">
         <div class="dialog-header">
-          <h2>编辑需方</h2>
+          <h2>编辑站点</h2>
           <button class="small" type="button" data-dialog-close>关闭</button>
         </div>
         <div class="form-grid two-columns">
@@ -111,6 +114,7 @@
           </label>
           <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
           <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
+          <label>电子邮箱地址 <input type="email" name="email" value="{{ buyer.email or '' }}"></label>
           <label>配套机厂家 <input name="equipment_manufacturer" value="{{ buyer.equipment_manufacturer or '' }}"></label>
           <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required>{{ buyer.detailed_address or '' }}</textarea></label>
         </div>

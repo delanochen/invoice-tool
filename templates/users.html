@@ -91,7 +91,7 @@
           </label>
           <div class="assignment-table-wrap">
             <table class="list-table assignment-table" id="newUserOrders">
-              <thead><tr><th>选择</th><th>工单编号</th><th>需方</th><th>状态</th></tr></thead>
+              <thead><tr><th>选择</th><th>工单编号</th><th>站点</th><th>状态</th></tr></thead>
               <tbody>
                 {% for order in service_orders %}
                   <tr data-order-status="{{ order.status }}">
@@ -165,7 +165,7 @@
             </label>
             <div class="assignment-table-wrap">
               <table class="list-table assignment-table" id="editUserOrders{{ user.id }}">
-                <thead><tr><th>选择</th><th>工单编号</th><th>需方</th><th>状态</th></tr></thead>
+                <thead><tr><th>选择</th><th>工单编号</th><th>站点</th><th>状态</th></tr></thead>
                 <tbody>
                   {% for order in service_orders %}
                     <tr data-order-status="{{ order.status }}">

@@ -23,7 +23,7 @@
           {% endif %}
           <a href="{{ url_for('service_orders') }}">工单</a>
           {% if not is_external_employee() %}
-            <a href="{{ url_for('service_order_map') }}">需方地图</a>
+            <a href="{{ url_for('service_order_map') }}">站点地图</a>
           {% endif %}
           {% if not is_external_manager() and not is_external_employee() %}
             <a href="{{ url_for('expense_processing') }}">报销处理</a>
@@ -40,7 +40,7 @@
                 <a href="{{ url_for('invoice_query') }}">发票明细查询</a>
               {% endif %}
               {% if not is_external_manager() %}
-                <a href="{{ url_for('buyer_query') }}">需方查询</a>
+                <a href="{{ url_for('buyer_query') }}">站点查询</a>
                 <a href="{{ url_for('service_order_query') }}">工单查询</a>
                 <a href="{{ url_for('service_report_query') }}">日报查询</a>
                 <a href="{{ url_for('expense_query') }}">报销明细查询</a>
@@ -61,7 +61,7 @@
                 {% endif %}
                 {% if normalized_role() in ["admin", "manager", "finance"] %}
                   <a href="{{ url_for('owners') }}">业主</a>
-                  <a href="{{ url_for('buyers') }}">需方</a>
+                  <a href="{{ url_for('buyers') }}">站点</a>
                 {% endif %}
                 {% if normalized_role() in ["admin", "manager"] %}
                   <a href="{{ url_for('work_order_types') }}">工单类型</a>
@@ -80,7 +80,7 @@
           {% else %}
             {% if is_external_manager() %}
               <a href="{{ url_for('clients') }}">客户信息</a>
-              <a href="{{ url_for('buyers') }}">需方</a>
+              <a href="{{ url_for('buyers') }}">站点</a>
             {% endif %}
             <a href="{{ url_for('users') }}">我的资料</a>
           {% endif %}
@@ -111,7 +111,7 @@
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
-    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260630-owner-data-v1') }}"></script>
+    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260630-site-email-v1') }}"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

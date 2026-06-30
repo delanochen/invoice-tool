@@ -50,6 +50,7 @@
       <p><strong>开始日期</strong><span>{{ order.start_date or "未维护" }}</span></p>
       <p><strong>联系人</strong><span>{{ order.buyer_contact_name or "-" }}</span></p>
       <p><strong>联系方式</strong><span>{{ order.buyer_contact_details or "-" }}</span></p>
+      <p><strong>电子邮箱地址</strong><span>{{ order.buyer_email or "-" }}</span></p>
       <p><strong>服务订单号码</strong><span>{{ order.client_order_number }}</span></p>
       <p class="full-span"><strong>服务现场地址</strong><span>{{ order.site_address }}</span></p>
       {% if can_view_invoices() %}

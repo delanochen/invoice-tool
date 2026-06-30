@@ -484,6 +484,7 @@ def init_db():
                 owner text,
                 contact_name text,
                 contact_details text,
+                email text,
                 detailed_address text,
                 equipment_manufacturer text,
                 latitude real,
@@ -756,6 +757,7 @@ def init_db():
         ensure_column(connection, "buyers", "client_id", "integer")
         ensure_column(connection, "buyers", "owner", "text")
         ensure_column(connection, "buyers", "owner_id", "integer")
+        ensure_column(connection, "buyers", "email", "text")
         existing_owner_names = [
             row["owner"]
             for row in connection.execute(
@@ -2018,6 +2020,7 @@ def require_service_order(order_id):
         select service_orders.*, work_order_types.name as work_order_type_name,
                buyers.country as buyer_country,
                coalesce(owners.name, buyers.owner) as buyer_owner,
+               buyers.email as buyer_email,
                buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                clients.name as billing_client_name,
                clients.email as billing_client_email,
@@ -3421,7 +3424,7 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
         Paragraph("费用报销单", title_style),
         Spacer(1, 3 * mm),
         Paragraph(
-            f"工单编号：{order['order_number']}　　服务订单号码：{order['client_order_number']}　　需方：{order['client_name']}",
+            f"工单编号：{order['order_number']}　　服务订单号码：{order['client_order_number']}　　站点：{order['client_name']}",
             meta_style,
         ),
         Spacer(1, 3 * mm),
@@ -4892,8 +4895,8 @@ def buyers():
                 """
                 insert into buyers (
                     buyer_number, client_id, country, name, owner_id, owner, contact_name, contact_details,
-                    detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    email, detailed_address, equipment_manufacturer, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_buyer_number(),
@@ -4906,16 +4909,17 @@ def buyers():
                     owner["name"] if owner else "",
                     request.form.get("contact_name", "").strip(),
                     request.form.get("contact_details", "").strip(),
+                    request.form.get("email", "").strip(),
                     detailed_address,
                     request.form.get("equipment_manufacturer", "").strip(),
                     now(),
                 ),
             )
             db().commit()
-            flash("需方已创建。", "success")
+            flash("站点已创建。", "success")
         except sqlite3.IntegrityError:
             db().rollback()
-            flash("需方编号重复，请重试。", "error")
+            flash("站点编号重复，请重试。", "error")
         return redirect(url_for("buyers"))
     q = request.args.get("q", "").strip()
     params = []
@@ -4927,10 +4931,10 @@ def buyers():
         clauses.append(
             """(
             buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
-            or buyers.contact_details like ? or buyers.detailed_address like ? or buyers.equipment_manufacturer like ?
+            or buyers.contact_details like ? or buyers.email like ? or buyers.detailed_address like ? or buyers.equipment_manufacturer like ?
             )"""
         )
-        params = [f"%{q}%"] * 7
+        params = [f"%{q}%"] * 8
         if is_external_manager():
             params.insert(0, g.user["client_id"])
     where = f"where {' and '.join(clauses)}" if clauses else ""
@@ -4982,7 +4986,7 @@ def edit_buyer(buyer_id):
                 """
                 update buyers
                 set buyer_number = ?, client_id = ?, country = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
-                    contact_details = ?, detailed_address = ?, equipment_manufacturer = ?
+                    contact_details = ?, email = ?, detailed_address = ?, equipment_manufacturer = ?
                 where id = ?
                 """,
                 (
@@ -4996,6 +5000,7 @@ def edit_buyer(buyer_id):
                     owner["name"] if owner else "",
                     request.form.get("contact_name", "").strip(),
                     request.form.get("contact_details", "").strip(),
+                    request.form.get("email", "").strip(),
                     detailed_address,
                     request.form.get("equipment_manufacturer", "").strip(),
                     buyer_id,
@@ -5025,11 +5030,11 @@ def edit_buyer(buyer_id):
                     (buyer_id,),
                 )
             db().commit()
-            flash("需方资料已更新。", "success")
+            flash("站点资料已更新。", "success")
             return redirect(url_for("buyers"))
         except sqlite3.IntegrityError:
             db().rollback()
-            flash("需方编号重复，请换一个编号。", "error")
+            flash("站点编号重复，请换一个编号。", "error")
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
     owners_rows = owner_options()
     return render_template("buyer_form.html", buyer=buyer, clients=clients_rows, owners=owners_rows)
@@ -5050,11 +5055,11 @@ def delete_buyer(buyer_id):
         (buyer_id,),
     ).fetchone()["count"]
     if used:
-        flash("这个需方已有工单，不能删除。可以编辑需方资料。", "error")
+        flash("这个站点已有工单，不能删除。可以编辑站点资料。", "error")
         return redirect(url_for("buyers"))
     db().execute("delete from buyers where id = ?", (buyer_id,))
     db().commit()
-    flash("需方已删除。", "success")
+    flash("站点已删除。", "success")
     return redirect(url_for("buyers"))
 
 
@@ -5969,11 +5974,11 @@ def buyer_query():
         clauses.append(
             """
             (buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
-             or buyers.contact_details like ? or buyers.detailed_address like ?
+             or buyers.contact_details like ? or buyers.email like ? or buyers.detailed_address like ?
              or buyers.equipment_manufacturer like ?)
             """
         )
-        params.extend([f"%{q}%"] * 7)
+        params.extend([f"%{q}%"] * 8)
     if region_code:
         clauses.append(
             "exists (select 1 from service_orders where service_orders.buyer_id = buyers.id and service_orders.region_code = ?)"
@@ -6402,6 +6407,7 @@ def buyer_map_payload(buyer):
         "owner": buyer["owner_name"],
         "contact_name": buyer["contact_name"],
         "contact_details": buyer["contact_details"],
+        "email": buyer["email"],
         "country": buyer["country"],
         "detailed_address": buyer["detailed_address"],
         "equipment_manufacturer": buyer["equipment_manufacturer"],
@@ -6613,7 +6619,7 @@ def new_service_order():
         """
     ).fetchall()
     if not buyers_rows:
-        flash("请先由会计或经理维护需方资料。", "error")
+        flash("请先由会计或经理维护站点资料。", "error")
         return redirect(url_for("buyers") if can_manage_buyers() else url_for("service_orders"))
     if not clients_rows:
         flash("请先由管理员或经理维护客户资料。", "error")
@@ -6645,7 +6651,7 @@ def new_service_order():
         site_address = request.form.get("site_address", "").strip()
         client_order_number = request.form.get("client_order_number", "").strip()
         if not buyer or not client or not work_order_type or not site_address or not client_order_number:
-            flash("请选择客户、需方和工单类型，并填写服务现场地址、服务订单号码。", "error")
+            flash("请选择客户、站点和工单类型，并填写服务现场地址、服务订单号码。", "error")
             return redirect(url_for("new_service_order"))
         if contract_id and (not contract or contract["client_id"] != client["id"]):
             flash("关联合同必须属于所选客户。", "error")
@@ -6781,7 +6787,7 @@ def edit_service_order(order_id):
             contract = db().execute("select * from contracts where id = ?", (contract_id,)).fetchone()
         site_address = request.form.get("site_address", "").strip()
         if not buyer or not client or not work_order_type or not site_address:
-            flash("请选择有效的客户、需方和工单类型，并填写服务现场地址。", "error")
+            flash("请选择有效的客户、站点和工单类型，并填写服务现场地址。", "error")
             return redirect(url_for("edit_service_order", order_id=order_id))
         if contract_id and (not contract or contract["client_id"] != client["id"]):
             flash("关联合同必须属于所选客户。", "error")

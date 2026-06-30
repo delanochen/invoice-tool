@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}编辑需方 - 发票工具{% endblock %}
+{% block title %}编辑站点 - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header">
-    <div><p class="eyebrow">Buyers</p><h1>编辑需方</h1></div>
-    <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">返回需方列表</button>
+    <div><p class="eyebrow">Sites</p><h1>编辑站点</h1></div>
+    <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">返回站点列表</button>
   </header>
   <form method="post" class="panel form-stack narrow-form">
     {% if not is_external_manager() %}
@@ -28,6 +28,7 @@
     </label>
     <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
     <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
+    <label>电子邮箱地址 <input type="email" name="email" value="{{ buyer.email or '' }}"></label>
     <label>详细地址 <textarea name="detailed_address" rows="5" required>{{ buyer.detailed_address or '' }}</textarea></label>
     <label>配套机厂家 <input name="equipment_manufacturer" value="{{ buyer.equipment_manufacturer or '' }}"></label>
     <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>

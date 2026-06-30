@@ -46,12 +46,13 @@
     </label>
     <label>站点名称
       <select name="buyer_id" id="buyerSelect" required>
-        <option value="">请选择需方</option>
+        <option value="">请选择站点</option>
         {% for buyer in buyers %}
           <option
             value="{{ buyer.id }}"
             data-contact="{{ buyer.contact_name or '' }}"
             data-contact-details="{{ buyer.contact_details or '' }}"
+            data-email="{{ buyer.email or '' }}"
             data-owner="{{ buyer.owner_name or '' }}"
             data-address="{{ buyer.detailed_address or '' }}"
             data-country="{{ buyer.country or '' }}"
@@ -64,6 +65,7 @@
     <div class="form-grid buyer-preview">
       <label>联系人 <input id="buyerContact" value="{{ order.buyer_contact_name if order else '' }}" readonly></label>
       <label>联系方式 <input id="buyerContactDetails" value="{{ order.buyer_contact_details if order else '' }}" readonly></label>
+      <label>电子邮箱地址 <input id="buyerEmail" value="{{ order.buyer_email if order else '' }}" readonly></label>
       <label>业主 <input id="buyerOwner" value="{{ order.buyer_owner if order else '' }}" readonly></label>
       <label>国家 <input id="buyerCountry" value="{{ order.buyer_country if order else '' }}" readonly></label>
       <label>配套机厂家 <input id="buyerManufacturer" value="{{ order.buyer_equipment_manufacturer if order else '' }}" readonly></label>
@@ -102,5 +104,5 @@
   </form>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='service-order-form.js', v='20260629-owner-v1') }}"></script>
+  <script src="{{ url_for('static', filename='service-order-form.js', v='20260630-buyer-email-v1') }}"></script>
 {% endblock %}
