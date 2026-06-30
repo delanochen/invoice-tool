@@ -27,7 +27,6 @@
           <th>联系方式</th>
           <th>电子邮箱地址</th>
           <th>详细地址</th>
-          <th>配套机厂家</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -42,7 +41,6 @@
             <td>{{ buyer.contact_details or "-" }}</td>
             <td>{{ buyer.email or "-" }}</td>
             <td>{{ buyer.detailed_address or "-" }}</td>
-            <td>{{ buyer.equipment_manufacturer or "-" }}</td>
             <td>
               <div class="row-actions">
                 <button class="small" type="button" data-dialog-open="editBuyer{{ buyer.id }}">编辑</button>
@@ -53,7 +51,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
+          <tr><td colspan="9" class="empty">还没有站点资料。</td></tr>
         {% endfor %}
       </tbody>
     </table>
