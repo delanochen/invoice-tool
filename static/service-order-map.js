@@ -12,6 +12,16 @@ const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [bu
 const markersById = new Map();
 const serviceMap = L.map(mapElement, { zoomControl: true }).setView([39.5, -98.35], 4);
 const markerLayer = L.layerGroup().addTo(serviceMap);
+const labelPlacements = [
+  { name: "top", dx: -54, dy: -34, width: 108, height: 24 },
+  { name: "bottom", dx: -54, dy: 12, width: 108, height: 24 },
+  { name: "right", dx: 12, dy: -12, width: 108, height: 24 },
+  { name: "left", dx: -120, dy: -12, width: 108, height: 24 },
+  { name: "top-right", dx: 10, dy: -34, width: 108, height: 24 },
+  { name: "top-left", dx: -118, dy: -34, width: 108, height: 24 },
+  { name: "bottom-right", dx: 10, dy: 12, width: 108, height: 24 },
+  { name: "bottom-left", dx: -118, dy: 12, width: 108, height: 24 }
+];
 
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
@@ -116,20 +126,71 @@ function matchesFilters(buyer) {
   );
 }
 
-function ensureMarker(buyer, position) {
+function rectOverlapArea(a, b) {
+  const x = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const y = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  return x * y;
+}
+
+function chooseLabelPlacement(buyer, occupiedRects) {
+  const point = serviceMap.latLngToContainerPoint([Number(buyer.latitude), Number(buyer.longitude)]);
+  let best = labelPlacements[0];
+  let bestScore = Number.POSITIVE_INFINITY;
+  labelPlacements.forEach((placement) => {
+    const rect = {
+      left: point.x + placement.dx,
+      top: point.y + placement.dy,
+      right: point.x + placement.dx + placement.width,
+      bottom: point.y + placement.dy + placement.height
+    };
+    const overflow =
+      Math.max(0, -rect.left) + Math.max(0, -rect.top) +
+      Math.max(0, rect.right - mapElement.clientWidth) +
+      Math.max(0, rect.bottom - mapElement.clientHeight);
+    const overlap = occupiedRects.reduce((sum, occupied) => sum + rectOverlapArea(rect, occupied), 0);
+    const score = overlap + overflow * 50;
+    if (score < bestScore) {
+      best = placement;
+      bestScore = score;
+    }
+  });
+  occupiedRects.push({
+    left: point.x + best.dx,
+    top: point.y + best.dy,
+    right: point.x + best.dx + best.width,
+    bottom: point.y + best.dy + best.height
+  });
+  return best.name;
+}
+
+function siteMarkerHtml(buyer, placement) {
+  const statusClass = buyer.status === "completed" ? "is-completed" : "is-active";
+  return `
+    <span class="map-site-pin ${statusClass}" aria-hidden="true"></span>
+    <span class="map-site-label label-${placement}">${escapeHtml(buyer.name)}</span>
+  `;
+}
+
+function siteMarkerIcon(buyer, placement) {
+  return L.divIcon({
+    className: "map-site-marker",
+    html: siteMarkerHtml(buyer, placement),
+    iconSize: [1, 1],
+    iconAnchor: [0, 0]
+  });
+}
+
+function ensureMarker(buyer, position, placement) {
   let marker = markersById.get(buyer.id);
-  const color = buyer.status === "completed" ? "#667085" : "#0f766e";
   if (!marker) {
-    marker = L.circleMarker(position, {
-      radius: 8, color: "#ffffff", weight: 2, fillColor: color, fillOpacity: 0.95
-    });
-    marker.bindTooltip(buyerDetails(buyer), { sticky: true, direction: "top", opacity: 0.98 });
+    marker = L.marker(position, { icon: siteMarkerIcon(buyer, placement), title: buyer.name, zIndexOffset: buyer.status === "completed" ? 10 : 30 });
     marker.bindPopup(buyerDetails(buyer), { maxWidth: 340 });
     markersById.set(buyer.id, marker);
   } else {
     marker.setLatLng(position);
-    marker.setStyle({ fillColor: color });
-    marker.setTooltipContent(buyerDetails(buyer));
+    marker.setIcon(siteMarkerIcon(buyer, placement));
+    marker.options.title = buyer.name;
+    marker.setZIndexOffset(buyer.status === "completed" ? 10 : 30);
     marker.setPopupContent(buyerDetails(buyer));
   }
   return marker;
@@ -172,10 +233,13 @@ function renderUnlocatedBuyers() {
 function renderMarkers({ fit = false } = {}) {
   markerLayer.clearLayers();
   const markers = [];
+  const occupiedRects = [];
   [...buyersById.values()]
     .filter((buyer) => matchesFilters(buyer) && hasCoordinates(buyer))
+    .sort((a, b) => Number(a.latitude) - Number(b.latitude) || Number(a.longitude) - Number(b.longitude))
     .forEach((buyer) => {
-      const marker = ensureMarker(buyer, [Number(buyer.latitude), Number(buyer.longitude)]);
+      const placement = chooseLabelPlacement(buyer, occupiedRects);
+      const marker = ensureMarker(buyer, [Number(buyer.latitude), Number(buyer.longitude)], placement);
       marker.addTo(markerLayer);
       markers.push(marker);
     });
@@ -233,5 +297,6 @@ retryButton.addEventListener("click", async () => {
 addHeadquartersMarker();
 renderMapFilterOptions();
 renderMarkers({ fit: true });
+serviceMap.on("zoomend moveend", () => renderMarkers());
 window.setTimeout(() => serviceMap.invalidateSize({ pan: false }), 150);
 geocodePendingBuyers();

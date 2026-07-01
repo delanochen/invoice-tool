@@ -10,9 +10,20 @@ const mapConfig = window.serviceOrderMapConfig || {};
 const t = (value) => window.uiTranslate ? window.uiTranslate(value) : value;
 const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [buyer.id, buyer]));
 const markersByKey = new Map();
+const labelPlacements = [
+  { name: "top", dx: -54, dy: -34, width: 108, height: 24 },
+  { name: "bottom", dx: -54, dy: 12, width: 108, height: 24 },
+  { name: "right", dx: 12, dy: -12, width: 108, height: 24 },
+  { name: "left", dx: -120, dy: -12, width: 108, height: 24 },
+  { name: "top-right", dx: 10, dy: -34, width: 108, height: 24 },
+  { name: "top-left", dx: -118, dy: -34, width: 108, height: 24 },
+  { name: "bottom-right", dx: 10, dy: 12, width: 108, height: 24 },
+  { name: "bottom-left", dx: -118, dy: 12, width: 108, height: 24 }
+];
 let serviceMap;
 let activeInfoWindow;
 let mapProjectionOverlay;
+let SiteMarkerOverlay;
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -141,8 +152,8 @@ function groupVisibleBuyers(buyers) {
       position: { lat: Number(buyer.latitude), lng: Number(buyer.longitude) }
     }));
   }
-  const markerRadius = 11;
-  const clusterRadius = 14;
+  const markerRadius = 8;
+  const clusterRadius = 12;
   const overlapPadding = 4;
   const groups = [];
   buyers.forEach((buyer) => {
@@ -175,43 +186,120 @@ function groupVisibleBuyers(buyers) {
   });
 }
 
+function rectOverlapArea(a, b) {
+  const x = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const y = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  return x * y;
+}
+
+function chooseLabelPlacement(position, occupiedRects) {
+  const projection = mapProjectionOverlay?.getProjection();
+  const point = projection?.fromLatLngToDivPixel(new google.maps.LatLng(position.lat, position.lng));
+  if (!point) return "top";
+  let best = labelPlacements[0];
+  let bestScore = Number.POSITIVE_INFINITY;
+  labelPlacements.forEach((placement) => {
+    const rect = {
+      left: point.x + placement.dx,
+      top: point.y + placement.dy,
+      right: point.x + placement.dx + placement.width,
+      bottom: point.y + placement.dy + placement.height
+    };
+    const overlap = occupiedRects.reduce((sum, occupied) => sum + rectOverlapArea(rect, occupied), 0);
+    if (overlap < bestScore) {
+      best = placement;
+      bestScore = overlap;
+    }
+  });
+  occupiedRects.push({
+    left: point.x + best.dx,
+    top: point.y + best.dy,
+    right: point.x + best.dx + best.width,
+    bottom: point.y + best.dy + best.height
+  });
+  return best.name;
+}
+
+function siteLabelForGroup(group) {
+  if (group.buyers.length === 1) return group.buyers[0].name;
+  return `${group.buyers.length} ${t("个站点")}`;
+}
+
+function siteMarkerHtml(group, placement) {
+  const hasActiveOrder = group.buyers.some((buyer) => buyer.status !== "completed");
+  const statusClass = hasActiveOrder ? "is-active" : "is-completed";
+  const clusterClass = group.buyers.length > 1 ? " is-cluster" : "";
+  return `
+    <span class="map-site-pin ${statusClass}${clusterClass}" aria-hidden="true">${group.buyers.length > 1 ? group.buyers.length : ""}</span>
+    <span class="map-site-label label-${placement}">${escapeHtml(siteLabelForGroup(group))}</span>
+  `;
+}
+
+function defineSiteMarkerOverlay() {
+  if (SiteMarkerOverlay) return;
+  SiteMarkerOverlay = class extends google.maps.OverlayView {
+    constructor(group, placement) {
+      super();
+      this.group = group;
+      this.placement = placement;
+      this.div = null;
+      this.setMap(serviceMap);
+    }
+
+    onAdd() {
+      this.div = document.createElement("button");
+      this.div.type = "button";
+      this.div.className = "map-site-marker google-map-site-marker";
+      this.div.addEventListener("mouseover", () => openBuyerInfo(this.group.buyers, this));
+      this.div.addEventListener("click", () => openBuyerInfo(this.group.buyers, this));
+      this.getPanes().overlayMouseTarget.appendChild(this.div);
+      this.update(this.group, this.placement);
+    }
+
+    draw() {
+      if (!this.div) return;
+      const projection = this.getProjection();
+      const point = projection.fromLatLngToDivPixel(new google.maps.LatLng(this.group.position.lat, this.group.position.lng));
+      this.div.style.transform = `translate(${point.x}px, ${point.y}px)`;
+    }
+
+    onRemove() {
+      this.div?.remove();
+      this.div = null;
+    }
+
+    getPosition() {
+      return new google.maps.LatLng(this.group.position.lat, this.group.position.lng);
+    }
+
+    update(group, placement) {
+      this.group = group;
+      this.placement = placement;
+      if (this.div) {
+        this.div.title = group.buyers.map((buyer) => buyer.name).join(", ");
+        this.div.innerHTML = siteMarkerHtml(group, placement);
+        this.div.style.zIndex = group.buyers.length > 1 ? "20" : "10";
+        this.draw();
+      }
+    }
+  };
+}
+
 function openBuyerInfo(buyers, marker) {
   if (activeInfoWindow) activeInfoWindow.close();
   activeInfoWindow = new google.maps.InfoWindow({ content: buyerClusterDetails(buyers) });
-  activeInfoWindow.open({ map: serviceMap, anchor: marker });
+  activeInfoWindow.setPosition(marker.getPosition());
+  activeInfoWindow.open({ map: serviceMap });
 }
 
-function ensureMarker(group) {
+function ensureMarker(group, placement) {
   let marker = markersByKey.get(group.key);
-  const hasActiveOrder = group.buyers.some((buyer) => buyer.status !== "completed");
-  const color = hasActiveOrder ? "#0f766e" : "#667085";
-  const isCluster = group.buyers.length > 1;
-  const icon = {
-    path: google.maps.SymbolPath.CIRCLE,
-    scale: isCluster ? 14 : 11,
-    fillColor: color,
-    fillOpacity: 0.96,
-    strokeColor: "#ffffff",
-    strokeWeight: isCluster ? 3 : 2
-  };
-  const title = group.buyers.map((buyer) => buyer.name).join(", ");
-  const label = isCluster ? {
-    text: String(group.buyers.length),
-    color: "#ffffff",
-    fontSize: "14px",
-    fontWeight: "700"
-  } : null;
   if (!marker) {
-    marker = new google.maps.Marker({ position: group.position, title, icon, label, zIndex: isCluster ? 20 : 10 });
-    marker.addListener("mouseover", () => openBuyerInfo(group.buyers, marker));
-    marker.addListener("click", () => openBuyerInfo(group.buyers, marker));
+    marker = new SiteMarkerOverlay(group, placement);
     markersByKey.set(group.key, marker);
   } else {
-    marker.setPosition(group.position);
-    marker.setTitle(title);
-    marker.setIcon(icon);
-    marker.setLabel(label);
-    marker.setZIndex(isCluster ? 20 : 10);
+    marker.update(group, placement);
+    if (!marker.getMap()) marker.setMap(serviceMap);
   }
   return marker;
 }
@@ -266,9 +354,10 @@ function renderMarkers({ fit = false } = {}) {
   markersByKey.forEach((marker) => marker.setMap(null));
   const visibleBuyers = [...buyersById.values()].filter((buyer) => matchesFilters(buyer) && hasCoordinates(buyer));
   const groups = groupVisibleBuyers(visibleBuyers);
+  const occupiedRects = [];
   const markers = groups.map((group) => {
-    const marker = ensureMarker(group);
-    marker.setMap(serviceMap);
+    const placement = chooseLabelPlacement(group.position, occupiedRects);
+    const marker = ensureMarker(group, placement);
     return marker;
   });
   visibleCount.textContent = String(visibleBuyers.length);
@@ -331,6 +420,7 @@ retryButton.addEventListener("click", async () => {
 });
 
 window.initServiceOrderGoogleMap = function initServiceOrderGoogleMap() {
+  defineSiteMarkerOverlay();
   serviceMap = new google.maps.Map(mapElement, {
     center: { lat: 39.5, lng: -98.35 },
     zoom: 4,

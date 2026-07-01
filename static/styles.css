@@ -945,6 +945,85 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   color: var(--ink);
 }
 .map-cluster-buyer span { color: var(--muted); font-size: 13px; }
+.map-site-marker {
+  position: relative;
+  width: 0;
+  height: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  overflow: visible !important;
+}
+.map-site-pin {
+  position: absolute;
+  z-index: 2;
+  left: -5px;
+  top: -5px;
+  display: grid;
+  place-items: center;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #0f766e;
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.28);
+}
+.map-site-pin.is-active::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border: 2px solid rgba(15, 118, 110, 0.42);
+  border-radius: inherit;
+  animation: mapSitePulse 1.8s ease-out infinite;
+}
+.map-site-pin.is-completed {
+  background: #667085;
+}
+.map-site-pin.is-cluster {
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.map-site-label {
+  position: absolute;
+  z-index: 1;
+  max-width: 116px;
+  padding: 3px 7px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+  color: #101828;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.map-site-label.label-top { left: -54px; bottom: 12px; }
+.map-site-label.label-bottom { left: -54px; top: 12px; }
+.map-site-label.label-right { left: 12px; top: -12px; }
+.map-site-label.label-left { right: 12px; top: -12px; }
+.map-site-label.label-top-right { left: 10px; bottom: 12px; }
+.map-site-label.label-top-left { right: 10px; bottom: 12px; }
+.map-site-label.label-bottom-right { left: 10px; top: 12px; }
+.map-site-label.label-bottom-left { right: 10px; top: 12px; }
+.google-map-site-marker {
+  position: absolute;
+}
+@keyframes mapSitePulse {
+  0% { opacity: 0.78; transform: scale(0.45); }
+  70% { opacity: 0; transform: scale(1.45); }
+  100% { opacity: 0; transform: scale(1.45); }
+}
 .headquarters-star {
   color: #b42318;
   font-size: 20px;
