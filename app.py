@@ -8819,9 +8819,7 @@ def customer_reimbursement_email_attachments(invoice):
     reimbursement = latest_customer_reimbursement(invoice["service_order_id"])
     if not reimbursement:
         return []
-    order = db().execute("select * from service_orders where id = ?", (invoice["service_order_id"],)).fetchone()
-    if not order:
-        return []
+    order = require_service_order(invoice["service_order_id"])
     _, attachments = customer_reimbursement_outgoing_attachments(reimbursement, order)
     return attachments
 
