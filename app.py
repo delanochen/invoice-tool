@@ -1429,6 +1429,10 @@ def can_create_service_order():
     return g.user and normalized_role() in {"manager", "finance", "employee"}
 
 
+def can_delete_service_order():
+    return g.user and normalized_role() in {"admin", "manager", "finance"}
+
+
 def can_create_expense():
     return g.user and normalized_role() in {"manager", "finance", "employee"}
 
@@ -1634,6 +1638,7 @@ app.jinja_env.globals["can_create_invoice"] = can_create_invoice
 app.jinja_env.globals["can_view_contracts"] = can_view_contracts
 app.jinja_env.globals["can_manage_contracts"] = can_manage_contracts
 app.jinja_env.globals["can_create_service_order"] = can_create_service_order
+app.jinja_env.globals["can_delete_service_order"] = can_delete_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
 app.jinja_env.globals["can_view_customer_reimbursement"] = can_view_customer_reimbursement
@@ -2098,6 +2103,38 @@ def require_service_order(order_id):
     if not can_access_service_order(order):
         abort(403)
     return order
+
+
+def service_order_dependency_counts(order_id):
+    return {
+        "reports": db().execute(
+            "select count(*) as count from service_reports where service_order_id = ?",
+            (order_id,),
+        ).fetchone()["count"],
+        "invoices": db().execute(
+            "select count(*) as count from invoices where service_order_id = ? and status != 'void'",
+            (order_id,),
+        ).fetchone()["count"],
+        "customer_reimbursements": db().execute(
+            "select count(*) as count from customer_reimbursements where service_order_id = ?",
+            (order_id,),
+        ).fetchone()["count"],
+        "expenses": db().execute(
+            "select count(*) as count from expenses where service_order_id = ?",
+            (order_id,),
+        ).fetchone()["count"],
+    }
+
+
+def service_order_delete_blockers(order_id):
+    counts = service_order_dependency_counts(order_id)
+    labels = {
+        "reports": "工作日报",
+        "invoices": "发票",
+        "customer_reimbursements": "工单结算",
+        "expenses": "员工报销",
+    }
+    return [labels[key] for key, count in counts.items() if count]
 
 
 def require_service_order_start_date(order):
@@ -7023,6 +7060,7 @@ def service_order_detail(order_id):
             expense_params,
         ).fetchall()
     customer_reimbursement = latest_customer_reimbursement(order_id) if can_view_customer_reimbursement() else None
+    delete_blockers = service_order_delete_blockers(order_id)
     return render_template(
         "service_order_detail.html",
         order=order,
@@ -7030,9 +7068,29 @@ def service_order_detail(order_id):
         invoices=invoices_rows,
         expenses=expenses_rows,
         customer_reimbursement=customer_reimbursement,
+        can_delete_order=can_delete_service_order() and not delete_blockers,
+        delete_blockers=delete_blockers,
         labels=STATUS_LABELS,
         expense_labels=EXPENSE_STATUS_LABELS,
     )
+
+
+@app.post("/service-orders/<int:order_id>/delete")
+@login_required
+def delete_service_order(order_id):
+    order = require_service_order(order_id)
+    if not can_delete_service_order():
+        abort(403)
+    blockers = service_order_delete_blockers(order_id)
+    if blockers:
+        flash(f"这个工单已有{', '.join(blockers)}，不能删除。", "error")
+        return redirect(url_for("service_order_detail", order_id=order_id))
+    db().execute("delete from user_service_orders where service_order_id = ?", (order_id,))
+    db().execute("delete from service_orders where id = ?", (order_id,))
+    log_action("delete", "service_order", order_id, order["order_number"], f"站点：{order['client_name']}")
+    db().commit()
+    flash("工单已删除。", "success")
+    return redirect(url_for("service_orders"))
 
 
 @app.post("/service-orders/<int:order_id>/import-google-photos")

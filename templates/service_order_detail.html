@@ -25,6 +25,11 @@
       {% if can_create_expense() %}
         <button type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增报销</button>
       {% endif %}
+      {% if can_delete_order %}
+        <form method="post" action="{{ url_for('delete_service_order', order_id=order.id) }}" onsubmit="return uiConfirm('确定删除这个工单吗？');">
+          <button class="danger" type="submit">删除工单</button>
+        </form>
+      {% endif %}
     </div>
   </header>
   <section class="panel">
