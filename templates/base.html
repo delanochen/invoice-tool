@@ -14,75 +14,87 @@
           <img src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
           <span>Prasinos Power</span>
         </div>
+        {% set active_endpoint = request.endpoint or "" %}
+        {% set contract_endpoints = ["contracts", "new_contract", "contract_detail", "edit_contract"] %}
+        {% set order_endpoints = ["service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report"] %}
+        {% set map_endpoints = ["service_order_map"] %}
+        {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
+        {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
+        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "expense_query", "audit_log_report"] %}
+        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "users", "new_user", "edit_user"] %}
+        {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
+          {% set targets = endpoints if endpoints is not none else [endpoint] %}
+          <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
+        {%- endmacro %}
         <nav>
           {% if can_view_invoices() and not is_external_manager() %}
-            <a href="{{ url_for('dashboard') }}">概览</a>
+            {{ nav_link("dashboard", "概览") }}
           {% endif %}
           {% if can_view_contracts() %}
-            <a href="{{ url_for('contracts') }}">合同</a>
+            {{ nav_link("contracts", "合同", contract_endpoints) }}
           {% endif %}
-          <a href="{{ url_for('service_orders') }}">工单</a>
+          {{ nav_link("service_orders", "工单", order_endpoints) }}
           {% if not is_external_employee() %}
-            <a href="{{ url_for('service_order_map') }}">站点地图</a>
+            {{ nav_link("service_order_map", "站点地图", map_endpoints) }}
           {% endif %}
           {% if not is_external_manager() and not is_external_employee() %}
-            <a href="{{ url_for('expense_processing') }}">报销处理</a>
+            {{ nav_link("expense_processing", "报销处理", expense_processing_endpoints) }}
           {% endif %}
           {% if can_create_invoice() %}
-            <a href="{{ url_for('new_invoice') }}">新建发票</a>
+            {{ nav_link("new_invoice", "新建发票", invoice_create_endpoints) }}
           {% endif %}
           {% if not is_external_employee() %}
-          <details class="nav-group">
+          <details class="nav-group {{ 'active' if active_endpoint in report_endpoints else '' }}" {% if active_endpoint in report_endpoints %}open{% endif %}>
             <summary>报表</summary>
             <div class="nav-submenu">
               {% if can_view_invoices() %}
-                <a href="{{ url_for('invoices') }}">发票查询</a>
-                <a href="{{ url_for('invoice_query') }}">发票明细查询</a>
+                {{ nav_link("invoices", "发票查询") }}
+                {{ nav_link("invoice_query", "发票明细查询") }}
               {% endif %}
               {% if not is_external_manager() %}
-                <a href="{{ url_for('buyer_query') }}">站点查询</a>
-                <a href="{{ url_for('service_order_query') }}">工单查询</a>
-                <a href="{{ url_for('service_report_query') }}">日报查询</a>
-                <a href="{{ url_for('expense_query') }}">报销明细查询</a>
+                {{ nav_link("buyer_query", "站点查询") }}
+                {{ nav_link("service_order_query", "工单查询") }}
+                {{ nav_link("service_report_query", "日报查询") }}
+                {{ nav_link("expense_query", "报销明细查询") }}
                 {% if can_view_audit_logs() %}
-                  <a href="{{ url_for('audit_log_report') }}">操作日志</a>
+                  {{ nav_link("audit_log_report", "操作日志") }}
                 {% endif %}
               {% endif %}
             </div>
           </details>
           {% endif %}
-          <a href="{{ url_for('messages') }}" data-message-nav data-unread-count="{{ unread_message_count }}">消息{% if unread_message_count %} ({{ unread_message_count }}){% endif %}</a>
+          {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
           {% if not is_external_manager() and not is_external_employee() %}
-            <details class="nav-group">
+            <details class="nav-group {{ 'active' if active_endpoint in basic_data_endpoints else '' }}" {% if active_endpoint in basic_data_endpoints %}open{% endif %}>
               <summary>基础数据</summary>
               <div class="nav-submenu">
                 {% if normalized_role() != "employee" %}
-                  <a href="{{ url_for('clients') }}">客户</a>
+                  {{ nav_link("clients", "客户") }}
                 {% endif %}
                 {% if normalized_role() in ["admin", "manager", "finance"] %}
-                  <a href="{{ url_for('owners') }}">业主</a>
-                  <a href="{{ url_for('buyers') }}">站点</a>
+                  {{ nav_link("owners", "业主") }}
+                  {{ nav_link("buyers", "站点") }}
                 {% endif %}
                 {% if normalized_role() in ["admin", "manager"] %}
-                  <a href="{{ url_for('work_order_types') }}">工单类型</a>
-                  <a href="{{ url_for('projects') }}">项目</a>
-                  <a href="{{ url_for('countries') }}">国家</a>
+                  {{ nav_link("work_order_types", "工单类型") }}
+                  {{ nav_link("projects", "项目") }}
+                  {{ nav_link("countries", "国家") }}
                 {% endif %}
                 {% if normalized_role() in ["admin", "manager", "finance", "employee"] %}
-                  <a href="{{ url_for('company_info') }}">公司信息</a>
+                  {{ nav_link("company_info", "公司信息") }}
                 {% endif %}
                 {% if normalized_role() == "admin" %}
-                  <a href="{{ url_for('system_settings') }}">系统设置</a>
+                  {{ nav_link("system_settings", "系统设置") }}
                 {% endif %}
-                <a href="{{ url_for('users') }}">用户</a>
+                {{ nav_link("users", "用户") }}
               </div>
             </details>
           {% else %}
             {% if is_external_manager() %}
-              <a href="{{ url_for('clients') }}">客户信息</a>
-              <a href="{{ url_for('buyers') }}">站点</a>
+              {{ nav_link("clients", "客户信息") }}
+              {{ nav_link("buyers", "站点") }}
             {% endif %}
-            <a href="{{ url_for('users') }}">我的资料</a>
+            {{ nav_link("users", "我的资料") }}
           {% endif %}
         </nav>
         <div class="user-box">

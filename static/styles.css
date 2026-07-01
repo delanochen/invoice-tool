@@ -91,6 +91,13 @@ button:disabled {
 .sidebar nav { display: grid; flex: 0 0 auto; gap: 8px; padding-bottom: 20px; }
 .sidebar a { border-radius: 6px; padding: 10px 12px; color: #d1d5db; }
 .sidebar a:hover { background: #1f2937; color: #fff; }
+.sidebar a.active,
+.sidebar a[aria-current="page"] {
+  background: #0f766e;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 #5eead4;
+}
 .nav-group {
   margin-top: 4px;
   padding-top: 8px;
@@ -118,6 +125,11 @@ button:disabled {
 .nav-group summary:hover {
   background: #1f2937;
   color: #fff;
+}
+.nav-group.active summary {
+  background: rgba(15, 118, 110, 0.32);
+  color: #fff;
+  font-weight: 700;
 }
 .nav-submenu {
   display: grid;
