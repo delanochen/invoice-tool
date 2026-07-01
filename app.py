@@ -3805,6 +3805,31 @@ def log_action(action, entity_type, entity_id, entity_label, summary=""):
     )
 
 
+def request_ip_address():
+    forwarded_for = request.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+    return forwarded_for or request.headers.get("X-Real-IP", "").strip() or request.remote_addr or ""
+
+
+def log_login_action(user):
+    db().execute(
+        """
+        insert into audit_logs (
+            user_id, user_name, action, entity_type, entity_id, entity_label, summary, created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user["id"],
+            user["name"],
+            "login",
+            "user",
+            user["id"],
+            user["email"] or user["name"],
+            f"角色：{role_label(user['role'])}；IP：{request_ip_address() or '-'}",
+            now(),
+        ),
+    )
+
+
 def normalized_address(value):
     return " ".join(str(value or "").strip().split()).casefold()
 
@@ -4217,6 +4242,8 @@ def login():
                 return redirect(url_for("login"))
             clear_session_preserving_language()
             session["user_id"] = user["id"]
+            log_login_action(user)
+            db().commit()
             return redirect(request.args.get("next") or url_for("dashboard"))
         flash("邮箱或密码不正确。", "error")
     return render_template("login.html")
@@ -6332,6 +6359,7 @@ def audit_log_report():
         "service_report": "工作日报",
         "expense": "报销",
         "customer_reimbursement": "工单结算",
+        "user": "用户",
     }
     action_labels = {
         "create": "创建",
@@ -6347,6 +6375,7 @@ def audit_log_report():
         "reimburse": "报销发放",
         "reset": "重置状态",
         "send": "发送邮件",
+        "login": "登录",
     }
     q = request.args.get("q", "").strip()
     entity_type = request.args.get("entity_type", "").strip()
