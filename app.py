@@ -243,6 +243,11 @@ DEFAULT_SITE_OWNER_NAMES = {
     "anemoi": "plus power",
 }
 
+
+def normalized_project_name(value):
+    return " ".join(str(value or "").strip().split())
+
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
@@ -264,6 +269,42 @@ def db():
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
     return g.db
+
+
+def merge_duplicate_projects(connection):
+    grouped = {}
+    for row in connection.execute("select * from projects order by is_active desc, id asc").fetchall():
+        normalized_name = normalized_project_name(row["name"]).casefold()
+        grouped.setdefault((row["project_type"], normalized_name), []).append(row)
+    for rows in grouped.values():
+        if len(rows) < 2:
+            continue
+        canonical = rows[0]
+        duplicate_ids = [row["id"] for row in rows[1:]]
+        placeholders = ",".join("?" for _ in duplicate_ids)
+        connection.execute(
+            f"update invoice_items set project_id = ? where project_id in ({placeholders})",
+            [canonical["id"], *duplicate_ids],
+        )
+        connection.execute(
+            f"update expense_items set project_id = ?, project = ? where project_id in ({placeholders})",
+            [canonical["id"], canonical["name"], *duplicate_ids],
+        )
+        connection.execute(
+            f"update expenses set project_id = ?, project = ? where project_id in ({placeholders})",
+            [canonical["id"], canonical["name"], *duplicate_ids],
+        )
+        connection.execute(f"delete from projects where id in ({placeholders})", duplicate_ids)
+
+
+def project_name_exists(project_type, name, excluded_project_id=None):
+    normalized_name = normalized_project_name(name).casefold()
+    for row in db().execute("select id, name from projects where project_type = ?", (project_type,)).fetchall():
+        if excluded_project_id and row["id"] == excluded_project_id:
+            continue
+        if normalized_project_name(row["name"]).casefold() == normalized_name:
+            return True
+    return False
 
 
 @app.teardown_appcontext
@@ -758,6 +799,13 @@ def init_db():
         ensure_column(connection, "buyers", "owner", "text")
         ensure_column(connection, "buyers", "owner_id", "integer")
         ensure_column(connection, "buyers", "email", "text")
+        merge_duplicate_projects(connection)
+        connection.execute(
+            """
+            create unique index if not exists idx_projects_type_name_unique
+            on projects(project_type, lower(trim(name)))
+            """
+        )
         existing_owner_names = [
             row["owner"]
             for row in connection.execute(
@@ -5189,26 +5237,37 @@ def projects():
     if not is_manager():
         abort(403)
     if request.method == "POST":
+        name = normalized_project_name(request.form.get("name"))
         project_type = request.form.get("project_type", "invoice")
         if project_type not in PROJECT_TYPE_LABELS:
             project_type = "invoice"
-        db().execute(
-            """
-            insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-            values (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                request.form.get("name", "").strip(),
-                project_type,
-                to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
-                to_float(request.form.get("unit_price")),
-                to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
-                1 if request.form.get("is_active", "1") == "1" else 0,
-                now(),
-            ),
-        )
-        db().commit()
-        flash("项目已创建。", "success")
+        if not name:
+            flash("项目名称不能为空。", "error")
+            return redirect(url_for("projects"))
+        if project_name_exists(project_type, name):
+            flash("同一项目类型下已存在同名项目，不能重复创建。", "error")
+            return redirect(url_for("projects"))
+        try:
+            db().execute(
+                """
+                insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+                values (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    project_type,
+                    to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
+                    to_float(request.form.get("unit_price")),
+                    to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
+                    1 if request.form.get("is_active", "1") == "1" else 0,
+                    now(),
+                ),
+            )
+            db().commit()
+            flash("项目已创建。", "success")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("同一项目类型下已存在同名项目，不能重复创建。", "error")
         return redirect(url_for("projects"))
     rows = db().execute("select * from projects order by is_active desc, name").fetchall()
     return render_template("projects.html", projects=rows)
@@ -5223,9 +5282,16 @@ def edit_project(project_id):
     if not project:
         abort(404)
     if request.method == "POST":
+        name = normalized_project_name(request.form.get("name"))
         project_type = request.form.get("project_type", "invoice")
         if project_type not in PROJECT_TYPE_LABELS:
             project_type = "invoice"
+        if not name:
+            flash("项目名称不能为空。", "error")
+            return redirect(url_for("edit_project", project_id=project_id))
+        if project_name_exists(project_type, name, excluded_project_id=project_id):
+            flash("同一项目类型下已存在同名项目，不能重复保存。", "error")
+            return redirect(url_for("edit_project", project_id=project_id))
         invoice_used = db().execute(
             "select count(*) as count from invoice_items where project_id = ?",
             (project_id,),
@@ -5237,23 +5303,27 @@ def edit_project(project_id):
         if project_type != project["project_type"] and (invoice_used or expense_used):
             flash("已被发票或报销使用的项目不能切换类型，可以新建另一个项目。", "error")
             return redirect(url_for("edit_project", project_id=project_id))
-        db().execute(
-            """
-            update projects set name = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
-            where id = ?
-            """,
-            (
-                request.form.get("name", "").strip(),
-                project_type,
-                to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
-                to_float(request.form.get("unit_price")),
-                to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
-                1 if request.form.get("is_active", "1") == "1" else 0,
-                project_id,
-            ),
-        )
-        db().commit()
-        flash("项目已更新。", "success")
+        try:
+            db().execute(
+                """
+                update projects set name = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
+                where id = ?
+                """,
+                (
+                    name,
+                    project_type,
+                    to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
+                    to_float(request.form.get("unit_price")),
+                    to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
+                    1 if request.form.get("is_active", "1") == "1" else 0,
+                    project_id,
+                ),
+            )
+            db().commit()
+            flash("项目已更新。", "success")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("同一项目类型下已存在同名项目，不能重复保存。", "error")
         return redirect(url_for("projects"))
     return render_template("project_form.html", project=project)
 
