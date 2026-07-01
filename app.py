@@ -8703,7 +8703,12 @@ def send_invoice(invoice_id):
     if invoice["status"] != "completed":
         flash("只有经理审核完成后的发票才能发送邮件。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    send_invoice_email(invoice_id)
+    try:
+        send_invoice_email(invoice_id)
+    except Exception as error:
+        app.logger.exception("Unable to send invoice %s", invoice_id)
+        flash(f"发票邮件发送失败：{error}", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     flash("发票邮件已发送。", "success")
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
@@ -8778,6 +8783,19 @@ def export_invoice(invoice_id):
         mimetype="application/zip",
         as_attachment=True,
         download_name=f"{archive_name}.zip",
+    )
+
+
+@app.get("/invoices/<int:invoice_id>/export-pdf")
+@login_required
+def export_invoice_pdf(invoice_id):
+    invoice, client, items = load_invoice(invoice_id)
+    invoice_name = secure_filename(invoice["invoice_number"]) or f"invoice-{invoice['id']}"
+    return send_file(
+        BytesIO(render_invoice_pdf(invoice, client, items)),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"{invoice_name}.pdf",
     )
 
 

@@ -157,7 +157,7 @@
     <section class="panel">
       <h2>关联发票</h2>
       <table class="list-table">
-        <thead><tr><th>发票编号</th><th>客户</th><th>日期</th><th>状态</th></tr></thead>
+        <thead><tr><th>发票编号</th><th>客户</th><th>日期</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           {% for invoice in invoices %}
             <tr>
@@ -165,9 +165,16 @@
               <td>{{ invoice.client_name }}</td>
               <td>{{ invoice.issue_date }}</td>
               <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
+              <td>
+                <div class="row-actions">
+                  <button class="small" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=invoice.id) }}'">预览发票</button>
+                  <button class="small" type="button" onclick="window.location.href='{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}'">导出发票</button>
+                  <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button class="small" type="submit">导出 ZIP</button></form>
+                </div>
+              </td>
             </tr>
           {% else %}
-            <tr><td colspan="4" class="empty">这个工单还没有关联发票。</td></tr>
+            <tr><td colspan="5" class="empty">这个工单还没有关联发票。</td></tr>
           {% endfor %}
         </tbody>
       </table>

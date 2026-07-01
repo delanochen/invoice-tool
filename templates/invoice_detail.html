@@ -9,6 +9,7 @@
     </div>
     <div class="actions">
       <button onclick="window.print()">发票预览</button>
+      <button type="button" onclick="window.location.href='{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}'">导出发票</button>
       <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button type="submit">导出 ZIP</button></form>
       {% if invoice.status == "completed" and not is_external_manager() %}
         <form method="post" action="{{ url_for('send_invoice', invoice_id=invoice.id) }}"><button type="submit">发送邮件</button></form>
