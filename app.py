@@ -813,15 +813,11 @@ def init_db():
         ensure_column(connection, "buyers", "owner", "text")
         ensure_column(connection, "buyers", "owner_id", "integer")
         ensure_column(connection, "buyers", "email", "text")
-        merge_duplicate_projects(connection)
+        try:
+            merge_duplicate_projects(connection)
+        except sqlite3.Error:
+            app.logger.exception("Failed to merge duplicate projects during startup.")
         connection.execute("drop index if exists idx_projects_type_name_unique")
-        connection.execute(
-            """
-            create unique index if not exists idx_projects_type_name_unique
-            on projects(project_type, name_key)
-            where name_key is not null and name_key != ''
-            """
-        )
         existing_owner_names = [
             row["owner"]
             for row in connection.execute(
