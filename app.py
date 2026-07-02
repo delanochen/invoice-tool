@@ -245,7 +245,12 @@ DEFAULT_SITE_OWNER_NAMES = {
 
 
 def normalized_project_name(value):
-    return " ".join(str(value or "").strip().split())
+    value = str(value or "").translate({ord(char): None for char in "\u200b\u200c\u200d\ufeff"})
+    return " ".join(value.strip().split())
+
+
+def project_name_key(value):
+    return normalized_project_name(value).casefold()
 
 
 app = Flask(__name__)
@@ -274,12 +279,19 @@ def db():
 def merge_duplicate_projects(connection):
     grouped = {}
     for row in connection.execute("select * from projects order by is_active desc, id asc").fetchall():
-        normalized_name = normalized_project_name(row["name"]).casefold()
-        grouped.setdefault((row["project_type"], normalized_name), []).append(row)
+        normalized_name = normalized_project_name(row["name"])
+        key = project_name_key(normalized_name)
+        if row["name"] != normalized_name or row["name_key"] != key:
+            connection.execute(
+                "update projects set name = ?, name_key = ? where id = ?",
+                (normalized_name, key, row["id"]),
+            )
+        grouped.setdefault((row["project_type"], key), []).append(row)
     for rows in grouped.values():
         if len(rows) < 2:
             continue
         canonical = rows[0]
+        canonical_name = normalized_project_name(canonical["name"])
         duplicate_ids = [row["id"] for row in rows[1:]]
         placeholders = ",".join("?" for _ in duplicate_ids)
         connection.execute(
@@ -288,21 +300,21 @@ def merge_duplicate_projects(connection):
         )
         connection.execute(
             f"update expense_items set project_id = ?, project = ? where project_id in ({placeholders})",
-            [canonical["id"], canonical["name"], *duplicate_ids],
+            [canonical["id"], canonical_name, *duplicate_ids],
         )
         connection.execute(
             f"update expenses set project_id = ?, project = ? where project_id in ({placeholders})",
-            [canonical["id"], canonical["name"], *duplicate_ids],
+            [canonical["id"], canonical_name, *duplicate_ids],
         )
         connection.execute(f"delete from projects where id in ({placeholders})", duplicate_ids)
 
 
 def project_name_exists(project_type, name, excluded_project_id=None):
-    normalized_name = normalized_project_name(name).casefold()
-    for row in db().execute("select id, name from projects where project_type = ?", (project_type,)).fetchall():
+    normalized_name_key = project_name_key(name)
+    for row in db().execute("select id, name, name_key from projects where project_type = ?", (project_type,)).fetchall():
         if excluded_project_id and row["id"] == excluded_project_id:
             continue
-        if normalized_project_name(row["name"]).casefold() == normalized_name:
+        if (row["name_key"] or project_name_key(row["name"])) == normalized_name_key:
             return True
     return False
 
@@ -358,6 +370,7 @@ def init_db():
             create table if not exists projects (
                 id integer primary key autoincrement,
                 name text not null,
+                name_key text,
                 project_type text not null default 'invoice',
                 default_amount real not null default 0,
                 unit_price real not null default 0,
@@ -772,6 +785,7 @@ def init_db():
         ensure_column(connection, "users", "region_code", "text not null default 'americas'")
         ensure_column(connection, "users", "country_code", "text not null default 'US'")
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
+        ensure_column(connection, "projects", "name_key", "text")
         ensure_column(connection, "projects", "unit_price", "real not null default 0")
         ensure_column(connection, "customer_reimbursements", "status", "text not null default 'draft'")
         ensure_column(connection, "customer_reimbursements", "return_reason", "text")
@@ -800,10 +814,12 @@ def init_db():
         ensure_column(connection, "buyers", "owner_id", "integer")
         ensure_column(connection, "buyers", "email", "text")
         merge_duplicate_projects(connection)
+        connection.execute("drop index if exists idx_projects_type_name_unique")
         connection.execute(
             """
             create unique index if not exists idx_projects_type_name_unique
-            on projects(project_type, lower(trim(name)))
+            on projects(project_type, name_key)
+            where name_key is not null and name_key != ''
             """
         )
         existing_owner_names = [
@@ -2718,39 +2734,39 @@ def order_photo_status(order_dir):
 def seed_customer_reimbursement_projects(connection):
     for name, unit_price in CUSTOMER_REIMBURSEMENT_PROJECTS.items():
         row = connection.execute(
-            "select id, project_type from projects where name = ? and project_type = 'customer_expense'",
-            (name,),
+            "select id, project_type from projects where name_key = ? and project_type = 'customer_expense'",
+            (project_name_key(name),),
         ).fetchone()
         if row:
             connection.execute(
                 """
                 update projects
-                set unit_price = ?, is_active = 1
+                set name = ?, name_key = ?, unit_price = ?, is_active = 1
                 where id = ?
                 """,
-                (unit_price, row["id"]),
+                (name, project_name_key(name), unit_price, row["id"]),
             )
             continue
         connection.execute(
             """
-            insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-            values (?, 'customer_expense', 0, ?, 0, 1, ?)
+            insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+            values (?, ?, 'customer_expense', 0, ?, 0, 1, ?)
             """,
-            (name, unit_price, now()),
+            (name, project_name_key(name), unit_price, now()),
         )
     for name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS:
         row = connection.execute(
-            "select id from projects where name = ? and project_type = 'invoice'",
-            (name,),
+            "select id from projects where name_key = ? and project_type = 'invoice'",
+            (project_name_key(name),),
         ).fetchone()
         if row:
             continue
         connection.execute(
             """
-            insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-            values (?, 'invoice', 0, 0, 0, 1, ?)
+            insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+            values (?, ?, 'invoice', 0, 0, 0, 1, ?)
             """,
-            (name, now()),
+            (name, project_name_key(name), now()),
         )
 
 
@@ -5287,11 +5303,12 @@ def projects():
         try:
             db().execute(
                 """
-                insert into projects (name, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-                values (?, ?, ?, ?, ?, ?, ?)
+                insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
+                    project_name_key(name),
                     project_type,
                     to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
                     to_float(request.form.get("unit_price")),
@@ -5306,6 +5323,8 @@ def projects():
             db().rollback()
             flash("同一项目类型下已存在同名项目，不能重复创建。", "error")
         return redirect(url_for("projects"))
+    merge_duplicate_projects(db())
+    db().commit()
     rows = db().execute("select * from projects order by is_active desc, name").fetchall()
     return render_template("projects.html", projects=rows)
 
@@ -5343,11 +5362,12 @@ def edit_project(project_id):
         try:
             db().execute(
                 """
-                update projects set name = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
+                update projects set name = ?, name_key = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
                 where id = ?
                 """,
                 (
                     name,
+                    project_name_key(name),
                     project_type,
                     to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
                     to_float(request.form.get("unit_price")),
