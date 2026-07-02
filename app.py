@@ -1507,6 +1507,10 @@ def can_view_audit_logs():
     return g.user and normalized_role() in {"admin", "manager"}
 
 
+def can_use_database_console():
+    return g.user and normalized_role() == "admin"
+
+
 def can_access_client(client_id):
     if not g.user:
         return False
@@ -1641,6 +1645,17 @@ def local_datetime(value):
     return parsed.astimezone(app_timezone()).strftime("%Y-%m-%d %H:%M")
 
 
+def sql_statement_kind(sql):
+    stripped = (sql or "").lstrip()
+    if not stripped:
+        return ""
+    return stripped.split(None, 1)[0].lower()
+
+
+def is_read_sql(sql):
+    return sql_statement_kind(sql) in {"select", "with", "pragma", "explain"}
+
+
 app.jinja_env.filters["money"] = money
 app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
@@ -1660,6 +1675,7 @@ app.jinja_env.globals["is_external_employee"] = is_external_employee
 app.jinja_env.globals["can_assign_external_employees"] = can_assign_external_employees
 app.jinja_env.globals["can_approve_users"] = can_approve_users
 app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
+app.jinja_env.globals["can_use_database_console"] = can_use_database_console
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
@@ -5845,6 +5861,90 @@ def system_settings():
     )
 
 
+@app.route("/settings/database", methods=["GET", "POST"])
+@admin_required
+def database_console():
+    sql = request.form.get("sql", "").strip() if request.method == "POST" else ""
+    result = None
+    columns = []
+    rows = []
+    row_count = None
+    statement_kind = sql_statement_kind(sql)
+    if request.method == "POST":
+        if not sql:
+            flash("请输入 SQL 语句。", "error")
+        elif ";" in sql.rstrip(";"):
+            flash("为了降低误操作风险，每次只能执行一条 SQL 语句。", "error")
+        else:
+            read_query = is_read_sql(sql)
+            confirmed = request.form.get("confirm_write") == "1"
+            if not read_query and not confirmed:
+                flash("执行数据更改语句前，请先勾选确认。", "error")
+            else:
+                try:
+                    cursor = db().execute(sql)
+                    if cursor.description:
+                        columns = [description[0] for description in cursor.description]
+                        rows = cursor.fetchmany(500)
+                        result = "query"
+                        if cursor.fetchone() is not None:
+                            flash("查询结果超过 500 行，仅显示前 500 行。", "warning")
+                        if not read_query:
+                            log_action(
+                                "sql",
+                                "database",
+                                None,
+                                "SQL Console",
+                                sql[:500],
+                            )
+                            db().commit()
+                            flash("SQL 已执行。", "success")
+                    else:
+                        row_count = cursor.rowcount
+                        result = "write"
+                        log_action(
+                            "sql",
+                            "database",
+                            None,
+                            "SQL Console",
+                            sql[:500],
+                        )
+                        db().commit()
+                        flash("SQL 已执行。", "success")
+                except sqlite3.Error as error:
+                    db().rollback()
+                    flash(f"SQL 执行失败：{error}", "error")
+    tables = db().execute(
+        """
+        select name, type
+        from sqlite_master
+        where type in ('table', 'view') and name not like 'sqlite_%'
+        order by type, name
+        """
+    ).fetchall()
+    table_dictionary = []
+    for table in tables:
+        quoted_name = '"' + table["name"].replace('"', '""') + '"'
+        table_dictionary.append(
+            {
+                "name": table["name"],
+                "type": table["type"],
+                "columns": db().execute(f"pragma table_info({quoted_name})").fetchall(),
+            }
+        )
+    return render_template(
+        "database_console.html",
+        sql=sql,
+        statement_kind=statement_kind,
+        result=result,
+        columns=columns,
+        rows=rows,
+        row_count=row_count,
+        tables=tables,
+        table_dictionary=table_dictionary,
+    )
+
+
 @app.route("/company-info", methods=["GET", "POST"])
 @login_required
 def company_info():
@@ -6483,6 +6583,7 @@ def audit_log_report():
         "expense": "报销",
         "customer_reimbursement": "工单结算",
         "user": "用户",
+        "database": "数据库",
     }
     action_labels = {
         "create": "创建",
@@ -6499,6 +6600,7 @@ def audit_log_report():
         "reset": "重置状态",
         "send": "发送邮件",
         "login": "登录",
+        "sql": "执行 SQL",
     }
     q = request.args.get("q", "").strip()
     entity_type = request.args.get("entity_type", "").strip()

@@ -21,7 +21,7 @@
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "expense_query", "audit_log_report"] %}
-        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "users", "new_user", "edit_user"] %}
+        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "users", "new_user", "edit_user"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
           <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
@@ -85,6 +85,7 @@
                 {% endif %}
                 {% if normalized_role() == "admin" %}
                   {{ nav_link("system_settings", "系统设置") }}
+                  {{ nav_link("database_console", "数据库工具") }}
                 {% endif %}
                 {{ nav_link("users", "用户") }}
               </div>

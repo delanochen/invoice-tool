@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}数据库工具 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Database</p><h1>数据库工具</h1></div>
+  </header>
+
+  <section class="panel">
+    <form method="post" class="form-stack">
+      <label>SQL 语句
+        <textarea name="sql" rows="8" spellcheck="false" placeholder="select * from projects limit 20">{{ sql }}</textarea>
+      </label>
+      <label class="checkbox-line">
+        <input type="checkbox" name="confirm_write" value="1">
+        我确认要执行数据更改语句
+      </label>
+      <div class="form-actions">
+        <button class="primary" type="submit">执行 SQL</button>
+      </div>
+    </form>
+    <p class="muted-line">每次只执行一条 SQL。查询最多显示前 500 行；新增、修改、删除或结构变更需要勾选确认。</p>
+    <p class="muted-line">支持多表 JOIN 查询，例如：select service_orders.order_number, invoices.invoice_number from service_orders left join invoices on invoices.service_order_id = service_orders.id limit 20</p>
+    <p class="muted-line">数据更改请使用单条 SQLite 语句，例如 update / delete 配合 where exists 或子查询。</p>
+  </section>
+
+  {% if result == "query" %}
+    <section class="panel">
+      <div class="panel-title"><h2>查询结果</h2><span class="muted-line">{{ rows|length }} 行</span></div>
+      <table class="list-table">
+        <thead>
+          <tr>{% for column in columns %}<th>{{ column }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              {% for column in columns %}
+                <td>{{ row[loop.index0] if row[loop.index0] is not none else "NULL" }}</td>
+              {% endfor %}
+            </tr>
+          {% else %}
+            <tr><td colspan="{{ columns|length or 1 }}" class="empty">没有返回数据。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% elif result == "write" %}
+    <section class="panel">
+      <div class="panel-title"><h2>执行结果</h2></div>
+      <p>影响行数：{{ row_count }}</p>
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <div class="panel-title"><h2>表字典</h2><span class="muted-line">{{ table_dictionary|length }} 个对象</span></div>
+    {% for table in table_dictionary %}
+      <details class="schema-details">
+        <summary>{{ table.name }} <span class="muted-line">{{ table.type }}</span></summary>
+        <table class="list-table">
+          <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>默认值</th><th>主键</th></tr></thead>
+          <tbody>
+            {% for column in table.columns %}
+              <tr>
+                <td>{{ column.name }}</td>
+                <td>{{ column.type or "-" }}</td>
+                <td>{{ "是" if column.notnull else "否" }}</td>
+                <td>{{ column.dflt_value if column.dflt_value is not none else "-" }}</td>
+                <td>{{ column.pk if column.pk else "-" }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="empty">没有字段信息。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% endfor %}
+  </section>
+{% endblock %}
