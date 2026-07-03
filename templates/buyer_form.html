@@ -17,7 +17,13 @@
       </label>
     {% endif %}
     <label>编号 <input name="buyer_number" value="{{ buyer.buyer_number }}" required></label>
-    <label>国家 <input name="country" value="{{ buyer.country or 'United States' }}"></label>
+    <label>国家
+      <select name="country_code" required>
+        {% for country in countries %}
+          <option value="{{ country.code }}" {% if (buyer.country_code or 'US') == country.code %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>站点名称 <input name="name" value="{{ buyer.name }}" required></label>
     <label>业主
       <select name="owner_id">

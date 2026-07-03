@@ -41,7 +41,7 @@
         {% for buyer in buyers %}
           <tr>
             <td>{{ buyer.buyer_number }}</td>
-            <td>{{ buyer.country or "-" }}</td>
+            <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
             <td>{{ buyer.name }}</td>
             <td>{{ buyer.owner_name or "-" }}</td>
             <td>{{ buyer.contact_name or "-" }}</td>

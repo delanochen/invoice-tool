@@ -56,7 +56,7 @@
             data-owner="{{ buyer.owner_name or '' }}"
             data-size="{{ buyer.site_size or '' }}"
             data-address="{{ buyer.detailed_address or '' }}"
-            data-country="{{ buyer.country or '' }}"
+            data-country="{{ buyer.country_name or buyer.country_code or buyer.country or '' }}"
             data-manufacturer="{{ buyer.equipment_manufacturer or '' }}"
             {% if order and order.buyer_id == buyer.id %}selected{% endif %}
           >{{ buyer.buyer_number }} · {{ buyer.name }}{% if buyer.owner_name %} · {{ buyer.owner_name }}{% endif %}</option>

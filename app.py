@@ -534,6 +534,7 @@ def init_db():
                 id integer primary key autoincrement,
                 buyer_number text not null unique,
                 country text,
+                country_code text not null default 'US',
                 name text not null,
                 owner text,
                 contact_name text,
@@ -815,6 +816,20 @@ def init_db():
         ensure_column(connection, "buyers", "owner_id", "integer")
         ensure_column(connection, "buyers", "email", "text")
         ensure_column(connection, "buyers", "site_size", "text")
+        ensure_column(connection, "buyers", "country_code", "text not null default 'US'")
+        site_country_migration = connection.execute(
+            "select value from settings where key = ?",
+            ("buyers_country_code_v1",),
+        ).fetchone()
+        if not site_country_migration:
+            connection.execute("update buyers set country_code = 'US', country = 'US'")
+            connection.execute(
+                "update buyers set country_code = 'CA', country = 'CA' where buyer_number = 'BUY00017'"
+            )
+            connection.execute(
+                "insert or replace into settings (key, value) values (?, ?)",
+                ("buyers_country_code_v1", now()),
+            )
         try:
             merge_duplicate_projects(connection)
         except sqlite3.Error:
@@ -964,8 +979,8 @@ def init_db():
                 cursor = connection.execute(
                     """
                     insert into buyers (
-                        buyer_number, country, name, detailed_address, created_at
-                    ) values (?, 'United States', ?, ?, ?)
+                        buyer_number, country, country_code, name, detailed_address, created_at
+                    ) values (?, 'US', 'US', ?, ?, ?)
                     """,
                     (buyer_number, buyer_name, legacy_order["site_address"], now()),
                 )
@@ -1075,6 +1090,18 @@ def seed_countries(connection):
                 "nl": ("China", "Azië"),
                 "de": ("China", "Asien"),
                 "es": ("China", "Asia"),
+            },
+        ),
+        (
+            "CA",
+            "americas",
+            25,
+            {
+                "zh-CN": ("加拿大", "美洲"),
+                "en": ("Canada", "Americas"),
+                "nl": ("Canada", "Amerika"),
+                "de": ("Kanada", "Amerika"),
+                "es": ("Canadá", "América"),
             },
         ),
         (
@@ -2101,7 +2128,7 @@ def require_service_order(order_id):
     order = db().execute(
         """
         select service_orders.*, work_order_types.name as work_order_type_name,
-               buyers.country as buyer_country,
+               coalesce(buyer_country_local.name, buyer_country_zh.name, buyer_country_en.name, buyers.country, buyers.country_code) as buyer_country,
                coalesce(owners.name, buyers.owner) as buyer_owner,
                buyers.email as buyer_email,
                buyers.site_size as buyer_site_size,
@@ -2119,6 +2146,12 @@ def require_service_order(order_id):
         left join owners on owners.id = buyers.owner_id
         left join clients on clients.id = service_orders.client_id
         left join contracts on contracts.id = service_orders.contract_id
+        left join country_translations buyer_country_local
+          on buyer_country_local.country_code = buyers.country_code and buyer_country_local.language_code = ?
+        left join country_translations buyer_country_zh
+          on buyer_country_zh.country_code = buyers.country_code and buyer_country_zh.language_code = 'zh-CN'
+        left join country_translations buyer_country_en
+          on buyer_country_en.country_code = buyers.country_code and buyer_country_en.language_code = 'en'
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
         left join country_translations country_zh
@@ -2127,7 +2160,7 @@ def require_service_order(order_id):
           on country_en.country_code = service_orders.country_code and country_en.language_code = 'en'
         where service_orders.id = ?
         """,
-        (current_language(), order_id),
+        (current_language(), current_language(), order_id),
     ).fetchone()
     if not order:
         abort(404)
@@ -5017,8 +5050,10 @@ def buyers():
     if not can_manage_buyers():
         abort(403)
     owners_rows = owner_options()
+    countries_rows = country_rows()
     if request.method == "POST":
         name = request.form.get("name", "").strip()
+        country = country_from_form()
         owner = None
         owner_id = int(request.form["owner_id"]) if request.form.get("owner_id", "").isdigit() else None
         if owner_id:
@@ -5052,14 +5087,15 @@ def buyers():
             db().execute(
                 """
                 insert into buyers (
-                    buyer_number, client_id, country, name, owner_id, owner, contact_name, contact_details,
+                    buyer_number, client_id, country, country_code, name, owner_id, owner, contact_name, contact_details,
                     email, site_size, detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_buyer_number(),
                     client_id,
-                    request.form.get("country", "United States").strip() or "United States",
+                    country["code"],
+                    country["code"],
                     name,
                     owner_id,
                     owner["name"] if owner else "",
@@ -5098,16 +5134,30 @@ def buyers():
     rows = db().execute(
         f"""
         select buyers.*, coalesce(owners.name, buyers.owner) as owner_name,
-               owners.owner_number as owner_number
+               owners.owner_number as owner_number,
+               coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code) as country_name
         from buyers
         left join owners on owners.id = buyers.owner_id
+        left join country_translations country_local
+          on country_local.country_code = buyers.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = buyers.country_code and country_zh.language_code = 'zh-CN'
+        left join country_translations country_en
+          on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
         {where}
         order by owner_name, buyers.name, buyers.buyer_number
         """,
-        params,
+        [current_language(), *params],
     ).fetchall()
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template("buyers.html", buyers=rows, clients=clients_rows, owners=owners_rows, q=q)
+    return render_template(
+        "buyers.html",
+        buyers=rows,
+        clients=clients_rows,
+        owners=owners_rows,
+        countries=countries_rows,
+        q=q,
+    )
 
 
 @app.route("/buyers/<int:buyer_id>/edit", methods=["GET", "POST"])
@@ -5123,6 +5173,7 @@ def edit_buyer(buyer_id):
     if request.method == "POST":
         buyer_number = request.form.get("buyer_number", "").strip().upper()
         name = request.form.get("name", "").strip()
+        country = country_from_form(buyer["country_code"] or "US")
         owner = None
         owner_id = int(request.form["owner_id"]) if request.form.get("owner_id", "").isdigit() else None
         if owner_id:
@@ -5142,7 +5193,7 @@ def edit_buyer(buyer_id):
             db().execute(
                 """
                 update buyers
-                set buyer_number = ?, client_id = ?, country = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
+                set buyer_number = ?, client_id = ?, country = ?, country_code = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
                     contact_details = ?, email = ?, site_size = ?, detailed_address = ?, equipment_manufacturer = ?
                 where id = ?
                 """,
@@ -5151,7 +5202,8 @@ def edit_buyer(buyer_id):
                     g.user["client_id"] if is_external_manager() else (
                         int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else buyer["client_id"]
                     ),
-                    request.form.get("country", "United States").strip() or "United States",
+                    country["code"],
+                    country["code"],
                     name,
                     owner_id,
                     owner["name"] if owner else "",
@@ -5195,7 +5247,13 @@ def edit_buyer(buyer_id):
             flash("站点编号重复，请换一个编号。", "error")
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
     owners_rows = owner_options()
-    return render_template("buyer_form.html", buyer=buyer, clients=clients_rows, owners=owners_rows)
+    return render_template(
+        "buyer_form.html",
+        buyer=buyer,
+        clients=clients_rows,
+        owners=owners_rows,
+        countries=country_rows(),
+    )
 
 
 @app.post("/buyers/<int:buyer_id>/delete")
@@ -6283,14 +6341,10 @@ def buyer_query():
         )
         params.extend([f"%{q}%"] * 9)
     if region_code:
-        clauses.append(
-            "exists (select 1 from service_orders where service_orders.buyer_id = buyers.id and service_orders.region_code = ?)"
-        )
+        clauses.append("exists (select 1 from countries where countries.code = buyers.country_code and countries.region_code = ?)")
         params.append(region_code)
     if country_code:
-        clauses.append(
-            "exists (select 1 from service_orders where service_orders.buyer_id = buyers.id and service_orders.country_code = ?)"
-        )
+        clauses.append("buyers.country_code = ?")
         params.append(country_code)
     rows = buyer_map_rows(" and ".join(clauses), params)
     return render_template(
@@ -6715,7 +6769,8 @@ def buyer_map_payload(buyer):
         "contact_name": buyer["contact_name"],
         "contact_details": buyer["contact_details"],
         "email": buyer["email"],
-        "country": buyer["country"],
+        "country": buyer["country_name"] or buyer["country_code"] or buyer["country"],
+        "country_code": buyer["country_code"],
         "detailed_address": buyer["detailed_address"],
         "equipment_manufacturer": buyer["equipment_manufacturer"],
         "latitude": buyer["latitude"],
@@ -6778,18 +6833,25 @@ def buyer_map_rows(where_clause="1 = 1", params=()):
         select buyers.*,
                coalesce(owners.name, buyers.owner) as owner_name,
                owners.owner_number as owner_number,
+               coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code) as country_name,
                coalesce(order_stats.work_order_total, 0) as work_order_total,
                coalesce(order_stats.work_order_completed, 0) as work_order_completed,
                coalesce(invoice_stats.paid_invoice_amount, 0) as paid_invoice_amount,
                coalesce(invoice_stats.completed_invoice_amount, 0) as completed_invoice_amount
         from buyers
         left join owners on owners.id = buyers.owner_id
+        left join country_translations country_local
+          on country_local.country_code = buyers.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = buyers.country_code and country_zh.language_code = 'zh-CN'
+        left join country_translations country_en
+          on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
         left join order_stats on order_stats.buyer_id = buyers.id
         left join invoice_stats on invoice_stats.buyer_id = buyers.id
         where {where_clause}
         order by owner_name, buyers.name, buyers.id
         """,
-        params,
+        (current_language(), *params),
     ).fetchall()
 
 
@@ -6907,11 +6969,19 @@ def new_service_order():
         abort(403)
     buyers_rows = db().execute(
         """
-        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name
+        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name,
+               coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code) as country_name
         from buyers
         left join owners on owners.id = buyers.owner_id
+        left join country_translations country_local
+          on country_local.country_code = buyers.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = buyers.country_code and country_zh.language_code = 'zh-CN'
+        left join country_translations country_en
+          on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
         order by owner_name, buyers.name, buyers.buyer_number
-        """
+        """,
+        (current_language(),),
     ).fetchall()
     clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
@@ -7050,11 +7120,19 @@ def edit_service_order(order_id):
         )
     buyers_rows = db().execute(
         """
-        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name
+        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name,
+               coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code) as country_name
         from buyers
         left join owners on owners.id = buyers.owner_id
+        left join country_translations country_local
+          on country_local.country_code = buyers.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = buyers.country_code and country_zh.language_code = 'zh-CN'
+        left join country_translations country_en
+          on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
         order by owner_name, buyers.name, buyers.buyer_number
-        """
+        """,
+        (current_language(),),
     ).fetchall()
     clients_rows = db().execute("select * from clients order by client_number, name").fetchall()
     work_order_types_rows = db().execute(
