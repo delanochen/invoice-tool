@@ -4,7 +4,7 @@
   <header class="page-header"><div><p class="eyebrow">Reports</p><h1>站点查询</h1></div></header>
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词
-      <input name="q" value="{{ q }}" placeholder="编号、站点名称、业主、联系人、邮箱、地址或配套机厂家">
+      <input name="q" value="{{ q }}" placeholder="编号、站点名称、业主、联系人、邮箱、规模、地址或配套机厂家">
     </label>
     <label>洲
       <select name="region_code">
@@ -31,7 +31,7 @@
     <table class="list-table">
       <thead>
         <tr>
-          <th>编号</th><th>国家</th><th>站点名称</th><th>业主</th><th>联系人</th><th>联系方式</th><th>电子邮箱地址</th>
+          <th>编号</th><th>国家</th><th>站点名称</th><th>业主</th><th>联系人</th><th>联系方式</th><th>电子邮箱地址</th><th>规模</th>
           <th>详细地址</th><th>配套机厂家</th><th>工单完成数/总数</th>
           {% if can_view_invoices() %}<th>已核销/已完成发票</th>{% endif %}
           <th>操作</th>
@@ -47,6 +47,7 @@
             <td>{{ buyer.contact_name or "-" }}</td>
             <td>{{ buyer.contact_details or "-" }}</td>
             <td>{{ buyer.email or "-" }}</td>
+            <td>{{ buyer.site_size or "-" }}</td>
             <td>{{ buyer.detailed_address }}</td>
             <td>{{ buyer.equipment_manufacturer or "-" }}</td>
             <td>{{ buyer.work_order_completed }} / {{ buyer.work_order_total }}</td>
@@ -56,7 +57,7 @@
             <td><a href="{{ url_for('service_orders', buyer_id=buyer.id) }}">工单查看</a></td>
           </tr>
         {% else %}
-          <tr><td colspan="{% if can_view_invoices() %}12{% else %}11{% endif %}" class="empty">没有符合条件的站点。</td></tr>
+          <tr><td colspan="{% if can_view_invoices() %}13{% else %}12{% endif %}" class="empty">没有符合条件的站点。</td></tr>
         {% endfor %}
       </tbody>
     </table>

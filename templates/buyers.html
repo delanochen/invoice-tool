@@ -7,7 +7,7 @@
   </header>
 
   <form class="panel filter-bar no-print" method="get">
-    <label>查找站点 <input name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、邮箱、地址或配套机厂家"></label>
+    <label>查找站点 <input name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、邮箱、规模、地址或配套机厂家"></label>
     <div class="filter-actions">
       <button type="submit">查找</button>
       <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">重置</button>
@@ -26,6 +26,7 @@
           <th>联系人</th>
           <th>联系方式</th>
           <th>电子邮箱地址</th>
+          <th>规模</th>
           <th>详细地址</th>
           <th>操作</th>
         </tr>
@@ -40,6 +41,7 @@
             <td>{{ buyer.contact_name or "-" }}</td>
             <td>{{ buyer.contact_details or "-" }}</td>
             <td>{{ buyer.email or "-" }}</td>
+            <td>{{ buyer.site_size or "-" }}</td>
             <td>{{ buyer.detailed_address or "-" }}</td>
             <td>
               <div class="row-actions">
@@ -51,7 +53,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="9" class="empty">还没有站点资料。</td></tr>
+          <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -85,6 +87,7 @@
         <label>联系人 <input name="contact_name"></label>
         <label>联系方式 <input name="contact_details"></label>
         <label>电子邮箱地址 <input type="email" name="email"></label>
+        <label>规模 <input name="site_size"></label>
         <label>配套机厂家 <input name="equipment_manufacturer"></label>
         <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required></textarea></label>
       </div>
@@ -113,6 +116,7 @@
           <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
           <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
           <label>电子邮箱地址 <input type="email" name="email" value="{{ buyer.email or '' }}"></label>
+          <label>规模 <input name="site_size" value="{{ buyer.site_size or '' }}"></label>
           <label>配套机厂家 <input name="equipment_manufacturer" value="{{ buyer.equipment_manufacturer or '' }}"></label>
           <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required>{{ buyer.detailed_address or '' }}</textarea></label>
         </div>

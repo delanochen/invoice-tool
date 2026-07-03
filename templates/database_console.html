@@ -26,22 +26,28 @@
   {% if result == "query" %}
     <section class="panel">
       <div class="panel-title"><h2>查询结果</h2><span class="muted-line">{{ rows|length }} 行</span></div>
-      <table class="list-table">
-        <thead>
-          <tr>{% for column in columns %}<th>{{ column }}</th>{% endfor %}</tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
+      <div class="spreadsheet-wrap" role="region" aria-label="查询结果">
+        <table class="spreadsheet-table">
+          <thead>
             <tr>
-              {% for column in columns %}
-                <td>{{ row[loop.index0] if row[loop.index0] is not none else "NULL" }}</td>
-              {% endfor %}
+              <th class="row-number">#</th>
+              {% for column in columns %}<th>{{ column }}</th>{% endfor %}
             </tr>
-          {% else %}
-            <tr><td colspan="{{ columns|length or 1 }}" class="empty">没有返回数据。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <th class="row-number">{{ loop.index }}</th>
+                {% for column in columns %}
+                  <td tabindex="0">{{ row[loop.index0] if row[loop.index0] is not none else "NULL" }}</td>
+                {% endfor %}
+              </tr>
+            {% else %}
+              <tr><td colspan="{{ (columns|length or 0) + 1 }}" class="empty">没有返回数据。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </section>
   {% elif result == "write" %}
     <section class="panel">
@@ -55,22 +61,25 @@
     {% for table in table_dictionary %}
       <details class="schema-details">
         <summary>{{ table.name }} <span class="muted-line">{{ table.type }}</span></summary>
-        <table class="list-table">
-          <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>默认值</th><th>主键</th></tr></thead>
-          <tbody>
-            {% for column in table.columns %}
-              <tr>
-                <td>{{ column.name }}</td>
-                <td>{{ column.type or "-" }}</td>
-                <td>{{ "是" if column.notnull else "否" }}</td>
-                <td>{{ column.dflt_value if column.dflt_value is not none else "-" }}</td>
-                <td>{{ column.pk if column.pk else "-" }}</td>
-              </tr>
-            {% else %}
-              <tr><td colspan="5" class="empty">没有字段信息。</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="spreadsheet-wrap compact" role="region" aria-label="{{ table.name }} 表字典">
+          <table class="spreadsheet-table">
+            <thead><tr><th class="row-number">#</th><th>字段</th><th>类型</th><th>必填</th><th>默认值</th><th>主键</th></tr></thead>
+            <tbody>
+              {% for column in table.columns %}
+                <tr>
+                  <th class="row-number">{{ loop.index }}</th>
+                  <td tabindex="0">{{ column.name }}</td>
+                  <td tabindex="0">{{ column.type or "-" }}</td>
+                  <td tabindex="0">{{ "是" if column.notnull else "否" }}</td>
+                  <td tabindex="0">{{ column.dflt_value if column.dflt_value is not none else "-" }}</td>
+                  <td tabindex="0">{{ column.pk if column.pk else "-" }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="6" class="empty">没有字段信息。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </details>
     {% endfor %}
   </section>

@@ -54,6 +54,7 @@
             data-contact-details="{{ buyer.contact_details or '' }}"
             data-email="{{ buyer.email or '' }}"
             data-owner="{{ buyer.owner_name or '' }}"
+            data-size="{{ buyer.site_size or '' }}"
             data-address="{{ buyer.detailed_address or '' }}"
             data-country="{{ buyer.country or '' }}"
             data-manufacturer="{{ buyer.equipment_manufacturer or '' }}"
@@ -67,6 +68,7 @@
       <label>联系方式 <input id="buyerContactDetails" value="{{ order.buyer_contact_details if order else '' }}" readonly></label>
       <label>电子邮箱地址 <input id="buyerEmail" value="{{ order.buyer_email if order else '' }}" readonly></label>
       <label>业主 <input id="buyerOwner" value="{{ order.buyer_owner if order else '' }}" readonly></label>
+      <label>规模 <input id="buyerSize" value="{{ order.buyer_site_size if order else '' }}" readonly></label>
       <label>国家 <input id="buyerCountry" value="{{ order.buyer_country if order else '' }}" readonly></label>
       <label>配套机厂家 <input id="buyerManufacturer" value="{{ order.buyer_equipment_manufacturer if order else '' }}" readonly></label>
     </div>

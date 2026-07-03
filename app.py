@@ -539,6 +539,7 @@ def init_db():
                 contact_name text,
                 contact_details text,
                 email text,
+                site_size text,
                 detailed_address text,
                 equipment_manufacturer text,
                 latitude real,
@@ -813,6 +814,7 @@ def init_db():
         ensure_column(connection, "buyers", "owner", "text")
         ensure_column(connection, "buyers", "owner_id", "integer")
         ensure_column(connection, "buyers", "email", "text")
+        ensure_column(connection, "buyers", "site_size", "text")
         try:
             merge_duplicate_projects(connection)
         except sqlite3.Error:
@@ -2102,6 +2104,7 @@ def require_service_order(order_id):
                buyers.country as buyer_country,
                coalesce(owners.name, buyers.owner) as buyer_owner,
                buyers.email as buyer_email,
+               buyers.site_size as buyer_site_size,
                buyers.equipment_manufacturer as buyer_equipment_manufacturer,
                clients.name as billing_client_name,
                clients.email as billing_client_email,
@@ -5050,8 +5053,8 @@ def buyers():
                 """
                 insert into buyers (
                     buyer_number, client_id, country, name, owner_id, owner, contact_name, contact_details,
-                    email, detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    email, site_size, detailed_address, equipment_manufacturer, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_buyer_number(),
@@ -5063,6 +5066,7 @@ def buyers():
                     request.form.get("contact_name", "").strip(),
                     request.form.get("contact_details", "").strip(),
                     request.form.get("email", "").strip(),
+                    request.form.get("site_size", "").strip(),
                     detailed_address,
                     request.form.get("equipment_manufacturer", "").strip(),
                     now(),
@@ -5084,10 +5088,10 @@ def buyers():
         clauses.append(
             """(
             buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
-            or buyers.contact_details like ? or buyers.email like ? or buyers.detailed_address like ? or buyers.equipment_manufacturer like ?
+            or buyers.contact_details like ? or buyers.email like ? or buyers.site_size like ? or buyers.detailed_address like ? or buyers.equipment_manufacturer like ?
             )"""
         )
-        params = [f"%{q}%"] * 8
+        params = [f"%{q}%"] * 9
         if is_external_manager():
             params.insert(0, g.user["client_id"])
     where = f"where {' and '.join(clauses)}" if clauses else ""
@@ -5139,7 +5143,7 @@ def edit_buyer(buyer_id):
                 """
                 update buyers
                 set buyer_number = ?, client_id = ?, country = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
-                    contact_details = ?, email = ?, detailed_address = ?, equipment_manufacturer = ?
+                    contact_details = ?, email = ?, site_size = ?, detailed_address = ?, equipment_manufacturer = ?
                 where id = ?
                 """,
                 (
@@ -5154,6 +5158,7 @@ def edit_buyer(buyer_id):
                     request.form.get("contact_name", "").strip(),
                     request.form.get("contact_details", "").strip(),
                     request.form.get("email", "").strip(),
+                    request.form.get("site_size", "").strip(),
                     detailed_address,
                     request.form.get("equipment_manufacturer", "").strip(),
                     buyer_id,
@@ -6273,10 +6278,10 @@ def buyer_query():
             """
             (buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
              or buyers.contact_details like ? or buyers.email like ? or buyers.detailed_address like ?
-             or buyers.equipment_manufacturer like ?)
+             or buyers.equipment_manufacturer like ? or buyers.site_size like ?)
             """
         )
-        params.extend([f"%{q}%"] * 8)
+        params.extend([f"%{q}%"] * 9)
     if region_code:
         clauses.append(
             "exists (select 1 from service_orders where service_orders.buyer_id = buyers.id and service_orders.region_code = ?)"
