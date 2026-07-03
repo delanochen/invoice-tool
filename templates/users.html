@@ -11,13 +11,14 @@
   <section class="panel users-panel">
     <div class="panel-title"><h2>{% if can_assign %}用户与工单授权{% else %}我的信息{% endif %}</h2><span class="muted-line">{{ users|length }} 个用户</span></div>
     <table class="list-table users-table">
-      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>姓名</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for user in users %}
           <tr>
             <td>{{ user.name }}</td>
             <td>{{ user.email }}</td>
             <td>{{ user.role|role_label }}</td>
+            <td>{{ user.employee_grade_name or "-" }}</td>
             <td><span class="status {{ 'completed' if user.is_active else 'returned' }}">{{ "启用" if user.is_active else "停用" }}</span></td>
             <td>{{ user.region_name }} / {{ user.country_name }}</td>
             <td>{{ user.client_name or "-" }}</td>
@@ -41,7 +42,7 @@
             </div></td>
           </tr>
         {% else %}
-          <tr><td colspan="9" class="empty">还没有用户。</td></tr>
+          <tr><td colspan="10" class="empty">还没有用户。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -78,6 +79,16 @@
               {% endfor %}
             </select>
           </label>
+          {% if can_manage %}
+            <label>员工等级
+              <select name="employee_grade_id">
+                <option value="">未指定</option>
+                {% for grade in employee_grades %}
+                  <option value="{{ grade.id }}">{{ grade.grade_name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
           <label>用户附件 <input type="file" name="attachments" multiple></label>
         </div>
         <section class="subsection">
@@ -149,6 +160,18 @@
             </label>
           {% else %}
             <label>国家与区域 <input value="{{ user.region_name }} · {{ user.country_name }}" readonly></label>
+          {% endif %}
+          {% if can_manage %}
+            <label>员工等级
+              <select name="employee_grade_id">
+                <option value="">未指定</option>
+                {% for grade in employee_grades %}
+                  <option value="{{ grade.id }}" {% if user.employee_grade_id == grade.id %}selected{% endif %}>{{ grade.grade_name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% else %}
+            <label>员工等级 <input value="{{ user.employee_grade_name or '-' }}" readonly></label>
           {% endif %}
           <label>新密码 <input type="password" name="password" minlength="8" placeholder="留空则不修改密码"></label>
           <label>新增附件 <input type="file" name="attachments" multiple></label>

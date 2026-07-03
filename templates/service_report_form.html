@@ -22,6 +22,7 @@
     <fieldset class="plain-fieldset" {% if not can_edit_report %}disabled{% endif %}>
     <div class="form-grid">
       <label>报告日期 <input type="date" name="report_date" value="{{ report.report_date }}" required></label>
+      <label>实际日期 <input type="date" name="actual_work_date" value="{{ report.actual_work_date or report.report_date }}" required></label>
       <label>总计服务工时：小时 <input type="number" step="0.25" min="0" name="total_service_hours" value="{{ report.total_service_hours }}" readonly></label>
       <label>交通时长：小时 <input type="number" step="0.1" min="0" name="travel_hours" value="{{ report.travel_hours }}"></label>
       <label>公共交通时长 <input type="number" step="0.1" min="0" name="public_transport_hours" value="{{ report.public_transport_hours }}"></label>

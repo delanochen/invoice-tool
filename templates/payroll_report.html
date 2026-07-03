@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}薪酬统计报表 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Reports</p><h1>薪酬统计报表</h1></div></header>
+  <form class="filter-bar service-filter no-print" method="get">
+    <label>两周开始日期 <input type="date" name="period_start" value="{{ period_start }}"></label>
+    <label>两周结束日期 <input type="date" value="{{ period_end }}" readonly></label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('payroll_report') }}'">本期</button>
+    </div>
+  </form>
+
+  <section class="metric-grid">
+    <div class="panel metric"><span>基本工资</span><strong>{{ totals.base_salary|money }}</strong></div>
+    <div class="panel metric"><span>标准工资</span><strong>{{ totals.standard_pay|money }}</strong></div>
+    <div class="panel metric"><span>交通工资</span><strong>{{ totals.transport_pay|money }}</strong></div>
+    <div class="panel metric"><span>加班工资</span><strong>{{ totals.overtime_pay|money }}</strong></div>
+    <div class="panel metric"><span>假期工资</span><strong>{{ totals.holiday_pay|money }}</strong></div>
+    <div class="panel metric"><span>合计工资</span><strong>{{ totals.total_pay|money }}</strong></div>
+  </section>
+
+  <section class="panel">
+    <table class="list-table">
+      <thead>
+        <tr>
+          <th>员工</th><th>员工等级</th><th>基本工资</th>
+          <th>标准工时</th><th>标准工资</th>
+          <th>交通工时</th><th>交通工资</th>
+          <th>加班工时</th><th>加班工资</th>
+          <th>假期工时</th><th>假期工资</th>
+          <th>合计工资</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.worker_name }}</td>
+            <td>{{ row.grade_name }}</td>
+            <td>{{ row.base_salary|money }}</td>
+            <td>{{ "%.2f"|format(row.standard_hours) }}</td>
+            <td>{{ row.standard_pay|money }}</td>
+            <td>{{ "%.2f"|format(row.transport_hours) }}</td>
+            <td>{{ row.transport_pay|money }}</td>
+            <td>{{ "%.2f"|format(row.overtime_hours) }}</td>
+            <td>{{ row.overtime_pay|money }}</td>
+            <td>{{ "%.2f"|format(row.holiday_hours) }}</td>
+            <td>{{ row.holiday_pay|money }}</td>
+            <td>{{ row.total_pay|money }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="12" class="empty">当前两周周期没有薪酬记录。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

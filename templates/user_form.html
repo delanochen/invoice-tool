@@ -66,6 +66,18 @@
     {% else %}
       <label>国家代码 <input value="{{ user.region_code }} · {{ user.country_code }}" readonly></label>
     {% endif %}
+    {% if can_manage %}
+      <label>员工等级
+        <select name="employee_grade_id">
+          <option value="">未指定</option>
+          {% for grade in employee_grades %}
+            <option value="{{ grade.id }}" {% if user.employee_grade_id == grade.id %}selected{% endif %}>{{ grade.grade_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% else %}
+      <label>员工等级 <input value="{{ user.employee_grade_name or '-' }}" readonly></label>
+    {% endif %}
     {% if can_assign and normalized_role(user.role) == "external_employee" and not can_manage %}
       <fieldset class="plain-fieldset">
         <legend>外部员工工单授权</legend>

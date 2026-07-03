@@ -16,8 +16,8 @@
         {% for country in countries %}<option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>{% endfor %}
       </select>
     </label>
-    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
-    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+    <label>实际开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+    <label>实际结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
     <div class="filter-actions">
       <button type="submit">查询</button>
       <button type="button" onclick="window.location.href='{{ url_for('service_report_query') }}'">重置</button>
@@ -25,11 +25,12 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>报告日期</th><th>工单</th><th>站点名称</th><th>业主</th><th>洲</th><th>国家</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>机柜编号</th></tr></thead>
+      <thead><tr><th>报告日期</th><th>实际日期</th><th>工单</th><th>站点名称</th><th>业主</th><th>洲</th><th>国家</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>机柜编号</th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>
             <td><a href="{{ url_for('edit_service_report', report_id=row.id) }}">{{ row.report_date }}</a></td>
+            <td>{{ row.actual_work_date or row.report_date }}</td>
             <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
             <td>{{ row.client_name }}</td>
             <td>{{ row.buyer_owner or "-" }}</td>
@@ -41,7 +42,7 @@
             <td>{{ row.cabinet_number or "-" }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="10" class="empty">没有符合条件的日报。</td></tr>
+          <tr><td colspan="11" class="empty">没有符合条件的日报。</td></tr>
         {% endfor %}
       </tbody>
     </table>

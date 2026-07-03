@@ -343,9 +343,23 @@ def init_db():
                 email text not null unique,
                 password_hash text not null,
                 role text not null default 'user',
+                employee_grade_id integer,
                 client_id integer,
                 created_at text not null,
+                foreign key(employee_grade_id) references employee_grades(id),
                 foreign key(client_id) references clients(id)
+            );
+
+            create table if not exists employee_grades (
+                id integer primary key autoincrement,
+                grade_name text not null unique,
+                base_salary real not null default 0,
+                standard_hourly_rate real not null default 0,
+                transport_hourly_rate real not null default 0,
+                overtime_hourly_rate real not null default 0,
+                holiday_hourly_rate real not null default 0,
+                is_active integer not null default 1,
+                created_at text not null
             );
 
             create table if not exists clients (
@@ -579,6 +593,7 @@ def init_db():
                 id integer primary key autoincrement,
                 service_order_id integer not null,
                 report_date text not null,
+                actual_work_date text not null,
                 total_service_hours real not null default 0,
                 travel_hours real not null default 0,
                 public_transport_hours real not null default 0,
@@ -786,6 +801,27 @@ def init_db():
         ensure_column(connection, "users", "is_active", "integer not null default 1")
         ensure_column(connection, "users", "region_code", "text not null default 'americas'")
         ensure_column(connection, "users", "country_code", "text not null default 'US'")
+        ensure_column(connection, "users", "employee_grade_id", "integer")
+        ensure_column(connection, "service_reports", "actual_work_date", "text")
+        connection.execute(
+            "update service_reports set actual_work_date = report_date where trim(coalesce(actual_work_date, '')) = ''"
+        )
+        connection.execute(
+            """
+            update service_reports
+            set actual_work_date = '2026-06-24'
+            where report_date = '2026-07-01'
+              and (trim(coalesce(actual_work_date, '')) = '' or actual_work_date = report_date)
+            """
+        )
+        connection.execute(
+            """
+            update service_reports
+            set actual_work_date = '2026-06-25'
+            where report_date = '2026-07-02'
+              and (trim(coalesce(actual_work_date, '')) = '' or actual_work_date = report_date)
+            """
+        )
         ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
         ensure_column(connection, "projects", "name_key", "text")
         ensure_column(connection, "projects", "unit_price", "real not null default 0")
@@ -1378,7 +1414,15 @@ def current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    user = db().execute(
+        """
+        select users.*, employee_grades.grade_name as employee_grade_name
+        from users
+        left join employee_grades on employee_grades.id = users.employee_grade_id
+        where users.id = ?
+        """,
+        (user_id,),
+    ).fetchone()
     if user and not user["is_active"]:
         clear_session_preserving_language()
         return None
@@ -1479,6 +1523,10 @@ def can_create_expense():
 
 
 def can_manage_customer_reimbursement():
+    return g.user and normalized_role() in {"admin", "manager", "finance"}
+
+
+def can_manage_employee_grades():
     return g.user and normalized_role() in {"admin", "manager", "finance"}
 
 
@@ -1697,6 +1745,7 @@ app.jinja_env.globals["can_create_service_order"] = can_create_service_order
 app.jinja_env.globals["can_delete_service_order"] = can_delete_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
+app.jinja_env.globals["can_manage_employee_grades"] = can_manage_employee_grades
 app.jinja_env.globals["can_view_customer_reimbursement"] = can_view_customer_reimbursement
 app.jinja_env.globals["can_create_service_report"] = can_create_service_report
 app.jinja_env.globals["is_external_manager"] = is_external_manager
@@ -3000,6 +3049,18 @@ def customer_reimbursement_rates():
     return rates
 
 
+def employee_grade_options(include_inactive=False):
+    active_clause = "" if include_inactive else "where is_active = 1"
+    return db().execute(
+        f"""
+        select *
+        from employee_grades
+        {active_clause}
+        order by is_active desc, grade_name
+        """
+    ).fetchall()
+
+
 def parse_report_minutes(value):
     if not value or ":" not in str(value):
         return None
@@ -3083,6 +3144,32 @@ def report_duration_hours(report, worker_count=1):
     return round(fallback_hours / max(worker_count, 1), 2)
 
 
+def report_actual_date(report):
+    return report["actual_work_date"] or report["report_date"]
+
+
+def split_report_labor_hours(report, worker_count=1):
+    work_hours = report_duration_hours(report, worker_count)
+    transport_hours = float(report["public_transport_hours"] or 0)
+    try:
+        work_day = date.fromisoformat(report_actual_date(report))
+    except (TypeError, ValueError):
+        work_day = None
+    if work_day and is_us_weekend_or_holiday(work_day):
+        return {
+            "standard_hours": 0,
+            "transport_hours": transport_hours,
+            "overtime_hours": 0,
+            "holiday_hours": work_hours,
+        }
+    return {
+        "standard_hours": min(work_hours, 8),
+        "transport_hours": transport_hours,
+        "overtime_hours": max(work_hours - 8, 0),
+        "holiday_hours": 0,
+    }
+
+
 def customer_reimbursement_seed_rows(order_id):
     rates = customer_reimbursement_rates()
     reports = db().execute(
@@ -3108,28 +3195,15 @@ def customer_reimbursement_seed_rows(order_id):
         ).fetchall()
         if not workers:
             continue
-        try:
-            report_day = date.fromisoformat(report["report_date"])
-        except ValueError:
-            report_day = None
-        work_hours = report_duration_hours(report, len(workers))
-        transport_hours = float(report["public_transport_hours"] or 0)
-        if report_day and is_us_weekend_or_holiday(report_day):
-            standard_hours = 0
-            overtime_hours = 0
-            holiday_hours = work_hours
-        else:
-            standard_hours = min(work_hours, 8)
-            overtime_hours = max(work_hours - 8, 0)
-            holiday_hours = 0
+        labor_hours = split_report_labor_hours(report, len(workers))
         for worker in workers:
             row = {
                 "worker_name": worker["name"],
-                "project_date": report["report_date"],
-                "standard_hours": standard_hours,
-                "transport_hours": transport_hours,
-                "overtime_hours": overtime_hours,
-                "holiday_hours": holiday_hours,
+                "project_date": report_actual_date(report),
+                "standard_hours": labor_hours["standard_hours"],
+                "transport_hours": labor_hours["transport_hours"],
+                "overtime_hours": labor_hours["overtime_hours"],
+                "holiday_hours": labor_hours["holiday_hours"],
                 "standard_rate": rates["标准工时"],
                 "transport_rate": rates["交通工时"],
                 "overtime_rate": rates["加班工时"],
@@ -3832,9 +3906,12 @@ def parse_part_rows(prefix, fields):
 
 def report_form_defaults(report=None, order=None):
     if report:
-        return dict(report)
+        data = dict(report)
+        data["actual_work_date"] = data.get("actual_work_date") or data.get("report_date")
+        return data
     return {
         "report_date": date.today().isoformat(),
+        "actual_work_date": date.today().isoformat(),
         "total_service_hours": "",
         "travel_hours": "",
         "public_transport_hours": "",
@@ -5537,6 +5614,58 @@ def countries():
     return render_template("countries.html", countries=rows, translations=translations)
 
 
+@app.route("/employee-grades", methods=["GET", "POST"])
+@login_required
+def employee_grades():
+    if not can_manage_employee_grades():
+        abort(403)
+    if request.method == "POST":
+        grade_id = request.form.get("grade_id")
+        grade_name = request.form.get("grade_name", "").strip()
+        if not grade_name:
+            flash("请填写员工等级。", "error")
+            return redirect(url_for("employee_grades"))
+        values = (
+            grade_name,
+            to_float(request.form.get("base_salary")),
+            to_float(request.form.get("standard_hourly_rate")),
+            to_float(request.form.get("transport_hourly_rate")),
+            to_float(request.form.get("overtime_hourly_rate")),
+            to_float(request.form.get("holiday_hourly_rate")),
+            1 if request.form.get("is_active", "1") == "1" else 0,
+        )
+        try:
+            if grade_id and str(grade_id).isdigit():
+                db().execute(
+                    """
+                    update employee_grades
+                    set grade_name = ?, base_salary = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
+                        overtime_hourly_rate = ?, holiday_hourly_rate = ?, is_active = ?
+                    where id = ?
+                    """,
+                    (*values, int(grade_id)),
+                )
+                log_action("update", "employee_grade", int(grade_id), grade_name, "修改员工等级")
+            else:
+                cursor = db().execute(
+                    """
+                    insert into employee_grades (
+                        grade_name, base_salary, standard_hourly_rate, transport_hourly_rate,
+                        overtime_hourly_rate, holiday_hourly_rate, is_active, created_at
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (*values, now()),
+                )
+                log_action("create", "employee_grade", cursor.lastrowid, grade_name, "新增员工等级")
+            db().commit()
+            flash("员工等级已保存。", "success")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("员工等级名称已存在。", "error")
+        return redirect(url_for("employee_grades"))
+    return render_template("employee_grades.html", grades=employee_grade_options(include_inactive=True))
+
+
 @app.route("/users", methods=["GET", "POST"])
 @login_required
 def users():
@@ -5548,6 +5677,11 @@ def users():
         password = request.form.get("password", "")
         role = request.form.get("role", "employee")
         country = country_from_form()
+        employee_grade_id = (
+            int(request.form["employee_grade_id"])
+            if can_manage_users() and request.form.get("employee_grade_id", "").isdigit()
+            else None
+        )
         if is_external_manager():
             role = "external_employee"
         if role not in ROLE_OPTIONS:
@@ -5568,15 +5702,16 @@ def users():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, client_id, region_code, country_code, created_at
+                    name, email, password_hash, role, employee_grade_id, client_id, region_code, country_code, created_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
                     email,
                     generate_password_hash(password),
                     role,
+                    employee_grade_id,
                     client_id,
                     country["region_code"],
                     country["code"],
@@ -5606,9 +5741,11 @@ def users():
         rows = db().execute(
             """
             select users.*, clients.name as client_name,
+                   employee_grades.grade_name as employee_grade_name,
                    coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
                    coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
             from users left join clients on clients.id = users.client_id
+            left join employee_grades on employee_grades.id = users.employee_grade_id
             left join country_translations country_local
               on country_local.country_code = users.country_code and country_local.language_code = ?
             left join country_translations country_zh
@@ -5621,9 +5758,11 @@ def users():
         rows = db().execute(
             """
             select users.*, clients.name as client_name,
+                   employee_grades.grade_name as employee_grade_name,
                    coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
                    coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
             from users left join clients on clients.id = users.client_id
+            left join employee_grades on employee_grades.id = users.employee_grade_id
             left join country_translations country_local
               on country_local.country_code = users.country_code and country_local.language_code = ?
             left join country_translations country_zh
@@ -5637,9 +5776,11 @@ def users():
         rows = db().execute(
             """
             select users.*, clients.name as client_name,
+                   employee_grades.grade_name as employee_grade_name,
                    coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
                    coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
             from users left join clients on clients.id = users.client_id
+            left join employee_grades on employee_grades.id = users.employee_grade_id
             left join country_translations country_local
               on country_local.country_code = users.country_code and country_local.language_code = ?
             left join country_translations country_zh
@@ -5654,9 +5795,11 @@ def users():
         rows = db().execute(
             """
             select users.*, null as client_name,
+                   employee_grades.grade_name as employee_grade_name,
                    coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
                    coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
             from users
+            left join employee_grades on employee_grades.id = users.employee_grade_id
             left join country_translations country_local
               on country_local.country_code = users.country_code and country_local.language_code = ?
             left join country_translations country_zh
@@ -5690,6 +5833,7 @@ def users():
         can_assign=can_assign_external_employees(),
         can_approve=can_approve_users(),
         countries=country_rows(),
+        employee_grades=employee_grade_options(),
     )
 
 
@@ -5698,7 +5842,15 @@ def users():
 def edit_user(user_id):
     if not can_manage_users() and user_id != g.user["id"] and not is_external_manager():
         abort(403)
-    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    user = db().execute(
+        """
+        select users.*, employee_grades.grade_name as employee_grade_name
+        from users
+        left join employee_grades on employee_grades.id = users.employee_grade_id
+        where users.id = ?
+        """,
+        (user_id,),
+    ).fetchone()
     if not user:
         abort(404)
     if is_external_manager() and user_id != g.user["id"]:
@@ -5716,6 +5868,11 @@ def edit_user(user_id):
             else int(request.form["client_id"]) if role in {"external_manager", "external_employee"} and request.form.get("client_id", "").isdigit()
             else None
         )
+        employee_grade_id = (
+            int(request.form["employee_grade_id"])
+            if can_manage_users() and request.form.get("employee_grade_id", "").isdigit()
+            else user["employee_grade_id"]
+        )
         password = request.form.get("password", "")
         country = country_from_form(user["country_code"]) if can_assign_external_employees() else country_by_code(
             user["country_code"], include_inactive=True
@@ -5731,10 +5888,10 @@ def edit_user(user_id):
             db().execute(
                 """
                 update users
-                set name = ?, email = ?, role = ?, client_id = ?, region_code = ?, country_code = ?
+                set name = ?, email = ?, role = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?
                 where id = ?
                 """,
-                (name, email, role, client_id, country["region_code"], country["code"], user_id),
+                (name, email, role, employee_grade_id, client_id, country["region_code"], country["code"], user_id),
             )
             if can_assign_external_employees():
                 save_user_service_order_assignments(user_id, role)
@@ -5787,6 +5944,7 @@ def edit_user(user_id):
         can_assign=can_assign_external_employees(),
         can_approve=can_approve_users(),
         countries=country_rows(),
+        employee_grades=employee_grade_options(),
     )
 
 
@@ -6377,10 +6535,10 @@ def service_report_query():
         )
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
     if date_from:
-        clauses.append("service_reports.report_date >= ?")
+        clauses.append("coalesce(service_reports.actual_work_date, service_reports.report_date) >= ?")
         params.append(date_from)
     if date_to:
-        clauses.append("service_reports.report_date <= ?")
+        clauses.append("coalesce(service_reports.actual_work_date, service_reports.report_date) <= ?")
         params.append(date_to)
     rows = db().execute(
         f"""
@@ -6401,7 +6559,7 @@ def service_report_query():
         left join users on users.id = service_report_workers.user_id
         where {" and ".join(clauses)}
         group by service_reports.id
-        order by service_reports.report_date desc, service_reports.id desc
+        order by coalesce(service_reports.actual_work_date, service_reports.report_date) desc, service_reports.id desc
         """,
         [current_language(), *params],
     ).fetchall()
@@ -6415,6 +6573,171 @@ def service_report_query():
         regions=regions,
         region_code=region_code,
         country_code=country_code,
+    )
+
+
+def labor_report_entries(date_from="", date_to="", worker_id=""):
+    clauses = ["1 = 1"]
+    params = []
+    if date_from:
+        clauses.append("coalesce(service_reports.actual_work_date, service_reports.report_date) >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("coalesce(service_reports.actual_work_date, service_reports.report_date) <= ?")
+        params.append(date_to)
+    if worker_id and str(worker_id).isdigit():
+        clauses.append("users.id = ?")
+        params.append(int(worker_id))
+    rows = db().execute(
+        f"""
+        with worker_counts as (
+            select report_id, count(*) as worker_count
+            from service_report_workers
+            group by report_id
+        )
+        select service_reports.id as report_id,
+               service_reports.report_date,
+               coalesce(service_reports.actual_work_date, service_reports.report_date) as actual_work_date,
+               service_reports.total_service_hours,
+               service_reports.travel_hours,
+               service_reports.public_transport_hours,
+               service_reports.arrival_time,
+               service_reports.departure_time,
+               service_orders.id as service_order_id,
+               service_orders.order_number,
+               service_orders.client_name,
+               coalesce(owners.name, buyers.owner) as buyer_owner,
+               users.id as worker_id,
+               users.name as worker_name,
+               employee_grades.grade_name,
+               employee_grades.base_salary,
+               employee_grades.standard_hourly_rate,
+               employee_grades.transport_hourly_rate,
+               employee_grades.overtime_hourly_rate,
+               employee_grades.holiday_hourly_rate,
+               coalesce(worker_counts.worker_count, 1) as worker_count
+        from service_reports
+        join service_orders on service_orders.id = service_reports.service_order_id
+        join service_report_workers on service_report_workers.report_id = service_reports.id
+        join users on users.id = service_report_workers.user_id
+        left join employee_grades on employee_grades.id = users.employee_grade_id
+        left join buyers on buyers.id = service_orders.buyer_id
+        left join owners on owners.id = buyers.owner_id
+        left join worker_counts on worker_counts.report_id = service_reports.id
+        where {" and ".join(clauses)}
+        order by actual_work_date desc, users.name, service_orders.order_number
+        """,
+        params,
+    ).fetchall()
+    entries = []
+    for row in rows:
+        hours = split_report_labor_hours(row, row["worker_count"])
+        entry = dict(row)
+        entry.update(hours)
+        entry["work_hours"] = hours["standard_hours"] + hours["overtime_hours"] + hours["holiday_hours"]
+        entries.append(entry)
+    return entries
+
+
+@app.route("/reports/labor-hours")
+@login_required
+def labor_hours_report():
+    if normalized_role() not in {"admin", "manager", "finance"}:
+        abort(403)
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    worker_id = request.args.get("worker_id", "")
+    workers = db().execute(
+        """
+        select id, name
+        from users
+        where role in ('manager', 'finance', 'employee', 'external_employee')
+        order by name
+        """
+    ).fetchall()
+    rows = labor_report_entries(date_from, date_to, worker_id)
+    totals = {
+        "work_hours": sum(row["work_hours"] for row in rows),
+        "standard_hours": sum(row["standard_hours"] for row in rows),
+        "transport_hours": sum(row["transport_hours"] for row in rows),
+        "overtime_hours": sum(row["overtime_hours"] for row in rows),
+        "holiday_hours": sum(row["holiday_hours"] for row in rows),
+    }
+    return render_template(
+        "labor_hours_report.html",
+        rows=rows,
+        totals=totals,
+        workers=workers,
+        worker_id=int(worker_id) if str(worker_id).isdigit() else "",
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@app.route("/reports/payroll")
+@login_required
+def payroll_report():
+    if normalized_role() not in {"admin", "manager", "finance"}:
+        abort(403)
+    requested_start = request.args.get("period_start", "")
+    try:
+        period_start = date.fromisoformat(requested_start) if requested_start else date.today() - timedelta(days=13)
+    except ValueError:
+        period_start = date.today() - timedelta(days=13)
+    period_end = period_start + timedelta(days=13)
+    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat())
+    payroll = {}
+    for row in rows:
+        worker = payroll.setdefault(
+            row["worker_id"],
+            {
+                "worker_name": row["worker_name"],
+                "grade_name": row["grade_name"] or "未指定",
+                "base_salary": float(row["base_salary"] or 0),
+                "standard_rate": float(row["standard_hourly_rate"] or 0),
+                "transport_rate": float(row["transport_hourly_rate"] or 0),
+                "overtime_rate": float(row["overtime_hourly_rate"] or 0),
+                "holiday_rate": float(row["holiday_hourly_rate"] or 0),
+                "standard_hours": 0,
+                "transport_hours": 0,
+                "overtime_hours": 0,
+                "holiday_hours": 0,
+            },
+        )
+        for key in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours"):
+            worker[key] += row[key]
+    payroll_rows = []
+    for worker in payroll.values():
+        standard_pay = worker["standard_hours"] * worker["standard_rate"]
+        transport_pay = worker["transport_hours"] * worker["transport_rate"]
+        overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
+        holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
+        total_pay = worker["base_salary"] + standard_pay + transport_pay + overtime_pay + holiday_pay
+        payroll_rows.append(
+            {
+                **worker,
+                "standard_pay": standard_pay,
+                "transport_pay": transport_pay,
+                "overtime_pay": overtime_pay,
+                "holiday_pay": holiday_pay,
+                "total_pay": total_pay,
+            }
+        )
+    payroll_rows.sort(key=lambda row: row["worker_name"])
+    totals = {
+        "base_salary": sum(row["base_salary"] for row in payroll_rows),
+        "standard_pay": sum(row["standard_pay"] for row in payroll_rows),
+        "transport_pay": sum(row["transport_pay"] for row in payroll_rows),
+        "overtime_pay": sum(row["overtime_pay"] for row in payroll_rows),
+        "holiday_pay": sum(row["holiday_pay"] for row in payroll_rows),
+        "total_pay": sum(row["total_pay"] for row in payroll_rows),
+    }
+    return render_template(
+        "payroll_report.html",
+        rows=payroll_rows,
+        totals=totals,
+        period_start=period_start.isoformat(),
+        period_end=period_end.isoformat(),
     )
 
 
@@ -7746,14 +8069,15 @@ def new_service_report(order_id):
             cursor = db().execute(
                 """
                 insert into service_reports (
-                    service_order_id, report_date, total_service_hours, travel_hours, public_transport_hours,
+                    service_order_id, report_date, actual_work_date, total_service_hours, travel_hours, public_transport_hours,
                     driving_miles, departure_address, site_address, total_time, cabinet_number,
                     arrival_time, departure_time, service_description, created_by, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
                     request.form.get("report_date"),
+                    request.form.get("actual_work_date") or request.form.get("report_date"),
                     total_service_hours,
                     to_float(request.form.get("travel_hours")),
                     to_float(request.form.get("public_transport_hours")),
@@ -7825,13 +8149,14 @@ def edit_service_report(report_id):
             db().execute(
                 """
                 update service_reports
-                set report_date = ?, total_service_hours = ?, travel_hours = ?, public_transport_hours = ?,
+                set report_date = ?, actual_work_date = ?, total_service_hours = ?, travel_hours = ?, public_transport_hours = ?,
                     driving_miles = ?, departure_address = ?, site_address = ?, total_time = ?, cabinet_number = ?,
                     arrival_time = ?, departure_time = ?, service_description = ?, updated_at = ?
                 where id = ?
                 """,
                 (
                     request.form.get("report_date"),
+                    request.form.get("actual_work_date") or request.form.get("report_date"),
                     total_service_hours,
                     to_float(request.form.get("travel_hours")),
                     to_float(request.form.get("public_transport_hours")),

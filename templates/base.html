@@ -20,8 +20,8 @@
         {% set map_endpoints = ["service_order_map"] %}
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
-        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "expense_query", "audit_log_report"] %}
-        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "users", "new_user", "edit_user"] %}
+        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "labor_hours_report", "payroll_report", "expense_query", "audit_log_report"] %}
+        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "employee_grades", "company_info", "system_settings", "database_console", "users", "new_user", "edit_user"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
           <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
@@ -55,6 +55,10 @@
                 {{ nav_link("buyer_query", "站点查询") }}
                 {{ nav_link("service_order_query", "工单查询") }}
                 {{ nav_link("service_report_query", "日报查询") }}
+                {% if normalized_role() in ["admin", "manager", "finance"] %}
+                  {{ nav_link("labor_hours_report", "工时统计") }}
+                  {{ nav_link("payroll_report", "薪酬统计") }}
+                {% endif %}
                 {{ nav_link("expense_query", "报销明细查询") }}
                 {% if can_view_audit_logs() %}
                   {{ nav_link("audit_log_report", "操作日志") }}
@@ -79,6 +83,9 @@
                   {{ nav_link("work_order_types", "工单类型") }}
                   {{ nav_link("projects", "项目") }}
                   {{ nav_link("countries", "国家") }}
+                {% endif %}
+                {% if normalized_role() in ["admin", "manager", "finance"] %}
+                  {{ nav_link("employee_grades", "员工等级") }}
                 {% endif %}
                 {% if normalized_role() in ["admin", "manager", "finance", "employee"] %}
                   {{ nav_link("company_info", "公司信息") }}

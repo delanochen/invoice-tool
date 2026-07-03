@@ -74,11 +74,12 @@
       {% endif %}
     </div>
     <table class="list-table">
-      <thead><tr><th>报告日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>操作</th></tr></thead>
+      <thead><tr><th>报告日期</th><th>实际日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>操作</th></tr></thead>
       <tbody>
         {% for report in reports %}
           <tr>
             <td>{{ report.report_date }}</td>
+            <td>{{ report.actual_work_date or report.report_date }}</td>
             <td>{{ report.creator_name or "-" }}</td>
             <td>{{ report.worker_names or "-" }}</td>
             <td>{{ report.total_service_hours }}</td>
@@ -102,7 +103,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="6" class="empty">还没有工作日报。</td></tr>
+          <tr><td colspan="7" class="empty">还没有工作日报。</td></tr>
         {% endfor %}
       </tbody>
     </table>
