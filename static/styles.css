@@ -198,7 +198,10 @@ h1, h2, h3, p { margin-top: 0; }
 .metric span { display: block; margin-bottom: 8px; color: var(--muted); }
 .metric strong { font-size: 22px; }
 .panel { margin-bottom: 16px; padding: 20px; }
-.panel:has(.list-table) { overflow-x: auto; }
+.panel:has(.list-table),
+.panel:has(.invoice-table) {
+  overflow-x: auto;
+}
 .modal-dialog {
   width: min(760px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
@@ -354,9 +357,68 @@ label {
   width: auto;
   margin: 0;
 }
-.list-table, .invoice-table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid var(--line); padding: 12px; text-align: left; vertical-align: top; }
 th { color: var(--muted); font-size: 13px; font-weight: 700; }
+.list-table, .invoice-table {
+  width: max-content;
+  min-width: 100%;
+  border: 1px solid #d0d5dd;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  font-size: 13px;
+}
+.list-table th,
+.list-table td,
+.invoice-table th,
+.invoice-table td {
+  min-width: 112px;
+  max-width: 360px;
+  border-right: 1px solid #d0d5dd;
+  border-bottom: 1px solid #d0d5dd;
+  padding: 7px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list-table th,
+.invoice-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f2f4f7;
+  color: #344054;
+  font-weight: 800;
+}
+.list-table td,
+.invoice-table td {
+  background: #fff;
+  color: var(--ink);
+}
+.list-table tr > *:last-child,
+.invoice-table tr > *:last-child {
+  border-right: 0;
+}
+.list-table tbody tr:nth-child(even) td,
+.invoice-table tbody tr:nth-child(even) td {
+  background: #fcfcfd;
+}
+.list-table tbody tr:hover td,
+.invoice-table tbody tr:hover td {
+  background: #eff8ff;
+}
+.list-table td:last-child,
+.invoice-table td:last-child {
+  min-width: 120px;
+}
+.list-table .row-actions,
+.invoice-table .row-actions {
+  flex-wrap: nowrap;
+}
+.list-table a,
+.invoice-table a {
+  font-weight: 700;
+}
 .empty { color: var(--muted); text-align: center; }
 .message-unread td, .message-unread a { font-weight: 800; }
 
