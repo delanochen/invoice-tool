@@ -6750,6 +6750,102 @@ def payroll_report():
     )
 
 
+@app.route("/reports/customer-reimbursements")
+@login_required
+def customer_reimbursement_query():
+    if not can_view_customer_reimbursement():
+        abort(403)
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "")
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
+    clauses = ["1 = 1"]
+    params = []
+    if not is_external_manager():
+        clauses.extend(location_clauses)
+        params.extend(location_params)
+    else:
+        clauses.append("service_orders.client_id = ?")
+        params.append(g.user["client_id"])
+    if q:
+        clauses.append(
+            """
+            (
+                customer_reimbursements.file_name like ?
+                or service_orders.order_number like ?
+                or service_orders.client_name like ?
+                or service_orders.client_order_number like ?
+                or coalesce(owners.name, buyers.owner) like ?
+                or invoices.invoice_number like ?
+            )
+            """
+        )
+        params.extend([f"%{q}%"] * 6)
+    if status in CUSTOMER_REIMBURSEMENT_STATUS_LABELS:
+        clauses.append("customer_reimbursements.status = ?")
+        params.append(status)
+    else:
+        status = ""
+    if date_from:
+        clauses.append("date(customer_reimbursements.created_at) >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("date(customer_reimbursements.created_at) <= ?")
+        params.append(date_to)
+    rows = db().execute(
+        f"""
+        select customer_reimbursements.*,
+               service_orders.order_number,
+               service_orders.client_name,
+               service_orders.client_order_number,
+               service_orders.country_code,
+               service_orders.region_code,
+               coalesce(owners.name, buyers.owner) as buyer_owner,
+               coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
+               coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
+               creators.name as creator_name,
+               reviewers.name as reviewer_name,
+               invoices.invoice_number
+        from customer_reimbursements
+        join service_orders on service_orders.id = customer_reimbursements.service_order_id
+        left join buyers on buyers.id = service_orders.buyer_id
+        left join owners on owners.id = buyers.owner_id
+        left join users creators on creators.id = customer_reimbursements.created_by
+        left join users reviewers on reviewers.id = customer_reimbursements.reviewed_by
+        left join invoices on invoices.id = customer_reimbursements.invoice_id
+        left join country_translations country_local
+          on country_local.country_code = service_orders.country_code and country_local.language_code = ?
+        left join country_translations country_zh
+          on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
+        where {" and ".join(clauses)}
+        order by customer_reimbursements.created_at desc, customer_reimbursements.id desc
+        """,
+        [current_language(), *params],
+    ).fetchall()
+    totals = {
+        "labor_total": sum(float(row["labor_total"] or 0) for row in rows),
+        "travel_total": sum(float(row["travel_total"] or 0) for row in rows),
+        "mileage_total": sum(float(row["mileage_total"] or 0) for row in rows),
+        "total_amount": sum(float(row["total_amount"] or 0) for row in rows),
+    }
+    return render_template(
+        "customer_reimbursement_query.html",
+        rows=rows,
+        totals=totals,
+        q=q,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        countries=countries,
+        regions=regions,
+        region_code=region_code,
+        country_code=country_code,
+        labels=CUSTOMER_REIMBURSEMENT_STATUS_LABELS,
+        show_location_filters=not is_external_manager(),
+    )
+
+
 @app.route("/reports/expenses")
 @login_required
 def expense_query():

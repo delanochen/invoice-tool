@@ -20,7 +20,7 @@
         {% set map_endpoints = ["service_order_map"] %}
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
-        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "labor_hours_report", "payroll_report", "expense_query", "audit_log_report"] %}
+        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "labor_hours_report", "payroll_report", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
         {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "employee_grades", "company_info", "system_settings", "database_console", "users", "new_user", "edit_user"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
@@ -50,6 +50,9 @@
               {% if can_view_invoices() %}
                 {{ nav_link("invoices", "发票查询") }}
                 {{ nav_link("invoice_query", "发票明细查询") }}
+              {% endif %}
+              {% if can_view_customer_reimbursement() %}
+                {{ nav_link("customer_reimbursement_query", "工单结算报表") }}
               {% endif %}
               {% if not is_external_manager() %}
                 {{ nav_link("buyer_query", "站点查询") }}
