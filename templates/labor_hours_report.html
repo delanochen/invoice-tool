@@ -3,14 +3,16 @@
 {% block content %}
   <header class="page-header"><div><p class="eyebrow">Reports</p><h1>工时统计报表</h1></div></header>
   <form class="filter-bar service-filter no-print" method="get">
-    <label>员工
-      <select name="worker_id">
-        <option value="">全部</option>
-        {% for worker in workers %}
-          <option value="{{ worker.id }}" {% if worker_id == worker.id %}selected{% endif %}>{{ worker.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
+    {% if can_filter_workers %}
+      <label>员工
+        <select name="worker_id">
+          <option value="">全部</option>
+          {% for worker in workers %}
+            <option value="{{ worker.id }}" {% if worker_id == worker.id %}selected{% endif %}>{{ worker.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% endif %}
     <label>实际开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
     <label>实际结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
     <div class="filter-actions">

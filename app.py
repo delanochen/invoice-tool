@@ -1530,6 +1530,10 @@ def can_manage_employee_grades():
     return g.user and normalized_role() in {"admin", "manager", "finance"}
 
 
+def can_view_labor_payroll_reports():
+    return g.user and normalized_role() in {"admin", "manager", "finance", "employee"}
+
+
 def can_view_customer_reimbursement():
     return can_manage_customer_reimbursement() or is_external_manager()
 
@@ -1746,6 +1750,7 @@ app.jinja_env.globals["can_delete_service_order"] = can_delete_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
 app.jinja_env.globals["can_manage_employee_grades"] = can_manage_employee_grades
+app.jinja_env.globals["can_view_labor_payroll_reports"] = can_view_labor_payroll_reports
 app.jinja_env.globals["can_view_customer_reimbursement"] = can_view_customer_reimbursement
 app.jinja_env.globals["can_create_service_report"] = can_create_service_report
 app.jinja_env.globals["is_external_manager"] = is_external_manager
@@ -6642,11 +6647,13 @@ def labor_report_entries(date_from="", date_to="", worker_id=""):
 @app.route("/reports/labor-hours")
 @login_required
 def labor_hours_report():
-    if normalized_role() not in {"admin", "manager", "finance"}:
+    if not can_view_labor_payroll_reports():
         abort(403)
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
     worker_id = request.args.get("worker_id", "")
+    can_filter_workers = normalized_role() in {"admin", "manager", "finance"}
+    effective_worker_id = worker_id if can_filter_workers else str(g.user["id"])
     workers = db().execute(
         """
         select id, name
@@ -6654,8 +6661,8 @@ def labor_hours_report():
         where role in ('manager', 'finance', 'employee', 'external_employee')
         order by name
         """
-    ).fetchall()
-    rows = labor_report_entries(date_from, date_to, worker_id)
+    ).fetchall() if can_filter_workers else []
+    rows = labor_report_entries(date_from, date_to, effective_worker_id)
     totals = {
         "work_hours": sum(row["work_hours"] for row in rows),
         "standard_hours": sum(row["standard_hours"] for row in rows),
@@ -6668,7 +6675,8 @@ def labor_hours_report():
         rows=rows,
         totals=totals,
         workers=workers,
-        worker_id=int(worker_id) if str(worker_id).isdigit() else "",
+        worker_id=int(effective_worker_id) if str(effective_worker_id).isdigit() else "",
+        can_filter_workers=can_filter_workers,
         date_from=date_from,
         date_to=date_to,
     )
@@ -6677,7 +6685,7 @@ def labor_hours_report():
 @app.route("/reports/payroll")
 @login_required
 def payroll_report():
-    if normalized_role() not in {"admin", "manager", "finance"}:
+    if not can_view_labor_payroll_reports():
         abort(403)
     requested_start = request.args.get("period_start", "")
     try:
@@ -6685,7 +6693,8 @@ def payroll_report():
     except ValueError:
         period_start = date.today() - timedelta(days=13)
     period_end = period_start + timedelta(days=13)
-    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat())
+    effective_worker_id = "" if normalized_role() in {"admin", "manager", "finance"} else str(g.user["id"])
+    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), effective_worker_id)
     payroll = {}
     for row in rows:
         worker = payroll.setdefault(

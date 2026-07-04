@@ -55,7 +55,7 @@
                 {{ nav_link("buyer_query", "站点查询") }}
                 {{ nav_link("service_order_query", "工单查询") }}
                 {{ nav_link("service_report_query", "日报查询") }}
-                {% if normalized_role() in ["admin", "manager", "finance"] %}
+                {% if can_view_labor_payroll_reports() %}
                   {{ nav_link("labor_hours_report", "工时统计") }}
                   {{ nav_link("payroll_report", "薪酬统计") }}
                 {% endif %}
