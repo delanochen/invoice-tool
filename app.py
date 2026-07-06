@@ -6796,27 +6796,27 @@ def current_payroll_period_start(today=None):
     return cycle_start + timedelta(days=elapsed_periods * 14)
 
 
-@app.route("/reports/payroll")
-@login_required
-def payroll_report():
-    if not can_view_labor_payroll_reports():
-        abort(403)
-    requested_start = request.args.get("period_start", "")
-    try:
-        period_start = date.fromisoformat(requested_start) if requested_start else current_payroll_period_start()
-    except ValueError:
-        period_start = current_payroll_period_start()
+def payroll_period_dates(period_start):
     period_end = period_start + timedelta(days=13)
     pay_date = period_end + timedelta(days=14)
+    return period_end, pay_date
+
+
+def effective_payroll_worker_id():
+    return "" if normalized_role() in {"admin", "manager", "finance"} else str(g.user["id"])
+
+
+def payroll_rows_for_period(period_start, worker_id=""):
+    period_end, pay_date = payroll_period_dates(period_start)
     subsidy_settings = payroll_subsidy_settings()
     show_meal_allowance = subsidy_settings["meal_allowance_method"] == "daily"
-    effective_worker_id = "" if normalized_role() in {"admin", "manager", "finance"} else str(g.user["id"])
-    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), effective_worker_id, date_mode="attendance")
+    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), worker_id, date_mode="attendance")
     payroll = {}
     for row in rows:
         worker = payroll.setdefault(
             row["worker_id"],
             {
+                "worker_id": row["worker_id"],
                 "worker_name": row["worker_name"],
                 "grade_name": row["grade_name"] or "未指定",
                 "base_salary": float(row["base_salary"] or 0),
@@ -6882,15 +6882,261 @@ def payroll_report():
         "meal_allowance": sum(row["meal_allowance"] for row in payroll_rows),
         "total_pay": sum(row["total_pay"] for row in payroll_rows),
     }
+    return {
+        "rows": payroll_rows,
+        "totals": totals,
+        "period_start": period_start,
+        "period_end": period_end,
+        "pay_date": pay_date,
+        "subsidy_settings": subsidy_settings,
+        "show_meal_allowance": show_meal_allowance,
+    }
+
+
+def payroll_row_export(row, show_meal_allowance):
+    payload = {
+        "员工": row["worker_name"],
+        "员工等级": row["grade_name"],
+        "基本工资": round(row["base_salary"], 2),
+        "出勤天数": row["attendance_days"],
+        "里程": round(row["driving_miles"], 1),
+        "标准工时": round(row["standard_hours"], 2),
+        "标准工资": round(row["standard_pay"], 2),
+        "交通工时": round(row["transport_hours"], 2),
+        "交通工资": round(row["transport_pay"], 2),
+        "加班工时": round(row["overtime_hours"], 2),
+        "加班工资": round(row["overtime_pay"], 2),
+        "假期工时": round(row["holiday_hours"], 2),
+        "假期工资": round(row["holiday_pay"], 2),
+        "车补": round(row["car_allowance"], 2),
+    }
+    if show_meal_allowance:
+        payload["餐补"] = round(row["meal_allowance"], 2)
+    payload["合计工资"] = round(row["total_pay"], 2)
+    return payload
+
+
+def payroll_batch_payload(period_start):
+    batch = payroll_rows_for_period(period_start, effective_payroll_worker_id())
+    return {
+        "period_start": batch["period_start"].isoformat(),
+        "period_end": batch["period_end"].isoformat(),
+        "pay_date": batch["pay_date"].isoformat(),
+        "status": "paid" if batch["pay_date"] <= date.today() else "scheduled",
+        "show_meal_allowance": batch["show_meal_allowance"],
+        "rows": [payroll_row_export(row, batch["show_meal_allowance"]) for row in batch["rows"]],
+        "totals": {key: round(value, 2) for key, value in batch["totals"].items()},
+    }
+
+
+def payroll_cycle_start_date():
+    try:
+        return date.fromisoformat(get_setting("payroll_cycle_start", "2026-07-06"))
+    except ValueError:
+        return date(2026, 7, 6)
+
+
+def payroll_periods_for_month(year, month):
+    month_start = date(year, month, 1)
+    month_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
+    cycle_start = payroll_cycle_start_date()
+    start = cycle_start
+    if month_start > cycle_start + timedelta(days=27):
+        periods_before = max(((month_start - cycle_start).days - 27) // 14 - 1, 0)
+        start = cycle_start + timedelta(days=periods_before * 14)
+    periods = []
+    while start <= month_end:
+        period_end, pay_date = payroll_period_dates(start)
+        if month_start <= pay_date <= month_end:
+            periods.append(
+                {
+                    "period_start": start,
+                    "period_end": period_end,
+                    "pay_date": pay_date,
+                    "status": "paid" if pay_date <= date.today() else "scheduled",
+                }
+            )
+        start += timedelta(days=14)
+    return periods
+
+
+def payroll_calendar_weeks(year, month, periods):
+    month_start = date(year, month, 1)
+    month_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
+    pay_days = {period["pay_date"]: period for period in periods}
+    current = month_start - timedelta(days=month_start.weekday())
+    weeks = []
+    while current <= month_end or current.weekday() != 0:
+        week = []
+        for _ in range(7):
+            period = pay_days.get(current)
+            week.append(
+                {
+                    "date": current,
+                    "in_month": current.month == month,
+                    "period": period,
+                    "is_today": current == date.today(),
+                }
+            )
+            current += timedelta(days=1)
+        weeks.append(week)
+    return weeks
+
+
+def xlsx_column_name(index):
+    name = ""
+    index += 1
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def build_simple_xlsx(headers, rows, sheet_name="Sheet1"):
+    def cell_xml(row_index, column_index, value):
+        ref = f"{xlsx_column_name(column_index)}{row_index}"
+        if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+            return f'<c r="{ref}"><v>{float(value):.2f}</v></c>'
+        text = html.escape("" if value is None else str(value))
+        return f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>'
+
+    worksheet_rows = []
+    all_rows = [headers] + rows
+    for row_index, row in enumerate(all_rows, start=1):
+        cells = "".join(cell_xml(row_index, column_index, value) for column_index, value in enumerate(row))
+        worksheet_rows.append(f'<row r="{row_index}">{cells}</row>')
+    dimension = f"A1:{xlsx_column_name(max(len(headers) - 1, 0))}{max(len(all_rows), 1)}"
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<dimension ref="{dimension}"/><sheetData>{"".join(worksheet_rows)}</sheetData></worksheet>'
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<sheets><sheet name="{html.escape(sheet_name)}" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '</Types>'
+    )
+    root_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        '</Relationships>'
+    )
+    workbook_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '</Relationships>'
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as workbook:
+        workbook.writestr("[Content_Types].xml", content_types)
+        workbook.writestr("_rels/.rels", root_rels)
+        workbook.writestr("xl/workbook.xml", workbook_xml)
+        workbook.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        workbook.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    buffer.seek(0)
+    return buffer
+
+
+@app.route("/reports/payroll")
+@login_required
+def payroll_report():
+    if not can_view_labor_payroll_reports():
+        abort(403)
+    requested_start = request.args.get("period_start", "")
+    try:
+        period_start = date.fromisoformat(requested_start) if requested_start else current_payroll_period_start()
+    except ValueError:
+        period_start = current_payroll_period_start()
+    payroll_batch = payroll_rows_for_period(period_start, effective_payroll_worker_id())
     return render_template(
         "payroll_report.html",
-        rows=payroll_rows,
-        totals=totals,
-        period_start=period_start.isoformat(),
-        period_end=period_end.isoformat(),
-        pay_date=pay_date.isoformat(),
-        subsidy_settings=subsidy_settings,
-        show_meal_allowance=show_meal_allowance,
+        rows=payroll_batch["rows"],
+        totals=payroll_batch["totals"],
+        period_start=payroll_batch["period_start"].isoformat(),
+        period_end=payroll_batch["period_end"].isoformat(),
+        pay_date=payroll_batch["pay_date"].isoformat(),
+        subsidy_settings=payroll_batch["subsidy_settings"],
+        show_meal_allowance=payroll_batch["show_meal_allowance"],
+    )
+
+
+@app.route("/payroll/calendar")
+@login_required
+def payroll_calendar():
+    if not can_view_labor_payroll_reports():
+        abort(403)
+    today = date.today()
+    try:
+        year = int(request.args.get("year", today.year))
+        month = int(request.args.get("month", today.month))
+        visible_month = date(year, month, 1)
+    except ValueError:
+        visible_month = date(today.year, today.month, 1)
+    periods = payroll_periods_for_month(visible_month.year, visible_month.month)
+    previous_month = date(visible_month.year - 1, 12, 1) if visible_month.month == 1 else date(visible_month.year, visible_month.month - 1, 1)
+    next_month = date(visible_month.year + 1, 1, 1) if visible_month.month == 12 else date(visible_month.year, visible_month.month + 1, 1)
+    return render_template(
+        "payroll_calendar.html",
+        visible_month=visible_month,
+        previous_month=previous_month,
+        next_month=next_month,
+        weeks=payroll_calendar_weeks(visible_month.year, visible_month.month, periods),
+    )
+
+
+@app.get("/payroll/calendar/batch")
+@login_required
+def payroll_calendar_batch():
+    if not can_view_labor_payroll_reports():
+        abort(403)
+    try:
+        period_start = date.fromisoformat(request.args.get("period_start", ""))
+    except ValueError:
+        abort(400)
+    return jsonify(payroll_batch_payload(period_start))
+
+
+@app.get("/payroll/calendar/export.xlsx")
+@login_required
+def payroll_calendar_export():
+    if not can_view_labor_payroll_reports():
+        abort(403)
+    try:
+        period_start = date.fromisoformat(request.args.get("period_start", ""))
+    except ValueError:
+        abort(400)
+    payload = payroll_batch_payload(period_start)
+    headers = list(payload["rows"][0].keys()) if payload["rows"] else [
+        "员工", "员工等级", "基本工资", "出勤天数", "里程", "标准工时", "标准工资",
+        "交通工时", "交通工资", "加班工时", "加班工资", "假期工时", "假期工资",
+        "车补", "餐补", "合计工资",
+    ]
+    if not payload["show_meal_allowance"] and "餐补" in headers:
+        headers.remove("餐补")
+    rows = [[row.get(header, "") for header in headers] for row in payload["rows"]]
+    rows.append([])
+    rows.append(["周期", f"{payload['period_start']} 至 {payload['period_end']}"])
+    rows.append(["发薪日期", payload["pay_date"]])
+    rows.append(["合计工资", payload["totals"]["total_pay"]])
+    workbook = build_simple_xlsx(headers, rows, sheet_name="工资批次")
+    filename = f"payroll-{payload['pay_date']}.xlsx"
+    return send_file(
+        workbook,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 

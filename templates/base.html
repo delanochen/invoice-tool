@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260620-i18n-v3') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260705-payroll-calendar-v1') }}">
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -21,7 +21,7 @@
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
-        {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "employee_grades", "payroll_subsidies"] %}
+        {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
         {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "users", "new_user", "edit_user"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
@@ -75,6 +75,7 @@
                 {% if can_view_labor_payroll_reports() %}
                   {{ nav_link("labor_hours_report", "工时统计") }}
                   {{ nav_link("payroll_report", "薪酬统计") }}
+                  {{ nav_link("payroll_calendar", "薪酬日历") }}
                 {% endif %}
                 {% if can_manage_employee_grades() %}
                   <details class="nav-subgroup {{ 'active' if active_endpoint in payroll_parameter_endpoints else '' }}" {% if active_endpoint in payroll_parameter_endpoints %}open{% endif %}>
@@ -162,7 +163,7 @@
       </div>
       <div class="image-preview-wrap"><img id="imageAttachmentPreviewImage" alt="附件预览"></div>
     </dialog>
-    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260630-site-email-v1') }}"></script>
+    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260705-payroll-calendar-v1') }}"></script>
     <script src="{{ url_for('static', filename='attachment-preview.js', v='20260630-image-preview-v1') }}"></script>
     {% block scripts %}{% endblock %}
   </body>

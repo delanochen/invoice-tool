@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}薪酬日历 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Payroll</p><h1>薪酬日历</h1></div>
+    <div class="toolbar-actions no-print">
+      <button type="button" onclick="window.location.href='{{ url_for('payroll_calendar', year=previous_month.year, month=previous_month.month) }}'">上个月</button>
+      <button type="button" onclick="window.location.href='{{ url_for('payroll_calendar') }}'">本月</button>
+      <button type="button" onclick="window.location.href='{{ url_for('payroll_calendar', year=next_month.year, month=next_month.month) }}'">下个月</button>
+    </div>
+  </header>
+
+  <section class="panel payroll-calendar-panel">
+    <div class="panel-title"><h2>{{ visible_month.strftime("%Y-%m") }}</h2><span class="muted-line">发薪日可点击查看批次明细</span></div>
+    <div class="payroll-calendar">
+      {% for day_name in ["一", "二", "三", "四", "五", "六", "日"] %}
+        <div class="payroll-calendar-head">{{ day_name }}</div>
+      {% endfor %}
+      {% for week in weeks %}
+        {% for day in week %}
+          <div class="payroll-calendar-day {{ '' if day.in_month else 'muted-day' }} {{ 'today' if day.is_today else '' }} {{ day.period.status if day.period else '' }}">
+            <span class="calendar-date">{{ day.date.day }}</span>
+            {% if day.period %}
+              <button
+                type="button"
+                class="payroll-batch-link"
+                data-period-start="{{ day.period.period_start.isoformat() }}"
+                data-period-end="{{ day.period.period_end.isoformat() }}"
+                data-pay-date="{{ day.period.pay_date.isoformat() }}"
+              >
+                工资发放
+              </button>
+              <small>{{ day.period.period_start.strftime("%m/%d") }}-{{ day.period.period_end.strftime("%m/%d") }}</small>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </section>
+
+  <dialog class="payroll-batch-dialog" id="payrollBatchDialog">
+    <div class="modal-header">
+      <div>
+        <p class="eyebrow">Payroll Batch</p>
+        <h2 id="payrollBatchTitle">工资批次</h2>
+      </div>
+      <button type="button" class="icon-button" data-close-payroll-batch aria-label="关闭">×</button>
+    </div>
+    <div class="payroll-batch-summary" id="payrollBatchSummary"></div>
+    <div class="table-scroll">
+      <table class="list-table" id="payrollBatchTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="form-actions">
+      <button type="button" id="payrollBatchExport">导出 Excel</button>
+      <button type="button" data-close-payroll-batch>关闭</button>
+    </div>
+  </dialog>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      const dialog = document.getElementById("payrollBatchDialog");
+      const title = document.getElementById("payrollBatchTitle");
+      const summary = document.getElementById("payrollBatchSummary");
+      const table = document.getElementById("payrollBatchTable");
+      const exportButton = document.getElementById("payrollBatchExport");
+      let currentPeriodStart = "";
+
+      const t = (value) => window.uiTranslate ? window.uiTranslate(value) : value;
+      const money = (value) => `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      })[char]);
+
+      const renderRows = (payload) => {
+        const headers = payload.rows.length ? Object.keys(payload.rows[0]) : ["员工", "员工等级", "合计工资"];
+        table.querySelector("thead").innerHTML = `<tr>${headers.map((header) => `<th>${escapeHtml(t(header))}</th>`).join("")}</tr>`;
+        table.querySelector("tbody").innerHTML = payload.rows.length
+          ? payload.rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}</tr>`).join("")
+          : `<tr><td colspan="${headers.length}" class="empty">${escapeHtml(t("当前批次没有薪酬记录。"))}</td></tr>`;
+      };
+
+      document.querySelectorAll(".payroll-batch-link").forEach((button) => {
+        button.addEventListener("click", async () => {
+          currentPeriodStart = button.dataset.periodStart;
+          title.textContent = `${t("工资批次")} ${button.dataset.payDate}`;
+          summary.textContent = t("正在读取批次明细...");
+          table.querySelector("thead").innerHTML = "";
+          table.querySelector("tbody").innerHTML = "";
+          dialog.showModal();
+          const response = await fetch(`{{ url_for('payroll_calendar_batch') }}?period_start=${encodeURIComponent(currentPeriodStart)}`);
+          const payload = await response.json();
+          summary.innerHTML = [
+            `${t("计薪周期")}：${payload.period_start} ${t("至")} ${payload.period_end}`,
+            `${t("发薪日期")}：${payload.pay_date}`,
+            `${t("状态")}：${payload.status === "paid" ? t("已发放") : t("待发放")}`,
+            `${t("合计")}：${money(payload.totals.total_pay)}`
+          ].map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+          renderRows(payload);
+        });
+      });
+
+      exportButton.addEventListener("click", () => {
+        if (currentPeriodStart) {
+          window.location.href = `{{ url_for('payroll_calendar_export') }}?period_start=${encodeURIComponent(currentPeriodStart)}`;
+        }
+      });
+
+      document.querySelectorAll("[data-close-payroll-batch]").forEach((button) => {
+        button.addEventListener("click", () => dialog.close());
+      });
+    })();
+  </script>
+{% endblock %}
