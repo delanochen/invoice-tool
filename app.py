@@ -616,6 +616,7 @@ def init_db():
                 id integer primary key autoincrement,
                 report_id integer not null,
                 user_id integer not null,
+                driving_miles real not null default 0,
                 foreign key(report_id) references service_reports(id) on delete cascade,
                 foreign key(user_id) references users(id)
             );
@@ -803,6 +804,7 @@ def init_db():
         ensure_column(connection, "users", "country_code", "text not null default 'US'")
         ensure_column(connection, "users", "employee_grade_id", "integer")
         ensure_column(connection, "service_reports", "actual_work_date", "text")
+        ensure_column(connection, "service_report_workers", "driving_miles", "real not null default 0")
         connection.execute(
             "update service_reports set actual_work_date = report_date where trim(coalesce(actual_work_date, '')) = ''"
         )
@@ -1271,6 +1273,13 @@ def seed_settings(connection):
     defaults["invoice_terms"] = DEFAULT_INVOICE_TERMS
     defaults["google_maps_browser_api_key"] = GOOGLE_MAPS_BROWSER_API_KEY_ENV
     defaults["google_geocoding_api_key"] = GOOGLE_GEOCODING_API_KEY_ENV
+    defaults["payroll_cycle_start"] = "2026-07-06"
+    defaults["payroll_car_allowance_method"] = "daily"
+    defaults["payroll_car_daily_amount"] = "60"
+    defaults["payroll_car_mileage_rate"] = "0.5"
+    defaults["payroll_meal_allowance_method"] = "daily"
+    defaults["payroll_meal_daily_amount"] = "50"
+    defaults["payroll_lodging_limit"] = "0"
     for key, value in defaults.items():
         connection.execute(
             "insert or ignore into settings (key, value) values (?, ?)",
@@ -1291,6 +1300,56 @@ def set_setting(key, value):
         """,
         (key, value),
     )
+
+
+def setting_float(key, default=0):
+    try:
+        return float(get_setting(key, str(default)) or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def payroll_subsidy_settings():
+    car_method = get_setting("payroll_car_allowance_method", "daily")
+    if car_method not in {"daily", "mileage"}:
+        car_method = "daily"
+    meal_method = get_setting("payroll_meal_allowance_method", "daily")
+    if meal_method not in {"daily", "provided"}:
+        meal_method = "daily"
+    return {
+        "cycle_start": get_setting("payroll_cycle_start", "2026-07-06"),
+        "car_allowance_method": car_method,
+        "car_daily_amount": setting_float("payroll_car_daily_amount", 60),
+        "car_mileage_rate": setting_float("payroll_car_mileage_rate", 0.5),
+        "meal_allowance_method": meal_method,
+        "meal_daily_amount": setting_float("payroll_meal_daily_amount", 50),
+        "lodging_limit": setting_float("payroll_lodging_limit", 0),
+    }
+
+
+def lodging_reimbursement_limit():
+    return payroll_subsidy_settings()["lodging_limit"]
+
+
+def is_lodging_project_name(name):
+    normalized = (name or "").strip().casefold()
+    return "住宿" in normalized or "lodging" in normalized or "hotel" in normalized
+
+
+def is_fuel_project_name(name):
+    normalized = (name or "").strip().casefold()
+    return "油费" in normalized or "加油" in normalized or "fuel" in normalized or "gas" in normalized
+
+
+def validate_lodging_reimbursement(amount, label="住宿报销"):
+    limit = lodging_reimbursement_limit()
+    if limit > 0 and amount > limit:
+        raise ValueError(f"{label}不能超过 {limit:.2f}。")
+
+
+def validate_fuel_reimbursement_allowed(amount, label="油费报销"):
+    if amount > 0 and payroll_subsidy_settings()["car_allowance_method"] == "mileage":
+        raise ValueError(f"当前车补按里程计费，{label}不可报销。")
 
 
 def get_timezone_name():
@@ -3343,6 +3402,8 @@ def customer_reimbursement_items_from_form():
         )
         if not row["worker_name"] or not row["project_date"]:
             raise ValueError("工单结算每一行都必须有姓名和项目时间。")
+        validate_lodging_reimbursement(row["lodging"], "工单结算住宿报销")
+        validate_fuel_reimbursement_allowed(row["fuel"], "工单结算油费")
         rows.append(calculate_customer_reimbursement_item(row, len(rows)))
     if not rows:
         raise ValueError("工单结算至少需要一行明细。")
@@ -3851,7 +3912,7 @@ def get_expense_attachments(expense_id):
 def service_report_workers(report_id):
     return db().execute(
         """
-        select users.id, users.name, users.email
+        select users.id, users.name, users.email, service_report_workers.driving_miles
         from service_report_workers
         join users on users.id = service_report_workers.user_id
         where service_report_workers.report_id = ?
@@ -3968,7 +4029,11 @@ def save_report_detail_rows(report_id):
 
     db().execute("delete from service_report_workers where report_id = ?", (report_id,))
     for user_id in worker_ids:
-        db().execute("insert into service_report_workers (report_id, user_id) values (?, ?)", (report_id, user_id))
+        worker_miles = to_float(request.form.get(f"worker_driving_miles_{user_id}"))
+        db().execute(
+            "insert into service_report_workers (report_id, user_id, driving_miles) values (?, ?, ?)",
+            (report_id, user_id, worker_miles),
+        )
 
     db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
     for index, row in enumerate(parse_part_rows("saved", ["part_number", "part_name", "quantity", "status"])):
@@ -5671,6 +5736,40 @@ def employee_grades():
     return render_template("employee_grades.html", grades=employee_grade_options(include_inactive=True))
 
 
+@app.route("/payroll/subsidies", methods=["GET", "POST"])
+@login_required
+def payroll_subsidies():
+    if not can_manage_employee_grades():
+        abort(403)
+    if request.method == "POST":
+        car_method = request.form.get("car_allowance_method", "daily")
+        meal_method = request.form.get("meal_allowance_method", "daily")
+        if car_method not in {"daily", "mileage"}:
+            car_method = "daily"
+        if meal_method not in {"daily", "provided"}:
+            meal_method = "daily"
+        values = {
+            "payroll_cycle_start": request.form.get("cycle_start") or "2026-07-06",
+            "payroll_car_allowance_method": car_method,
+            "payroll_car_daily_amount": max(to_float(request.form.get("car_daily_amount")), 0),
+            "payroll_car_mileage_rate": max(to_float(request.form.get("car_mileage_rate")), 0),
+            "payroll_meal_allowance_method": meal_method,
+            "payroll_meal_daily_amount": max(to_float(request.form.get("meal_daily_amount")), 0),
+            "payroll_lodging_limit": max(to_float(request.form.get("lodging_limit")), 0),
+        }
+        try:
+            date.fromisoformat(values["payroll_cycle_start"])
+        except ValueError:
+            values["payroll_cycle_start"] = "2026-07-06"
+        for key, value in values.items():
+            set_setting(key, str(value))
+        log_action("update", "payroll_subsidies", None, "薪酬补贴参数", "修改薪酬补贴参数")
+        db().commit()
+        flash("补贴参数已保存。", "success")
+        return redirect(url_for("payroll_subsidies"))
+    return render_template("payroll_subsidies.html", settings=payroll_subsidy_settings())
+
+
 @app.route("/users", methods=["GET", "POST"])
 @login_required
 def users():
@@ -6581,14 +6680,15 @@ def service_report_query():
     )
 
 
-def labor_report_entries(date_from="", date_to="", worker_id=""):
+def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actual"):
+    report_date_expr = "date(service_reports.updated_at)" if date_mode == "attendance" else "coalesce(service_reports.actual_work_date, service_reports.report_date)"
     clauses = ["1 = 1"]
     params = []
     if date_from:
-        clauses.append("coalesce(service_reports.actual_work_date, service_reports.report_date) >= ?")
+        clauses.append(f"{report_date_expr} >= ?")
         params.append(date_from)
     if date_to:
-        clauses.append("coalesce(service_reports.actual_work_date, service_reports.report_date) <= ?")
+        clauses.append(f"{report_date_expr} <= ?")
         params.append(date_to)
     if worker_id and str(worker_id).isdigit():
         clauses.append("users.id = ?")
@@ -6602,10 +6702,12 @@ def labor_report_entries(date_from="", date_to="", worker_id=""):
         )
         select service_reports.id as report_id,
                service_reports.report_date,
-               coalesce(service_reports.actual_work_date, service_reports.report_date) as actual_work_date,
+               {report_date_expr} as actual_work_date,
+               date(service_reports.updated_at) as attendance_date,
                service_reports.total_service_hours,
                service_reports.travel_hours,
                service_reports.public_transport_hours,
+               service_report_workers.driving_miles as worker_driving_miles,
                service_reports.arrival_time,
                service_reports.departure_time,
                service_orders.id as service_order_id,
@@ -6682,6 +6784,18 @@ def labor_hours_report():
     )
 
 
+def current_payroll_period_start(today=None):
+    today = today or date.today()
+    try:
+        cycle_start = date.fromisoformat(get_setting("payroll_cycle_start", "2026-07-06"))
+    except ValueError:
+        cycle_start = date(2026, 7, 6)
+    if today < cycle_start:
+        return cycle_start
+    elapsed_periods = (today - cycle_start).days // 14
+    return cycle_start + timedelta(days=elapsed_periods * 14)
+
+
 @app.route("/reports/payroll")
 @login_required
 def payroll_report():
@@ -6689,12 +6803,15 @@ def payroll_report():
         abort(403)
     requested_start = request.args.get("period_start", "")
     try:
-        period_start = date.fromisoformat(requested_start) if requested_start else date.today() - timedelta(days=13)
+        period_start = date.fromisoformat(requested_start) if requested_start else current_payroll_period_start()
     except ValueError:
-        period_start = date.today() - timedelta(days=13)
+        period_start = current_payroll_period_start()
     period_end = period_start + timedelta(days=13)
+    pay_date = period_end + timedelta(days=14)
+    subsidy_settings = payroll_subsidy_settings()
+    show_meal_allowance = subsidy_settings["meal_allowance_method"] == "daily"
     effective_worker_id = "" if normalized_role() in {"admin", "manager", "finance"} else str(g.user["id"])
-    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), effective_worker_id)
+    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), effective_worker_id, date_mode="attendance")
     payroll = {}
     for row in rows:
         worker = payroll.setdefault(
@@ -6711,24 +6828,46 @@ def payroll_report():
                 "transport_hours": 0,
                 "overtime_hours": 0,
                 "holiday_hours": 0,
+                "attendance_dates": set(),
+                "driving_miles": 0,
             },
         )
         for key in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours"):
             worker[key] += row[key]
+        if row["attendance_date"]:
+            worker["attendance_dates"].add(row["attendance_date"])
+        worker["driving_miles"] += float(row["worker_driving_miles"] or 0)
     payroll_rows = []
     for worker in payroll.values():
+        attendance_days = len(worker["attendance_dates"])
         standard_pay = worker["standard_hours"] * worker["standard_rate"]
         transport_pay = worker["transport_hours"] * worker["transport_rate"]
         overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
         holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
-        total_pay = worker["base_salary"] + standard_pay + transport_pay + overtime_pay + holiday_pay
+        if subsidy_settings["car_allowance_method"] == "mileage":
+            car_allowance = worker["driving_miles"] * subsidy_settings["car_mileage_rate"]
+        else:
+            car_allowance = attendance_days * subsidy_settings["car_daily_amount"]
+        meal_allowance = attendance_days * subsidy_settings["meal_daily_amount"] if show_meal_allowance else 0
+        total_pay = (
+            worker["base_salary"]
+            + standard_pay
+            + transport_pay
+            + overtime_pay
+            + holiday_pay
+            + car_allowance
+            + meal_allowance
+        )
         payroll_rows.append(
             {
                 **worker,
+                "attendance_days": attendance_days,
                 "standard_pay": standard_pay,
                 "transport_pay": transport_pay,
                 "overtime_pay": overtime_pay,
                 "holiday_pay": holiday_pay,
+                "car_allowance": car_allowance,
+                "meal_allowance": meal_allowance,
                 "total_pay": total_pay,
             }
         )
@@ -6739,6 +6878,8 @@ def payroll_report():
         "transport_pay": sum(row["transport_pay"] for row in payroll_rows),
         "overtime_pay": sum(row["overtime_pay"] for row in payroll_rows),
         "holiday_pay": sum(row["holiday_pay"] for row in payroll_rows),
+        "car_allowance": sum(row["car_allowance"] for row in payroll_rows),
+        "meal_allowance": sum(row["meal_allowance"] for row in payroll_rows),
         "total_pay": sum(row["total_pay"] for row in payroll_rows),
     }
     return render_template(
@@ -6747,6 +6888,9 @@ def payroll_report():
         totals=totals,
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
+        pay_date=pay_date.isoformat(),
+        subsidy_settings=subsidy_settings,
+        show_meal_allowance=show_meal_allowance,
     )
 
 
@@ -8223,6 +8367,7 @@ def new_service_report(order_id):
         report=report_form_defaults(order=order),
         users=users_rows,
         selected_workers=[],
+        selected_worker_miles={},
         saved_parts=[{} for _ in range(4)],
         replaced_parts=[{} for _ in range(4)],
         attachments=get_report_attachments(0),
@@ -8294,7 +8439,9 @@ def edit_service_report(report_id):
             return redirect(url_for("edit_service_report", report_id=report_id))
         flash("工作日报已保存。", "success")
         return redirect(url_for("edit_service_report", report_id=report_id))
-    selected_workers = [row["id"] for row in service_report_workers(report_id)]
+    worker_rows = service_report_workers(report_id)
+    selected_workers = [row["id"] for row in worker_rows]
+    selected_worker_miles = {row["id"]: row["driving_miles"] for row in worker_rows}
     saved_parts = list(report_parts("service_report_saved_parts", report_id)) or [{} for _ in range(4)]
     replaced_parts = list(report_parts("service_report_replaced_parts", report_id)) or [{} for _ in range(4)]
     return render_template(
@@ -8303,6 +8450,7 @@ def edit_service_report(report_id):
         report=report_form_defaults(report=report),
         users=users_rows,
         selected_workers=selected_workers,
+        selected_worker_miles=selected_worker_miles,
         saved_parts=saved_parts,
         replaced_parts=replaced_parts,
         attachments=get_report_attachments(report_id),
@@ -8624,6 +8772,10 @@ def expense_items_from_form(expense_id=None):
         amount = to_float(amounts[index] if index < len(amounts) else 0)
         if amount <= 0:
             raise ValueError("每个员工报销项目的金额必须大于 0。")
+        if is_lodging_project_name(project["name"]):
+            validate_lodging_reimbursement(amount, "员工住宿报销")
+        if is_fuel_project_name(project["name"]):
+            validate_fuel_reimbursement_allowed(amount, "员工油费")
         description = descriptions[index].strip() if index < len(descriptions) else ""
         rows.append(
             {

@@ -77,7 +77,13 @@
       <h2>服务人员清单</h2>
       <div class="check-grid" id="serviceWorkers" role="group" aria-label="服务人员清单">
         {% for user in users %}
-          <label class="check-chip"><input type="checkbox" name="worker_user_id" value="{{ user.id }}" {% if user.id in selected_workers %}checked{% endif %}> {{ user.name }}</label>
+          <label class="check-chip worker-mile-chip">
+            <input type="checkbox" name="worker_user_id" value="{{ user.id }}" {% if user.id in selected_workers %}checked{% endif %}>
+            <span class="worker-mile-name">{{ user.name }}</span>
+            <span class="worker-mile-field">里程
+              <input type="number" step="0.1" min="0" name="worker_driving_miles_{{ user.id }}" value="{{ selected_worker_miles.get(user.id, 0) }}">
+            </span>
+          </label>
         {% else %}
           <p class="empty">当前工单国家没有可选的启用服务人员。</p>
         {% endfor %}

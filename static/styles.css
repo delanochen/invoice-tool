@@ -137,6 +137,32 @@ button:disabled {
   margin-top: 6px;
 }
 .nav-submenu a { padding-left: 24px; }
+.nav-subgroup {
+  margin: 2px 0 0;
+}
+.nav-subgroup summary {
+  display: flex;
+  justify-content: space-between;
+  border-radius: 6px;
+  padding: 8px 12px 8px 24px;
+  color: #d1d5db;
+  cursor: pointer;
+}
+.nav-subgroup summary::-webkit-details-marker { display: none; }
+.nav-subgroup summary::after {
+  content: ">";
+  color: #9ca3af;
+  font-size: 12px;
+}
+.nav-subgroup[open] summary::after {
+  transform: rotate(90deg);
+}
+.nav-subgroup.active summary,
+.nav-subgroup summary:hover {
+  background: rgba(15, 118, 110, 0.22);
+  color: #fff;
+}
+.nav-subgroup .nav-submenu a { padding-left: 36px; }
 .user-box {
   display: grid;
   flex: 0 0 auto;
@@ -356,6 +382,24 @@ label {
 .check-chip input {
   width: auto;
   margin: 0;
+}
+.worker-mile-chip {
+  border-radius: 8px;
+  gap: 10px;
+}
+.worker-mile-name {
+  min-width: 72px;
+}
+.worker-mile-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.worker-mile-field input {
+  width: 84px;
+  padding: 5px 7px;
 }
 th, td { border-bottom: 1px solid var(--line); padding: 12px; text-align: left; vertical-align: top; }
 th { color: var(--muted); font-size: 13px; font-weight: 700; }

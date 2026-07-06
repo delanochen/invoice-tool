@@ -5,6 +5,7 @@
   <form class="filter-bar service-filter no-print" method="get">
     <label>两周开始日期 <input type="date" name="period_start" value="{{ period_start }}"></label>
     <label>两周结束日期 <input type="date" value="{{ period_end }}" readonly></label>
+    <label>发薪日期 <input type="date" value="{{ pay_date }}" readonly></label>
     <div class="filter-actions">
       <button type="submit">查询</button>
       <button type="button" onclick="window.location.href='{{ url_for('payroll_report') }}'">本期</button>
@@ -17,6 +18,10 @@
     <div class="panel metric"><span>交通工资</span><strong>{{ totals.transport_pay|money }}</strong></div>
     <div class="panel metric"><span>加班工资</span><strong>{{ totals.overtime_pay|money }}</strong></div>
     <div class="panel metric"><span>假期工资</span><strong>{{ totals.holiday_pay|money }}</strong></div>
+    <div class="panel metric"><span>车补</span><strong>{{ totals.car_allowance|money }}</strong></div>
+    {% if show_meal_allowance %}
+      <div class="panel metric"><span>餐补</span><strong>{{ totals.meal_allowance|money }}</strong></div>
+    {% endif %}
     <div class="panel metric"><span>合计工资</span><strong>{{ totals.total_pay|money }}</strong></div>
   </section>
 
@@ -25,10 +30,13 @@
       <thead>
         <tr>
           <th>员工</th><th>员工等级</th><th>基本工资</th>
+          <th>出勤天数</th><th>里程</th>
           <th>标准工时</th><th>标准工资</th>
           <th>交通工时</th><th>交通工资</th>
           <th>加班工时</th><th>加班工资</th>
           <th>假期工时</th><th>假期工资</th>
+          <th>车补</th>
+          {% if show_meal_allowance %}<th>餐补</th>{% endif %}
           <th>合计工资</th>
         </tr>
       </thead>
@@ -38,6 +46,8 @@
             <td>{{ row.worker_name }}</td>
             <td>{{ row.grade_name }}</td>
             <td>{{ row.base_salary|money }}</td>
+            <td>{{ row.attendance_days }}</td>
+            <td>{{ "%.1f"|format(row.driving_miles) }}</td>
             <td>{{ "%.2f"|format(row.standard_hours) }}</td>
             <td>{{ row.standard_pay|money }}</td>
             <td>{{ "%.2f"|format(row.transport_hours) }}</td>
@@ -46,10 +56,12 @@
             <td>{{ row.overtime_pay|money }}</td>
             <td>{{ "%.2f"|format(row.holiday_hours) }}</td>
             <td>{{ row.holiday_pay|money }}</td>
+            <td>{{ row.car_allowance|money }}</td>
+            {% if show_meal_allowance %}<td>{{ row.meal_allowance|money }}</td>{% endif %}
             <td>{{ row.total_pay|money }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="12" class="empty">当前两周周期没有薪酬记录。</td></tr>
+          <tr><td colspan="{{ 15 if show_meal_allowance else 14 }}" class="empty">当前两周周期没有薪酬记录。</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}补贴参数 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header"><div><p class="eyebrow">Payroll</p><h1>补贴参数</h1></div></header>
+
+  <form method="post" class="panel form-grid">
+    <label>工资周期开始日期
+      <input type="date" name="cycle_start" value="{{ settings.cycle_start }}">
+    </label>
+
+    <fieldset class="plain-fieldset full">
+      <legend>车补</legend>
+      <label class="check-line">
+        <input type="radio" name="car_allowance_method" value="daily" {% if settings.car_allowance_method == "daily" %}checked{% endif %}>
+        每天定额补贴，油费另外报销
+      </label>
+      <label>每天定额
+        <input type="number" step="0.01" min="0" name="car_daily_amount" value="{{ settings.car_daily_amount }}">
+      </label>
+      <label class="check-line">
+        <input type="radio" name="car_allowance_method" value="mileage" {% if settings.car_allowance_method == "mileage" %}checked{% endif %}>
+        按英里补贴，不报销油费
+      </label>
+      <label>每英里单价
+        <input type="number" step="0.01" min="0" name="car_mileage_rate" value="{{ settings.car_mileage_rate }}">
+      </label>
+    </fieldset>
+
+    <fieldset class="plain-fieldset full">
+      <legend>餐补</legend>
+      <label class="check-line">
+        <input type="radio" name="meal_allowance_method" value="daily" {% if settings.meal_allowance_method == "daily" %}checked{% endif %}>
+        每天定额补贴
+      </label>
+      <label>每天定额
+        <input type="number" step="0.01" min="0" name="meal_daily_amount" value="{{ settings.meal_daily_amount }}">
+      </label>
+      <label class="check-line">
+        <input type="radio" name="meal_allowance_method" value="provided" {% if settings.meal_allowance_method == "provided" %}checked{% endif %}>
+        公司提供正餐，无补贴
+      </label>
+    </fieldset>
+
+    <fieldset class="plain-fieldset full">
+      <legend>住宿报销</legend>
+      <label>单次报销上限
+        <input type="number" step="0.01" min="0" name="lodging_limit" value="{{ settings.lodging_limit }}">
+      </label>
+      <p class="muted">0 表示不限制。</p>
+    </fieldset>
+
+    <div class="form-actions full"><button type="submit">保存</button></div>
+  </form>
+{% endblock %}
