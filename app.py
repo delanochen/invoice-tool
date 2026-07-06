@@ -6730,7 +6730,7 @@ def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actu
         select service_reports.id as report_id,
                service_reports.report_date,
                {report_date_expr} as actual_work_date,
-               date(service_reports.updated_at) as attendance_date,
+               {report_date_expr} as attendance_date,
                service_reports.total_service_hours,
                service_reports.travel_hours,
                service_reports.public_transport_hours,

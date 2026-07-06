@@ -410,6 +410,29 @@ label {
 .payroll-calendar-panel {
   overflow: visible;
 }
+body.payroll-calendar-page .main {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+body.payroll-calendar-page .page-header {
+  margin-bottom: 12px;
+}
+body.payroll-calendar-page .page-header h1 {
+  font-size: 26px;
+}
+body.payroll-calendar-page .panel {
+  margin-bottom: 10px;
+}
+body.payroll-calendar-page .payroll-calendar-panel {
+  padding: 12px;
+}
+body.payroll-calendar-page .panel-title {
+  margin-bottom: 8px;
+}
+body.payroll-calendar-page .panel-title h2 {
+  margin-bottom: 0;
+  font-size: 20px;
+}
 .payroll-calendar {
   display: grid;
   grid-template-columns: repeat(7, minmax(120px, 1fr));
@@ -419,7 +442,7 @@ label {
   background: #fff;
 }
 .payroll-calendar-head {
-  padding: 10px;
+  padding: 7px 8px;
   background: #f8fafc;
   border-right: 1px solid #d0d5dd;
   border-bottom: 1px solid #d0d5dd;
@@ -432,8 +455,8 @@ label {
   border-right: 0;
 }
 .payroll-calendar-day {
-  min-height: 112px;
-  padding: 10px;
+  min-height: 74px;
+  padding: 6px;
   border-right: 1px solid #d0d5dd;
   border-bottom: 1px solid #d0d5dd;
   background: #fff;
@@ -458,21 +481,26 @@ label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
+  font-size: 13px;
   font-weight: 700;
 }
 .payroll-batch-link {
   display: block;
   width: 100%;
-  margin-top: 16px;
-  padding: 8px;
+  min-height: 26px;
+  margin-top: 5px;
+  padding: 3px 6px;
+  font-size: 12px;
+  line-height: 1.2;
 }
 .payroll-calendar-day small {
   display: block;
-  margin-top: 6px;
+  margin-top: 3px;
   color: var(--muted);
+  font-size: 11px;
   text-align: center;
 }
 .payroll-batch-dialog {
@@ -1538,6 +1566,25 @@ body.service-order-map-page {
   .main { padding: 16px; }
   .page-header h1 { font-size: 26px; }
   .panel { padding: 16px; }
+  body.payroll-calendar-page .main {
+    padding-top: 12px;
+  }
+  body.payroll-calendar-page .payroll-calendar-panel {
+    padding: 12px;
+  }
+  body.payroll-calendar-page .payroll-calendar {
+    grid-template-columns: repeat(7, minmax(86px, 1fr));
+    overflow-x: auto;
+  }
+  body.payroll-calendar-page .payroll-calendar-day {
+    min-height: 96px;
+    padding: 8px;
+  }
+  body.payroll-calendar-page .payroll-batch-link {
+    min-height: 30px;
+    margin-top: 10px;
+    padding: 6px;
+  }
   .modal-dialog {
     width: calc(100vw - 20px);
     max-height: calc(100dvh - 20px);
