@@ -6703,7 +6703,12 @@ def service_report_query():
 
 
 def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actual"):
-    report_date_expr = "date(service_reports.updated_at)" if date_mode == "attendance" else "coalesce(service_reports.actual_work_date, service_reports.report_date)"
+    if date_mode == "attendance":
+        report_date_expr = "date(service_reports.updated_at)"
+    elif date_mode == "report":
+        report_date_expr = "date(service_reports.report_date)"
+    else:
+        report_date_expr = "coalesce(service_reports.actual_work_date, service_reports.report_date)"
     clauses = ["1 = 1"]
     params = []
     if date_from:
@@ -6828,10 +6833,10 @@ def effective_payroll_worker_id():
     return "" if normalized_role() in {"admin", "manager", "finance"} else str(g.user["id"])
 
 
-def payroll_rows_for_range(period_start, period_end, pay_date, worker_id=""):
+def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", date_mode="attendance"):
     subsidy_settings = payroll_subsidy_settings()
     show_meal_allowance = subsidy_settings["meal_allowance_method"] == "daily"
-    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), worker_id, date_mode="attendance")
+    rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), worker_id, date_mode=date_mode)
     payroll = {}
     for row in rows:
         worker = payroll.setdefault(
@@ -6973,14 +6978,14 @@ def payroll_historical_paid_date():
 def historical_payroll_period(worker_id=""):
     cycle_start = payroll_cycle_start_date()
     period_end = min(cycle_start - timedelta(days=1), payroll_historical_paid_date())
-    clauses = ["date(service_reports.updated_at) <= ?"]
+    clauses = ["date(service_reports.report_date) <= ?"]
     params = [period_end.isoformat()]
     if worker_id and str(worker_id).isdigit():
         clauses.append("users.id = ?")
         params.append(int(worker_id))
     row = db().execute(
         f"""
-        select min(date(service_reports.updated_at)) as period_start
+        select min(date(service_reports.report_date)) as period_start
         from service_reports
         join service_report_workers on service_report_workers.report_id = service_reports.id
         join users on users.id = service_report_workers.user_id
@@ -7008,7 +7013,13 @@ def payroll_batch_payload(period_start, batch_type="regular"):
         period = historical_payroll_period(effective_payroll_worker_id())
         if not period or period["period_start"] != period_start:
             abort(404)
-        batch = payroll_rows_for_range(period["period_start"], period["period_end"], period["pay_date"], effective_payroll_worker_id())
+        batch = payroll_rows_for_range(
+            period["period_start"],
+            period["period_end"],
+            period["pay_date"],
+            effective_payroll_worker_id(),
+            date_mode="report",
+        )
         label = period["label"]
         status = "paid"
     else:
