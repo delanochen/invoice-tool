@@ -18,20 +18,22 @@
       {% endfor %}
       {% for week in weeks %}
         {% for day in week %}
-          <div class="payroll-calendar-day {{ '' if day.in_month else 'muted-day' }} {{ 'today' if day.is_today else '' }} {{ day.period.status if day.period else '' }}">
+          <div class="payroll-calendar-day {{ '' if day.in_month else 'muted-day' }} {{ 'today' if day.is_today else '' }} {{ day.status }}">
             <span class="calendar-date">{{ day.date.day }}</span>
-            {% if day.period %}
+            {% for period in day.periods %}
               <button
                 type="button"
                 class="payroll-batch-link"
-                data-period-start="{{ day.period.period_start.isoformat() }}"
-                data-period-end="{{ day.period.period_end.isoformat() }}"
-                data-pay-date="{{ day.period.pay_date.isoformat() }}"
+                data-batch-type="{{ period.batch_type }}"
+                data-label="{{ period.label }}"
+                data-period-start="{{ period.period_start.isoformat() }}"
+                data-period-end="{{ period.period_end.isoformat() }}"
+                data-pay-date="{{ period.pay_date.isoformat() }}"
               >
-                工资发放
+                {{ period.label }}
               </button>
-              <small>{{ day.period.period_start.strftime("%m/%d") }}-{{ day.period.period_end.strftime("%m/%d") }}</small>
-            {% endif %}
+              <small>{{ period.period_start.strftime("%m/%d") }}-{{ period.period_end.strftime("%m/%d") }}</small>
+            {% endfor %}
           </div>
         {% endfor %}
       {% endfor %}
@@ -53,6 +55,14 @@
         <tbody></tbody>
       </table>
     </div>
+    <section class="payroll-payslip-panel" id="payrollPayslipPanel" hidden>
+      <div class="panel-title"><h3 id="payrollPayslipTitle">工资条</h3></div>
+      <div class="payroll-payslip-summary" id="payrollPayslipSummary"></div>
+      <table class="list-table payroll-payslip-table" id="payrollPayslipTable">
+        <thead><tr><th>项目</th><th>工时</th><th>单价</th><th>天数</th><th>里程</th><th>金额</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
     <div class="form-actions">
       <button type="button" id="payrollBatchExport">导出 Excel</button>
       <button type="button" data-close-payroll-batch>关闭</button>
@@ -68,7 +78,13 @@
       const summary = document.getElementById("payrollBatchSummary");
       const table = document.getElementById("payrollBatchTable");
       const exportButton = document.getElementById("payrollBatchExport");
+      const payslipPanel = document.getElementById("payrollPayslipPanel");
+      const payslipTitle = document.getElementById("payrollPayslipTitle");
+      const payslipSummary = document.getElementById("payrollPayslipSummary");
+      const payslipTable = document.getElementById("payrollPayslipTable");
       let currentPeriodStart = "";
+      let currentBatchType = "regular";
+      let currentPayload = null;
 
       const t = (value) => window.uiTranslate ? window.uiTranslate(value) : value;
       const money = (value) => `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -82,22 +98,49 @@
 
       const renderRows = (payload) => {
         const headers = payload.rows.length ? Object.keys(payload.rows[0]) : ["员工", "员工等级", "合计工资"];
-        table.querySelector("thead").innerHTML = `<tr>${headers.map((header) => `<th>${escapeHtml(t(header))}</th>`).join("")}</tr>`;
+        table.querySelector("thead").innerHTML = `<tr>${headers.map((header) => `<th>${escapeHtml(t(header))}</th>`).join("")}<th>${escapeHtml(t("工资条"))}</th></tr>`;
         table.querySelector("tbody").innerHTML = payload.rows.length
-          ? payload.rows.map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}</tr>`).join("")
-          : `<tr><td colspan="${headers.length}" class="empty">${escapeHtml(t("当前批次没有薪酬记录。"))}</td></tr>`;
+          ? payload.rows.map((row, index) => `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}<td><button type="button" class="small" data-payslip-index="${index}">${escapeHtml(t("查看工资条"))}</button></td></tr>`).join("")
+          : `<tr><td colspan="${headers.length + 1}" class="empty">${escapeHtml(t("当前批次没有薪酬记录。"))}</td></tr>`;
+      };
+
+      const renderPayslip = (index) => {
+        const payslip = currentPayload?.payslips?.[index];
+        if (!payslip) return;
+        payslipPanel.hidden = false;
+        payslipTitle.textContent = `${t("工资条")} - ${payslip.employee}`;
+        payslipSummary.innerHTML = [
+          `${t("员工等级")}：${payslip.grade}`,
+          `${t("出勤天数")}：${payslip.attendance_days}`,
+          `${t("里程")}：${payslip.driving_miles}`,
+          `${t("合计工资")}：${money(payslip.total_pay)}`
+        ].map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+        payslipTable.querySelector("tbody").innerHTML = payslip.lines.map((line) => `
+          <tr>
+            <td>${escapeHtml(t(line.label))}</td>
+            <td>${escapeHtml(line.hours ?? "")}</td>
+            <td>${escapeHtml(line.rate ?? "")}</td>
+            <td>${escapeHtml(line.days ?? "")}</td>
+            <td>${escapeHtml(line.miles ?? "")}</td>
+            <td>${escapeHtml(money(line.amount))}</td>
+          </tr>
+        `).join("");
       };
 
       document.querySelectorAll(".payroll-batch-link").forEach((button) => {
         button.addEventListener("click", async () => {
           currentPeriodStart = button.dataset.periodStart;
-          title.textContent = `${t("工资批次")} ${button.dataset.payDate}`;
+          currentBatchType = button.dataset.batchType || "regular";
+          currentPayload = null;
+          title.textContent = `${t(button.dataset.label || "工资批次")} ${button.dataset.payDate}`;
           summary.textContent = t("正在读取批次明细...");
           table.querySelector("thead").innerHTML = "";
           table.querySelector("tbody").innerHTML = "";
+          payslipPanel.hidden = true;
           dialog.showModal();
-          const response = await fetch(`{{ url_for('payroll_calendar_batch') }}?period_start=${encodeURIComponent(currentPeriodStart)}`);
+          const response = await fetch(`{{ url_for('payroll_calendar_batch') }}?period_start=${encodeURIComponent(currentPeriodStart)}&batch_type=${encodeURIComponent(currentBatchType)}`);
           const payload = await response.json();
+          currentPayload = payload;
           summary.innerHTML = [
             `${t("计薪周期")}：${payload.period_start} ${t("至")} ${payload.period_end}`,
             `${t("发薪日期")}：${payload.pay_date}`,
@@ -108,9 +151,14 @@
         });
       });
 
+      table.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-payslip-index]");
+        if (button) renderPayslip(Number(button.dataset.payslipIndex));
+      });
+
       exportButton.addEventListener("click", () => {
         if (currentPeriodStart) {
-          window.location.href = `{{ url_for('payroll_calendar_export') }}?period_start=${encodeURIComponent(currentPeriodStart)}`;
+          window.location.href = `{{ url_for('payroll_calendar_export') }}?period_start=${encodeURIComponent(currentPeriodStart)}&batch_type=${encodeURIComponent(currentBatchType)}`;
         }
       });
 

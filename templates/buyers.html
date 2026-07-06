@@ -7,6 +7,8 @@
   </header>
 
   <form class="panel filter-bar no-print" method="get">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="direction" value="{{ direction }}">
     <label>查找站点 <input name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、邮箱、规模、地址或配套机厂家"></label>
     <div class="filter-actions">
       <button type="submit">查找</button>
@@ -14,49 +16,60 @@
     </div>
   </form>
 
-  <section class="panel">
+  <section class="panel buyer-list-panel">
     <div class="panel-title"><h2>站点列表</h2><span class="muted-line">{{ buyers|length }} 个站点</span></div>
-    <table class="list-table">
-      <thead>
-        <tr>
-          <th>编号</th>
-          <th>国家</th>
-          <th>站点名称</th>
-          <th>业主</th>
-          <th>联系人</th>
-          <th>联系方式</th>
-          <th>电子邮箱地址</th>
-          <th>规模</th>
-          <th>详细地址</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for buyer in buyers %}
+    {% macro sortable_th(key, label) -%}
+      {% set next_direction = 'desc' if sort == key and direction == 'asc' else 'asc' %}
+      <th>
+        <a class="sortable-heading {{ 'active' if sort == key else '' }}" href="{{ url_for('buyers', q=q, sort=key, direction=next_direction) }}">
+          {{ label }}{% if sort == key %}<span>{{ '↑' if direction == 'asc' else '↓' }}</span>{% endif %}
+        </a>
+      </th>
+    {%- endmacro %}
+    <div class="table-top-scroll" data-sync-scroll="buyersTableScroll"><div></div></div>
+    <div class="wide-table-scroll" id="buyersTableScroll">
+      <table class="list-table">
+        <thead>
           <tr>
-            <td>{{ buyer.buyer_number }}</td>
-            <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
-            <td>{{ buyer.name }}</td>
-            <td>{{ buyer.owner_name or "-" }}</td>
-            <td>{{ buyer.contact_name or "-" }}</td>
-            <td>{{ buyer.contact_details or "-" }}</td>
-            <td>{{ buyer.email or "-" }}</td>
-            <td>{{ buyer.site_size or "-" }}</td>
-            <td>{{ buyer.detailed_address or "-" }}</td>
-            <td>
-              <div class="row-actions">
-                <button class="small" type="button" data-dialog-open="editBuyer{{ buyer.id }}">编辑</button>
-                <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
-                  <button class="danger small" type="submit">删除</button>
-                </form>
-              </div>
-            </td>
+            {{ sortable_th("buyer_number", "编号") }}
+            {{ sortable_th("country_name", "国家") }}
+            {{ sortable_th("name", "站点名称") }}
+            {{ sortable_th("owner_name", "业主") }}
+            {{ sortable_th("contact_name", "联系人") }}
+            {{ sortable_th("contact_details", "联系方式") }}
+            {{ sortable_th("email", "电子邮箱地址") }}
+            {{ sortable_th("site_size", "规模") }}
+            {{ sortable_th("detailed_address", "详细地址") }}
+            <th>操作</th>
           </tr>
-        {% else %}
-          <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for buyer in buyers %}
+            <tr>
+              <td>{{ buyer.buyer_number }}</td>
+              <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
+              <td>{{ buyer.name }}</td>
+              <td>{{ buyer.owner_name or "-" }}</td>
+              <td>{{ buyer.contact_name or "-" }}</td>
+              <td>{{ buyer.contact_details or "-" }}</td>
+              <td>{{ buyer.email or "-" }}</td>
+              <td>{{ buyer.site_size or "-" }}</td>
+              <td>{{ buyer.detailed_address or "-" }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="small" type="button" data-dialog-open="editBuyer{{ buyer.id }}">编辑</button>
+                  <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
+                    <button class="danger small" type="submit">删除</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <dialog id="newBuyerDialog" class="modal-dialog">
@@ -139,4 +152,26 @@
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
+  <script>
+    (() => {
+      const topScroll = document.querySelector("[data-sync-scroll='buyersTableScroll']");
+      const tableScroll = document.getElementById("buyersTableScroll");
+      if (!topScroll || !tableScroll) return;
+      const spacer = topScroll.firstElementChild;
+      const syncWidth = () => {
+        spacer.style.width = `${tableScroll.scrollWidth}px`;
+      };
+      let syncing = false;
+      const sync = (source, target) => {
+        if (syncing) return;
+        syncing = true;
+        target.scrollLeft = source.scrollLeft;
+        syncing = false;
+      };
+      topScroll.addEventListener("scroll", () => sync(topScroll, tableScroll));
+      tableScroll.addEventListener("scroll", () => sync(tableScroll, topScroll));
+      window.addEventListener("resize", syncWidth);
+      syncWidth();
+    })();
+  </script>
 {% endblock %}

@@ -38,6 +38,22 @@ function money(value) {
   return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function buyerDirectionsUrl(buyer) {
+  const origin = mapConfig.companyAddress || mapConfig.headquarters?.address || "";
+  const destination = hasCoordinates(buyer)
+    ? `${Number(buyer.latitude)},${Number(buyer.longitude)}`
+    : buyer.detailed_address;
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination || "")}&travelmode=driving`;
+}
+
+function buyerAddressLink(buyer) {
+  return `
+    <a class="map-directions-link" href="${escapeHtml(buyerDirectionsUrl(buyer))}" target="_blank" rel="noopener" title="${t("打开 Google 地图导航")}">
+      ${escapeHtml(buyer.detailed_address || "-")}
+    </a>
+  `;
+}
+
 function filterText(value) {
   return String(value || "").trim();
 }
@@ -79,7 +95,7 @@ function buyerDetails(buyer) {
   return `
     <div class="map-order-popup">
       <strong>${escapeHtml(buyer.name)}</strong>
-      <span>${escapeHtml(buyer.detailed_address)}</span>
+      <span>${buyerAddressLink(buyer)}</span>
       <dl>
         <dt>${t("业主")}</dt><dd>${escapeHtml(buyer.owner || "-")}</dd>
         <dt>${t("联系人")}</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>

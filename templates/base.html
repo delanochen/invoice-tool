@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260705-payroll-calendar-v1') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260706-payroll-catchup-v2') }}">
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -163,7 +163,7 @@
       </div>
       <div class="image-preview-wrap"><img id="imageAttachmentPreviewImage" alt="附件预览"></div>
     </dialog>
-    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260705-payroll-calendar-v1') }}"></script>
+    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260706-payroll-catchup-v1') }}"></script>
     <script src="{{ url_for('static', filename='attachment-preview.js', v='20260630-image-preview-v1') }}"></script>
     {% block scripts %}{% endblock %}
   </body>

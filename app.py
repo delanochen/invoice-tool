@@ -1280,6 +1280,7 @@ def seed_settings(connection):
     defaults["payroll_meal_allowance_method"] = "daily"
     defaults["payroll_meal_daily_amount"] = "50"
     defaults["payroll_lodging_limit"] = "0"
+    defaults["payroll_historical_paid_date"] = date.today().isoformat()
     for key, value in defaults.items():
         connection.execute(
             "insert or ignore into settings (key, value) values (?, ?)",
@@ -5262,6 +5263,25 @@ def buyers():
             flash("站点编号重复，请重试。", "error")
         return redirect(url_for("buyers"))
     q = request.args.get("q", "").strip()
+    sort = request.args.get("sort", "owner_name")
+    direction = request.args.get("direction", "asc").lower()
+    buyer_sort_columns = {
+        "buyer_number": "buyers.buyer_number",
+        "country_name": "coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code)",
+        "name": "buyers.name",
+        "owner_name": "coalesce(owners.name, buyers.owner)",
+        "contact_name": "buyers.contact_name",
+        "contact_details": "buyers.contact_details",
+        "email": "buyers.email",
+        "site_size": "buyers.site_size",
+        "detailed_address": "buyers.detailed_address",
+    }
+    if sort not in buyer_sort_columns:
+        sort = "owner_name"
+    if direction not in {"asc", "desc"}:
+        direction = "asc"
+    order_direction = "desc" if direction == "desc" else "asc"
+    order_by = f"lower(coalesce({buyer_sort_columns[sort]}, '')) {order_direction}, buyers.name asc, buyers.buyer_number asc"
     params = []
     clauses = []
     if is_external_manager():
@@ -5292,7 +5312,7 @@ def buyers():
         left join country_translations country_en
           on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
         {where}
-        order by owner_name, buyers.name, buyers.buyer_number
+        order by {order_by}
         """,
         [current_language(), *params],
     ).fetchall()
@@ -5304,6 +5324,8 @@ def buyers():
         owners=owners_rows,
         countries=countries_rows,
         q=q,
+        sort=sort,
+        direction=direction,
     )
 
 
@@ -6806,8 +6828,7 @@ def effective_payroll_worker_id():
     return "" if normalized_role() in {"admin", "manager", "finance"} else str(g.user["id"])
 
 
-def payroll_rows_for_period(period_start, worker_id=""):
-    period_end, pay_date = payroll_period_dates(period_start)
+def payroll_rows_for_range(period_start, period_end, pay_date, worker_id=""):
     subsidy_settings = payroll_subsidy_settings()
     show_meal_allowance = subsidy_settings["meal_allowance_method"] == "daily"
     rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), worker_id, date_mode="attendance")
@@ -6893,6 +6914,11 @@ def payroll_rows_for_period(period_start, worker_id=""):
     }
 
 
+def payroll_rows_for_period(period_start, worker_id=""):
+    period_end, pay_date = payroll_period_dates(period_start)
+    return payroll_rows_for_range(period_start, period_end, pay_date, worker_id)
+
+
 def payroll_row_export(row, show_meal_allowance):
     payload = {
         "员工": row["worker_name"],
@@ -6916,15 +6942,89 @@ def payroll_row_export(row, show_meal_allowance):
     return payload
 
 
-def payroll_batch_payload(period_start):
-    batch = payroll_rows_for_period(period_start, effective_payroll_worker_id())
+def payroll_payslip_payload(row, show_meal_allowance):
+    lines = [
+        {"label": "基本工资", "amount": round(row["base_salary"], 2)},
+        {"label": "标准工资", "hours": round(row["standard_hours"], 2), "rate": round(row["standard_rate"], 2), "amount": round(row["standard_pay"], 2)},
+        {"label": "交通工资", "hours": round(row["transport_hours"], 2), "rate": round(row["transport_rate"], 2), "amount": round(row["transport_pay"], 2)},
+        {"label": "加班工资", "hours": round(row["overtime_hours"], 2), "rate": round(row["overtime_rate"], 2), "amount": round(row["overtime_pay"], 2)},
+        {"label": "假期工资", "hours": round(row["holiday_hours"], 2), "rate": round(row["holiday_rate"], 2), "amount": round(row["holiday_pay"], 2)},
+        {"label": "车补", "days": row["attendance_days"], "miles": round(row["driving_miles"], 1), "amount": round(row["car_allowance"], 2)},
+    ]
+    if show_meal_allowance:
+        lines.append({"label": "餐补", "days": row["attendance_days"], "amount": round(row["meal_allowance"], 2)})
     return {
+        "employee": row["worker_name"],
+        "grade": row["grade_name"],
+        "attendance_days": row["attendance_days"],
+        "driving_miles": round(row["driving_miles"], 1),
+        "lines": lines,
+        "total_pay": round(row["total_pay"], 2),
+    }
+
+
+def payroll_historical_paid_date():
+    try:
+        return date.fromisoformat(get_setting("payroll_historical_paid_date", date.today().isoformat()))
+    except ValueError:
+        return date.today()
+
+
+def historical_payroll_period(worker_id=""):
+    cycle_start = payroll_cycle_start_date()
+    period_end = min(cycle_start - timedelta(days=1), payroll_historical_paid_date())
+    clauses = ["date(service_reports.updated_at) <= ?"]
+    params = [period_end.isoformat()]
+    if worker_id and str(worker_id).isdigit():
+        clauses.append("users.id = ?")
+        params.append(int(worker_id))
+    row = db().execute(
+        f"""
+        select min(date(service_reports.updated_at)) as period_start
+        from service_reports
+        join service_report_workers on service_report_workers.report_id = service_reports.id
+        join users on users.id = service_report_workers.user_id
+        where {" and ".join(clauses)}
+        """,
+        params,
+    ).fetchone()
+    if not row or not row["period_start"]:
+        return None
+    period_start = date.fromisoformat(row["period_start"])
+    if period_start > period_end:
+        return None
+    return {
+        "batch_type": "historical",
+        "label": "历史工资补发",
+        "period_start": period_start,
+        "period_end": period_end,
+        "pay_date": payroll_historical_paid_date(),
+        "status": "paid",
+    }
+
+
+def payroll_batch_payload(period_start, batch_type="regular"):
+    if batch_type == "historical":
+        period = historical_payroll_period(effective_payroll_worker_id())
+        if not period or period["period_start"] != period_start:
+            abort(404)
+        batch = payroll_rows_for_range(period["period_start"], period["period_end"], period["pay_date"], effective_payroll_worker_id())
+        label = period["label"]
+        status = "paid"
+    else:
+        batch = payroll_rows_for_period(period_start, effective_payroll_worker_id())
+        label = "工资发放"
+        status = "paid" if batch["pay_date"] <= date.today() else "scheduled"
+    return {
+        "batch_type": batch_type,
+        "label": label,
         "period_start": batch["period_start"].isoformat(),
         "period_end": batch["period_end"].isoformat(),
         "pay_date": batch["pay_date"].isoformat(),
-        "status": "paid" if batch["pay_date"] <= date.today() else "scheduled",
+        "status": status,
         "show_meal_allowance": batch["show_meal_allowance"],
         "rows": [payroll_row_export(row, batch["show_meal_allowance"]) for row in batch["rows"]],
+        "payslips": [payroll_payslip_payload(row, batch["show_meal_allowance"]) for row in batch["rows"]],
         "totals": {key: round(value, 2) for key, value in batch["totals"].items()},
     }
 
@@ -6950,6 +7050,8 @@ def payroll_periods_for_month(year, month):
         if month_start <= pay_date <= month_end:
             periods.append(
                 {
+                    "batch_type": "regular",
+                    "label": "工资发放",
                     "period_start": start,
                     "period_end": period_end,
                     "pay_date": pay_date,
@@ -6957,24 +7059,31 @@ def payroll_periods_for_month(year, month):
                 }
             )
         start += timedelta(days=14)
+    historical_period = historical_payroll_period(effective_payroll_worker_id())
+    if historical_period and month_start <= historical_period["pay_date"] <= month_end:
+        periods.append(historical_period)
+    periods.sort(key=lambda period: (period["pay_date"], period["period_start"], period["batch_type"]))
     return periods
 
 
 def payroll_calendar_weeks(year, month, periods):
     month_start = date(year, month, 1)
     month_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
-    pay_days = {period["pay_date"]: period for period in periods}
+    pay_days = {}
+    for period in periods:
+        pay_days.setdefault(period["pay_date"], []).append(period)
     current = month_start - timedelta(days=month_start.weekday())
     weeks = []
     while current <= month_end or current.weekday() != 0:
         week = []
         for _ in range(7):
-            period = pay_days.get(current)
+            day_periods = pay_days.get(current, [])
             week.append(
                 {
                     "date": current,
                     "in_month": current.month == month,
-                    "period": period,
+                    "periods": day_periods,
+                    "status": "paid" if any(period["status"] == "paid" for period in day_periods) else ("scheduled" if day_periods else ""),
                     "is_today": current == date.today(),
                 }
             )
@@ -7105,7 +7214,7 @@ def payroll_calendar_batch():
         period_start = date.fromisoformat(request.args.get("period_start", ""))
     except ValueError:
         abort(400)
-    return jsonify(payroll_batch_payload(period_start))
+    return jsonify(payroll_batch_payload(period_start, request.args.get("batch_type", "regular")))
 
 
 @app.get("/payroll/calendar/export.xlsx")
@@ -7117,7 +7226,7 @@ def payroll_calendar_export():
         period_start = date.fromisoformat(request.args.get("period_start", ""))
     except ValueError:
         abort(400)
-    payload = payroll_batch_payload(period_start)
+    payload = payroll_batch_payload(period_start, request.args.get("batch_type", "regular"))
     headers = list(payload["rows"][0].keys()) if payload["rows"] else [
         "员工", "员工等级", "基本工资", "出勤天数", "里程", "标准工时", "标准工资",
         "交通工时", "交通工资", "加班工时", "加班工资", "假期工时", "假期工资",
@@ -7130,8 +7239,23 @@ def payroll_calendar_export():
     rows.append(["周期", f"{payload['period_start']} 至 {payload['period_end']}"])
     rows.append(["发薪日期", payload["pay_date"]])
     rows.append(["合计工资", payload["totals"]["total_pay"]])
+    rows.append([])
+    rows.append(["工资条"])
+    for payslip in payload["payslips"]:
+        rows.append([])
+        rows.append(["员工", payslip["employee"], "员工等级", payslip["grade"], "合计工资", payslip["total_pay"]])
+        rows.append(["项目", "工时", "单价", "天数", "里程", "金额"])
+        for line in payslip["lines"]:
+            rows.append([
+                line.get("label", ""),
+                line.get("hours", ""),
+                line.get("rate", ""),
+                line.get("days", ""),
+                line.get("miles", ""),
+                line.get("amount", ""),
+            ])
     workbook = build_simple_xlsx(headers, rows, sheet_name="工资批次")
-    filename = f"payroll-{payload['pay_date']}.xlsx"
+    filename = f"payroll-{payload['batch_type']}-{payload['pay_date']}.xlsx"
     return send_file(
         workbook,
         as_attachment=True,
@@ -7685,6 +7809,7 @@ def service_order_map():
     )
     buyers_payload = [buyer_map_payload(row) for row in rows]
     google_maps_browser_api_key = get_google_maps_browser_api_key()
+    company = get_company_profile()
     return render_template(
         "service_order_map.html",
         map_buyers=buyers_payload,
@@ -7695,6 +7820,7 @@ def service_order_map():
             "latitude": 30.11295,
             "longitude": -95.41663,
         },
+        company_address=company["address"],
         geocoding_enabled=GEOCODING_ENABLED,
         google_maps_enabled=bool(google_maps_browser_api_key),
         google_maps_browser_api_key=google_maps_browser_api_key,

@@ -500,6 +500,27 @@ label {
   color: var(--muted);
   font-size: 13px;
 }
+.payroll-payslip-panel {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.payroll-payslip-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.payroll-payslip-summary span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #ecfdf3;
+  color: #065f46;
+  font-size: 13px;
+}
+.payroll-payslip-table {
+  width: 100%;
+}
 th, td { border-bottom: 1px solid var(--line); padding: 12px; text-align: left; vertical-align: top; }
 th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .list-table, .invoice-table {
@@ -561,6 +582,38 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .list-table a,
 .invoice-table a {
   font-weight: 700;
+}
+.sortable-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: inherit;
+  text-decoration: none;
+}
+.sortable-heading:hover,
+.sortable-heading.active {
+  color: var(--accent);
+}
+.sortable-heading span {
+  font-size: 12px;
+}
+.buyer-list-panel {
+  overflow: visible !important;
+}
+.wide-table-scroll {
+  overflow-x: auto;
+}
+.table-top-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 16px;
+  margin: 4px 0 8px;
+  border: 1px solid #d0d5dd;
+  border-radius: 4px;
+  background: #f8fafc;
+}
+.table-top-scroll > div {
+  height: 1px;
 }
 .empty { color: var(--muted); text-align: center; }
 .message-unread td, .message-unread a { font-weight: 800; }
@@ -1215,6 +1268,12 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .unlocated-order small { color: var(--danger); }
 .map-order-popup { display: grid; gap: 6px; min-width: 230px; line-height: 1.4; }
 .map-order-popup > span { color: var(--muted); }
+.map-directions-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .map-order-popup dl {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
@@ -1251,12 +1310,12 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .map-site-pin {
   position: absolute;
   z-index: 2;
-  left: -5px;
-  top: -5px;
+  left: -6px;
+  top: -6px;
   display: grid;
   place-items: center;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border: 2px solid #fff;
   border-radius: 999px;
   background: #0f766e;
@@ -1265,7 +1324,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .map-site-pin.is-active::after {
   content: "";
   position: absolute;
-  inset: -7px;
+  inset: -8px;
   border: 2px solid rgba(15, 118, 110, 0.42);
   border-radius: inherit;
   animation: mapSitePulse 1.8s ease-out infinite;
