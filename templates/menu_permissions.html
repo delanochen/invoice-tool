@@ -96,12 +96,19 @@
 {% endblock %}
 {% block scripts %}
   <script>
+    const syncPermissionRolePanels = (selectedRole) => {
+      document.querySelectorAll("[data-permission-role-panel]").forEach((panel) => {
+        panel.hidden = panel.dataset.permissionRolePanel !== selectedRole;
+      });
+    };
     document.querySelectorAll("[data-permission-role]").forEach((input) => {
       input.addEventListener("change", () => {
-        document.querySelectorAll("[data-permission-role-panel]").forEach((panel) => {
-          panel.hidden = panel.dataset.permissionRolePanel !== input.value;
-        });
+        syncPermissionRolePanels(input.value);
       });
     });
+    const selectedPermissionRole = document.querySelector("[data-permission-role]:checked");
+    if (selectedPermissionRole) {
+      syncPermissionRolePanels(selectedPermissionRole.value);
+    }
   </script>
 {% endblock %}

@@ -796,6 +796,9 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   display: grid;
   gap: 10px;
 }
+.permission-role-panel[hidden] {
+  display: none;
+}
 .permission-role-heading {
   display: flex;
   align-items: baseline;
