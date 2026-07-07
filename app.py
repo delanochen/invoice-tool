@@ -189,6 +189,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "contracts", "label": "合同", "roles": {"admin", "manager", "finance", "external_manager"}},
             {"key": "service_orders", "label": "工单", "roles": set(ROLE_OPTIONS)},
             {"key": "service_order_map", "label": "站点地图", "roles": {"admin", "manager", "finance", "employee", "external_manager"}},
+            {"key": "service_order_calendar", "label": "工单日历", "roles": set(ROLE_OPTIONS)},
             {"key": "expense_processing", "label": "报销处理", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "new_invoice", "label": "新建发票", "roles": {"manager", "finance"}},
             {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
@@ -258,6 +259,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
         "items": [
             {"key": "contracts", "label": "合同", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "service_orders", "label": "工单", "actions": {"view": set(ROLE_OPTIONS), "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee", "external_manager", "external_employee"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "service_order_calendar", "label": "工单日历", "actions": {"view": set(ROLE_OPTIONS)}},
             {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee"}}},
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
             {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
@@ -1452,6 +1454,7 @@ def seed_settings(connection):
     defaults["payroll_meal_daily_amount"] = "50"
     defaults["payroll_lodging_limit"] = "0"
     defaults["payroll_historical_paid_date"] = date.today().isoformat()
+    defaults["inspection_cycle_days"] = "180"
     for key, value in defaults.items():
         connection.execute(
             "insert or ignore into settings (key, value) values (?, ?)",
@@ -1503,6 +1506,24 @@ def setting_float(key, default=0):
         return float(get_setting(key, str(default)) or default)
     except (TypeError, ValueError):
         return float(default)
+
+
+def setting_int(key, default=0):
+    try:
+        return int(float(get_setting(key, str(default)) or default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def inspection_cycle_days():
+    return max(1, setting_int("inspection_cycle_days", 180))
+
+
+def positive_int(value, default=1):
+    try:
+        return max(1, int(float(value)))
+    except (TypeError, ValueError):
+        return max(1, int(default))
 
 
 def payroll_subsidy_settings():
@@ -1995,6 +2016,7 @@ def required_action_for_request():
         "service_order_detail": ("service_orders", "view"),
         "delete_service_order": ("service_orders", "delete"),
         "service_order_map": ("service_orders", "view"),
+        "service_order_calendar": ("service_order_calendar", "view"),
         "service_report_query": ("service_reports", "view"),
         "new_service_report": ("service_reports", "create"),
         "edit_service_report": ("service_reports", "edit"),
@@ -6582,6 +6604,7 @@ def system_settings():
             "google_geocoding_api_key",
             request.form.get("google_geocoding_api_key", "").strip(),
         )
+        set_setting("inspection_cycle_days", str(positive_int(request.form.get("inspection_cycle_days"), 180)))
         db().commit()
         flash("系统设置已保存。", "success")
         return redirect(url_for("system_settings"))
@@ -6593,6 +6616,7 @@ def system_settings():
         terms=get_invoice_terms(),
         google_maps_browser_api_key=get_google_maps_browser_api_key(),
         google_geocoding_api_key=get_google_geocoding_api_key(),
+        inspection_cycle_days=inspection_cycle_days(),
     )
 
 
@@ -7557,6 +7581,105 @@ def payroll_calendar_weeks(year, month, periods):
     return weeks
 
 
+def parsed_iso_date(value):
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def service_order_access_filters(table_alias="service_orders"):
+    clauses = []
+    params = []
+    if is_external_manager():
+        if not g.user["client_id"]:
+            clauses.append("1 = 0")
+        else:
+            clauses.append(f"{table_alias}.client_id = ?")
+            params.append(g.user["client_id"])
+    elif is_external_employee():
+        clauses.append(
+            f"{table_alias}.id in (select service_order_id from user_service_orders where user_id = ?)"
+        )
+        params.append(g.user["id"])
+    return clauses, params
+
+
+def service_order_calendar_rows(date_from, date_to):
+    clauses, params = service_order_access_filters("service_orders")
+    clauses.append("service_orders.calendar_date between ? and ?")
+    params.extend([date_from.isoformat(), date_to.isoformat()])
+    return db().execute(
+        f"""
+        with report_dates as (
+            select service_order_id,
+                   min(date(coalesce(actual_work_date, report_date))) as first_actual_date
+            from service_reports
+            group by service_order_id
+        ),
+        calendar_orders as (
+            select service_orders.*,
+                   coalesce(report_dates.first_actual_date, service_orders.start_date) as calendar_date,
+                   report_dates.first_actual_date
+            from service_orders
+            left join report_dates on report_dates.service_order_id = service_orders.id
+            where coalesce(report_dates.first_actual_date, service_orders.start_date) is not null
+        )
+        select service_orders.*,
+               work_order_types.name as work_order_type_name,
+               coalesce(owners.name, buyers.owner) as buyer_owner
+        from calendar_orders as service_orders
+        left join work_order_types on work_order_types.id = service_orders.work_order_type_id
+        left join buyers on buyers.id = service_orders.buyer_id
+        left join owners on owners.id = buyers.owner_id
+        where {" and ".join(clauses)}
+        order by service_orders.calendar_date, service_orders.order_number
+        """,
+        params,
+    ).fetchall()
+
+
+def service_order_calendar_weeks(year, month):
+    month_start = date(year, month, 1)
+    month_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
+    grid_start = month_start - timedelta(days=month_start.weekday())
+    grid_end = month_end + timedelta(days=6 - month_end.weekday())
+    events_by_day = {}
+    for row in service_order_calendar_rows(grid_start, grid_end):
+        event_date = parsed_iso_date(row["calendar_date"])
+        if not event_date:
+            continue
+        events_by_day.setdefault(event_date, []).append(
+            {
+                "order_number": row["order_number"],
+                "site_name": row["client_name"],
+                "owner": row["buyer_owner"],
+                "status": row["status"],
+                "status_label": STATUS_LABELS.get(row["status"], row["status"]),
+                "work_order_type": row["work_order_type_name"],
+                "start_date": row["start_date"],
+                "first_actual_date": row["first_actual_date"],
+                "detail_url": url_for("service_order_detail", order_id=row["id"]),
+            }
+        )
+    current = grid_start
+    weeks = []
+    while current <= grid_end:
+        week = []
+        for _ in range(7):
+            week.append(
+                {
+                    "date": current,
+                    "in_month": current.month == month,
+                    "events": events_by_day.get(current, []),
+                    "is_today": current == date.today(),
+                }
+            )
+            current += timedelta(days=1)
+        weeks.append(week)
+    return weeks
+
+
 def xlsx_column_name(index):
     name = ""
     index += 1
@@ -8167,7 +8290,41 @@ def service_orders():
     return render_template("service_orders.html", orders=rows, q=q, buyer_id=buyer_id)
 
 
+@app.route("/service-orders/calendar")
+@login_required
+def service_order_calendar():
+    if not has_action_permission("service_order_calendar", "view"):
+        abort(403)
+    today = date.today()
+    try:
+        year = int(request.args.get("year", today.year))
+        month = int(request.args.get("month", today.month))
+        visible_month = date(year, month, 1)
+    except ValueError:
+        visible_month = date(today.year, today.month, 1)
+    previous_month = date(visible_month.year - 1, 12, 1) if visible_month.month == 1 else date(visible_month.year, visible_month.month - 1, 1)
+    next_month = date(visible_month.year + 1, 1, 1) if visible_month.month == 12 else date(visible_month.year, visible_month.month + 1, 1)
+    return render_template(
+        "service_order_calendar.html",
+        visible_month=visible_month,
+        previous_month=previous_month,
+        next_month=next_month,
+        weeks=service_order_calendar_weeks(visible_month.year, visible_month.month),
+    )
+
+
 def buyer_map_payload(buyer):
+    cycle_days = inspection_cycle_days()
+    last_actual_date = parsed_iso_date(buyer["last_actual_date"])
+    days_since_last_actual = (date.today() - last_actual_date).days if last_actual_date else None
+    if not buyer["work_order_total"]:
+        inspection_status = "none"
+    elif days_since_last_actual is None:
+        inspection_status = "overdue"
+    elif days_since_last_actual > cycle_days:
+        inspection_status = "overdue"
+    else:
+        inspection_status = "fresh"
     payload = {
         "id": buyer["id"],
         "buyer_number": buyer["buyer_number"],
@@ -8185,6 +8342,10 @@ def buyer_map_payload(buyer):
         "geocode_status": buyer["geocode_status"] or "pending",
         "work_order_total": buyer["work_order_total"],
         "work_order_completed": buyer["work_order_completed"],
+        "last_actual_date": buyer["last_actual_date"],
+        "days_since_last_actual": days_since_last_actual,
+        "inspection_cycle_days": cycle_days,
+        "inspection_status": inspection_status,
         "status": (
             "completed"
             if buyer["work_order_total"] and buyer["work_order_total"] == buyer["work_order_completed"]
@@ -8210,6 +8371,14 @@ def buyer_map_rows(where_clause="1 = 1", params=()):
             from service_orders
             where buyer_id is not null
             group by buyer_id
+        ),
+        last_report_dates as (
+            select service_orders.buyer_id,
+                   max(date(coalesce(service_reports.actual_work_date, service_reports.report_date, service_orders.start_date))) as last_actual_date
+            from service_orders
+            left join service_reports on service_reports.service_order_id = service_orders.id
+            where service_orders.buyer_id is not null
+            group by service_orders.buyer_id
         ),
         invoice_amounts as (
             select invoices.id, invoices.service_order_id, invoices.status, invoices.paid_at,
@@ -8243,6 +8412,7 @@ def buyer_map_rows(where_clause="1 = 1", params=()):
                coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code) as country_name,
                coalesce(order_stats.work_order_total, 0) as work_order_total,
                coalesce(order_stats.work_order_completed, 0) as work_order_completed,
+               last_report_dates.last_actual_date as last_actual_date,
                coalesce(invoice_stats.paid_invoice_amount, 0) as paid_invoice_amount,
                coalesce(invoice_stats.completed_invoice_amount, 0) as completed_invoice_amount
         from buyers
@@ -8254,6 +8424,7 @@ def buyer_map_rows(where_clause="1 = 1", params=()):
         left join country_translations country_en
           on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
         left join order_stats on order_stats.buyer_id = buyers.id
+        left join last_report_dates on last_report_dates.buyer_id = buyers.id
         left join invoice_stats on invoice_stats.buyer_id = buyers.id
         where {where_clause}
         order by owner_name, buyers.name, buyers.id

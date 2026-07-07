@@ -88,6 +88,9 @@ function buyerDetails(buyer) {
   const invoices = mapConfig.showInvoiceAmounts ? `
     <dt>${t("发票")}</dt><dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
   ` : "";
+  const lastInspection = buyer.last_actual_date
+    ? `${escapeHtml(buyer.last_actual_date)} · ${escapeHtml(buyer.days_since_last_actual)} ${t("天前")}`
+    : (Number(buyer.work_order_total || 0) > 0 ? t("无实际日期") : t("无工单"));
   return `
     <div class="map-order-popup">
       <strong>${escapeHtml(buyer.name)}</strong>
@@ -98,6 +101,8 @@ function buyerDetails(buyer) {
         <dt>${t("联系方式")}</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
         <dt>${t("电子邮箱地址")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
+        <dt>${t("最近实际日期")}</dt><dd>${lastInspection}</dd>
+        <dt>${t("巡检周期")}</dt><dd>${escapeHtml(buyer.inspection_cycle_days)} ${t("天")}</dd>
         ${invoices}
       </dl>
       <a href="${escapeHtml(buyer.detail_url)}">${t("工单查看")}</a>
@@ -242,13 +247,24 @@ function siteLabelForGroup(group) {
 }
 
 function siteMarkerHtml(group, placement) {
-  const hasActiveOrder = group.buyers.some((buyer) => buyer.status !== "completed");
-  const statusClass = hasActiveOrder ? "is-active" : "is-completed";
+  const statuses = group.buyers.map((buyer) => buyer.inspection_status || "none");
+  const statusClass = statuses.includes("overdue")
+    ? "inspection-overdue"
+    : statuses.includes("fresh")
+      ? "inspection-fresh"
+      : "inspection-none";
   const clusterClass = group.buyers.length > 1 ? " is-cluster" : "";
   return `
     <span class="map-site-pin ${statusClass}${clusterClass}" aria-hidden="true">${group.buyers.length > 1 ? group.buyers.length : ""}</span>
     <span class="map-site-label label-${placement}">${escapeHtml(siteLabelForGroup(group))}</span>
   `;
+}
+
+function groupInspectionPriority(group) {
+  const statuses = group.buyers.map((buyer) => buyer.inspection_status || "none");
+  if (statuses.includes("overdue")) return 30;
+  if (statuses.includes("fresh")) return 20;
+  return 10;
 }
 
 function defineSiteMarkerOverlay() {
@@ -294,7 +310,7 @@ function defineSiteMarkerOverlay() {
       if (this.div) {
         this.div.title = group.buyers.map((buyer) => buyer.name).join(", ");
         this.div.innerHTML = siteMarkerHtml(group, placement);
-        this.div.style.zIndex = group.buyers.length > 1 ? "20" : "10";
+        this.div.style.zIndex = String(groupInspectionPriority(group) + (group.buyers.length > 1 ? 5 : 0));
         this.draw();
       }
     }

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260706-user-address-v1') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260707-work-order-calendar-v1') }}">
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -17,6 +17,7 @@
         {% set active_endpoint = request.endpoint or "" %}
         {% set contract_endpoints = ["contracts", "new_contract", "contract_detail", "edit_contract"] %}
         {% set order_endpoints = ["service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report"] %}
+        {% set order_calendar_endpoints = ["service_order_calendar"] %}
         {% set map_endpoints = ["service_order_map"] %}
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
@@ -37,6 +38,9 @@
           {% endif %}
           {% if has_menu_permission("service_orders") %}
             {{ nav_link("service_orders", "工单", order_endpoints) }}
+          {% endif %}
+          {% if has_menu_permission("service_order_calendar") and has_action_permission("service_order_calendar", "view") %}
+            {{ nav_link("service_order_calendar", "工单日历", order_calendar_endpoints) }}
           {% endif %}
           {% if has_menu_permission("service_order_map") and not is_external_employee() %}
             {{ nav_link("service_order_map", "站点地图", map_endpoints) }}

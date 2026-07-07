@@ -92,6 +92,9 @@ function buyerDetails(buyer) {
     <dt>${t("发票")}</dt>
     <dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
   ` : "";
+  const lastInspection = buyer.last_actual_date
+    ? `${escapeHtml(buyer.last_actual_date)} · ${escapeHtml(buyer.days_since_last_actual)} ${t("天前")}`
+    : (Number(buyer.work_order_total || 0) > 0 ? t("无实际日期") : t("无工单"));
   return `
     <div class="map-order-popup">
       <strong>${escapeHtml(buyer.name)}</strong>
@@ -102,6 +105,8 @@ function buyerDetails(buyer) {
         <dt>${t("联系方式")}</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
         <dt>${t("电子邮箱地址")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
+        <dt>${t("最近实际日期")}</dt><dd>${lastInspection}</dd>
+        <dt>${t("巡检周期")}</dt><dd>${escapeHtml(buyer.inspection_cycle_days)} ${t("天")}</dd>
         ${invoices}
       </dl>
       <a href="${escapeHtml(buyer.detail_url)}">${t("工单查看")}</a>
@@ -180,7 +185,7 @@ function chooseLabelPlacement(buyer, occupiedRects) {
 }
 
 function siteMarkerHtml(buyer, placement) {
-  const statusClass = buyer.status === "completed" ? "is-completed" : "is-active";
+  const statusClass = `inspection-${buyer.inspection_status || "none"}`;
   return `
     <span class="map-site-pin ${statusClass}" aria-hidden="true"></span>
     <span class="map-site-label label-${placement}">${escapeHtml(buyer.name)}</span>
@@ -198,15 +203,16 @@ function siteMarkerIcon(buyer, placement) {
 
 function ensureMarker(buyer, position, placement) {
   let marker = markersById.get(buyer.id);
+  const zIndexOffset = buyer.inspection_status === "overdue" ? 50 : buyer.inspection_status === "fresh" ? 30 : 10;
   if (!marker) {
-    marker = L.marker(position, { icon: siteMarkerIcon(buyer, placement), title: buyer.name, zIndexOffset: buyer.status === "completed" ? 10 : 30 });
+    marker = L.marker(position, { icon: siteMarkerIcon(buyer, placement), title: buyer.name, zIndexOffset });
     marker.bindPopup(buyerDetails(buyer), { maxWidth: 340 });
     markersById.set(buyer.id, marker);
   } else {
     marker.setLatLng(position);
     marker.setIcon(siteMarkerIcon(buyer, placement));
     marker.options.title = buyer.name;
-    marker.setZIndexOffset(buyer.status === "completed" ? 10 : 30);
+    marker.setZIndexOffset(zIndexOffset);
     marker.setPopupContent(buyerDetails(buyer));
   }
   return marker;

@@ -565,6 +565,86 @@ body.payroll-calendar-page .panel-title h2 {
   font-size: 11px;
   text-align: center;
 }
+.service-order-calendar-panel {
+  overflow: visible;
+}
+body.service-order-calendar-page .main {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+body.service-order-calendar-page .page-header {
+  margin-bottom: 12px;
+}
+body.service-order-calendar-page .page-header h1 {
+  font-size: 26px;
+}
+body.service-order-calendar-page .service-order-calendar-panel {
+  padding: 12px;
+}
+.work-order-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(126px, 1fr));
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.work-order-calendar-head {
+  padding: 7px 8px;
+  border-right: 1px solid #d0d5dd;
+  border-bottom: 1px solid #d0d5dd;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.work-order-calendar-head:nth-child(7) {
+  border-right: 0;
+}
+.work-order-calendar-day {
+  min-height: 104px;
+  padding: 6px;
+  border-right: 1px solid #d0d5dd;
+  border-bottom: 1px solid #d0d5dd;
+  background: #fff;
+}
+.work-order-calendar-day:nth-child(7n) {
+  border-right: 0;
+}
+.work-order-calendar-day.muted-day {
+  background: #f8fafc;
+  color: #98a2b3;
+}
+.work-order-calendar-day.today {
+  box-shadow: inset 0 0 0 2px #0f766e;
+}
+.work-order-calendar-events {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+.work-order-calendar-event {
+  display: grid;
+  gap: 1px;
+  padding: 5px 6px;
+  border-left: 3px solid #0f766e;
+  border-radius: 5px;
+  background: #ecfdf3;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.18;
+}
+.work-order-calendar-event strong,
+.work-order-calendar-event span,
+.work-order-calendar-event small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-order-calendar-event small {
+  color: var(--muted);
+}
 .payroll-batch-dialog {
   width: min(1180px, calc(100vw - 40px));
   max-height: calc(100vh - 48px);
@@ -1618,6 +1698,18 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   background: #0f766e;
   box-shadow: 0 1px 5px rgba(15, 23, 42, 0.28);
 }
+.map-site-pin.inspection-fresh,
+.map-site-pin.is-active {
+  background: #0f766e;
+}
+.map-site-pin.inspection-overdue {
+  background: #d92d20;
+}
+.map-site-pin.inspection-none,
+.map-site-pin.is-completed {
+  background: #667085;
+}
+.map-site-pin.inspection-fresh::after,
 .map-site-pin.is-active::after {
   content: "";
   position: absolute;
@@ -1626,8 +1718,13 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   border-radius: inherit;
   animation: mapSitePulse 1.8s ease-out infinite;
 }
-.map-site-pin.is-completed {
-  background: #667085;
+.map-site-pin.inspection-overdue::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border: 2px solid rgba(217, 45, 32, 0.42);
+  border-radius: inherit;
+  animation: mapSitePulse 1.8s ease-out infinite;
 }
 .map-site-pin.is-cluster {
   left: -9px;
@@ -1668,6 +1765,30 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .google-map-site-marker {
   position: absolute;
 }
+.map-legend {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(15, 23, 42, 0.2);
+}
+.legend-dot.inspection-overdue { background: #d92d20; }
+.legend-dot.inspection-fresh { background: #0f766e; }
+.legend-dot.inspection-none { background: #667085; }
 @keyframes mapSitePulse {
   0% { opacity: 0.78; transform: scale(0.45); }
   70% { opacity: 0; transform: scale(1.45); }
@@ -1860,6 +1981,14 @@ body.service-order-map-page {
     min-height: 30px;
     margin-top: 10px;
     padding: 6px;
+  }
+  body.service-order-calendar-page .work-order-calendar {
+    grid-template-columns: repeat(7, minmax(96px, 1fr));
+    overflow-x: auto;
+  }
+  body.service-order-calendar-page .work-order-calendar-day {
+    min-height: 118px;
+    padding: 8px;
   }
   .modal-dialog {
     width: calc(100vw - 20px);

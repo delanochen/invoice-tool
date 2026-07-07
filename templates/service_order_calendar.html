@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}工单日历 - 发票工具{% endblock %}
+{% block body_class %}service-order-calendar-page{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Work Orders</p><h1>工单日历</h1></div>
+    <div class="toolbar-actions no-print">
+      <button type="button" onclick="window.location.href='{{ url_for('service_order_calendar', year=previous_month.year, month=previous_month.month) }}'">上个月</button>
+      <button type="button" onclick="window.location.href='{{ url_for('service_order_calendar') }}'">本月</button>
+      <button type="button" onclick="window.location.href='{{ url_for('service_order_calendar', year=next_month.year, month=next_month.month) }}'">下个月</button>
+      <button type="button" onclick="window.location.href='{{ url_for('service_orders') }}'">工单列表</button>
+    </div>
+  </header>
+
+  <section class="panel service-order-calendar-panel">
+    <div class="panel-title">
+      <h2>{{ visible_month.strftime("%Y-%m") }}</h2>
+      <span class="muted-line">按工单第一个工作日报实际日期显示；没有日报时按工单实际开始日期显示。</span>
+    </div>
+    <div class="work-order-calendar">
+      {% for day_name in ["一", "二", "三", "四", "五", "六", "日"] %}
+        <div class="work-order-calendar-head">{{ day_name }}</div>
+      {% endfor %}
+      {% for week in weeks %}
+        {% for day in week %}
+          <div class="work-order-calendar-day {{ '' if day.in_month else 'muted-day' }} {{ 'today' if day.is_today else '' }}">
+            <span class="calendar-date">{{ day.date.day }}</span>
+            <div class="work-order-calendar-events">
+              {% for event in day.events %}
+                <a class="work-order-calendar-event" href="{{ event.detail_url }}" title="{{ event.order_number }} · {{ event.site_name }}">
+                  <strong>{{ event.order_number }}</strong>
+                  <span>{{ event.site_name }}</span>
+                  <small>{{ event.status_label }}{% if event.work_order_type %} · {{ event.work_order_type }}{% endif %}</small>
+                </a>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}
