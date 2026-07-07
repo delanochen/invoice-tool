@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}权限管理 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Permissions</p><h1>权限管理</h1></div>
+  </header>
+
+  <form method="post" class="panel permission-panel permission-tree-panel">
+    <div class="panel-title">
+      <div>
+        <h2>系统权限</h2>
+        <p class="muted-line">左侧选择角色并查看该角色下的用户；右侧展开菜单维护显示菜单、新增、编辑、删除、审核、导出、发送等操作权限。默认值已按当前代码权限自动带入。</p>
+      </div>
+      <button class="primary" type="submit">保存权限</button>
+    </div>
+
+    <div class="permission-tree-layout">
+      <aside class="permission-role-tree" aria-label="角色">
+        {% for role, label in role_options.items() %}
+          <details class="permission-role-node" {% if loop.first %}open{% endif %}>
+            <summary>
+              <label class="permission-role-option">
+                <input type="radio" name="selected_permission_role" value="{{ role }}" data-permission-role {% if loop.first %}checked{% endif %}>
+                <span>{{ label }}</span>
+              </label>
+            </summary>
+            <ul>
+              {% for user in users_by_role[role] %}
+                <li class="{{ '' if user.is_active else 'muted-user' }}">{{ user.name }}<small>{{ user.email }}</small></li>
+              {% else %}
+                <li class="muted-user">暂无用户</li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endfor %}
+      </aside>
+
+      <section class="permission-menu-tree">
+        {% for role, label in role_options.items() %}
+          <div class="permission-role-panel" data-permission-role-panel="{{ role }}" {% if not loop.first %}hidden{% endif %}>
+            <div class="permission-role-heading">
+              <h2>{{ label }}权限</h2>
+              <span class="muted-line">修改后点击保存权限生效</span>
+            </div>
+            {% for group in permission_tree_groups %}
+              <details class="permission-menu-group" open>
+                <summary>{{ group.label }}</summary>
+                <div class="permission-menu-children">
+                  {% for item in group["items"] %}
+                    <details class="permission-menu-node">
+                      <summary>
+                        <span>{{ item.label }}</span>
+                        {% if item.menu_key %}
+                          <label class="permission-inline-check" onclick="event.stopPropagation()">
+                            <input
+                              type="checkbox"
+                              name="menu__{{ role }}__{{ item.menu_key }}"
+                              value="1"
+                              {% if has_menu_permission(item.menu_key, role) %}checked{% endif %}
+                            >
+                            显示菜单
+                          </label>
+                        {% endif %}
+                      </summary>
+                      {% if item.actions %}
+                        <div class="permission-action-list">
+                          {% for action_key in item.actions %}
+                            <label class="permission-action-check">
+                              <input
+                                type="checkbox"
+                                name="action__{{ role }}__{{ item.key }}__{{ action_key }}"
+                                value="1"
+                                {% if has_action_permission(item.key, action_key, role) %}checked{% endif %}
+                              >
+                              <span>{{ action_labels[action_key] }}</span>
+                            </label>
+                          {% endfor %}
+                        </div>
+                      {% else %}
+                        <p class="muted-line permission-empty-actions">该菜单暂无细分操作。</p>
+                      {% endif %}
+                    </details>
+                  {% endfor %}
+                </div>
+              </details>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </section>
+    </div>
+
+    <div class="form-actions">
+      <button class="primary" type="submit">保存权限</button>
+    </div>
+  </form>
+{% endblock %}
+{% block scripts %}
+  <script>
+    document.querySelectorAll("[data-permission-role]").forEach((input) => {
+      input.addEventListener("change", () => {
+        document.querySelectorAll("[data-permission-role-panel]").forEach((panel) => {
+          panel.hidden = panel.dataset.permissionRolePanel !== input.value;
+        });
+      });
+    });
+  </script>
+{% endblock %}

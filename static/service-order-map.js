@@ -39,7 +39,7 @@ function money(value) {
 }
 
 function buyerDirectionsUrl(buyer) {
-  const origin = mapConfig.companyAddress || mapConfig.headquarters?.address || "";
+  const origin = mapConfig.routeOriginAddress || mapConfig.companyAddress || mapConfig.headquarters?.address || "";
   const destination = hasCoordinates(buyer)
     ? `${Number(buyer.latitude)},${Number(buyer.longitude)}`
     : buyer.detailed_address;

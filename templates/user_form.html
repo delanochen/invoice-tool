@@ -8,6 +8,9 @@
   <form method="post" enctype="multipart/form-data" class="panel form-stack narrow-form">
     <label>姓名 <input name="name" value="{{ user.name }}" required></label>
     <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
+    <label>地址
+      <textarea name="address" rows="2" data-user-address {% if requires_user_address(user.role) %}required{% endif %}>{{ user.address or "" }}</textarea>
+    </label>
     {% if can_manage %}
       <label>角色
         <select name="role">
@@ -134,6 +137,7 @@
   </form>
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='user-address.js', v='20260706-user-address-v1') }}"></script>
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
   <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
 {% endblock %}

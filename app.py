@@ -181,6 +181,153 @@ ROLE_OPTIONS = {
     "external_employee": "外部员工",
 }
 
+MENU_PERMISSION_GROUPS = [
+    {
+        "label": "主菜单",
+        "items": [
+            {"key": "dashboard", "label": "概览", "roles": {"admin", "manager", "finance"}},
+            {"key": "contracts", "label": "合同", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "service_orders", "label": "工单", "roles": set(ROLE_OPTIONS)},
+            {"key": "service_order_map", "label": "站点地图", "roles": {"admin", "manager", "finance", "employee", "external_manager"}},
+            {"key": "expense_processing", "label": "报销处理", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "new_invoice", "label": "新建发票", "roles": {"manager", "finance"}},
+            {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
+        ],
+    },
+    {
+        "label": "报表",
+        "items": [
+            {"key": "invoices", "label": "发票查询", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "invoice_query", "label": "发票明细查询", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "customer_reimbursement_query", "label": "工单结算报表", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "buyer_query", "label": "站点查询", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "service_order_query", "label": "工单查询", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "service_report_query", "label": "日报查询", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "expense_query", "label": "报销明细查询", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "audit_log_report", "label": "操作日志", "roles": {"admin", "manager"}},
+        ],
+    },
+    {
+        "label": "薪酬管理",
+        "items": [
+            {"key": "labor_hours_report", "label": "工时统计", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "payroll_report", "label": "薪酬统计", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "payroll_calendar", "label": "薪酬日历", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "employee_grades", "label": "员工等级", "roles": {"admin", "manager", "finance"}},
+            {"key": "payroll_subsidies", "label": "补贴参数", "roles": {"admin", "manager", "finance"}},
+        ],
+    },
+    {
+        "label": "基础数据",
+        "items": [
+            {"key": "clients", "label": "客户", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "owners", "label": "业主", "roles": {"admin", "manager", "finance"}},
+            {"key": "buyers", "label": "站点", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "work_order_types", "label": "工单类型", "roles": {"admin", "manager"}},
+            {"key": "projects", "label": "项目", "roles": {"admin", "manager"}},
+            {"key": "countries", "label": "国家", "roles": {"admin", "manager"}},
+            {"key": "company_info", "label": "公司信息", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "system_settings", "label": "系统设置", "roles": {"admin"}},
+            {"key": "database_console", "label": "数据库工具", "roles": {"admin"}},
+            {"key": "users", "label": "用户/我的资料", "roles": set(ROLE_OPTIONS)},
+        ],
+    },
+]
+
+DEFAULT_MENU_ROLES = {
+    item["key"]: set(item["roles"])
+    for group in MENU_PERMISSION_GROUPS
+    for item in group["items"]
+}
+
+ACTION_LABELS = {
+    "view": "查看",
+    "create": "新增",
+    "edit": "编辑",
+    "delete": "删除",
+    "approve": "审核",
+    "export": "导出",
+    "send": "发送",
+    "pay": "核销",
+    "execute": "执行",
+}
+
+ROLE_ACTION_PERMISSION_GROUPS = [
+    {
+        "label": "主业务",
+        "items": [
+            {"key": "contracts", "label": "合同", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "service_orders", "label": "工单", "actions": {"view": set(ROLE_OPTIONS), "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee", "external_manager", "external_employee"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee"}}},
+            {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
+            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
+            {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
+        ],
+    },
+    {
+        "label": "基础数据",
+        "items": [
+            {"key": "clients", "label": "客户", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "owners", "label": "业主", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "buyers", "label": "站点", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance", "external_manager"}, "edit": {"admin", "manager", "finance", "external_manager"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "work_order_types", "label": "工单类型", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}, "delete": {"admin", "manager"}}},
+            {"key": "projects", "label": "项目", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}, "delete": {"admin", "manager"}}},
+            {"key": "countries", "label": "国家", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}}},
+            {"key": "users", "label": "用户", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "external_manager"}, "edit": {"admin", "external_manager"}, "delete": {"admin"}, "approve": {"admin", "manager"}}},
+        ],
+    },
+    {
+        "label": "薪酬与系统",
+        "items": [
+            {"key": "labor_hours_report", "label": "工时统计", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
+            {"key": "payroll_report", "label": "薪酬统计", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
+            {"key": "payroll_calendar", "label": "薪酬日历", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
+            {"key": "employee_grades", "label": "员工等级", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}}},
+            {"key": "payroll_subsidies", "label": "补贴参数", "actions": {"view": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}}},
+            {"key": "company_info", "label": "公司信息", "actions": {"view": {"admin", "manager", "finance", "employee"}, "edit": {"admin"}}},
+            {"key": "system_settings", "label": "系统设置", "actions": {"view": {"admin"}, "edit": {"admin"}}},
+            {"key": "database_console", "label": "数据库工具", "actions": {"view": {"admin"}, "execute": {"admin"}}},
+        ],
+    },
+]
+
+DEFAULT_ACTION_ROLES = {
+    (item["key"], action): set(roles)
+    for group in ROLE_ACTION_PERMISSION_GROUPS
+    for item in group["items"]
+    for action, roles in item["actions"].items()
+}
+
+def permission_tree_groups():
+    menu_labels = {
+        item["key"]: item["label"]
+        for group in MENU_PERMISSION_GROUPS
+        for item in group["items"]
+    }
+    seen_keys = set()
+    groups = []
+    for group in ROLE_ACTION_PERMISSION_GROUPS:
+        items = []
+        for item in group["items"]:
+            seen_keys.add(item["key"])
+            items.append(
+                {
+                    "key": item["key"],
+                    "label": item["label"],
+                    "menu_key": item["key"] if item["key"] in DEFAULT_MENU_ROLES else "",
+                    "actions": list(item["actions"].keys()),
+                }
+            )
+        groups.append({"label": group["label"], "items": items})
+    menu_only_items = [
+        {"key": key, "label": label, "menu_key": key, "actions": []}
+        for key, label in menu_labels.items()
+        if key not in seen_keys
+    ]
+    if menu_only_items:
+        groups.insert(0, {"label": "菜单入口", "items": menu_only_items})
+    return groups
+
 SUPPORTED_LANGUAGES = {
     "zh-CN": {"label": "简体中文", "flag": "🇨🇳"},
     "en": {"label": "English", "flag": "🇺🇸"},
@@ -343,6 +490,7 @@ def init_db():
                 email text not null unique,
                 password_hash text not null,
                 role text not null default 'user',
+                address text not null default '',
                 employee_grade_id integer,
                 client_id integer,
                 created_at text not null,
@@ -492,6 +640,27 @@ def init_db():
             create table if not exists settings (
                 key text primary key,
                 value text not null
+            );
+
+            create table if not exists role_menu_permissions (
+                role text not null,
+                menu_key text not null,
+                is_enabled integer not null default 1,
+                updated_by integer,
+                updated_at text not null,
+                primary key(role, menu_key),
+                foreign key(updated_by) references users(id) on delete set null
+            );
+
+            create table if not exists role_action_permissions (
+                role text not null,
+                resource_key text not null,
+                action_key text not null,
+                is_enabled integer not null default 1,
+                updated_by integer,
+                updated_at text not null,
+                primary key(role, resource_key, action_key),
+                foreign key(updated_by) references users(id) on delete set null
             );
 
             create table if not exists countries (
@@ -803,6 +972,7 @@ def init_db():
         ensure_column(connection, "users", "region_code", "text not null default 'americas'")
         ensure_column(connection, "users", "country_code", "text not null default 'US'")
         ensure_column(connection, "users", "employee_grade_id", "integer")
+        ensure_column(connection, "users", "address", "text not null default ''")
         ensure_column(connection, "service_reports", "actual_work_date", "text")
         ensure_column(connection, "service_report_workers", "driving_miles", "real not null default 0")
         connection.execute(
@@ -1091,6 +1261,7 @@ def init_db():
         seed_customer_reimbursement_projects(connection)
         seed_countries(connection)
         seed_settings(connection)
+        seed_role_permissions(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
         admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
         if not connection.execute("select id from users where email = ?", (admin_email,)).fetchone():
@@ -1286,6 +1457,30 @@ def seed_settings(connection):
             "insert or ignore into settings (key, value) values (?, ?)",
             (key, value),
         )
+
+
+def seed_role_permissions(connection):
+    timestamp = now()
+    for menu_key, roles in DEFAULT_MENU_ROLES.items():
+        for role in ROLE_OPTIONS:
+            connection.execute(
+                """
+                insert or ignore into role_menu_permissions (
+                    role, menu_key, is_enabled, updated_by, updated_at
+                ) values (?, ?, ?, null, ?)
+                """,
+                (role, menu_key, 1 if role in roles else 0, timestamp),
+            )
+    for (resource_key, action_key), roles in DEFAULT_ACTION_ROLES.items():
+        for role in ROLE_OPTIONS:
+            connection.execute(
+                """
+                insert or ignore into role_action_permissions (
+                    role, resource_key, action_key, is_enabled, updated_by, updated_at
+                ) values (?, ?, ?, ?, null, ?)
+                """,
+                (role, resource_key, action_key, 1 if role in roles else 0, timestamp),
+            )
 
 
 def get_setting(key, default=""):
@@ -1495,6 +1690,10 @@ def load_user():
     if requested_language in SUPPORTED_LANGUAGES:
         session["language"] = requested_language
     g.user = current_user()
+    if g.user:
+        permission_rule = required_action_for_request()
+        if permission_rule and not has_action_permission(*permission_rule):
+            abort(403)
 
 
 def login_required(view):
@@ -1542,6 +1741,10 @@ def normalized_role(role=None):
     return role
 
 
+def requires_user_address(role):
+    return normalized_role(role) not in {"external_manager", "external_employee"}
+
+
 def is_internal_user():
     return g.user and normalized_role() in {"admin", "manager", "finance", "employee"}
 
@@ -1551,57 +1754,76 @@ def is_manager():
 
 
 def can_approve_users():
-    return g.user and normalized_role() in {"admin", "manager"}
+    return g.user and has_action_permission("users", "approve")
 
 
 def can_view_invoices():
-    return g.user and normalized_role() in {"admin", "manager", "finance", "external_manager"}
+    return g.user and has_action_permission("invoices", "view")
 
 
 def can_view_contracts():
-    return g.user and normalized_role() in {"admin", "manager", "finance", "external_manager"}
+    return g.user and has_action_permission("contracts", "view")
 
 
 def can_manage_contracts():
-    return g.user and normalized_role() in {"admin", "manager", "finance"}
+    return g.user and (
+        has_action_permission("contracts", "create")
+        or has_action_permission("contracts", "edit")
+        or has_action_permission("contracts", "delete")
+    )
 
 
 def can_create_invoice():
-    return g.user and normalized_role() in {"manager", "finance"}
+    return g.user and has_action_permission("invoices", "create")
 
 
 def can_create_service_order():
-    return g.user and normalized_role() in {"manager", "finance", "employee"}
+    return g.user and has_action_permission("service_orders", "create")
 
 
 def can_delete_service_order():
-    return g.user and normalized_role() in {"admin", "manager", "finance"}
+    return g.user and has_action_permission("service_orders", "delete")
 
 
 def can_create_expense():
-    return g.user and normalized_role() in {"manager", "finance", "employee"}
+    return g.user and has_action_permission("expenses", "create")
 
 
 def can_manage_customer_reimbursement():
-    return g.user and normalized_role() in {"admin", "manager", "finance"}
+    return g.user and (
+        has_action_permission("customer_reimbursements", "create")
+        or has_action_permission("customer_reimbursements", "edit")
+        or has_action_permission("customer_reimbursements", "delete")
+        or has_action_permission("customer_reimbursements", "approve")
+    )
 
 
 def can_manage_employee_grades():
-    return g.user and normalized_role() in {"admin", "manager", "finance"}
+    return g.user and (
+        has_action_permission("employee_grades", "create")
+        or has_action_permission("employee_grades", "edit")
+        or has_action_permission("payroll_subsidies", "edit")
+    )
 
 
 def can_view_labor_payroll_reports():
-    return g.user and normalized_role() in {"admin", "manager", "finance", "employee"}
+    return g.user and (
+        has_action_permission("labor_hours_report", "view")
+        or has_action_permission("payroll_report", "view")
+        or has_action_permission("payroll_calendar", "view")
+    )
 
 
 def can_view_customer_reimbursement():
-    return can_manage_customer_reimbursement() or is_external_manager()
+    return g.user and has_action_permission("customer_reimbursements", "view")
 
 
 def can_create_service_report(order=None):
     if not g.user:
         return False
-    if is_internal_user():
+    if not has_action_permission("service_reports", "create"):
+        return False
+    if not is_external_user():
         return True
     if is_external_employee() and order is not None:
         return can_access_service_order(order)
@@ -1609,11 +1831,15 @@ def can_create_service_report(order=None):
 
 
 def can_manage_users():
-    return g.user and normalized_role() == "admin"
+    return g.user and not is_external_user() and (
+        has_action_permission("users", "create")
+        or has_action_permission("users", "edit")
+        or has_action_permission("users", "delete")
+    )
 
 
 def can_manage_company_info():
-    return g.user and normalized_role() == "admin"
+    return g.user and has_action_permission("company_info", "edit")
 
 
 def can_assign_external_employees():
@@ -1631,25 +1857,189 @@ def can_manage_user_record(user):
 
 
 def can_manage_buyers():
-    return g.user and normalized_role() in {"admin", "manager", "finance", "external_manager"}
+    return g.user and (
+        has_action_permission("buyers", "view")
+        or has_action_permission("buyers", "create")
+        or has_action_permission("buyers", "edit")
+        or has_action_permission("buyers", "delete")
+    )
 
 
 def can_manage_owners():
-    return g.user and normalized_role() in {"admin", "manager", "finance"}
+    return g.user and (
+        has_action_permission("owners", "view")
+        or has_action_permission("owners", "create")
+        or has_action_permission("owners", "edit")
+        or has_action_permission("owners", "delete")
+    )
 
 
 def can_access_buyer(buyer):
-    if g.user and normalized_role() in {"admin", "manager", "finance"}:
+    if g.user and has_action_permission("buyers", "view") and not is_external_user():
         return True
     return is_external_manager() and bool(g.user["client_id"]) and buyer["client_id"] == g.user["client_id"]
 
 
 def can_view_audit_logs():
-    return g.user and normalized_role() in {"admin", "manager"}
+    return g.user and has_action_permission("audit_logs", "view")
 
 
 def can_use_database_console():
-    return g.user and normalized_role() == "admin"
+    return g.user and has_action_permission("database_console", "view")
+
+
+def menu_permission_overrides():
+    if not hasattr(g, "_menu_permission_overrides"):
+        rows = db().execute("select role, menu_key, is_enabled from role_menu_permissions").fetchall()
+        g._menu_permission_overrides = {
+            (row["role"], row["menu_key"]): bool(row["is_enabled"])
+            for row in rows
+        }
+    return g._menu_permission_overrides
+
+
+def has_menu_permission(menu_key, role=None):
+    if not g.user:
+        return False
+    role = normalized_role(role)
+    if role not in ROLE_OPTIONS:
+        return False
+    overrides = menu_permission_overrides()
+    override_key = (role, menu_key)
+    if override_key in overrides:
+        return overrides[override_key]
+    return role in DEFAULT_MENU_ROLES.get(menu_key, set())
+
+
+def action_permission_overrides():
+    if not hasattr(g, "_action_permission_overrides"):
+        rows = db().execute("select role, resource_key, action_key, is_enabled from role_action_permissions").fetchall()
+        g._action_permission_overrides = {
+            (row["role"], row["resource_key"], row["action_key"]): bool(row["is_enabled"])
+            for row in rows
+        }
+    return g._action_permission_overrides
+
+
+def has_action_permission(resource_key, action_key, role=None):
+    if not g.user:
+        return False
+    role = normalized_role(role)
+    if role not in ROLE_OPTIONS:
+        return False
+    overrides = action_permission_overrides()
+    override_key = (role, resource_key, action_key)
+    if override_key in overrides:
+        return overrides[override_key]
+    return role in DEFAULT_ACTION_ROLES.get((resource_key, action_key), set())
+
+
+def required_action_for_request():
+    endpoint = request.endpoint or ""
+    method = request.method
+    if endpoint == "edit_user" and request.view_args and request.view_args.get("user_id") == g.user["id"]:
+        return None
+    method_rules = {
+        ("clients", "GET"): ("clients", "view"),
+        ("clients", "POST"): ("clients", "create"),
+        ("owners", "GET"): ("owners", "view"),
+        ("owners", "POST"): ("owners", "create"),
+        ("buyers", "GET"): ("buyers", "view"),
+        ("buyers", "POST"): ("buyers", "create"),
+        ("work_order_types", "GET"): ("work_order_types", "view"),
+        ("work_order_types", "POST"): ("work_order_types", "create"),
+        ("projects", "GET"): ("projects", "view"),
+        ("projects", "POST"): ("projects", "create"),
+        ("countries", "GET"): ("countries", "view"),
+        ("countries", "POST"): ("countries", "edit"),
+        ("employee_grades", "GET"): ("employee_grades", "view"),
+        ("employee_grades", "POST"): ("employee_grades", "edit"),
+        ("payroll_subsidies", "GET"): ("payroll_subsidies", "view"),
+        ("payroll_subsidies", "POST"): ("payroll_subsidies", "edit"),
+        ("users", "GET"): ("users", "view"),
+        ("users", "POST"): ("users", "create"),
+        ("system_settings", "GET"): ("system_settings", "view"),
+        ("system_settings", "POST"): ("system_settings", "edit"),
+        ("database_console", "GET"): ("database_console", "view"),
+        ("database_console", "POST"): ("database_console", "execute"),
+        ("company_info", "GET"): ("company_info", "view"),
+        ("company_info", "POST"): ("company_info", "edit"),
+        ("customer_reimbursement_form", "GET"): ("customer_reimbursements", "view"),
+        ("customer_reimbursement_form", "POST"): ("customer_reimbursements", "edit"),
+    }
+    endpoint_rules = {
+        "contracts": ("contracts", "view"),
+        "new_contract": ("contracts", "create"),
+        "contract_detail": ("contracts", "view"),
+        "edit_contract": ("contracts", "edit"),
+        "delete_contract": ("contracts", "delete"),
+        "delete_contract_attachment": ("contracts", "delete"),
+        "edit_client": ("clients", "edit"),
+        "delete_client": ("clients", "delete"),
+        "edit_owner": ("owners", "edit"),
+        "delete_owner": ("owners", "delete"),
+        "edit_buyer": ("buyers", "edit"),
+        "delete_buyer": ("buyers", "delete"),
+        "edit_work_order_type": ("work_order_types", "edit"),
+        "delete_work_order_type": ("work_order_types", "delete"),
+        "edit_project": ("projects", "edit"),
+        "delete_project": ("projects", "delete"),
+        "edit_user": ("users", "edit"),
+        "update_user_status": ("users", "approve"),
+        "delete_user": ("users", "delete"),
+        "delete_user_attachment": ("users", "edit"),
+        "delete_company_attachment": ("company_info", "edit"),
+        "service_orders": ("service_orders", "view"),
+        "new_service_order": ("service_orders", "create"),
+        "edit_service_order": ("service_orders", "edit"),
+        "service_order_detail": ("service_orders", "view"),
+        "delete_service_order": ("service_orders", "delete"),
+        "service_order_map": ("service_orders", "view"),
+        "service_report_query": ("service_reports", "view"),
+        "new_service_report": ("service_reports", "create"),
+        "edit_service_report": ("service_reports", "edit"),
+        "delete_service_report": ("service_reports", "delete"),
+        "export_service_report": ("service_reports", "export"),
+        "delete_report_attachment": ("service_reports", "edit"),
+        "expense_processing": ("expenses", "view"),
+        "process_expense_action": ("expenses", "approve"),
+        "expense_query": ("expenses", "view"),
+        "new_expense": ("expenses", "create"),
+        "edit_expense": ("expenses", "edit"),
+        "expense_detail": ("expenses", "view"),
+        "approve_expense": ("expenses", "approve"),
+        "return_expense": ("expenses", "approve"),
+        "delete_expense": ("expenses", "delete"),
+        "delete_expense_attachment": ("expenses", "edit"),
+        "invoices": ("invoices", "view"),
+        "invoice_query": ("invoices", "view"),
+        "new_invoice": ("invoices", "create"),
+        "edit_invoice": ("invoices", "edit"),
+        "invoice_detail": ("invoices", "view"),
+        "delete_invoice": ("invoices", "delete"),
+        "send_invoice": ("invoices", "send"),
+        "mark_invoice_paid": ("invoices", "pay"),
+        "unmark_invoice_paid": ("invoices", "pay"),
+        "admin_update_invoice_status": ("invoices", "edit"),
+        "void_invoice": ("invoices", "edit"),
+        "export_invoice": ("invoices", "export"),
+        "export_invoice_pdf": ("invoices", "export"),
+        "delete_attachment": ("invoices", "edit"),
+        "customer_reimbursement_query": ("customer_reimbursements", "view"),
+        "download_customer_reimbursement": ("customer_reimbursements", "export"),
+        "preview_customer_reimbursement": ("customer_reimbursements", "export"),
+        "approve_customer_reimbursement": ("customer_reimbursements", "approve"),
+        "return_customer_reimbursement": ("customer_reimbursements", "approve"),
+        "reset_customer_reimbursement": ("customer_reimbursements", "edit"),
+        "delete_customer_reimbursement": ("customer_reimbursements", "delete"),
+        "delete_customer_reimbursement_attachment": ("customer_reimbursements", "edit"),
+        "labor_hours_report": ("labor_hours_report", "view"),
+        "payroll_report": ("payroll_report", "view"),
+        "payroll_calendar": ("payroll_calendar", "view"),
+        "payroll_calendar_batch": ("payroll_calendar", "view"),
+        "payroll_calendar_export": ("payroll_calendar", "export"),
+    }
+    return method_rules.get((endpoint, method)) or endpoint_rules.get(endpoint)
 
 
 def can_access_client(client_id):
@@ -1819,7 +2209,10 @@ app.jinja_env.globals["can_assign_external_employees"] = can_assign_external_emp
 app.jinja_env.globals["can_approve_users"] = can_approve_users
 app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
 app.jinja_env.globals["can_use_database_console"] = can_use_database_console
+app.jinja_env.globals["has_menu_permission"] = has_menu_permission
+app.jinja_env.globals["has_action_permission"] = has_action_permission
 app.jinja_env.globals["normalized_role"] = normalized_role
+app.jinja_env.globals["requires_user_address"] = requires_user_address
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
 app.jinja_env.globals["customer_reimbursement_labels"] = CUSTOMER_REIMBURSEMENT_STATUS_LABELS
@@ -5451,8 +5844,6 @@ def delete_buyer(buyer_id):
 @app.route("/work-order-types", methods=["GET", "POST"])
 @login_required
 def work_order_types():
-    if not is_manager():
-        abort(403)
     if request.method == "POST":
         code = request.form.get("code", "").strip().upper()
         name = request.form.get("name", "").strip()
@@ -5480,8 +5871,6 @@ def work_order_types():
 @app.route("/work-order-types/<int:type_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_work_order_type(type_id):
-    if not is_manager():
-        abort(403)
     work_order_type = db().execute("select * from work_order_types where id = ?", (type_id,)).fetchone()
     if not work_order_type:
         abort(404)
@@ -5513,8 +5902,6 @@ def edit_work_order_type(type_id):
 @app.post("/work-order-types/<int:type_id>/delete")
 @login_required
 def delete_work_order_type(type_id):
-    if not is_manager():
-        abort(403)
     used = db().execute(
         "select count(*) as count from service_orders where work_order_type_id = ?",
         (type_id,),
@@ -5531,8 +5918,6 @@ def delete_work_order_type(type_id):
 @app.route("/projects", methods=["GET", "POST"])
 @login_required
 def projects():
-    if not is_manager():
-        abort(403)
     if request.method == "POST":
         name = normalized_project_name(request.form.get("name"))
         project_type = request.form.get("project_type", "invoice")
@@ -5576,8 +5961,6 @@ def projects():
 @app.route("/projects/<int:project_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_project(project_id):
-    if not is_manager():
-        abort(403)
     project = db().execute("select * from projects where id = ?", (project_id,)).fetchone()
     if not project:
         abort(404)
@@ -5632,8 +6015,6 @@ def edit_project(project_id):
 @app.post("/projects/<int:project_id>/delete")
 @login_required
 def delete_project(project_id):
-    if not is_manager():
-        abort(403)
     invoice_used = db().execute("select count(*) as count from invoice_items where project_id = ?", (project_id,)).fetchone()["count"]
     expense_used = db().execute("select count(*) as count from expense_items where project_id = ?", (project_id,)).fetchone()["count"]
     if invoice_used or expense_used:
@@ -5648,8 +6029,6 @@ def delete_project(project_id):
 @app.route("/countries", methods=["GET", "POST"])
 @login_required
 def countries():
-    if not is_manager():
-        abort(403)
     if request.method == "POST":
         code = request.form.get("code", "").strip().upper()
         region_code = request.form.get("region_code", "").strip().lower()
@@ -5800,6 +6179,7 @@ def users():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         name = request.form.get("name", "").strip() or email
+        address = request.form.get("address", "").strip()
         password = request.form.get("password", "")
         role = request.form.get("role", "employee")
         country = country_from_form()
@@ -5821,6 +6201,9 @@ def users():
         if "�" in name:
             flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
             return redirect(url_for("users"))
+        if requires_user_address(role) and not address:
+            flash("内部员工必须填写地址。", "error")
+            return redirect(url_for("users"))
         if len(password) < 8:
             flash("密码至少需要 8 位。", "error")
             return redirect(url_for("users"))
@@ -5828,15 +6211,16 @@ def users():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, employee_grade_id, client_id, region_code, country_code, created_at
+                    name, email, password_hash, role, address, employee_grade_id, client_id, region_code, country_code, created_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
                     email,
                     generate_password_hash(password),
                     role,
+                    address,
                     employee_grade_id,
                     client_id,
                     country["region_code"],
@@ -5986,6 +6370,7 @@ def edit_user(user_id):
         email = request.form.get("email", user["email"]).strip().lower() if can_manage_users() else user["email"]
         name = request.form.get("name", "").strip() or email
         role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
+        address = request.form.get("address", "").strip()
         if role not in ROLE_OPTIONS and can_manage_users():
             role = "employee"
         client_id = (
@@ -6010,14 +6395,17 @@ def edit_user(user_id):
         if can_manage_users() and user["role"] == "admin" and role != "admin" and admin_count <= 1:
             flash("至少需要保留一个管理员。", "error")
             return redirect(url_for("edit_user", user_id=user_id))
+        if requires_user_address(role) and not address:
+            flash("内部员工必须填写地址。", "error")
+            return redirect(url_for("edit_user", user_id=user_id))
         try:
             db().execute(
                 """
                 update users
-                set name = ?, email = ?, role = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?
+                set name = ?, email = ?, role = ?, address = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?
                 where id = ?
                 """,
-                (name, email, role, employee_grade_id, client_id, country["region_code"], country["code"], user_id),
+                (name, email, role, address, employee_grade_id, client_id, country["region_code"], country["code"], user_id),
             )
             if can_assign_external_employees():
                 save_user_service_order_assignments(user_id, role)
@@ -6153,7 +6541,7 @@ def delete_user_attachment(attachment_id):
 
 
 @app.post("/users/<int:user_id>/delete")
-@admin_required
+@login_required
 def delete_user(user_id):
     if user_id == g.user["id"]:
         flash("不能删除当前登录用户。", "error")
@@ -6177,7 +6565,7 @@ def delete_user(user_id):
 
 
 @app.route("/settings/system", methods=["GET", "POST"])
-@admin_required
+@login_required
 def system_settings():
     if request.method == "POST":
         set_setting("company_tax_note", request.form.get("company_tax_note", "").strip())
@@ -6208,8 +6596,74 @@ def system_settings():
     )
 
 
-@app.route("/settings/database", methods=["GET", "POST"])
+@app.route("/settings/menu-permissions", methods=["GET", "POST"])
 @admin_required
+def menu_permissions():
+    if request.method == "POST":
+        menu_keys = [item["key"] for group in MENU_PERMISSION_GROUPS for item in group["items"]]
+        action_pairs = [
+            (item["key"], action_key)
+            for group in ROLE_ACTION_PERMISSION_GROUPS
+            for item in group["items"]
+            for action_key in item["actions"]
+        ]
+        timestamp = now()
+        db().execute("delete from role_menu_permissions")
+        db().execute("delete from role_action_permissions")
+        for role in ROLE_OPTIONS:
+            for menu_key in menu_keys:
+                enabled = 1 if request.form.get(f"menu__{role}__{menu_key}") == "1" else 0
+                db().execute(
+                    """
+                    insert into role_menu_permissions (
+                        role, menu_key, is_enabled, updated_by, updated_at
+                    ) values (?, ?, ?, ?, ?)
+                    """,
+                    (role, menu_key, enabled, g.user["id"], timestamp),
+                )
+            for resource_key, action_key in action_pairs:
+                enabled = 1 if request.form.get(f"action__{role}__{resource_key}__{action_key}") == "1" else 0
+                db().execute(
+                    """
+                    insert into role_action_permissions (
+                        role, resource_key, action_key, is_enabled, updated_by, updated_at
+                    ) values (?, ?, ?, ?, ?, ?)
+                    """,
+                    (role, resource_key, action_key, enabled, g.user["id"], timestamp),
+                )
+        log_action("update", "menu_permissions", None, "系统权限", "修改菜单和操作权限")
+        db().commit()
+        g._menu_permission_overrides = {
+            (role, menu_key): request.form.get(f"menu__{role}__{menu_key}") == "1"
+            for role in ROLE_OPTIONS
+            for menu_key in menu_keys
+        }
+        g._action_permission_overrides = {
+            (role, resource_key, action_key): request.form.get(f"action__{role}__{resource_key}__{action_key}") == "1"
+            for role in ROLE_OPTIONS
+            for resource_key, action_key in action_pairs
+        }
+        flash("权限配置已保存。", "success")
+        return redirect(url_for("menu_permissions"))
+    return render_template(
+        "menu_permissions.html",
+        role_options=ROLE_OPTIONS,
+        menu_groups=MENU_PERMISSION_GROUPS,
+        action_groups=ROLE_ACTION_PERMISSION_GROUPS,
+        action_labels=ACTION_LABELS,
+        permission_tree_groups=permission_tree_groups(),
+        users_by_role={
+            role: db().execute(
+                "select id, name, email, is_active from users where role = ? order by is_active desc, name",
+                (role,),
+            ).fetchall()
+            for role in ROLE_OPTIONS
+        },
+    )
+
+
+@app.route("/settings/database", methods=["GET", "POST"])
+@login_required
 def database_console():
     sql = request.form.get("sql", "").strip() if request.method == "POST" else ""
     result = None
@@ -6360,7 +6814,7 @@ def preview_company_attachment(attachment_id):
 
 
 @app.post("/company-attachments/<int:attachment_id>/delete")
-@admin_required
+@login_required
 def delete_company_attachment(attachment_id):
     attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
     if not attachment:
@@ -6376,7 +6830,7 @@ def delete_company_attachment(attachment_id):
 
 
 @app.get("/settings/company")
-@admin_required
+@login_required
 def legacy_company_settings():
     return redirect(url_for("system_settings"))
 
@@ -7517,7 +7971,7 @@ def process_expense_action():
         abort(404)
     action = request.form.get("action", "")
     if action == "reimburse":
-        if normalized_role() not in {"manager", "finance"}:
+        if not has_action_permission("expenses", "approve"):
             abort(403)
         if expense["status"] != "approved":
             flash("只有已审核通过的报销可以发放。", "error")
@@ -7821,6 +8275,7 @@ def service_order_map():
     buyers_payload = [buyer_map_payload(row) for row in rows]
     google_maps_browser_api_key = get_google_maps_browser_api_key()
     company = get_company_profile()
+    route_origin_address = (g.user["address"] or "").strip() or company["address"]
     return render_template(
         "service_order_map.html",
         map_buyers=buyers_payload,
@@ -7832,6 +8287,7 @@ def service_order_map():
             "longitude": -95.41663,
         },
         company_address=company["address"],
+        route_origin_address=route_origin_address,
         geocoding_enabled=GEOCODING_ENABLED,
         google_maps_enabled=bool(google_maps_browser_api_key),
         google_maps_browser_api_key=google_maps_browser_api_key,
@@ -8493,8 +8949,6 @@ def preview_customer_reimbursement(reimbursement_id):
 @login_required
 def approve_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not is_manager():
-        abort(403)
     if reimbursement["status"] != "submitted":
         flash("只有待经理审核的工单结算可以审核通过。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
@@ -8532,8 +8986,6 @@ def approve_customer_reimbursement(reimbursement_id):
 @login_required
 def return_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not is_manager():
-        abort(403)
     if reimbursement["status"] != "submitted":
         flash("只有待经理审核的工单结算可以退回。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
@@ -9399,8 +9851,6 @@ def expense_detail(expense_id):
 @login_required
 def approve_expense(expense_id):
     expense, order = require_expense(expense_id)
-    if not is_manager():
-        abort(403)
     if expense["status"] != "submitted":
         flash("只有待经理审核的报销可以通过。", "error")
         return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -9436,8 +9886,6 @@ def approve_expense(expense_id):
 @login_required
 def return_expense(expense_id):
     expense, order = require_expense(expense_id)
-    if not is_manager():
-        abort(403)
     if expense["status"] != "submitted":
         flash("只有待经理审核的报销可以退回。", "error")
         return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -9957,11 +10405,13 @@ def void_invoice(invoice_id):
 @login_required
 def delete_invoice(invoice_id):
     invoice = require_invoice_access(invoice_id)
-    is_admin = normalized_role() == "admin"
-    can_delete_returned = invoice["status"] in {"draft", "returned"} and (is_manager() or invoice["created_by"] == g.user["id"])
-    can_delete_void = invoice["status"] == "void" and is_manager()
-    if not (is_admin or can_delete_returned or can_delete_void):
-        flash("只有作废发票，或草稿/退回状态下由管理员、经理、发起人删除的发票可以删除。", "error")
+    has_delete_permission = has_action_permission("invoices", "delete")
+    can_delete_returned = invoice["status"] in {"draft", "returned"} and (
+        has_delete_permission or invoice["created_by"] == g.user["id"]
+    )
+    can_delete_void = invoice["status"] == "void" and has_delete_permission
+    if not (has_delete_permission or can_delete_returned or can_delete_void):
+        flash("只有有删除权限，或草稿/退回状态下由发起人删除的发票可以删除。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     shutil.rmtree(invoice_attachment_path(invoice_id), ignore_errors=True)
     db().execute(
@@ -10008,8 +10458,6 @@ def mark_invoice_paid(invoice_id):
 @login_required
 def unmark_invoice_paid(invoice_id):
     invoice = require_invoice_access(invoice_id)
-    if not is_manager():
-        abort(403)
     db().execute("update invoices set paid_at = null, payment_amount = null, payment_note = null where id = ?", (invoice_id,))
     log_action("unmark_paid", "invoice", invoice_id, invoice["invoice_number"], "取消发票核销")
     db().commit()

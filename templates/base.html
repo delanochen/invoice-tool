@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260706-payroll-calendar-compact-v1') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260706-user-address-v1') }}">
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -23,105 +23,158 @@
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
-        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "users", "new_user", "edit_user"] %}
+        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "menu_permissions", "users", "new_user", "edit_user"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
           <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
         {%- endmacro %}
         <nav>
-          {% if can_view_invoices() and not is_external_manager() %}
+          {% if has_menu_permission("dashboard") and can_view_invoices() and not is_external_manager() %}
             {{ nav_link("dashboard", "概览") }}
           {% endif %}
-          {% if can_view_contracts() %}
+          {% if has_menu_permission("contracts") and can_view_contracts() %}
             {{ nav_link("contracts", "合同", contract_endpoints) }}
           {% endif %}
-          {{ nav_link("service_orders", "工单", order_endpoints) }}
-          {% if not is_external_employee() %}
+          {% if has_menu_permission("service_orders") %}
+            {{ nav_link("service_orders", "工单", order_endpoints) }}
+          {% endif %}
+          {% if has_menu_permission("service_order_map") and not is_external_employee() %}
             {{ nav_link("service_order_map", "站点地图", map_endpoints) }}
           {% endif %}
-          {% if not is_external_manager() and not is_external_employee() %}
+          {% if has_menu_permission("expense_processing") and not is_external_manager() and not is_external_employee() %}
             {{ nav_link("expense_processing", "报销处理", expense_processing_endpoints) }}
           {% endif %}
-          {% if can_create_invoice() %}
+          {% if has_menu_permission("new_invoice") and can_create_invoice() %}
             {{ nav_link("new_invoice", "新建发票", invoice_create_endpoints) }}
           {% endif %}
-          {% if not is_external_employee() %}
+          {% set show_reports_menu =
+            (has_menu_permission("invoices") and can_view_invoices())
+            or (has_menu_permission("invoice_query") and can_view_invoices())
+            or (has_menu_permission("customer_reimbursement_query") and can_view_customer_reimbursement())
+            or (has_menu_permission("buyer_query") and not is_external_manager())
+            or (has_menu_permission("service_order_query") and not is_external_manager())
+            or (has_menu_permission("service_report_query") and not is_external_manager())
+            or (has_menu_permission("expense_query") and not is_external_manager())
+            or (has_menu_permission("audit_log_report") and can_view_audit_logs())
+          %}
+          {% if show_reports_menu and not is_external_employee() %}
           <details class="nav-group {{ 'active' if active_endpoint in report_endpoints else '' }}" {% if active_endpoint in report_endpoints %}open{% endif %}>
             <summary>报表</summary>
             <div class="nav-submenu">
-              {% if can_view_invoices() %}
+              {% if has_menu_permission("invoices") and can_view_invoices() %}
                 {{ nav_link("invoices", "发票查询") }}
+              {% endif %}
+              {% if has_menu_permission("invoice_query") and can_view_invoices() %}
                 {{ nav_link("invoice_query", "发票明细查询") }}
               {% endif %}
-              {% if can_view_customer_reimbursement() %}
+              {% if has_menu_permission("customer_reimbursement_query") and can_view_customer_reimbursement() %}
                 {{ nav_link("customer_reimbursement_query", "工单结算报表") }}
               {% endif %}
               {% if not is_external_manager() %}
-                {{ nav_link("buyer_query", "站点查询") }}
-                {{ nav_link("service_order_query", "工单查询") }}
-                {{ nav_link("service_report_query", "日报查询") }}
-                {{ nav_link("expense_query", "报销明细查询") }}
-                {% if can_view_audit_logs() %}
+                {% if has_menu_permission("buyer_query") %}{{ nav_link("buyer_query", "站点查询") }}{% endif %}
+                {% if has_menu_permission("service_order_query") %}{{ nav_link("service_order_query", "工单查询") }}{% endif %}
+                {% if has_menu_permission("service_report_query") %}{{ nav_link("service_report_query", "日报查询") }}{% endif %}
+                {% if has_menu_permission("expense_query") %}{{ nav_link("expense_query", "报销明细查询") }}{% endif %}
+                {% if has_menu_permission("audit_log_report") and can_view_audit_logs() %}
                   {{ nav_link("audit_log_report", "操作日志") }}
                 {% endif %}
               {% endif %}
             </div>
           </details>
           {% endif %}
-          {% if can_view_labor_payroll_reports() or can_manage_employee_grades() %}
+          {% set show_payroll_reports =
+            (has_menu_permission("labor_hours_report") and can_view_labor_payroll_reports())
+            or (has_menu_permission("payroll_report") and can_view_labor_payroll_reports())
+            or (has_menu_permission("payroll_calendar") and can_view_labor_payroll_reports())
+          %}
+          {% set show_payroll_parameters =
+            (has_menu_permission("employee_grades") and can_manage_employee_grades())
+            or (has_menu_permission("payroll_subsidies") and can_manage_employee_grades())
+          %}
+          {% if show_payroll_reports or show_payroll_parameters %}
             <details class="nav-group {{ 'active' if active_endpoint in payroll_endpoints else '' }}" {% if active_endpoint in payroll_endpoints %}open{% endif %}>
               <summary>薪酬管理</summary>
               <div class="nav-submenu">
-                {% if can_view_labor_payroll_reports() %}
-                  {{ nav_link("labor_hours_report", "工时统计") }}
-                  {{ nav_link("payroll_report", "薪酬统计") }}
-                  {{ nav_link("payroll_calendar", "薪酬日历") }}
+                {% if show_payroll_reports %}
+                  {% if has_menu_permission("labor_hours_report") and can_view_labor_payroll_reports() %}{{ nav_link("labor_hours_report", "工时统计") }}{% endif %}
+                  {% if has_menu_permission("payroll_report") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_report", "薪酬统计") }}{% endif %}
+                  {% if has_menu_permission("payroll_calendar") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_calendar", "薪酬日历") }}{% endif %}
                 {% endif %}
-                {% if can_manage_employee_grades() %}
+                {% if show_payroll_parameters %}
                   <details class="nav-subgroup {{ 'active' if active_endpoint in payroll_parameter_endpoints else '' }}" {% if active_endpoint in payroll_parameter_endpoints %}open{% endif %}>
                     <summary>薪酬参数</summary>
                     <div class="nav-submenu">
-                      {{ nav_link("employee_grades", "员工等级") }}
-                      {{ nav_link("payroll_subsidies", "补贴参数") }}
+                      {% if has_menu_permission("employee_grades") and can_manage_employee_grades() %}{{ nav_link("employee_grades", "员工等级") }}{% endif %}
+                      {% if has_menu_permission("payroll_subsidies") and can_manage_employee_grades() %}{{ nav_link("payroll_subsidies", "补贴参数") }}{% endif %}
                     </div>
                   </details>
                 {% endif %}
               </div>
             </details>
           {% endif %}
-          {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
+          {% if has_menu_permission("messages") %}
+            {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
+          {% endif %}
           {% if not is_external_manager() and not is_external_employee() %}
+            {% set show_basic_data =
+              (has_menu_permission("clients") and has_action_permission("clients", "view"))
+              or (has_menu_permission("owners") and has_action_permission("owners", "view"))
+              or (has_menu_permission("buyers") and has_action_permission("buyers", "view"))
+              or (has_menu_permission("work_order_types") and has_action_permission("work_order_types", "view"))
+              or (has_menu_permission("projects") and has_action_permission("projects", "view"))
+              or (has_menu_permission("countries") and has_action_permission("countries", "view"))
+              or (has_menu_permission("company_info") and has_action_permission("company_info", "view"))
+              or (has_menu_permission("system_settings") and has_action_permission("system_settings", "view"))
+              or (has_menu_permission("database_console") and has_action_permission("database_console", "view"))
+              or normalized_role() == "admin"
+              or (has_menu_permission("users") and has_action_permission("users", "view"))
+            %}
+            {% if show_basic_data %}
             <details class="nav-group {{ 'active' if active_endpoint in basic_data_endpoints else '' }}" {% if active_endpoint in basic_data_endpoints %}open{% endif %}>
               <summary>基础数据</summary>
               <div class="nav-submenu">
-                {% if normalized_role() != "employee" %}
+                {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}
                   {{ nav_link("clients", "客户") }}
                 {% endif %}
-                {% if normalized_role() in ["admin", "manager", "finance"] %}
+                {% if has_menu_permission("owners") and has_action_permission("owners", "view") %}
                   {{ nav_link("owners", "业主") }}
+                {% endif %}
+                {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}
                   {{ nav_link("buyers", "站点") }}
                 {% endif %}
-                {% if normalized_role() in ["admin", "manager"] %}
+                {% if has_menu_permission("work_order_types") and has_action_permission("work_order_types", "view") %}
                   {{ nav_link("work_order_types", "工单类型") }}
+                {% endif %}
+                {% if has_menu_permission("projects") and has_action_permission("projects", "view") %}
                   {{ nav_link("projects", "项目") }}
+                {% endif %}
+                {% if has_menu_permission("countries") and has_action_permission("countries", "view") %}
                   {{ nav_link("countries", "国家") }}
                 {% endif %}
-                {% if normalized_role() in ["admin", "manager", "finance", "employee"] %}
+                {% if has_menu_permission("company_info") and has_action_permission("company_info", "view") %}
                   {{ nav_link("company_info", "公司信息") }}
                 {% endif %}
                 {% if normalized_role() == "admin" %}
+                  {{ nav_link("menu_permissions", "权限管理") }}
+                {% endif %}
+                {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}
                   {{ nav_link("system_settings", "系统设置") }}
+                {% endif %}
+                {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}
                   {{ nav_link("database_console", "数据库工具") }}
                 {% endif %}
-                {{ nav_link("users", "用户") }}
+                {% if has_menu_permission("users") and has_action_permission("users", "view") %}
+                  {{ nav_link("users", "用户") }}
+                {% endif %}
               </div>
             </details>
+            {% endif %}
           {% else %}
             {% if is_external_manager() %}
-              {{ nav_link("clients", "客户信息") }}
-              {{ nav_link("buyers", "站点") }}
+              {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}{{ nav_link("clients", "客户信息") }}{% endif %}
+              {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}{{ nav_link("buyers", "站点") }}{% endif %}
             {% endif %}
-            {{ nav_link("users", "我的资料") }}
+            {% if has_menu_permission("users") %}{{ nav_link("users", "我的资料") }}{% endif %}
           {% endif %}
         </nav>
         <div class="user-box">
@@ -163,7 +216,7 @@
       </div>
       <div class="image-preview-wrap"><img id="imageAttachmentPreviewImage" alt="附件预览"></div>
     </dialog>
-    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260706-payroll-catchup-v1') }}"></script>
+    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260706-user-address-v1') }}"></script>
     <script src="{{ url_for('static', filename='attachment-preview.js', v='20260630-image-preview-v1') }}"></script>
     {% block scripts %}{% endblock %}
   </body>
