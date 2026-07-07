@@ -102,6 +102,7 @@ function buyerDetails(buyer) {
         <dt>${t("电子邮箱地址")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
         <dt>${t("最近实际日期")}</dt><dd>${lastInspection}</dd>
+        <dt>${t("预警到期")}</dt><dd>${escapeHtml(buyer.inspection_warning_days)} ${t("天")}</dd>
         <dt>${t("巡检周期")}</dt><dd>${escapeHtml(buyer.inspection_cycle_days)} ${t("天")}</dd>
         ${invoices}
       </dl>
@@ -250,6 +251,8 @@ function siteMarkerHtml(group, placement) {
   const statuses = group.buyers.map((buyer) => buyer.inspection_status || "none");
   const statusClass = statuses.includes("overdue")
     ? "inspection-overdue"
+    : statuses.includes("warning")
+      ? "inspection-warning"
     : statuses.includes("fresh")
       ? "inspection-fresh"
       : "inspection-none";
@@ -263,6 +266,7 @@ function siteMarkerHtml(group, placement) {
 function groupInspectionPriority(group) {
   const statuses = group.buyers.map((buyer) => buyer.inspection_status || "none");
   if (statuses.includes("overdue")) return 30;
+  if (statuses.includes("warning")) return 25;
   if (statuses.includes("fresh")) return 20;
   return 10;
 }

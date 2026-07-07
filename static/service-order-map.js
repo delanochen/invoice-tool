@@ -106,6 +106,7 @@ function buyerDetails(buyer) {
         <dt>${t("电子邮箱地址")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
         <dt>${t("最近实际日期")}</dt><dd>${lastInspection}</dd>
+        <dt>${t("预警到期")}</dt><dd>${escapeHtml(buyer.inspection_warning_days)} ${t("天")}</dd>
         <dt>${t("巡检周期")}</dt><dd>${escapeHtml(buyer.inspection_cycle_days)} ${t("天")}</dd>
         ${invoices}
       </dl>
@@ -203,7 +204,7 @@ function siteMarkerIcon(buyer, placement) {
 
 function ensureMarker(buyer, position, placement) {
   let marker = markersById.get(buyer.id);
-  const zIndexOffset = buyer.inspection_status === "overdue" ? 50 : buyer.inspection_status === "fresh" ? 30 : 10;
+  const zIndexOffset = buyer.inspection_status === "overdue" ? 60 : buyer.inspection_status === "warning" ? 45 : buyer.inspection_status === "fresh" ? 30 : 10;
   if (!marker) {
     marker = L.marker(position, { icon: siteMarkerIcon(buyer, placement), title: buyer.name, zIndexOffset });
     marker.bindPopup(buyerDetails(buyer), { maxWidth: 340 });

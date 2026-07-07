@@ -36,6 +36,9 @@
       <label>Google Geocoding API Key
         <input type="password" name="google_geocoding_api_key" value="{{ google_geocoding_api_key }}" autocomplete="off" placeholder="用于后端保存站点经纬度">
       </label>
+      <label>预警到期（天）
+        <input type="number" name="inspection_warning_days" min="1" step="1" value="{{ inspection_warning_days }}">
+      </label>
       <label>巡检周期（天）
         <input type="number" name="inspection_cycle_days" min="1" step="1" value="{{ inspection_cycle_days }}">
       </label>

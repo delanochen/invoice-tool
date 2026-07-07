@@ -1454,6 +1454,7 @@ def seed_settings(connection):
     defaults["payroll_meal_daily_amount"] = "50"
     defaults["payroll_lodging_limit"] = "0"
     defaults["payroll_historical_paid_date"] = date.today().isoformat()
+    defaults["inspection_warning_days"] = "150"
     defaults["inspection_cycle_days"] = "180"
     for key, value in defaults.items():
         connection.execute(
@@ -1517,6 +1518,10 @@ def setting_int(key, default=0):
 
 def inspection_cycle_days():
     return max(1, setting_int("inspection_cycle_days", 180))
+
+
+def inspection_warning_days():
+    return max(1, setting_int("inspection_warning_days", 150))
 
 
 def positive_int(value, default=1):
@@ -6590,6 +6595,11 @@ def delete_user(user_id):
 @login_required
 def system_settings():
     if request.method == "POST":
+        warning_days = positive_int(request.form.get("inspection_warning_days"), 150)
+        cycle_days = positive_int(request.form.get("inspection_cycle_days"), 180)
+        if warning_days >= cycle_days:
+            flash("预警到期天数必须小于巡检周期天数。", "error")
+            return redirect(url_for("system_settings"))
         set_setting("company_tax_note", request.form.get("company_tax_note", "").strip())
         for key in DEFAULT_PAYMENT_INSTRUCTIONS:
             set_setting(f"payment_{key}", request.form.get(f"payment_{key}", "").strip())
@@ -6604,7 +6614,8 @@ def system_settings():
             "google_geocoding_api_key",
             request.form.get("google_geocoding_api_key", "").strip(),
         )
-        set_setting("inspection_cycle_days", str(positive_int(request.form.get("inspection_cycle_days"), 180)))
+        set_setting("inspection_warning_days", str(warning_days))
+        set_setting("inspection_cycle_days", str(cycle_days))
         db().commit()
         flash("系统设置已保存。", "success")
         return redirect(url_for("system_settings"))
@@ -6616,6 +6627,7 @@ def system_settings():
         terms=get_invoice_terms(),
         google_maps_browser_api_key=get_google_maps_browser_api_key(),
         google_geocoding_api_key=get_google_geocoding_api_key(),
+        inspection_warning_days=inspection_warning_days(),
         inspection_cycle_days=inspection_cycle_days(),
     )
 
@@ -8314,6 +8326,7 @@ def service_order_calendar():
 
 
 def buyer_map_payload(buyer):
+    warning_days = inspection_warning_days()
     cycle_days = inspection_cycle_days()
     last_actual_date = parsed_iso_date(buyer["last_actual_date"])
     days_since_last_actual = (date.today() - last_actual_date).days if last_actual_date else None
@@ -8321,8 +8334,10 @@ def buyer_map_payload(buyer):
         inspection_status = "none"
     elif days_since_last_actual is None:
         inspection_status = "overdue"
-    elif days_since_last_actual > cycle_days:
+    elif days_since_last_actual >= cycle_days:
         inspection_status = "overdue"
+    elif days_since_last_actual >= warning_days:
+        inspection_status = "warning"
     else:
         inspection_status = "fresh"
     payload = {
@@ -8344,6 +8359,7 @@ def buyer_map_payload(buyer):
         "work_order_completed": buyer["work_order_completed"],
         "last_actual_date": buyer["last_actual_date"],
         "days_since_last_actual": days_since_last_actual,
+        "inspection_warning_days": warning_days,
         "inspection_cycle_days": cycle_days,
         "inspection_status": inspection_status,
         "status": (
