@@ -14,9 +14,9 @@
     </div>
   </header>
   <div class="map-toolbar no-print">
-    <label class="map-search-field">关键词
-      <input id="mapSearch" placeholder="站点编号、站点名称、业主、联系人、邮箱或地址">
-    </label>
+    <div class="map-search-field">
+      <input id="mapSearch" aria-label="关键词" placeholder="站点编号、站点名称、业主、联系人、邮箱或地址">
+    </div>
     <details class="multi-select map-filter-select" id="mapStatusFilter">
       <summary>工单进度</summary>
       <div class="multi-select-menu" data-map-filter-options="status"></div>
@@ -74,10 +74,10 @@
 {% endblock %}
 {% block scripts %}
   {% if google_maps_enabled %}
-    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260708-map-panel-counts-v1') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260708-map-filter-summary-v1') }}"></script>
     <script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async"></script>
   {% else %}
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="{{ url_for('static', filename='service-order-map.js', v='20260708-map-panel-counts-v1') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map.js', v='20260708-map-filter-summary-v1') }}"></script>
   {% endif %}
 {% endblock %}

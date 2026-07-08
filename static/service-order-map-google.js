@@ -73,6 +73,28 @@ function selectedFilterValues(field) {
   );
 }
 
+function updateMapFilterSummary(container) {
+  const details = container.closest("details");
+  const summary = details?.querySelector("summary");
+  if (!summary) return;
+  if (!summary.dataset.label) summary.dataset.label = summary.textContent.trim();
+  const selectedLabels = Array.from(container.querySelectorAll("input:checked"))
+    .map((input) => input.nextElementSibling?.textContent || input.value);
+  if (!selectedLabels.length) {
+    summary.textContent = summary.dataset.label;
+    summary.classList.remove("has-active-filter");
+  } else {
+    summary.textContent = selectedLabels.length <= 2
+      ? `${summary.dataset.label}：${selectedLabels.join("、")}`
+      : `${summary.dataset.label}：${selectedLabels.length}`;
+    summary.classList.add("has-active-filter");
+  }
+}
+
+function updateMapFilterSummaries() {
+  filterOptionContainers.forEach(updateMapFilterSummary);
+}
+
 function renderMapFilterOptions() {
   filterOptionContainers.forEach((container) => {
     const field = container.dataset.mapFilterOptions;
@@ -85,7 +107,11 @@ function renderMapFilterOptions() {
       )).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((value) => ({ value, label: value }));
     container.replaceChildren();
     const details = container.closest("details");
-    if (details) details.hidden = values.length === 0;
+    if (details) {
+      details.hidden = values.length === 0;
+      const summary = details.querySelector("summary");
+      if (summary && !summary.dataset.label) summary.dataset.label = summary.textContent.trim();
+    }
     values.forEach((option) => {
       const label = document.createElement("label");
       const input = document.createElement("input");
@@ -95,6 +121,22 @@ function renderMapFilterOptions() {
       span.textContent = t(option.label);
       label.append(input, span);
       container.appendChild(label);
+    });
+    updateMapFilterSummary(container);
+  });
+}
+
+function setupMapFilterAutoClose() {
+  document.addEventListener("pointerdown", (event) => {
+    document.querySelectorAll(".map-filter-select[open]").forEach((details) => {
+      if (!details.contains(event.target)) details.removeAttribute("open");
+    });
+  });
+  document.querySelectorAll(".map-filter-select").forEach((details) => {
+    details.addEventListener("focusout", () => {
+      window.setTimeout(() => {
+        if (!details.contains(document.activeElement)) details.removeAttribute("open");
+      }, 0);
     });
   });
 }
@@ -464,7 +506,10 @@ async function geocodePendingBuyers() {
 
 searchInput.addEventListener("input", () => renderMarkers({ fit: true }));
 filterOptionContainers.forEach((container) => {
-  container.addEventListener("change", () => renderMarkers({ fit: true }));
+  container.addEventListener("change", () => {
+    updateMapFilterSummaries();
+    renderMarkers({ fit: true });
+  });
 });
 retryButton.addEventListener("click", async () => {
   retryButton.disabled = true;
@@ -502,6 +547,7 @@ window.initServiceOrderGoogleMap = function initServiceOrderGoogleMap() {
   mapProjectionOverlay.setMap(serviceMap);
   addHeadquartersMarker();
   renderMapFilterOptions();
+  setupMapFilterAutoClose();
   google.maps.event.addListenerOnce(serviceMap, "idle", () => renderMarkers({ fit: true }));
   serviceMap.addListener("idle", () => renderMarkers());
   geocodePendingBuyers();

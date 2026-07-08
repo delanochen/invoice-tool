@@ -1636,6 +1636,14 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .map-filter-select summary {
   min-height: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-filter-select summary.has-active-filter {
+  border-color: #0f766e;
+  background: #ecfdf3;
+  color: #0f766e;
 }
 .map-summary {
   display: flex;
@@ -1827,10 +1835,11 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   top: 14px;
   left: 14px;
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
-  align-items: center;
-  max-width: min(520px, calc(100% - 340px));
-  gap: 6px 10px;
+  align-items: flex-start;
+  max-width: min(180px, calc(100% - 340px));
+  gap: 6px;
   border: 1px solid rgba(208, 213, 221, 0.8);
   border-radius: 8px;
   padding: 8px 10px;
@@ -1843,6 +1852,8 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .map-legend span {
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
+  min-width: 98px;
   gap: 5px;
   white-space: nowrap;
 }
