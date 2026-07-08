@@ -205,7 +205,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "service_order_query", "label": "工单查询", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "service_report_query", "label": "日报查询", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "expense_query", "label": "报销明细查询", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "audit_log_report", "label": "操作日志", "roles": {"admin", "manager"}},
+            {"key": "audit_log_report", "label": "操作日志", "roles": {"admin", "manager", "finance"}},
         ],
     },
     {
@@ -289,6 +289,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "company_info", "label": "公司信息", "actions": {"view": {"admin", "manager", "finance", "employee"}, "edit": {"admin"}}},
             {"key": "system_settings", "label": "系统设置", "actions": {"view": {"admin"}, "edit": {"admin"}}},
             {"key": "database_console", "label": "数据库工具", "actions": {"view": {"admin"}, "execute": {"admin"}}},
+            {"key": "audit_logs", "label": "操作日志", "actions": {"view": {"admin", "manager", "finance"}}},
         ],
     },
 ]
