@@ -2967,6 +2967,9 @@ def google_photos_page_html(share_url):
     }
     try:
         with urlopen(Request(share_url, headers=request_headers), timeout=30) as response:
+            final_host = urlsplit(response.geturl()).netloc.lower().split(":")[0]
+            if final_host == "accounts.google.com":
+                raise ValueError("这个 Google Photos 分享链接需要登录或没有公开访问权限，服务器无法直接导入。")
             content_type = response.headers.get_content_type()
             if content_type and "html" not in content_type:
                 raise ValueError("链接返回的不是 Google Photos 分享页面。")
