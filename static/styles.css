@@ -1617,11 +1617,19 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .tax-note { color: var(--muted); font-size: 12px; }
 
 .map-toolbar {
-  display: grid;
-  grid-template-columns: minmax(240px, 1.4fr) 150px repeat(3, minmax(128px, 0.7fr)) auto;
-  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 8px;
   margin-bottom: 10px;
+}
+.map-toolbar label,
+.map-toolbar .map-filter-select {
+  flex: 0 1 150px;
+}
+.map-toolbar .map-search-field {
+  flex: 1 1 280px;
+  min-width: 240px;
 }
 .map-filter-select {
   min-width: 0;
@@ -1633,6 +1641,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   display: flex;
   align-items: center;
   gap: 7px;
+  margin-left: auto;
   min-height: 38px;
   color: var(--muted);
   white-space: nowrap;
@@ -1678,7 +1687,8 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .unlocated-order span { color: var(--muted); font-size: 13px; line-height: 1.45; }
 .unlocated-order small { color: var(--danger); }
-.map-order-popup { display: grid; gap: 6px; min-width: 230px; line-height: 1.4; }
+.map-order-popup { display: grid; gap: 4px; min-width: 220px; line-height: 1.28; font-size: 13px; }
+.map-order-popup strong { font-size: 14px; }
 .map-order-popup > span { color: var(--muted); }
 .map-directions-link {
   color: var(--accent);
@@ -1688,9 +1698,9 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .map-order-popup dl {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 4px 8px;
-  margin: 4px 0;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 3px 6px;
+  margin: 2px 0;
 }
 .map-order-popup dt { color: var(--muted); }
 .map-order-popup dd { margin: 0; }
@@ -1812,11 +1822,21 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   position: absolute;
 }
 .map-legend {
+  position: absolute;
+  z-index: 500;
+  top: 14px;
+  left: 14px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  justify-content: flex-end;
+  max-width: min(520px, calc(100% - 340px));
+  gap: 6px 10px;
+  border: 1px solid rgba(208, 213, 221, 0.8);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(8px);
   color: var(--muted);
   font-size: 12px;
 }
@@ -1836,6 +1856,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .legend-dot.inspection-warning { background: #f79009; }
 .legend-dot.inspection-fresh { background: #0f766e; }
 .legend-dot.inspection-none { background: #667085; }
+.legend-dot.inspection-unlocated { background: #98a2b3; }
 @keyframes mapSitePulse {
   0% { opacity: 0.78; transform: scale(0.45); }
   70% { opacity: 0; transform: scale(1.45); }
@@ -1848,7 +1869,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   text-align: center;
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.95);
 }
-.map-attribution-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.map-attribution-note { margin: 12px 0 0; color: var(--muted); font-size: 11px; }
 
 body.service-order-map-page {
   height: 100vh;
@@ -1934,10 +1955,11 @@ body.service-order-map-page {
   .page-header, .panel-title, .actions { align-items: stretch; flex-direction: column; }
   .invoice-paper { padding: 24px; }
   .map-toolbar { grid-template-columns: 1fr 1fr; }
-  .map-summary { grid-column: 1 / -1; }
+  .map-summary {
+    margin-left: 0;
+  }
   .map-legend {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
+    max-width: min(430px, calc(100% - 32px));
   }
   .map-unlocated-panel {
     max-height: min(46vh, 360px);
@@ -2044,6 +2066,12 @@ body.service-order-map-page {
   }
   .two-columns { grid-template-columns: 1fr; }
   .map-toolbar { grid-template-columns: 1fr; }
+  .map-toolbar label,
+  .map-toolbar .map-filter-select,
+  .map-toolbar .map-search-field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
   .map-summary { grid-column: auto; white-space: normal; }
   .service-map-layout { min-height: 0; }
   .service-order-map {
@@ -2093,12 +2121,17 @@ body.service-order-map-page {
     min-height: 480px;
   }
   .service-order-map-page .map-unlocated-panel {
-    top: 8px;
+    top: 82px;
     right: 8px;
     width: min(260px, calc(100% - 16px));
     max-height: 210px;
     overflow-y: auto;
     padding: 10px;
+  }
+  .service-order-map-page .map-legend {
+    top: 8px;
+    left: 8px;
+    max-width: calc(100% - 16px);
   }
   .service-order-map-page .map-attribution-note {
     margin-top: 4px;

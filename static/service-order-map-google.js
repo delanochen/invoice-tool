@@ -1,9 +1,10 @@
 const mapElement = document.querySelector("#serviceOrderMap");
 const searchInput = document.querySelector("#mapSearch");
-const statusSelect = document.querySelector("#mapStatus");
 const filterOptionContainers = document.querySelectorAll("[data-map-filter-options]");
 const visibleCount = document.querySelector("#visibleOrderCount");
 const progressText = document.querySelector("#geocodeProgress");
+const legendContainer = document.querySelector("#mapLegend");
+const unlocatedPanel = document.querySelector(".map-unlocated-panel");
 const unlocatedContainer = document.querySelector("#unlocatedOrders");
 const retryButton = document.querySelector("#retryFailedGeocodes");
 const mapConfig = window.serviceOrderMapConfig || {};
@@ -15,6 +16,10 @@ const inspectionStatusOptions = [
   { value: "warning", label: "预警到期" },
   { value: "fresh", label: "未超期" },
   { value: "none", label: "无工单" }
+];
+const workOrderStatusOptions = [
+  { value: "active", label: "有进行中工单" },
+  { value: "completed", label: "工单全部完成" }
 ];
 const labelPlacements = [
   { name: "top", dx: -54, dy: -34, width: 108, height: 24 },
@@ -71,9 +76,11 @@ function selectedFilterValues(field) {
 function renderMapFilterOptions() {
   filterOptionContainers.forEach((container) => {
     const field = container.dataset.mapFilterOptions;
-    const values = field === "inspection_status"
-      ? inspectionStatusOptions.filter((option) => [...buyersById.values()].some((buyer) => (buyer.inspection_status || "none") === option.value))
-      : Array.from(new Set(
+    const values = field === "status"
+      ? workOrderStatusOptions.filter((option) => [...buyersById.values()].some((buyer) => buyer.status === option.value))
+      : field === "inspection_status"
+        ? inspectionStatusOptions.filter((option) => [...buyersById.values()].some((buyer) => (buyer.inspection_status || "none") === option.value))
+        : Array.from(new Set(
         [...buyersById.values()].map((buyer) => filterText(buyer[field])).filter(Boolean)
       )).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((value) => ({ value, label: value }));
     container.replaceChildren();
@@ -96,22 +103,14 @@ function buyerDetails(buyer) {
   const invoices = mapConfig.showInvoiceAmounts ? `
     <dt>${t("发票")}</dt><dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
   ` : "";
-  const lastInspection = buyer.last_actual_date
-    ? `${escapeHtml(buyer.last_actual_date)} · ${escapeHtml(buyer.days_since_last_actual)} ${t("天前")}`
-    : (Number(buyer.work_order_total || 0) > 0 ? t("无实际日期") : t("无工单"));
   return `
     <div class="map-order-popup">
       <strong>${escapeHtml(buyer.name)}</strong>
       <span>${buyerAddressLink(buyer)}</span>
       <dl>
-        <dt>${t("业主")}</dt><dd>${escapeHtml(buyer.owner || "-")}</dd>
         <dt>${t("联系人")}</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
         <dt>${t("联系方式")}</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
-        <dt>${t("电子邮箱地址")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
-        <dt>${t("最近实际日期")}</dt><dd>${lastInspection}</dd>
-        <dt>${t("预警到期")}</dt><dd>${escapeHtml(buyer.inspection_warning_days)} ${t("天")}</dd>
-        <dt>${t("巡检周期")}</dt><dd>${escapeHtml(buyer.inspection_cycle_days)} ${t("天")}</dd>
         ${invoices}
       </dl>
       <a href="${escapeHtml(buyer.detail_url)}">${t("工单查看")}</a>
@@ -154,7 +153,7 @@ function hasCoordinates(buyer) {
 
 function matchesFilters(buyer) {
   const query = searchInput.value.trim().toLocaleLowerCase();
-  const status = statusSelect.value;
+  const selectedStatuses = selectedFilterValues("status");
   const selectedSites = selectedFilterValues("name");
   const selectedOwners = selectedFilterValues("owner");
   const selectedInspectionStatuses = selectedFilterValues("inspection_status");
@@ -164,11 +163,33 @@ function matchesFilters(buyer) {
   ].join(" ").toLocaleLowerCase();
   return (
     (!query || haystack.includes(query)) &&
-    (!status || buyer.status === status) &&
+    (!selectedStatuses.size || selectedStatuses.has(buyer.status)) &&
     (!selectedSites.size || selectedSites.has(filterText(buyer.name))) &&
     (!selectedOwners.size || selectedOwners.has(filterText(buyer.owner))) &&
     (!selectedInspectionStatuses.size || selectedInspectionStatuses.has(buyer.inspection_status || "none"))
   );
+}
+
+function renderMapLegend(visibleBuyers) {
+  if (!legendContainer) return;
+  const counts = { overdue: 0, warning: 0, fresh: 0, none: 0, unlocated: 0 };
+  visibleBuyers.forEach((buyer) => {
+    if (!hasCoordinates(buyer)) {
+      counts.unlocated += 1;
+      return;
+    }
+    counts[buyer.inspection_status || "none"] = (counts[buyer.inspection_status || "none"] || 0) + 1;
+  });
+  const items = [
+    { key: "overdue", label: "超期", className: "inspection-overdue", always: true },
+    { key: "warning", label: "预警", className: "inspection-warning", always: true },
+    { key: "fresh", label: "正常", className: "inspection-fresh", always: true },
+    { key: "none", label: "无工单", className: "inspection-none", always: false },
+    { key: "unlocated", label: "未定位", className: "inspection-unlocated", always: false }
+  ].filter((item) => item.always || counts[item.key] > 0);
+  legendContainer.innerHTML = items.map((item) => `
+    <span><i class="legend-dot ${item.className}"></i>${t(item.label)}：${counts[item.key]}</span>
+  `).join("");
 }
 
 function buyerLatLng(buyer) {
@@ -375,11 +396,10 @@ function addHeadquartersMarker() {
 function renderUnlocatedBuyers() {
   const unlocated = [...buyersById.values()].filter((buyer) => !hasCoordinates(buyer));
   unlocatedContainer.replaceChildren();
+  if (unlocatedPanel) unlocatedPanel.hidden = unlocated.length === 0;
   if (!unlocated.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = t("所有站点均已定位。");
-    unlocatedContainer.appendChild(empty);
+    retryButton.hidden = true;
+    return;
   } else {
     unlocated.forEach((buyer) => {
       const item = document.createElement("a");
@@ -398,15 +418,17 @@ function renderMarkers({ fit = false } = {}) {
     activeInfoWindow = null;
   }
   markersByKey.forEach((marker) => marker.setMap(null));
-  const visibleBuyers = [...buyersById.values()].filter((buyer) => matchesFilters(buyer) && hasCoordinates(buyer));
-  const groups = groupVisibleBuyers(visibleBuyers);
+  const visibleBuyers = [...buyersById.values()].filter((buyer) => matchesFilters(buyer));
+  const locatedBuyers = visibleBuyers.filter((buyer) => hasCoordinates(buyer));
+  const groups = groupVisibleBuyers(locatedBuyers);
   const occupiedRects = [];
   const markers = groups.map((group) => {
     const placement = chooseLabelPlacement(group.position, occupiedRects);
     const marker = ensureMarker(group, placement);
     return marker;
   });
-  visibleCount.textContent = String(visibleBuyers.length);
+  visibleCount.textContent = String(locatedBuyers.length);
+  renderMapLegend(visibleBuyers);
   renderUnlocatedBuyers();
   if (fit && markers.length) {
     const bounds = new google.maps.LatLngBounds();
@@ -441,7 +463,6 @@ async function geocodePendingBuyers() {
 }
 
 searchInput.addEventListener("input", () => renderMarkers({ fit: true }));
-statusSelect.addEventListener("change", () => renderMarkers({ fit: true }));
 filterOptionContainers.forEach((container) => {
   container.addEventListener("change", () => renderMarkers({ fit: true }));
 });

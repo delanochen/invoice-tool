@@ -14,16 +14,13 @@
     </div>
   </header>
   <div class="map-toolbar no-print">
-    <label>关键词
+    <label class="map-search-field">关键词
       <input id="mapSearch" placeholder="站点编号、站点名称、业主、联系人、邮箱或地址">
     </label>
-    <label>工单进度
-      <select id="mapStatus">
-        <option value="">全部</option>
-        <option value="active">有进行中工单</option>
-        <option value="completed">工单全部完成</option>
-      </select>
-    </label>
+    <details class="multi-select map-filter-select" id="mapStatusFilter">
+      <summary>工单进度</summary>
+      <div class="multi-select-menu" data-map-filter-options="status"></div>
+    </details>
     <details class="multi-select map-filter-select" id="mapSiteFilter">
       <summary>站点名称</summary>
       <div class="multi-select-menu" data-map-filter-options="name"></div>
@@ -41,15 +38,10 @@
       <span>/ <span id="totalOrderCount">{{ map_buyers|length }}</span> 个站点已定位</span>
       <span id="geocodeProgress"></span>
     </div>
-    <div class="map-legend" aria-label="地图颜色说明">
-      <span><i class="legend-dot inspection-overdue"></i>超期</span>
-      <span><i class="legend-dot inspection-warning"></i>预警到期</span>
-      <span><i class="legend-dot inspection-fresh"></i>未超期</span>
-      <span><i class="legend-dot inspection-none"></i>无工单</span>
-    </div>
   </div>
   <section class="service-map-layout">
     <div id="serviceOrderMap" class="service-order-map" aria-label="站点地图"></div>
+    <div class="map-legend" id="mapLegend" aria-label="地图颜色说明"></div>
     <aside class="map-unlocated-panel">
       <div class="panel-title">
         <h2>未定位站点</h2>
@@ -82,10 +74,10 @@
 {% endblock %}
 {% block scripts %}
   {% if google_maps_enabled %}
-    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260708-map-inspection-filter-v1') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260708-map-panel-counts-v1') }}"></script>
     <script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async"></script>
   {% else %}
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="{{ url_for('static', filename='service-order-map.js', v='20260708-map-inspection-filter-v1') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map.js', v='20260708-map-panel-counts-v1') }}"></script>
   {% endif %}
 {% endblock %}
