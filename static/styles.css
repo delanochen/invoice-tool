@@ -214,9 +214,21 @@ h1, h2, h3, p { margin-top: 0; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .toolbar-actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+.toolbar-actions .muted-line {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin: 0;
+}
+.toolbar-actions form {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
 }
 .small { min-height: 32px; padding: 0 10px; font-size: 13px; }
 
