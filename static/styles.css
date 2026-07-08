@@ -627,13 +627,40 @@ body.service-order-calendar-page .service-order-calendar-panel {
 .work-order-calendar-event {
   display: grid;
   gap: 1px;
-  padding: 5px 6px;
+  padding: 4px 6px;
   border-left: 3px solid #0f766e;
   border-radius: 5px;
   background: #ecfdf3;
   color: var(--ink);
   font-size: 12px;
   line-height: 1.18;
+}
+.work-order-calendar-event.status-open {
+  border-left-color: #0f766e;
+  background: #ecfdf3;
+}
+.work-order-calendar-event.status-closed {
+  border-left-color: #667085;
+  background: #f2f4f7;
+  color: #475467;
+}
+.work-order-calendar-event.continues-start {
+  margin-right: -7px;
+  border-radius: 5px 0 0 5px;
+}
+.work-order-calendar-event.continues-middle {
+  margin-right: -7px;
+  margin-left: -7px;
+  border-left-color: transparent;
+  border-radius: 0;
+}
+.work-order-calendar-event.continues-end {
+  margin-left: -7px;
+  border-left-color: transparent;
+  border-radius: 0 5px 5px 0;
+}
+.work-order-calendar-event.continues-single {
+  border-radius: 5px;
 }
 .work-order-calendar-event strong,
 .work-order-calendar-event span,

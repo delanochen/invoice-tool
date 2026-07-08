@@ -32,6 +32,10 @@
       <summary>业主</summary>
       <div class="multi-select-menu" data-map-filter-options="owner"></div>
     </details>
+    <details class="multi-select map-filter-select" id="mapInspectionStatusFilter">
+      <summary>逾期状态</summary>
+      <div class="multi-select-menu" data-map-filter-options="inspection_status"></div>
+    </details>
     <div class="map-summary" aria-live="polite">
       <strong id="visibleOrderCount">0</strong>
       <span>/ <span id="totalOrderCount">{{ map_buyers|length }}</span> 个站点已定位</span>
@@ -78,10 +82,10 @@
 {% endblock %}
 {% block scripts %}
   {% if google_maps_enabled %}
-    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260707-inspection-warning-v1') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map-google.js', v='20260708-map-inspection-filter-v1') }}"></script>
     <script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async"></script>
   {% else %}
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="{{ url_for('static', filename='service-order-map.js', v='20260707-inspection-warning-v1') }}"></script>
+    <script src="{{ url_for('static', filename='service-order-map.js', v='20260708-map-inspection-filter-v1') }}"></script>
   {% endif %}
 {% endblock %}

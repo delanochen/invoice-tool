@@ -7628,17 +7628,31 @@ def service_order_calendar_rows(date_from, date_to):
         f"""
         with report_dates as (
             select service_order_id,
-                   min(date(coalesce(actual_work_date, report_date))) as first_actual_date
+                   date(coalesce(actual_work_date, report_date)) as calendar_date,
+                   1 as has_report
+            from service_reports
+            where coalesce(actual_work_date, report_date) is not null
+            group by service_order_id, date(coalesce(actual_work_date, report_date))
+        ),
+        report_counts as (
+            select service_order_id, count(*) as report_count
             from service_reports
             group by service_order_id
         ),
         calendar_orders as (
             select service_orders.*,
-                   coalesce(report_dates.first_actual_date, service_orders.start_date) as calendar_date,
-                   report_dates.first_actual_date
+                   report_dates.calendar_date,
+                   1 as has_report
             from service_orders
-            left join report_dates on report_dates.service_order_id = service_orders.id
-            where coalesce(report_dates.first_actual_date, service_orders.start_date) is not null
+            join report_dates on report_dates.service_order_id = service_orders.id
+            union all
+            select service_orders.*,
+                   date(service_orders.start_date) as calendar_date,
+                   0 as has_report
+            from service_orders
+            left join report_counts on report_counts.service_order_id = service_orders.id
+            where coalesce(report_counts.report_count, 0) = 0
+              and service_orders.start_date is not null
         )
         select service_orders.*,
                work_order_types.name as work_order_type_name,
@@ -7660,12 +7674,15 @@ def service_order_calendar_weeks(year, month):
     grid_start = month_start - timedelta(days=month_start.weekday())
     grid_end = month_end + timedelta(days=6 - month_end.weekday())
     events_by_day = {}
+    dates_by_order = {}
     for row in service_order_calendar_rows(grid_start, grid_end):
         event_date = parsed_iso_date(row["calendar_date"])
         if not event_date:
             continue
+        dates_by_order.setdefault(row["id"], set()).add(event_date)
         events_by_day.setdefault(event_date, []).append(
             {
+                "order_id": row["id"],
                 "order_number": row["order_number"],
                 "site_name": row["client_name"],
                 "owner": row["buyer_owner"],
@@ -7673,10 +7690,25 @@ def service_order_calendar_weeks(year, month):
                 "status_label": STATUS_LABELS.get(row["status"], row["status"]),
                 "work_order_type": row["work_order_type_name"],
                 "start_date": row["start_date"],
-                "first_actual_date": row["first_actual_date"],
+                "calendar_date": row["calendar_date"],
+                "has_report": bool(row["has_report"]),
                 "detail_url": url_for("service_order_detail", order_id=row["id"]),
             }
         )
+    for event_date, events in events_by_day.items():
+        for event in events:
+            order_dates = dates_by_order.get(event["order_id"], set())
+            continues_from_previous = (event_date - timedelta(days=1)) in order_dates and event_date.weekday() != 0
+            continues_to_next = (event_date + timedelta(days=1)) in order_dates and event_date.weekday() != 6
+            if continues_from_previous and continues_to_next:
+                continuation = "middle"
+            elif continues_from_previous:
+                continuation = "end"
+            elif continues_to_next:
+                continuation = "start"
+            else:
+                continuation = "single"
+            event["continuation"] = continuation
     current = grid_start
     weeks = []
     while current <= grid_end:

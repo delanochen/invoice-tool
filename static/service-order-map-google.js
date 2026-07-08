@@ -10,6 +10,12 @@ const mapConfig = window.serviceOrderMapConfig || {};
 const t = (value) => window.uiTranslate ? window.uiTranslate(value) : value;
 const buyersById = new Map((window.serviceOrderMapData || []).map((buyer) => [buyer.id, buyer]));
 const markersByKey = new Map();
+const inspectionStatusOptions = [
+  { value: "overdue", label: "超期" },
+  { value: "warning", label: "预警到期" },
+  { value: "fresh", label: "未超期" },
+  { value: "none", label: "无工单" }
+];
 const labelPlacements = [
   { name: "top", dx: -54, dy: -34, width: 108, height: 24 },
   { name: "bottom", dx: -54, dy: 12, width: 108, height: 24 },
@@ -65,19 +71,21 @@ function selectedFilterValues(field) {
 function renderMapFilterOptions() {
   filterOptionContainers.forEach((container) => {
     const field = container.dataset.mapFilterOptions;
-    const values = Array.from(new Set(
-      [...buyersById.values()].map((buyer) => filterText(buyer[field])).filter(Boolean)
-    )).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    const values = field === "inspection_status"
+      ? inspectionStatusOptions.filter((option) => [...buyersById.values()].some((buyer) => (buyer.inspection_status || "none") === option.value))
+      : Array.from(new Set(
+        [...buyersById.values()].map((buyer) => filterText(buyer[field])).filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })).map((value) => ({ value, label: value }));
     container.replaceChildren();
     const details = container.closest("details");
     if (details) details.hidden = values.length === 0;
-    values.forEach((value) => {
+    values.forEach((option) => {
       const label = document.createElement("label");
       const input = document.createElement("input");
       input.type = "checkbox";
-      input.value = value;
+      input.value = option.value;
       const span = document.createElement("span");
-      span.textContent = value;
+      span.textContent = t(option.label);
       label.append(input, span);
       container.appendChild(label);
     });
@@ -149,6 +157,7 @@ function matchesFilters(buyer) {
   const status = statusSelect.value;
   const selectedSites = selectedFilterValues("name");
   const selectedOwners = selectedFilterValues("owner");
+  const selectedInspectionStatuses = selectedFilterValues("inspection_status");
   const haystack = [
     buyer.buyer_number, buyer.name, buyer.owner, buyer.contact_name, buyer.contact_details, buyer.email,
     buyer.detailed_address, buyer.equipment_manufacturer
@@ -157,7 +166,8 @@ function matchesFilters(buyer) {
     (!query || haystack.includes(query)) &&
     (!status || buyer.status === status) &&
     (!selectedSites.size || selectedSites.has(filterText(buyer.name))) &&
-    (!selectedOwners.size || selectedOwners.has(filterText(buyer.owner)))
+    (!selectedOwners.size || selectedOwners.has(filterText(buyer.owner))) &&
+    (!selectedInspectionStatuses.size || selectedInspectionStatuses.has(buyer.inspection_status || "none"))
   );
 }
 

@@ -15,7 +15,7 @@
   <section class="panel service-order-calendar-panel">
     <div class="panel-title">
       <h2>{{ visible_month.strftime("%Y-%m") }}</h2>
-      <span class="muted-line">按工单第一个工作日报实际日期显示；没有日报时按工单实际开始日期显示。</span>
+      <span class="muted-line">按工作日报实际日期显示；同一工单连续多天会在日历上连成一条，没有日报时按工单实际开始日期显示。</span>
     </div>
     <div class="work-order-calendar">
       {% for day_name in ["一", "二", "三", "四", "五", "六", "日"] %}
@@ -27,10 +27,8 @@
             <span class="calendar-date">{{ day.date.day }}</span>
             <div class="work-order-calendar-events">
               {% for event in day.events %}
-                <a class="work-order-calendar-event" href="{{ event.detail_url }}" title="{{ event.order_number }} · {{ event.site_name }}">
-                  <strong>{{ event.order_number }}</strong>
+                <a class="work-order-calendar-event status-{{ event.status }} continues-{{ event.continuation }}" href="{{ event.detail_url }}" title="{{ event.site_name }} · {{ event.order_number }} · {{ event.status_label }}{% if event.work_order_type %} · {{ event.work_order_type }}{% endif %}">
                   <span>{{ event.site_name }}</span>
-                  <small>{{ event.status_label }}{% if event.work_order_type %} · {{ event.work_order_type }}{% endif %}</small>
                 </a>
               {% endfor %}
             </div>
