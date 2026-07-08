@@ -1,6 +1,7 @@
 ﻿import os
 import hashlib
 import html
+import csv
 import json
 import re
 import secrets
@@ -494,6 +495,7 @@ def init_db():
                 password_hash text not null,
                 role text not null default 'user',
                 address text not null default '',
+                default_language text not null default 'zh-CN',
                 employee_grade_id integer,
                 client_id integer,
                 created_at text not null,
@@ -976,6 +978,7 @@ def init_db():
         ensure_column(connection, "users", "country_code", "text not null default 'US'")
         ensure_column(connection, "users", "employee_grade_id", "integer")
         ensure_column(connection, "users", "address", "text not null default ''")
+        ensure_column(connection, "users", "default_language", "text not null default 'zh-CN'")
         ensure_column(connection, "service_reports", "actual_work_date", "text")
         ensure_column(connection, "service_report_workers", "driving_miles", "real not null default 0")
         connection.execute(
@@ -1350,6 +1353,11 @@ def seed_countries(connection):
 
 def current_language():
     language = session.get("language", DEFAULT_LANGUAGE)
+    return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+
+
+def language_from_form(default=DEFAULT_LANGUAGE):
+    language = request.form.get("default_language", default or DEFAULT_LANGUAGE)
     return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
 
 
@@ -2300,6 +2308,183 @@ def owner_options():
         order by case when name = '未知' then 0 else 1 end, owner_number
         """
     ).fetchall()
+
+
+BUYER_IMPORT_FIELD_ALIASES = {
+    "buyer_number": {"编号", "站点编号", "客户编号", "buyer_number", "site_number", "number"},
+    "name": {"站点名称", "站点", "名称", "name", "site", "site_name"},
+    "owner": {"业主", "业主名称", "owner", "owner_name"},
+    "country_code": {"国家", "国家代码", "country", "country_code"},
+    "contact_name": {"联系人", "contact", "contact_name"},
+    "contact_details": {"联系方式", "联系电话", "电话", "contact_details", "phone", "tel"},
+    "email": {"电子邮箱", "电子邮箱地址", "邮箱", "email"},
+    "site_size": {"规模", "site_size", "scale", "size"},
+    "equipment_manufacturer": {"配套机厂家", "配套厂家", "厂家", "equipment_manufacturer", "manufacturer"},
+    "detailed_address": {"详细地址", "地址", "站点地址", "detailed_address", "address", "site_address"},
+}
+
+
+def normalize_import_header(value):
+    return re.sub(r"[\s_（）()：:.-]+", "", str(value or "").strip()).casefold()
+
+
+BUYER_IMPORT_HEADER_LOOKUP = {
+    normalize_import_header(alias): field
+    for field, aliases in BUYER_IMPORT_FIELD_ALIASES.items()
+    for alias in aliases
+}
+
+
+def get_or_create_owner_by_name(owner_name):
+    name = " ".join(str(owner_name or "").strip().split()) or "未知"
+    row = db().execute("select * from owners where lower(trim(name)) = lower(trim(?))", (name,)).fetchone()
+    if row:
+        return row, False
+    cursor = db().execute(
+        "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
+        (next_owner_number(), name, now()),
+    )
+    return db().execute("select * from owners where id = ?", (cursor.lastrowid,)).fetchone(), True
+
+
+def country_from_import_value(value, default_code="US"):
+    text = str(value or "").strip()
+    if text:
+        country = country_by_code(text, include_inactive=True)
+        if country:
+            return country
+        country = db().execute(
+            """
+            select countries.*
+            from countries
+            left join country_translations on country_translations.country_code = countries.code
+            where lower(country_translations.name) = lower(?)
+            limit 1
+            """,
+            (text,),
+        ).fetchone()
+        if country:
+            return country
+    return country_by_code(default_code, include_inactive=True)
+
+
+def imported_buyer_rows(uploaded_file):
+    filename = secure_filename(uploaded_file.filename or "")
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content = uploaded_file.read()
+    if not content:
+        raise ValueError("导入文件为空。")
+    if extension == "csv":
+        for encoding in ("utf-8-sig", "gb18030"):
+            try:
+                text = content.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                text = ""
+        if not text:
+            raise ValueError("CSV 文件编码无法识别，请使用 UTF-8 或 GB18030。")
+        rows = list(csv.DictReader(text.splitlines()))
+    elif extension == "xlsx":
+        try:
+            from openpyxl import load_workbook
+        except ImportError as error:
+            raise ValueError("服务器未安装 Excel 导入组件，请先安装 openpyxl。") from error
+        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+        worksheet = workbook.active
+        values = list(worksheet.iter_rows(values_only=True))
+        if not values:
+            return []
+        headers = [str(cell or "").strip() for cell in values[0]]
+        rows = [
+            {headers[index]: cell for index, cell in enumerate(row) if index < len(headers)}
+            for row in values[1:]
+        ]
+    else:
+        raise ValueError("仅支持导入 .xlsx 或 .csv 文件。")
+    normalized_rows = []
+    for source_row in rows:
+        normalized = {}
+        for header, value in source_row.items():
+            field = BUYER_IMPORT_HEADER_LOOKUP.get(normalize_import_header(header))
+            if field:
+                normalized[field] = "" if value is None else str(value).strip()
+        if any(normalized.values()):
+            normalized_rows.append(normalized)
+    return normalized_rows
+
+
+def import_buyers_from_file(uploaded_file, client_id=None):
+    rows = imported_buyer_rows(uploaded_file)
+    result = {
+        "total": len(rows),
+        "created": 0,
+        "skipped": 0,
+        "errors": 0,
+        "owners_created": 0,
+        "details": [],
+    }
+    seen_keys = set()
+    for index, row in enumerate(rows, start=2):
+        name = row.get("name", "").strip()
+        detailed_address = row.get("detailed_address", "").strip()
+        buyer_number = row.get("buyer_number", "").strip().upper()
+        if not name or not detailed_address:
+            result["errors"] += 1
+            result["details"].append(f"第 {index} 行：缺少站点名称或详细地址，未导入。")
+            continue
+        duplicate_key = (client_id or 0, normalized_address(name), normalized_address(detailed_address))
+        if duplicate_key in seen_keys:
+            result["skipped"] += 1
+            result["details"].append(f"第 {index} 行：{name} 在本次文件中重复，已跳过。")
+            continue
+        seen_keys.add(duplicate_key)
+        existing_site = db().execute(
+            """
+            select buyer_number from buyers
+            where coalesce(client_id, 0) = coalesce(?, 0)
+              and lower(trim(name)) = lower(trim(?))
+              and lower(trim(detailed_address)) = lower(trim(?))
+            """,
+            (client_id, name, detailed_address),
+        ).fetchone()
+        if existing_site:
+            result["skipped"] += 1
+            result["details"].append(f"第 {index} 行：{name} 已存在（{existing_site['buyer_number']}），已跳过。")
+            continue
+        if buyer_number and db().execute("select id from buyers where buyer_number = ?", (buyer_number,)).fetchone():
+            result["skipped"] += 1
+            result["details"].append(f"第 {index} 行：编号 {buyer_number} 已存在，已跳过。")
+            continue
+        owner, owner_created = get_or_create_owner_by_name(row.get("owner"))
+        country = country_from_import_value(row.get("country_code"), "US")
+        db().execute(
+            """
+            insert into buyers (
+                buyer_number, client_id, country, country_code, name, owner_id, owner, contact_name, contact_details,
+                email, site_size, detailed_address, equipment_manufacturer, created_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                buyer_number or next_buyer_number(),
+                client_id,
+                country["code"],
+                country["code"],
+                name,
+                owner["id"],
+                owner["name"],
+                row.get("contact_name", ""),
+                row.get("contact_details", ""),
+                row.get("email", ""),
+                row.get("site_size", ""),
+                detailed_address,
+                row.get("equipment_manufacturer", ""),
+                now(),
+            ),
+        )
+        result["created"] += 1
+        if owner_created:
+            result["owners_created"] += 1
+    return result
 
 
 def next_invoice_number():
@@ -4962,6 +5147,8 @@ def login():
                 flash("账号尚未启用，请等待管理员或经理批准。", "error")
                 return redirect(url_for("login"))
             clear_session_preserving_language()
+            user_language = user["default_language"] if "default_language" in user.keys() else DEFAULT_LANGUAGE
+            session["language"] = user_language if user_language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
             session["user_id"] = user["id"]
             log_login_action(user)
             db().commit()
@@ -4994,15 +5181,16 @@ def register():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, is_active, region_code, country_code, created_at
+                    name, email, password_hash, role, is_active, default_language, region_code, country_code, created_at
                 )
-                values (?, ?, ?, ?, 0, ?, ?, ?)
+                values (?, ?, ?, ?, 0, ?, ?, ?, ?)
                 """,
                 (
                     name or email,
                     email,
                     generate_password_hash(password),
                     account_type,
+                    current_language(),
                     country["region_code"],
                     country["code"],
                     now(),
@@ -5698,6 +5886,7 @@ def buyers():
         "contact_details": "buyers.contact_details",
         "email": "buyers.email",
         "site_size": "buyers.site_size",
+        "equipment_manufacturer": "buyers.equipment_manufacturer",
         "detailed_address": "buyers.detailed_address",
     }
     if sort not in buyer_sort_columns:
@@ -5750,7 +5939,48 @@ def buyers():
         q=q,
         sort=sort,
         direction=direction,
+        import_result=session.pop("buyer_import_result", None),
     )
+
+
+@app.post("/buyers/import")
+@login_required
+def import_buyers():
+    if not can_manage_buyers():
+        abort(403)
+    uploaded_file = request.files.get("import_file")
+    if not uploaded_file or not uploaded_file.filename:
+        flash("请选择要导入的站点文件。", "error")
+        return redirect(url_for("buyers"))
+    client_id = g.user["client_id"] if is_external_manager() else (
+        int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else None
+    )
+    try:
+        result = import_buyers_from_file(uploaded_file, client_id)
+        detail_lines = result["details"][:20]
+        if len(result["details"]) > 20:
+            detail_lines.append(f"还有 {len(result['details']) - 20} 条明细未在弹窗中显示，请查看操作日志。")
+        session["buyer_import_result"] = {
+            **result,
+            "details": detail_lines,
+        }
+        log_summary = (
+            f"导入站点：文件 {uploaded_file.filename}；总行数 {result['total']}；"
+            f"新增 {result['created']}；跳过 {result['skipped']}；错误 {result['errors']}；"
+            f"自动创建业主 {result['owners_created']}。"
+        )
+        if result["details"]:
+            log_summary = f"{log_summary} 明细：{' | '.join(result['details'])}"
+        log_action("import", "buyer", None, uploaded_file.filename, log_summary)
+        db().commit()
+        flash("站点导入已完成。", "success")
+    except ValueError as error:
+        db().rollback()
+        flash(str(error), "error")
+    except sqlite3.IntegrityError:
+        db().rollback()
+        flash("导入失败：站点编号或业主编号冲突，请检查导入文件后重试。", "error")
+    return redirect(url_for("buyers"))
 
 
 @app.route("/buyers/<int:buyer_id>/edit", methods=["GET", "POST"])
@@ -6214,6 +6444,7 @@ def users():
         password = request.form.get("password", "")
         role = request.form.get("role", "employee")
         country = country_from_form()
+        default_language = language_from_form(current_language())
         employee_grade_id = (
             int(request.form["employee_grade_id"])
             if can_manage_users() and request.form.get("employee_grade_id", "").isdigit()
@@ -6242,9 +6473,9 @@ def users():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, address, employee_grade_id, client_id, region_code, country_code, created_at
+                    name, email, password_hash, role, address, default_language, employee_grade_id, client_id, region_code, country_code, created_at
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -6252,6 +6483,7 @@ def users():
                     generate_password_hash(password),
                     role,
                     address,
+                    default_language,
                     employee_grade_id,
                     client_id,
                     country["region_code"],
@@ -6402,6 +6634,7 @@ def edit_user(user_id):
         name = request.form.get("name", "").strip() or email
         role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
         address = request.form.get("address", "").strip()
+        default_language = language_from_form(user["default_language"] or DEFAULT_LANGUAGE)
         if role not in ROLE_OPTIONS and can_manage_users():
             role = "employee"
         client_id = (
@@ -6433,11 +6666,24 @@ def edit_user(user_id):
             db().execute(
                 """
                 update users
-                set name = ?, email = ?, role = ?, address = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?
+                set name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?
                 where id = ?
                 """,
-                (name, email, role, address, employee_grade_id, client_id, country["region_code"], country["code"], user_id),
+                (
+                    name,
+                    email,
+                    role,
+                    address,
+                    default_language,
+                    employee_grade_id,
+                    client_id,
+                    country["region_code"],
+                    country["code"],
+                    user_id,
+                ),
             )
+            if user_id == g.user["id"]:
+                session["language"] = default_language
             if can_assign_external_employees():
                 save_user_service_order_assignments(user_id, role)
             if password:

@@ -3,7 +3,10 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Sites</p><h1>站点资料</h1></div>
-    <button class="primary" type="button" data-dialog-open="newBuyerDialog">新增站点</button>
+    <div class="row-actions">
+      <button type="button" data-dialog-open="importBuyerDialog">导入站点</button>
+      <button class="primary" type="button" data-dialog-open="newBuyerDialog">新增站点</button>
+    </div>
   </header>
 
   <form class="panel filter-bar no-print" method="get">
@@ -17,7 +20,16 @@
   </form>
 
   <section class="panel buyer-list-panel">
-    <div class="panel-title"><h2>站点列表</h2><span class="muted-line">{{ buyers|length }} 个站点</span></div>
+    <div class="panel-title">
+      <h2>站点列表</h2>
+      <div class="toolbar-actions" data-selection-toolbar>
+        <span class="muted-line" data-selected-label>{{ buyers|length }} 个站点</span>
+        <button class="small" type="button" data-selected-edit disabled>编辑</button>
+        <form method="post" data-selected-delete onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
+          <button class="danger small" type="submit" disabled>删除</button>
+        </form>
+      </div>
+    </div>
     {% macro sortable_th(key, label) -%}
       {% set next_direction = 'desc' if sort == key and direction == 'asc' else 'asc' %}
       <th>
@@ -26,9 +38,8 @@
         </a>
       </th>
     {%- endmacro %}
-    <div class="table-top-scroll" data-sync-scroll="buyersTableScroll"><div></div></div>
     <div class="wide-table-scroll" id="buyersTableScroll">
-      <table class="list-table">
+      <table class="list-table selectable-list-table" data-selectable-table>
         <thead>
           <tr>
             {{ sortable_th("buyer_number", "编号") }}
@@ -39,13 +50,19 @@
             {{ sortable_th("contact_details", "联系方式") }}
             {{ sortable_th("email", "电子邮箱地址") }}
             {{ sortable_th("site_size", "规模") }}
+            {{ sortable_th("equipment_manufacturer", "配套机厂家") }}
             {{ sortable_th("detailed_address", "详细地址") }}
-            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           {% for buyer in buyers %}
-            <tr>
+            <tr
+              tabindex="0"
+              data-row-id="{{ buyer.id }}"
+              data-row-label="{{ buyer.buyer_number }} · {{ buyer.name }}"
+              data-edit-target="editBuyer{{ buyer.id }}"
+              data-delete-url="{{ url_for('delete_buyer', buyer_id=buyer.id) }}"
+            >
               <td>{{ buyer.buyer_number }}</td>
               <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
               <td>{{ buyer.name }}</td>
@@ -54,15 +71,8 @@
               <td>{{ buyer.contact_details or "-" }}</td>
               <td>{{ buyer.email or "-" }}</td>
               <td>{{ buyer.site_size or "-" }}</td>
+              <td>{{ buyer.equipment_manufacturer or "-" }}</td>
               <td>{{ buyer.detailed_address or "-" }}</td>
-              <td>
-                <div class="row-actions">
-                  <button class="small" type="button" data-dialog-open="editBuyer{{ buyer.id }}">编辑</button>
-                  <form method="post" action="{{ url_for('delete_buyer', buyer_id=buyer.id) }}" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
-                    <button class="danger small" type="submit">删除</button>
-                  </form>
-                </div>
-              </td>
             </tr>
           {% else %}
             <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
@@ -71,6 +81,57 @@
       </table>
     </div>
   </section>
+
+  <dialog id="importBuyerDialog" class="modal-dialog">
+    <form method="post" action="{{ url_for('import_buyers') }}" enctype="multipart/form-data" class="form-stack">
+      <div class="dialog-header">
+        <h2>导入站点</h2>
+        <button class="small" type="button" data-dialog-close>关闭</button>
+      </div>
+      {% if not is_external_manager() %}
+        <label>所属客户
+          <select name="client_id">
+            <option value="">未指定</option>
+            {% for client in clients %}<option value="{{ client.id }}">{{ client.client_number }} · {{ client.name }}</option>{% endfor %}
+          </select>
+        </label>
+      {% endif %}
+      <label>导入文件
+        <input type="file" name="import_file" accept=".xlsx,.csv" required>
+      </label>
+      <p class="muted-line">支持 .xlsx 和 .csv。表头可使用：站点编号、站点名称、业主、国家、联系人、联系方式、电子邮箱地址、规模、配套机厂家、详细地址。</p>
+      <div class="form-actions"><button class="primary" type="submit">开始导入</button></div>
+    </form>
+  </dialog>
+
+  {% if import_result %}
+    <dialog id="buyerImportResultDialog" class="modal-dialog">
+      <div class="form-stack">
+        <div class="dialog-header">
+          <h2>站点导入结果</h2>
+          <button class="small" type="button" data-dialog-close>关闭</button>
+        </div>
+        <div class="import-result-grid">
+          <span>总行数：{{ import_result.total }}</span>
+          <span>新增站点：{{ import_result.created }}</span>
+          <span>跳过重复：{{ import_result.skipped }}</span>
+          <span>错误：{{ import_result.errors }}</span>
+          <span>自动创建业主：{{ import_result.owners_created }}</span>
+        </div>
+        {% if import_result.details %}
+          <div class="subsection">
+            <h3>明细</h3>
+            <ul class="compact-list">
+              {% for detail in import_result.details %}
+                <li>{{ detail }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+        <div class="form-actions"><button class="primary" type="button" data-dialog-close>知道了</button></div>
+      </div>
+    </dialog>
+  {% endif %}
 
   <dialog id="newBuyerDialog" class="modal-dialog">
       <form method="post" class="form-stack">
@@ -154,24 +215,42 @@
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
   <script>
     (() => {
-      const topScroll = document.querySelector("[data-sync-scroll='buyersTableScroll']");
-      const tableScroll = document.getElementById("buyersTableScroll");
-      if (!topScroll || !tableScroll) return;
-      const spacer = topScroll.firstElementChild;
-      const syncWidth = () => {
-        spacer.style.width = `${tableScroll.scrollWidth}px`;
+      const table = document.querySelector("[data-selectable-table]");
+      const label = document.querySelector("[data-selected-label]");
+      const editButton = document.querySelector("[data-selected-edit]");
+      const deleteForm = document.querySelector("[data-selected-delete]");
+      const deleteButton = deleteForm?.querySelector("button");
+      const totalLabel = label?.textContent || "";
+      const selectRow = (row) => {
+        table?.querySelectorAll("tbody tr.is-selected").forEach((item) => item.classList.remove("is-selected"));
+        row.classList.add("is-selected");
+        if (label) label.textContent = `${window.uiTranslate ? window.uiTranslate("已选择：") : "已选择："}${row.dataset.rowLabel || ""}`;
+        if (editButton) editButton.disabled = false;
+        if (deleteButton) deleteButton.disabled = false;
+        if (deleteForm) deleteForm.action = row.dataset.deleteUrl || "";
+        if (editButton) editButton.dataset.editTarget = row.dataset.editTarget || "";
       };
-      let syncing = false;
-      const sync = (source, target) => {
-        if (syncing) return;
-        syncing = true;
-        target.scrollLeft = source.scrollLeft;
-        syncing = false;
-      };
-      topScroll.addEventListener("scroll", () => sync(topScroll, tableScroll));
-      tableScroll.addEventListener("scroll", () => sync(tableScroll, topScroll));
-      window.addEventListener("resize", syncWidth);
-      syncWidth();
+      table?.querySelectorAll("tbody tr[data-row-id]").forEach((row) => {
+        row.addEventListener("click", () => selectRow(row));
+        row.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectRow(row);
+          }
+        });
+      });
+      editButton?.addEventListener("click", () => {
+        const target = editButton.dataset.editTarget;
+        if (!target) return;
+        document.getElementById(target)?.showModal();
+      });
+      if (!table?.querySelector("tbody tr[data-row-id]") && label) {
+        label.textContent = totalLabel;
+      }
+      const importResultDialog = document.getElementById("buyerImportResultDialog");
+      if (importResultDialog) {
+        importResultDialog.showModal();
+      }
     })();
   </script>
 {% endblock %}

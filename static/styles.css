@@ -229,6 +229,22 @@ h1, h2, h3, p { margin-top: 0; }
 .metric { padding: 18px; }
 .metric span { display: block; margin-bottom: 8px; color: var(--muted); }
 .metric strong { font-size: 22px; }
+.import-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.import-result-grid span {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+.compact-list {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.7;
+}
 .panel { margin-bottom: 16px; padding: 20px; }
 .panel:has(.list-table),
 .panel:has(.invoice-table) {
@@ -337,21 +353,20 @@ h1, h2, h3, p { margin-top: 0; }
   padding-top: 12px;
 }
 label {
+  position: relative;
   display: grid;
   gap: 6px;
   color: var(--muted);
   font-size: 14px;
   font-weight: 600;
 }
-.required-field::after {
-  content: "必填";
-  width: fit-content;
-  border-radius: 999px;
-  padding: 2px 7px;
-  background: #fff1f0;
+.required-mark {
+  display: none;
   color: var(--danger);
-  font-size: 12px;
   font-weight: 700;
+}
+.required-field .required-mark {
+  display: inline;
 }
 .form-field {
   display: grid;
@@ -767,6 +782,18 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .list-table tbody tr:hover td,
 .invoice-table tbody tr:hover td {
   background: #eff8ff;
+}
+.selectable-list-table tbody tr[data-row-id] {
+  cursor: pointer;
+}
+.selectable-list-table tbody tr[data-row-id]:focus {
+  outline: none;
+}
+.selectable-list-table tbody tr.is-selected td {
+  background: #dcfce7;
+}
+.selectable-list-table tbody tr.is-selected td:first-child {
+  box-shadow: inset 4px 0 0 var(--brand);
 }
 .list-table td:last-child,
 .invoice-table td:last-child {

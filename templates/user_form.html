@@ -8,7 +8,7 @@
   <form method="post" enctype="multipart/form-data" class="panel form-stack narrow-form">
     <label>姓名 <input name="name" value="{{ user.name }}" required></label>
     <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
-    <label>地址
+    <label><span>地址 <span class="required-mark">*</span></span>
       <textarea name="address" rows="2" data-user-address {% if requires_user_address(user.role) %}required{% endif %}>{{ user.address or "" }}</textarea>
     </label>
     {% if can_manage %}
@@ -69,6 +69,13 @@
     {% else %}
       <label>国家代码 <input value="{{ user.region_code }} · {{ user.country_code }}" readonly></label>
     {% endif %}
+    <label>默认语言
+      <select name="default_language">
+        {% for code, language in supported_languages.items() %}
+          <option value="{{ code }}" {% if (user.default_language or 'zh-CN') == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     {% if can_manage %}
       <label>员工等级
         <select name="employee_grade_id">
