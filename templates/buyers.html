@@ -19,13 +19,13 @@
     </div>
   </form>
 
-  <section class="panel buyer-list-panel">
+  <section class="panel buyer-list-panel" data-selectable-scope>
     <div class="panel-title">
       <h2>站点列表</h2>
       <div class="toolbar-actions" data-selection-toolbar>
         <span class="muted-line" data-selected-label>{{ buyers|length }} 个站点</span>
-        <button class="small" type="button" data-selected-edit disabled>编辑</button>
-        <form method="post" data-selected-delete onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
+        <button class="small" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>
+        <form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
           <button class="danger small" type="submit" disabled>删除</button>
         </form>
       </div>
@@ -213,40 +213,9 @@
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
   <script>
     (() => {
-      const table = document.querySelector("[data-selectable-table]");
-      const label = document.querySelector("[data-selected-label]");
-      const editButton = document.querySelector("[data-selected-edit]");
-      const deleteForm = document.querySelector("[data-selected-delete]");
-      const deleteButton = deleteForm?.querySelector("button");
-      const totalLabel = label?.textContent || "";
-      const selectRow = (row) => {
-        table?.querySelectorAll("tbody tr.is-selected").forEach((item) => item.classList.remove("is-selected"));
-        row.classList.add("is-selected");
-        if (label) label.textContent = `${window.uiTranslate ? window.uiTranslate("已选择：") : "已选择："}${row.dataset.rowLabel || ""}`;
-        if (editButton) editButton.disabled = false;
-        if (deleteButton) deleteButton.disabled = false;
-        if (deleteForm) deleteForm.action = row.dataset.deleteUrl || "";
-        if (editButton) editButton.dataset.editTarget = row.dataset.editTarget || "";
-      };
-      table?.querySelectorAll("tbody tr[data-row-id]").forEach((row) => {
-        row.addEventListener("click", () => selectRow(row));
-        row.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            selectRow(row);
-          }
-        });
-      });
-      editButton?.addEventListener("click", () => {
-        const target = editButton.dataset.editTarget;
-        if (!target) return;
-        document.getElementById(target)?.showModal();
-      });
-      if (!table?.querySelector("tbody tr[data-row-id]") && label) {
-        label.textContent = totalLabel;
-      }
       const importResultDialog = document.getElementById("buyerImportResultDialog");
       if (importResultDialog) {
         importResultDialog.showModal();

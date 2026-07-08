@@ -3859,7 +3859,7 @@ def customer_reimbursement_seed_rows(order_id):
     for report in reports:
         workers = db().execute(
             """
-            select users.name
+            select users.name, service_report_workers.driving_miles
             from service_report_workers
             join users on users.id = service_report_workers.user_id
             where service_report_workers.report_id = ?
@@ -3889,7 +3889,7 @@ def customer_reimbursement_seed_rows(order_id):
                 "fuel": 0,
                 "parking": 0,
                 "taxi": 0,
-                "miles": 0,
+                "miles": worker["driving_miles"] or 0,
                 "mileage_rate": rates["里程费"],
                 "other": 0,
             }

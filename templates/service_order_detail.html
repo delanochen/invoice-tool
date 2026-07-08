@@ -65,63 +65,75 @@
       <p><strong>工单状态</strong><span>{{ "已关闭" if order.status == "closed" else "进行中" }}</span></p>
     </div>
   </section>
-  <section class="panel">
+  <section class="panel" data-selectable-scope>
     <div class="panel-title">
       <h2>工作日报</h2>
-      {% if can_create_service_report(order) %}
-        <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
-        <button class="small" type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>
-      {% endif %}
+      <div class="toolbar-actions">
+        <span class="muted-line" data-selected-label>{{ reports|length }} 份日报</span>
+        {% if can_create_service_report(order) %}
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+          <button class="small" type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>
+        {% endif %}
+        <button class="small" type="button" data-row-action="editUrl" disabled>编辑</button>
+        <form method="post" data-row-action-form="exportUrl">
+          <button class="small" type="submit" disabled>导出 Word</button>
+        </form>
+        <form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这份工作日报吗？照片和配件记录也会一起删除。');">
+          <button class="danger small" type="submit" disabled>删除</button>
+        </form>
+      </div>
     </div>
-    <table class="list-table">
-      <thead><tr><th>报告日期</th><th>实际日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th><th>操作</th></tr></thead>
+    <table class="list-table selectable-list-table" data-selectable-table>
+      <thead><tr><th>报告日期</th><th>实际日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th></tr></thead>
       <tbody>
         {% for report in reports %}
-          <tr>
+          {% set can_open_report = is_external_manager() or (not is_external_employee() or report.created_by == g.user.id) %}
+          {% set can_delete_report = report.created_by == g.user.id or normalized_role() in ["admin", "manager"] %}
+          <tr
+            tabindex="0"
+            data-row-id="{{ report.id }}"
+            data-row-label="{{ report.report_date }} · {{ report.worker_names or '-' }}"
+            data-edit-url="{% if can_open_report %}{{ url_for('edit_service_report', report_id=report.id) }}{% endif %}"
+            data-edit-url-label="{% if is_external_manager() %}查看{% else %}编辑{% endif %}"
+            data-export-url="{{ url_for('export_service_report', report_id=report.id) }}"
+            data-delete-url="{% if can_delete_report %}{{ url_for('delete_service_report', report_id=report.id) }}{% endif %}"
+          >
             <td>{{ report.report_date }}</td>
             <td>{{ report.actual_work_date or report.report_date }}</td>
             <td>{{ report.creator_name or "-" }}</td>
             <td>{{ report.worker_names or "-" }}</td>
             <td>{{ report.total_service_hours }}</td>
             <td>{{ report.travel_hours }}</td>
-            <td>
-              <div class="row-actions">
-                {% if is_external_manager() %}
-                  <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_service_report', report_id=report.id) }}'">查看</button>
-                {% elif not is_external_employee() or report.created_by == g.user.id %}
-                  <button class="small" type="button" onclick="window.location.href='{{ url_for('edit_service_report', report_id=report.id) }}'">编辑</button>
-                {% endif %}
-                <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
-                  <button class="small" type="submit">导出 Word</button>
-                </form>
-                {% if report.created_by == g.user.id or normalized_role() in ["admin", "manager"] %}
-                  <form method="post" action="{{ url_for('delete_service_report', report_id=report.id) }}" onsubmit="return confirm('确定删除这份工作日报吗？照片和配件记录也会一起删除。');">
-                    <button class="danger small" type="submit">删除</button>
-                  </form>
-                {% endif %}
-              </div>
-            </td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="empty">还没有工作日报。</td></tr>
+          <tr><td colspan="6" class="empty">还没有工作日报。</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </section>
   {% if not is_external_manager() and not is_external_employee() %}
-  <section class="panel">
+  <section class="panel" data-selectable-scope>
     <div class="panel-title">
       <h2>员工报销</h2>
-      {% if can_create_expense() %}
-        <button class="small" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
-      {% endif %}
+      <div class="toolbar-actions">
+        <span class="muted-line" data-selected-label>{{ expenses|length }} 张报销</span>
+        {% if can_create_expense() %}
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
+        {% endif %}
+        <button class="small" type="button" data-row-action="detailUrl" disabled>查看</button>
+      </div>
     </div>
-    <table class="list-table">
+    <table class="list-table selectable-list-table" data-selectable-table>
       <thead><tr><th>报销编号</th><th>项目</th><th>费用日期</th><th>提交人</th><th>金额</th><th>状态</th></tr></thead>
       <tbody>
         {% for expense in expenses %}
-          <tr>
-            <td><a href="{{ url_for('expense_detail', expense_id=expense.id) }}">{{ expense.expense_number }}</a></td>
+          <tr
+            tabindex="0"
+            data-row-id="{{ expense.id }}"
+            data-row-label="{{ expense.expense_number }} · {{ expense.amount|money(expense.currency) }}"
+            data-detail-url="{{ url_for('expense_detail', expense_id=expense.id) }}"
+          >
+            <td>{{ expense.expense_number }}</td>
             <td>{{ expense.project }}</td>
             <td>{{ expense.expense_date }}</td>
             <td>{{ expense.creator_name or "Unknown" }}</td>
@@ -161,27 +173,37 @@
     </section>
   {% endif %}
   {% if can_view_invoices() %}
-    <section class="panel">
-      <h2>关联发票</h2>
-      <table class="list-table">
-        <thead><tr><th>发票编号</th><th>客户</th><th>日期</th><th>状态</th><th>操作</th></tr></thead>
+    <section class="panel" data-selectable-scope>
+      <div class="panel-title">
+        <h2>关联发票</h2>
+        <div class="toolbar-actions">
+          <span class="muted-line" data-selected-label>{{ invoices|length }} 张发票</span>
+          <button class="small" type="button" data-row-action="detailUrl" disabled>预览发票</button>
+          <button class="small" type="button" data-row-action="pdfUrl" disabled>导出发票</button>
+          <form method="post" data-row-action-form="zipUrl">
+            <button class="small" type="submit" disabled>导出 ZIP</button>
+          </form>
+        </div>
+      </div>
+      <table class="list-table selectable-list-table" data-selectable-table>
+        <thead><tr><th>发票编号</th><th>客户</th><th>日期</th><th>状态</th></tr></thead>
         <tbody>
           {% for invoice in invoices %}
-            <tr>
-              <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
+            <tr
+              tabindex="0"
+              data-row-id="{{ invoice.id }}"
+              data-row-label="{{ invoice.invoice_number }} · {{ invoice.client_name }}"
+              data-detail-url="{{ url_for('invoice_detail', invoice_id=invoice.id) }}"
+              data-pdf-url="{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}"
+              data-zip-url="{{ url_for('export_invoice', invoice_id=invoice.id) }}"
+            >
+              <td>{{ invoice.invoice_number }}</td>
               <td>{{ invoice.client_name }}</td>
               <td>{{ invoice.issue_date }}</td>
               <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
-              <td>
-                <div class="row-actions">
-                  <button class="small" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=invoice.id) }}'">预览发票</button>
-                  <button class="small" type="button" onclick="window.location.href='{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}'">导出发票</button>
-                  <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button class="small" type="submit">导出 ZIP</button></form>
-                </div>
-              </td>
             </tr>
           {% else %}
-            <tr><td colspan="5" class="empty">这个工单还没有关联发票。</td></tr>
+            <tr><td colspan="4" class="empty">这个工单还没有关联发票。</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -203,4 +225,6 @@
     </dialog>
   {% endif %}
 {% endblock %}
-
+{% block scripts %}
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
+{% endblock %}

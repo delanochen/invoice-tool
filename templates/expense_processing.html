@@ -28,38 +28,37 @@
     </div>
   </form>
 
-  <form method="post" action="{{ url_for('process_expense_action') }}" id="expenseProcessingForm">
+  <form method="post" action="{{ url_for('process_expense_action') }}" id="expenseProcessingForm" data-selectable-scope>
+    <input type="hidden" name="expense_id" data-selected-input="rowId">
     {% if normalized_role() in ["manager", "finance"] %}
       <div class="form-actions no-print">
-        <button class="primary" type="submit" name="action" value="reimburse" onclick="return window.uiConfirm ? window.uiConfirm('确认所选报销已经完成付款吗？') : confirm('确认所选报销已经完成付款吗？');">报销</button>
+        <span class="muted-line" data-selected-label>{{ rows|length }} 张报销</span>
+        <button class="primary" type="submit" name="action" value="reimburse" data-enable-on-select disabled onclick="return window.uiConfirm ? window.uiConfirm('确认所选报销已经完成付款吗？') : confirm('确认所选报销已经完成付款吗？');">报销</button>
       </div>
     {% elif normalized_role() == "admin" %}
       <div class="form-actions no-print">
-        <button type="submit" name="action" value="reset_payout" onclick="return window.uiConfirm ? window.uiConfirm('确认将所选单据重置为待报销吗？') : confirm('确认将所选单据重置为待报销吗？');">重置发放状态</button>
-        <button class="danger" type="submit" name="action" value="reset_workflow" onclick="return window.uiConfirm ? window.uiConfirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？') : confirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？');">重置流程状态</button>
+        <span class="muted-line" data-selected-label>{{ rows|length }} 张报销</span>
+        <button type="submit" name="action" value="reset_payout" data-enable-on-select disabled onclick="return window.uiConfirm ? window.uiConfirm('确认将所选单据重置为待报销吗？') : confirm('确认将所选单据重置为待报销吗？');">重置发放状态</button>
+        <button class="danger" type="submit" name="action" value="reset_workflow" data-enable-on-select disabled onclick="return window.uiConfirm ? window.uiConfirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？') : confirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？');">重置流程状态</button>
       </div>
     {% endif %}
     <section class="panel">
-      <table class="list-table">
+      <table class="list-table selectable-list-table" data-selectable-table>
         <thead>
           <tr>
-            {% if normalized_role() in ["admin", "manager", "finance"] %}<th>选择</th>{% endif %}
             <th>报销编号</th><th>工单</th><th>日期</th><th>提交人</th><th>金额</th>
             <th>流程状态</th><th>报销状态</th><th>报销人</th><th>报销时间</th>
           </tr>
         </thead>
         <tbody>
           {% for row in rows %}
-            <tr>
-              {% if normalized_role() in ["admin", "manager", "finance"] %}
-                <td>
-                  {% if normalized_role() == "admin" or row.payout_status != "paid" %}
-                    <input type="radio" name="expense_id" value="{{ row.id }}" aria-label="选择报销 {{ row.expense_number }}">
-                  {% else %}
-                    -
-                  {% endif %}
-                </td>
+            <tr
+              {% if normalized_role() == "admin" or row.payout_status != "paid" %}
+                tabindex="0"
+                data-row-id="{{ row.id }}"
+                data-row-label="{{ row.expense_number }} · {{ row.amount|money(row.currency) }}"
               {% endif %}
+            >
               <td>
                 {% if normalized_role() in ["admin", "manager", "finance"] or row.created_by == g.user.id %}
                   <a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a>
@@ -77,10 +76,13 @@
               <td>{{ row.reimbursed_at|local_datetime if row.reimbursed_at else "-" }}</td>
             </tr>
           {% else %}
-            <tr><td colspan="{% if normalized_role() in ['admin', 'manager', 'finance'] %}10{% else %}9{% endif %}" class="empty">没有符合条件的待处理报销。</td></tr>
+            <tr><td colspan="9" class="empty">没有符合条件的待处理报销。</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </section>
   </form>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
 {% endblock %}
