@@ -210,7 +210,17 @@ h1, h2, h3, p { margin-top: 0; }
 .page-header h1 { margin: 0; font-size: 30px; }
 .muted-line { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
-.actions form, .row-actions form { display: inline-flex; }
+.actions form,
+.row-actions form {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+}
+.actions > button,
+.actions > .button,
+.actions > form {
+  align-self: center;
+}
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .toolbar-actions {
   display: flex;
@@ -1256,6 +1266,22 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .compact-table input[name="worker_name"] {
   min-width: 130px;
+}
+#customerReimbursementTable th,
+#customerReimbursementTable td {
+  padding: 4px 6px;
+  vertical-align: middle;
+}
+#customerReimbursementTable input {
+  min-height: 30px;
+  padding: 4px 6px;
+}
+#customerReimbursementTable [data-row-total] {
+  line-height: 30px;
+}
+#customerReimbursementTable .remove-customer-reimbursement-row {
+  min-height: 30px;
+  padding: 0 8px;
 }
 .plain-fieldset {
   min-width: 0;
