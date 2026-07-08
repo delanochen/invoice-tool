@@ -1618,30 +1618,29 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 
 .map-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px 180px 180px auto;
+  grid-template-columns: minmax(240px, 1.4fr) 150px repeat(3, minmax(128px, 0.7fr)) auto;
   align-items: end;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 .map-filter-select {
   min-width: 0;
 }
 .map-filter-select summary {
-  min-height: 42px;
+  min-height: 38px;
 }
 .map-summary {
   display: flex;
   align-items: center;
   gap: 7px;
-  min-height: 42px;
+  min-height: 38px;
   color: var(--muted);
   white-space: nowrap;
 }
 .map-summary strong { color: var(--ink); font-size: 20px; }
 .service-map-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  min-height: 560px;
+  position: relative;
+  min-height: 620px;
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
@@ -1649,15 +1648,24 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .service-order-map {
   width: 100%;
-  height: min(70vh, 720px);
-  min-height: 560px;
+  height: min(78vh, 820px);
+  min-height: 620px;
   z-index: 0;
 }
 .map-unlocated-panel {
+  position: absolute;
+  z-index: 500;
+  top: 14px;
+  right: 14px;
+  width: min(300px, calc(100% - 28px));
   overflow-y: auto;
-  max-height: 70vh;
-  border-left: 1px solid var(--line);
-  padding: 18px;
+  max-height: min(52vh, 420px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(8px);
 }
 .map-unlocated-panel h2 { margin: 0; font-size: 18px; }
 .unlocated-orders { display: grid; gap: 8px; margin-top: 14px; }
@@ -1805,10 +1813,10 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .map-legend {
   display: flex;
-  grid-column: 1 / -1;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
+  justify-content: flex-end;
   color: var(--muted);
   font-size: 12px;
 }
@@ -1866,7 +1874,6 @@ body.service-order-map-page {
 }
 .service-order-map-page .map-unlocated-panel {
   min-height: 0;
-  max-height: none;
 }
 
 @media (max-width: 1100px) {
@@ -1928,11 +1935,12 @@ body.service-order-map-page {
   .invoice-paper { padding: 24px; }
   .map-toolbar { grid-template-columns: 1fr 1fr; }
   .map-summary { grid-column: 1 / -1; }
-  .service-map-layout { grid-template-columns: 1fr; }
+  .map-legend {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
   .map-unlocated-panel {
-    max-height: none;
-    border-top: 1px solid var(--line);
-    border-left: 0;
+    max-height: min(46vh, 360px);
   }
   body.service-order-map-page {
     display: grid;
@@ -1949,7 +1957,7 @@ body.service-order-map-page {
     padding: 16px 20px;
   }
   .service-order-map-page .service-map-layout {
-    grid-template-rows: minmax(0, 1fr) minmax(90px, 22%);
+    min-height: 0;
   }
   .service-order-map-page .map-unlocated-panel {
     overflow-y: auto;
@@ -2077,19 +2085,20 @@ body.service-order-map-page {
     min-height: 24px;
   }
   .service-order-map-page .service-map-layout {
-    display: block;
     height: auto;
-    overflow: visible;
+    min-height: 0;
   }
   .service-order-map-page .service-order-map {
-    height: clamp(480px, calc(100dvh - 190px), 760px);
+    height: clamp(520px, calc(100dvh - 170px), 760px);
     min-height: 480px;
-    border-radius: 7px 7px 0 0;
   }
   .service-order-map-page .map-unlocated-panel {
-    max-height: 240px;
+    top: 8px;
+    right: 8px;
+    width: min(260px, calc(100% - 16px));
+    max-height: 210px;
     overflow-y: auto;
-    border-top: 1px solid var(--line);
+    padding: 10px;
   }
   .service-order-map-page .map-attribution-note {
     margin-top: 4px;
