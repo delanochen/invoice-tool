@@ -1693,8 +1693,8 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   flex: 0 1 150px;
 }
 .map-toolbar .map-search-field {
-  flex: 1 1 280px;
-  min-width: 240px;
+  flex: 0 1 360px;
+  min-width: 260px;
 }
 .map-filter-select {
   min-width: 0;
@@ -1713,13 +1713,21 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .map-summary {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-left: auto;
+  justify-content: center;
+  gap: 3px;
+  flex: 0 0 auto;
   min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
   color: var(--muted);
   white-space: nowrap;
 }
-.map-summary strong { color: var(--ink); font-size: 20px; }
+.map-summary strong { color: var(--ink); font-size: 18px; }
+#geocodeProgress:not(:empty) {
+  margin-left: 6px;
+}
 .service-map-layout {
   position: relative;
   min-height: 620px;
@@ -2180,13 +2188,15 @@ body.service-order-map-page {
   .service-order-map-page .page-header h1 { font-size: 22px; }
   .service-order-map-page .page-header .eyebrow { display: none; }
   .service-order-map-page .map-toolbar {
-    grid-template-columns: minmax(0, 1fr) 110px;
     gap: 8px;
     margin-bottom: 8px;
   }
+  .service-order-map-page .map-search-field {
+    flex-basis: 280px;
+    min-width: 220px;
+  }
   .service-order-map-page .map-summary {
-    grid-column: 1 / -1;
-    min-height: 24px;
+    min-height: 34px;
   }
   .service-order-map-page .service-map-layout {
     height: auto;
