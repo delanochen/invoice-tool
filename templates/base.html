@@ -24,7 +24,7 @@
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
-        {% set basic_data_endpoints = ["clients", "owners", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "menu_permissions", "users", "new_user", "edit_user"] %}
+        {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "menu_permissions", "users", "new_user", "edit_user"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
           <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
@@ -123,6 +123,7 @@
             {% set show_basic_data =
               (has_menu_permission("clients") and has_action_permission("clients", "view"))
               or (has_menu_permission("owners") and has_action_permission("owners", "view"))
+              or (has_menu_permission("manufacturers") and has_action_permission("manufacturers", "view"))
               or (has_menu_permission("buyers") and has_action_permission("buyers", "view"))
               or (has_menu_permission("work_order_types") and has_action_permission("work_order_types", "view"))
               or (has_menu_permission("projects") and has_action_permission("projects", "view"))
@@ -142,6 +143,9 @@
                 {% endif %}
                 {% if has_menu_permission("owners") and has_action_permission("owners", "view") %}
                   {{ nav_link("owners", "业主") }}
+                {% endif %}
+                {% if has_menu_permission("manufacturers") and has_action_permission("manufacturers", "view") %}
+                  {{ nav_link("manufacturers", "厂家") }}
                 {% endif %}
                 {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}
                   {{ nav_link("buyers", "站点") }}

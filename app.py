@@ -224,6 +224,7 @@ MENU_PERMISSION_GROUPS = [
         "items": [
             {"key": "clients", "label": "客户", "roles": {"admin", "manager", "finance", "external_manager"}},
             {"key": "owners", "label": "业主", "roles": {"admin", "manager", "finance"}},
+            {"key": "manufacturers", "label": "厂家", "roles": {"admin", "manager", "finance"}},
             {"key": "buyers", "label": "站点", "roles": {"admin", "manager", "finance", "external_manager"}},
             {"key": "work_order_types", "label": "工单类型", "roles": {"admin", "manager"}},
             {"key": "projects", "label": "项目", "roles": {"admin", "manager"}},
@@ -272,6 +273,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
         "items": [
             {"key": "clients", "label": "客户", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "owners", "label": "业主", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "manufacturers", "label": "厂家", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "buyers", "label": "站点", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance", "external_manager"}, "edit": {"admin", "manager", "finance", "external_manager"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "work_order_types", "label": "工单类型", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}, "delete": {"admin", "manager"}}},
             {"key": "projects", "label": "项目", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}, "delete": {"admin", "manager"}}},
@@ -385,6 +387,12 @@ DEFAULT_OWNER_NAMES = [
     "Aypa",
     "spearmint",
     "plus power",
+]
+
+DEFAULT_MANUFACTURER_NAMES = [
+    "阳光",
+    "LG",
+    "比亚迪",
 ]
 
 DEFAULT_SITE_OWNER_NAMES = {
@@ -530,6 +538,13 @@ def init_db():
             create table if not exists owners (
                 id integer primary key autoincrement,
                 owner_number text not null unique,
+                name text not null,
+                created_at text not null
+            );
+
+            create table if not exists manufacturers (
+                id integer primary key autoincrement,
+                manufacturer_number text not null unique,
                 name text not null,
                 created_at text not null
             );
@@ -725,6 +740,7 @@ def init_db():
                 country_code text not null default 'US',
                 name text not null,
                 owner text,
+                manufacturer_id integer,
                 contact_name text,
                 contact_details text,
                 email text,
@@ -1028,6 +1044,7 @@ def init_db():
         ensure_column(connection, "buyers", "client_id", "integer")
         ensure_column(connection, "buyers", "owner", "text")
         ensure_column(connection, "buyers", "owner_id", "integer")
+        ensure_column(connection, "buyers", "manufacturer_id", "integer")
         ensure_column(connection, "buyers", "email", "text")
         ensure_column(connection, "buyers", "site_size", "text")
         ensure_column(connection, "buyers", "country_code", "text not null default 'US'")
@@ -1077,6 +1094,44 @@ def init_db():
                 "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
                 (owner_number, owner_name, now()),
             )
+        next_manufacturer_sequence = connection.execute(
+            "select coalesce(max(id), 0) + 1 as value from manufacturers"
+        ).fetchone()["value"]
+        for manufacturer_name in DEFAULT_MANUFACTURER_NAMES:
+            if connection.execute(
+                "select 1 from manufacturers where lower(trim(name)) = lower(trim(?))",
+                (manufacturer_name,),
+            ).fetchone():
+                continue
+            while True:
+                manufacturer_number = f"MFG{next_manufacturer_sequence:05d}"
+                next_manufacturer_sequence += 1
+                if not connection.execute(
+                    "select id from manufacturers where manufacturer_number = ?",
+                    (manufacturer_number,),
+                ).fetchone():
+                    break
+            connection.execute(
+                "insert into manufacturers (manufacturer_number, name, created_at) values (?, ?, ?)",
+                (manufacturer_number, manufacturer_name, now()),
+            )
+        connection.execute(
+            """
+            update buyers
+            set manufacturer_id = (
+                select manufacturers.id
+                from manufacturers
+                where lower(trim(manufacturers.name)) = lower(trim(buyers.equipment_manufacturer))
+                limit 1
+            )
+            where manufacturer_id is null
+              and trim(coalesce(equipment_manufacturer, '')) != ''
+              and exists (
+                select 1 from manufacturers
+                where lower(trim(manufacturers.name)) = lower(trim(buyers.equipment_manufacturer))
+              )
+            """
+        )
         for owner_name in existing_owner_names:
             existing_owner = connection.execute(
                 "select id from owners where lower(trim(name)) = lower(trim(?))",
@@ -1909,6 +1964,15 @@ def can_manage_owners():
     )
 
 
+def can_manage_manufacturers():
+    return g.user and (
+        has_action_permission("manufacturers", "view")
+        or has_action_permission("manufacturers", "create")
+        or has_action_permission("manufacturers", "edit")
+        or has_action_permission("manufacturers", "delete")
+    )
+
+
 def can_access_buyer(buyer):
     if g.user and has_action_permission("buyers", "view") and not is_external_user():
         return True
@@ -1979,6 +2043,8 @@ def required_action_for_request():
         ("clients", "POST"): ("clients", "create"),
         ("owners", "GET"): ("owners", "view"),
         ("owners", "POST"): ("owners", "create"),
+        ("manufacturers", "GET"): ("manufacturers", "view"),
+        ("manufacturers", "POST"): ("manufacturers", "create"),
         ("buyers", "GET"): ("buyers", "view"),
         ("buyers", "POST"): ("buyers", "create"),
         ("work_order_types", "GET"): ("work_order_types", "view"),
@@ -2013,6 +2079,8 @@ def required_action_for_request():
         "delete_client": ("clients", "delete"),
         "edit_owner": ("owners", "edit"),
         "delete_owner": ("owners", "delete"),
+        "edit_manufacturer": ("manufacturers", "edit"),
+        "delete_manufacturer": ("manufacturers", "delete"),
         "edit_buyer": ("buyers", "edit"),
         "delete_buyer": ("buyers", "delete"),
         "edit_work_order_type": ("work_order_types", "edit"),
@@ -2290,6 +2358,17 @@ def next_owner_number():
     return "OWN00001" if not row else f"OWN{int(row['owner_number'][3:]) + 1:05d}"
 
 
+def next_manufacturer_number():
+    row = db().execute(
+        """
+        select manufacturer_number from manufacturers
+        where manufacturer_number glob 'MFG[0-9][0-9][0-9][0-9][0-9]'
+        order by manufacturer_number desc limit 1
+        """
+    ).fetchone()
+    return "MFG00001" if not row else f"MFG{int(row['manufacturer_number'][3:]) + 1:05d}"
+
+
 def unknown_owner():
     owner = db().execute("select * from owners where name = ?", ("未知",)).fetchone()
     if owner:
@@ -2308,6 +2387,36 @@ def owner_options():
         order by case when name = '未知' then 0 else 1 end, owner_number
         """
     ).fetchall()
+
+
+def manufacturer_options():
+    return db().execute(
+        """
+        select id, manufacturer_number, name from manufacturers
+        order by manufacturer_number
+        """
+    ).fetchall()
+
+
+def manufacturer_from_form():
+    manufacturer_id = (
+        int(request.form["manufacturer_id"])
+        if request.form.get("manufacturer_id", "").isdigit()
+        else None
+    )
+    if not manufacturer_id:
+        return None
+    return db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
+
+
+def manufacturer_by_name(name):
+    clean_name = " ".join(str(name or "").strip().split())
+    if not clean_name:
+        return None
+    return db().execute(
+        "select * from manufacturers where lower(trim(name)) = lower(trim(?))",
+        (clean_name,),
+    ).fetchone()
 
 
 BUYER_IMPORT_FIELD_ALIASES = {
@@ -2457,12 +2566,13 @@ def import_buyers_from_file(uploaded_file, client_id=None):
             continue
         owner, owner_created = get_or_create_owner_by_name(row.get("owner"))
         country = country_from_import_value(row.get("country_code"), "US")
+        manufacturer = manufacturer_by_name(row.get("equipment_manufacturer"))
         db().execute(
             """
             insert into buyers (
-                buyer_number, client_id, country, country_code, name, owner_id, owner, contact_name, contact_details,
+                buyer_number, client_id, country, country_code, name, owner_id, owner, manufacturer_id, contact_name, contact_details,
                 email, site_size, detailed_address, equipment_manufacturer, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 buyer_number or next_buyer_number(),
@@ -2472,6 +2582,7 @@ def import_buyers_from_file(uploaded_file, client_id=None):
                 name,
                 owner["id"],
                 owner["name"],
+                manufacturer["id"] if manufacturer else None,
                 row.get("contact_name", ""),
                 row.get("contact_details", ""),
                 row.get("email", ""),
@@ -5872,12 +5983,107 @@ def delete_owner(owner_id):
     return redirect(url_for("owners"))
 
 
+@app.route("/manufacturers", methods=["GET", "POST"])
+@login_required
+def manufacturers():
+    if not can_manage_manufacturers():
+        abort(403)
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        if not name:
+            flash("请填写厂家名称。", "error")
+            return redirect(url_for("manufacturers"))
+        if db().execute("select 1 from manufacturers where lower(trim(name)) = lower(trim(?))", (name,)).fetchone():
+            flash("厂家名称已存在。", "error")
+            return redirect(url_for("manufacturers"))
+        try:
+            db().execute(
+                "insert into manufacturers (manufacturer_number, name, created_at) values (?, ?, ?)",
+                (next_manufacturer_number(), name, now()),
+            )
+            db().commit()
+            flash("厂家已创建。", "success")
+        except sqlite3.IntegrityError:
+            db().rollback()
+            flash("厂家编号重复，请重试。", "error")
+        return redirect(url_for("manufacturers"))
+    q = request.args.get("q", "").strip()
+    params = []
+    where = ""
+    if q:
+        where = "where manufacturer_number like ? or name like ?"
+        params = [f"%{q}%", f"%{q}%"]
+    rows = db().execute(
+        f"select * from manufacturers {where} order by manufacturer_number asc",
+        params,
+    ).fetchall()
+    return render_template("manufacturers.html", manufacturers=rows, q=q)
+
+
+@app.route("/manufacturers/<int:manufacturer_id>/edit", methods=["POST"])
+@login_required
+def edit_manufacturer(manufacturer_id):
+    if not can_manage_manufacturers():
+        abort(403)
+    manufacturer = db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
+    if not manufacturer:
+        abort(404)
+    manufacturer_number = request.form.get("manufacturer_number", "").strip().upper()
+    name = request.form.get("name", "").strip()
+    if not manufacturer_number or not name:
+        flash("请填写厂家编号和名称。", "error")
+        return redirect(url_for("manufacturers"))
+    if db().execute(
+        "select 1 from manufacturers where id != ? and lower(trim(name)) = lower(trim(?))",
+        (manufacturer_id, name),
+    ).fetchone():
+        flash("厂家名称已存在。", "error")
+        return redirect(url_for("manufacturers"))
+    try:
+        db().execute(
+            "update manufacturers set manufacturer_number = ?, name = ? where id = ?",
+            (manufacturer_number, name, manufacturer_id),
+        )
+        db().execute(
+            "update buyers set equipment_manufacturer = ? where manufacturer_id = ?",
+            (name, manufacturer_id),
+        )
+        db().commit()
+        flash("厂家资料已更新。", "success")
+    except sqlite3.IntegrityError:
+        db().rollback()
+        flash("厂家编号重复，请换一个编号。", "error")
+    return redirect(url_for("manufacturers"))
+
+
+@app.post("/manufacturers/<int:manufacturer_id>/delete")
+@login_required
+def delete_manufacturer(manufacturer_id):
+    if not can_manage_manufacturers():
+        abort(403)
+    manufacturer = db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
+    if not manufacturer:
+        abort(404)
+    used = db().execute(
+        "select count(*) as count from buyers where manufacturer_id = ?",
+        (manufacturer_id,),
+    ).fetchone()["count"]
+    if used:
+        flash("这个厂家已有站点，不能删除。可以编辑厂家资料。", "error")
+        return redirect(url_for("manufacturers"))
+    db().execute("delete from manufacturers where id = ?", (manufacturer_id,))
+    db().commit()
+    flash("厂家已删除。", "success")
+    return redirect(url_for("manufacturers"))
+
+
 @app.route("/buyers", methods=["GET", "POST"])
 @login_required
 def buyers():
     if not can_manage_buyers():
         abort(403)
     owners_rows = owner_options()
+    manufacturers_rows = manufacturer_options()
     countries_rows = country_rows()
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -5892,6 +6098,10 @@ def buyers():
         else:
             owner = unknown_owner()
             owner_id = owner["id"]
+        manufacturer = manufacturer_from_form()
+        if request.form.get("manufacturer_id") and not manufacturer:
+            flash("请选择有效的厂家。", "error")
+            return redirect(url_for("buyers"))
         detailed_address = request.form.get("detailed_address", "").strip()
         if not name or not detailed_address:
             flash("请填写站点名称和详细地址。", "error")
@@ -5915,9 +6125,9 @@ def buyers():
             db().execute(
                 """
                 insert into buyers (
-                    buyer_number, client_id, country, country_code, name, owner_id, owner, contact_name, contact_details,
+                    buyer_number, client_id, country, country_code, name, owner_id, owner, manufacturer_id, contact_name, contact_details,
                     email, site_size, detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_buyer_number(),
@@ -5927,12 +6137,13 @@ def buyers():
                     name,
                     owner_id,
                     owner["name"] if owner else "",
+                    manufacturer["id"] if manufacturer else None,
                     request.form.get("contact_name", "").strip(),
                     request.form.get("contact_details", "").strip(),
                     request.form.get("email", "").strip(),
                     request.form.get("site_size", "").strip(),
                     detailed_address,
-                    request.form.get("equipment_manufacturer", "").strip(),
+                    manufacturer["name"] if manufacturer else "",
                     now(),
                 ),
             )
@@ -6003,6 +6214,7 @@ def buyers():
         buyers=rows,
         clients=clients_rows,
         owners=owners_rows,
+        manufacturers=manufacturers_rows,
         countries=countries_rows,
         q=q,
         sort=sort,
@@ -6075,6 +6287,10 @@ def edit_buyer(buyer_id):
         else:
             owner = unknown_owner()
             owner_id = owner["id"]
+        manufacturer = manufacturer_from_form()
+        if request.form.get("manufacturer_id") and not manufacturer:
+            flash("请选择有效的厂家。", "error")
+            return redirect(url_for("edit_buyer", buyer_id=buyer_id))
         detailed_address = request.form.get("detailed_address", "").strip()
         if not buyer_number or not name or not detailed_address:
             flash("请填写编号、站点名称和详细地址。", "error")
@@ -6085,7 +6301,7 @@ def edit_buyer(buyer_id):
                 """
                 update buyers
                 set buyer_number = ?, client_id = ?, country = ?, country_code = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
-                    contact_details = ?, email = ?, site_size = ?, detailed_address = ?, equipment_manufacturer = ?
+                    manufacturer_id = ?, contact_details = ?, email = ?, site_size = ?, detailed_address = ?, equipment_manufacturer = ?
                 where id = ?
                 """,
                 (
@@ -6099,11 +6315,12 @@ def edit_buyer(buyer_id):
                     owner_id,
                     owner["name"] if owner else "",
                     request.form.get("contact_name", "").strip(),
+                    manufacturer["id"] if manufacturer else None,
                     request.form.get("contact_details", "").strip(),
                     request.form.get("email", "").strip(),
                     request.form.get("site_size", "").strip(),
                     detailed_address,
-                    request.form.get("equipment_manufacturer", "").strip(),
+                    manufacturer["name"] if manufacturer else "",
                     buyer_id,
                 ),
             )
@@ -6143,6 +6360,7 @@ def edit_buyer(buyer_id):
         buyer=buyer,
         clients=clients_rows,
         owners=owners_rows,
+        manufacturers=manufacturer_options(),
         countries=country_rows(),
     )
 

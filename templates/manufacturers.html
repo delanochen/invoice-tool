@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}厂家 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">Manufacturers</p><h1>厂家资料</h1></div>
+    <button class="primary" type="button" data-dialog-open="newManufacturerDialog">新增厂家</button>
+  </header>
+
+  <form class="panel filter-bar no-print" method="get">
+    <label>查找厂家 <input name="q" value="{{ q or '' }}" placeholder="编号或名称"></label>
+    <div class="filter-actions">
+      <button type="submit">查找</button>
+      <button type="button" onclick="window.location.href='{{ url_for('manufacturers') }}'">重置</button>
+    </div>
+  </form>
+
+  <section class="panel">
+    <div class="panel-title"><h2>厂家列表</h2><span class="muted-line">{{ manufacturers|length }} 个厂家</span></div>
+    <table class="list-table">
+      <thead>
+        <tr>
+          <th>厂家编号</th>
+          <th>厂家名称</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for manufacturer in manufacturers %}
+          <tr>
+            <td>{{ manufacturer.manufacturer_number }}</td>
+            <td>{{ manufacturer.name }}</td>
+            <td>
+              <div class="row-actions">
+                <button class="small" type="button" data-dialog-open="editManufacturer{{ manufacturer.id }}">编辑</button>
+                <form method="post" action="{{ url_for('delete_manufacturer', manufacturer_id=manufacturer.id) }}" onsubmit="return confirm('确定删除这个厂家吗？已有站点的厂家不会被删除。');">
+                  <button class="danger small" type="submit">删除</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty">还没有厂家资料。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <dialog id="newManufacturerDialog" class="modal-dialog">
+    <form method="post" class="form-stack">
+      <div class="dialog-header">
+        <h2>新增厂家</h2>
+        <button class="small" type="button" data-dialog-close>关闭</button>
+      </div>
+      <div class="form-grid two-columns">
+        <label>厂家编号 <input value="自动生成" disabled></label>
+        <label>厂家名称 <input name="name" required></label>
+      </div>
+      <div class="form-actions"><button class="primary" type="submit">保存厂家</button></div>
+    </form>
+  </dialog>
+
+  {% for manufacturer in manufacturers %}
+    <dialog id="editManufacturer{{ manufacturer.id }}" class="modal-dialog">
+      <form method="post" action="{{ url_for('edit_manufacturer', manufacturer_id=manufacturer.id) }}" class="form-stack">
+        <div class="dialog-header">
+          <h2>编辑厂家</h2>
+          <button class="small" type="button" data-dialog-close>关闭</button>
+        </div>
+        <div class="form-grid two-columns">
+          <label>厂家编号 <input name="manufacturer_number" value="{{ manufacturer.manufacturer_number }}" required></label>
+          <label>厂家名称 <input name="name" value="{{ manufacturer.name }}" required></label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">保存厂家</button></div>
+      </form>
+    </dialog>
+  {% endfor %}
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='modal-forms.js', v='20260709-manufacturer-data-v1') }}"></script>
+{% endblock %}

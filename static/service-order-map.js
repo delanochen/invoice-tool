@@ -185,6 +185,7 @@ function matchesFilters(buyer) {
   const selectedStatuses = selectedFilterValues("status");
   const selectedSites = selectedFilterValues("name");
   const selectedOwners = selectedFilterValues("owner");
+  const selectedManufacturers = selectedFilterValues("equipment_manufacturer");
   const selectedInspectionStatuses = selectedFilterValues("inspection_status");
   const haystack = [
     buyer.buyer_number, buyer.name, buyer.owner, buyer.contact_name, buyer.contact_details, buyer.email,
@@ -195,6 +196,7 @@ function matchesFilters(buyer) {
     (!selectedStatuses.size || selectedStatuses.has(buyer.status)) &&
     (!selectedSites.size || selectedSites.has(filterText(buyer.name))) &&
     (!selectedOwners.size || selectedOwners.has(filterText(buyer.owner))) &&
+    (!selectedManufacturers.size || selectedManufacturers.has(filterText(buyer.equipment_manufacturer))) &&
     (!selectedInspectionStatuses.size || selectedInspectionStatuses.has(buyer.inspection_status || "none"))
   );
 }

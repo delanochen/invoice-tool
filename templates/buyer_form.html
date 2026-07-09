@@ -37,7 +37,14 @@
     <label>电子邮箱地址 <input type="email" name="email" value="{{ buyer.email or '' }}"></label>
     <label>规模 <input name="site_size" value="{{ buyer.site_size or '' }}"></label>
     <label>详细地址 <textarea name="detailed_address" rows="5" required>{{ buyer.detailed_address or '' }}</textarea></label>
-    <label>配套机厂家 <input name="equipment_manufacturer" value="{{ buyer.equipment_manufacturer or '' }}"></label>
+    <label>配套机厂家
+      <select name="manufacturer_id">
+        <option value="">未指定</option>
+        {% for manufacturer in manufacturers %}
+          <option value="{{ manufacturer.id }}" {% if buyer.manufacturer_id == manufacturer.id %}selected{% endif %}>{{ manufacturer.manufacturer_number }} · {{ manufacturer.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
   </form>
 {% endblock %}
