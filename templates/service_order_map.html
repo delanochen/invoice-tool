@@ -54,13 +54,6 @@
       <div id="unlocatedOrders" class="unlocated-orders"></div>
     </aside>
   </section>
-  <p class="map-attribution-note">
-    {% if google_maps_enabled %}
-      地图和地址解析由 Google Maps Platform 实时提供。
-    {% else %}
-      免费模式：地图数据 © OpenStreetMap contributors；地址由 U.S. Census Geocoder 和 Nominatim 解析。
-    {% endif %}
-  </p>
   <script>
     window.serviceOrderMapData = {{ map_buyers|tojson }};
     window.serviceOrderMapConfig = {
