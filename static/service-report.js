@@ -61,15 +61,28 @@ function calculateRoundedServiceHours() {
   return roundedMinutes / 60;
 }
 
+function calculateWorkerDrivingMiles() {
+  if (!serviceReportForm) return 0;
+  return Array.from(serviceReportForm.querySelectorAll("[name='worker_user_id']:checked"))
+    .reduce((total, checkbox) => {
+      const milesInput = serviceReportForm.elements[`worker_driving_miles_${checkbox.value}`];
+      return total + parseReportNumber(milesInput?.value);
+    }, 0);
+}
+
 function updateReportCalculatedFields() {
   if (!serviceReportForm) return;
   const totalServiceInput = serviceReportForm.elements.total_service_hours;
   const travelInput = serviceReportForm.elements.travel_hours;
   const publicTransportInput = serviceReportForm.elements.public_transport_hours;
   const totalTimeInput = serviceReportForm.elements.total_time;
+  const drivingMilesInput = serviceReportForm.elements.driving_miles;
   const workerCount = serviceReportForm.querySelectorAll("[name='worker_user_id']:checked").length;
   if (totalServiceInput) {
     totalServiceInput.value = formatReportNumber(calculateRoundedServiceHours() * workerCount);
+  }
+  if (drivingMilesInput) {
+    drivingMilesInput.value = formatReportNumber(calculateWorkerDrivingMiles());
   }
   if (totalTimeInput) {
     totalTimeInput.value = formatReportNumber(
@@ -375,7 +388,7 @@ document.querySelectorAll("[data-local-photo]").forEach((input) => {
 });
 
 serviceReportForm?.querySelectorAll(
-  "[name='arrival_time_hour'], [name='arrival_time_minute'], [name='departure_time_hour'], [name='departure_time_minute'], [name='worker_user_id'], [name='travel_hours'], [name='public_transport_hours']"
+  "[name='arrival_time_hour'], [name='arrival_time_minute'], [name='departure_time_hour'], [name='departure_time_minute'], [name='worker_user_id'], [name^='worker_driving_miles_'], [name='travel_hours'], [name='public_transport_hours']"
 ).forEach((input) => {
   input.addEventListener("input", updateReportCalculatedFields);
   input.addEventListener("change", updateReportCalculatedFields);

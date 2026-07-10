@@ -3882,6 +3882,14 @@ def calculated_report_total_service_hours(arrival_time, departure_time):
     return rounded_report_service_hours(arrival_time, departure_time) * len(report_worker_ids_from_form())
 
 
+def calculated_report_driving_miles():
+    total = sum(
+        to_float(request.form.get(f"worker_driving_miles_{user_id}"))
+        for user_id in report_worker_ids_from_form()
+    )
+    return round(total, 2)
+
+
 def observed_us_holidays(year):
     def observed(day):
         if day.weekday() == 5:
@@ -9905,6 +9913,7 @@ def new_service_report(order_id):
             departure_time = posted_report_time("departure_time")
             total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
             total_time = calculated_report_total_time()
+            driving_miles = calculated_report_driving_miles()
             cursor = db().execute(
                 """
                 insert into service_reports (
@@ -9920,7 +9929,7 @@ def new_service_report(order_id):
                     total_service_hours,
                     to_float(request.form.get("travel_hours")),
                     to_float(request.form.get("public_transport_hours")),
-                    to_float(request.form.get("driving_miles")),
+                    driving_miles,
                     request.form.get("departure_address", "").strip(),
                     request.form.get("site_address", "").strip(),
                     total_time,
@@ -9986,6 +9995,7 @@ def edit_service_report(report_id):
             departure_time = posted_report_time("departure_time")
             total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
             total_time = calculated_report_total_time()
+            driving_miles = calculated_report_driving_miles()
             db().execute(
                 """
                 update service_reports
@@ -10000,7 +10010,7 @@ def edit_service_report(report_id):
                     total_service_hours,
                     to_float(request.form.get("travel_hours")),
                     to_float(request.form.get("public_transport_hours")),
-                    to_float(request.form.get("driving_miles")),
+                    driving_miles,
                     request.form.get("departure_address", "").strip(),
                     request.form.get("site_address", "").strip(),
                     total_time,

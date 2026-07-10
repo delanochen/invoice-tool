@@ -26,7 +26,7 @@
       <label>总计服务工时：小时 <input type="number" step="0.25" min="0" name="total_service_hours" value="{{ report.total_service_hours }}" readonly></label>
       <label>交通时长：小时 <input type="number" step="0.1" min="0" name="travel_hours" value="{{ report.travel_hours }}"></label>
       <label>公共交通时长 <input type="number" step="0.1" min="0" name="public_transport_hours" value="{{ report.public_transport_hours }}"></label>
-      <label>自驾里程总计：英里 <input type="number" step="0.1" min="0" name="driving_miles" value="{{ report.driving_miles }}"></label>
+      <label>自驾里程总计：英里 <input type="number" step="0.1" min="0" name="driving_miles" value="{{ report.driving_miles }}" readonly></label>
       <label>合计用时 <input name="total_time" value="{{ report.total_time or '' }}" readonly></label>
       {% set arrival_parts = (report.arrival_time or '').split(':') %}
       {% set departure_parts = (report.departure_time or '').split(':') %}
@@ -275,5 +275,5 @@
       <img id="nasPhotoPreviewImage" alt="">
     </div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260629-auto-hours') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260709-auto-mileage-total') }}"></script>
 {% endblock %}
