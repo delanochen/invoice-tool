@@ -1322,6 +1322,23 @@ def init_db():
         seed_customer_reimbursement_projects(connection)
         seed_countries(connection)
         seed_settings(connection)
+        historical_paid_date_migration = connection.execute(
+            "select value from settings where key = ?",
+            ("payroll_historical_paid_date_20260705_v1",),
+        ).fetchone()
+        if not historical_paid_date_migration:
+            connection.execute(
+                "insert or replace into settings (key, value) values (?, ?)",
+                ("payroll_historical_paid_date", "2026-07-05"),
+            )
+            connection.execute(
+                "insert or replace into settings (key, value) values (?, ?)",
+                ("payroll_cycle_start", "2026-07-06"),
+            )
+            connection.execute(
+                "insert into settings (key, value) values (?, ?)",
+                ("payroll_historical_paid_date_20260705_v1", now()),
+            )
         seed_role_permissions(connection)
         admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
         admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
@@ -1517,7 +1534,7 @@ def seed_settings(connection):
     defaults["payroll_meal_allowance_method"] = "daily"
     defaults["payroll_meal_daily_amount"] = "50"
     defaults["payroll_lodging_limit"] = "0"
-    defaults["payroll_historical_paid_date"] = date.today().isoformat()
+    defaults["payroll_historical_paid_date"] = "2026-07-05"
     defaults["inspection_warning_days"] = "150"
     defaults["inspection_cycle_days"] = "180"
     for key, value in defaults.items():
@@ -8004,9 +8021,9 @@ def payroll_payslip_payload(row, show_meal_allowance):
 
 def payroll_historical_paid_date():
     try:
-        return date.fromisoformat(get_setting("payroll_historical_paid_date", date.today().isoformat()))
+        return date.fromisoformat(get_setting("payroll_historical_paid_date", "2026-07-05"))
     except ValueError:
-        return date.today()
+        return date(2026, 7, 5)
 
 
 def historical_payroll_period(worker_id=""):
