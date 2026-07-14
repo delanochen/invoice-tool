@@ -7755,7 +7755,7 @@ def service_report_query():
 
 def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actual"):
     if date_mode == "attendance":
-        report_date_expr = "date(service_reports.updated_at)"
+        report_date_expr = "date(coalesce(service_reports.actual_work_date, service_reports.report_date))"
     elif date_mode == "report":
         report_date_expr = "date(service_reports.report_date)"
     else:
