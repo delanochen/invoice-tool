@@ -4941,6 +4941,15 @@ def load_invoice(invoice_id):
     return invoice, client, items
 
 
+def invoice_service_order(invoice):
+    if not invoice["service_order_id"]:
+        return None
+    return db().execute(
+        "select id, order_number, client_order_number from service_orders where id = ?",
+        (invoice["service_order_id"],),
+    ).fetchone()
+
+
 def create_message(user_id, title, body, link=None):
     db().execute(
         "insert into messages (user_id, title, body, link, created_at) values (?, ?, ?, ?, ?)",
@@ -11205,17 +11214,7 @@ def invoice_detail(invoice_id):
     if invoice["status"] == "draft" and invoice["created_by"] == g.user["id"]:
         return redirect(url_for("edit_invoice", invoice_id=invoice_id))
     creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
-    service_order = None
-    if invoice["service_order_id"]:
-        service_order = db().execute(
-            """
-            select service_orders.*, contracts.contract_number, contracts.title as contract_title
-            from service_orders
-            left join contracts on contracts.id = service_orders.contract_id
-            where service_orders.id = ?
-            """,
-            (invoice["service_order_id"],),
-        ).fetchone()
+    service_order = invoice_service_order(invoice)
     return render_template(
         "invoice_detail.html",
         invoice=invoice,
@@ -11520,6 +11519,7 @@ def render_invoice_export_html(invoice, client, items):
         "invoice_export.html",
         invoice=invoice,
         client=client,
+        service_order=invoice_service_order(invoice),
         items=items,
         totals=invoice_totals(invoice["id"]),
         company=get_company_profile(),
@@ -11541,6 +11541,7 @@ def render_invoice_pdf(invoice, client, items):
     payment = get_payment_instructions()
     terms = get_invoice_terms()
     totals = invoice_totals(invoice["id"])
+    service_order = invoice_service_order(invoice)
 
     def ensure_space(required):
         nonlocal y
@@ -11607,13 +11608,18 @@ def render_invoice_pdf(invoice, client, items):
     page.drawRightString(width - left, top, "INVOICE")
     page.setFont("STSong-Light", 10)
     meta_y = top - 40
-    for label, value in (
-        ("Invoice No.", invoice["invoice_number"]),
-        ("Issue Date", invoice["issue_date"]),
-        ("Due Date", invoice["due_date"]),
-        ("Currency", invoice["currency"]),
-    ):
-        page.drawRightString(width - left - 95, meta_y, label)
+    metadata = [("Invoice No.", invoice["invoice_number"])]
+    if service_order and service_order["client_order_number"]:
+        metadata.append(("Service Order Number", service_order["client_order_number"]))
+    metadata.extend(
+        (
+            ("Issue Date", invoice["issue_date"]),
+            ("Due Date", invoice["due_date"]),
+            ("Currency", invoice["currency"]),
+        )
+    )
+    for label, value in metadata:
+        page.drawRightString(width - left - 125, meta_y, label)
         page.drawRightString(width - left, meta_y, pdf_text(value))
         meta_y -= line
 
@@ -11920,6 +11926,7 @@ def send_invoice_email(invoice_id):
         "email_invoice.html",
         invoice=invoice,
         client=client,
+        service_order=invoice_service_order(invoice),
         items=items,
         totals=invoice_totals(invoice_id),
         company=get_company_profile(),

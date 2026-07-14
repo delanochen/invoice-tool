@@ -1,5 +1,6 @@
 <h2>{{ company.name }}</h2>
 <h3>Invoice {{ invoice.invoice_number }}</h3>
+{% if service_order and service_order.client_order_number %}<p>Service Order Number: {{ service_order.client_order_number }}</p>{% endif %}
 <p>Dear {{ client.contact_name or client.name }},</p>
 <p>Please find the invoice details below.</p>
 <table border="1" cellpadding="8" cellspacing="0">

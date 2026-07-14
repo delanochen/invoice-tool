@@ -40,6 +40,9 @@
         </section>
         <section class="meta-list">
           <p><span>Invoice No.</span><strong>{{ invoice.invoice_number }}</strong></p>
+          {% if service_order and service_order.client_order_number %}
+            <p><span>Service Order Number</span><strong>{{ service_order.client_order_number }}</strong></p>
+          {% endif %}
           <p><span>Issue Date</span><strong>{{ invoice.issue_date }}</strong></p>
           <p><span>Due Date</span><strong>{{ invoice.due_date }}</strong></p>
           <p><span>Currency</span><strong>{{ invoice.currency }}</strong></p>
