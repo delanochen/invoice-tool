@@ -28,7 +28,10 @@
       {% endif %}
       {% if reimbursement.status == "approved" %}
         {% if can_manage_customer_reimbursement() %}
-          <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
+          <span class="email-send-action">
+            <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
+            <span class="email-send-count" title="{% if email_delivery.count %}已成功发送 {{ email_delivery.count }} 次；最近发送：{{ email_delivery.last_sent_at }}{% else %}尚未发送{% endif %}">{{ email_delivery.count }}</span>
+          </span>
         {% endif %}
         {% if linked_invoice %}
           <button class="primary" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=linked_invoice.id) }}'">查看发票</button>

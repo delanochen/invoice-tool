@@ -240,6 +240,26 @@ h1, h2, h3, p { margin-top: 0; }
   align-items: center;
   margin: 0;
 }
+.email-send-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.email-send-count {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: #e6f4f1;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
+}
 .small { min-height: 32px; padding: 0 10px; font-size: 13px; }
 
 .metric-grid {

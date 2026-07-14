@@ -811,6 +811,24 @@ def init_db():
                 foreign key(user_id) references users(id)
             );
 
+            create table if not exists email_delivery_logs (
+                id integer primary key autoincrement,
+                entity_type text not null,
+                entity_id integer not null,
+                recipient text not null default '',
+                subject text not null default '',
+                sent_by integer,
+                sent_by_name text not null default '',
+                sent_at text not null,
+                is_legacy integer not null default 0,
+                source_audit_log_id integer unique,
+                foreign key(sent_by) references users(id) on delete set null,
+                foreign key(source_audit_log_id) references audit_logs(id) on delete set null
+            );
+
+            create index if not exists idx_email_delivery_entity
+            on email_delivery_logs(entity_type, entity_id, sent_at);
+
             create table if not exists audit_logs (
                 id integer primary key autoincrement,
                 user_id integer,
@@ -1322,6 +1340,42 @@ def init_db():
         seed_customer_reimbursement_projects(connection)
         seed_countries(connection)
         seed_settings(connection)
+        email_delivery_history_migration = connection.execute(
+            "select value from settings where key = ?",
+            ("email_delivery_history_v1",),
+        ).fetchone()
+        if not email_delivery_history_migration:
+            connection.execute(
+                """
+                insert into email_delivery_logs (
+                    entity_type, entity_id, recipient, subject, sent_by_name, sent_at, is_legacy
+                )
+                select 'invoice', invoices.id, coalesce(clients.email, ''),
+                       'Invoice ' || invoices.invoice_number, '历史记录', invoices.sent_at, 1
+                from invoices
+                left join clients on clients.id = invoices.client_id
+                where trim(coalesce(invoices.sent_at, '')) != ''
+                """
+            )
+            connection.execute(
+                """
+                insert or ignore into email_delivery_logs (
+                    entity_type, entity_id, recipient, subject, sent_by, sent_by_name,
+                    sent_at, source_audit_log_id
+                )
+                select 'customer_reimbursement', audit_logs.entity_id, coalesce(audit_logs.summary, ''),
+                       audit_logs.entity_label, audit_logs.user_id, audit_logs.user_name,
+                       audit_logs.created_at, audit_logs.id
+                from audit_logs
+                where audit_logs.action = 'send'
+                  and audit_logs.entity_type = 'customer_reimbursement'
+                  and audit_logs.entity_id is not null
+                """
+            )
+            connection.execute(
+                "insert into settings (key, value) values (?, ?)",
+                ("email_delivery_history_v1", now()),
+            )
         historical_paid_date_migration = connection.execute(
             "select value from settings where key = ?",
             ("payroll_historical_paid_date_20260705_v1",),
@@ -4648,6 +4702,7 @@ def deliver_customer_reimbursement_email(reimbursement, order):
         html=f"<p>{html.escape(body).replace(chr(10), '<br>')}</p>",
         attachments=attachments,
     )
+    record_email_delivery("customer_reimbursement", reimbursement["id"], recipient, subject)
     log_action(
         "send",
         "customer_reimbursement",
@@ -4913,6 +4968,43 @@ def log_action(action, entity_type, entity_id, entity_label, summary=""):
             now(),
         ),
     )
+
+
+def record_email_delivery(entity_type, entity_id, recipient, subject):
+    db().execute(
+        """
+        insert into email_delivery_logs (
+            entity_type, entity_id, recipient, subject, sent_by, sent_by_name, sent_at
+        ) values (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            entity_type,
+            entity_id,
+            str(recipient or ""),
+            str(subject or ""),
+            g.user["id"] if g.user else None,
+            g.user["name"] if g.user else "",
+            now(),
+        ),
+    )
+
+
+def email_delivery_summary(entity_type, entity_id):
+    row = db().execute(
+        """
+        select count(*) as send_count,
+               max(sent_at) as last_sent_at,
+               max(is_legacy) as has_legacy
+        from email_delivery_logs
+        where entity_type = ? and entity_id = ?
+        """,
+        (entity_type, entity_id),
+    ).fetchone()
+    return {
+        "count": int(row["send_count"] or 0),
+        "last_sent_at": row["last_sent_at"] or "",
+        "is_estimate": bool(row["has_legacy"]),
+    }
 
 
 def request_ip_address():
@@ -9689,6 +9781,7 @@ def customer_reimbursement_form(order_id):
         attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
         linked_invoice=linked_invoice,
         reviewer=reviewer,
+        email_delivery=email_delivery_summary("customer_reimbursement", reimbursement["id"]),
         can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
     )
 
@@ -11137,6 +11230,7 @@ def invoice_detail(invoice_id):
         payment=get_payment_instructions(),
         labels=STATUS_LABELS,
         today=date.today().isoformat(),
+        email_delivery=email_delivery_summary("invoice", invoice_id),
     )
 
 
@@ -11832,11 +11926,20 @@ def send_invoice_email(invoice_id):
         terms=get_invoice_terms(),
         payment=get_payment_instructions(),
     )
+    subject = f"Invoice {invoice['invoice_number']} from {get_company_profile()['name']}"
     send_email(
         to=client["email"],
-        subject=f"Invoice {invoice['invoice_number']} from {get_company_profile()['name']}",
+        subject=subject,
         html=html,
         attachments=mail_attachments,
+    )
+    record_email_delivery("invoice", invoice_id, client["email"], subject)
+    log_action(
+        "send",
+        "invoice",
+        invoice_id,
+        invoice["invoice_number"],
+        f"发送至：{client['email']}；附件：{len(mail_attachments)} 个",
     )
     db().execute("update invoices set sent_at = ? where id = ?", (now(), invoice_id))
     db().commit()

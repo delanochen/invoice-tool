@@ -12,9 +12,12 @@
       <button type="button" onclick="window.location.href='{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}'">导出发票</button>
       <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button type="submit">导出 ZIP</button></form>
       {% if invoice.status == "completed" and not is_external_manager() %}
-        <form method="post" action="{{ url_for('send_invoice', invoice_id=invoice.id) }}"><button type="submit">发送邮件</button></form>
+        <form class="email-send-action" method="post" action="{{ url_for('send_invoice', invoice_id=invoice.id) }}">
+          <button type="submit">发送邮件</button>
+          <span class="email-send-count" title="{% if email_delivery.count %}{% if email_delivery.is_estimate %}历史记录显示至少发送过 {{ email_delivery.count }} 次{% else %}已成功发送 {{ email_delivery.count }} 次{% endif %}；最近发送：{{ email_delivery.last_sent_at }}{% else %}尚未发送{% endif %}">{{ email_delivery.count }}{{ '+' if email_delivery.is_estimate else '' }}</span>
+        </form>
       {% elif not is_external_manager() %}
-        <button type="button" disabled>发送邮件</button>
+        <span class="email-send-action"><button type="button" disabled>发送邮件</button><span class="email-send-count" title="{% if email_delivery.count %}{% if email_delivery.is_estimate %}历史记录显示至少发送过 {{ email_delivery.count }} 次{% else %}已成功发送 {{ email_delivery.count }} 次{% endif %}；最近发送：{{ email_delivery.last_sent_at }}{% else %}尚未发送{% endif %}">{{ email_delivery.count }}{{ '+' if email_delivery.is_estimate else '' }}</span></span>
       {% endif %}
       {% if invoice.status == "completed" and not invoice.paid_at and g.user.role in ["admin", "manager", "user", "internal"] %}
         <button class="primary" type="button" onclick="document.querySelector('#paidDialog').showModal()">核销</button>
