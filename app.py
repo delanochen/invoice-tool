@@ -11610,7 +11610,7 @@ def render_invoice_pdf(invoice, client, items):
     meta_y = top - 40
     metadata = [("Invoice No.", invoice["invoice_number"])]
     if service_order and service_order["client_order_number"]:
-        metadata.append(("Service Order Number", service_order["client_order_number"]))
+        metadata.append(("Service Order", service_order["client_order_number"]))
     metadata.extend(
         (
             ("Issue Date", invoice["issue_date"]),
