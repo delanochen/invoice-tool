@@ -8755,9 +8755,13 @@ def expense_processing():
     if not is_internal_user():
         abort(403)
     q = request.args.get("q", "").strip()
+    status = request.args.get("status", "").strip()
     payout_status = request.args.get("payout_status", "").strip()
-    clauses = ["expenses.status = 'approved'"]
+    clauses = ["1 = 1"]
     params = []
+    if normalized_role() == "employee":
+        clauses.append("expenses.created_by = ?")
+        params.append(g.user["id"])
     if q:
         clauses.append(
             """
@@ -8766,6 +8770,11 @@ def expense_processing():
             """
         )
         params.extend([f"%{q}%"] * 4)
+    if status in EXPENSE_STATUS_LABELS:
+        clauses.append("expenses.status = ?")
+        params.append(status)
+    else:
+        status = ""
     if payout_status in EXPENSE_PAYOUT_LABELS:
         clauses.append("expenses.payout_status = ?")
         params.append(payout_status)
@@ -8781,7 +8790,13 @@ def expense_processing():
         left join users as reimbursers on reimbursers.id = expenses.reimbursed_by
         where {" and ".join(clauses)}
         order by
-            case when expenses.payout_status = 'pending' then 0 else 1 end,
+            case
+                when expenses.status = 'approved' and expenses.payout_status = 'pending' then 0
+                when expenses.status = 'submitted' then 1
+                when expenses.status = 'returned' then 2
+                when expenses.status = 'draft' then 3
+                else 4
+            end,
             expenses.expense_date desc,
             expenses.id desc
         """,
@@ -8800,7 +8815,9 @@ def expense_processing():
         "expense_processing.html",
         rows=rows,
         q=q,
+        status=status,
         payout_status=payout_status,
+        expense_labels=EXPENSE_STATUS_LABELS,
         payout_labels=EXPENSE_PAYOUT_LABELS,
         pending_total=totals["pending_total"],
         paid_total=totals["paid_total"],

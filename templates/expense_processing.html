@@ -14,6 +14,14 @@
     <label>关键词
       <input name="q" value="{{ q }}" placeholder="报销编号、工单、站点或提交人">
     </label>
+    <label>流程状态
+      <select name="status">
+        <option value="">全部</option>
+        {% for value, label in expense_labels.items() %}
+          <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>报销状态
       <select name="payout_status">
         <option value="">全部</option>
@@ -53,7 +61,7 @@
         <tbody>
           {% for row in rows %}
             <tr
-              {% if normalized_role() == "admin" or row.payout_status != "paid" %}
+              {% if normalized_role() == "admin" or (row.status == "approved" and row.payout_status != "paid") %}
                 tabindex="0"
                 data-row-id="{{ row.id }}"
                 data-row-label="{{ row.expense_number }} · {{ row.amount|money(row.currency) }}"
@@ -76,7 +84,7 @@
               <td>{{ row.reimbursed_at|local_datetime if row.reimbursed_at else "-" }}</td>
             </tr>
           {% else %}
-            <tr><td colspan="9" class="empty">没有符合条件的待处理报销。</td></tr>
+            <tr><td colspan="9" class="empty">没有符合条件的报销。</td></tr>
           {% endfor %}
         </tbody>
       </table>
