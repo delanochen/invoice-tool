@@ -9,6 +9,9 @@ const zoomFitBtn = document.querySelector("#zoomFitBtn");
 const zoomOriginalBtn = document.querySelector("#zoomOriginalBtn");
 const detailAttachmentsInput = document.querySelector("#detailAttachmentsInput");
 const detailAttachmentList = document.querySelector("#detailAttachmentList");
+const detailAttachmentForm = document.querySelector("#detailAttachmentForm");
+const saveDetailAttachmentsBtn = document.querySelector("#saveDetailAttachmentsBtn");
+const detailAttachmentStatus = document.querySelector("#detailAttachmentStatus");
 let previewZoom = 1;
 let previewMode = "fit";
 let detailSelectedFiles = [];
@@ -95,6 +98,12 @@ function renderDetailFileList() {
     item.append(name, remove);
     detailAttachmentList.appendChild(item);
   });
+  if (saveDetailAttachmentsBtn) {
+    saveDetailAttachmentsBtn.disabled = detailSelectedFiles.length === 0;
+  }
+  if (detailAttachmentStatus) {
+    detailAttachmentStatus.textContent = detailSelectedFiles.length ? `已选择 ${detailSelectedFiles.length} 个附件` : "请选择要保存的附件。";
+  }
 }
 
 function fileKey(file) {
@@ -140,4 +149,18 @@ if (detailAttachmentsInput && detailAttachmentList) {
     renderDetailFileList();
     syncDetailInput();
   });
+  renderDetailFileList();
 }
+
+detailAttachmentForm?.addEventListener("submit", (event) => {
+  syncDetailInput();
+  if (!detailSelectedFiles.length) {
+    event.preventDefault();
+    detailAttachmentsInput?.focus();
+    return;
+  }
+  if (saveDetailAttachmentsBtn) {
+    saveDetailAttachmentsBtn.disabled = true;
+    saveDetailAttachmentsBtn.textContent = "正在保存…";
+  }
+});

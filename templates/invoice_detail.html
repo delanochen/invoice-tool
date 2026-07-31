@@ -184,15 +184,16 @@
         {% endfor %}
       </tbody>
     </table>
-    <form method="post" action="{{ url_for('upload_attachment', invoice_id=invoice.id) }}" enctype="multipart/form-data" class="attachment-upload form-stack">
+    <form id="detailAttachmentForm" method="post" action="{{ url_for('upload_attachment', invoice_id=invoice.id) }}" enctype="multipart/form-data" class="attachment-upload form-stack">
       <div class="file-picker-row">
         <span>继续上传附件（可多选）</span>
         <input id="detailAttachmentsInput" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple required>
         <small>支持 Word、Excel、PDF、图片。</small>
       </div>
       <ul id="detailAttachmentList" class="file-list"></ul>
-      <button type="submit">上传附件</button>
+      <p id="detailAttachmentStatus" class="muted-line" aria-live="polite">请选择要保存的附件。</p>
+      <button id="saveDetailAttachmentsBtn" class="primary" type="submit" disabled>保存附件</button>
     </form>
   </section>
-  <script src="{{ url_for('static', filename='invoice-detail.js', v='20260530-attachment-list-v2') }}"></script>
+  <script src="{{ url_for('static', filename='invoice-detail.js', v='20260728-attachment-save-v3') }}"></script>
 {% endblock %}

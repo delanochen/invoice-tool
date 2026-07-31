@@ -2304,3 +2304,18 @@ body.service-order-map-page {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+
+.app-version {
+  position: fixed;
+  right: 12px;
+  bottom: 8px;
+  z-index: 20;
+  padding: 3px 7px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}

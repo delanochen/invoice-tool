@@ -1,6 +1,9 @@
 services:
   invoice-tool:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: "${APP_VERSION:-dev}"
     image: invoice-tool:latest
     container_name: invoice-tool
     restart: unless-stopped
@@ -27,7 +30,10 @@ services:
       - invoice-tool
 
   photo-worker:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: "${APP_VERSION:-dev}"
     image: invoice-tool:latest
     container_name: invoice-tool-photo-worker
     restart: unless-stopped

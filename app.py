@@ -69,6 +69,7 @@ CUSTOMER_REIMBURSEMENT_DIR = os.path.join(DATA_DIR, "customer-reimbursements")
 COMPANY_ATTACHMENT_DIR = os.path.join(DATA_DIR, "company-attachments")
 USER_ATTACHMENT_DIR = os.path.join(DATA_DIR, "user-attachments")
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
+APP_VERSION = os.environ.get("APP_VERSION", "dev").strip() or "dev"
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
 REPORT_PHOTO_FOLDERS = {
@@ -2961,7 +2962,23 @@ def copy_file_to_invoice_attachment(invoice_id, source_path, original_filename, 
     return True
 
 
+def copy_customer_reimbursement_attachments_to_invoice(invoice_id, reimbursement_id):
+    rows = get_customer_reimbursement_attachments(reimbursement_id)
+    copied = 0
+    for row in rows:
+        if copy_file_to_invoice_attachment(
+            invoice_id,
+            customer_reimbursement_attachment_path(row),
+            row["original_filename"],
+            row["content_type"],
+            row["uploaded_by"],
+        ):
+            copied += 1
+    return copied
+
+
 def copy_mileage_proofs_to_invoice(invoice_id, service_order_id):
+    existing_names = existing_attachment_names(invoice_id)
     rows = db().execute(
         """
         select service_report_attachments.*, service_reports.report_date
@@ -2980,6 +2997,9 @@ def copy_mileage_proofs_to_invoice(invoice_id, service_order_id):
         report_date = (row["report_date"] or "").strip()
         if report_date:
             original_name = f"里程佐证-{report_date}-{original_name}"
+        normalized_name = normalized_attachment_filename(original_name)
+        if normalized_name in existing_names:
+            continue
         if copy_file_to_invoice_attachment(
             invoice_id,
             report_attachment_path(row),
@@ -2988,6 +3008,7 @@ def copy_mileage_proofs_to_invoice(invoice_id, service_order_id):
             row["uploaded_by"],
         ):
             copied += 1
+            existing_names.add(normalized_name)
     return copied
 
 
@@ -5435,6 +5456,7 @@ def inject_globals():
         "current_language": current_language(),
         "supported_languages": SUPPORTED_LANGUAGES,
         "can_manage_company_info": can_manage_company_info,
+        "app_version": APP_VERSION,
     }
 
 
@@ -11084,6 +11106,7 @@ def create_invoice_from_form(save_token=None):
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
     if source_reimbursement:
+        copy_customer_reimbursement_attachments_to_invoice(invoice_id, source_reimbursement["id"])
         copy_mileage_proofs_to_invoice(invoice_id, service_order_id)
     if source_reimbursement:
         db().execute(
