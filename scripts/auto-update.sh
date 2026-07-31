@@ -94,8 +94,18 @@ fi
 
 OLD_COMMIT="$(git_repo rev-parse HEAD)"
 NEW_COMMIT="$(git_repo rev-parse "origin/$BRANCH")"
-OLD_VERSION="$(git_repo rev-parse --short=12 "$OLD_COMMIT")"
-NEW_VERSION="$(git_repo rev-parse --short=12 "$NEW_COMMIT")"
+
+version_from_commit() {
+    VERSION_VALUE="$(git_repo show "$1:VERSION" 2>/dev/null | tr -d '\r\n' || true)"
+    if printf '%s' "$VERSION_VALUE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        printf '%s' "$VERSION_VALUE"
+    else
+        printf '%s' '0.0.0'
+    fi
+}
+
+OLD_VERSION="$(version_from_commit "$OLD_COMMIT")"
+NEW_VERSION="$(version_from_commit "$NEW_COMMIT")"
 
 if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
     log "up-to-date: $OLD_VERSION"

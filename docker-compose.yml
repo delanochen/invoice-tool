@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "${APP_VERSION:-dev}"
+        APP_VERSION: "${APP_VERSION:-0.0.0}"
     image: invoice-tool:latest
     container_name: invoice-tool
     restart: unless-stopped
@@ -33,7 +33,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "${APP_VERSION:-dev}"
+        APP_VERSION: "${APP_VERSION:-0.0.0}"
     image: invoice-tool:latest
     container_name: invoice-tool-photo-worker
     restart: unless-stopped
