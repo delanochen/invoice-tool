@@ -825,6 +825,16 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .invoice-table tbody tr:hover td {
   background: #eff8ff;
 }
+.list-table tfoot td {
+  background: #f2f4f7;
+  font-weight: 800;
+}
+.table-summary-label {
+  text-align: right;
+}
+.table-summary-amount span {
+  display: block;
+}
 .selectable-list-table tbody tr[data-row-id] {
   cursor: pointer;
 }

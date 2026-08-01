@@ -59,6 +59,19 @@
           <tr><td colspan="9" class="empty">没有符合条件的发票。</td></tr>
         {% endfor %}
       </tbody>
+      {% if invoices %}
+        <tfoot>
+          <tr class="table-summary-row">
+            <td colspan="6" class="table-summary-label">汇总（{{ invoices|length }} 张）</td>
+            <td class="table-summary-amount">
+              {% for currency, amount in summary_totals.items() %}
+                <span>{{ amount|money(currency) }}</span>
+              {% endfor %}
+            </td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      {% endif %}
     </table>
   </section>
 {% endblock %}

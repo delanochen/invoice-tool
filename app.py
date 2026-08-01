@@ -7603,11 +7603,17 @@ def invoices():
         params,
     ).fetchall()
     totals = {row["id"]: invoice_totals(row["id"]) for row in rows}
+    summary_totals = {}
+    for row in rows:
+        currency = row["currency"] or "USD"
+        summary_totals[currency] = summary_totals.get(currency, 0) + totals[row["id"]]["total"]
+    summary_totals = dict(sorted(summary_totals.items()))
     users_rows = db().execute("select id, name, email from users order by name").fetchall() if not is_external_user() else []
     return render_template(
         "invoices.html",
         invoices=rows,
         totals=totals,
+        summary_totals=summary_totals,
         labels=STATUS_LABELS,
         users=users_rows,
         status=status,
