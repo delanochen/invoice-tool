@@ -152,6 +152,7 @@ function buyerDetails(buyer) {
       <dl>
         <dt>${t("联系人")}</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
         <dt>${t("联系方式")}</dt><dd>${escapeHtml(buyer.contact_details || "-")}</dd>
+        <dt>${t("邮箱")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>
         <dt>${t("工单数")}</dt><dd>${escapeHtml(buyer.work_order_completed)} / ${escapeHtml(buyer.work_order_total)}</dd>
         ${invoices}
       </dl>
