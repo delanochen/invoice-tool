@@ -1969,6 +1969,18 @@ def can_manage_customer_reimbursement():
     )
 
 
+def can_transfer_expense_attachment(expense):
+    if not g.user:
+        return False
+    if has_action_permission("customer_reimbursements", "edit"):
+        return True
+    return (
+        expense["status"] in {"draft", "returned"}
+        and expense["created_by"] == g.user["id"]
+        and has_action_permission("expenses", "edit")
+    )
+
+
 def can_manage_employee_grades():
     return g.user and (
         has_action_permission("employee_grades", "create")
@@ -2196,7 +2208,6 @@ def required_action_for_request():
         "return_expense": ("expenses", "approve"),
         "delete_expense": ("expenses", "delete"),
         "delete_expense_attachment": ("expenses", "edit"),
-        "transfer_expense_attachment": ("expenses", "edit"),
         "invoices": ("invoices", "view"),
         "invoice_query": ("invoices", "view"),
         "new_invoice": ("invoices", "create"),
@@ -10795,6 +10806,7 @@ def edit_expense(expense_id):
 @login_required
 def expense_detail(expense_id):
     expense, order = require_expense(expense_id)
+    can_transfer_attachments = has_action_permission("customer_reimbursements", "edit")
     creator = db().execute("select name, email from users where id = ?", (expense["created_by"],)).fetchone()
     reviewer = db().execute("select name, email from users where id = ?", (expense["reviewed_by"],)).fetchone() if expense["reviewed_by"] else None
     reimburser = db().execute(
@@ -10810,6 +10822,8 @@ def expense_detail(expense_id):
         reviewer=reviewer,
         reimburser=reimburser,
         attachments=get_expense_attachments(expense_id),
+        transfer_reimbursement=latest_customer_reimbursement(order["id"]) if can_transfer_attachments else None,
+        can_transfer_attachments=can_transfer_attachments,
         labels=EXPENSE_STATUS_LABELS,
     )
 
@@ -10943,11 +10957,12 @@ def transfer_expense_attachment(attachment_id):
     if not attachment:
         abort(404)
     expense, order = require_expense(attachment["expense_id"])
-    if expense["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或已退回的报销附件可以传递。", "error")
-        return redirect(url_for("expense_detail", expense_id=expense["id"]))
-    if expense["created_by"] != g.user["id"] and not is_manager():
+    if not can_transfer_expense_attachment(expense):
         abort(403)
+    return_url = url_for(
+        "expense_detail" if request.form.get("return_to") == "detail" else "edit_expense",
+        expense_id=expense["id"],
+    )
 
     existing = db().execute(
         "select id from customer_reimbursement_attachments where source_expense_attachment_id = ?",
@@ -10955,15 +10970,15 @@ def transfer_expense_attachment(attachment_id):
     ).fetchone()
     if existing:
         flash("该附件已经传递到工单结算。", "success")
-        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+        return redirect(return_url)
 
     reimbursement = latest_customer_reimbursement(order["id"])
     if not reimbursement:
         flash("该工单尚未生成工单结算，暂时无法传递附件。", "error")
-        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+        return redirect(return_url)
     if reimbursement["status"] not in {"draft", "returned"}:
         flash("工单结算已经提交或审核完成，不能再传递附件。", "error")
-        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+        return redirect(return_url)
 
     try:
         copied = copy_file_to_customer_reimbursement_attachment(
@@ -10987,15 +11002,15 @@ def transfer_expense_attachment(attachment_id):
     except sqlite3.IntegrityError:
         db().rollback()
         flash("该附件已经传递到工单结算。", "success")
-        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+        return redirect(return_url)
     except (OSError, sqlite3.Error, ValueError) as error:
         db().rollback()
         app.logger.exception("Failed to transfer expense attachment %s", attachment_id)
         flash(str(error) or "附件传递失败，请稍后重试。", "error")
-        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+        return redirect(return_url)
 
     flash("附件已复制到工单结算。", "success")
-    return redirect(url_for("edit_expense", expense_id=expense["id"]))
+    return redirect(return_url)
 
 
 @app.route("/invoices/new", methods=["GET", "POST"])

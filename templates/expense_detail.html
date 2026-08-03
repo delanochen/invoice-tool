@@ -89,7 +89,25 @@
             </td>
             <td>{{ attachment.uploader_name or "Unknown" }}</td>
             <td>{{ attachment.uploaded_at[:10] }}</td>
-            <td><button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button></td>
+            <td>
+              <div class="row-actions">
+                <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
+                {% if can_transfer_attachments %}
+                  {% if attachment.transferred_attachment_id %}
+                    <button class="small" type="button" disabled title="该附件已经传递到工单结算">已传递</button>
+                  {% elif not transfer_reimbursement %}
+                    <button class="small" type="button" disabled title="该工单尚未生成工单结算">传递</button>
+                  {% elif transfer_reimbursement.status not in ['draft', 'returned'] %}
+                    <button class="small" type="button" disabled title="工单结算已经提交或审核完成">传递</button>
+                  {% else %}
+                    <form method="post" action="{{ url_for('transfer_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定把这个附件复制到同一工单的工单结算附件中吗？');">
+                      <input type="hidden" name="return_to" value="detail">
+                      <button class="small" type="submit">传递</button>
+                    </form>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </td>
           </tr>
         {% else %}
           <tr><td colspan="4" class="empty">还没有附件。</td></tr>

@@ -148,6 +148,28 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.transferred_rows(), [])
 
+    def test_processing_detail_can_transfer_approved_expense_attachment(self):
+        with self.module.app.app_context():
+            self.module.db().execute(
+                "update expenses set status = 'approved' where id = ?",
+                (self.expense_id,),
+            )
+            self.module.db().commit()
+
+        detail_response = self.client.get(f"/expenses/{self.expense_id}")
+        detail_html = detail_response.get_data(as_text=True)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertIn('class="inline-thumb"', detail_html)
+        self.assertIn(">传递</button>", detail_html)
+
+        response = self.client.post(
+            f"/expense-attachments/{self.attachment_id}/transfer",
+            data={"return_to": "detail"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], f"/expenses/{self.expense_id}")
+        self.assertEqual(len(self.transferred_rows()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
