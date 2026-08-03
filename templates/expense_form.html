@@ -66,15 +66,18 @@
           {% for attachment in attachments %}
             <tr>
               <td>
-                <a
-                  href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}"
-                  {% if (attachment.content_type or '').startswith('image/') %}
+                {% if (attachment.content_type or '').startswith('image/') %}
+                  <a
+                    href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}"
                     data-image-preview
                     data-preview-name="{{ attachment.original_filename }}"
-                  {% else %}
-                    target="_blank"
-                  {% endif %}
-                >{{ attachment.original_filename }}</a>
+                  >
+                    <img class="inline-thumb" src="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                    {{ attachment.original_filename }}
+                  </a>
+                {% else %}
+                  <a href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
+                {% endif %}
               </td>
               <td>{{ attachment.uploader_name or "Unknown" }}</td>
               <td>{{ attachment.uploaded_at[:10] }}</td>
@@ -82,6 +85,15 @@
                 <div class="row-actions">
                   <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
                   <button class="danger small" type="submit" form="deleteExpenseAttachment{{ attachment.id }}">删除</button>
+                  {% if attachment.transferred_attachment_id %}
+                    <button class="small" type="button" disabled title="该附件已经传递到工单结算">已传递</button>
+                  {% elif not transfer_reimbursement %}
+                    <button class="small" type="button" disabled title="该工单尚未生成工单结算">传递</button>
+                  {% elif transfer_reimbursement.status not in ['draft', 'returned'] %}
+                    <button class="small" type="button" disabled title="工单结算已经提交或审核完成">传递</button>
+                  {% else %}
+                    <button class="small" type="submit" form="transferExpenseAttachment{{ attachment.id }}">传递</button>
+                  {% endif %}
                 </div>
               </td>
             </tr>
@@ -94,6 +106,9 @@
     <form id="deleteExpenseForm" method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}"></form>
     {% for attachment in attachments %}
       <form id="deleteExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('delete_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');"></form>
+      {% if not attachment.transferred_attachment_id and transfer_reimbursement and transfer_reimbursement.status in ['draft', 'returned'] %}
+        <form id="transferExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('transfer_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定把这个附件复制到同一工单的工单结算附件中吗？');"></form>
+      {% endif %}
     {% endfor %}
   {% endif %}
   <script>

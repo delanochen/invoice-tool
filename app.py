@@ -999,6 +999,7 @@ def init_db():
                 original_filename text not null,
                 stored_filename text not null,
                 content_type text,
+                source_expense_attachment_id integer,
                 uploaded_by integer not null,
                 uploaded_at text not null,
                 foreign key(customer_reimbursement_id) references customer_reimbursements(id) on delete cascade,
@@ -1042,6 +1043,14 @@ def init_db():
         ensure_column(connection, "customer_reimbursements", "return_reason", "text")
         ensure_column(connection, "customer_reimbursements", "reviewed_by", "integer")
         ensure_column(connection, "customer_reimbursements", "reviewed_at", "text")
+        ensure_column(connection, "customer_reimbursement_attachments", "source_expense_attachment_id", "integer")
+        connection.execute(
+            """
+            create unique index if not exists idx_customer_reimbursement_attachment_expense_source
+            on customer_reimbursement_attachments(source_expense_attachment_id)
+            where source_expense_attachment_id is not null
+            """
+        )
         ensure_column(connection, "expenses", "project_id", "integer")
         ensure_column(connection, "expenses", "payout_status", "text not null default 'pending'")
         ensure_column(connection, "expenses", "reimbursed_by", "integer")
@@ -2187,6 +2196,7 @@ def required_action_for_request():
         "return_expense": ("expenses", "approve"),
         "delete_expense": ("expenses", "delete"),
         "delete_expense_attachment": ("expenses", "edit"),
+        "transfer_expense_attachment": ("expenses", "edit"),
         "invoices": ("invoices", "view"),
         "invoice_query": ("invoices", "view"),
         "new_invoice": ("invoices", "create"),
@@ -4212,21 +4222,45 @@ def unique_customer_reimbursement_attachment_filename(reimbursement_id, original
     return candidate
 
 
-def copy_file_to_customer_reimbursement_attachment(reimbursement_id, source_path, original_filename, content_type=None, uploaded_by=None):
+def copy_file_to_customer_reimbursement_attachment(
+    reimbursement_id,
+    source_path,
+    original_filename,
+    content_type=None,
+    uploaded_by=None,
+    source_expense_attachment_id=None,
+):
     if not os.path.isfile(source_path):
         return False
     original_filename = unique_customer_reimbursement_attachment_filename(reimbursement_id, original_filename)
     extension = os.path.splitext(original_filename)[1].lstrip(".").lower() or "dat"
     stored_filename = f"{secrets.token_hex(12)}.{extension}"
-    shutil.copyfile(source_path, os.path.join(customer_reimbursement_attachment_dir(reimbursement_id), stored_filename))
-    db().execute(
-        """
-        insert into customer_reimbursement_attachments (
-            customer_reimbursement_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
-        ) values (?, ?, ?, ?, ?, ?)
-        """,
-        (reimbursement_id, original_filename, stored_filename, content_type, uploaded_by or g.user["id"], now()),
-    )
+    destination_path = os.path.join(customer_reimbursement_attachment_dir(reimbursement_id), stored_filename)
+    shutil.copyfile(source_path, destination_path)
+    try:
+        db().execute(
+            """
+            insert into customer_reimbursement_attachments (
+                customer_reimbursement_id, original_filename, stored_filename, content_type,
+                source_expense_attachment_id, uploaded_by, uploaded_at
+            ) values (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reimbursement_id,
+                original_filename,
+                stored_filename,
+                content_type,
+                source_expense_attachment_id,
+                uploaded_by or g.user["id"],
+                now(),
+            ),
+        )
+    except sqlite3.Error:
+        try:
+            os.remove(destination_path)
+        except FileNotFoundError:
+            pass
+        raise
     return True
 
 
@@ -4790,10 +4824,13 @@ def save_expense_uploads(expense_id):
 def get_expense_attachments(expense_id):
     return db().execute(
         """
-        select expense_attachments.*, users.name as uploader_name
+        select expense_attachments.*, users.name as uploader_name,
+               transferred.id as transferred_attachment_id
         from expense_attachments left join users on users.id = expense_attachments.uploaded_by
-        where expense_id = ?
-        order by uploaded_at desc, id desc
+        left join customer_reimbursement_attachments as transferred
+          on transferred.source_expense_attachment_id = expense_attachments.id
+        where expense_attachments.expense_id = ?
+        order by expense_attachments.uploaded_at desc, expense_attachments.id desc
         """,
         (expense_id,),
     ).fetchall()
@@ -10749,6 +10786,7 @@ def edit_expense(expense_id):
         expense_projects=expense_projects,
         is_edit=True,
         attachments=get_expense_attachments(expense_id),
+        transfer_reimbursement=latest_customer_reimbursement(order["id"]),
         save_token=secrets.token_urlsafe(24),
     )
 
@@ -10895,6 +10933,68 @@ def delete_expense_attachment(attachment_id):
     db().execute("delete from expense_attachments where id = ?", (attachment_id,))
     db().commit()
     flash("附件已删除。", "success")
+    return redirect(url_for("edit_expense", expense_id=expense["id"]))
+
+
+@app.post("/expense-attachments/<int:attachment_id>/transfer")
+@login_required
+def transfer_expense_attachment(attachment_id):
+    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    expense, order = require_expense(attachment["expense_id"])
+    if expense["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或已退回的报销附件可以传递。", "error")
+        return redirect(url_for("expense_detail", expense_id=expense["id"]))
+    if expense["created_by"] != g.user["id"] and not is_manager():
+        abort(403)
+
+    existing = db().execute(
+        "select id from customer_reimbursement_attachments where source_expense_attachment_id = ?",
+        (attachment_id,),
+    ).fetchone()
+    if existing:
+        flash("该附件已经传递到工单结算。", "success")
+        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+
+    reimbursement = latest_customer_reimbursement(order["id"])
+    if not reimbursement:
+        flash("该工单尚未生成工单结算，暂时无法传递附件。", "error")
+        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+    if reimbursement["status"] not in {"draft", "returned"}:
+        flash("工单结算已经提交或审核完成，不能再传递附件。", "error")
+        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+
+    try:
+        copied = copy_file_to_customer_reimbursement_attachment(
+            reimbursement["id"],
+            expense_attachment_path(attachment),
+            attachment["original_filename"],
+            attachment["content_type"],
+            g.user["id"],
+            source_expense_attachment_id=attachment_id,
+        )
+        if not copied:
+            raise ValueError("附件文件不存在，无法传递。")
+        log_action(
+            "transfer",
+            "expense_attachment",
+            attachment_id,
+            attachment["original_filename"],
+            f"报销：{expense['expense_number']}；工单结算：{reimbursement['file_name']}",
+        )
+        db().commit()
+    except sqlite3.IntegrityError:
+        db().rollback()
+        flash("该附件已经传递到工单结算。", "success")
+        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+    except (OSError, sqlite3.Error, ValueError) as error:
+        db().rollback()
+        app.logger.exception("Failed to transfer expense attachment %s", attachment_id)
+        flash(str(error) or "附件传递失败，请稍后重试。", "error")
+        return redirect(url_for("edit_expense", expense_id=expense["id"]))
+
+    flash("附件已复制到工单结算。", "success")
     return redirect(url_for("edit_expense", expense_id=expense["id"]))
 
 
