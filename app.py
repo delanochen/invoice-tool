@@ -2067,7 +2067,7 @@ def can_manage_manufacturers():
 
 
 def can_access_buyer(buyer):
-    if g.user and has_action_permission("buyers", "view") and not is_external_user():
+    if g.user and can_manage_buyers() and not is_external_user():
         return True
     return is_external_manager() and bool(g.user["client_id"]) and buyer["client_id"] == g.user["client_id"]
 
@@ -2098,8 +2098,21 @@ def has_menu_permission(menu_key, role=None):
         return False
     overrides = menu_permission_overrides()
     override_key = (role, menu_key)
+    action_overrides = action_permission_overrides()
+    if any(
+        enabled
+        for (permission_role, resource_key, _action_key), enabled in action_overrides.items()
+        if permission_role == role and resource_key == menu_key
+    ):
+        return True
     if override_key in overrides:
         return overrides[override_key]
+    if any(
+        role in roles
+        for (resource_key, _action_key), roles in DEFAULT_ACTION_ROLES.items()
+        if resource_key == menu_key
+    ):
+        return True
     return role in DEFAULT_MENU_ROLES.get(menu_key, set())
 
 
@@ -2121,8 +2134,22 @@ def has_action_permission(resource_key, action_key, role=None):
         return False
     overrides = action_permission_overrides()
     override_key = (role, resource_key, action_key)
+    if action_key == "view" and any(
+        enabled
+        for (permission_role, permission_resource, permission_action), enabled in overrides.items()
+        if permission_role == role
+        and permission_resource == resource_key
+        and permission_action != "view"
+    ):
+        return True
     if override_key in overrides:
         return overrides[override_key]
+    if action_key == "view" and any(
+        role in roles
+        for (permission_resource, permission_action), roles in DEFAULT_ACTION_ROLES.items()
+        if permission_resource == resource_key and permission_action != "view"
+    ):
+        return True
     return role in DEFAULT_ACTION_ROLES.get((resource_key, action_key), set())
 
 
@@ -2176,6 +2203,7 @@ def required_action_for_request():
         "delete_manufacturer": ("manufacturers", "delete"),
         "edit_buyer": ("buyers", "edit"),
         "delete_buyer": ("buyers", "delete"),
+        "import_buyers": ("buyers", "create"),
         "edit_work_order_type": ("work_order_types", "edit"),
         "delete_work_order_type": ("work_order_types", "delete"),
         "edit_project": ("projects", "edit"),
@@ -6085,7 +6113,8 @@ def delete_client(client_id):
 @app.route("/owners", methods=["GET", "POST"])
 @login_required
 def owners():
-    if not can_manage_owners():
+    required_action = "create" if request.method == "POST" else "view"
+    if not has_action_permission("owners", required_action):
         abort(403)
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -6122,7 +6151,7 @@ def owners():
 @app.route("/owners/<int:owner_id>/edit", methods=["POST"])
 @login_required
 def edit_owner(owner_id):
-    if not can_manage_owners():
+    if not has_action_permission("owners", "edit"):
         abort(403)
     owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
     if not owner:
@@ -6158,7 +6187,7 @@ def edit_owner(owner_id):
 @app.post("/owners/<int:owner_id>/delete")
 @login_required
 def delete_owner(owner_id):
-    if not can_manage_owners():
+    if not has_action_permission("owners", "delete"):
         abort(403)
     owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
     if not owner:
@@ -6182,7 +6211,8 @@ def delete_owner(owner_id):
 @app.route("/manufacturers", methods=["GET", "POST"])
 @login_required
 def manufacturers():
-    if not can_manage_manufacturers():
+    required_action = "create" if request.method == "POST" else "view"
+    if not has_action_permission("manufacturers", required_action):
         abort(403)
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -6219,7 +6249,7 @@ def manufacturers():
 @app.route("/manufacturers/<int:manufacturer_id>/edit", methods=["POST"])
 @login_required
 def edit_manufacturer(manufacturer_id):
-    if not can_manage_manufacturers():
+    if not has_action_permission("manufacturers", "edit"):
         abort(403)
     manufacturer = db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
     if not manufacturer:
@@ -6255,7 +6285,7 @@ def edit_manufacturer(manufacturer_id):
 @app.post("/manufacturers/<int:manufacturer_id>/delete")
 @login_required
 def delete_manufacturer(manufacturer_id):
-    if not can_manage_manufacturers():
+    if not has_action_permission("manufacturers", "delete"):
         abort(403)
     manufacturer = db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
     if not manufacturer:
@@ -6276,7 +6306,8 @@ def delete_manufacturer(manufacturer_id):
 @app.route("/buyers", methods=["GET", "POST"])
 @login_required
 def buyers():
-    if not can_manage_buyers():
+    required_action = "create" if request.method == "POST" else "view"
+    if not has_action_permission("buyers", required_action):
         abort(403)
     owners_rows = owner_options()
     manufacturers_rows = manufacturer_options()
@@ -6422,7 +6453,7 @@ def buyers():
 @app.post("/buyers/import")
 @login_required
 def import_buyers():
-    if not can_manage_buyers():
+    if not has_action_permission("buyers", "create"):
         abort(403)
     uploaded_file = request.files.get("import_file")
     if not uploaded_file or not uploaded_file.filename:
@@ -6462,7 +6493,7 @@ def import_buyers():
 @app.route("/buyers/<int:buyer_id>/edit", methods=["GET", "POST"])
 @login_required
 def edit_buyer(buyer_id):
-    if not can_manage_buyers():
+    if not has_action_permission("buyers", "edit"):
         abort(403)
     buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
     if not buyer:
@@ -6564,7 +6595,7 @@ def edit_buyer(buyer_id):
 @app.post("/buyers/<int:buyer_id>/delete")
 @login_required
 def delete_buyer(buyer_id):
-    if not can_manage_buyers():
+    if not has_action_permission("buyers", "delete"):
         abort(403)
     buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
     if not buyer:

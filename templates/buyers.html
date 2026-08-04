@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block title %}站点 - 发票工具{% endblock %}
 {% block content %}
+  {% set can_create = has_action_permission("buyers", "create") %}
+  {% set can_edit = has_action_permission("buyers", "edit") %}
+  {% set can_delete = has_action_permission("buyers", "delete") %}
   <header class="page-header">
     <div><p class="eyebrow">Sites</p><h1>站点资料</h1></div>
-    <div class="row-actions">
+    {% if can_create %}<div class="row-actions">
       <button type="button" data-dialog-open="importBuyerDialog">导入站点</button>
       <button class="primary" type="button" data-dialog-open="newBuyerDialog">新增站点</button>
-    </div>
+    </div>{% endif %}
   </header>
 
   <form class="panel filter-bar no-print" method="get">
@@ -24,10 +27,10 @@
       <h2>站点列表</h2>
       <div class="toolbar-actions" data-selection-toolbar>
         <span class="muted-line" data-selected-label>{{ buyers|length }} 个站点</span>
-        <button class="small" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>
-        <form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
+        {% if can_edit %}<button class="small" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
+        {% if can_delete %}<form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
           <button class="danger small" type="submit" disabled>删除</button>
-        </form>
+        </form>{% endif %}
       </div>
     </div>
     {% macro sortable_th(key, label) -%}
@@ -57,11 +60,13 @@
         <tbody>
           {% for buyer in buyers %}
             <tr
-              tabindex="0"
-              data-row-id="{{ buyer.id }}"
-              data-row-label="{{ buyer.buyer_number }} · {{ buyer.name }}"
-              data-edit-target="editBuyer{{ buyer.id }}"
-              data-delete-url="{{ url_for('delete_buyer', buyer_id=buyer.id) }}"
+              {% if can_edit or can_delete %}
+                tabindex="0"
+                data-row-id="{{ buyer.id }}"
+                data-row-label="{{ buyer.buyer_number }} · {{ buyer.name }}"
+              {% endif %}
+              {% if can_edit %}data-edit-target="editBuyer{{ buyer.id }}"{% endif %}
+              {% if can_delete %}data-delete-url="{{ url_for('delete_buyer', buyer_id=buyer.id) }}"{% endif %}
             >
               <td>{{ buyer.buyer_number }}</td>
               <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
@@ -82,7 +87,7 @@
     </div>
   </section>
 
-  <dialog id="importBuyerDialog" class="modal-dialog">
+  {% if can_create %}<dialog id="importBuyerDialog" class="modal-dialog">
     <form method="post" action="{{ url_for('import_buyers') }}" enctype="multipart/form-data" class="form-stack">
       <div class="dialog-header">
         <h2>导入站点</h2>
@@ -102,7 +107,7 @@
       <p class="muted-line">支持 .xlsx 和 .csv。表头可使用：站点编号、站点名称、业主、国家、联系人、联系方式、电子邮箱地址、规模、配套机厂家、详细地址。</p>
       <div class="form-actions"><button class="primary" type="submit">开始导入</button></div>
     </form>
-  </dialog>
+  </dialog>{% endif %}
 
   {% if import_result %}
     <dialog id="buyerImportResultDialog" class="modal-dialog">
@@ -133,7 +138,7 @@
     </dialog>
   {% endif %}
 
-  <dialog id="newBuyerDialog" class="modal-dialog">
+  {% if can_create %}<dialog id="newBuyerDialog" class="modal-dialog">
       <form method="post" class="form-stack">
         {% if not is_external_manager() %}
           <label>所属客户
@@ -180,9 +185,9 @@
       </div>
       <div class="form-actions"><button class="primary" type="submit">保存站点</button></div>
     </form>
-  </dialog>
+  </dialog>{% endif %}
 
-  {% for buyer in buyers %}
+  {% if can_edit %}{% for buyer in buyers %}
     <dialog id="editBuyer{{ buyer.id }}" class="modal-dialog">
       <form method="post" action="{{ url_for('edit_buyer', buyer_id=buyer.id) }}" class="form-stack">
         <div class="dialog-header">
@@ -223,7 +228,7 @@
         <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
       </form>
     </dialog>
-  {% endfor %}
+  {% endfor %}{% endif %}
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
