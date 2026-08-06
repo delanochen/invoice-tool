@@ -110,5 +110,21 @@
     if (selectedPermissionRole) {
       syncPermissionRolePanels(selectedPermissionRole.value);
     }
+    document.querySelectorAll('input[name^="menu__"], input[name^="action__"]').forEach((input) => {
+      input.addEventListener("change", () => {
+        const parts = input.name.split("__");
+        if (parts.length < 3 || !input.checked) return;
+        const role = parts[1];
+        const resource = parts[2];
+        const viewInput = document.querySelector(`[name="action__${role}__${resource}__view"]`);
+        if (input.name.startsWith("menu__")) {
+          if (viewInput) viewInput.checked = true;
+          return;
+        }
+        const menuInput = document.querySelector(`[name="menu__${role}__${resource}"]`);
+        if (viewInput) viewInput.checked = true;
+        if (menuInput) menuInput.checked = true;
+      });
+    });
   </script>
 {% endblock %}

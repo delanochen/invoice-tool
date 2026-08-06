@@ -2134,6 +2134,9 @@ def has_action_permission(resource_key, action_key, role=None):
         return False
     overrides = action_permission_overrides()
     override_key = (role, resource_key, action_key)
+    menu_overrides = menu_permission_overrides()
+    if action_key == "view" and menu_overrides.get((role, resource_key), False):
+        return True
     if action_key == "view" and any(
         enabled
         for (permission_role, permission_resource, permission_action), enabled in overrides.items()
@@ -2144,6 +2147,8 @@ def has_action_permission(resource_key, action_key, role=None):
         return True
     if override_key in overrides:
         return overrides[override_key]
+    if action_key == "view" and role in DEFAULT_MENU_ROLES.get(resource_key, set()):
+        return True
     if action_key == "view" and any(
         role in roles
         for (permission_resource, permission_action), roles in DEFAULT_ACTION_ROLES.items()
@@ -7422,6 +7427,8 @@ def menu_permissions():
                 )
             for resource_key, action_key in action_pairs:
                 enabled = 1 if request.form.get(f"action__{role}__{resource_key}__{action_key}") == "1" else 0
+                if action_key == "view" and request.form.get(f"menu__{role}__{resource_key}") == "1":
+                    enabled = 1
                 db().execute(
                     """
                     insert into role_action_permissions (
@@ -7438,7 +7445,13 @@ def menu_permissions():
             for menu_key in menu_keys
         }
         g._action_permission_overrides = {
-            (role, resource_key, action_key): request.form.get(f"action__{role}__{resource_key}__{action_key}") == "1"
+            (role, resource_key, action_key): (
+                request.form.get(f"action__{role}__{resource_key}__{action_key}") == "1"
+                or (
+                    action_key == "view"
+                    and request.form.get(f"menu__{role}__{resource_key}") == "1"
+                )
+            )
             for role in ROLE_OPTIONS
             for resource_key, action_key in action_pairs
         }

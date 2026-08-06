@@ -155,6 +155,50 @@ class BasicDataPermissionTest(unittest.TestCase):
         denied_import = self.client.post("/buyers/import")
         self.assertEqual(denied_import.status_code, 403)
 
+    def test_menu_permission_alone_implies_read_only_access(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            for resource_key in ("owners", "manufacturers", "buyers"):
+                connection.execute(
+                    "update role_action_permissions set is_enabled = 0 where role = 'employee' and resource_key = ?",
+                    (resource_key,),
+                )
+                connection.execute(
+                    "update role_menu_permissions set is_enabled = 1 where role = 'employee' and menu_key = ?",
+                    (resource_key,),
+                )
+            connection.commit()
+
+        for path in ("/owners", "/manufacturers", "/buyers"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+        owners_html = self.client.get("/owners").get_data(as_text=True)
+        self.assertIn('href="/owners"', owners_html)
+        self.assertNotIn("editOwner", owners_html)
+        self.assertNotIn("新增业主", owners_html)
+
+    def test_saving_menu_permission_also_persists_view_permission(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute("update users set role = 'admin' where id = ?", (self.user_id,))
+            connection.commit()
+
+        response = self.client.post(
+            "/settings/menu-permissions",
+            data={"menu__employee__owners": "1"},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.module.app.app_context():
+            permission = self.module.db().execute(
+                """
+                select is_enabled from role_action_permissions
+                where role = 'employee' and resource_key = 'owners' and action_key = 'view'
+                """
+            ).fetchone()
+            self.assertEqual(permission["is_enabled"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
