@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}知识库 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">KNOWLEDGE BASE</p><h1>知识库</h1></div>
+  </header>
+
+  {% if has_action_permission("knowledge_base", "create") %}
+    <section class="panel">
+      <div class="panel-title"><h2>上传 PDF 文档</h2></div>
+      <form method="post" enctype="multipart/form-data" class="form-stack">
+        <div class="form-grid two-columns">
+          <label>文档标题 <input name="title" placeholder="不填时使用文件名"></label>
+          <label>分类 <input name="category" list="knowledgeCategories" placeholder="例如：制度、培训、技术资料"></label>
+          <label class="full-span">简介
+            <textarea name="description" rows="3" placeholder="简要说明文档内容，便于搜索"></textarea>
+          </label>
+          <label class="full-span">PDF 文件 <input type="file" name="document" accept="application/pdf,.pdf" required></label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">上传文档</button></div>
+      </form>
+    </section>
+  {% endif %}
+
+  <datalist id="knowledgeCategories">
+    {% for category in categories %}<option value="{{ category }}"></option>{% endfor %}
+  </datalist>
+
+  <section class="panel">
+    <form method="get" class="filter-bar knowledge-filter-bar">
+      <label>关键词 <input name="q" value="{{ keyword }}" placeholder="标题、简介或文件名"></label>
+      <label>分类
+        <select name="category">
+          <option value="">全部分类</option>
+          {% for category in categories %}
+            <option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="form-actions"><button type="submit">查询</button><a class="button" href="{{ url_for('knowledge_base') }}">重置</a></div>
+    </form>
+
+    <div class="panel-title"><h2>文档列表</h2><span class="muted-line">{{ documents|length }} 份</span></div>
+    <div class="table-scroll">
+      <table class="list-table">
+        <thead><tr><th>标题</th><th>分类</th><th>简介</th><th>文件大小</th><th>上传人</th><th>更新时间</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for document in documents %}
+            <tr>
+              <td><a href="{{ url_for('preview_knowledge_document', document_id=document.id) }}" target="_blank">{{ document.title }}</a><div class="muted-line">{{ document.original_filename }}</div></td>
+              <td><span class="status-chip">{{ document.category }}</span></td>
+              <td class="knowledge-description">{{ document.description or "-" }}</td>
+              <td>{{ (document.file_size / 1048576)|round(2) }} MB</td>
+              <td>{{ document.uploader_name or "-" }}</td>
+              <td>{{ document.updated_at|local_datetime }}</td>
+              <td><div class="row-actions">
+                <a class="button small" href="{{ url_for('preview_knowledge_document', document_id=document.id) }}" target="_blank">预览</a>
+                <a class="button small" href="{{ url_for('download_knowledge_document', document_id=document.id) }}">下载</a>
+                {% if has_action_permission("knowledge_base", "edit") %}
+                  <button
+                    class="small"
+                    type="button"
+                    data-edit-knowledge
+                    data-action="{{ url_for('edit_knowledge_document', document_id=document.id) }}"
+                    data-title="{{ document.title }}"
+                    data-category="{{ document.category }}"
+                    data-description="{{ document.description }}"
+                  >编辑</button>
+                {% endif %}
+                {% if has_action_permission("knowledge_base", "delete") %}
+                  <form method="post" action="{{ url_for('delete_knowledge_document', document_id=document.id) }}" onsubmit="return confirm('确定删除这份知识库文档吗？');">
+                    <button class="danger small" type="submit">删除</button>
+                  </form>
+                {% endif %}
+              </div></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="empty">还没有符合条件的 PDF 文档。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if has_action_permission("knowledge_base", "edit") %}
+    <dialog id="editKnowledgeDialog" class="modal">
+      <div class="modal-header"><h2>编辑文档信息</h2><button type="button" data-close-knowledge-edit>关闭</button></div>
+      <form method="post" class="form-stack" data-knowledge-edit-form>
+        <label>文档标题 <input name="title" required data-knowledge-title></label>
+        <label>分类 <input name="category" list="knowledgeCategories" data-knowledge-category></label>
+        <label>简介 <textarea name="description" rows="4" data-knowledge-description></textarea></label>
+        <div class="form-actions"><button class="primary" type="submit">保存</button></div>
+      </form>
+    </dialog>
+  {% endif %}
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='knowledge-base.js', v='20260807-v1') }}"></script>
+{% endblock %}

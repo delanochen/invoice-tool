@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}发票工具{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260731-invoice-summary-v1') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='20260807-knowledge-base-v1') }}">
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
@@ -20,6 +20,7 @@
         {% set order_calendar_endpoints = ["service_order_calendar"] %}
         {% set map_endpoints = ["service_order_map"] %}
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
+        {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "delete_knowledge_document"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
@@ -118,6 +119,9 @@
           {% endif %}
           {% if has_menu_permission("messages") %}
             {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
+          {% endif %}
+          {% if has_menu_permission("knowledge_base") and has_action_permission("knowledge_base", "view") %}
+            {{ nav_link("knowledge_base", "知识库", knowledge_base_endpoints) }}
           {% endif %}
           {% if not is_external_manager() and not is_external_employee() %}
             {% set show_basic_data =
@@ -225,7 +229,7 @@
       </div>
       <div class="image-preview-wrap"><img id="imageAttachmentPreviewImage" alt="附件预览"></div>
     </dialog>
-    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260706-user-address-v1') }}"></script>
+    <script src="{{ url_for('static', filename='ui-i18n.js', v='20260807-knowledge-base-v1') }}"></script>
     <script src="{{ url_for('static', filename='attachment-preview.js', v='20260630-image-preview-v1') }}"></script>
     {% block scripts %}{% endblock %}
   </body>

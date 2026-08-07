@@ -68,6 +68,8 @@ EXPENSE_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "expense-attachments")
 CUSTOMER_REIMBURSEMENT_DIR = os.path.join(DATA_DIR, "customer-reimbursements")
 COMPANY_ATTACHMENT_DIR = os.path.join(DATA_DIR, "company-attachments")
 USER_ATTACHMENT_DIR = os.path.join(DATA_DIR, "user-attachments")
+KNOWLEDGE_BASE_DIR = os.path.join(DATA_DIR, "knowledge-base")
+KNOWLEDGE_MAX_PDF_BYTES = 50 * 1024 * 1024
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 APP_VERSION = os.environ.get("APP_VERSION", "0.0.0").strip() or "0.0.0"
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
@@ -195,6 +197,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "expense_processing", "label": "报销处理", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "new_invoice", "label": "新建发票", "roles": {"manager", "finance"}},
             {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
+            {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
         ],
     },
     {
@@ -267,6 +270,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
             {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
             {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
+            {"key": "knowledge_base", "label": "知识库", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager"}}},
         ],
     },
     {
@@ -661,6 +665,21 @@ def init_db():
             create table if not exists settings (
                 key text primary key,
                 value text not null
+            );
+
+            create table if not exists knowledge_documents (
+                id integer primary key autoincrement,
+                title text not null,
+                category text not null default '其他',
+                description text not null default '',
+                original_filename text not null,
+                stored_filename text not null unique,
+                content_type text not null default 'application/pdf',
+                file_size integer not null default 0,
+                uploaded_by integer,
+                uploaded_at text not null,
+                updated_at text not null,
+                foreign key(uploaded_by) references users(id) on delete set null
             );
 
             create table if not exists role_menu_permissions (
@@ -2190,6 +2209,8 @@ def required_action_for_request():
         ("database_console", "POST"): ("database_console", "execute"),
         ("company_info", "GET"): ("company_info", "view"),
         ("company_info", "POST"): ("company_info", "edit"),
+        ("knowledge_base", "GET"): ("knowledge_base", "view"),
+        ("knowledge_base", "POST"): ("knowledge_base", "create"),
         ("customer_reimbursement_form", "GET"): ("customer_reimbursements", "view"),
         ("customer_reimbursement_form", "POST"): ("customer_reimbursements", "edit"),
     }
@@ -2218,6 +2239,10 @@ def required_action_for_request():
         "delete_user": ("users", "delete"),
         "delete_user_attachment": ("users", "edit"),
         "delete_company_attachment": ("company_info", "edit"),
+        "preview_knowledge_document": ("knowledge_base", "view"),
+        "download_knowledge_document": ("knowledge_base", "view"),
+        "edit_knowledge_document": ("knowledge_base", "edit"),
+        "delete_knowledge_document": ("knowledge_base", "delete"),
         "service_orders": ("service_orders", "view"),
         "new_service_order": ("service_orders", "create"),
         "edit_service_order": ("service_orders", "edit"),
@@ -7556,6 +7581,184 @@ def database_console():
         tables=tables,
         table_dictionary=table_dictionary,
     )
+
+
+def knowledge_document_path(document):
+    return os.path.join(KNOWLEDGE_BASE_DIR, document["stored_filename"])
+
+
+def knowledge_document_or_404(document_id):
+    document = db().execute(
+        "select * from knowledge_documents where id = ?",
+        (document_id,),
+    ).fetchone()
+    if not document:
+        abort(404)
+    return document
+
+
+@app.route("/knowledge-base", methods=["GET", "POST"])
+@login_required
+def knowledge_base():
+    if request.method == "POST":
+        uploaded = request.files.get("document")
+        if not uploaded or not uploaded.filename:
+            flash("请选择要上传的 PDF 文档。", "error")
+            return redirect(url_for("knowledge_base"))
+        original_filename = os.path.basename(uploaded.filename).strip()
+        if not original_filename.lower().endswith(".pdf"):
+            flash("知识库目前仅支持 PDF 文档。", "error")
+            return redirect(url_for("knowledge_base"))
+        header = uploaded.stream.read(5)
+        uploaded.stream.seek(0)
+        if header != b"%PDF-":
+            flash("文件内容不是有效的 PDF 文档。", "error")
+            return redirect(url_for("knowledge_base"))
+        title = (request.form.get("title", "").strip() or os.path.splitext(original_filename)[0] or "未命名文档")[:200]
+        category = (request.form.get("category", "").strip() or "其他")[:80]
+        description = request.form.get("description", "").strip()[:2000]
+        stored_filename = f"{secrets.token_hex(16)}.pdf"
+        os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
+        destination = os.path.join(KNOWLEDGE_BASE_DIR, stored_filename)
+        try:
+            uploaded.save(destination)
+            file_size = os.path.getsize(destination)
+            if file_size > KNOWLEDGE_MAX_PDF_BYTES:
+                os.remove(destination)
+                flash("PDF 文档不能超过 50 MB。", "error")
+                return redirect(url_for("knowledge_base"))
+            timestamp = now()
+            cursor = db().execute(
+                """
+                insert into knowledge_documents (
+                    title, category, description, original_filename, stored_filename,
+                    content_type, file_size, uploaded_by, uploaded_at, updated_at
+                ) values (?, ?, ?, ?, ?, 'application/pdf', ?, ?, ?, ?)
+                """,
+                (
+                    title,
+                    category,
+                    description,
+                    original_filename,
+                    stored_filename,
+                    file_size,
+                    g.user["id"],
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            log_action("create", "knowledge_document", cursor.lastrowid, title, f"分类：{category}")
+            db().commit()
+        except Exception:
+            db().rollback()
+            try:
+                os.remove(destination)
+            except FileNotFoundError:
+                pass
+            raise
+        flash("知识库文档已上传。", "success")
+        return redirect(url_for("knowledge_base"))
+
+    keyword = request.args.get("q", "").strip()
+    category = request.args.get("category", "").strip()
+    clauses = []
+    params = []
+    if keyword:
+        pattern = f"%{keyword}%"
+        clauses.append(
+            "(knowledge_documents.title like ? or knowledge_documents.description like ? "
+            "or knowledge_documents.original_filename like ?)"
+        )
+        params.extend([pattern, pattern, pattern])
+    if category:
+        clauses.append("knowledge_documents.category = ?")
+        params.append(category)
+    where_clause = f"where {' and '.join(clauses)}" if clauses else ""
+    documents = db().execute(
+        f"""
+        select knowledge_documents.*, users.name as uploader_name
+        from knowledge_documents
+        left join users on users.id = knowledge_documents.uploaded_by
+        {where_clause}
+        order by knowledge_documents.updated_at desc, knowledge_documents.id desc
+        """,
+        params,
+    ).fetchall()
+    categories = db().execute(
+        "select distinct category from knowledge_documents order by category"
+    ).fetchall()
+    return render_template(
+        "knowledge_base.html",
+        documents=documents,
+        categories=[row["category"] for row in categories],
+        keyword=keyword,
+        selected_category=category,
+    )
+
+
+@app.get("/knowledge-base/<int:document_id>/preview")
+@login_required
+def preview_knowledge_document(document_id):
+    document = knowledge_document_or_404(document_id)
+    if not os.path.isfile(knowledge_document_path(document)):
+        abort(404)
+    return send_file(
+        knowledge_document_path(document),
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=document["original_filename"],
+        conditional=True,
+    )
+
+
+@app.get("/knowledge-base/<int:document_id>/download")
+@login_required
+def download_knowledge_document(document_id):
+    document = knowledge_document_or_404(document_id)
+    if not os.path.isfile(knowledge_document_path(document)):
+        abort(404)
+    return send_file(
+        knowledge_document_path(document),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=document["original_filename"],
+        conditional=True,
+    )
+
+
+@app.post("/knowledge-base/<int:document_id>/edit")
+@login_required
+def edit_knowledge_document(document_id):
+    document = knowledge_document_or_404(document_id)
+    title = request.form.get("title", "").strip()[:200]
+    if not title:
+        flash("文档标题不能为空。", "error")
+        return redirect(url_for("knowledge_base"))
+    category = (request.form.get("category", "").strip() or "其他")[:80]
+    description = request.form.get("description", "").strip()[:2000]
+    db().execute(
+        "update knowledge_documents set title = ?, category = ?, description = ?, updated_at = ? where id = ?",
+        (title, category, description, now(), document_id),
+    )
+    log_action("update", "knowledge_document", document_id, title, f"原文件：{document['original_filename']}")
+    db().commit()
+    flash("文档信息已更新。", "success")
+    return redirect(url_for("knowledge_base"))
+
+
+@app.post("/knowledge-base/<int:document_id>/delete")
+@login_required
+def delete_knowledge_document(document_id):
+    document = knowledge_document_or_404(document_id)
+    db().execute("delete from knowledge_documents where id = ?", (document_id,))
+    log_action("delete", "knowledge_document", document_id, document["title"], document["original_filename"])
+    db().commit()
+    try:
+        os.remove(knowledge_document_path(document))
+    except FileNotFoundError:
+        pass
+    flash("知识库文档已删除。", "success")
+    return redirect(url_for("knowledge_base"))
 
 
 @app.route("/company-info", methods=["GET", "POST"])

@@ -428,6 +428,8 @@ label {
   margin-bottom: 16px;
 }
 .filter-actions { display: flex; gap: 8px; }
+.knowledge-filter-bar { grid-template-columns: minmax(240px, 1fr) minmax(160px, 240px) auto; }
+.knowledge-description { min-width: 220px; max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
 .report-filter {
   grid-template-columns: repeat(6, minmax(140px, 1fr));
 }
