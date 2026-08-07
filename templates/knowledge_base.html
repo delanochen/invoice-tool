@@ -5,6 +5,14 @@
     <div><p class="eyebrow">KNOWLEDGE BASE</p><h1>知识库</h1></div>
   </header>
 
+  <section class="metric-grid">
+    <article class="metric"><span>文档总数</span><strong>{{ knowledge_metrics.total or 0 }}</strong></article>
+    <article class="metric"><span>30 天内到期</span><strong>{{ knowledge_metrics.expiring_soon or 0 }}</strong></article>
+    <article class="metric"><span>已过期</span><strong>{{ knowledge_metrics.expired or 0 }}</strong></article>
+    <article class="metric"><span>累计预览</span><strong>{{ knowledge_metrics.views or 0 }}</strong></article>
+    <article class="metric"><span>累计下载</span><strong>{{ knowledge_metrics.downloads or 0 }}</strong></article>
+  </section>
+
   {% if has_action_permission("knowledge_base", "create") %}
     <section class="panel">
       <div class="panel-title"><h2>上传 PDF 文档</h2></div>
@@ -12,6 +20,8 @@
         <div class="form-grid two-columns">
           <label>文档标题 <input name="title" placeholder="不填时使用文件名"></label>
           <label>分类 <input name="category" list="knowledgeCategories" placeholder="例如：制度、培训、技术资料"></label>
+          <label>到期日期 <input type="date" name="expires_on"></label>
+          <label class="checkbox-row"><input type="checkbox" name="is_pinned" value="1"> 置顶推荐</label>
           <label class="full-span">简介
             <textarea name="description" rows="3" placeholder="简要说明文档内容，便于搜索"></textarea>
           </label>
@@ -28,7 +38,7 @@
 
   <section class="panel">
     <form method="get" class="filter-bar knowledge-filter-bar">
-      <label>关键词 <input name="q" value="{{ keyword }}" placeholder="标题、简介或文件名"></label>
+      <label>关键词 <input name="q" value="{{ keyword }}" placeholder="标题、简介、文件名或 PDF 内容"></label>
       <label>分类
         <select name="category">
           <option value="">全部分类</option>
@@ -37,20 +47,46 @@
           {% endfor %}
         </select>
       </label>
+      <label>到期状态
+        <select name="expiry">
+          <option value="">全部状态</option>
+          <option value="expired" {% if selected_expiry == 'expired' %}selected{% endif %}>已过期</option>
+          <option value="soon" {% if selected_expiry == 'soon' %}selected{% endif %}>30 天内到期</option>
+          <option value="current" {% if selected_expiry == 'current' %}selected{% endif %}>正常</option>
+        </select>
+      </label>
       <div class="form-actions"><button type="submit">查询</button><a class="button" href="{{ url_for('knowledge_base') }}">重置</a></div>
     </form>
 
     <div class="panel-title"><h2>文档列表</h2><span class="muted-line">{{ documents|length }} 份</span></div>
     <div class="table-scroll">
       <table class="list-table">
-        <thead><tr><th>标题</th><th>分类</th><th>简介</th><th>文件大小</th><th>上传人</th><th>更新时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>标题</th><th>分类</th><th>简介</th><th>版本/到期</th><th>浏览统计</th><th>上传人</th><th>更新时间</th><th>操作</th></tr></thead>
         <tbody>
           {% for document in documents %}
             <tr>
-              <td><a href="{{ url_for('preview_knowledge_document', document_id=document.id) }}" target="_blank">{{ document.title }}</a><div class="muted-line">{{ document.original_filename }}</div></td>
+              <td>
+                {% if document.is_pinned %}<span class="knowledge-pin">置顶</span>{% endif %}
+                <a href="{{ url_for('preview_knowledge_document', document_id=document.id) }}" target="_blank">{{ document.title }}</a>
+                <div class="muted-line">{{ document.original_filename }}</div>
+                <div class="muted-line">{{ "已建立全文索引" if document.search_text else "未提取到可搜索文字" }}</div>
+              </td>
               <td><span class="status-chip">{{ document.category }}</span></td>
               <td class="knowledge-description">{{ document.description or "-" }}</td>
-              <td>{{ (document.file_size / 1048576)|round(2) }} MB</td>
+              <td>
+                <strong>v{{ document.current_version }}</strong>
+                <div class="muted-line">{{ (document.file_size / 1048576)|round(2) }} MB</div>
+                {% if document.expires_on %}
+                  {% if document.expires_on < today_date %}
+                    <span class="knowledge-expiry expired">已过期 {{ document.expires_on }}</span>
+                  {% elif document.expires_on <= upcoming_date %}
+                    <span class="knowledge-expiry soon">即将到期 {{ document.expires_on }}</span>
+                  {% else %}
+                    <span class="knowledge-expiry">到期 {{ document.expires_on }}</span>
+                  {% endif %}
+                {% else %}<span class="muted-line">长期有效</span>{% endif %}
+              </td>
+              <td><span>预览 {{ document.view_count }}</span><div class="muted-line">下载 {{ document.download_count }}</div></td>
               <td>{{ document.uploader_name or "-" }}</td>
               <td>{{ document.updated_at|local_datetime }}</td>
               <td><div class="row-actions">
@@ -65,17 +101,42 @@
                     data-title="{{ document.title }}"
                     data-category="{{ document.category }}"
                     data-description="{{ document.description }}"
+                    data-expires-on="{{ document.expires_on or '' }}"
+                    data-is-pinned="{{ 1 if document.is_pinned else 0 }}"
                   >编辑</button>
+                  <button
+                    class="small"
+                    type="button"
+                    data-new-knowledge-version
+                    data-action="{{ url_for('upload_knowledge_document_version', document_id=document.id) }}"
+                    data-title="{{ document.title }}"
+                  >新版本</button>
                 {% endif %}
                 {% if has_action_permission("knowledge_base", "delete") %}
                   <form method="post" action="{{ url_for('delete_knowledge_document', document_id=document.id) }}" onsubmit="return confirm('确定删除这份知识库文档吗？');">
                     <button class="danger small" type="submit">删除</button>
                   </form>
                 {% endif %}
-              </div></td>
+              </div>
+              {% set versions = versions_by_document.get(document.id, []) %}
+              {% if versions %}
+                <details class="knowledge-versions">
+                  <summary>历史版本（{{ versions|length }}）</summary>
+                  {% for version in versions %}
+                    <div class="knowledge-version-row">
+                      <span>v{{ version.version_number }}{% if version.version_number == document.current_version %} · 当前{% endif %}</span>
+                      <span>{{ version.uploaded_at|local_datetime }}</span>
+                      <a href="{{ url_for('preview_knowledge_document_version', version_id=version.id) }}" target="_blank">预览</a>
+                      <a href="{{ url_for('download_knowledge_document_version', version_id=version.id) }}">下载</a>
+                      {% if version.change_note %}<span class="muted-line">{{ version.change_note }}</span>{% endif %}
+                    </div>
+                  {% endfor %}
+                </details>
+              {% endif %}
+              </td>
             </tr>
           {% else %}
-            <tr><td colspan="7" class="empty">还没有符合条件的 PDF 文档。</td></tr>
+            <tr><td colspan="8" class="empty">还没有符合条件的 PDF 文档。</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -89,11 +150,22 @@
         <label>文档标题 <input name="title" required data-knowledge-title></label>
         <label>分类 <input name="category" list="knowledgeCategories" data-knowledge-category></label>
         <label>简介 <textarea name="description" rows="4" data-knowledge-description></textarea></label>
+        <label>到期日期 <input type="date" name="expires_on" data-knowledge-expires></label>
+        <label class="checkbox-row"><input type="checkbox" name="is_pinned" value="1" data-knowledge-pinned> 置顶推荐</label>
         <div class="form-actions"><button class="primary" type="submit">保存</button></div>
+      </form>
+    </dialog>
+    <dialog id="newKnowledgeVersionDialog" class="modal">
+      <div class="modal-header"><h2>上传新版本</h2><button type="button" data-close-knowledge-version>关闭</button></div>
+      <p class="muted-line" data-knowledge-version-title></p>
+      <form method="post" enctype="multipart/form-data" class="form-stack" data-knowledge-version-form>
+        <label>PDF 文件 <input type="file" name="document" accept="application/pdf,.pdf" required></label>
+        <label>版本说明 <textarea name="change_note" rows="3" placeholder="例如：更新第三章操作流程"></textarea></label>
+        <div class="form-actions"><button class="primary" type="submit">上传新版本</button></div>
       </form>
     </dialog>
   {% endif %}
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='knowledge-base.js', v='20260807-v1') }}"></script>
+  <script src="{{ url_for('static', filename='knowledge-base.js', v='20260807-v2') }}"></script>
 {% endblock %}

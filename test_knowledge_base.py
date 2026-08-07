@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from reportlab.pdfgen import canvas
 
 
 REPO_DIR = Path(__file__).resolve().parent
@@ -50,14 +51,22 @@ class KnowledgeBaseTest(unittest.TestCase):
             self.module.db().execute("update users set role = ? where id = ?", (role, self.user_id))
             self.module.db().commit()
 
-    def upload_pdf(self, filename="manual.pdf"):
+    @staticmethod
+    def pdf_bytes(text="Site safety procedures"):
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer)
+        pdf.drawString(72, 760, text)
+        pdf.save()
+        return buffer.getvalue()
+
+    def upload_pdf(self, filename="manual.pdf", text="Site safety procedures"):
         return self.client.post(
             "/knowledge-base",
             data={
                 "title": "Safety Manual",
                 "category": "Training",
                 "description": "Site safety procedures",
-                "document": (io.BytesIO(b"%PDF-1.4\n%%EOF\n"), filename),
+                "document": (io.BytesIO(self.pdf_bytes(text)), filename),
             },
             content_type="multipart/form-data",
         )
@@ -90,6 +99,21 @@ class KnowledgeBaseTest(unittest.TestCase):
         download.close()
         search = self.client.get("/knowledge-base?q=Safety&category=Training")
         self.assertIn("Safety Manual", search.get_data(as_text=True))
+        with self.module.app.app_context():
+            document = self.module.db().execute(
+                "select view_count, download_count, search_text from knowledge_documents where id = ?",
+                (document_id,),
+            ).fetchone()
+            self.assertEqual(document["view_count"], 1)
+            self.assertEqual(document["download_count"], 1)
+            self.assertIn("Site safety procedures", document["search_text"])
+
+    def test_full_text_search_finds_pdf_content(self):
+        self.set_role("finance")
+        self.upload_pdf(text="Hydraulic compressor maintenance procedure")
+        response = self.client.get("/knowledge-base?q=compressor")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Safety Manual", response.get_data(as_text=True))
 
     def test_non_pdf_content_is_rejected(self):
         self.set_role("finance")
@@ -113,9 +137,21 @@ class KnowledgeBaseTest(unittest.TestCase):
 
         edit = self.client.post(
             f"/knowledge-base/{document_id}/edit",
-            data={"title": "Updated Manual", "category": "Policy", "description": "Updated"},
+            data={
+                "title": "Updated Manual",
+                "category": "Policy",
+                "description": "Updated",
+                "expires_on": "2026-08-20",
+                "is_pinned": "1",
+            },
         )
         self.assertEqual(edit.status_code, 302)
+        with self.module.app.app_context():
+            updated = self.module.db().execute(
+                "select is_pinned, expires_on from knowledge_documents where id = ?", (document_id,)
+            ).fetchone()
+            self.assertEqual(updated["is_pinned"], 1)
+            self.assertEqual(updated["expires_on"], "2026-08-20")
         self.set_role("admin")
         delete = self.client.post(f"/knowledge-base/{document_id}/delete")
         self.assertEqual(delete.status_code, 302)
@@ -124,6 +160,44 @@ class KnowledgeBaseTest(unittest.TestCase):
             self.assertIsNone(
                 self.module.db().execute("select id from knowledge_documents where id = ?", (document_id,)).fetchone()
             )
+
+    def test_new_version_preserves_history_and_becomes_searchable(self):
+        self.set_role("finance")
+        self.upload_pdf(text="Original release")
+        with self.module.app.app_context():
+            document = self.module.db().execute("select * from knowledge_documents").fetchone()
+            document_id = document["id"]
+            original_path = self.module.knowledge_document_path(document)
+
+        response = self.client.post(
+            f"/knowledge-base/{document_id}/versions",
+            data={
+                "change_note": "Added troubleshooting",
+                "document": (io.BytesIO(self.pdf_bytes("Updated inverter troubleshooting guide")), "manual-v2.pdf"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            document = self.module.db().execute(
+                "select * from knowledge_documents where id = ?", (document_id,)
+            ).fetchone()
+            versions = self.module.db().execute(
+                "select * from knowledge_document_versions where document_id = ? order by version_number",
+                (document_id,),
+            ).fetchall()
+            self.assertEqual(document["current_version"], 2)
+            self.assertEqual(len(versions), 2)
+            self.assertTrue(os.path.isfile(original_path))
+            current_path = self.module.knowledge_document_path(document)
+            self.assertTrue(os.path.isfile(current_path))
+            self.assertIn("inverter troubleshooting", document["search_text"])
+        search = self.client.get("/knowledge-base?q=inverter")
+        self.assertIn("Safety Manual", search.get_data(as_text=True))
+        self.set_role("admin")
+        self.assertEqual(self.client.post(f"/knowledge-base/{document_id}/delete").status_code, 302)
+        self.assertFalse(os.path.exists(original_path))
+        self.assertFalse(os.path.exists(current_path))
 
 
 if __name__ == "__main__":
