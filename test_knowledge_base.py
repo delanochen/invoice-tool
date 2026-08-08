@@ -77,6 +77,12 @@ class KnowledgeBaseTest(unittest.TestCase):
         self.assertIn("知识库", response.get_data(as_text=True))
         self.assertEqual(self.upload_pdf().status_code, 403)
 
+    def test_pdf_picker_is_not_wrapped_by_a_full_width_label(self):
+        self.set_role("finance")
+        html = self.client.get("/knowledge-base").get_data(as_text=True)
+        self.assertIn('class="full-span form-field knowledge-file-field"', html)
+        self.assertNotIn('<label class="full-span">PDF 文件', html)
+
     def test_finance_can_upload_preview_download_and_search_pdf(self):
         self.set_role("finance")
         response = self.upload_pdf()

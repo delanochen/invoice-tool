@@ -25,7 +25,10 @@
           <label class="full-span">简介
             <textarea name="description" rows="3" placeholder="简要说明文档内容，便于搜索"></textarea>
           </label>
-          <label class="full-span">PDF 文件 <input type="file" name="document" accept="application/pdf,.pdf" required></label>
+          <div class="full-span form-field knowledge-file-field">
+            <span class="field-label">PDF 文件</span>
+            <input type="file" name="document" accept="application/pdf,.pdf" required>
+          </div>
         </div>
         <div class="form-actions"><button class="primary" type="submit">上传文档</button></div>
       </form>
@@ -159,7 +162,10 @@
       <div class="modal-header"><h2>上传新版本</h2><button type="button" data-close-knowledge-version>关闭</button></div>
       <p class="muted-line" data-knowledge-version-title></p>
       <form method="post" enctype="multipart/form-data" class="form-stack" data-knowledge-version-form>
-        <label>PDF 文件 <input type="file" name="document" accept="application/pdf,.pdf" required></label>
+        <div class="form-field knowledge-file-field">
+          <span class="field-label">PDF 文件</span>
+          <input type="file" name="document" accept="application/pdf,.pdf" required>
+        </div>
         <label>版本说明 <textarea name="change_note" rows="3" placeholder="例如：更新第三章操作流程"></textarea></label>
         <div class="form-actions"><button class="primary" type="submit">上传新版本</button></div>
       </form>
