@@ -58,6 +58,7 @@
             data-address="{{ buyer.detailed_address or '' }}"
             data-country="{{ buyer.country_name or buyer.country_code or buyer.country or '' }}"
             data-manufacturer="{{ buyer.equipment_manufacturer or '' }}"
+            data-manufacturer-id="{{ buyer.manufacturer_id or '' }}"
             {% if order and order.buyer_id == buyer.id %}selected{% endif %}
           >{{ buyer.buyer_number }} · {{ buyer.name }}{% if buyer.owner_name %} · {{ buyer.owner_name }}{% endif %}</option>
         {% endfor %}
@@ -70,7 +71,16 @@
       <label>业主 <input id="buyerOwner" value="{{ order.buyer_owner if order else '' }}" readonly></label>
       <label>规模 <input id="buyerSize" value="{{ order.buyer_site_size if order else '' }}" readonly></label>
       <label>国家 <input id="buyerCountry" value="{{ order.buyer_country if order else '' }}" readonly></label>
-      <label>配套机厂家 <input id="buyerManufacturer" value="{{ order.buyer_equipment_manufacturer if order else '' }}" readonly></label>
+      <label>配套机厂家
+        <select name="manufacturer_id" id="buyerManufacturer">
+          <option value="">请选择厂家</option>
+          {% for manufacturer in manufacturers %}
+            <option value="{{ manufacturer.id }}" {% if order and order.manufacturer_id == manufacturer.id %}selected{% endif %}>
+              {{ manufacturer.manufacturer_number }} · {{ manufacturer.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
     </div>
     <label>服务现场地址 <textarea name="site_address" id="siteAddress" rows="3" required>{{ order.site_address if order else '' }}</textarea></label>
     <label>服务订单号码 <input name="client_order_number" value="{{ order.client_order_number if order else '' }}" required></label>
@@ -106,5 +116,5 @@
   </form>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='service-order-form.js', v='20260630-buyer-email-v1') }}"></script>
+  <script src="{{ url_for('static', filename='service-order-form.js', v='20260811-manufacturer-select-v1') }}"></script>
 {% endblock %}

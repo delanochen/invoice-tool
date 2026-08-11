@@ -18,7 +18,9 @@ function fillBuyerDetails(replaceAddress = false) {
   fields.owner.value = option?.dataset.owner || "";
   fields.size.value = option?.dataset.size || "";
   fields.country.value = option?.dataset.country || "";
-  fields.manufacturer.value = option?.dataset.manufacturer || "";
+  if (replaceAddress || !fields.manufacturer.value) {
+    fields.manufacturer.value = option?.dataset.manufacturerId || "";
+  }
   if (replaceAddress || !siteAddress.value.trim()) {
     siteAddress.value = option?.dataset.address || "";
   }

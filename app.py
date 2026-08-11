@@ -807,6 +807,7 @@ def init_db():
                 id integer primary key autoincrement,
                 order_number text not null unique,
                 client_id integer,
+                manufacturer_id integer,
                 client_name text not null,
                 site_address text not null,
                 client_order_number text not null,
@@ -1136,6 +1137,7 @@ def init_db():
         ensure_column(connection, "service_orders", "geocode_version", "text")
         ensure_column(connection, "service_orders", "buyer_id", "integer")
         ensure_column(connection, "service_orders", "client_id", "integer")
+        ensure_column(connection, "service_orders", "manufacturer_id", "integer")
         ensure_column(connection, "service_orders", "buyer_contact_name", "text")
         ensure_column(connection, "service_orders", "buyer_contact_details", "text")
         ensure_column(connection, "service_orders", "start_date", "text")
@@ -1230,6 +1232,22 @@ def init_db():
               and exists (
                 select 1 from manufacturers
                 where lower(trim(manufacturers.name)) = lower(trim(buyers.equipment_manufacturer))
+              )
+            """
+        )
+        connection.execute(
+            """
+            update service_orders
+            set manufacturer_id = (
+                select buyers.manufacturer_id
+                from buyers
+                where buyers.id = service_orders.buyer_id
+            )
+            where manufacturer_id is null
+              and exists (
+                select 1 from buyers
+                where buyers.id = service_orders.buyer_id
+                  and buyers.manufacturer_id is not null
               )
             """
         )
@@ -3191,7 +3209,7 @@ def require_service_order(order_id):
                coalesce(owners.name, buyers.owner) as buyer_owner,
                buyers.email as buyer_email,
                buyers.site_size as buyer_site_size,
-               buyers.equipment_manufacturer as buyer_equipment_manufacturer,
+               coalesce(order_manufacturers.name, buyers.equipment_manufacturer) as buyer_equipment_manufacturer,
                clients.name as billing_client_name,
                clients.email as billing_client_email,
                contracts.contract_number,
@@ -3202,6 +3220,7 @@ def require_service_order(order_id):
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
+        left join manufacturers as order_manufacturers on order_manufacturers.id = service_orders.manufacturer_id
         left join owners on owners.id = buyers.owner_id
         left join clients on clients.id = service_orders.client_id
         left join contracts on contracts.id = service_orders.contract_id
@@ -8375,7 +8394,7 @@ def service_order_query():
         select service_orders.*,
                work_order_types.name as work_order_type_name,
                coalesce(owners.name, buyers.owner) as buyer_owner,
-               buyers.equipment_manufacturer as buyer_equipment_manufacturer,
+               coalesce(order_manufacturers.name, buyers.equipment_manufacturer) as buyer_equipment_manufacturer,
                coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
                count(distinct service_reports.id) as report_count,
@@ -8384,6 +8403,7 @@ def service_order_query():
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
+        left join manufacturers as order_manufacturers on order_manufacturers.id = service_orders.manufacturer_id
         left join owners on owners.id = buyers.owner_id
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
@@ -9645,13 +9665,14 @@ def service_orders():
         select service_orders.*,
                work_order_types.name as work_order_type_name,
                coalesce(owners.name, buyers.owner) as buyer_owner,
-               buyers.equipment_manufacturer as buyer_equipment_manufacturer,
+               coalesce(order_manufacturers.name, buyers.equipment_manufacturer) as buyer_equipment_manufacturer,
                contracts.contract_number,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
+        left join manufacturers as order_manufacturers on order_manufacturers.id = service_orders.manufacturer_id
         left join owners on owners.id = buyers.owner_id
         left join contracts on contracts.id = service_orders.contract_id
         left join service_reports on service_reports.service_order_id = service_orders.id
@@ -9956,6 +9977,7 @@ def new_service_order():
         order by clients.name, contracts.contract_number
         """
     ).fetchall()
+    manufacturers_rows = manufacturer_options()
     if not buyers_rows:
         flash("请先由会计或经理维护站点资料。", "error")
         return redirect(url_for("buyers") if can_manage_buyers() else url_for("service_orders"))
@@ -9971,6 +9993,7 @@ def new_service_order():
             "select * from buyers where id = ?",
             (request.form.get("buyer_id"),),
         ).fetchone()
+        manufacturer = manufacturer_from_form()
         work_order_type = db().execute(
             "select * from work_order_types where id = ? and is_active = 1",
             (request.form.get("work_order_type_id"),),
@@ -9988,7 +10011,14 @@ def new_service_order():
             ).fetchone()
         site_address = request.form.get("site_address", "").strip()
         client_order_number = request.form.get("client_order_number", "").strip()
-        if not buyer or not client or not work_order_type or not site_address or not client_order_number:
+        if (
+            not buyer
+            or not client
+            or not work_order_type
+            or not site_address
+            or not client_order_number
+            or (request.form.get("manufacturer_id") and not manufacturer)
+        ):
             flash("请选择客户、站点和工单类型，并填写服务现场地址、服务订单号码。", "error")
             return redirect(url_for("new_service_order"))
         if contract_id and (not contract or contract["client_id"] != client["id"]):
@@ -9998,16 +10028,17 @@ def new_service_order():
         cursor = db().execute(
             """
             insert into service_orders (
-                order_number, client_id, contract_id, buyer_id, client_name, buyer_contact_name, buyer_contact_details,
+                order_number, client_id, contract_id, buyer_id, manufacturer_id, client_name, buyer_contact_name, buyer_contact_details,
                 site_address, client_order_number, start_date, work_order_type_id,
                 region_code, country_code, created_by, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_number,
                 client["id"],
                 contract["id"] if contract else None,
                 buyer["id"],
+                manufacturer["id"] if manufacturer else buyer["manufacturer_id"],
                 buyer["name"],
                 buyer["contact_name"],
                 buyer["contact_details"],
@@ -10040,6 +10071,7 @@ def new_service_order():
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         contracts=contracts_rows,
+        manufacturers=manufacturers_rows,
         form_title="新建工单",
         start_date_only=False,
         countries=country_rows(),
@@ -10113,12 +10145,14 @@ def edit_service_order(order_id):
         """,
         (order["contract_id"] or 0,),
     ).fetchall()
+    manufacturers_rows = manufacturer_options()
     if request.method == "POST":
         country = country_from_form(order["country_code"])
         buyer = db().execute(
             "select * from buyers where id = ?",
             (request.form.get("buyer_id"),),
         ).fetchone()
+        manufacturer = manufacturer_from_form()
         work_order_type = db().execute(
             "select * from work_order_types where id = ?",
             (request.form.get("work_order_type_id"),),
@@ -10132,7 +10166,13 @@ def edit_service_order(order_id):
         if contract_id:
             contract = db().execute("select * from contracts where id = ?", (contract_id,)).fetchone()
         site_address = request.form.get("site_address", "").strip()
-        if not buyer or not client or not work_order_type or not site_address:
+        if (
+            not buyer
+            or not client
+            or not work_order_type
+            or not site_address
+            or (request.form.get("manufacturer_id") and not manufacturer)
+        ):
             flash("请选择有效的客户、站点和工单类型，并填写服务现场地址。", "error")
             return redirect(url_for("edit_service_order", order_id=order_id))
         if contract_id and (not contract or contract["client_id"] != client["id"]):
@@ -10141,7 +10181,7 @@ def edit_service_order(order_id):
         db().execute(
             """
             update service_orders
-            set client_id = ?, contract_id = ?, buyer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
+            set client_id = ?, contract_id = ?, buyer_id = ?, manufacturer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
                 site_address = ?, client_order_number = ?, start_date = ?,
                 work_order_type_id = ?, status = ?, region_code = ?, country_code = ?
             where id = ?
@@ -10150,6 +10190,7 @@ def edit_service_order(order_id):
                 client["id"],
                 contract["id"] if contract else None,
                 buyer["id"],
+                manufacturer["id"] if manufacturer else buyer["manufacturer_id"],
                 buyer["name"],
                 buyer["contact_name"],
                 buyer["contact_details"],
@@ -10174,6 +10215,7 @@ def edit_service_order(order_id):
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         contracts=contracts_rows,
+        manufacturers=manufacturers_rows,
         form_title="编辑工单",
         start_date_only=False,
         countries=country_rows(),
