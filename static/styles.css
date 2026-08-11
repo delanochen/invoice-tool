@@ -1613,6 +1613,20 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   overflow: auto;
   padding: 2px;
 }
+.nas-photo-folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.nas-photo-folders[hidden] { display: none; }
+.nas-photo-folders button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
 .nas-folder {
   min-height: 52px;
   border: 1px solid var(--line);

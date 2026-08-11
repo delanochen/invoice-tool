@@ -65,6 +65,12 @@ http://你的NAS地址:8088
 GOOGLE_MAPS_BROWSER_API_KEY=你的浏览器API密钥
 ```
 
+NAS 共享照片目录可在 `.env` 中单独配置，迁移磁盘卷后只需修改这一项：
+
+```text
+SHARED_PHOTOS_HOST_DIR=/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures
+```
+
 4. 在 Google Cloud 控制台设置每日请求配额和费用提醒。
 5. 重新创建容器：
 

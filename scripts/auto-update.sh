@@ -71,6 +71,44 @@ git_repo() {
 }
 
 cd "$APP_DIR"
+
+if [ ! -f "$APP_DIR/.env" ] || ! grep -Eq '^SHARED_PHOTOS_HOST_DIR=.+$' "$APP_DIR/.env"; then
+    VOLUME1_PHOTOS="/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures"
+    VOLUME2_PHOTOS="/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures"
+    PROJECT_SHARED_PHOTOS="$APP_DIR/shared-photos"
+    PROJECT_PICTURES="$APP_DIR/pictures"
+
+    has_order_folders() {
+        for order_folder in "$1"/SO*; do
+            if [ -d "$order_folder" ]; then
+                return 0
+            fi
+        done
+        return 1
+    }
+
+    SHARED_PHOTOS_HOST_DIR=""
+    for candidate in "$VOLUME1_PHOTOS" "$PROJECT_SHARED_PHOTOS" "$PROJECT_PICTURES" "$VOLUME2_PHOTOS"; do
+        if has_order_folders "$candidate"; then
+            SHARED_PHOTOS_HOST_DIR="$candidate"
+            break
+        fi
+    done
+    if [ -z "$SHARED_PHOTOS_HOST_DIR" ]; then
+        for candidate in "$VOLUME1_PHOTOS" "$PROJECT_SHARED_PHOTOS" "$PROJECT_PICTURES" "$VOLUME2_PHOTOS"; do
+            if [ -d "$candidate" ]; then
+                SHARED_PHOTOS_HOST_DIR="$candidate"
+                break
+            fi
+        done
+    fi
+    SHARED_PHOTOS_HOST_DIR="${SHARED_PHOTOS_HOST_DIR:-$VOLUME1_PHOTOS}"
+    export SHARED_PHOTOS_HOST_DIR
+    log "shared photos auto-detected: $SHARED_PHOTOS_HOST_DIR"
+else
+    log "shared photos path loaded from .env"
+fi
+
 REMOTE_URL="$(git_repo remote get-url origin 2>/dev/null || true)"
 case "$REMOTE_URL" in
     https://github.com/delanochen/invoice-tool.git|git@github.com:delanochen/invoice-tool.git)

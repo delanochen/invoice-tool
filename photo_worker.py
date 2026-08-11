@@ -141,12 +141,47 @@ def image_taken_datetime(path):
     return None
 
 
-def timestamp_output_relative(relative, source):
-    taken_at = image_taken_datetime(source)
-    if not taken_at:
+def filename_taken_datetime(path):
+    match = re.match(r"^(\d{8})_(\d{6})(?:-\d+)?$", path.stem)
+    if not match:
         return None
+    try:
+        return datetime.strptime("".join(match.groups()), "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
+
+
+def relative_folder_date(relative):
+    for part in relative.parts[:-1]:
+        try:
+            return datetime.strptime(part, "%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
+
+
+def effective_picture_datetime(relative, source):
+    taken_at = image_taken_datetime(source) or filename_taken_datetime(source)
+    if taken_at:
+        return taken_at
+    folder_date = relative_folder_date(relative)
+    try:
+        modified_at = datetime.fromtimestamp(source.stat().st_mtime)
+    except OSError:
+        modified_at = datetime.now()
+    if folder_date:
+        return folder_date.replace(
+            hour=modified_at.hour,
+            minute=modified_at.minute,
+            second=modified_at.second,
+        )
+    return modified_at
+
+
+def timestamp_output_relative(relative, source):
+    taken_at = effective_picture_datetime(relative, source)
     timestamp = taken_at.strftime("%Y%m%d_%H%M%S")
-    return relative.parent / f"{timestamp}.jpg"
+    return Path(taken_at.strftime("%Y-%m-%d")) / f"{timestamp}.jpg"
 
 
 def original_backup_for_picture(order_dir, picture_relative):
@@ -170,10 +205,6 @@ def original_backup_for_picture(order_dir, picture_relative):
     return sorted(candidates, key=lambda path: (path.suffix.casefold() not in {".heic", ".heif"}, path.name.casefold()))[0]
 
 
-def is_datetime_named_picture(path):
-    return re.fullmatch(r"\d{8}_\d{6}(?:-\d+)?\.jpe?g", path.name, re.IGNORECASE) is not None
-
-
 def rename_existing_pictures_by_datetime(order_dir):
     pictures_dir = order_dir / "pictures"
     thumbnails_dir = order_dir / "thumbnails"
@@ -183,20 +214,18 @@ def rename_existing_pictures_by_datetime(order_dir):
     for path in sorted(pictures_dir.rglob("*")):
         if not path.is_file() or path.name.startswith(".") or is_ignored(path.relative_to(pictures_dir)):
             continue
-        if is_datetime_named_picture(path):
-            continue
         relative = path.relative_to(pictures_dir)
-        original = original_backup_for_picture(order_dir, relative)
-        if not original:
-            log(f"skipped legacy picture rename without original backup: {path}")
+        named_datetime = filename_taken_datetime(path)
+        if named_datetime:
+            target_relative = Path(named_datetime.strftime("%Y-%m-%d")) / path.name
+            original = path
+        else:
+            original = original_backup_for_picture(order_dir, relative) or path
+            target_relative = timestamp_output_relative(relative, original)
+        desired_target = pictures_dir / target_relative
+        if desired_target == path:
             continue
-        target_relative = timestamp_output_relative(relative, original)
-        if not target_relative:
-            log(f"skipped legacy picture rename without EXIF timestamp: {original}")
-            continue
-        target = unique_datetime_path(pictures_dir / target_relative)
-        if target == path:
-            continue
+        target = unique_datetime_path(desired_target)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             old_thumbnail = thumbnails_dir / relative

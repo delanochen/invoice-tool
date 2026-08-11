@@ -257,6 +257,7 @@
       <button type="button" id="downloadNasSelection">下载所选照片</button>
       <button class="primary" type="button" id="confirmNasSelection">添加所选照片</button>
     </div>
+    <div id="nasPhotoFolders" class="nas-photo-folders" hidden></div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
   <dialog id="nasPhotoPreviewDialog" class="modal nas-photo-preview-dialog">
@@ -275,5 +276,5 @@
       <img id="nasPhotoPreviewImage" alt="">
     </div>
   </dialog>
-  <script src="{{ url_for('static', filename='service-report.js', v='20260709-auto-mileage-total') }}"></script>
+  <script src="{{ url_for('static', filename='service-report.js', v='20260810-photo-day-folders-v1') }}"></script>
 {% endblock %}

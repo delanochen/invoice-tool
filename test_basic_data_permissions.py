@@ -199,6 +199,26 @@ class BasicDataPermissionTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(permission["is_enabled"], 1)
 
+    def test_buyers_default_sort_is_by_buyer_number(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute(
+                """
+                insert into buyers (
+                    buyer_number, country, country_code, name, owner_id, owner, manufacturer_id,
+                    detailed_address, equipment_manufacturer, created_at
+                ) values ('BUY00001', 'US', 'US', 'First numbered site', ?, 'Test owner', ?,
+                          '1 First St, Houston, TX 77001', 'Test maker', '2026-08-10T12:00:00')
+                """,
+                (self.owner_id, self.manufacturer_id),
+            )
+            connection.commit()
+
+        response = self.client.get("/buyers")
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertLess(html.index("BUY00001"), html.index("BUY99999"))
+
 
 if __name__ == "__main__":
     unittest.main()

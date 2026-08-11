@@ -6468,7 +6468,7 @@ def buyers():
             flash("站点编号重复，请重试。", "error")
         return redirect(url_for("buyers"))
     q = request.args.get("q", "").strip()
-    sort = request.args.get("sort", "owner_name")
+    sort = request.args.get("sort", "buyer_number")
     direction = request.args.get("direction", "asc").lower()
     buyer_sort_columns = {
         "buyer_number": "buyers.buyer_number",
@@ -6483,7 +6483,7 @@ def buyers():
         "detailed_address": "buyers.detailed_address",
     }
     if sort not in buyer_sort_columns:
-        sort = "owner_name"
+        sort = "buyer_number"
     if direction not in {"asc", "desc"}:
         direction = "asc"
     order_direction = "desc" if direction == "desc" else "asc"
@@ -10900,6 +10900,12 @@ def browse_shared_photos():
             }
         )
     requested_path = request.args.get("path", "")
+    requested_day = request.args.get("day", "").strip()
+    if requested_day:
+        try:
+            requested_day = date.fromisoformat(requested_day).isoformat()
+        except ValueError:
+            abort(400)
     order_dir = resolve_shared_photo(requested_path, allow_missing=True)
     if not order_dir.is_dir():
         return jsonify(
@@ -10913,7 +10919,29 @@ def browse_shared_photos():
                 "status": {"waiting": 0, "processing": 0, "completed": 0, "failed": 0},
             }
         )
-    current = order_dir / "pictures"
+    pictures_root = order_dir / "pictures"
+    current = pictures_root / requested_day if requested_day else pictures_root
+    folders = []
+    if pictures_root.is_dir():
+        try:
+            day_folders = sorted(
+                (
+                    entry
+                    for entry in pictures_root.iterdir()
+                    if entry.is_dir()
+                    and re.fullmatch(r"\d{4}-\d{2}-\d{2}", entry.name)
+                ),
+                key=lambda entry: entry.name,
+                reverse=True,
+            )
+        except OSError:
+            abort(403)
+        folders = [
+            {"name": folder.name, "count": count_shared_images(folder)}
+            for folder in day_folders
+        ]
+    if requested_day and requested_day not in {folder["name"] for folder in folders}:
+        folders.insert(0, {"name": requested_day, "count": 0})
     images = []
     if current.is_dir():
         try:
@@ -10951,9 +10979,10 @@ def browse_shared_photos():
         {
             "available": True,
             "folder_exists": True,
-            "current": requested_path,
+            "current": f"{requested_path}/{requested_day}" if requested_day else requested_path,
             "parent": None,
-            "folders": [],
+            "folders": folders,
+            "selected_day": requested_day,
             "images": images,
             "status": order_photo_status(order_dir),
         }

@@ -18,6 +18,7 @@ const nasBrowser = document.getElementById("nasPhotoBrowser");
 const nasCurrentPath = document.getElementById("nasCurrentPath");
 const nasSelectionCount = document.getElementById("nasSelectionCount");
 const nasProcessingStatus = document.getElementById("nasProcessingStatus");
+const nasPhotoFolders = document.getElementById("nasPhotoFolders");
 const nasPhotoPreviewDialog = document.getElementById("nasPhotoPreviewDialog");
 const nasPhotoPreviewImage = document.getElementById("nasPhotoPreviewImage");
 const nasPhotoPreviewTitle = document.getElementById("nasPhotoPreviewTitle");
@@ -25,6 +26,7 @@ const nasPhotoZoomLevel = document.getElementById("nasPhotoZoomLevel");
 let activeNasCategory = "";
 let currentNasPath = "";
 let currentNasImages = [];
+let currentNasDay = "";
 let nasRefreshTimer = null;
 let nasPhotoZoom = 1;
 let nasPhotoOriginalSize = false;
@@ -175,9 +177,28 @@ function renderNasProcessingStatus(status = {}) {
 function renderNasBrowser(data) {
   nasBrowser.replaceChildren();
   currentNasPath = data.current || "";
+  currentNasDay = data.selected_day || "";
   currentNasImages = data.images || [];
   nasCurrentPath.textContent = currentNasPath || nasDialog.dataset.orderNumber;
   renderNasProcessingStatus(data.status);
+  if (nasPhotoFolders) {
+    nasPhotoFolders.replaceChildren();
+    const folders = data.folders || [];
+    const folderChoices = [{ name: "", count: Number(data.status?.completed || 0), label: reportText("全部照片") }, ...folders];
+    folderChoices.forEach((folder) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "small";
+      button.classList.toggle("active", (data.selected_day || "") === folder.name);
+      button.textContent = `${folder.label || folder.name} (${Number(folder.count || 0)})`;
+      button.addEventListener("click", () => {
+        currentNasDay = folder.name;
+        loadNasFolder(nasDialog.dataset.orderNumber, true, currentNasDay);
+      });
+      nasPhotoFolders.appendChild(button);
+    });
+    nasPhotoFolders.hidden = !folders.length;
+  }
   if (!data.available) {
     const message = document.createElement("p");
     message.className = "empty";
@@ -226,18 +247,23 @@ function renderNasBrowser(data) {
     const message = document.createElement("p");
     message.className = "empty";
     const status = data.status || {};
-    message.textContent = Number(status.waiting || 0) + Number(status.processing || 0) > 0
-      ? reportText("新照片正在等待处理，完成后会自动显示。")
-      : reportText("这个工单还没有处理完成的照片。");
+    if (Number(status.waiting || 0) + Number(status.processing || 0) > 0) {
+      message.textContent = reportText("新照片正在等待处理，完成后会自动显示。");
+    } else if (data.selected_day && Number(status.completed || 0) > 0) {
+      message.textContent = reportText("所选日期没有照片，请选择其他日期或全部照片。");
+    } else {
+      message.textContent = reportText("这个工单还没有处理完成的照片。");
+    }
     nasBrowser.appendChild(message);
   }
 }
 
-async function loadNasFolder(path = "", showLoading = true) {
+async function loadNasFolder(path = "", showLoading = true, day = currentNasDay) {
   currentNasImages = [];
   if (showLoading) nasBrowser.innerHTML = `<p class="empty">${reportText("正在读取照片...")}</p>`;
   const url = new URL(nasDialog.dataset.browseUrl, window.location.origin);
   url.searchParams.set("path", path);
+  if (day) url.searchParams.set("day", day);
   let response;
   try {
     response = await fetch(url);
@@ -433,10 +459,13 @@ document.addEventListener("click", (event) => {
     }
     updateNasSelectionCount();
     nasDialog.showModal();
-    loadNasFolder(nasDialog.dataset.orderNumber);
+    currentNasDay = serviceReportForm?.elements.actual_work_date?.value
+      || serviceReportForm?.elements.report_date?.value
+      || "";
+    loadNasFolder(nasDialog.dataset.orderNumber, true, currentNasDay);
     window.clearInterval(nasRefreshTimer);
     nasRefreshTimer = window.setInterval(() => {
-      if (nasDialog.open) loadNasFolder(nasDialog.dataset.orderNumber, false);
+      if (nasDialog.open) loadNasFolder(nasDialog.dataset.orderNumber, false, currentNasDay);
     }, 5000);
     return;
   }
