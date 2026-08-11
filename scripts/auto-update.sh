@@ -1,9 +1,11 @@
 #!/bin/sh
 set -u
 
-APP_DIR="${INVOICE_TOOL_DIR:-/volume1/docker/invoice-tool}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+DEFAULT_APP_DIR="$(dirname "$SCRIPT_DIR")"
+APP_DIR="${INVOICE_TOOL_DIR:-$DEFAULT_APP_DIR}"
 BRANCH="${INVOICE_TOOL_BRANCH:-main}"
-LOG_FILE="${INVOICE_TOOL_UPDATE_LOG:-/volume1/docker/invoice-tool-auto-update.log}"
+LOG_FILE="${INVOICE_TOOL_UPDATE_LOG:-$(dirname "$APP_DIR")/invoice-tool-auto-update.log}"
 LOCK_DIR="/tmp/invoice-tool-auto-update.lock"
 DOCKER="/usr/local/bin/docker"
 COMPOSE="/var/packages/ContainerManager/target/usr/bin/docker-compose"
@@ -26,10 +28,15 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 trap finish EXIT INT TERM
 
-if [ "$APP_DIR" != "/volume1/docker/invoice-tool" ]; then
-    log "error: unexpected application directory: $APP_DIR"
-    exit 1
-fi
+case "$APP_DIR" in
+    /volume[0-9]*/docker/invoice-tool)
+        ;;
+    *)
+        log "error: unexpected application directory: $APP_DIR"
+        exit 1
+        ;;
+esac
+log "application directory: $APP_DIR"
 if [ ! -d "$APP_DIR/.git" ] || [ ! -f "$APP_DIR/docker-compose.yml" ] || [ ! -d "$APP_DIR/data" ]; then
     log "error: application checkout is incomplete"
     exit 1

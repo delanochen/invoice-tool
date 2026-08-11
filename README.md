@@ -71,6 +71,9 @@ NAS 共享照片目录可在 `.env` 中单独配置，迁移磁盘卷后只需�
 SHARED_PHOTOS_HOST_DIR=/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures
 ```
 
+NAS 自动更新脚本会根据自身位置识别 `/volume1/docker/invoice-tool`
+或 `/volume2/docker/invoice-tool`，更换磁盘卷后只需在群晖定时任务中更新脚本路径。
+
 4. 在 Google Cloud 控制台设置每日请求配额和费用提醒。
 5. 重新创建容器：
 
