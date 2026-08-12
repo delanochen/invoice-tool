@@ -79,7 +79,12 @@ git_repo() {
 
 cd "$APP_DIR"
 
-if [ ! -f "$APP_DIR/.env" ] || ! grep -Eq '^SHARED_PHOTOS_HOST_DIR=.+$' "$APP_DIR/.env"; then
+CONFIGURED_SHARED_PHOTOS=""
+if [ -f "$APP_DIR/.env" ]; then
+    CONFIGURED_SHARED_PHOTOS="$(sed -n 's/^SHARED_PHOTOS_HOST_DIR=//p' "$APP_DIR/.env" | tail -n 1)"
+fi
+
+if [ -z "$CONFIGURED_SHARED_PHOTOS" ] || [ ! -d "$CONFIGURED_SHARED_PHOTOS" ]; then
     VOLUME1_PHOTOS="/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures"
     VOLUME2_PHOTOS="/volume2/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures"
     PROJECT_SHARED_PHOTOS="$APP_DIR/shared-photos"
@@ -113,7 +118,7 @@ if [ ! -f "$APP_DIR/.env" ] || ! grep -Eq '^SHARED_PHOTOS_HOST_DIR=.+$' "$APP_DI
     export SHARED_PHOTOS_HOST_DIR
     log "shared photos auto-detected: $SHARED_PHOTOS_HOST_DIR"
 else
-    log "shared photos path loaded from .env"
+    log "shared photos path loaded from .env: $CONFIGURED_SHARED_PHOTOS"
 fi
 
 REMOTE_URL="$(git_repo remote get-url origin 2>/dev/null || true)"
