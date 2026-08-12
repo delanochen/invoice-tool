@@ -67,7 +67,7 @@ fi
 
 git_repo() {
     if [ -n "$GIT_BIN" ]; then
-        "$GIT_BIN" "$@"
+        "$GIT_BIN" -c "safe.directory=$APP_DIR" "$@"
     else
         "$DOCKER" run --rm \
             -v "$APP_DIR:/repo" \
