@@ -74,6 +74,21 @@ SHARED_PHOTOS_HOST_DIR=/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制�
 NAS 自动更新脚本会根据自身位置识别 `/volume1/docker/invoice-tool`
 或 `/volume2/docker/invoice-tool`，更换磁盘卷后只需在群晖定时任务中更新脚本路径。
 
+### 从 Volume1 迁回 Volume2
+
+在 DSM 任务计划中以 `root` 身份创建一次性用户定义脚本：
+
+```sh
+/bin/sh /volume1/docker/invoice-tool/scripts/migrate-to-volume2.sh
+```
+
+脚本会先复制并核对数据库，再停止旧容器、从 Volume2 重建并进行 HTTP 与数据挂载检查。
+原有的 Volume1、Volume2 目录都会以带时间戳的名称保留。迁移成功后，旧的自动更新命令仍可通过兼容入口工作，建议最终改为：
+
+```sh
+/bin/sh /volume2/docker/invoice-tool/scripts/auto-update.sh
+```
+
 4. 在 Google Cloud 控制台设置每日请求配额和费用提醒。
 5. 重新创建容器：
 
