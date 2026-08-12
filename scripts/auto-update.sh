@@ -153,7 +153,14 @@ OLD_VERSION="$(version_from_commit "$OLD_COMMIT")"
 NEW_VERSION="$(version_from_commit "$NEW_COMMIT")"
 
 if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
-    log "up-to-date: $OLD_VERSION"
+    log "up-to-date: $OLD_VERSION; reconciling containers"
+    if ! APP_VERSION="$OLD_VERSION" "$COMPOSE" \
+        -f "$APP_DIR/docker-compose.yml" \
+        --env-file "$APP_DIR/.env" \
+        up -d --remove-orphans; then
+        log "error: unable to reconcile containers"
+        exit 1
+    fi
     exit 0
 fi
 
