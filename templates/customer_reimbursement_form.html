@@ -136,13 +136,20 @@
       </table>
     </div>
 
-    <section class="edit-attachments" id="customerReimbursementAttachmentsSection">
-      <div class="panel-title"><h2>附件</h2><span class="muted-line">酒店、机票、租车、加油、停车等凭证</span></div>
-      <div class="full file-picker-row">
-        <span>上传附件</span>
-        <input id="customerReimbursementAttachments" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+    </fieldset>
+
+    <section class="edit-attachments attachment-download-scope" id="customerReimbursementAttachmentsSection">
+      <div class="panel-title">
+        <div><h2>附件</h2><span class="muted-line">酒店、机票、租车、加油、停车等凭证</span></div>
+        {% if attachments %}<button class="small" type="button" data-download-all-attachments>下载全部附件</button>{% endif %}
       </div>
-      <div id="selectedCustomerReimbursementFiles" class="selected-photo-grid"></div>
+      {% if can_edit %}
+        <div class="full file-picker-row">
+          <span>上传附件</span>
+          <input id="customerReimbursementAttachments" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+        </div>
+        <div id="selectedCustomerReimbursementFiles" class="selected-photo-grid"></div>
+      {% endif %}
       <table class="list-table attachment-table">
         <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
         <tbody>
@@ -166,7 +173,7 @@
               <td>{{ attachment.uploaded_at|local_datetime }}</td>
               <td>
                 <div class="row-actions">
-                  <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_attachment', attachment_id=attachment.id) }}'">下载</button>
+                  <a class="button small" data-attachment-download href="{{ url_for('download_customer_reimbursement_attachment', attachment_id=attachment.id) }}">下载</a>
                   {% if can_edit %}
                     <button class="danger small" type="submit" form="deleteCustomerReimbursementAttachment{{ attachment.id }}">删除</button>
                   {% endif %}
@@ -179,7 +186,6 @@
         </tbody>
       </table>
     </section>
-    </fieldset>
   </form>
   {% if can_edit %}
     {% for attachment in attachments %}
@@ -203,5 +209,6 @@
     }|tojson }};
   </script>
   <script src="{{ url_for('static', filename='customer-reimbursement.js', v='20260630-live-totals') }}"></script>
+  <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
 {% endblock %}
 

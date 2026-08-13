@@ -21,6 +21,32 @@ const existingAttachmentNames = new Set(
   )
 );
 
+document.querySelectorAll("[data-delete-invoice-attachment]").forEach((form) => {
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!window.confirm("确定删除这个附件吗？")) return;
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    });
+    const result = response.headers.get("content-type")?.includes("application/json") ? await response.json() : null;
+    if (!response.ok || !result?.ok) {
+      window.alert("附件删除失败，请重试。");
+      return;
+    }
+    document.getElementById(form.dataset.rowId)?.remove();
+    const scope = document.querySelector(".attachment-download-scope");
+    const remaining = scope?.querySelectorAll("[data-attachment-download]").length || 0;
+    if (!remaining && scope) {
+      scope.querySelector("[data-download-all-attachments]")?.remove();
+      const body = scope.querySelector("tbody");
+      if (body && !body.querySelector("[data-empty-attachments]")) {
+        body.insertAdjacentHTML("beforeend", '<tr data-empty-attachments><td colspan="4" class="empty">还没有附件。</td></tr>');
+      }
+    }
+  });
+});
+
 function applyZoom() {
   attachmentPreviewImage.classList.toggle("is-fit", previewMode === "fit");
   attachmentPreviewImage.classList.toggle("is-original", previewMode === "original");

@@ -12270,6 +12270,8 @@ def delete_attachment(attachment_id):
         pass
     db().execute("delete from invoice_attachments where id = ?", (attachment_id,))
     db().commit()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "attachment_id": attachment_id})
     flash("附件已删除。", "success")
     return redirect(url_for("invoice_detail", invoice_id=attachment["invoice_id"]))
 

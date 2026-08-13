@@ -81,13 +81,13 @@
     </div>
     <button type="button" class="ghost" id="addLine">添加项目</button>
     {% if is_edit %}
-      <section class="edit-attachments">
-        <h2>已上传附件</h2>
+      <section class="edit-attachments attachment-download-scope">
+        <div class="panel-title"><h2>已上传附件</h2>{% if attachments %}<button class="small" type="button" data-download-all-attachments>下载全部附件</button>{% endif %}</div>
         <table class="list-table attachment-table">
           <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
           <tbody>
             {% for attachment in attachments %}
-              <tr>
+              <tr id="invoiceAttachmentRow{{ attachment.id }}">
                 <td>
                   <a
                     href="{{ url_for('preview_attachment', attachment_id=attachment.id) }}"
@@ -95,19 +95,24 @@
                     data-preview-name="{{ attachment.original_filename }}"
                     data-content-type="{{ attachment.content_type or '' }}"
                     {% if (attachment.content_type or '').startswith('image/') %}data-image-preview{% endif %}
-                  >{{ attachment.original_filename }}</a>
+                  >
+                    {% if (attachment.content_type or '').startswith('image/') %}
+                      <img class="inline-thumb" src="{{ url_for('preview_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                    {% endif %}
+                    {{ attachment.original_filename }}
+                  </a>
                 </td>
                 <td>{{ attachment.uploader_name or "Unknown" }}</td>
                 <td>{{ attachment.uploaded_at[:10] }}</td>
                 <td>
                   <div class="row-actions">
-                    <button class="small" type="button" onclick="window.location.href='{{ url_for('download_attachment', attachment_id=attachment.id) }}'">下载</button>
+                    <a class="button small" data-attachment-download href="{{ url_for('download_attachment', attachment_id=attachment.id) }}">下载</a>
                     <button class="danger small" type="submit" form="deleteAttachmentForm{{ attachment.id }}">删除</button>
                   </div>
                 </td>
               </tr>
             {% else %}
-              <tr><td colspan="4" class="empty">还没有附件。</td></tr>
+              <tr data-empty-attachments><td colspan="4" class="empty">还没有附件。</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -124,7 +129,7 @@
   {% if is_edit %}
     <form id="deleteInvoiceForm" method="post" action="{{ url_for('delete_invoice', invoice_id=defaults.id) }}"></form>
     {% for attachment in attachments %}
-      <form id="deleteAttachmentForm{{ attachment.id }}" method="post" action="{{ url_for('delete_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');"></form>
+      <form id="deleteAttachmentForm{{ attachment.id }}" method="post" action="{{ url_for('delete_attachment', attachment_id=attachment.id) }}" data-delete-invoice-attachment data-row-id="invoiceAttachmentRow{{ attachment.id }}"></form>
     {% endfor %}
   {% endif %}
   <dialog id="attachmentPreviewDialog" class="modal preview-modal">
@@ -163,7 +168,8 @@
     ];
   </script>
   {% if is_edit %}
-    <script src="{{ url_for('static', filename='invoice-detail.js', v='20260530-attachment-list-v2') }}"></script>
+    <script src="{{ url_for('static', filename='invoice-detail.js', v=app_version) }}"></script>
+    <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
   {% endif %}
   <script src="{{ url_for('static', filename='invoice-form.js', v='20260619-table-rows') }}"></script>
 {% endblock %}
