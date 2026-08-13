@@ -124,8 +124,10 @@ class SharedPhotoBrowseDayFolderTest(unittest.TestCase):
         self.assertIn({"name": "2026-08-09", "count": 1}, day_data["folders"])
 
         all_response = self.client.get("/shared-photos/browse?path=SO2608001")
-        all_names = [image["name"] for image in all_response.get_json()["images"]]
+        all_data = all_response.get_json()
+        all_names = [image["name"] for image in all_data["images"]]
         self.assertEqual(all_names, ["2026-08-09/day.jpg", "legacy.jpg"])
+        self.assertIn({"name": "2026-08-09", "count": 1}, all_data["folders"])
 
     def test_invalid_day_is_rejected(self):
         response = self.client.get("/shared-photos/browse?path=SO2608001&day=../../data")

@@ -27,6 +27,7 @@ let activeNasCategory = "";
 let currentNasPath = "";
 let currentNasImages = [];
 let currentNasDay = "";
+let currentNasFolders = [];
 let nasRefreshTimer = null;
 let nasPhotoZoom = 1;
 let nasPhotoOriginalSize = false;
@@ -183,7 +184,13 @@ function renderNasBrowser(data) {
   renderNasProcessingStatus(data.status);
   if (nasPhotoFolders) {
     nasPhotoFolders.replaceChildren();
-    const folders = data.folders || [];
+    const returnedFolders = Array.isArray(data.folders) ? data.folders : [];
+    if (returnedFolders.length) {
+      currentNasFolders = returnedFolders;
+    } else if (!data.available || data.folder_exists === false) {
+      currentNasFolders = [];
+    }
+    const folders = currentNasFolders;
     const folderChoices = [{ name: "", count: Number(data.status?.completed || 0), label: reportText("全部照片") }, ...folders];
     folderChoices.forEach((folder) => {
       const button = document.createElement("button");
@@ -459,6 +466,7 @@ document.addEventListener("click", (event) => {
     }
     updateNasSelectionCount();
     nasDialog.showModal();
+    currentNasFolders = [];
     currentNasDay = serviceReportForm?.elements.actual_work_date?.value
       || serviceReportForm?.elements.report_date?.value
       || "";
