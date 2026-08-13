@@ -12,16 +12,15 @@
 
   <section class="panel">
     <div class="panel-title"><h2>等级列表</h2><span class="muted-line">{{ grades|length }} 个等级</span></div>
-    <table class="list-table">
+    <table class="list-table selectable-list-table">
       <thead>
         <tr>
-          <th>选择</th><th>等级</th><th>等级描述</th><th>基本工资</th><th>餐费补贴/天</th><th>标准时薪</th><th>交通时薪</th><th>加班时薪</th><th>假期时薪</th><th>状态</th>
+          <th>等级</th><th>等级描述</th><th>基本工资</th><th>餐费补贴/天</th><th>标准时薪</th><th>交通时薪</th><th>加班时薪</th><th>假期时薪</th><th>状态</th>
         </tr>
       </thead>
       <tbody>
         {% for grade in grades %}
-          <tr data-grade-row="{{ grade.id }}">
-            <td><input type="radio" name="selected_grade" value="{{ grade.id }}" aria-label="选择 {{ grade.grade_name }}"></td>
+          <tr data-grade-row="{{ grade.id }}" data-row-id="{{ grade.id }}" tabindex="0" aria-selected="false">
             <td>{{ grade.grade_name }}</td>
             <td>{{ grade.description or "-" }}</td>
             <td>{{ grade.base_salary|money }}</td>
@@ -33,7 +32,7 @@
             <td>{{ "启用" if grade.is_active else "停用" }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="10" class="empty">还没有员工等级。</td></tr>
+          <tr><td colspan="9" class="empty">还没有员工等级。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -79,14 +78,29 @@
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script>
     (() => {
-      const radios = [...document.querySelectorAll('input[name="selected_grade"]')];
+      const rows = [...document.querySelectorAll('[data-grade-row]')];
       const edit = document.getElementById('editSelectedGrade');
       const remove = document.getElementById('deleteSelectedGrade');
-      const selected = () => radios.find((radio) => radio.checked)?.value;
-      radios.forEach((radio) => radio.addEventListener('change', () => {
+      let selectedGradeId = '';
+      const selected = () => selectedGradeId;
+      const selectRow = (row) => {
+        selectedGradeId = row.dataset.gradeRow;
         edit.disabled = false; remove.disabled = false;
-        document.querySelectorAll('[data-grade-row]').forEach((row) => row.classList.toggle('selected-row', row.dataset.gradeRow === radio.value));
-      }));
+        rows.forEach((candidate) => {
+          const isSelected = candidate === row;
+          candidate.classList.toggle('is-selected', isSelected);
+          candidate.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+        });
+      };
+      rows.forEach((row) => {
+        row.addEventListener('click', () => selectRow(row));
+        row.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            selectRow(row);
+          }
+        });
+      });
       edit.addEventListener('click', () => document.getElementById(`employeeGrade${selected()}`)?.showModal());
       remove.addEventListener('click', () => {
         const id = selected();
