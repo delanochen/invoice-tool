@@ -8,13 +8,13 @@
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
+    {% set active_endpoint = request.endpoint or "" %}
     {% if g.user %}
       <aside class="sidebar no-print">
         <div class="brand">
           <img src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
           <span>Prasinos Power</span>
         </div>
-        {% set active_endpoint = request.endpoint or "" %}
         {% set contract_endpoints = ["contracts", "new_contract", "contract_detail", "edit_contract"] %}
         {% set order_endpoints = ["service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report"] %}
         {% set order_calendar_endpoints = ["service_order_calendar"] %}

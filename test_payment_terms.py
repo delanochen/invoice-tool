@@ -148,6 +148,13 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertIn("report-export.js", page)
         self.assertIn("export-visible.xlsx", page)
 
+    def test_login_page_renders_without_authenticated_session(self):
+        with self.http.session_transaction() as session:
+            session.clear()
+        response = self.http.get("/login?next=/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("登录", response.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()
