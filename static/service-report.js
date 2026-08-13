@@ -182,6 +182,11 @@ function renderNasBrowser(data) {
   currentNasImages = data.images || [];
   nasCurrentPath.textContent = currentNasPath || nasDialog.dataset.orderNumber;
   renderNasProcessingStatus(data.status);
+  const activeProcessing = Number(data.status?.waiting || 0) + Number(data.status?.processing || 0);
+  if (!activeProcessing && nasRefreshTimer) {
+    window.clearInterval(nasRefreshTimer);
+    nasRefreshTimer = null;
+  }
   if (nasPhotoFolders) {
     nasPhotoFolders.replaceChildren();
     const returnedFolders = Array.isArray(data.folders) ? data.folders : [];
