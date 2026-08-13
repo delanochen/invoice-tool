@@ -382,6 +382,7 @@ CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
     "Technical Services": "labor_total",
     "Travel Expenses Reimbursement": "travel_total",
     "Mileage Reimbursement": "mileage_total",
+    "MRO Supplies": "mro_supplies_total",
 }
 
 DEFAULT_OWNER_NAMES = [
@@ -793,6 +794,7 @@ def init_db():
                 geocode_status text not null default 'pending',
                 geocode_attempted_at text,
                 geocode_version text,
+                manual_coordinates integer not null default 0,
                 created_at text not null
             );
 
@@ -995,6 +997,7 @@ def init_db():
                 lodging_total real not null default 0,
                 travel_total real not null default 0,
                 mileage_total real not null default 0,
+                mro_supplies_total real not null default 0,
                 total_amount real not null default 0,
                 invoice_id integer,
                 created_by integer not null,
@@ -1124,6 +1127,7 @@ def init_db():
         ensure_column(connection, "customer_reimbursements", "return_reason", "text")
         ensure_column(connection, "customer_reimbursements", "reviewed_by", "integer")
         ensure_column(connection, "customer_reimbursements", "reviewed_at", "text")
+        ensure_column(connection, "customer_reimbursements", "mro_supplies_total", "real not null default 0")
         ensure_column(connection, "customer_reimbursement_attachments", "source_expense_attachment_id", "integer")
         connection.execute(
             """
@@ -1142,6 +1146,7 @@ def init_db():
         ensure_column(connection, "service_orders", "geocode_status", "text not null default 'pending'")
         ensure_column(connection, "service_orders", "geocode_attempted_at", "text")
         ensure_column(connection, "service_orders", "geocode_version", "text")
+        ensure_column(connection, "buyers", "manual_coordinates", "integer not null default 0")
         ensure_column(connection, "service_orders", "buyer_id", "integer")
         ensure_column(connection, "service_orders", "client_id", "integer")
         ensure_column(connection, "service_orders", "manufacturer_id", "integer")
@@ -1394,6 +1399,27 @@ def init_db():
               and not exists (
                   select 1 from expense_items where expense_items.expense_id = expenses.id
               )
+            """
+        )
+        connection.execute(
+            """
+            update customer_reimbursements
+            set mro_supplies_total = coalesce((
+                    select sum(expense_items.amount)
+                    from expenses
+                    join expense_items on expense_items.expense_id = expenses.id
+                    left join projects on projects.id = expense_items.project_id
+                    where expenses.service_order_id = customer_reimbursements.service_order_id
+                      and expenses.status = 'approved'
+                      and coalesce(projects.name_key, lower(trim(expense_items.project))) = 'mro supplies'
+                ), 0)
+            """
+        )
+        connection.execute(
+            """
+            update customer_reimbursements
+            set total_amount = coalesce(labor_total, 0) + coalesce(travel_total, 0)
+                + coalesce(mileage_total, 0) + coalesce(mro_supplies_total, 0)
             """
         )
         connection.execute(
@@ -4283,7 +4309,23 @@ def calculate_customer_reimbursement_item(row, sort_order=0):
     return row
 
 
-def customer_reimbursement_totals(items):
+def approved_mro_supplies_total(order_id):
+    row = db().execute(
+        """
+        select coalesce(sum(expense_items.amount), 0) as total
+        from expenses
+        join expense_items on expense_items.expense_id = expenses.id
+        left join projects on projects.id = expense_items.project_id
+        where expenses.service_order_id = ?
+          and expenses.status = 'approved'
+          and coalesce(projects.name_key, lower(trim(expense_items.project))) = ?
+        """,
+        (order_id, project_name_key("MRO Supplies")),
+    ).fetchone()
+    return money_float(row["total"] if row else 0)
+
+
+def customer_reimbursement_totals(items, mro_supplies_total=0):
     labor_total = sum((money_decimal(item["labor_total"]) for item in items), Decimal("0"))
     lodging_total = sum((money_decimal(item["lodging"]) for item in items), Decimal("0"))
     travel_total = sum(
@@ -4292,12 +4334,14 @@ def customer_reimbursement_totals(items):
         for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
     ) or Decimal("0")
     mileage_total = sum((money_decimal(item["mileage_total"]) for item in items), Decimal("0"))
-    total_amount = sum((money_decimal(item["total"]) for item in items), Decimal("0"))
+    mro_supplies_total = money_decimal(mro_supplies_total)
+    total_amount = sum((money_decimal(item["total"]) for item in items), Decimal("0")) + mro_supplies_total
     return {
         "labor_total": money_float(labor_total),
         "lodging_total": money_float(lodging_total),
         "travel_total": money_float(travel_total),
         "mileage_total": money_float(mileage_total),
+        "mro_supplies_total": money_float(mro_supplies_total),
         "total_amount": money_float(total_amount),
     }
 
@@ -4542,13 +4586,15 @@ def customer_reimbursement_linked_invoice(reimbursement, order_id):
 
 
 def customer_reimbursement_invoice_items(reimbursement):
+    project_names = tuple(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS.keys())
+    placeholders = ", ".join("?" for _ in project_names)
     projects = db().execute(
-        """
+        f"""
         select *
         from projects
-        where project_type = 'invoice' and name in (?, ?, ?)
+        where project_type = 'invoice' and name in ({placeholders})
         """,
-        tuple(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS.keys()),
+        project_names,
     ).fetchall()
     projects_by_name = {project["name"]: project for project in projects}
     missing = [name for name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS if name not in projects_by_name]
@@ -4594,16 +4640,22 @@ def create_customer_reimbursement(order):
 
 def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     rows = rows if rows is not None else customer_reimbursement_items(reimbursement_id)
-    totals = customer_reimbursement_totals(rows)
+    reimbursement = db().execute(
+        "select service_order_id from customer_reimbursements where id = ?",
+        (reimbursement_id,),
+    ).fetchone()
+    mro_supplies_total = approved_mro_supplies_total(reimbursement["service_order_id"]) if reimbursement else 0
+    totals = customer_reimbursement_totals(rows, mro_supplies_total)
     db().execute(
         """
         update customer_reimbursements
-        set labor_total = ?, lodging_total = ?, travel_total = ?, mileage_total = ?, total_amount = ?
+        set labor_total = ?, lodging_total = ?, travel_total = ?, mileage_total = ?,
+            mro_supplies_total = ?, total_amount = ?
         where id = ?
         """,
         (
             totals["labor_total"], totals["lodging_total"], totals["travel_total"],
-            totals["mileage_total"], totals["total_amount"], reimbursement_id,
+            totals["mileage_total"], totals["mro_supplies_total"], totals["total_amount"], reimbursement_id,
         ),
     )
     return totals
@@ -4790,6 +4842,11 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
         ),
         Spacer(1, 3 * mm),
         table,
+        Spacer(1, 3 * mm),
+        Paragraph(
+            f"MRO Supplies：{money(reimbursement['mro_supplies_total'])}　　结算总计：{money(reimbursement['total_amount'])}",
+            meta_style,
+        ),
         Spacer(1, 4 * mm),
         Paragraph("备注：", meta_style),
     ]
@@ -5280,6 +5337,24 @@ def normalized_address(value):
     return " ".join(str(value or "").strip().split()).casefold()
 
 
+def parse_coordinate_pair(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parts = [part for part in re.split(r"[,，\s]+", text) if part]
+    if len(parts) != 2:
+        raise ValueError("请一次粘贴“纬度, 经度”，例如：33.3252078, -112.7639562。")
+    try:
+        latitude, longitude = (float(part) for part in parts)
+    except ValueError as error:
+        raise ValueError("经纬度只能包含数字，请从 Google 地图复制后直接粘贴。") from error
+    if not -90 <= latitude <= 90:
+        raise ValueError("纬度必须在 -90 到 90 之间。")
+    if not -180 <= longitude <= 180:
+        raise ValueError("经度必须在 -180 到 180 之间。")
+    return latitude, longitude
+
+
 class TemporaryGeocodingError(Exception):
     pass
 
@@ -5565,6 +5640,8 @@ def geocode_buyer(buyer_id, force=False):
     buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
     if not buyer:
         return None
+    if buyer["manual_coordinates"] and buyer["latitude"] is not None and buyer["longitude"] is not None:
+        return float(buyer["latitude"]), float(buyer["longitude"])
     address = str(buyer["detailed_address"] or "").strip()
     address_key = normalized_address(address)
     if not address_key:
@@ -6471,6 +6548,11 @@ def buyers():
         if not name or not detailed_address:
             flash("请填写站点名称和详细地址。", "error")
             return redirect(url_for("buyers"))
+        try:
+            manual_coordinates = parse_coordinate_pair(request.form.get("coordinates"))
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("buyers"))
         client_id = g.user["client_id"] if is_external_manager() else (
             int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else None
         )
@@ -6491,8 +6573,9 @@ def buyers():
                 """
                 insert into buyers (
                     buyer_number, client_id, country, country_code, name, owner_id, owner, manufacturer_id, contact_name, contact_details,
-                    email, site_size, detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    email, site_size, detailed_address, equipment_manufacturer, latitude, longitude, geocode_address,
+                    geocode_status, geocode_attempted_at, geocode_version, manual_coordinates, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_buyer_number(),
@@ -6509,6 +6592,13 @@ def buyers():
                     request.form.get("site_size", "").strip(),
                     detailed_address,
                     manufacturer["name"] if manufacturer else "",
+                    manual_coordinates[0] if manual_coordinates else None,
+                    manual_coordinates[1] if manual_coordinates else None,
+                    detailed_address if manual_coordinates else None,
+                    "success" if manual_coordinates else "pending",
+                    now() if manual_coordinates else None,
+                    GEOCODER_VERSION if manual_coordinates else None,
+                    1 if manual_coordinates else 0,
                     now(),
                 ),
             )
@@ -6660,6 +6750,12 @@ def edit_buyer(buyer_id):
         if not buyer_number or not name or not detailed_address:
             flash("请填写编号、站点名称和详细地址。", "error")
             return redirect(url_for("edit_buyer", buyer_id=buyer_id))
+        try:
+            pasted_coordinates = parse_coordinate_pair(request.form.get("coordinates"))
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("edit_buyer", buyer_id=buyer_id))
+        clear_manual_coordinates = request.form.get("clear_manual_coordinates") == "1"
         address_changed = normalized_address(buyer["detailed_address"]) != normalized_address(detailed_address)
         try:
             db().execute(
@@ -6702,12 +6798,43 @@ def edit_buyer(buyer_id):
                     buyer_id,
                 ),
             )
-            if address_changed:
+            if clear_manual_coordinates:
                 db().execute(
                     """
                     update buyers
                     set latitude = null, longitude = null, geocode_address = null,
-                        geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
+                        geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null,
+                        manual_coordinates = 0
+                    where id = ?
+                    """,
+                    (buyer_id,),
+                )
+            elif pasted_coordinates:
+                db().execute(
+                    """
+                    update buyers
+                    set latitude = ?, longitude = ?, geocode_address = ?, geocode_status = 'success',
+                        geocode_attempted_at = ?, geocode_version = ?, manual_coordinates = 1
+                    where id = ?
+                    """,
+                    (pasted_coordinates[0], pasted_coordinates[1], detailed_address, now(), GEOCODER_VERSION, buyer_id),
+                )
+            elif buyer["manual_coordinates"]:
+                db().execute(
+                    """
+                    update buyers
+                    set geocode_address = ?, geocode_status = 'success', geocode_version = ?
+                    where id = ?
+                    """,
+                    (detailed_address, GEOCODER_VERSION, buyer_id),
+                )
+            elif address_changed:
+                db().execute(
+                    """
+                    update buyers
+                    set latitude = null, longitude = null, geocode_address = null,
+                        geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null,
+                        manual_coordinates = 0
                     where id = ?
                     """,
                     (buyer_id,),
@@ -9920,7 +10047,7 @@ def geocode_next_service_order():
     buyer = db().execute(
         f"""
         select id from buyers
-        where (
+        where coalesce(manual_coordinates, 0) = 0 and (
            geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
            or lower(trim(geocode_address)) != lower(trim(detailed_address))
@@ -9945,7 +10072,7 @@ def geocode_next_service_order():
     remaining = db().execute(
         f"""
         select count(*) as count from buyers
-        where (
+        where coalesce(manual_coordinates, 0) = 0 and (
            geocode_status is null or geocode_status = 'pending'
            or geocode_address is null
            or lower(trim(geocode_address)) != lower(trim(detailed_address))
@@ -9975,7 +10102,7 @@ def retry_failed_service_order_geocodes():
         f"""
         update buyers
         set geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
-        where geocode_status = 'failed'
+        where geocode_status = 'failed' and coalesce(manual_coordinates, 0) = 0
         {client_clause}
         """
         ,
@@ -10388,6 +10515,12 @@ def customer_reimbursement_form(order_id):
             return redirect(url_for("service_order_detail", order_id=order_id))
     else:
         reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
+        if reimbursement["status"] in {"draft", "returned"}:
+            update_customer_reimbursement_totals(reimbursement["id"])
+            reimbursement = db().execute(
+                "select * from customer_reimbursements where id = ?",
+                (reimbursement["id"],),
+            ).fetchone()
         db().commit()
     if request.method == "POST":
         try:
@@ -10537,7 +10670,7 @@ def customer_reimbursement_form(order_id):
         order=order,
         reimbursement=reimbursement,
         items=items,
-        totals=customer_reimbursement_totals(items),
+        totals=customer_reimbursement_totals(items, reimbursement["mro_supplies_total"]),
         rates=customer_reimbursement_rates(),
         attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
         linked_invoice=linked_invoice,

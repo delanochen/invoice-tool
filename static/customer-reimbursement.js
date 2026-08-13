@@ -4,6 +4,7 @@ const attachmentInput = document.getElementById("customerReimbursementAttachment
 const selectedFiles = document.getElementById("selectedCustomerReimbursementFiles");
 const reimbursementForm = document.getElementById("customerReimbursementForm");
 const reimbursementRates = window.customerReimbursementRates || {};
+const reimbursementMro = reimbursementNumber(window.customerReimbursementMro);
 const reimbursementLiveTotalsEnabled = reimbursementForm?.dataset.liveTotals === "true";
 const travelAmountFields = ["lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"];
 let reimbursementSubmitting = false;
@@ -38,10 +39,10 @@ function calculateReimbursementRow(row) {
 
 function updateCustomerReimbursementTotals() {
   if (!reimbursementLiveTotalsEnabled) return;
-  const totals = { labor: 0, travel: 0, mileage: 0, total: 0 };
+  const totals = { labor: 0, travel: 0, mileage: 0, mro: reimbursementMro, total: reimbursementMro };
   table?.querySelectorAll("tbody tr").forEach((row) => {
     const rowTotals = calculateReimbursementRow(row);
-    Object.keys(totals).forEach((key) => {
+    Object.keys(rowTotals).forEach((key) => {
       totals[key] += rowTotals[key];
       const cell = row.querySelector(`[data-row-total="${key}"]`);
       if (cell) cell.textContent = reimbursementMoney(rowTotals[key]);

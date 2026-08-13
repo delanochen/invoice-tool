@@ -182,6 +182,10 @@
           </select>
         </label>
         <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required></textarea></label>
+        <label class="full-span">经纬度坐标（可选）
+          <input name="coordinates" placeholder="从 Google 地图粘贴，例如：33.3252078, -112.7639562">
+          <small>一次粘贴“纬度, 经度”；保存后将作为手工坐标，不再被自动定位覆盖。</small>
+        </label>
       </div>
       <div class="form-actions"><button class="primary" type="submit">保存站点</button></div>
     </form>
@@ -224,6 +228,16 @@
             </select>
           </label>
           <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required>{{ buyer.detailed_address or '' }}</textarea></label>
+          <label class="full-span">经纬度坐标
+            <input name="coordinates" value="{% if buyer.manual_coordinates and buyer.latitude is not none and buyer.longitude is not none %}{{ buyer.latitude }}, {{ buyer.longitude }}{% endif %}" placeholder="从 Google 地图粘贴，例如：33.3252078, -112.7639562">
+            <small>
+              {% if buyer.manual_coordinates %}当前为手工坐标，自动定位不会覆盖。{% elif buyer.latitude is not none and buyer.longitude is not none %}当前自动坐标：{{ buyer.latitude }}, {{ buyer.longitude }}。粘贴新坐标即可改为手工维护。{% else %}尚无坐标；可直接粘贴 Google 地图坐标，也可留空由系统自动定位。{% endif %}
+              {% if buyer.latitude is not none and buyer.longitude is not none %}<a href="https://www.google.com/maps?q={{ buyer.latitude }},{{ buyer.longitude }}" target="_blank" rel="noopener">在 Google 地图中验证</a>{% endif %}
+            </small>
+          </label>
+          {% if buyer.manual_coordinates %}
+            <label class="checkbox-line full-span"><input type="checkbox" name="clear_manual_coordinates" value="1"> 清除手工坐标并恢复自动定位</label>
+          {% endif %}
         </div>
         <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
       </form>
