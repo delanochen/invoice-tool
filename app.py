@@ -294,7 +294,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "labor_hours_report", "label": "工时统计", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
             {"key": "payroll_report", "label": "薪酬统计", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
             {"key": "payroll_calendar", "label": "薪酬日历", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
-            {"key": "employee_grades", "label": "员工等级", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}}},
+            {"key": "employee_grades", "label": "员工等级", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "payroll_subsidies", "label": "补贴参数", "actions": {"view": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}}},
             {"key": "company_info", "label": "公司信息", "actions": {"view": {"admin", "manager", "finance", "employee"}, "edit": {"admin"}}},
             {"key": "system_settings", "label": "系统设置", "actions": {"view": {"admin"}, "edit": {"admin"}}},
@@ -521,7 +521,9 @@ def init_db():
             create table if not exists employee_grades (
                 id integer primary key autoincrement,
                 grade_name text not null unique,
+                description text not null default '',
                 base_salary real not null default 0,
+                meal_daily_amount real not null default 0,
                 standard_hourly_rate real not null default 0,
                 transport_hourly_rate real not null default 0,
                 overtime_hourly_rate real not null default 0,
@@ -834,11 +836,13 @@ def init_db():
                 arrival_time text,
                 departure_time text,
                 service_description text,
+                report_writer_id integer,
                 created_by integer not null,
                 created_at text not null,
                 updated_at text not null,
                 foreign key(service_order_id) references service_orders(id) on delete cascade,
-                foreign key(created_by) references users(id)
+                foreign key(created_by) references users(id),
+                foreign key(report_writer_id) references users(id)
             );
 
             create table if not exists service_report_workers (
@@ -1053,6 +1057,9 @@ def init_db():
         ensure_column(connection, "users", "employee_grade_id", "integer")
         ensure_column(connection, "users", "address", "text not null default ''")
         ensure_column(connection, "users", "default_language", "text not null default 'zh-CN'")
+        ensure_column(connection, "employee_grades", "description", "text not null default ''")
+        ensure_column(connection, "employee_grades", "meal_daily_amount", "real not null default 0")
+        ensure_column(connection, "service_reports", "report_writer_id", "integer")
         ensure_column(connection, "knowledge_documents", "is_pinned", "integer not null default 0")
         ensure_column(connection, "knowledge_documents", "expires_on", "text")
         ensure_column(connection, "knowledge_documents", "view_count", "integer not null default 0")
@@ -1688,6 +1695,7 @@ def seed_settings(connection):
     defaults["payroll_car_mileage_rate"] = "0.5"
     defaults["payroll_meal_allowance_method"] = "daily"
     defaults["payroll_meal_daily_amount"] = "50"
+    defaults["payroll_report_writing_fee"] = "20"
     defaults["payroll_lodging_limit"] = "0"
     defaults["payroll_historical_paid_date"] = "2026-07-05"
     defaults["inspection_warning_days"] = "150"
@@ -1771,16 +1779,12 @@ def payroll_subsidy_settings():
     car_method = get_setting("payroll_car_allowance_method", "daily")
     if car_method not in {"daily", "mileage"}:
         car_method = "daily"
-    meal_method = get_setting("payroll_meal_allowance_method", "daily")
-    if meal_method not in {"daily", "provided"}:
-        meal_method = "daily"
     return {
         "cycle_start": get_setting("payroll_cycle_start", "2026-07-06"),
         "car_allowance_method": car_method,
         "car_daily_amount": setting_float("payroll_car_daily_amount", 60),
         "car_mileage_rate": setting_float("payroll_car_mileage_rate", 0.5),
-        "meal_allowance_method": meal_method,
-        "meal_daily_amount": setting_float("payroll_meal_daily_amount", 50),
+        "report_writing_fee": setting_float("payroll_report_writing_fee", 20),
         "lodging_limit": setting_float("payroll_lodging_limit", 0),
     }
 
@@ -5027,6 +5031,33 @@ def service_report_worker_options(order, report_id=None):
     ).fetchall()
 
 
+def report_writer_options():
+    return db().execute(
+        """
+        select id, name, email from users
+        where is_active = 1
+          and role in ('manager', 'finance', 'employee', 'external_employee')
+        order by name
+        """
+    ).fetchall()
+
+
+def posted_report_writer_id():
+    value = request.form.get("report_writer_id", "").strip()
+    if not value:
+        return None
+    if not value.isdigit():
+        raise ValueError("请选择有效的报告撰写人。")
+    row = db().execute(
+        """select id from users where id = ? and is_active = 1
+           and role in ('manager', 'finance', 'employee', 'external_employee')""",
+        (int(value),),
+    ).fetchone()
+    if not row:
+        raise ValueError("请选择有效的报告撰写人。")
+    return row["id"]
+
+
 def report_parts(table, report_id):
     return db().execute(f"select * from {table} where report_id = ? order by sort_order, id", (report_id,)).fetchall()
 
@@ -5061,6 +5092,7 @@ def report_form_defaults(report=None, order=None):
         "arrival_time": "",
         "departure_time": "",
         "service_description": "",
+        "report_writer_id": None,
     }
 
 
@@ -6978,7 +7010,9 @@ def employee_grades():
             return redirect(url_for("employee_grades"))
         values = (
             grade_name,
+            request.form.get("description", "").strip(),
             to_float(request.form.get("base_salary")),
+            max(to_float(request.form.get("meal_daily_amount")), 0),
             to_float(request.form.get("standard_hourly_rate")),
             to_float(request.form.get("transport_hourly_rate")),
             to_float(request.form.get("overtime_hourly_rate")),
@@ -6990,7 +7024,7 @@ def employee_grades():
                 db().execute(
                     """
                     update employee_grades
-                    set grade_name = ?, base_salary = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
+                    set grade_name = ?, description = ?, base_salary = ?, meal_daily_amount = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
                         overtime_hourly_rate = ?, holiday_hourly_rate = ?, is_active = ?
                     where id = ?
                     """,
@@ -7001,9 +7035,9 @@ def employee_grades():
                 cursor = db().execute(
                     """
                     insert into employee_grades (
-                        grade_name, base_salary, standard_hourly_rate, transport_hourly_rate,
+                        grade_name, description, base_salary, meal_daily_amount, standard_hourly_rate, transport_hourly_rate,
                         overtime_hourly_rate, holiday_hourly_rate, is_active, created_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (*values, now()),
                 )
@@ -7017,6 +7051,27 @@ def employee_grades():
     return render_template("employee_grades.html", grades=employee_grade_options(include_inactive=True))
 
 
+@app.post("/employee-grades/<int:grade_id>/delete")
+@login_required
+def delete_employee_grade(grade_id):
+    if not has_action_permission("employee_grades", "delete"):
+        abort(403)
+    grade = db().execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
+    if not grade:
+        abort(404)
+    user_count = db().execute(
+        "select count(*) as count from users where employee_grade_id = ?", (grade_id,)
+    ).fetchone()["count"]
+    if user_count:
+        flash(f"该等级仍被 {user_count} 名员工使用，不能删除；请先停用或调整员工等级。", "error")
+        return redirect(url_for("employee_grades"))
+    db().execute("delete from employee_grades where id = ?", (grade_id,))
+    log_action("delete", "employee_grade", grade_id, grade["grade_name"], "删除员工等级")
+    db().commit()
+    flash("员工等级已删除。", "success")
+    return redirect(url_for("employee_grades"))
+
+
 @app.route("/payroll/subsidies", methods=["GET", "POST"])
 @login_required
 def payroll_subsidies():
@@ -7024,18 +7079,14 @@ def payroll_subsidies():
         abort(403)
     if request.method == "POST":
         car_method = request.form.get("car_allowance_method", "daily")
-        meal_method = request.form.get("meal_allowance_method", "daily")
         if car_method not in {"daily", "mileage"}:
             car_method = "daily"
-        if meal_method not in {"daily", "provided"}:
-            meal_method = "daily"
         values = {
             "payroll_cycle_start": request.form.get("cycle_start") or "2026-07-06",
             "payroll_car_allowance_method": car_method,
             "payroll_car_daily_amount": max(to_float(request.form.get("car_daily_amount")), 0),
             "payroll_car_mileage_rate": max(to_float(request.form.get("car_mileage_rate")), 0),
-            "payroll_meal_allowance_method": meal_method,
-            "payroll_meal_daily_amount": max(to_float(request.form.get("meal_daily_amount")), 0),
+            "payroll_report_writing_fee": max(to_float(request.form.get("report_writing_fee")), 0),
             "payroll_lodging_limit": max(to_float(request.form.get("lodging_limit")), 0),
         }
         try:
@@ -8569,6 +8620,7 @@ def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actu
                users.name as worker_name,
                employee_grades.grade_name,
                employee_grades.base_salary,
+               employee_grades.meal_daily_amount,
                employee_grades.standard_hourly_rate,
                employee_grades.transport_hourly_rate,
                employee_grades.overtime_hourly_rate,
@@ -8659,34 +8711,54 @@ def effective_payroll_worker_id():
 
 def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", date_mode="attendance"):
     subsidy_settings = payroll_subsidy_settings()
-    show_meal_allowance = subsidy_settings["meal_allowance_method"] == "daily"
     rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), worker_id, date_mode=date_mode)
     payroll = {}
+
+    def ensure_worker(row):
+        return payroll.setdefault(row["worker_id"], {
+            "worker_id": row["worker_id"], "worker_name": row["worker_name"],
+            "grade_name": row["grade_name"] or "未指定",
+            "base_salary": float(row["base_salary"] or 0),
+            "meal_daily_amount": float(row["meal_daily_amount"] or 0),
+            "standard_rate": float(row["standard_hourly_rate"] or 0),
+            "transport_rate": float(row["transport_hourly_rate"] or 0),
+            "overtime_rate": float(row["overtime_hourly_rate"] or 0),
+            "holiday_rate": float(row["holiday_hourly_rate"] or 0),
+            "standard_hours": 0, "transport_hours": 0, "overtime_hours": 0,
+            "holiday_hours": 0, "attendance_dates": set(), "driving_miles": 0,
+            "report_writing_count": 0,
+        })
+
     for row in rows:
-        worker = payroll.setdefault(
-            row["worker_id"],
-            {
-                "worker_id": row["worker_id"],
-                "worker_name": row["worker_name"],
-                "grade_name": row["grade_name"] or "未指定",
-                "base_salary": float(row["base_salary"] or 0),
-                "standard_rate": float(row["standard_hourly_rate"] or 0),
-                "transport_rate": float(row["transport_hourly_rate"] or 0),
-                "overtime_rate": float(row["overtime_hourly_rate"] or 0),
-                "holiday_rate": float(row["holiday_hourly_rate"] or 0),
-                "standard_hours": 0,
-                "transport_hours": 0,
-                "overtime_hours": 0,
-                "holiday_hours": 0,
-                "attendance_dates": set(),
-                "driving_miles": 0,
-            },
-        )
+        worker = ensure_worker(row)
         for key in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours"):
             worker[key] += row[key]
         if row["attendance_date"]:
             worker["attendance_dates"].add(row["attendance_date"])
         worker["driving_miles"] += float(row["worker_driving_miles"] or 0)
+
+    date_expr = "date(service_reports.report_date)" if date_mode == "report" else "date(coalesce(service_reports.actual_work_date, service_reports.report_date))"
+    clauses = [f"{date_expr} >= ?", f"{date_expr} <= ?", "service_reports.report_writer_id is not null"]
+    params = [period_start.isoformat(), period_end.isoformat()]
+    if worker_id and str(worker_id).isdigit():
+        clauses.append("users.id = ?")
+        params.append(int(worker_id))
+    writer_rows = db().execute(
+        f"""
+        select users.id as worker_id, users.name as worker_name,
+               employee_grades.grade_name, employee_grades.base_salary,
+               employee_grades.meal_daily_amount, employee_grades.standard_hourly_rate,
+               employee_grades.transport_hourly_rate, employee_grades.overtime_hourly_rate,
+               employee_grades.holiday_hourly_rate, count(service_reports.id) as report_writing_count
+        from service_reports join users on users.id = service_reports.report_writer_id
+        left join employee_grades on employee_grades.id = users.employee_grade_id
+        where {" and ".join(clauses)}
+        group by users.id
+        """, params,
+    ).fetchall()
+    for row in writer_rows:
+        ensure_worker(row)["report_writing_count"] = int(row["report_writing_count"] or 0)
+
     payroll_rows = []
     for worker in payroll.values():
         attendance_days = len(worker["attendance_dates"])
@@ -8694,53 +8766,23 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         transport_pay = worker["transport_hours"] * worker["transport_rate"]
         overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
         holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
-        if subsidy_settings["car_allowance_method"] == "mileage":
-            car_allowance = worker["driving_miles"] * subsidy_settings["car_mileage_rate"]
-        else:
-            car_allowance = attendance_days * subsidy_settings["car_daily_amount"]
-        meal_allowance = attendance_days * subsidy_settings["meal_daily_amount"] if show_meal_allowance else 0
-        total_pay = (
-            worker["base_salary"]
-            + standard_pay
-            + transport_pay
-            + overtime_pay
-            + holiday_pay
-            + car_allowance
-            + meal_allowance
-        )
-        payroll_rows.append(
-            {
-                **worker,
-                "attendance_days": attendance_days,
-                "standard_pay": standard_pay,
-                "transport_pay": transport_pay,
-                "overtime_pay": overtime_pay,
-                "holiday_pay": holiday_pay,
-                "car_allowance": car_allowance,
-                "meal_allowance": meal_allowance,
-                "total_pay": total_pay,
-            }
-        )
+        car_allowance = (worker["driving_miles"] * subsidy_settings["car_mileage_rate"]
+                         if subsidy_settings["car_allowance_method"] == "mileage"
+                         else attendance_days * subsidy_settings["car_daily_amount"])
+        meal_allowance = attendance_days * worker["meal_daily_amount"]
+        report_writing_fee = worker["report_writing_count"] * subsidy_settings["report_writing_fee"]
+        subsidy_total = car_allowance + meal_allowance + report_writing_fee
+        total_pay = worker["base_salary"] + standard_pay + transport_pay + overtime_pay + holiday_pay + subsidy_total
+        payroll_rows.append({**worker, "attendance_days": attendance_days, "standard_pay": standard_pay,
+            "transport_pay": transport_pay, "overtime_pay": overtime_pay, "holiday_pay": holiday_pay,
+            "car_allowance": car_allowance, "meal_allowance": meal_allowance,
+            "report_writing_fee": report_writing_fee, "subsidy_total": subsidy_total, "total_pay": total_pay})
     payroll_rows.sort(key=lambda row: row["worker_name"])
-    totals = {
-        "base_salary": sum(row["base_salary"] for row in payroll_rows),
-        "standard_pay": sum(row["standard_pay"] for row in payroll_rows),
-        "transport_pay": sum(row["transport_pay"] for row in payroll_rows),
-        "overtime_pay": sum(row["overtime_pay"] for row in payroll_rows),
-        "holiday_pay": sum(row["holiday_pay"] for row in payroll_rows),
-        "car_allowance": sum(row["car_allowance"] for row in payroll_rows),
-        "meal_allowance": sum(row["meal_allowance"] for row in payroll_rows),
-        "total_pay": sum(row["total_pay"] for row in payroll_rows),
-    }
-    return {
-        "rows": payroll_rows,
-        "totals": totals,
-        "period_start": period_start,
-        "period_end": period_end,
-        "pay_date": pay_date,
-        "subsidy_settings": subsidy_settings,
-        "show_meal_allowance": show_meal_allowance,
-    }
+    totals = {key: sum(row[key] for row in payroll_rows) for key in (
+        "base_salary", "standard_pay", "transport_pay", "overtime_pay", "holiday_pay",
+        "car_allowance", "meal_allowance", "report_writing_fee", "subsidy_total", "total_pay")}
+    return {"rows": payroll_rows, "totals": totals, "period_start": period_start,
+            "period_end": period_end, "pay_date": pay_date, "subsidy_settings": subsidy_settings}
 
 
 def payroll_rows_for_period(period_start, worker_id=""):
@@ -8748,7 +8790,7 @@ def payroll_rows_for_period(period_start, worker_id=""):
     return payroll_rows_for_range(period_start, period_end, pay_date, worker_id)
 
 
-def payroll_row_export(row, show_meal_allowance):
+def payroll_row_export(row):
     payload = {
         "员工": row["worker_name"],
         "员工等级": row["grade_name"],
@@ -8763,25 +8805,26 @@ def payroll_row_export(row, show_meal_allowance):
         "加班工资": round(row["overtime_pay"], 2),
         "假期工时": round(row["holiday_hours"], 2),
         "假期工资": round(row["holiday_pay"], 2),
-        "车补": round(row["car_allowance"], 2),
+        "补贴": round(row["subsidy_total"], 2),
     }
-    if show_meal_allowance:
-        payload["餐补"] = round(row["meal_allowance"], 2)
     payload["合计工资"] = round(row["total_pay"], 2)
     return payload
 
 
-def payroll_payslip_payload(row, show_meal_allowance):
+def payroll_payslip_payload(row):
     lines = [
         {"label": "基本工资", "amount": round(row["base_salary"], 2)},
         {"label": "标准工资", "hours": round(row["standard_hours"], 2), "rate": round(row["standard_rate"], 2), "amount": round(row["standard_pay"], 2)},
         {"label": "交通工资", "hours": round(row["transport_hours"], 2), "rate": round(row["transport_rate"], 2), "amount": round(row["transport_pay"], 2)},
         {"label": "加班工资", "hours": round(row["overtime_hours"], 2), "rate": round(row["overtime_rate"], 2), "amount": round(row["overtime_pay"], 2)},
         {"label": "假期工资", "hours": round(row["holiday_hours"], 2), "rate": round(row["holiday_rate"], 2), "amount": round(row["holiday_pay"], 2)},
-        {"label": "车补", "days": row["attendance_days"], "miles": round(row["driving_miles"], 1), "amount": round(row["car_allowance"], 2)},
     ]
-    if show_meal_allowance:
-        lines.append({"label": "餐补", "days": row["attendance_days"], "amount": round(row["meal_allowance"], 2)})
+    if row["car_allowance"] > 0:
+        lines.append({"label": "车补", "days": row["attendance_days"], "miles": round(row["driving_miles"], 1), "amount": round(row["car_allowance"], 2)})
+    if row["meal_allowance"] > 0:
+        lines.append({"label": "餐补", "days": row["attendance_days"], "rate": round(row["meal_daily_amount"], 2), "amount": round(row["meal_allowance"], 2)})
+    if row["report_writing_fee"] > 0:
+        lines.append({"label": "报告撰写费", "count": row["report_writing_count"], "rate": round(row["report_writing_fee"] / row["report_writing_count"], 2), "amount": round(row["report_writing_fee"], 2)})
     return {
         "employee": row["worker_name"],
         "grade": row["grade_name"],
@@ -8857,9 +8900,8 @@ def payroll_batch_payload(period_start, batch_type="regular"):
         "period_end": batch["period_end"].isoformat(),
         "pay_date": batch["pay_date"].isoformat(),
         "status": status,
-        "show_meal_allowance": batch["show_meal_allowance"],
-        "rows": [payroll_row_export(row, batch["show_meal_allowance"]) for row in batch["rows"]],
-        "payslips": [payroll_payslip_payload(row, batch["show_meal_allowance"]) for row in batch["rows"]],
+        "rows": [payroll_row_export(row) for row in batch["rows"]],
+        "payslips": [payroll_payslip_payload(row) for row in batch["rows"]],
         "totals": {key: round(value, 2) for key, value in batch["totals"].items()},
     }
 
@@ -9143,7 +9185,6 @@ def payroll_report():
         period_end=payroll_batch["period_end"].isoformat(),
         pay_date=payroll_batch["pay_date"].isoformat(),
         subsidy_settings=payroll_batch["subsidy_settings"],
-        show_meal_allowance=payroll_batch["show_meal_allowance"],
     )
 
 
@@ -9196,10 +9237,8 @@ def payroll_calendar_export():
     headers = list(payload["rows"][0].keys()) if payload["rows"] else [
         "员工", "员工等级", "基本工资", "出勤天数", "里程", "标准工时", "标准工资",
         "交通工时", "交通工资", "加班工时", "加班工资", "假期工时", "假期工资",
-        "车补", "餐补", "合计工资",
+        "补贴", "合计工资",
     ]
-    if not payload["show_meal_allowance"] and "餐补" in headers:
-        headers.remove("餐补")
     rows = [[row.get(header, "") for header in headers] for row in payload["rows"]]
     rows.append([])
     rows.append(["周期", f"{payload['period_start']} 至 {payload['period_end']}"])
@@ -9210,13 +9249,14 @@ def payroll_calendar_export():
     for payslip in payload["payslips"]:
         rows.append([])
         rows.append(["员工", payslip["employee"], "员工等级", payslip["grade"], "合计工资", payslip["total_pay"]])
-        rows.append(["项目", "工时", "单价", "天数", "里程", "金额"])
+        rows.append(["项目", "工时", "单价", "天数", "数量", "里程", "金额"])
         for line in payslip["lines"]:
             rows.append([
                 line.get("label", ""),
                 line.get("hours", ""),
                 line.get("rate", ""),
                 line.get("days", ""),
+                line.get("count", ""),
                 line.get("miles", ""),
                 line.get("amount", ""),
             ])
@@ -10728,6 +10768,7 @@ def new_service_report(order_id):
         if start_date_redirect:
             return start_date_redirect
     users_rows = service_report_worker_options(order)
+    report_writers = report_writer_options()
     if request.method == "POST":
         save_token = request.form.get("save_token", "")
         if not claim_report_save_token(save_token):
@@ -10750,8 +10791,8 @@ def new_service_report(order_id):
                 insert into service_reports (
                     service_order_id, report_date, actual_work_date, total_service_hours, travel_hours, public_transport_hours,
                     driving_miles, departure_address, site_address, total_time, cabinet_number,
-                    arrival_time, departure_time, service_description, created_by, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    arrival_time, departure_time, service_description, report_writer_id, created_by, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
@@ -10768,6 +10809,7 @@ def new_service_report(order_id):
                     arrival_time,
                     departure_time,
                     request.form.get("service_description", "").strip(),
+                    posted_report_writer_id(),
                     g.user["id"],
                     now(),
                     now(),
@@ -10796,6 +10838,7 @@ def new_service_report(order_id):
         order=order,
         report=report_form_defaults(order=order),
         users=users_rows,
+        report_writers=report_writers,
         selected_workers=[],
         selected_worker_miles={},
         saved_parts=[{} for _ in range(4)],
@@ -10814,6 +10857,7 @@ def edit_service_report(report_id):
     if is_external_employee() and report["created_by"] != g.user["id"]:
         abort(403)
     users_rows = service_report_worker_options(order, report_id=report_id)
+    report_writers = report_writer_options()
     if request.method == "POST":
         if is_external_manager():
             abort(403)
@@ -10832,7 +10876,7 @@ def edit_service_report(report_id):
                 update service_reports
                 set report_date = ?, actual_work_date = ?, total_service_hours = ?, travel_hours = ?, public_transport_hours = ?,
                     driving_miles = ?, departure_address = ?, site_address = ?, total_time = ?, cabinet_number = ?,
-                    arrival_time = ?, departure_time = ?, service_description = ?, updated_at = ?
+                    arrival_time = ?, departure_time = ?, service_description = ?, report_writer_id = ?, updated_at = ?
                 where id = ?
                 """,
                 (
@@ -10849,6 +10893,7 @@ def edit_service_report(report_id):
                     arrival_time,
                     departure_time,
                     request.form.get("service_description", "").strip(),
+                    posted_report_writer_id(),
                     now(),
                     report_id,
                 ),
@@ -10880,6 +10925,7 @@ def edit_service_report(report_id):
         order=order,
         report=report_form_defaults(report=report),
         users=users_rows,
+        report_writers=report_writers,
         selected_workers=selected_workers,
         selected_worker_miles=selected_worker_miles,
         saved_parts=saved_parts,

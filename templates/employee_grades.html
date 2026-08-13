@@ -3,7 +3,11 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Employee Grades</p><h1>员工等级</h1></div>
-    <button class="primary" type="button" data-dialog-open="newEmployeeGradeDialog">新增等级</button>
+    <div class="actions">
+      <button class="primary" type="button" data-dialog-open="newEmployeeGradeDialog">新增等级</button>
+      <button type="button" id="editSelectedGrade" disabled>编辑</button>
+      <button class="danger" type="button" id="deleteSelectedGrade" disabled>删除</button>
+    </div>
   </header>
 
   <section class="panel">
@@ -11,23 +15,25 @@
     <table class="list-table">
       <thead>
         <tr>
-          <th>等级</th><th>基本工资</th><th>标准时薪</th><th>交通时薪</th><th>加班时薪</th><th>假期时薪</th><th>状态</th><th>操作</th>
+          <th>选择</th><th>等级</th><th>等级描述</th><th>基本工资</th><th>餐费补贴/天</th><th>标准时薪</th><th>交通时薪</th><th>加班时薪</th><th>假期时薪</th><th>状态</th>
         </tr>
       </thead>
       <tbody>
         {% for grade in grades %}
-          <tr>
+          <tr data-grade-row="{{ grade.id }}">
+            <td><input type="radio" name="selected_grade" value="{{ grade.id }}" aria-label="选择 {{ grade.grade_name }}"></td>
             <td>{{ grade.grade_name }}</td>
+            <td>{{ grade.description or "-" }}</td>
             <td>{{ grade.base_salary|money }}</td>
+            <td>{{ grade.meal_daily_amount|money }}</td>
             <td>{{ grade.standard_hourly_rate|money }}</td>
             <td>{{ grade.transport_hourly_rate|money }}</td>
             <td>{{ grade.overtime_hourly_rate|money }}</td>
             <td>{{ grade.holiday_hourly_rate|money }}</td>
             <td>{{ "启用" if grade.is_active else "停用" }}</td>
-            <td><button class="small" type="button" data-dialog-open="employeeGrade{{ grade.id }}">编辑</button></td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="empty">还没有员工等级。</td></tr>
+          <tr><td colspan="10" class="empty">还没有员工等级。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -38,6 +44,7 @@
       {% if grade %}<input type="hidden" name="grade_id" value="{{ grade.id }}">{% endif %}
       <div class="form-grid two-columns">
         <label>等级 <input name="grade_name" value="{{ grade.grade_name if grade else '' }}" required></label>
+        <label>等级描述 <input name="description" value="{{ grade.description if grade else '' }}"></label>
         <label>状态
           <select name="is_active">
             <option value="1" {% if not grade or grade.is_active %}selected{% endif %}>启用</option>
@@ -45,6 +52,7 @@
           </select>
         </label>
         <label>基本工资 <input type="number" step="0.01" min="0" name="base_salary" value="{{ grade.base_salary if grade else 0 }}"></label>
+        <label>餐费补贴/天 <input type="number" step="0.01" min="0" name="meal_daily_amount" value="{{ grade.meal_daily_amount if grade else 0 }}"></label>
         <label>标准时薪 <input type="number" step="0.01" min="0" name="standard_hourly_rate" value="{{ grade.standard_hourly_rate if grade else 0 }}"></label>
         <label>交通时薪 <input type="number" step="0.01" min="0" name="transport_hourly_rate" value="{{ grade.transport_hourly_rate if grade else 0 }}"></label>
         <label>加班时薪 <input type="number" step="0.01" min="0" name="overtime_hourly_rate" value="{{ grade.overtime_hourly_rate if grade else 0 }}"></label>
@@ -65,7 +73,27 @@
       {{ grade_form(grade) }}
     </dialog>
   {% endfor %}
+  <form method="post" id="deleteGradeForm" hidden></form>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='modal-forms.js', v='20260702-employee-grades') }}"></script>
+  <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
+  <script>
+    (() => {
+      const radios = [...document.querySelectorAll('input[name="selected_grade"]')];
+      const edit = document.getElementById('editSelectedGrade');
+      const remove = document.getElementById('deleteSelectedGrade');
+      const selected = () => radios.find((radio) => radio.checked)?.value;
+      radios.forEach((radio) => radio.addEventListener('change', () => {
+        edit.disabled = false; remove.disabled = false;
+        document.querySelectorAll('[data-grade-row]').forEach((row) => row.classList.toggle('selected-row', row.dataset.gradeRow === radio.value));
+      }));
+      edit.addEventListener('click', () => document.getElementById(`employeeGrade${selected()}`)?.showModal());
+      remove.addEventListener('click', () => {
+        const id = selected();
+        if (!id || !uiConfirm('确定删除选中的员工等级吗？正在使用的等级不会被删除。')) return;
+        const form = document.getElementById('deleteGradeForm');
+        form.action = `{{ url_for('employee_grades') }}/${id}/delete`; form.submit();
+      });
+    })();
+  </script>
 {% endblock %}

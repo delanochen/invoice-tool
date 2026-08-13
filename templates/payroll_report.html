@@ -18,10 +18,7 @@
     <div class="panel metric"><span>交通工资</span><strong>{{ totals.transport_pay|money }}</strong></div>
     <div class="panel metric"><span>加班工资</span><strong>{{ totals.overtime_pay|money }}</strong></div>
     <div class="panel metric"><span>假期工资</span><strong>{{ totals.holiday_pay|money }}</strong></div>
-    <div class="panel metric"><span>车补</span><strong>{{ totals.car_allowance|money }}</strong></div>
-    {% if show_meal_allowance %}
-      <div class="panel metric"><span>餐补</span><strong>{{ totals.meal_allowance|money }}</strong></div>
-    {% endif %}
+    <div class="panel metric"><span>补贴</span><strong>{{ totals.subsidy_total|money }}</strong></div>
     <div class="panel metric"><span>合计工资</span><strong>{{ totals.total_pay|money }}</strong></div>
   </section>
 
@@ -35,8 +32,7 @@
           <th>交通工时</th><th>交通工资</th>
           <th>加班工时</th><th>加班工资</th>
           <th>假期工时</th><th>假期工资</th>
-          <th>车补</th>
-          {% if show_meal_allowance %}<th>餐补</th>{% endif %}
+          <th>补贴</th>
           <th>合计工资</th>
         </tr>
       </thead>
@@ -56,12 +52,11 @@
             <td>{{ row.overtime_pay|money }}</td>
             <td>{{ "%.2f"|format(row.holiday_hours) }}</td>
             <td>{{ row.holiday_pay|money }}</td>
-            <td>{{ row.car_allowance|money }}</td>
-            {% if show_meal_allowance %}<td>{{ row.meal_allowance|money }}</td>{% endif %}
+            <td>{{ row.subsidy_total|money }}</td>
             <td>{{ row.total_pay|money }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="{{ 15 if show_meal_allowance else 14 }}" class="empty">当前两周周期没有薪酬记录。</td></tr>
+          <tr><td colspan="15" class="empty">当前两周周期没有薪酬记录。</td></tr>
         {% endfor %}
       </tbody>
     </table>

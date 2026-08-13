@@ -69,6 +69,14 @@
         </span>
       </label>
       <label>机柜编号 <input name="cabinet_number" value="{{ report.cabinet_number or '' }}"></label>
+      <label>报告撰写人
+        <select name="report_writer_id">
+          <option value="">请选择</option>
+          {% for writer in report_writers %}
+            <option value="{{ writer.id }}" {% if report.report_writer_id == writer.id %}selected{% endif %}>{{ writer.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>出发地址 <input name="departure_address" value="{{ report.departure_address or '' }}"></label>
       <label class="full-span">场地地址 <input name="site_address" value="{{ report.site_address or order.site_address }}"></label>
     </div>
