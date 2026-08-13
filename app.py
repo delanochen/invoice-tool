@@ -9668,7 +9668,8 @@ def service_orders():
                coalesce(order_manufacturers.name, buyers.equipment_manufacturer) as buyer_equipment_manufacturer,
                contracts.contract_number,
                count(distinct service_reports.id) as report_count,
-               count(distinct invoices.id) as invoice_count
+               count(distinct invoices.id) as invoice_count,
+               count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id

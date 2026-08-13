@@ -847,6 +847,14 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .invoice-table tbody tr:hover td {
   background: #eff8ff;
 }
+.service-orders-table tbody tr.closed-paid td,
+.service-orders-table tbody tr.closed-paid:hover td {
+  background: #f2f4f7;
+}
+.service-orders-table tbody tr.closed-invoiced td,
+.service-orders-table tbody tr.closed-invoiced:hover td {
+  background: #fff1f0;
+}
 .list-table tfoot td {
   background: #f2f4f7;
   font-weight: 800;
