@@ -410,6 +410,17 @@ label {
 .required-field .required-mark {
   display: inline;
 }
+.payment-term-fields label.is-disabled {
+  color: #98a2b3;
+}
+.payment-term-fields label.is-disabled input,
+.payment-term-fields label.is-disabled select,
+.payment-term-fields label.is-disabled textarea {
+  background: #f2f4f7;
+  border-color: #e4e7ec;
+  color: #98a2b3;
+  cursor: not-allowed;
+}
 .form-field {
   display: grid;
   gap: 6px;
@@ -1334,6 +1345,33 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 }
 .compact-table input[name="worker_name"] {
   min-width: 130px;
+}
+#serviceWorkersTable {
+  min-width: 980px;
+  table-layout: fixed;
+}
+#serviceWorkersTable th:nth-child(1),
+#serviceWorkersTable td:nth-child(1) { width: 180px; }
+#serviceWorkersTable th:nth-child(2),
+#serviceWorkersTable td:nth-child(2) { width: 120px; }
+#serviceWorkersTable th:nth-child(3),
+#serviceWorkersTable td:nth-child(3),
+#serviceWorkersTable th:nth-child(4),
+#serviceWorkersTable td:nth-child(4),
+#serviceWorkersTable th:nth-child(5),
+#serviceWorkersTable td:nth-child(5) { width: 105px; }
+#serviceWorkersTable th:nth-child(6),
+#serviceWorkersTable td:nth-child(6) { width: 360px; }
+#serviceWorkersTable input,
+#serviceWorkersTable select {
+  width: 100%;
+  min-width: 0;
+}
+#serviceWorkersTable tbody tr {
+  cursor: pointer;
+}
+#serviceWorkersTable tbody tr.is-selected td {
+  background: #dcfce7;
 }
 #customerReimbursementTable th,
 #customerReimbursementTable td {

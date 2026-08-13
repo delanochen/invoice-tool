@@ -6490,6 +6490,17 @@ def payment_term_form_values():
         raise ValueError("请输入账期名称。")
     if rule_type not in {"fixed_days", "monthly_cutoff"}:
         raise ValueError("请选择有效的账期类型。")
+    if rule_type == "fixed_days":
+        required_fields = (("fixed_days", "固定天数"),)
+    else:
+        required_fields = (
+            ("cutoff_day", "截止日"), ("due_day", "到期日"),
+            ("before_due_months", "截止日前到期月偏移"),
+            ("after_due_months", "截止日后到期月偏移"),
+        )
+    for field_name, label in required_fields:
+        if request.form.get(field_name, "").strip() == "":
+            raise ValueError(f"请填写{label}。")
     try:
         fixed_days = int(request.form.get("fixed_days", "30") or 30)
         cutoff_day = int(request.form.get("cutoff_day", "20") or 20)

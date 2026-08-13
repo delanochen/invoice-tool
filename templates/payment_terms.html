@@ -62,18 +62,18 @@
 
   {% macro term_fields(term=None) %}
     <div class="form-grid two-columns payment-term-fields">
-      <label>账期名称 <input name="name" value="{{ term.name if term else '' }}" required></label>
-      <label>规则类型
-        <select name="rule_type" data-payment-rule-type>
+      <label class="required-field"><span>账期名称 <span class="required-mark" aria-hidden="true">*</span></span><input name="name" value="{{ term.name if term else '' }}" required></label>
+      <label class="required-field"><span>规则类型 <span class="required-mark" aria-hidden="true">*</span></span>
+        <select name="rule_type" data-payment-rule-type required>
           <option value="fixed_days" {% if not term or term.rule_type == 'fixed_days' %}selected{% endif %}>固定天数</option>
           <option value="monthly_cutoff" {% if term and term.rule_type == 'monthly_cutoff' %}selected{% endif %}>每月截止日</option>
         </select>
       </label>
-      <label data-fixed-days>固定天数 <input type="number" name="fixed_days" min="0" max="3650" value="{{ term.fixed_days if term else 30 }}"></label>
-      <label data-monthly-cutoff>截止日（包含当天） <input type="number" name="cutoff_day" min="1" max="31" value="{{ term.cutoff_day if term and term.cutoff_day else 20 }}"></label>
-      <label data-monthly-cutoff>到期日 <input type="number" name="due_day" min="1" max="31" value="{{ term.due_day if term and term.due_day else 19 }}"></label>
-      <label data-monthly-cutoff>截止日前到期月偏移 <input type="number" name="before_due_months" min="0" max="24" value="{{ term.before_due_months if term else 1 }}"><small>1 表示次月</small></label>
-      <label data-monthly-cutoff>截止日后到期月偏移 <input type="number" name="after_due_months" min="0" max="24" value="{{ term.after_due_months if term else 2 }}"><small>2 表示下下月</small></label>
+      <label data-fixed-days><span>固定天数 <span class="required-mark" aria-hidden="true">*</span></span><input type="number" name="fixed_days" min="0" max="3650" value="{{ term.fixed_days if term else 30 }}"></label>
+      <label data-monthly-cutoff><span>截止日（包含当天） <span class="required-mark" aria-hidden="true">*</span></span><input type="number" name="cutoff_day" min="1" max="31" value="{{ term.cutoff_day if term and term.cutoff_day else 20 }}"></label>
+      <label data-monthly-cutoff><span>到期日 <span class="required-mark" aria-hidden="true">*</span></span><input type="number" name="due_day" min="1" max="31" value="{{ term.due_day if term and term.due_day else 19 }}"></label>
+      <label data-monthly-cutoff><span>截止日前到期月偏移 <span class="required-mark" aria-hidden="true">*</span></span><input type="number" name="before_due_months" min="0" max="24" value="{{ term.before_due_months if term else 1 }}"><small>1 表示次月</small></label>
+      <label data-monthly-cutoff><span>截止日后到期月偏移 <span class="required-mark" aria-hidden="true">*</span></span><input type="number" name="after_due_months" min="0" max="24" value="{{ term.after_due_months if term else 2 }}"><small>2 表示下下月</small></label>
       <label class="full-span">备注 <textarea name="notes" rows="3">{{ term.notes if term else '' }}</textarea></label>
     </div>
   {% endmacro %}

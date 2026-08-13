@@ -106,6 +106,21 @@ class PaymentTermsTest(unittest.TestCase):
         end_of_month_term = dict(term, due_day=31)
         self.assertEqual(str(self.module.calculate_payment_due_date("2027-01-20", end_of_month_term)), "2027-02-28")
 
+    def test_payment_term_rule_requires_only_relevant_fields(self):
+        with self.module.app.test_request_context(
+            "/settings/payment-terms", method="POST",
+            data={"name": "Fixed", "rule_type": "fixed_days", "fixed_days": "45"},
+        ):
+            values = self.module.payment_term_form_values()
+            self.assertEqual(values["fixed_days"], 45)
+            self.assertIsNone(values["cutoff_day"])
+        with self.module.app.test_request_context(
+            "/settings/payment-terms", method="POST",
+            data={"name": "Cutoff", "rule_type": "monthly_cutoff", "cutoff_day": "20"},
+        ):
+            with self.assertRaisesRegex(ValueError, "请填写到期日"):
+                self.module.payment_term_form_values()
+
     def test_preview_and_recalculation_protect_sent_paid_and_closed_invoices(self):
         response = self.http.get("/settings/payment-terms")
         self.assertEqual(response.status_code, 200)

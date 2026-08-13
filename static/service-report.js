@@ -473,7 +473,7 @@ function selectServiceWorkerRow(row) {
   selectedServiceWorkerRow = row;
   serviceWorkerRows().forEach((candidate) => {
     const selected = candidate === row;
-    candidate.classList.toggle("selected", selected);
+    candidate.classList.toggle("is-selected", selected);
     candidate.setAttribute("aria-selected", selected ? "true" : "false");
   });
   if (deleteServiceWorkerRow) deleteServiceWorkerRow.disabled = !row;
