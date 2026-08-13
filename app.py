@@ -9156,7 +9156,16 @@ def service_order_calendar_rows(date_from, date_to):
         )
         select service_orders.*,
                work_order_types.name as work_order_type_name,
-               coalesce(owners.name, buyers.owner) as buyer_owner
+               coalesce(owners.name, buyers.owner) as buyer_owner,
+               (
+                   select count(*) from invoices
+                   where invoices.service_order_id = service_orders.id and invoices.status != 'void'
+               ) as invoice_count,
+               (
+                   select count(*) from invoices
+                   where invoices.service_order_id = service_orders.id
+                     and invoices.status != 'void' and invoices.paid_at is not null
+               ) as paid_invoice_count
         from calendar_orders as service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
@@ -9175,11 +9184,21 @@ def service_order_calendar_weeks(year, month):
     grid_end = month_end + timedelta(days=6 - month_end.weekday())
     events_by_day = {}
     dates_by_order = {}
+    show_invoice_status = can_view_invoices()
     for row in service_order_calendar_rows(grid_start, grid_end):
         event_date = parsed_iso_date(row["calendar_date"])
         if not event_date:
             continue
         dates_by_order.setdefault(row["id"], set()).add(event_date)
+        invoice_count = int(row["invoice_count"] or 0)
+        paid_invoice_count = int(row["paid_invoice_count"] or 0)
+        billing_state = ""
+        if show_invoice_status and row["status"] == "closed" and invoice_count and paid_invoice_count == invoice_count:
+            billing_state = "closed-paid"
+        elif show_invoice_status and row["status"] == "closed" and invoice_count:
+            billing_state = "closed-invoiced"
+        elif show_invoice_status and row["status"] != "closed" and invoice_count:
+            billing_state = "open-invoiced"
         events_by_day.setdefault(event_date, []).append(
             {
                 "order_id": row["id"],
@@ -9188,6 +9207,7 @@ def service_order_calendar_weeks(year, month):
                 "owner": row["buyer_owner"],
                 "status": row["status"],
                 "status_label": STATUS_LABELS.get(row["status"], row["status"]),
+                "billing_state": billing_state,
                 "work_order_type": row["work_order_type_name"],
                 "start_date": row["start_date"],
                 "calendar_date": row["calendar_date"],

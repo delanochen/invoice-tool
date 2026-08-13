@@ -707,18 +707,22 @@ body.service-order-calendar-page .service-order-calendar-panel {
   display: grid;
   gap: 1px;
   padding: 4px 6px;
-  border-left: 3px solid #0f766e;
+  border-left: 3px solid #98a2b3;
   border-radius: 5px;
-  background: #ecfdf3;
+  background: #fff;
   color: var(--ink);
   font-size: 12px;
   line-height: 1.18;
 }
-.work-order-calendar-event.status-open {
+.work-order-calendar-event.open-invoiced {
   border-left-color: #0f766e;
   background: #ecfdf3;
 }
-.work-order-calendar-event.status-closed {
+.work-order-calendar-event.closed-invoiced {
+  border-left-color: #d92d20;
+  background: #fff1f0;
+}
+.work-order-calendar-event.closed-paid {
   border-left-color: #667085;
   background: #f2f4f7;
   color: #475467;
