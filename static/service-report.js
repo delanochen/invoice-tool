@@ -64,13 +64,39 @@ function calculateRoundedServiceHours() {
   return roundedMinutes / 60;
 }
 
+function serviceWorkerRows() {
+  return Array.from(document.querySelectorAll("#serviceWorkersTable tbody tr"));
+}
+
+function serviceWorkerRowValues(row) {
+  return {
+    userId: row.querySelector("[name='worker_user_id']")?.value || "",
+    mode: row.querySelector("[name='worker_travel_mode']")?.value || "self_drive",
+    miles: parseReportNumber(row.querySelector("[name='worker_driving_miles']")?.value),
+    travelHours: parseReportNumber(row.querySelector("[name='worker_travel_hours']")?.value),
+    publicHours: parseReportNumber(row.querySelector("[name='worker_public_transport_hours']")?.value),
+  };
+}
+
 function calculateWorkerDrivingMiles() {
-  if (!serviceReportForm) return 0;
-  return Array.from(serviceReportForm.querySelectorAll("[name='worker_user_id']:checked"))
-    .reduce((total, checkbox) => {
-      const milesInput = serviceReportForm.elements[`worker_driving_miles_${checkbox.value}`];
-      return total + parseReportNumber(milesInput?.value);
-    }, 0);
+  const method = serviceReportForm?.elements.mileage_billing_method?.value || "per_person";
+  return serviceWorkerRows().reduce((total, row) => {
+    const worker = serviceWorkerRowValues(row);
+    if (worker.mode === "flight") return total;
+    if (method === "per_vehicle" && worker.mode !== "self_drive") return total;
+    return total + worker.miles;
+  }, 0);
+}
+
+function updateWorkerTravelFields(row) {
+  const mode = row.querySelector("[name='worker_travel_mode']")?.value;
+  const miles = row.querySelector("[name='worker_driving_miles']");
+  const travel = row.querySelector("[name='worker_travel_hours']");
+  const publicHours = row.querySelector("[name='worker_public_transport_hours']");
+  const isFlight = mode === "flight";
+  if (miles) { miles.readOnly = isFlight; miles.required = !isFlight; if (isFlight) miles.value = ""; }
+  if (travel) { travel.readOnly = isFlight; travel.required = !isFlight; if (isFlight) travel.value = ""; }
+  if (publicHours) { publicHours.readOnly = !isFlight; publicHours.required = isFlight; if (!isFlight) publicHours.value = ""; }
 }
 
 function updateReportCalculatedFields() {
@@ -80,13 +106,18 @@ function updateReportCalculatedFields() {
   const publicTransportInput = serviceReportForm.elements.public_transport_hours;
   const totalTimeInput = serviceReportForm.elements.total_time;
   const drivingMilesInput = serviceReportForm.elements.driving_miles;
-  const workerCount = serviceReportForm.querySelectorAll("[name='worker_user_id']:checked").length;
+  const rows = serviceWorkerRows();
+  const workerCount = rows.filter((row) => serviceWorkerRowValues(row).userId).length;
+  const travelHours = rows.reduce((total, row) => total + serviceWorkerRowValues(row).travelHours, 0);
+  const publicHours = rows.reduce((total, row) => total + serviceWorkerRowValues(row).publicHours, 0);
   if (totalServiceInput) {
     totalServiceInput.value = formatReportNumber(calculateRoundedServiceHours() * workerCount);
   }
   if (drivingMilesInput) {
     drivingMilesInput.value = formatReportNumber(calculateWorkerDrivingMiles());
   }
+  if (travelInput) travelInput.value = formatReportNumber(travelHours);
+  if (publicTransportInput) publicTransportInput.value = formatReportNumber(publicHours);
   if (totalTimeInput) {
     totalTimeInput.value = formatReportNumber(
       parseReportNumber(travelInput?.value) + parseReportNumber(publicTransportInput?.value)
@@ -426,24 +457,77 @@ document.querySelectorAll("[data-local-photo]").forEach((input) => {
 });
 
 serviceReportForm?.querySelectorAll(
-  "[name='arrival_time_hour'], [name='arrival_time_minute'], [name='departure_time_hour'], [name='departure_time_minute'], [name='worker_user_id'], [name^='worker_driving_miles_'], [name='travel_hours'], [name='public_transport_hours']"
+  "[name='arrival_time_hour'], [name='arrival_time_minute'], [name='departure_time_hour'], [name='departure_time_minute'], [name='mileage_billing_method']"
 ).forEach((input) => {
   input.addEventListener("input", updateReportCalculatedFields);
   input.addEventListener("change", updateReportCalculatedFields);
 });
 updateReportCalculatedFields();
 
+const serviceWorkersTable = document.getElementById("serviceWorkersTable");
+const addServiceWorkerRow = document.getElementById("addServiceWorkerRow");
+const deleteServiceWorkerRow = document.getElementById("deleteServiceWorkerRow");
+let selectedServiceWorkerRow = null;
+
+function selectServiceWorkerRow(row) {
+  selectedServiceWorkerRow = row;
+  serviceWorkerRows().forEach((candidate) => {
+    const selected = candidate === row;
+    candidate.classList.toggle("selected", selected);
+    candidate.setAttribute("aria-selected", selected ? "true" : "false");
+  });
+  if (deleteServiceWorkerRow) deleteServiceWorkerRow.disabled = !row;
+}
+
+function initializeServiceWorkerRow(row) {
+  updateWorkerTravelFields(row);
+  row.addEventListener("click", () => selectServiceWorkerRow(row));
+  row.querySelectorAll("input, select").forEach((input) => {
+    input.addEventListener("input", updateReportCalculatedFields);
+    input.addEventListener("change", () => {
+      if (input.name === "worker_travel_mode") updateWorkerTravelFields(row);
+      updateReportCalculatedFields();
+    });
+  });
+}
+
+serviceWorkerRows().forEach(initializeServiceWorkerRow);
+addServiceWorkerRow?.addEventListener("click", () => {
+  const template = document.getElementById("serviceWorkerRowTemplate");
+  const row = template?.content.firstElementChild?.cloneNode(true);
+  if (!row) return;
+  serviceWorkersTable.querySelector("tbody").appendChild(row);
+  initializeServiceWorkerRow(row);
+  selectServiceWorkerRow(row);
+  row.querySelector("select")?.focus();
+  updateReportCalculatedFields();
+});
+deleteServiceWorkerRow?.addEventListener("click", () => {
+  if (!selectedServiceWorkerRow) return;
+  selectedServiceWorkerRow.remove();
+  selectedServiceWorkerRow = null;
+  deleteServiceWorkerRow.disabled = true;
+  updateReportCalculatedFields();
+});
+if (!serviceWorkerRows().length) addServiceWorkerRow?.click();
+
 serviceReportForm?.addEventListener("submit", (event) => {
   const submitter = event.submitter;
   if (submitter?.classList.contains("delete-photo")) return;
   updateReportCalculatedFields();
-  const workerInputs = Array.from(document.querySelectorAll("[name='worker_user_id']"));
-  const selectedWorker = workerInputs.find((input) => input.checked);
+  const workerRows = serviceWorkerRows();
+  const workerIds = workerRows.map((row) => serviceWorkerRowValues(row).userId).filter(Boolean);
   const workerError = document.getElementById("serviceWorkersError");
-  if (!selectedWorker) {
+  const invalidWorker = workerRows.find((row) => {
+    const worker = serviceWorkerRowValues(row);
+    return !worker.userId
+      || ((worker.mode === "self_drive" || worker.mode === "following") && (worker.miles <= 0 || worker.travelHours <= 0))
+      || (worker.mode === "flight" && worker.publicHours <= 0);
+  });
+  if (!workerRows.length || invalidWorker || new Set(workerIds).size !== workerIds.length) {
     event.preventDefault();
     workerError.hidden = false;
-    workerInputs[0]?.focus();
+    invalidWorker?.querySelector("select, input")?.focus();
     return;
   }
   workerError.hidden = true;

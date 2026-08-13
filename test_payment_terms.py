@@ -43,6 +43,12 @@ class PaymentTermsTest(unittest.TestCase):
                 values ('Admin', 'admin@example.com', 'unused', 'admin', 1, '2026-08-13T00:00:00')
                 """
             ).lastrowid
+            self.employee_id = connection.execute(
+                """
+                insert into users (name, email, password_hash, role, is_active, country_code, created_at)
+                values ('Technician', 'tech@example.com', 'unused', 'employee', 1, 'US', '2026-08-13T00:00:00')
+                """
+            ).lastrowid
             self.client_id = connection.execute(
                 """
                 insert into clients (client_number, name, short_name, payment_term_id, created_at)
@@ -154,6 +160,70 @@ class PaymentTermsTest(unittest.TestCase):
         response = self.http.get("/login?next=/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("登录", response.get_data(as_text=True))
+
+    def test_service_report_worker_rows_and_long_distance_warning(self):
+        with self.module.app.app_context():
+            self.module.db().execute(
+                "update service_orders set start_date = '2026-08-13' where id = ?",
+                (self.open_order_id,),
+            )
+            self.module.db().commit()
+        response = self.http.post(
+            f"/service-orders/{self.open_order_id}/reports/new",
+            data={
+                "save_token": "travel-row-test-token",
+                "report_date": "2026-08-13",
+                "actual_work_date": "2026-08-13",
+                "arrival_time_hour": "08", "arrival_time_minute": "00",
+                "departure_time_hour": "16", "departure_time_minute": "00",
+                "mileage_billing_method": "per_person",
+                "worker_user_id": [str(self.employee_id)],
+                "worker_travel_mode": ["following"],
+                "worker_driving_miles": ["600"],
+                "worker_travel_hours": ["8"],
+                "worker_public_transport_hours": [""],
+                "worker_work_description": ["现场协助"],
+                "site_address": "Test Site",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            report = self.module.db().execute(
+                "select * from service_reports where service_order_id = ? order by id desc limit 1",
+                (self.open_order_id,),
+            ).fetchone()
+            worker = self.module.db().execute(
+                "select * from service_report_workers where report_id = ?", (report["id"],)
+            ).fetchone()
+            self.assertEqual(report["driving_miles"], 600)
+            self.assertEqual(report["travel_hours"], 8)
+            self.assertEqual(worker["travel_mode"], "following")
+            self.assertEqual(worker["work_description"], "现场协助")
+            order = dict(self.module.db().execute(
+                "select * from service_orders where id = ?", (self.open_order_id,)
+            ).fetchone())
+            order["buyer_owner"] = "Test Owner"
+            document_bytes = self.module.build_service_report_docx(report, order)
+            self.assertTrue(document_bytes.startswith(b"PK"))
+            warnings = self.module.excessive_following_mileage_rows(self.open_order_id)
+            self.assertEqual(len(warnings), 1)
+            grade_id = self.module.db().execute(
+                """
+                insert into employee_grades (
+                    grade_name, car_allowance_method, car_mileage_rate, car_hourly_rate, created_at
+                ) values ('Travel Test', 'mileage', 0.5, 10, '2026-08-13T00:00:00')
+                """
+            ).lastrowid
+            self.module.db().execute(
+                "update users set employee_grade_id = ? where id = ?",
+                (grade_id, self.employee_id),
+            )
+            self.module.db().commit()
+            payroll = self.module.payroll_rows_for_range(
+                self.module.date(2026, 8, 6), self.module.date(2026, 8, 19),
+                self.module.date(2026, 9, 2), str(self.employee_id),
+            )
+            self.assertEqual(payroll["rows"][0]["car_allowance"], 80)
 
 
 if __name__ == "__main__":

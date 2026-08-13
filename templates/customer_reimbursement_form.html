@@ -69,6 +69,12 @@
   {% if reviewer %}
     <p class="muted-line">最近审核人：{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</p>
   {% endif %}
+  {% if excessive_following_mileage %}
+    <section class="panel"><div class="flash error">
+      随行人员的里程数超过500英里，请维护后再确认结算：
+      {% for row in excessive_following_mileage %}<a href="{{ url_for('edit_service_report', report_id=row.report_id) }}">{{ row.report_date }} {{ row.worker_name }}（{{ row.driving_miles }}英里）</a>{% if not loop.last %}；{% endif %}{% endfor %}
+    </div></section>
+  {% endif %}
 
   {% if reimbursement.status == "submitted" and normalized_role() in ["admin", "manager"] %}
     <dialog id="returnCustomerReimbursementDialog" class="modal">

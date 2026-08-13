@@ -9,24 +9,6 @@
     </label>
 
     <fieldset class="plain-fieldset full">
-      <legend>车补</legend>
-      <label class="check-line">
-        <input type="radio" name="car_allowance_method" value="daily" {% if settings.car_allowance_method == "daily" %}checked{% endif %}>
-        每天定额补贴，油费另外报销
-      </label>
-      <label>每天定额
-        <input type="number" step="0.01" min="0" name="car_daily_amount" value="{{ settings.car_daily_amount }}">
-      </label>
-      <label class="check-line">
-        <input type="radio" name="car_allowance_method" value="mileage" {% if settings.car_allowance_method == "mileage" %}checked{% endif %}>
-        按英里补贴，不报销油费
-      </label>
-      <label>每英里单价
-        <input type="number" step="0.01" min="0" name="car_mileage_rate" value="{{ settings.car_mileage_rate }}">
-      </label>
-    </fieldset>
-
-    <fieldset class="plain-fieldset full">
       <legend>报告撰写费</legend>
       <label>每份日报金额
         <input type="number" step="0.01" min="0" name="report_writing_fee" value="{{ settings.report_writing_fee }}">

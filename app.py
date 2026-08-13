@@ -533,6 +533,9 @@ def init_db():
                 description text not null default '',
                 base_salary real not null default 0,
                 meal_daily_amount real not null default 0,
+                car_allowance_method text not null default 'mileage',
+                car_mileage_rate real not null default 0.5,
+                car_hourly_rate real not null default 10,
                 standard_hourly_rate real not null default 0,
                 transport_hourly_rate real not null default 0,
                 overtime_hourly_rate real not null default 0,
@@ -855,6 +858,7 @@ def init_db():
                 travel_hours real not null default 0,
                 public_transport_hours real not null default 0,
                 driving_miles real not null default 0,
+                mileage_billing_method text not null default 'per_person',
                 departure_address text,
                 site_address text,
                 total_time text,
@@ -876,6 +880,10 @@ def init_db():
                 report_id integer not null,
                 user_id integer not null,
                 driving_miles real not null default 0,
+                travel_mode text not null default 'legacy',
+                travel_hours real,
+                public_transport_hours real,
+                work_description text not null default '',
                 foreign key(report_id) references service_reports(id) on delete cascade,
                 foreign key(user_id) references users(id)
             );
@@ -1084,9 +1092,28 @@ def init_db():
         ensure_column(connection, "users", "employee_grade_id", "integer")
         ensure_column(connection, "users", "address", "text not null default ''")
         ensure_column(connection, "users", "default_language", "text not null default 'zh-CN'")
+        existing_grade_columns = {
+            row["name"] for row in connection.execute("pragma table_info(employee_grades)").fetchall()
+        }
         ensure_column(connection, "employee_grades", "description", "text not null default ''")
         ensure_column(connection, "employee_grades", "meal_daily_amount", "real not null default 0")
+        ensure_column(connection, "employee_grades", "car_allowance_method", "text not null default 'mileage'")
+        ensure_column(connection, "employee_grades", "car_mileage_rate", "real not null default 0.5")
+        ensure_column(connection, "employee_grades", "car_hourly_rate", "real not null default 10")
+        if "car_mileage_rate" not in existing_grade_columns:
+            legacy_rate = connection.execute(
+                "select value from settings where key = 'payroll_car_mileage_rate'"
+            ).fetchone()
+            connection.execute(
+                "update employee_grades set car_allowance_method = 'mileage', car_mileage_rate = ?, car_hourly_rate = 10",
+                (to_float(legacy_rate["value"]) if legacy_rate else 0.5,),
+            )
         ensure_column(connection, "service_reports", "report_writer_id", "integer")
+        ensure_column(connection, "service_reports", "mileage_billing_method", "text not null default 'per_person'")
+        ensure_column(connection, "service_report_workers", "travel_mode", "text not null default 'legacy'")
+        ensure_column(connection, "service_report_workers", "travel_hours", "real")
+        ensure_column(connection, "service_report_workers", "public_transport_hours", "real")
+        ensure_column(connection, "service_report_workers", "work_description", "text not null default ''")
         ensure_column(connection, "knowledge_documents", "is_pinned", "integer not null default 0")
         ensure_column(connection, "knowledge_documents", "expires_on", "text")
         ensure_column(connection, "knowledge_documents", "view_count", "integer not null default 0")
@@ -4135,6 +4162,56 @@ def report_worker_ids_from_form():
     return list(dict.fromkeys(value for value in request.form.getlist("worker_user_id") if value))
 
 
+REPORT_TRAVEL_MODES = {"self_drive", "flight", "following"}
+
+
+def report_worker_rows_from_form():
+    field_names = (
+        "worker_user_id", "worker_travel_mode", "worker_driving_miles",
+        "worker_travel_hours", "worker_public_transport_hours", "worker_work_description",
+    )
+    values = {name: request.form.getlist(name) for name in field_names}
+    rows = []
+    for index, raw_user_id in enumerate(values["worker_user_id"]):
+        user_id = str(raw_user_id or "").strip()
+        if not user_id:
+            continue
+        row = {
+            name: (values[name][index].strip() if index < len(values[name]) else "")
+            for name in field_names
+        }
+        row["worker_user_id"] = user_id
+        mode = row["worker_travel_mode"]
+        if mode not in REPORT_TRAVEL_MODES:
+            raise ValueError("请选择有效的服务人员出行方式。")
+        miles = to_float(row["worker_driving_miles"])
+        travel_hours = to_float(row["worker_travel_hours"])
+        public_hours = to_float(row["worker_public_transport_hours"])
+        if mode in {"self_drive", "following"} and miles <= 0:
+            raise ValueError("自驾和随行人员必须填写里程。")
+        if mode in {"self_drive", "following"} and travel_hours <= 0:
+            raise ValueError("自驾和随行人员必须填写交通时长。")
+        if mode == "flight" and public_hours <= 0:
+            raise ValueError("飞机出行必须填写公共交通时长。")
+        row.update(
+            driving_miles=miles if mode != "flight" else 0,
+            travel_hours=travel_hours if mode != "flight" else 0,
+            public_transport_hours=public_hours if mode == "flight" else 0,
+        )
+        rows.append(row)
+    if not rows:
+        raise ValueError("服务人员清单至少需要添加一人。")
+    if len({row["worker_user_id"] for row in rows}) != len(rows):
+        raise ValueError("同一名服务人员不能重复添加。")
+    return rows
+
+
+def report_billing_mileage(worker_rows, method):
+    if method == "per_vehicle":
+        return round(sum(row["driving_miles"] for row in worker_rows if row["worker_travel_mode"] == "self_drive"), 2)
+    return round(sum(row["driving_miles"] for row in worker_rows if row["worker_travel_mode"] in {"self_drive", "following"}), 2)
+
+
 def get_report_attachments(report_id):
     rows = db().execute(
         """
@@ -4233,21 +4310,19 @@ def format_report_hours(value):
 
 
 def calculated_report_total_time():
-    return format_report_hours(
-        to_float(request.form.get("travel_hours")) + to_float(request.form.get("public_transport_hours"))
-    )
+    rows = report_worker_rows_from_form()
+    return format_report_hours(sum(row["travel_hours"] + row["public_transport_hours"] for row in rows))
 
 
 def calculated_report_total_service_hours(arrival_time, departure_time):
-    return rounded_report_service_hours(arrival_time, departure_time) * len(report_worker_ids_from_form())
+    return rounded_report_service_hours(arrival_time, departure_time) * len(report_worker_rows_from_form())
 
 
 def calculated_report_driving_miles():
-    total = sum(
-        to_float(request.form.get(f"worker_driving_miles_{user_id}"))
-        for user_id in report_worker_ids_from_form()
-    )
-    return round(total, 2)
+    method = request.form.get("mileage_billing_method", "per_person")
+    if method not in {"per_person", "per_vehicle"}:
+        method = "per_person"
+    return report_billing_mileage(report_worker_rows_from_form(), method)
 
 
 def observed_us_holidays(year):
@@ -4303,7 +4378,13 @@ def report_actual_date(report):
 
 def split_report_labor_hours(report, worker_count=1):
     work_hours = report_duration_hours(report, worker_count)
-    transport_hours = float(report["public_transport_hours"] or 0)
+    if "worker_public_transport_hours" in report.keys():
+        worker_public_hours = report["worker_public_transport_hours"]
+        transport_hours = float(
+            worker_public_hours if worker_public_hours is not None else report["public_transport_hours"] or 0
+        )
+    else:
+        transport_hours = float(report["public_transport_hours"] or 0)
     try:
         work_day = date.fromisoformat(report_actual_date(report))
     except (TypeError, ValueError):
@@ -4338,7 +4419,9 @@ def customer_reimbursement_seed_rows(order_id):
     for report in reports:
         workers = db().execute(
             """
-            select users.name, service_report_workers.driving_miles
+            select users.name, service_report_workers.driving_miles,
+                   service_report_workers.travel_mode, service_report_workers.travel_hours,
+                   service_report_workers.public_transport_hours as worker_public_transport_hours
             from service_report_workers
             join users on users.id = service_report_workers.user_id
             where service_report_workers.report_id = ?
@@ -4348,8 +4431,15 @@ def customer_reimbursement_seed_rows(order_id):
         ).fetchall()
         if not workers:
             continue
-        labor_hours = split_report_labor_hours(report, len(workers))
         for worker in workers:
+            worker_report = dict(report)
+            worker_report["worker_public_transport_hours"] = worker["worker_public_transport_hours"]
+            labor_hours = split_report_labor_hours(worker_report, len(workers))
+            mode = worker["travel_mode"] or "legacy"
+            if report["mileage_billing_method"] == "per_vehicle":
+                billing_miles = worker["driving_miles"] if mode in {"self_drive", "legacy"} else 0
+            else:
+                billing_miles = worker["driving_miles"] if mode != "flight" else 0
             row = {
                 "worker_name": worker["name"],
                 "project_date": report_actual_date(report),
@@ -4368,12 +4458,29 @@ def customer_reimbursement_seed_rows(order_id):
                 "fuel": 0,
                 "parking": 0,
                 "taxi": 0,
-                "miles": worker["driving_miles"] or 0,
+                "miles": billing_miles or 0,
                 "mileage_rate": rates["里程费"],
                 "other": 0,
             }
             rows.append(calculate_customer_reimbursement_item(row, len(rows)))
     return rows
+
+
+def excessive_following_mileage_rows(order_id, threshold=500):
+    return db().execute(
+        """
+        select service_reports.id as report_id, service_reports.report_date,
+               users.name as worker_name, service_report_workers.driving_miles
+        from service_report_workers
+        join service_reports on service_reports.id = service_report_workers.report_id
+        join users on users.id = service_report_workers.user_id
+        where service_reports.service_order_id = ?
+          and service_report_workers.travel_mode = 'following'
+          and service_report_workers.driving_miles > ?
+        order by service_reports.report_date, users.name
+        """,
+        (order_id, threshold),
+    ).fetchall()
 
 
 def calculate_customer_reimbursement_item(row, sort_order=0):
@@ -5128,7 +5235,9 @@ def get_expense_attachments(expense_id):
 def service_report_workers(report_id):
     return db().execute(
         """
-        select users.id, users.name, users.email, service_report_workers.driving_miles
+        select users.id, users.name, users.email, service_report_workers.driving_miles,
+               service_report_workers.travel_mode, service_report_workers.travel_hours,
+               service_report_workers.public_transport_hours, service_report_workers.work_description
         from service_report_workers
         join users on users.id = service_report_workers.user_id
         where service_report_workers.report_id = ?
@@ -5151,7 +5260,7 @@ def service_report_worker_options(order, report_id=None):
     role_clause = (
         "users.id = ?"
         if is_external_employee()
-        else "users.role in ('manager', 'finance', 'employee')"
+        else "users.role in ('manager', 'finance', 'employee', 'external_employee')"
     )
     if is_external_employee():
         params.insert(0, g.user["id"])
@@ -5225,6 +5334,7 @@ def report_form_defaults(report=None, order=None):
         "travel_hours": "",
         "public_transport_hours": "",
         "driving_miles": "",
+        "mileage_billing_method": "per_person",
         "departure_address": "",
         "site_address": order["site_address"] if order else "",
         "total_time": "",
@@ -5237,9 +5347,8 @@ def report_form_defaults(report=None, order=None):
 
 
 def save_report_detail_rows(report_id):
-    worker_ids = report_worker_ids_from_form()
-    if not worker_ids:
-        raise ValueError("服务人员清单至少需要选择一人。")
+    worker_rows = report_worker_rows_from_form()
+    worker_ids = [row["worker_user_id"] for row in worker_rows]
     placeholders = ",".join("?" for _ in worker_ids)
     report_order = db().execute(
         """
@@ -5272,11 +5381,19 @@ def save_report_detail_rows(report_id):
         raise ValueError("服务人员清单包含无效用户，请重新选择。")
 
     db().execute("delete from service_report_workers where report_id = ?", (report_id,))
-    for user_id in worker_ids:
-        worker_miles = to_float(request.form.get(f"worker_driving_miles_{user_id}"))
+    for worker in worker_rows:
         db().execute(
-            "insert into service_report_workers (report_id, user_id, driving_miles) values (?, ?, ?)",
-            (report_id, user_id, worker_miles),
+            """
+            insert into service_report_workers (
+                report_id, user_id, driving_miles, travel_mode, travel_hours,
+                public_transport_hours, work_description
+            ) values (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                report_id, worker["worker_user_id"], worker["driving_miles"],
+                worker["worker_travel_mode"], worker["travel_hours"],
+                worker["public_transport_hours"], worker["worker_work_description"],
+            ),
         )
 
     db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
@@ -7503,11 +7620,17 @@ def employee_grades():
         if not grade_name:
             flash("请填写员工等级。", "error")
             return redirect(url_for("employee_grades"))
+        car_method = request.form.get("car_allowance_method", "mileage")
+        if car_method not in {"mileage", "hourly"}:
+            car_method = "mileage"
         values = (
             grade_name,
             request.form.get("description", "").strip(),
             to_float(request.form.get("base_salary")),
             max(to_float(request.form.get("meal_daily_amount")), 0),
+            car_method,
+            max(to_float(request.form.get("car_mileage_rate")), 0),
+            max(to_float(request.form.get("car_hourly_rate")), 0),
             to_float(request.form.get("standard_hourly_rate")),
             to_float(request.form.get("transport_hourly_rate")),
             to_float(request.form.get("overtime_hourly_rate")),
@@ -7519,7 +7642,8 @@ def employee_grades():
                 db().execute(
                     """
                     update employee_grades
-                    set grade_name = ?, description = ?, base_salary = ?, meal_daily_amount = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
+                    set grade_name = ?, description = ?, base_salary = ?, meal_daily_amount = ?,
+                        car_allowance_method = ?, car_mileage_rate = ?, car_hourly_rate = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
                         overtime_hourly_rate = ?, holiday_hourly_rate = ?, is_active = ?
                     where id = ?
                     """,
@@ -7530,9 +7654,10 @@ def employee_grades():
                 cursor = db().execute(
                     """
                     insert into employee_grades (
-                        grade_name, description, base_salary, meal_daily_amount, standard_hourly_rate, transport_hourly_rate,
+                        grade_name, description, base_salary, meal_daily_amount, car_allowance_method,
+                        car_mileage_rate, car_hourly_rate, standard_hourly_rate, transport_hourly_rate,
                         overtime_hourly_rate, holiday_hourly_rate, is_active, created_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (*values, now()),
                 )
@@ -7573,14 +7698,8 @@ def payroll_subsidies():
     if not can_manage_employee_grades():
         abort(403)
     if request.method == "POST":
-        car_method = request.form.get("car_allowance_method", "daily")
-        if car_method not in {"daily", "mileage"}:
-            car_method = "daily"
         values = {
             "payroll_cycle_start": request.form.get("cycle_start") or "2026-07-06",
-            "payroll_car_allowance_method": car_method,
-            "payroll_car_daily_amount": max(to_float(request.form.get("car_daily_amount")), 0),
-            "payroll_car_mileage_rate": max(to_float(request.form.get("car_mileage_rate")), 0),
             "payroll_report_writing_fee": max(to_float(request.form.get("report_writing_fee")), 0),
             "payroll_lodging_limit": max(to_float(request.form.get("lodging_limit")), 0),
         }
@@ -9121,6 +9240,9 @@ def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actu
                service_reports.travel_hours,
                service_reports.public_transport_hours,
                service_report_workers.driving_miles as worker_driving_miles,
+               service_report_workers.travel_mode as worker_travel_mode,
+               service_report_workers.travel_hours as worker_travel_hours,
+               service_report_workers.public_transport_hours as worker_public_transport_hours,
                service_reports.arrival_time,
                service_reports.departure_time,
                service_orders.id as service_order_id,
@@ -9132,6 +9254,9 @@ def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actu
                employee_grades.grade_name,
                employee_grades.base_salary,
                employee_grades.meal_daily_amount,
+               employee_grades.car_allowance_method,
+               employee_grades.car_mileage_rate,
+               employee_grades.car_hourly_rate,
                employee_grades.standard_hourly_rate,
                employee_grades.transport_hourly_rate,
                employee_grades.overtime_hourly_rate,
@@ -9231,12 +9356,16 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             "grade_name": row["grade_name"] or "未指定",
             "base_salary": float(row["base_salary"] or 0),
             "meal_daily_amount": float(row["meal_daily_amount"] or 0),
+            "car_allowance_method": row["car_allowance_method"] or "mileage",
+            "car_mileage_rate": float(row["car_mileage_rate"] or 0),
+            "car_hourly_rate": float(row["car_hourly_rate"] or 10),
             "standard_rate": float(row["standard_hourly_rate"] or 0),
             "transport_rate": float(row["transport_hourly_rate"] or 0),
             "overtime_rate": float(row["overtime_hourly_rate"] or 0),
             "holiday_rate": float(row["holiday_hourly_rate"] or 0),
             "standard_hours": 0, "transport_hours": 0, "overtime_hours": 0,
             "holiday_hours": 0, "attendance_dates": set(), "driving_miles": 0,
+            "following_travel_hours": 0, "car_travel_hours": 0,
             "report_writing_count": 0,
         })
 
@@ -9246,7 +9375,13 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             worker[key] += row[key]
         if row["attendance_date"]:
             worker["attendance_dates"].add(row["attendance_date"])
-        worker["driving_miles"] += float(row["worker_driving_miles"] or 0)
+        travel_mode = row["worker_travel_mode"] or "legacy"
+        if travel_mode in {"self_drive", "legacy"}:
+            worker["driving_miles"] += float(row["worker_driving_miles"] or 0)
+        if travel_mode == "following":
+            worker["following_travel_hours"] += float(row["worker_travel_hours"] or 0)
+        if travel_mode in {"self_drive", "following", "legacy"}:
+            worker["car_travel_hours"] += float(row["worker_travel_hours"] or 0)
 
     date_expr = "date(service_reports.report_date)" if date_mode == "report" else "date(coalesce(service_reports.actual_work_date, service_reports.report_date))"
     clauses = [f"{date_expr} >= ?", f"{date_expr} <= ?", "service_reports.report_writer_id is not null"]
@@ -9259,6 +9394,8 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         select users.id as worker_id, users.name as worker_name,
                employee_grades.grade_name, employee_grades.base_salary,
                employee_grades.meal_daily_amount, employee_grades.standard_hourly_rate,
+               employee_grades.car_allowance_method, employee_grades.car_mileage_rate,
+               employee_grades.car_hourly_rate,
                employee_grades.transport_hourly_rate, employee_grades.overtime_hourly_rate,
                employee_grades.holiday_hourly_rate, count(service_reports.id) as report_writing_count
         from service_reports join users on users.id = service_reports.report_writer_id
@@ -9277,9 +9414,13 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         transport_pay = worker["transport_hours"] * worker["transport_rate"]
         overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
         holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
-        car_allowance = (worker["driving_miles"] * subsidy_settings["car_mileage_rate"]
-                         if subsidy_settings["car_allowance_method"] == "mileage"
-                         else attendance_days * subsidy_settings["car_daily_amount"])
+        if worker["car_allowance_method"] == "hourly":
+            car_allowance = worker["car_travel_hours"] * worker["car_hourly_rate"]
+        else:
+            car_allowance = (
+                worker["driving_miles"] * worker["car_mileage_rate"]
+                + worker["following_travel_hours"] * worker["car_hourly_rate"]
+            )
         meal_allowance = attendance_days * worker["meal_daily_amount"]
         report_writing_fee = worker["report_writing_count"] * subsidy_settings["report_writing_fee"]
         subsidy_total = car_allowance + meal_allowance + report_writing_fee
@@ -9331,7 +9472,13 @@ def payroll_payslip_payload(row):
         {"label": "假期工资", "hours": round(row["holiday_hours"], 2), "rate": round(row["holiday_rate"], 2), "amount": round(row["holiday_pay"], 2)},
     ]
     if row["car_allowance"] > 0:
-        lines.append({"label": "车补", "days": row["attendance_days"], "miles": round(row["driving_miles"], 1), "amount": round(row["car_allowance"], 2)})
+        lines.append({
+            "label": "车补",
+            "miles": round(row["driving_miles"], 1),
+            "hours": round(row["car_travel_hours"], 2),
+            "rate": round(row["car_hourly_rate"] if row["car_allowance_method"] == "hourly" else row["car_mileage_rate"], 2),
+            "amount": round(row["car_allowance"], 2),
+        })
     if row["meal_allowance"] > 0:
         lines.append({"label": "餐补", "days": row["attendance_days"], "rate": round(row["meal_daily_amount"], 2), "amount": round(row["meal_allowance"], 2)})
     if row["report_writing_fee"] > 0:
@@ -11108,6 +11255,7 @@ def customer_reimbursement_form(order_id):
         linked_invoice=linked_invoice,
         reviewer=reviewer,
         email_delivery=email_delivery_summary("customer_reimbursement", reimbursement["id"]),
+        excessive_following_mileage=excessive_following_mileage_rows(order_id),
         can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
     )
 
@@ -11346,6 +11494,7 @@ def new_service_report(order_id):
             flash("该日报正在保存，请稍候。", "error")
             return redirect(url_for("new_service_report", order_id=order_id))
         try:
+            worker_rows = report_worker_rows_from_form()
             arrival_time = posted_report_time("arrival_time")
             departure_time = posted_report_time("departure_time")
             total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
@@ -11355,18 +11504,19 @@ def new_service_report(order_id):
                 """
                 insert into service_reports (
                     service_order_id, report_date, actual_work_date, total_service_hours, travel_hours, public_transport_hours,
-                    driving_miles, departure_address, site_address, total_time, cabinet_number,
+                    driving_miles, mileage_billing_method, departure_address, site_address, total_time, cabinet_number,
                     arrival_time, departure_time, service_description, report_writer_id, created_by, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
                     request.form.get("report_date"),
                     request.form.get("actual_work_date") or request.form.get("report_date"),
                     total_service_hours,
-                    to_float(request.form.get("travel_hours")),
-                    to_float(request.form.get("public_transport_hours")),
+                    sum(row["travel_hours"] for row in worker_rows),
+                    sum(row["public_transport_hours"] for row in worker_rows),
                     driving_miles,
+                    request.form.get("mileage_billing_method", "per_person"),
                     request.form.get("departure_address", "").strip(),
                     request.form.get("site_address", "").strip(),
                     total_time,
@@ -11404,8 +11554,7 @@ def new_service_report(order_id):
         report=report_form_defaults(order=order),
         users=users_rows,
         report_writers=report_writers,
-        selected_workers=[],
-        selected_worker_miles={},
+        worker_rows=[],
         saved_parts=[{} for _ in range(4)],
         replaced_parts=[{} for _ in range(4)],
         attachments=get_report_attachments(0),
@@ -11431,6 +11580,7 @@ def edit_service_report(report_id):
             flash("该日报已经保存，请勿重复提交。", "success")
             return redirect(url_for("edit_service_report", report_id=report_id))
         try:
+            worker_rows = report_worker_rows_from_form()
             arrival_time = posted_report_time("arrival_time")
             departure_time = posted_report_time("departure_time")
             total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
@@ -11440,7 +11590,7 @@ def edit_service_report(report_id):
                 """
                 update service_reports
                 set report_date = ?, actual_work_date = ?, total_service_hours = ?, travel_hours = ?, public_transport_hours = ?,
-                    driving_miles = ?, departure_address = ?, site_address = ?, total_time = ?, cabinet_number = ?,
+                    driving_miles = ?, mileage_billing_method = ?, departure_address = ?, site_address = ?, total_time = ?, cabinet_number = ?,
                     arrival_time = ?, departure_time = ?, service_description = ?, report_writer_id = ?, updated_at = ?
                 where id = ?
                 """,
@@ -11448,9 +11598,10 @@ def edit_service_report(report_id):
                     request.form.get("report_date"),
                     request.form.get("actual_work_date") or request.form.get("report_date"),
                     total_service_hours,
-                    to_float(request.form.get("travel_hours")),
-                    to_float(request.form.get("public_transport_hours")),
+                    sum(row["travel_hours"] for row in worker_rows),
+                    sum(row["public_transport_hours"] for row in worker_rows),
                     driving_miles,
+                    request.form.get("mileage_billing_method", "per_person"),
                     request.form.get("departure_address", "").strip(),
                     request.form.get("site_address", "").strip(),
                     total_time,
@@ -11481,8 +11632,6 @@ def edit_service_report(report_id):
         flash("工作日报已保存。", "success")
         return redirect(url_for("edit_service_report", report_id=report_id))
     worker_rows = service_report_workers(report_id)
-    selected_workers = [row["id"] for row in worker_rows]
-    selected_worker_miles = {row["id"]: row["driving_miles"] for row in worker_rows}
     saved_parts = list(report_parts("service_report_saved_parts", report_id)) or [{} for _ in range(4)]
     replaced_parts = list(report_parts("service_report_replaced_parts", report_id)) or [{} for _ in range(4)]
     return render_template(
@@ -11491,8 +11640,7 @@ def edit_service_report(report_id):
         report=report_form_defaults(report=report),
         users=users_rows,
         report_writers=report_writers,
-        selected_workers=selected_workers,
-        selected_worker_miles=selected_worker_miles,
+        worker_rows=worker_rows,
         saved_parts=saved_parts,
         replaced_parts=replaced_parts,
         attachments=get_report_attachments(report_id),
@@ -13247,7 +13395,14 @@ def build_service_report_docx(report, order):
 
     add_section_title("现场服务描述")
     description_table = document.add_table(rows=2, cols=1)
-    set_cell_text(description_table.rows[0].cells[0], report["service_description"] or "")
+    worker_descriptions = [
+        f"{worker['name']}：{worker['work_description']}"
+        for worker in workers if worker["work_description"]
+    ]
+    description_text = report["service_description"] or ""
+    if worker_descriptions:
+        description_text = "\n".join(([description_text] if description_text else []) + worker_descriptions)
+    set_cell_text(description_table.rows[0].cells[0], description_text)
     description_table.rows[0].cells[0].paragraphs[0].paragraph_format.space_after = Pt(20)
     set_cell_text(description_table.rows[1].cells[0], f"机柜编号：{report['cabinet_number'] or ''}", bold=True)
     style_table(description_table, column_widths=[7.0])
