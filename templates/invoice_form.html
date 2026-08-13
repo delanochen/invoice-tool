@@ -18,9 +18,9 @@
     <div class="form-grid">
       <label>发票编号 <input name="invoice_number" value="{{ defaults.invoice_number }}" {% if is_edit %}readonly{% endif %} required></label>
       <label>客户
-        <select name="client_id" required>
+        <select name="client_id" id="invoiceClientId" required>
           {% for client in clients %}
-            <option value="{{ client.id }}" {% if defaults.client_id and defaults.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
+            <option value="{{ client.id }}" data-payment-term-id="{{ client.payment_term_id or '' }}" {% if defaults.client_id and defaults.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
           {% endfor %}
         </select>
       </label>
@@ -34,8 +34,8 @@
           {% endfor %}
         </select>
       </label>
-      <label>开票日期 <input type="date" name="issue_date" value="{{ defaults.issue_date }}" required></label>
-      <label>到期日期 <input type="date" name="due_date" value="{{ defaults.due_date }}" required></label>
+      <label>开票日期 <input type="date" id="invoiceIssueDate" name="issue_date" value="{{ defaults.issue_date }}" required></label>
+      <label>到期日期 <input type="date" id="invoiceDueDate" name="due_date" value="{{ defaults.due_date }}" required><small id="invoicePaymentTermHint">按客户账期自动计算，可手工调整</small></label>
       <label>货币
         <select name="currency">
           <option value="USD" {% if (defaults.currency or "USD") == "USD" %}selected{% endif %}>USD</option>
@@ -166,10 +166,16 @@
         {id: "{{ project.id }}", name: {{ project.name|tojson }}, defaultAmount: "{{ project.default_amount }}", taxRate: "{{ project.tax_rate }}"}{% if not loop.last %},{% endif %}
       {% endfor %}
     ];
+    window.invoicePaymentTermRows = [
+      {% for term in payment_terms %}
+        {id: {{ term.id }}, name: {{ term.name|tojson }}, ruleType: {{ term.rule_type|tojson }}, fixedDays: {{ term.fixed_days }}, cutoffDay: {{ term.cutoff_day or 1 }}, dueDay: {{ term.due_day or 1 }}, beforeMonths: {{ term.before_due_months }}, afterMonths: {{ term.after_due_months }}}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ];
+    window.invoiceIsEdit = {{ is_edit|tojson }};
   </script>
   {% if is_edit %}
     <script src="{{ url_for('static', filename='invoice-detail.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
   {% endif %}
-  <script src="{{ url_for('static', filename='invoice-form.js', v='20260619-table-rows') }}"></script>
+  <script src="{{ url_for('static', filename='invoice-form.js', v=app_version) }}"></script>
 {% endblock %}

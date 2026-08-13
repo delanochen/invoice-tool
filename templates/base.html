@@ -25,7 +25,8 @@
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
-        {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "system_settings", "database_console", "menu_permissions", "users", "new_user", "edit_user"] %}
+        {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
+        {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "database_console", "menu_permissions"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
           <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
@@ -133,9 +134,6 @@
               or (has_menu_permission("projects") and has_action_permission("projects", "view"))
               or (has_menu_permission("countries") and has_action_permission("countries", "view"))
               or (has_menu_permission("company_info") and has_action_permission("company_info", "view"))
-              or (has_menu_permission("system_settings") and has_action_permission("system_settings", "view"))
-              or (has_menu_permission("database_console") and has_action_permission("database_console", "view"))
-              or normalized_role() == "admin"
               or (has_menu_permission("users") and has_action_permission("users", "view"))
             %}
             {% if show_basic_data %}
@@ -166,20 +164,28 @@
                 {% if has_menu_permission("company_info") and has_action_permission("company_info", "view") %}
                   {{ nav_link("company_info", "公司信息") }}
                 {% endif %}
-                {% if normalized_role() == "admin" %}
-                  {{ nav_link("menu_permissions", "权限管理") }}
-                {% endif %}
-                {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}
-                  {{ nav_link("system_settings", "系统设置") }}
-                {% endif %}
-                {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}
-                  {{ nav_link("database_console", "数据库工具") }}
-                {% endif %}
                 {% if has_menu_permission("users") and has_action_permission("users", "view") %}
                   {{ nav_link("users", "用户") }}
                 {% endif %}
               </div>
             </details>
+            {% endif %}
+            {% set show_system_config =
+              normalized_role() == "admin"
+              or (has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view"))
+              or (has_menu_permission("system_settings") and has_action_permission("system_settings", "view"))
+              or (has_menu_permission("database_console") and has_action_permission("database_console", "view"))
+            %}
+            {% if show_system_config %}
+              <details class="nav-group {{ 'active' if active_endpoint in system_config_endpoints else '' }}" {% if active_endpoint in system_config_endpoints %}open{% endif %}>
+                <summary>系统配置</summary>
+                <div class="nav-submenu">
+                  {% if normalized_role() == "admin" %}{{ nav_link("menu_permissions", "权限管理") }}{% endif %}
+                  {% if has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view") %}{{ nav_link("payment_terms", "账期管理") }}{% endif %}
+                  {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}{{ nav_link("system_settings", "系统设置") }}{% endif %}
+                  {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}{{ nav_link("database_console", "数据库工具") }}{% endif %}
+                </div>
+              </details>
             {% endif %}
           {% else %}
             {% if is_external_manager() %}

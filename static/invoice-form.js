@@ -13,6 +13,10 @@ const selectedZoomOriginalBtn = document.querySelector("#selectedZoomOriginalBtn
 const selectedZoomInBtn = document.querySelector("#selectedZoomInBtn");
 const closeSelectedAttachment = document.querySelector("#closeSelectedAttachment");
 const invoiceForm = document.querySelector("#invoiceForm");
+const invoiceClientId = document.querySelector("#invoiceClientId");
+const invoiceIssueDate = document.querySelector("#invoiceIssueDate");
+const invoiceDueDate = document.querySelector("#invoiceDueDate");
+const invoicePaymentTermHint = document.querySelector("#invoicePaymentTermHint");
 let invoiceSubmitting = false;
 let selectedAttachmentUrls = [];
 let selectedFiles = [];
@@ -23,6 +27,56 @@ const existingAttachmentNames = new Set(
     (link.dataset.previewName || link.textContent || "").trim().toLocaleLowerCase()
   )
 );
+
+function localDateFromIso(value) {
+  const parts = String(value || "").split("-").map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function localIsoDate(value) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function selectedPaymentTerm() {
+  const termId = Number(invoiceClientId?.selectedOptions[0]?.dataset.paymentTermId || 0);
+  return (window.invoicePaymentTermRows || []).find((term) => Number(term.id) === termId);
+}
+
+function calculatedInvoiceDueDate(issueValue, term) {
+  const issue = localDateFromIso(issueValue);
+  if (!issue || !term) return "";
+  if (term.ruleType === "fixed_days") {
+    issue.setDate(issue.getDate() + Number(term.fixedDays || 0));
+    return localIsoDate(issue);
+  }
+  const offset = issue.getDate() <= Number(term.cutoffDay)
+    ? Number(term.beforeMonths)
+    : Number(term.afterMonths);
+  const targetMonthIndex = issue.getFullYear() * 12 + issue.getMonth() + offset;
+  const targetYear = Math.floor(targetMonthIndex / 12);
+  const targetMonth = targetMonthIndex % 12;
+  const finalDay = Math.min(Number(term.dueDay), new Date(targetYear, targetMonth + 1, 0).getDate());
+  return localIsoDate(new Date(targetYear, targetMonth, finalDay));
+}
+
+function syncInvoiceDueDate(updateValue = true) {
+  const term = selectedPaymentTerm();
+  const calculated = calculatedInvoiceDueDate(invoiceIssueDate?.value, term);
+  if (updateValue && calculated && invoiceDueDate) invoiceDueDate.value = calculated;
+  if (invoicePaymentTermHint) {
+    invoicePaymentTermHint.textContent = term
+      ? `账期：${term.name}；自动到期日 ${calculated || "-"}，可手工调整`
+      : "客户未配置账期，可手工维护到期日";
+  }
+}
+
+invoiceClientId?.addEventListener("change", () => syncInvoiceDueDate(true));
+invoiceIssueDate?.addEventListener("change", () => syncInvoiceDueDate(true));
+syncInvoiceDueDate(!window.invoiceIsEdit);
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({

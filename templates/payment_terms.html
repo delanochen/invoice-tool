@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}账期管理 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div><p class="eyebrow">SYSTEM CONFIGURATION</p><h1>账期管理</h1></div>
+    {% if has_action_permission("payment_terms", "create") %}
+      <button class="primary" type="button" data-dialog-open="newPaymentTermDialog">新增账期</button>
+    {% endif %}
+  </header>
+
+  <section class="panel">
+    <div class="panel-title"><h2>账期方案</h2><span class="muted-line">{{ payment_terms|length }} 个方案</span></div>
+    <div class="table-scroll">
+      <table class="list-table">
+        <thead><tr><th>名称</th><th>类型</th><th>计算规则</th><th>客户数</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for term in payment_terms %}
+            <tr>
+              <td><strong>{{ term.name }}</strong></td>
+              <td>{{ "固定天数" if term.rule_type == "fixed_days" else "每月截止日" }}</td>
+              <td>{{ payment_term_description(term) }}</td>
+              <td>{{ assigned_counts.get(term.id, 0) }}</td>
+              <td><span class="status {{ 'completed' if term.is_active else 'draft' }}">{{ "启用" if term.is_active else "停用" }}</span></td>
+              <td>{{ term.notes or "-" }}</td>
+              <td><div class="row-actions">
+                {% if has_action_permission("payment_terms", "edit") %}
+                  <button class="small" type="button" data-dialog-open="editPaymentTerm{{ term.id }}">编辑</button>
+                  <form method="post" action="{{ url_for('toggle_payment_term', payment_term_id=term.id) }}">
+                    <button class="{{ 'danger ' if term.is_active else '' }}small" type="submit">{{ "停用" if term.is_active else "启用" }}</button>
+                  </form>
+                {% endif %}
+              </div></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <div><h2>历史发票到期日重算预览</h2><p class="muted-line">仅包含工单进行中、从未发送且未核销的发票；已关闭工单和已发送发票不会修改。</p></div>
+      {% if due_date_changes and has_action_permission("payment_terms", "edit") %}
+        <form method="post" action="{{ url_for('recalculate_payment_term_invoices') }}" onsubmit="return confirm('确定按照预览结果直接更新这些发票的到期日吗？');">
+          <button class="primary" type="submit">确认更新 {{ due_date_changes|length }} 张</button>
+        </form>
+      {% endif %}
+    </div>
+    <div class="table-scroll">
+      <table class="list-table">
+        <thead><tr><th>发票编号</th><th>客户</th><th>工单</th><th>开票日期</th><th>原到期日</th><th>新到期日</th><th>账期方案</th></tr></thead>
+        <tbody>
+          {% for change in due_date_changes %}
+            <tr><td>{{ change.invoice.invoice_number }}</td><td>{{ change.invoice.client_name }}</td><td>{{ change.invoice.order_number }}</td><td>{{ change.invoice.issue_date }}</td><td>{{ change.invoice.due_date }}</td><td><strong>{{ change.new_due_date }}</strong></td><td>{{ change.invoice.name }}</td></tr>
+          {% else %}
+            <tr><td colspan="7" class="empty">目前没有符合条件且需要修改到期日的发票。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% macro term_fields(term=None) %}
+    <div class="form-grid two-columns payment-term-fields">
+      <label>账期名称 <input name="name" value="{{ term.name if term else '' }}" required></label>
+      <label>规则类型
+        <select name="rule_type" data-payment-rule-type>
+          <option value="fixed_days" {% if not term or term.rule_type == 'fixed_days' %}selected{% endif %}>固定天数</option>
+          <option value="monthly_cutoff" {% if term and term.rule_type == 'monthly_cutoff' %}selected{% endif %}>每月截止日</option>
+        </select>
+      </label>
+      <label data-fixed-days>固定天数 <input type="number" name="fixed_days" min="0" max="3650" value="{{ term.fixed_days if term else 30 }}"></label>
+      <label data-monthly-cutoff>截止日（包含当天） <input type="number" name="cutoff_day" min="1" max="31" value="{{ term.cutoff_day if term and term.cutoff_day else 20 }}"></label>
+      <label data-monthly-cutoff>到期日 <input type="number" name="due_day" min="1" max="31" value="{{ term.due_day if term and term.due_day else 19 }}"></label>
+      <label data-monthly-cutoff>截止日前到期月偏移 <input type="number" name="before_due_months" min="0" max="24" value="{{ term.before_due_months if term else 1 }}"><small>1 表示次月</small></label>
+      <label data-monthly-cutoff>截止日后到期月偏移 <input type="number" name="after_due_months" min="0" max="24" value="{{ term.after_due_months if term else 2 }}"><small>2 表示下下月</small></label>
+      <label class="full-span">备注 <textarea name="notes" rows="3">{{ term.notes if term else '' }}</textarea></label>
+    </div>
+  {% endmacro %}
+
+  {% if has_action_permission("payment_terms", "create") %}
+    <dialog id="newPaymentTermDialog" class="modal-dialog">
+      <form method="post" class="form-stack">
+        <div class="dialog-header"><h2>新增账期方案</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+        {{ term_fields() }}
+        <div class="form-actions"><button class="primary" type="submit">保存账期</button></div>
+      </form>
+    </dialog>
+  {% endif %}
+  {% if has_action_permission("payment_terms", "edit") %}
+    {% for term in payment_terms %}
+      <dialog id="editPaymentTerm{{ term.id }}" class="modal-dialog">
+        <form method="post" action="{{ url_for('edit_payment_term', payment_term_id=term.id) }}" class="form-stack">
+          <div class="dialog-header"><h2>编辑账期方案</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+          {{ term_fields(term) }}
+          <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
+        </form>
+      </dialog>
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='payment-terms.js', v=app_version) }}"></script>
+{% endblock %}

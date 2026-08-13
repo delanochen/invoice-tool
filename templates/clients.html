@@ -29,6 +29,7 @@
           <th>联系人</th>
           <th>邮箱</th>
           <th>国家/地区</th>
+          <th>账期方案</th>
           <th>地址</th>
           {% if not is_external_manager() %}<th>操作</th>{% endif %}
         </tr>
@@ -42,6 +43,7 @@
             <td>{{ client.contact_name or "-" }}</td>
             <td>{{ client.email or "-" }}</td>
             <td>{{ client.country or "-" }}</td>
+            <td>{{ client.payment_term_name or "Net 30" }}</td>
             <td>{{ client.address or "-" }}</td>
             {% if not is_external_manager() %}
               <td>
@@ -55,7 +57,7 @@
             {% endif %}
           </tr>
         {% else %}
-          <tr><td colspan="{% if not is_external_manager() %}8{% else %}7{% endif %}" class="empty">没有符合条件的客户。</td></tr>
+          <tr><td colspan="{% if not is_external_manager() %}9{% else %}8{% endif %}" class="empty">没有符合条件的客户。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -75,6 +77,11 @@
           <label>联系人 <input name="contact_name"></label>
           <label>邮箱 <input type="email" name="email"></label>
           <label>国家/地区 <input name="country" value="China"></label>
+          <label>账期方案
+            <select name="payment_term_id" required>
+              {% for term in payment_terms %}{% if term.is_active %}<option value="{{ term.id }}">{{ term.name }}</option>{% endif %}{% endfor %}
+            </select>
+          </label>
           <label class="full-span">地址 <textarea name="address" rows="4"></textarea></label>
         </div>
         <div class="form-actions"><button class="primary" type="submit">保存客户</button></div>
@@ -95,6 +102,13 @@
             <label>联系人 <input name="contact_name" value="{{ client.contact_name or '' }}"></label>
             <label>邮箱 <input type="email" name="email" value="{{ client.email or '' }}"></label>
             <label>国家/地区 <input name="country" value="{{ client.country or 'China' }}"></label>
+            <label>账期方案
+              <select name="payment_term_id" required>
+                {% for term in payment_terms %}
+                  <option value="{{ term.id }}" {% if client.payment_term_id == term.id %}selected{% endif %} {% if not term.is_active and client.payment_term_id != term.id %}disabled{% endif %}>{{ term.name }}{% if not term.is_active %}（已停用）{% endif %}</option>
+                {% endfor %}
+              </select>
+            </label>
             <label class="full-span">地址 <textarea name="address" rows="4">{{ client.address or '' }}</textarea></label>
           </div>
           <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
