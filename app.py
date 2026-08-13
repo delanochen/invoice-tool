@@ -9697,6 +9697,34 @@ def build_simple_xlsx(headers, rows, sheet_name="Sheet1"):
     return buffer
 
 
+@app.post("/reports/export-visible.xlsx")
+@login_required
+def export_visible_report():
+    payload = request.get_json(silent=True) or {}
+    title = str(payload.get("title") or "报表").strip()[:80] or "报表"
+    headers = payload.get("headers") or []
+    rows = payload.get("rows") or []
+    if not isinstance(headers, list) or not headers or len(headers) > 100:
+        abort(400)
+    if not isinstance(rows, list) or len(rows) > 10000:
+        abort(400)
+    clean_headers = [str(value or "")[:500] for value in headers]
+    clean_rows = []
+    for row in rows:
+        if not isinstance(row, list):
+            abort(400)
+        clean_rows.append([str(value or "")[:5000] for value in row[: len(clean_headers)]])
+    safe_sheet_name = re.sub(r"[\\/*?:\[\]]", " ", title).strip()[:31] or "报表"
+    safe_filename = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "-", title).strip("-") or "report"
+    workbook = build_simple_xlsx(clean_headers, clean_rows, sheet_name=safe_sheet_name)
+    return send_file(
+        workbook,
+        as_attachment=True,
+        download_name=f"{safe_filename}-{date.today().isoformat()}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
 @app.route("/reports/payroll")
 @login_required
 def payroll_report():

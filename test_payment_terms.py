@@ -131,6 +131,23 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertIn("20日截止、次月19日付款", page)
         self.assertIn("系统配置", page)
 
+    def test_shared_report_export_generates_xlsx(self):
+        response = self.http.post(
+            "/reports/export-visible.xlsx",
+            json={
+                "title": "测试报表",
+                "headers": ["编号", "金额"],
+                "rows": [["INV-001", "$100.00"]],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.assertTrue(response.data.startswith(b"PK"))
+        response = self.http.get("/service-orders")
+        page = response.get_data(as_text=True)
+        self.assertIn("report-export.js", page)
+        self.assertIn("export-visible.xlsx", page)
+
 
 if __name__ == "__main__":
     unittest.main()
