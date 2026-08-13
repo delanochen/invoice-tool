@@ -24,6 +24,13 @@
     </label>
     <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
     <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+    <label>工单状态
+      <select name="work_order_status">
+        <option value="">全部状态</option>
+        <option value="open" {% if work_order_status == "open" %}selected{% endif %}>进行中</option>
+        <option value="closed" {% if work_order_status == "closed" %}selected{% endif %}>已关闭</option>
+      </select>
+    </label>
     <details class="multi-select">
       <summary>发票状态</summary>
       <div class="multi-select-menu">
@@ -64,7 +71,7 @@
       <thead>
         <tr>
           <th>日期</th><th>发票编号</th><th>客户编号</th><th>客户</th><th>客户简称</th>
-          <th>项目</th><th>金额</th><th>税率</th><th>税额</th><th>合计</th><th>状态</th><th>核销</th>
+          <th>项目</th><th>金额</th><th>税率</th><th>税额</th><th>合计</th><th>发票状态</th><th>工单状态</th><th>核销</th>
         </tr>
       </thead>
       <tbody>
@@ -82,10 +89,11 @@
             <td>{{ item.tax|money(row.currency) }}</td>
             <td>{{ item.line_total|money(row.currency) }}</td>
             <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
+            <td>{% if row.service_order_status == "closed" %}已关闭{% elif row.service_order_status %}进行中{% else %}-{% endif %}</td>
             <td><span class="status {% if row.paid_at %}completed{% elif row.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ row|payment_label }}</span></td>
           </tr>
         {% else %}
-          <tr><td colspan="12" class="empty">没有符合条件的报表数据。</td></tr>
+          <tr><td colspan="13" class="empty">没有符合条件的报表数据。</td></tr>
         {% endfor %}
         {% if rows %}
           <tr class="report-total">
@@ -94,6 +102,7 @@
             <td></td>
             <td>{{ tax_total|money }}</td>
             <td>{{ grand_total|money }}</td>
+            <td></td>
             <td></td>
             <td></td>
           </tr>

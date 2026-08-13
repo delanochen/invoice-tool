@@ -8383,6 +8383,9 @@ def invoices():
         abort(403)
     status = request.args.get("status", "")
     paid_status = request.args.get("paid_status", "")
+    work_order_status = request.args.get("work_order_status", "")
+    if work_order_status not in {"", "open", "closed"}:
+        work_order_status = ""
     q = request.args.get("q", "").strip()
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
@@ -8390,6 +8393,9 @@ def invoices():
     access_clause, access_params = client_filter_clause("invoices")
     clauses = [access_clause]
     params = list(access_params)
+    if work_order_status:
+        clauses.append("service_orders.status = ?")
+        params.append(work_order_status)
     if status:
         clauses.append("invoices.status = ?")
         params.append(status)
@@ -8413,7 +8419,8 @@ def invoices():
         f"""
         select invoices.*, clients.name as client_name, clients.short_name as client_short_name,
                clients.client_number, users.name as creator_name,
-               service_orders.order_number as service_order_number
+               service_orders.order_number as service_order_number,
+               service_orders.status as service_order_status
         from invoices
         join clients on clients.id = invoices.client_id
         left join users on users.id = invoices.created_by
@@ -8439,6 +8446,7 @@ def invoices():
         users=users_rows,
         status=status,
         paid_status=paid_status,
+        work_order_status=work_order_status,
         q=q,
         date_from=date_from,
         date_to=date_to,
@@ -8455,6 +8463,9 @@ def invoice_query():
     short_q = request.args.get("short_name", "").strip()
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
+    work_order_status = request.args.get("work_order_status", "")
+    if work_order_status not in {"", "open", "closed"}:
+        work_order_status = ""
     region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
     available_statuses = set(STATUS_LABELS.keys())
     selected_statuses = [value for value in request.args.getlist("status") if value in available_statuses]
@@ -8468,6 +8479,9 @@ def invoice_query():
     params = list(access_params)
     clauses.extend(location_clauses)
     params.extend(location_params)
+    if work_order_status:
+        clauses.append("service_orders.status = ?")
+        params.append(work_order_status)
     if selected_statuses:
         placeholders = ",".join("?" for _ in selected_statuses)
         clauses.append(f"invoices.status in ({placeholders})")
@@ -8499,7 +8513,8 @@ def invoice_query():
         f"""
         select invoices.id, invoices.invoice_number, invoices.issue_date, invoices.currency, invoices.status, invoices.paid_at,
                clients.client_number, clients.name as client_name, clients.short_name,
-               invoice_items.description as project_name, invoice_items.amount, invoice_items.tax_rate
+               invoice_items.description as project_name, invoice_items.amount, invoice_items.tax_rate,
+               service_orders.status as service_order_status
         from invoice_items
         join invoices on invoices.id = invoice_items.invoice_id
         join clients on clients.id = invoices.client_id
@@ -8528,6 +8543,7 @@ def invoice_query():
         short_q=short_q,
         date_from=date_from,
         date_to=date_to,
+        work_order_status=work_order_status,
         selected_statuses=selected_statuses or [value for value in STATUS_LABELS if value != "void"],
         selected_paid_statuses=selected_paid_statuses or ["paid", "unpaid"],
         subtotal=subtotal,
