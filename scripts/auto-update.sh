@@ -159,6 +159,20 @@ NEW_VERSION="$(version_from_commit "$NEW_COMMIT")"
 
 if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
     log "up-to-date: $OLD_VERSION; reconciling containers"
+    RUNNING_VERSION="$("$DOCKER" inspect invoice-tool \
+        --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+        | sed -n 's/^APP_VERSION=//p' \
+        | tail -n 1)"
+    if [ "$RUNNING_VERSION" != "$OLD_VERSION" ]; then
+        log "container version mismatch: ${RUNNING_VERSION:-missing} -> $OLD_VERSION; rebuilding"
+        if ! APP_VERSION="$OLD_VERSION" "$COMPOSE" \
+            -f "$APP_DIR/docker-compose.yml" \
+            --env-file "$APP_DIR/.env" \
+            build invoice-tool photo-worker; then
+            log "error: image rebuild failed"
+            exit 1
+        fi
+    fi
     if ! APP_VERSION="$OLD_VERSION" "$COMPOSE" \
         -f "$APP_DIR/docker-compose.yml" \
         --env-file "$APP_DIR/.env" \
