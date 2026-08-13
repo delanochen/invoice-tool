@@ -126,7 +126,7 @@
       <thead><tr><th>Description</th><th>Amount</th><th>Tax Rate</th><th>Tax</th><th>Line Total</th></tr></thead>
       <tbody>
         {% for item in items %}
-          <tr id="invoiceAttachmentRow{{ attachment.id }}">
+          <tr>
             <td>{{ item.description }}</td>
             <td>{{ item.amount|money(invoice.currency) }}</td>
             <td>{{ "%.2f"|format(item.tax_rate) }}%</td>
@@ -160,7 +160,7 @@
       <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for attachment in attachments %}
-          <tr>
+          <tr id="invoiceAttachmentRow{{ attachment.id }}">
             <td>
               <a href="{{ url_for('preview_attachment', attachment_id=attachment.id) }}"
                  class="attachment-preview-link" data-preview-name="{{ attachment.original_filename }}"
