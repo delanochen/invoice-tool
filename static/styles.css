@@ -855,6 +855,10 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .service-orders-table tbody tr.closed-invoiced:hover td {
   background: #fff1f0;
 }
+.service-orders-table tbody tr.open-invoiced td,
+.service-orders-table tbody tr.open-invoiced:hover td {
+  background: #ecfdf3;
+}
 .list-table tfoot td {
   background: #f2f4f7;
   font-weight: 800;
