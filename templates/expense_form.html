@@ -1,6 +1,27 @@
 {% extends "base.html" %}
 {% block title %}报销 - 发票工具{% endblock %}
 {% block content %}
+  {% macro attachment_cards(attachment_list) %}
+    {% for attachment in attachment_list %}
+      <div class="expense-line-attachment saved-item-attachment">
+        {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}
+          <a href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" data-image-preview data-preview-name="{{ attachment.original_filename }}">
+            <img class="inline-thumb" src="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+          </a>
+        {% endif %}
+        <a class="expense-line-attachment-name" href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
+        <div class="row-actions">
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
+          <button class="danger small" type="submit" form="deleteExpenseAttachment{{ attachment.id }}">删除</button>
+          {% if attachment.transferred_attachment_id %}
+            <button class="small" type="button" disabled title="该附件已经传递到工单结算">已传递</button>
+          {% elif transfer_reimbursement and transfer_reimbursement.status in ['draft', 'returned'] %}
+            <button class="small" type="submit" form="transferExpenseAttachment{{ attachment.id }}">传递</button>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  {% endmacro %}
   <header class="page-header">
     <div>
       <p class="eyebrow">Expense</p>
@@ -25,12 +46,14 @@
     <h2>报销明细</h2>
     <div class="line-table-wrap">
     <table class="list-table line-entry-table">
-      <thead><tr><th>员工报销项目</th><th>金额（USD）</th><th>明细说明</th><th>操作</th></tr></thead>
+      <thead><tr><th>员工报销项目</th><th>金额（USD）</th><th>明细说明</th><th>附件</th><th>操作</th></tr></thead>
       <tbody id="expenseItems">
       {% set rows = form_items if form_items else [{}] %}
       {% for item in rows %}
+        {% set line_key = item.line_key or ('line-' ~ save_token ~ '-' ~ loop.index) %}
         <tr class="expense-item-row">
           <td>
+            <input type="hidden" name="item_line_key" value="{{ line_key }}">
             <select name="project_id" class="expense-project-select" aria-label="员工报销项目" required>
               <option value="">选择员工报销项目</option>
               {% for project in expense_projects %}
@@ -51,6 +74,13 @@
             <small class="lodging-limit-warning" hidden></small>
           </td>
           <td><input name="item_description" value="{{ item.description or '' }}" placeholder="明细说明" aria-label="明细说明"></td>
+          <td class="expense-line-attachments-cell">
+            {{ attachment_cards(attachments_by_item.get(line_key, [])) }}
+            <label class="compact-file-picker">
+              <span>添加附件</span>
+              <input type="file" name="item_attachments_{{ line_key }}" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+            </label>
+          </td>
           <td><button type="button" class="ghost remove-expense-item">删除</button></td>
         </tr>
       {% endfor %}
@@ -63,17 +93,19 @@
     </div>
     <input type="hidden" name="currency" value="USD">
     <label>报销单说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
+    <h3>通用附件</h3>
+    <p class="muted-line">用于同时对应多条明细或整张报销单的审批单、合并付款凭证、行程说明等文件。</p>
     <div class="file-picker-row">
-      <span>附件</span>
+      <span>添加通用附件</span>
       <input id="expenseAttachmentsInput" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
       <small>支持图片、PDF、Word、Excel，可多选。</small>
     </div>
-    {% if attachments %}
-      <h3>已保存附件</h3>
+    {% if common_attachments %}
+      <h3>已保存通用附件</h3>
       <table class="list-table attachment-table">
         <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
         <tbody>
-          {% for attachment in attachments %}
+          {% for attachment in common_attachments %}
             <tr>
               <td>
                 {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}

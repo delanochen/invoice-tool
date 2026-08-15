@@ -2524,3 +2524,40 @@ body.service-order-map-page {
   font-size: 0.78rem;
   line-height: 1.35;
 }
+
+.expense-line-attachments-cell {
+  min-width: 250px;
+  vertical-align: top;
+}
+
+.expense-line-attachment {
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr);
+  gap: 0.35rem 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.expense-line-attachment:last-child { border-bottom: 0; }
+.expense-line-attachment .row-actions { grid-column: 1 / -1; }
+.expense-line-attachment-name { overflow-wrap: anywhere; }
+
+.compact-file-picker {
+  display: block;
+  margin-top: 0.45rem;
+}
+
+.compact-file-picker > span {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.compact-file-picker input[type="file"] {
+  width: 100%;
+  max-width: 250px;
+  padding: 0.35rem;
+  font-size: 0.8rem;
+}

@@ -988,6 +988,7 @@ def init_db():
             create table if not exists expense_items (
                 id integer primary key autoincrement,
                 expense_id integer not null,
+                line_key text,
                 project_id integer not null,
                 project text not null,
                 amount real not null default 0,
@@ -1008,6 +1009,7 @@ def init_db():
             create table if not exists expense_attachments (
                 id integer primary key autoincrement,
                 expense_id integer not null,
+                expense_item_key text,
                 original_filename text not null,
                 stored_filename text not null,
                 content_type text,
@@ -1198,6 +1200,11 @@ def init_db():
         ):
             ensure_column(connection, "customer_reimbursement_items", column_name, "real not null default 0")
         ensure_column(connection, "expense_items", "fuel_vehicle_type", "text")
+        ensure_column(connection, "expense_items", "line_key", "text")
+        ensure_column(connection, "expense_attachments", "expense_item_key", "text")
+        connection.execute(
+            "update expense_items set line_key = 'item-' || id where coalesce(trim(line_key), '') = ''"
+        )
         connection.execute(
             """
             update expense_items
@@ -5420,7 +5427,7 @@ def expense_attachment_path(attachment):
     return os.path.join(EXPENSE_ATTACHMENTS_DIR, str(attachment["expense_id"]), attachment["stored_filename"])
 
 
-def save_expense_attachment(expense_id, uploaded):
+def save_expense_attachment(expense_id, uploaded, expense_item_key=None):
     if not uploaded or not uploaded.filename:
         return
     if not allowed_attachment(uploaded.filename):
@@ -5433,16 +5440,24 @@ def save_expense_attachment(expense_id, uploaded):
     db().execute(
         """
         insert into expense_attachments (
-            expense_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
-        ) values (?, ?, ?, ?, ?, ?)
+            expense_id, expense_item_key, original_filename, stored_filename,
+            content_type, uploaded_by, uploaded_at
+        ) values (?, ?, ?, ?, ?, ?, ?)
         """,
-        (expense_id, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
+        (
+            expense_id, expense_item_key, original_filename, stored_filename,
+            uploaded.content_type, g.user["id"], now(),
+        ),
     )
 
 
-def save_expense_uploads(expense_id):
+def save_expense_uploads(expense_id, item_rows=None):
     for uploaded in uploaded_attachments_from_request():
         save_expense_attachment(expense_id, uploaded)
+    for item in item_rows or []:
+        line_key = item["line_key"]
+        for uploaded in request.files.getlist(f"item_attachments_{line_key}"):
+            save_expense_attachment(expense_id, uploaded, line_key)
 
 
 def get_expense_attachments(expense_id):
@@ -5517,6 +5532,18 @@ def report_writer_options():
         order by name
         """
     ).fetchall()
+
+
+def group_expense_attachments(attachments):
+    common = []
+    by_item = {}
+    for attachment in attachments:
+        line_key = (attachment["expense_item_key"] or "").strip()
+        if line_key:
+            by_item.setdefault(line_key, []).append(attachment)
+        else:
+            common.append(attachment)
+    return common, by_item
 
 
 def posted_report_writer_id():
@@ -12289,10 +12316,12 @@ def expense_items(expense_id):
 
 def expense_items_from_form(expense_id=None):
     project_ids = request.form.getlist("project_id")
+    line_keys = request.form.getlist("item_line_key")
     amounts = request.form.getlist("item_amount")
     descriptions = request.form.getlist("item_description")
     fuel_vehicle_types = request.form.getlist("fuel_vehicle_type")
     rows = []
+    seen_line_keys = set()
     for index, project_id in enumerate(project_ids):
         if not project_id:
             continue
@@ -12321,8 +12350,13 @@ def expense_items_from_form(expense_id=None):
             if fuel_vehicle_type not in {"personal", "rental"}:
                 raise ValueError("油费报销必须选择个人／自有车辆或租赁车辆。")
         description = descriptions[index].strip() if index < len(descriptions) else ""
+        line_key = line_keys[index].strip() if index < len(line_keys) else ""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", line_key) or line_key in seen_line_keys:
+            line_key = f"line-{secrets.token_urlsafe(12)}"
+        seen_line_keys.add(line_key)
         rows.append(
             {
+                "line_key": line_key,
                 "project": project,
                 "amount": amount,
                 "description": description,
@@ -12336,17 +12370,29 @@ def expense_items_from_form(expense_id=None):
 
 
 def save_expense_items(expense_id, item_rows):
+    retained_keys = {item["line_key"] for item in item_rows}
+    existing_attachments = get_expense_attachments(expense_id)
+    for attachment in existing_attachments:
+        attachment_key = (attachment["expense_item_key"] or "").strip()
+        if attachment_key and attachment_key not in retained_keys:
+            try:
+                os.remove(expense_attachment_path(attachment))
+            except FileNotFoundError:
+                pass
+            db().execute("delete from expense_attachments where id = ?", (attachment["id"],))
     db().execute("delete from expense_items where expense_id = ?", (expense_id,))
     for item in item_rows:
         project = item["project"]
         db().execute(
             """
             insert into expense_items (
-                expense_id, project_id, project, amount, description, fuel_vehicle_type, sort_order
-            ) values (?, ?, ?, ?, ?, ?, ?)
+                expense_id, line_key, project_id, project, amount, description,
+                fuel_vehicle_type, sort_order
+            ) values (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 expense_id,
+                item["line_key"],
                 project["id"],
                 project["name"],
                 item["amount"],
@@ -12415,7 +12461,7 @@ def new_expense(order_id):
             expense_id = cursor.lastrowid
             finish_expense_save_token(save_token, expense_id)
             save_expense_items(expense_id, item_rows)
-            save_expense_uploads(expense_id)
+            save_expense_uploads(expense_id, item_rows)
             expense_summary = f"工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("create", "expense", expense_id, expense_number, expense_summary)
             if submit_for_review:
@@ -12445,6 +12491,8 @@ def new_expense(order_id):
         expense_projects=expense_projects,
         is_edit=False,
         attachments=[],
+        common_attachments=[],
+        attachments_by_item={},
         save_token=secrets.token_urlsafe(24),
     )
 
@@ -12501,7 +12549,7 @@ def edit_expense(expense_id):
                 ),
             )
             save_expense_items(expense_id, item_rows)
-            save_expense_uploads(expense_id)
+            save_expense_uploads(expense_id, item_rows)
             expense_summary = f"工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("update", "expense", expense_id, expense["expense_number"], expense_summary)
             if submit_for_review:
@@ -12523,6 +12571,8 @@ def edit_expense(expense_id):
             return redirect(url_for("expense_detail", expense_id=expense_id))
         flash("报销已保存。", "success")
         return redirect(url_for("edit_expense", expense_id=expense_id))
+    attachments = get_expense_attachments(expense_id)
+    common_attachments, attachments_by_item = group_expense_attachments(attachments)
     return render_template(
         "expense_form.html",
         order=order,
@@ -12530,7 +12580,9 @@ def edit_expense(expense_id):
         form_items=expense_items(expense_id),
         expense_projects=expense_projects,
         is_edit=True,
-        attachments=get_expense_attachments(expense_id),
+        attachments=attachments,
+        common_attachments=common_attachments,
+        attachments_by_item=attachments_by_item,
         transfer_reimbursement=latest_customer_reimbursement(order["id"]),
         save_token=secrets.token_urlsafe(24),
     )
@@ -12547,6 +12599,8 @@ def expense_detail(expense_id):
         "select name, email from users where id = ?",
         (expense["reimbursed_by"],),
     ).fetchone() if expense["reimbursed_by"] else None
+    attachments = get_expense_attachments(expense_id)
+    common_attachments, attachments_by_item = group_expense_attachments(attachments)
     return render_template(
         "expense_detail.html",
         order=order,
@@ -12555,7 +12609,9 @@ def expense_detail(expense_id):
         creator=creator,
         reviewer=reviewer,
         reimburser=reimburser,
-        attachments=get_expense_attachments(expense_id),
+        attachments=attachments,
+        common_attachments=common_attachments,
+        attachments_by_item=attachments_by_item,
         transfer_reimbursement=latest_customer_reimbursement(order["id"]) if can_transfer_attachments else None,
         can_transfer_attachments=can_transfer_attachments,
         labels=EXPENSE_STATUS_LABELS,

@@ -2,6 +2,7 @@ import importlib.util
 import shutil
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 
 
@@ -70,8 +71,8 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
             project_id = cursor.lastrowid
             connection.execute(
                 """
-                insert into expense_items (expense_id, project_id, project, amount, sort_order)
-                values (?, ?, 'Travel', 10, 0)
+                insert into expense_items (expense_id, line_key, project_id, project, amount, sort_order)
+                values (?, 'line-travel', ?, 'Travel', 10, 0)
                 """,
                 (self.expense_id, project_id),
             )
@@ -86,6 +87,19 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
             self.attachment_id = cursor.lastrowid
             source_path = Path(self.module.expense_attachment_dir(self.expense_id)) / "source.png"
             source_path.write_bytes(b"test-image")
+            cursor = connection.execute(
+                """
+                insert into expense_attachments (
+                    expense_id, expense_item_key, original_filename, stored_filename,
+                    content_type, uploaded_by, uploaded_at
+                ) values (?, 'line-travel', 'travel-receipt.png', 'line-source.png',
+                          'image/png', ?, '2026-08-02T12:00:00')
+                """,
+                (self.expense_id, self.user_id),
+            )
+            self.line_attachment_id = cursor.lastrowid
+            line_source_path = Path(self.module.expense_attachment_dir(self.expense_id)) / "line-source.png"
+            line_source_path.write_bytes(b"line-image")
             cursor = connection.execute(
                 """
                 insert into customer_reimbursements (
@@ -169,6 +183,66 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], f"/expenses/{self.expense_id}")
         self.assertEqual(len(self.transferred_rows()), 1)
+
+    def test_line_attachment_is_rendered_with_its_expense_item(self):
+        edit_html = self.client.get(f"/expenses/{self.expense_id}/edit").get_data(as_text=True)
+        self.assertIn('name="item_line_key" value="line-travel"', edit_html)
+        self.assertIn('name="item_attachments_line-travel"', edit_html)
+        self.assertIn("travel-receipt.png", edit_html)
+        self.assertIn("通用附件", edit_html)
+
+        detail_html = self.client.get(f"/expenses/{self.expense_id}").get_data(as_text=True)
+        self.assertIn("对应附件", detail_html)
+        self.assertLess(detail_html.index("travel-receipt.png"), detail_html.index("通用附件"))
+
+    def test_removing_expense_item_also_removes_its_specific_attachment(self):
+        with self.module.app.app_context():
+            attachment = self.module.db().execute(
+                "select * from expense_attachments where id = ?", (self.line_attachment_id,)
+            ).fetchone()
+            path = Path(self.module.expense_attachment_path(attachment))
+            self.assertTrue(path.exists())
+            self.module.save_expense_items(self.expense_id, [])
+            self.module.db().commit()
+            self.assertIsNone(
+                self.module.db().execute(
+                    "select id from expense_attachments where id = ?", (self.line_attachment_id,)
+                ).fetchone()
+            )
+            self.assertFalse(path.exists())
+            self.assertIsNotNone(
+                self.module.db().execute(
+                    "select id from expense_attachments where id = ?", (self.attachment_id,)
+                ).fetchone()
+            )
+
+    def test_uploaded_file_is_linked_to_its_expense_line(self):
+        with self.module.app.test_request_context(
+            "/expenses/upload",
+            method="POST",
+            data={"item_attachments_line-travel": (BytesIO(b"new-line-image"), "new-line.jpg")},
+        ):
+            with self.module.app.app_context():
+                self.module.g.user = self.module.db().execute(
+                    "select * from users where id = ?", (self.user_id,)
+                ).fetchone()
+                self.module.save_expense_uploads(
+                    self.expense_id,
+                    [{"line_key": "line-travel"}],
+                )
+                self.module.db().commit()
+                attachment = self.module.db().execute(
+                    """
+                    select * from expense_attachments
+                    where expense_id = ? and original_filename = 'new-line.jpg'
+                    """,
+                    (self.expense_id,),
+                ).fetchone()
+                self.assertEqual(attachment["expense_item_key"], "line-travel")
+                self.assertEqual(
+                    Path(self.module.expense_attachment_path(attachment)).read_bytes(),
+                    b"new-line-image",
+                )
 
 
 if __name__ == "__main__":

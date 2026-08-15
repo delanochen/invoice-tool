@@ -1,6 +1,33 @@
 {% extends "base.html" %}
 {% block title %}{{ expense.expense_number }} - 发票工具{% endblock %}
 {% block content %}
+  {% macro attachment_list(attachment_list) %}
+    {% for attachment in attachment_list %}
+      <div class="expense-line-attachment">
+        {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}
+          <a href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" data-image-preview data-preview-name="{{ attachment.original_filename }}">
+            <img class="inline-thumb" src="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+          </a>
+        {% endif %}
+        <a class="expense-line-attachment-name" href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
+        <div class="row-actions">
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
+          {% if can_transfer_attachments %}
+            {% if attachment.transferred_attachment_id %}
+              <button class="small" type="button" disabled title="该附件已经传递到工单结算">已传递</button>
+            {% elif transfer_reimbursement and transfer_reimbursement.status in ['draft', 'returned'] %}
+              <form method="post" action="{{ url_for('transfer_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定把这个附件复制到同一工单的工单结算附件中吗？');">
+                <input type="hidden" name="return_to" value="detail">
+                <button class="small" type="submit">传递</button>
+              </form>
+            {% endif %}
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <span class="muted-line">无</span>
+    {% endfor %}
+  {% endmacro %}
   <header class="page-header">
     <div>
       <p class="eyebrow">Expense</p>
@@ -51,7 +78,7 @@
   <section class="panel">
     <h2>报销明细</h2>
     <table class="list-table">
-      <thead><tr><th>员工报销项目</th><th>明细说明</th><th>金额</th></tr></thead>
+      <thead><tr><th>员工报销项目</th><th>明细说明</th><th>金额</th><th>对应附件</th></tr></thead>
       <tbody>
         {% for item in items %}
           <tr>
@@ -65,20 +92,22 @@
             </td>
             <td>{{ item.description or "-" }}</td>
             <td>{{ item.amount|money(expense.currency) }}</td>
+            <td class="expense-line-attachments-cell">{{ attachment_list(attachments_by_item.get(item.line_key, [])) }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="3" class="empty">没有报销明细。</td></tr>
+          <tr><td colspan="4" class="empty">没有报销明细。</td></tr>
         {% endfor %}
       </tbody>
-      <tfoot><tr class="report-total"><td colspan="2">合计</td><td>{{ expense.amount|money(expense.currency) }}</td></tr></tfoot>
+      <tfoot><tr class="report-total"><td colspan="2">合计</td><td>{{ expense.amount|money(expense.currency) }}</td><td></td></tr></tfoot>
     </table>
   </section>
   <section class="panel">
-    <h2>附件</h2>
+    <h2>通用附件</h2>
+    <p class="muted-line">同时对应多条明细或整张报销单的文件。</p>
     <table class="list-table">
       <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
       <tbody>
-        {% for attachment in attachments %}
+        {% for attachment in common_attachments %}
           <tr>
             <td>
               {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}

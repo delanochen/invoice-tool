@@ -35,6 +35,11 @@ function expenseProject(projectId) {
   return (window.expenseProjects || []).find((project) => String(project.id) === String(projectId));
 }
 
+function newExpenseLineKey() {
+  if (window.crypto?.randomUUID) return `line-${window.crypto.randomUUID()}`;
+  return `line-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function syncFuelVehicleField(row) {
   const projectSelect = row.querySelector(".expense-project-select");
   const field = row.querySelector(".fuel-vehicle-field");
@@ -65,6 +70,10 @@ function bindExpenseRows() {
     button.onclick = () => {
       const rows = document.querySelectorAll(".expense-item-row");
       if (rows.length > 1) {
+        if (
+          button.closest(".expense-item-row")?.querySelector(".saved-item-attachment")
+          && !window.confirm("删除这条明细也会删除其已保存附件，确定继续吗？")
+        ) return;
         button.closest(".expense-item-row").remove();
         updateExpenseTotal();
       }
@@ -88,10 +97,12 @@ function bindExpenseRows() {
 }
 
 addExpenseItem?.addEventListener("click", () => {
+  const lineKey = newExpenseLineKey();
   const row = document.createElement("tr");
   row.className = "expense-item-row";
   row.innerHTML = `
     <td>
+      <input type="hidden" name="item_line_key" value="${lineKey}">
       <select name="project_id" class="expense-project-select" aria-label="报销项目" required>
         ${expenseProjectOptions()}
       </select>
@@ -109,10 +120,17 @@ addExpenseItem?.addEventListener("click", () => {
       <small class="lodging-limit-warning" hidden></small>
     </td>
     <td><input name="item_description" placeholder="明细说明" aria-label="明细说明"></td>
+    <td class="expense-line-attachments-cell">
+      <label class="compact-file-picker">
+        <span>添加附件</span>
+        <input type="file" name="item_attachments_${lineKey}" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+      </label>
+    </td>
     <td><button type="button" class="ghost remove-expense-item">删除</button></td>
   `;
   expenseItems.appendChild(row);
   bindExpenseRows();
+  window.setupPendingAttachmentInput?.(row.querySelector('input[type="file"]'));
   row.querySelector("select").focus();
 });
 

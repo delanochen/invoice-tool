@@ -134,5 +134,6 @@
     });
   }
 
+  window.setupPendingAttachmentInput = setup;
   document.querySelectorAll('input[type="file"]').forEach(setup);
 })();
