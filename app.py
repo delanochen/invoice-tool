@@ -1048,6 +1048,8 @@ def init_db():
             create table if not exists customer_reimbursement_items (
                 id integer primary key autoincrement,
                 customer_reimbursement_id integer not null,
+                source_report_id integer,
+                source_worker_user_id integer,
                 worker_name text not null,
                 project_date text not null,
                 standard_hours real not null default 0,
@@ -1199,6 +1201,8 @@ def init_db():
             "auto_fuel", "auto_parking", "auto_taxi", "auto_other",
         ):
             ensure_column(connection, "customer_reimbursement_items", column_name, "real not null default 0")
+        ensure_column(connection, "customer_reimbursement_items", "source_report_id", "integer")
+        ensure_column(connection, "customer_reimbursement_items", "source_worker_user_id", "integer")
         ensure_column(connection, "expense_items", "fuel_vehicle_type", "text")
         ensure_column(connection, "expense_items", "line_key", "text")
         ensure_column(connection, "expense_attachments", "expense_item_key", "text")
@@ -4496,7 +4500,7 @@ def customer_reimbursement_seed_rows(order_id):
     for report in reports:
         workers = db().execute(
             """
-            select users.name, service_report_workers.driving_miles,
+            select users.id as worker_user_id, users.name, service_report_workers.driving_miles,
                    service_report_workers.travel_mode, service_report_workers.travel_hours,
                    service_report_workers.public_transport_hours as worker_public_transport_hours
             from service_report_workers
@@ -4518,6 +4522,8 @@ def customer_reimbursement_seed_rows(order_id):
             else:
                 billing_miles = worker["driving_miles"] if mode != "flight" else 0
             row = {
+                "source_report_id": report["id"],
+                "source_worker_user_id": worker["worker_user_id"],
                 "worker_name": worker["name"],
                 "project_date": report_actual_date(report),
                 "standard_hours": labor_hours["standard_hours"],
@@ -4541,6 +4547,44 @@ def customer_reimbursement_seed_rows(order_id):
             }
             rows.append(calculate_customer_reimbursement_item(row, len(rows)))
     return rows
+
+
+def merge_service_reports_into_customer_reimbursement(rows, order_id):
+    seeded_rows = customer_reimbursement_seed_rows(order_id)
+    existing_rows = [dict(row) for row in rows]
+    used_indexes = set()
+    source_lookup = {}
+    for index, row in enumerate(existing_rows):
+        if row.get("source_report_id") and row.get("source_worker_user_id"):
+            source_lookup[(row["source_report_id"], row["source_worker_user_id"])] = index
+
+    merged = []
+    expense_fields = ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
+    for seeded in seeded_rows:
+        match_index = source_lookup.get((seeded["source_report_id"], seeded["source_worker_user_id"]))
+        if match_index is None:
+            seeded_name = normalized_project_name(seeded["worker_name"]).casefold()
+            for index, existing in enumerate(existing_rows):
+                if index in used_indexes or existing.get("source_report_id"):
+                    continue
+                if (
+                    normalized_project_name(existing.get("worker_name")).casefold() == seeded_name
+                    and str(existing.get("project_date") or "") == str(seeded["project_date"])
+                ):
+                    match_index = index
+                    break
+        if match_index is not None:
+            used_indexes.add(match_index)
+            existing = existing_rows[match_index]
+            for field_name in expense_fields:
+                seeded[field_name] = existing.get(field_name, 0)
+        merged.append(calculate_customer_reimbursement_item(seeded, len(merged)))
+
+    for index, existing in enumerate(existing_rows):
+        if index in used_indexes or existing.get("source_report_id"):
+            continue
+        merged.append(calculate_customer_reimbursement_item(existing, len(merged)))
+    return merged
 
 
 def excessive_following_mileage_rows(order_id, threshold=500):
@@ -4898,6 +4942,8 @@ def customer_reimbursement_items_from_form():
     money_fields = {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}
     rates = customer_reimbursement_rates()
     posted = {name: request.form.getlist(name) for name in field_names}
+    source_report_ids = request.form.getlist("source_report_id")
+    source_worker_user_ids = request.form.getlist("source_worker_user_id")
     count = max((len(values) for values in posted.values()), default=0)
     rows = []
     for index in range(count):
@@ -4905,7 +4951,20 @@ def customer_reimbursement_items_from_form():
         project_date = posted["project_date"][index].strip() if index < len(posted["project_date"]) else ""
         if not worker_name and not project_date:
             continue
-        row = {"worker_name": worker_name, "project_date": project_date}
+        row = {
+            "worker_name": worker_name,
+            "project_date": project_date,
+            "source_report_id": (
+                int(source_report_ids[index])
+                if index < len(source_report_ids) and source_report_ids[index].isdigit()
+                else None
+            ),
+            "source_worker_user_id": (
+                int(source_worker_user_ids[index])
+                if index < len(source_worker_user_ids) and source_worker_user_ids[index].isdigit()
+                else None
+            ),
+        }
         for name in field_names[2:]:
             value = posted[name][index] if index < len(posted[name]) else 0
             row[name] = money_float(value) if name in money_fields else to_float(value)
@@ -4934,15 +4993,17 @@ def save_customer_reimbursement_items(reimbursement_id, rows):
         db().execute(
             """
             insert into customer_reimbursement_items (
-                customer_reimbursement_id, worker_name, project_date, standard_hours, transport_hours,
+                customer_reimbursement_id, source_report_id, source_worker_user_id,
+                worker_name, project_date, standard_hours, transport_hours,
                 overtime_hours, holiday_hours, standard_rate, transport_rate, overtime_rate, holiday_rate,
                 labor_total, lodging, airfare, baggage, rental_car, fuel, parking, taxi, miles, mileage_rate,
                 mileage_total, other, auto_lodging, auto_airfare, auto_baggage, auto_rental_car,
                 auto_fuel, auto_parking, auto_taxi, auto_other, total, sort_order
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                reimbursement_id, row["worker_name"], row["project_date"], row["standard_hours"], row["transport_hours"],
+                reimbursement_id, row.get("source_report_id"), row.get("source_worker_user_id"),
+                row["worker_name"], row["project_date"], row["standard_hours"], row["transport_hours"],
                 row["overtime_hours"], row["holiday_hours"], row["standard_rate"], row["transport_rate"],
                 row["overtime_rate"], row["holiday_rate"], row["labor_total"], row["lodging"], row["airfare"],
                 row["baggage"], row["rental_car"], row["fuel"], row["parking"], row["taxi"], row["miles"],
@@ -5053,6 +5114,7 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     ).fetchone()
     if not reimbursement:
         return customer_reimbursement_totals(rows)
+    rows = merge_service_reports_into_customer_reimbursement(rows, reimbursement["service_order_id"])
     rows = merge_approved_expenses_into_customer_reimbursement(
         rows,
         reimbursement["service_order_id"],

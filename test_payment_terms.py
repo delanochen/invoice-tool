@@ -643,6 +643,91 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertIn("expenseLodgingLimit = 100", page)
         self.assertIn("isLodging: true", page)
 
+    def test_draft_customer_reimbursement_syncs_all_report_worker_days(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            third_worker_id = connection.execute(
+                """
+                insert into users (name, email, password_hash, role, is_active, created_at)
+                values ('Third Worker', 'third@example.com', 'unused', 'employee', 1,
+                        '2026-08-15T00:00:00')
+                """
+            ).lastrowid
+            worker_ids = [self.user_id, self.employee_id, third_worker_id]
+
+            def add_report(day):
+                report_id = connection.execute(
+                    """
+                    insert into service_reports (
+                        service_order_id, report_date, actual_work_date,
+                        arrival_time, departure_time, created_by, created_at, updated_at
+                    ) values (?, ?, ?, '08:00', '16:00', ?,
+                              '2026-08-15T00:00:00', '2026-08-15T00:00:00')
+                    """,
+                    (self.open_order_id, day, day, self.user_id),
+                ).lastrowid
+                for worker_id in worker_ids:
+                    connection.execute(
+                        """
+                        insert into service_report_workers (
+                            report_id, user_id, driving_miles, travel_mode,
+                            travel_hours, public_transport_hours
+                        ) values (?, ?, 10, 'self_drive', 0, 0)
+                        """,
+                        (report_id, worker_id),
+                    )
+                return report_id
+
+            first_report_id = add_report("2026-08-10")
+            reimbursement_id = connection.execute(
+                """
+                insert into customer_reimbursements (
+                    service_order_id, file_name, stored_filename, status, created_by, created_at
+                ) values (?, 'report-sync.pdf', 'report-sync.pdf', 'draft', ?,
+                          '2026-08-15T00:00:00')
+                """,
+                (self.open_order_id, self.user_id),
+            ).lastrowid
+            initial_rows = self.module.customer_reimbursement_seed_rows(self.open_order_id)
+            self.assertEqual(len(initial_rows), 3)
+            initial_rows[0]["lodging"] = 75
+            initial_rows[0] = self.module.calculate_customer_reimbursement_item(initial_rows[0], 0)
+            self.module.save_customer_reimbursement_items(reimbursement_id, initial_rows)
+
+            for day in ("2026-08-11", "2026-08-12", "2026-08-13"):
+                add_report(day)
+            connection.commit()
+
+            self.module.update_customer_reimbursement_totals(reimbursement_id)
+            rows = connection.execute(
+                """
+                select * from customer_reimbursement_items
+                where customer_reimbursement_id = ?
+                order by project_date, worker_name
+                """,
+                (reimbursement_id,),
+            ).fetchall()
+            self.assertEqual(len(rows), 12)
+            self.assertEqual(len({row["project_date"] for row in rows}), 4)
+            self.assertEqual(sum(1 for row in rows if row["source_report_id"]), 12)
+            self.assertEqual(sum(float(row["lodging"] or 0) for row in rows), 75)
+
+            connection.execute(
+                "update service_reports set departure_time = '18:00' where id = ?",
+                (first_report_id,),
+            )
+            self.module.update_customer_reimbursement_totals(reimbursement_id)
+            updated = connection.execute(
+                """
+                select * from customer_reimbursement_items
+                where customer_reimbursement_id = ? and source_report_id = ?
+                """,
+                (reimbursement_id, first_report_id),
+            ).fetchall()
+            self.assertEqual(len(updated), 3)
+            self.assertTrue(all(row["standard_hours"] == 8 for row in updated))
+            self.assertTrue(all(row["overtime_hours"] == 2 for row in updated))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -128,7 +128,11 @@
         <tbody>
           {% for item in items %}
             <tr>
-              <td><input name="worker_name" value="{{ item.worker_name }}" required></td>
+              <td>
+                <input type="hidden" name="source_report_id" value="{{ item.source_report_id or '' }}">
+                <input type="hidden" name="source_worker_user_id" value="{{ item.source_worker_user_id or '' }}">
+                <input name="worker_name" value="{{ item.worker_name }}" required>
+              </td>
               <td><input name="project_date" type="date" value="{{ item.project_date }}" required></td>
               <td><input name="standard_hours" type="number" step="0.01" min="0" value="{{ item.standard_hours }}"></td>
               <td><input name="transport_hours" type="number" step="0.01" min="0" value="{{ item.transport_hours }}"></td>
