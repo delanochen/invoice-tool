@@ -116,7 +116,8 @@
     <div class="panel-title">
       <h2>员工报销</h2>
       <div class="toolbar-actions">
-        <span class="muted-line" data-selected-label>{{ expenses|length }} 张报销</span>
+        {% set expense_summary %}{{ expenses|length }} 张报销 · 合计 {{ expense_total|money(expense_currency) }}{% endset %}
+        <span class="muted-line" data-selected-label data-selected-summary="{{ expense_summary|trim }}">{{ expense_summary|trim }}</span>
         {% if can_create_expense() %}
           <button class="small" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
         {% endif %}

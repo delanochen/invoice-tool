@@ -29,7 +29,8 @@ class PaymentTermsTest(unittest.TestCase):
         with self.module.app.app_context():
             connection = self.module.db()
             for table in (
-                "email_delivery_logs", "invoice_items", "invoices", "service_orders",
+                "email_delivery_logs", "invoice_items", "invoices", "expense_items",
+                "expense_attachments", "expenses", "service_orders",
                 "clients", "audit_logs", "users",
             ):
                 connection.execute(f"delete from {table}")
@@ -299,6 +300,26 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertNotEqual(shared_second["lane"], thursday_only["lane"])
         self.assertEqual(monday_only["lane"], thursday_only["lane"])
         self.assertTrue(all(day["lane_count"] == 2 for day in week))
+
+    def test_service_order_detail_shows_expense_count_and_total(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            for number, amount in (("EX-TOTAL-1", 454.11), ("EX-TOTAL-2", 201.48)):
+                connection.execute(
+                    """
+                    insert into expenses (
+                        service_order_id, expense_number, project, expense_date, amount,
+                        currency, status, created_by, created_at, updated_at
+                    ) values (?, ?, 'MRO Supplies', '2026-08-13', ?, 'USD', 'draft', ?,
+                              '2026-08-13T00:00:00', '2026-08-13T00:00:00')
+                    """,
+                    (self.open_order_id, number, amount, self.user_id),
+                )
+            connection.commit()
+
+        page = self.http.get(f"/service-orders/{self.open_order_id}").get_data(as_text=True)
+        self.assertIn("2 张报销 · 合计 $655.59", page)
+        self.assertIn('data-selected-summary="2 张报销 · 合计 $655.59"', page)
 
 
 if __name__ == "__main__":

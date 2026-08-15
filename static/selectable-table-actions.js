@@ -10,7 +10,9 @@
     const label = scope.querySelector("[data-selected-label]");
     if (label) {
       const prefix = label.dataset.selectedPrefix || "已选择：";
-      label.textContent = `${translate(prefix)}${row.dataset.rowLabel || ""}`;
+      const summary = label.dataset.selectedSummary || "";
+      const selected = `${translate(prefix)}${row.dataset.rowLabel || ""}`;
+      label.textContent = summary ? `${summary} · ${selected}` : selected;
     }
 
     for (const button of scope.querySelectorAll("[data-row-action]")) {

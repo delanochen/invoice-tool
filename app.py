@@ -11095,6 +11095,8 @@ def service_order_detail(order_id):
             """,
             expense_params,
         ).fetchall()
+    expense_total = sum((Decimal(str(row["amount"] or 0)) for row in expenses_rows), Decimal("0"))
+    expense_currency = expenses_rows[0]["currency"] if expenses_rows else "USD"
     customer_reimbursement = latest_customer_reimbursement(order_id) if can_view_customer_reimbursement() else None
     delete_blockers = service_order_delete_blockers(order_id)
     return render_template(
@@ -11103,6 +11105,8 @@ def service_order_detail(order_id):
         reports=reports_rows,
         invoices=invoices_rows,
         expenses=expenses_rows,
+        expense_total=expense_total,
+        expense_currency=expense_currency,
         customer_reimbursement=customer_reimbursement,
         can_delete_order=can_delete_service_order() and not delete_blockers,
         delete_blockers=delete_blockers,
