@@ -29,7 +29,9 @@ fi
 trap finish EXIT INT TERM
 
 case "$APP_DIR" in
-    /volume[0-9]*/docker/invoice-tool|/volume1/invoice-tool/invoice-tool)
+    /volume[0-9]*/docker/invoice-tool)
+        ;;
+    /volume1/invoice-tool/invoice-tool)
         ;;
     *)
         log "error: unexpected application directory: $APP_DIR"

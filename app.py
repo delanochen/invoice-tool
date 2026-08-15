@@ -1032,6 +1032,7 @@ def init_db():
                 mileage_total real not null default 0,
                 mro_supplies_total real not null default 0,
                 rental_fuel_total real not null default 0,
+                expense_transfer_cutoff_at text,
                 total_amount real not null default 0,
                 invoice_id integer,
                 created_by integer not null,
@@ -1063,6 +1064,14 @@ def init_db():
                 fuel real not null default 0,
                 parking real not null default 0,
                 taxi real not null default 0,
+                auto_lodging real not null default 0,
+                auto_airfare real not null default 0,
+                auto_baggage real not null default 0,
+                auto_rental_car real not null default 0,
+                auto_fuel real not null default 0,
+                auto_parking real not null default 0,
+                auto_taxi real not null default 0,
+                auto_other real not null default 0,
                 miles real not null default 0,
                 mileage_rate real not null default 0,
                 mileage_total real not null default 0,
@@ -1182,6 +1191,12 @@ def init_db():
         ensure_column(connection, "customer_reimbursements", "reviewed_at", "text")
         ensure_column(connection, "customer_reimbursements", "mro_supplies_total", "real not null default 0")
         ensure_column(connection, "customer_reimbursements", "rental_fuel_total", "real not null default 0")
+        ensure_column(connection, "customer_reimbursements", "expense_transfer_cutoff_at", "text")
+        for column_name in (
+            "auto_lodging", "auto_airfare", "auto_baggage", "auto_rental_car",
+            "auto_fuel", "auto_parking", "auto_taxi", "auto_other",
+        ):
+            ensure_column(connection, "customer_reimbursement_items", column_name, "real not null default 0")
         ensure_column(connection, "expense_items", "fuel_vehicle_type", "text")
         connection.execute(
             """
@@ -1533,6 +1548,17 @@ def init_db():
                       and expenses.status = 'approved'
                       and coalesce(projects.name_key, lower(trim(expense_items.project))) = 'mro supplies'
                 ), 0)
+            where not exists (
+                select 1
+                from customer_reimbursement_items
+                where customer_reimbursement_items.customer_reimbursement_id = customer_reimbursements.id
+                  and (
+                    coalesce(auto_lodging, 0) + coalesce(auto_airfare, 0)
+                    + coalesce(auto_baggage, 0) + coalesce(auto_rental_car, 0)
+                    + coalesce(auto_fuel, 0) + coalesce(auto_parking, 0)
+                    + coalesce(auto_taxi, 0) + coalesce(auto_other, 0)
+                  ) > 0
+            )
             """
         )
         connection.execute(
@@ -2725,6 +2751,8 @@ app.jinja_env.globals["requires_user_address"] = requires_user_address
 app.jinja_env.globals["client_order_number_warning"] = client_order_number_warning
 app.jinja_env.globals["is_image_attachment"] = is_image_attachment
 app.jinja_env.globals["is_fuel_project_name"] = is_fuel_project_name
+app.jinja_env.globals["is_lodging_project_name"] = is_lodging_project_name
+app.jinja_env.globals["lodging_reimbursement_limit"] = lodging_reimbursement_limit
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
 app.jinja_env.globals["customer_reimbursement_labels"] = CUSTOMER_REIMBURSEMENT_STATUS_LABELS
@@ -4525,6 +4553,16 @@ def excessive_following_mileage_rows(order_id, threshold=500):
     ).fetchall()
 
 
+def customer_reimbursement_item_expense_amount(row, field_name):
+    def value(key):
+        try:
+            return row[key]
+        except (KeyError, TypeError, IndexError):
+            return 0
+
+    return money_decimal(value(field_name)) + money_decimal(value(f"auto_{field_name}"))
+
+
 def calculate_customer_reimbursement_item(row, sort_order=0):
     labor_total = (
         decimal_value(row.get("standard_hours")) * money_decimal(row.get("standard_rate"))
@@ -4533,12 +4571,100 @@ def calculate_customer_reimbursement_item(row, sort_order=0):
         + decimal_value(row.get("holiday_hours")) * money_decimal(row.get("holiday_rate"))
     )
     mileage_total = decimal_value(row.get("miles")) * money_decimal(row.get("mileage_rate"))
-    travel_total = sum((money_decimal(row.get(key)) for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")), Decimal("0"))
+    travel_fields = ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
+    travel_total = sum(
+        (
+            customer_reimbursement_item_expense_amount(row, key)
+            for key in travel_fields
+        ),
+        Decimal("0"),
+    )
     row["labor_total"] = money_float(labor_total)
     row["mileage_total"] = money_float(mileage_total)
     row["total"] = money_float(money_decimal(labor_total) + money_decimal(mileage_total) + travel_total)
     row["sort_order"] = sort_order
     return row
+
+
+CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS = {
+    project_name_key("Accommodation/Lodging"): "lodging",
+    project_name_key("Airfare"): "airfare",
+    project_name_key("Car Rental Fee"): "rental_car",
+    project_name_key("Checked Baggage Fee"): "baggage",
+    project_name_key("Fuel Expenses"): "fuel",
+    project_name_key("Parking Charge"): "parking",
+    project_name_key("Taxi Fare / Ride-Hailing Fare"): "taxi",
+    project_name_key("MRO Supplies"): "other",
+}
+
+
+def customer_reimbursement_expense_field(project_name, fuel_vehicle_type=None):
+    field_name = CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS.get(project_name_key(project_name))
+    if field_name == "fuel" and fuel_vehicle_type != "rental":
+        return None
+    return field_name
+
+
+def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
+    return db().execute(
+        """
+        select expense_items.amount, expense_items.fuel_vehicle_type,
+               coalesce(projects.name, expense_items.project) as project_name,
+               expenses.expense_date, users.name as worker_name
+        from expenses
+        join expense_items on expense_items.expense_id = expenses.id
+        join users on users.id = expenses.created_by
+        left join projects on projects.id = expense_items.project_id
+        where expenses.service_order_id = ? and expenses.status = 'approved'
+          and (? is null or coalesce(expenses.reviewed_at, expenses.updated_at, expenses.created_at) <= ?)
+        order by expenses.expense_date, expenses.id, expense_items.sort_order, expense_items.id
+        """,
+        (order_id, cutoff_at, cutoff_at),
+    ).fetchall()
+
+
+def merge_approved_expenses_into_customer_reimbursement(rows, order_id, cutoff_at=None):
+    auto_fields = tuple(f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"))
+    merged = [dict(row) for row in rows]
+    for row in merged:
+        for field_name in auto_fields:
+            row[field_name] = 0
+
+    rates = customer_reimbursement_rates()
+    row_lookup = {
+        (normalized_project_name(row.get("worker_name")).casefold(), str(row.get("project_date") or "")): row
+        for row in merged
+    }
+    for expense_item in approved_customer_reimbursement_expense_rows(order_id, cutoff_at):
+        field_name = customer_reimbursement_expense_field(
+            expense_item["project_name"], expense_item["fuel_vehicle_type"]
+        )
+        if not field_name:
+            continue
+        key = (
+            normalized_project_name(expense_item["worker_name"]).casefold(),
+            str(expense_item["expense_date"] or ""),
+        )
+        row = row_lookup.get(key)
+        if row is None:
+            row = {
+                "worker_name": expense_item["worker_name"],
+                "project_date": expense_item["expense_date"],
+                "standard_hours": 0, "transport_hours": 0, "overtime_hours": 0, "holiday_hours": 0,
+                "standard_rate": rates["标准工时"], "transport_rate": rates["交通工时"],
+                "overtime_rate": rates["加班工时"], "holiday_rate": rates["节假日工时"],
+                "lodging": 0, "airfare": 0, "baggage": 0, "rental_car": 0,
+                "fuel": 0, "parking": 0, "taxi": 0, "other": 0,
+                "miles": 0, "mileage_rate": rates["里程费"],
+            }
+            for auto_field in auto_fields:
+                row[auto_field] = 0
+            merged.append(row)
+            row_lookup[key] = row
+        auto_field = f"auto_{field_name}"
+        row[auto_field] = money_float(money_decimal(row.get(auto_field)) + money_decimal(expense_item["amount"]))
+
+    return [calculate_customer_reimbursement_item(row, index) for index, row in enumerate(merged)]
 
 
 def approved_mro_supplies_total(order_id):
@@ -4581,15 +4707,23 @@ def approved_rental_vehicle_fuel_total(order_id):
 
 def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total=0):
     labor_total = sum((money_decimal(item["labor_total"]) for item in items), Decimal("0"))
-    lodging_total = sum((money_decimal(item["lodging"]) for item in items), Decimal("0"))
+    lodging_total = sum(
+        (customer_reimbursement_item_expense_amount(item, "lodging") for item in items),
+        Decimal("0"),
+    )
     manual_travel_total = sum(
-        money_decimal(item[key])
+        customer_reimbursement_item_expense_amount(item, key)
         for item in items
         for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
     ) or Decimal("0")
     mileage_total = sum((money_decimal(item["mileage_total"]) for item in items), Decimal("0"))
     mro_supplies_total = money_decimal(mro_supplies_total)
     rental_fuel_total = money_decimal(rental_fuel_total)
+    employee_expense_total = sum(
+        customer_reimbursement_item_expense_amount(item, key) - money_decimal(item[key])
+        for item in items
+        for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
+    ) or Decimal("0")
     travel_total = manual_travel_total + rental_fuel_total
     total_amount = (
         sum((money_decimal(item["total"]) for item in items), Decimal("0"))
@@ -4603,6 +4737,7 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
         "mileage_total": money_float(mileage_total),
         "mro_supplies_total": money_float(mro_supplies_total),
         "rental_fuel_total": money_float(rental_fuel_total),
+        "employee_expense_total": money_float(employee_expense_total),
         "total_amount": money_float(total_amount),
     }
 
@@ -4795,15 +4930,19 @@ def save_customer_reimbursement_items(reimbursement_id, rows):
                 customer_reimbursement_id, worker_name, project_date, standard_hours, transport_hours,
                 overtime_hours, holiday_hours, standard_rate, transport_rate, overtime_rate, holiday_rate,
                 labor_total, lodging, airfare, baggage, rental_car, fuel, parking, taxi, miles, mileage_rate,
-                mileage_total, other, total, sort_order
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                mileage_total, other, auto_lodging, auto_airfare, auto_baggage, auto_rental_car,
+                auto_fuel, auto_parking, auto_taxi, auto_other, total, sort_order
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 reimbursement_id, row["worker_name"], row["project_date"], row["standard_hours"], row["transport_hours"],
                 row["overtime_hours"], row["holiday_hours"], row["standard_rate"], row["transport_rate"],
                 row["overtime_rate"], row["holiday_rate"], row["labor_total"], row["lodging"], row["airfare"],
                 row["baggage"], row["rental_car"], row["fuel"], row["parking"], row["taxi"], row["miles"],
-                row["mileage_rate"], row["mileage_total"], row["other"], row["total"], row["sort_order"],
+                row["mileage_rate"], row["mileage_total"], row["other"],
+                row.get("auto_lodging", 0), row.get("auto_airfare", 0), row.get("auto_baggage", 0),
+                row.get("auto_rental_car", 0), row.get("auto_fuel", 0), row.get("auto_parking", 0),
+                row.get("auto_taxi", 0), row.get("auto_other", 0), row["total"], row["sort_order"],
             ),
         )
 
@@ -4902,12 +5041,18 @@ def create_customer_reimbursement(order):
 def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     rows = rows if rows is not None else customer_reimbursement_items(reimbursement_id)
     reimbursement = db().execute(
-        "select service_order_id from customer_reimbursements where id = ?",
+        "select service_order_id, expense_transfer_cutoff_at from customer_reimbursements where id = ?",
         (reimbursement_id,),
     ).fetchone()
-    mro_supplies_total = approved_mro_supplies_total(reimbursement["service_order_id"]) if reimbursement else 0
-    rental_fuel_total = approved_rental_vehicle_fuel_total(reimbursement["service_order_id"]) if reimbursement else 0
-    totals = customer_reimbursement_totals(rows, mro_supplies_total, rental_fuel_total)
+    if not reimbursement:
+        return customer_reimbursement_totals(rows)
+    rows = merge_approved_expenses_into_customer_reimbursement(
+        rows,
+        reimbursement["service_order_id"],
+        reimbursement["expense_transfer_cutoff_at"],
+    )
+    save_customer_reimbursement_items(reimbursement_id, rows)
+    totals = customer_reimbursement_totals(rows)
     db().execute(
         """
         update customer_reimbursements
@@ -5034,17 +5179,17 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
             reimbursement_number(item["overtime_rate"]),
             reimbursement_number(item["holiday_rate"]),
             reimbursement_number(item["labor_total"]),
-            reimbursement_number(item["lodging"]),
-            reimbursement_number(item["airfare"]),
-            reimbursement_number(item["baggage"]),
-            reimbursement_number(item["rental_car"]),
-            reimbursement_number(item["fuel"]),
-            reimbursement_number(item["parking"]),
-            reimbursement_number(item["taxi"]),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "lodging")),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "airfare")),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "baggage")),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "rental_car")),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "fuel")),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "parking")),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "taxi")),
             reimbursement_number(item["miles"]),
             reimbursement_number(item["mileage_rate"]),
             reimbursement_number(item["mileage_total"]),
-            reimbursement_number(item["other"]),
+            reimbursement_number(customer_reimbursement_item_expense_amount(item, "other")),
             reimbursement_number(item["total"]),
         ]
         table_data.append([reimbursement_paragraph(value, cell_style) for value in values])
@@ -5057,7 +5202,11 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
     }
     total_values = ["Total", ""] + [""] * 21
     for column_index, field_name in sum_fields.items():
-        total_values[column_index] = reimbursement_number(sum(float(item[field_name] or 0) for item in rows))
+        if field_name in {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}:
+            field_total = sum((customer_reimbursement_item_expense_amount(item, field_name) for item in rows), Decimal("0"))
+        else:
+            field_total = sum((money_decimal(item[field_name]) for item in rows), Decimal("0"))
+        total_values[column_index] = reimbursement_number(field_total)
     table_data.append([reimbursement_paragraph(value, total_style) for value in total_values])
 
     column_widths = [
@@ -5096,6 +5245,11 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
         )
     )
 
+    pdf_totals = customer_reimbursement_totals(
+        rows,
+        reimbursement["mro_supplies_total"],
+        reimbursement["rental_fuel_total"],
+    )
     story = [
         Paragraph("费用报销单", title_style),
         Spacer(1, 3 * mm),
@@ -5107,8 +5261,7 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
         table,
         Spacer(1, 3 * mm),
         Paragraph(
-            f"租赁车辆油费：{money(reimbursement['rental_fuel_total'])}　　"
-            f"MRO Supplies：{money(reimbursement['mro_supplies_total'])}　　"
+            f"员工报销转入：{money(pdf_totals['employee_expense_total'])}　　"
             f"结算总计：{money(reimbursement['total_amount'])}",
             meta_style,
         ),
@@ -11307,10 +11460,14 @@ def customer_reimbursement_form(order_id):
             db().execute(
                 """
                 update customer_reimbursements
-                set status = ?, return_reason = null
+                set status = ?, return_reason = null,
+                    expense_transfer_cutoff_at = case
+                        when ? = 'submitted' then coalesce(expense_transfer_cutoff_at, ?)
+                        else expense_transfer_cutoff_at
+                    end
                 where id = ?
                 """,
-                (next_status, reimbursement["id"]),
+                (next_status, next_status, now(), reimbursement["id"]),
             )
             reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
             remove_customer_reimbursement_pdf(reimbursement)
@@ -12154,8 +12311,6 @@ def expense_items_from_form(expense_id=None):
         amount = to_float(amounts[index] if index < len(amounts) else 0)
         if amount <= 0:
             raise ValueError("每个员工报销项目的金额必须大于 0。")
-        if is_lodging_project_name(project["name"]):
-            validate_lodging_reimbursement(amount, "员工住宿报销")
         fuel_vehicle_type = ""
         if is_fuel_project_name(project["name"]):
             fuel_vehicle_type = (

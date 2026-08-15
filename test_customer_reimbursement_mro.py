@@ -82,8 +82,9 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             connection.execute(
                 """
                 insert into customer_reimbursement_items (
-                    customer_reimbursement_id, worker_name, project_date, labor_total, total, sort_order
-                ) values (?, 'Worker', '2026-08-12', 70, 70, 0)
+                    customer_reimbursement_id, worker_name, project_date,
+                    standard_hours, standard_rate, labor_total, total, sort_order
+                ) values (?, 'Worker', '2026-08-12', 1, 70, 70, 70, 0)
                 """,
                 (reimbursement_id,),
             )
@@ -91,7 +92,7 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             self.order_id = order_id
             self.reimbursement_id = reimbursement_id
 
-    def test_only_approved_mro_flows_to_settlement_and_invoice(self):
+    def test_only_approved_mro_flows_to_other_and_travel_invoice(self):
         with self.module.app.app_context():
             totals = self.module.update_customer_reimbursement_totals(self.reimbursement_id)
             reimbursement = self.module.db().execute(
@@ -104,10 +105,20 @@ class CustomerReimbursementMroTest(unittest.TestCase):
                 for item in invoice_items
             }
 
-            self.assertEqual(totals["mro_supplies_total"], 125.0)
+            transferred = self.module.db().execute(
+                """
+                select * from customer_reimbursement_items
+                where customer_reimbursement_id = ? and worker_name = 'MRO Admin'
+                """,
+                (self.reimbursement_id,),
+            ).fetchone()
+            self.assertEqual(transferred["auto_other"], 125.0)
+            self.assertEqual(totals["mro_supplies_total"], 0.0)
+            self.assertEqual(totals["employee_expense_total"], 125.0)
             self.assertEqual(totals["total_amount"], 195.0)
-            self.assertEqual(reimbursement["mro_supplies_total"], 125.0)
-            self.assertEqual(invoice_projects["MRO Supplies"]["amount"], 125.0)
+            self.assertEqual(reimbursement["mro_supplies_total"], 0.0)
+            self.assertEqual(invoice_projects["Travel Expenses Reimbursement"]["amount"], 125.0)
+            self.assertNotIn("MRO Supplies", invoice_projects)
 
     def test_coordinate_pair_accepts_one_paste_and_validates_ranges(self):
         parse = self.module.parse_coordinate_pair

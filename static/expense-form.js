@@ -46,6 +46,20 @@ function syncFuelVehicleField(row) {
   if (!isFuel) vehicleSelect.value = "";
 }
 
+function syncLodgingLimitWarning(row) {
+  const projectSelect = row.querySelector(".expense-project-select");
+  const amountInput = row.querySelector('[name="item_amount"]');
+  const warning = row.querySelector(".lodging-limit-warning");
+  if (!projectSelect || !amountInput || !warning) return;
+  const limit = Number.parseFloat(window.expenseLodgingLimit) || 0;
+  const amount = Number.parseFloat(amountInput.value) || 0;
+  const showWarning = Boolean(expenseProject(projectSelect.value)?.isLodging) && limit > 0 && amount > limit;
+  warning.hidden = !showWarning;
+  warning.textContent = showWarning
+    ? `提醒：住宿费超过单人参考标准 $${limit.toFixed(2)}；如为多人或连续多日合并订房，可继续提交并在明细说明中注明。`
+    : "";
+}
+
 function bindExpenseRows() {
   document.querySelectorAll(".remove-expense-item").forEach((button) => {
     button.onclick = () => {
@@ -57,12 +71,19 @@ function bindExpenseRows() {
     };
   });
   document.querySelectorAll("[name='item_amount']").forEach((input) => {
-    input.oninput = updateExpenseTotal;
+    input.oninput = () => {
+      updateExpenseTotal();
+      syncLodgingLimitWarning(input.closest(".expense-item-row"));
+    };
   });
   document.querySelectorAll(".expense-item-row").forEach((row) => {
     const projectSelect = row.querySelector(".expense-project-select");
-    projectSelect.onchange = () => syncFuelVehicleField(row);
+    projectSelect.onchange = () => {
+      syncFuelVehicleField(row);
+      syncLodgingLimitWarning(row);
+    };
     syncFuelVehicleField(row);
+    syncLodgingLimitWarning(row);
   });
 }
 
@@ -83,7 +104,10 @@ addExpenseItem?.addEventListener("click", () => {
         </select>
       </label>
     </td>
-    <td><input type="number" step="0.01" min="0.01" name="item_amount" placeholder="金额（USD）" aria-label="金额" required></td>
+    <td>
+      <input type="number" step="0.01" min="0.01" name="item_amount" placeholder="金额（USD）" aria-label="金额" required>
+      <small class="lodging-limit-warning" hidden></small>
+    </td>
     <td><input name="item_description" placeholder="明细说明" aria-label="明细说明"></td>
     <td><button type="button" class="ghost remove-expense-item">删除</button></td>
   `;

@@ -22,7 +22,12 @@ function reimbursementMoney(value) {
 }
 
 function reimbursementInputValue(row, name) {
-  return reimbursementNumber(row.querySelector(`[name="${name}"]`)?.value);
+  const input = row.querySelector(`[name="${name}"]`);
+  return reimbursementNumber(input?.value) + reimbursementNumber(input?.dataset.autoAmount);
+}
+
+function reimbursementAutoValue(row, name) {
+  return reimbursementNumber(row.querySelector(`[name="${name}"]`)?.dataset.autoAmount);
 }
 
 function calculateReimbursementRow(row) {
@@ -44,10 +49,15 @@ function updateCustomerReimbursementTotals() {
     mileage: 0,
     rentalFuel: reimbursementRentalFuel,
     mro: reimbursementMro,
+    employeeExpense: 0,
     total: reimbursementMro + reimbursementRentalFuel,
   };
   table?.querySelectorAll("tbody tr").forEach((row) => {
     const rowTotals = calculateReimbursementRow(row);
+    totals.employeeExpense += travelAmountFields.reduce(
+      (sum, name) => sum + reimbursementAutoValue(row, name),
+      0,
+    );
     Object.keys(rowTotals).forEach((key) => {
       totals[key] += rowTotals[key];
       const cell = row.querySelector(`[data-row-total="${key}"]`);
@@ -81,7 +91,9 @@ function cloneCustomerReimbursementRow() {
   const nextRow = lastRow.cloneNode(true);
   nextRow.querySelectorAll("input").forEach((input) => {
     input.value = input.type === "date" ? input.value : "";
+    if (input.dataset.autoAmount !== undefined) input.dataset.autoAmount = "0";
   });
+  nextRow.querySelectorAll(".auto-expense-amount").forEach((label) => label.remove());
   body.appendChild(nextRow);
   updateCustomerReimbursementTotals();
 }

@@ -396,10 +396,6 @@ class PaymentTermsTest(unittest.TestCase):
                 self.module.approved_rental_vehicle_fuel_total(self.open_order_id),
                 200,
             )
-            totals = self.module.customer_reimbursement_totals([], 0, 200)
-            self.assertEqual(totals["rental_fuel_total"], 200)
-            self.assertEqual(totals["travel_total"], 200)
-            self.assertEqual(totals["total_amount"], 200)
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
@@ -412,7 +408,14 @@ class PaymentTermsTest(unittest.TestCase):
             reimbursement = connection.execute(
                 "select * from customer_reimbursements where id = ?", (reimbursement_id,)
             ).fetchone()
-            self.assertEqual(reimbursement["rental_fuel_total"], 200)
+            transferred_row = connection.execute(
+                "select * from customer_reimbursement_items where customer_reimbursement_id = ?",
+                (reimbursement_id,),
+            ).fetchone()
+            self.assertEqual(transferred_row["worker_name"], "Admin")
+            self.assertEqual(transferred_row["project_date"], "2026-08-13")
+            self.assertEqual(transferred_row["auto_fuel"], 200)
+            self.assertEqual(reimbursement["rental_fuel_total"], 0)
             self.assertEqual(reimbursement["travel_total"], 200)
             self.assertEqual(reimbursement["total_amount"], 200)
             connection.execute(
@@ -455,6 +458,190 @@ class PaymentTermsTest(unittest.TestCase):
             with self.module.app.app_context():
                 with self.assertRaisesRegex(ValueError, "必须选择"):
                     self.module.expense_items_from_form()
+
+    def test_approved_expense_categories_transfer_to_matching_reimbursement_columns(self):
+        category_amounts = {
+            "Accommodation/Lodging": 10,
+            "Airfare": 20,
+            "Car Rental Fee": 30,
+            "Checked Baggage Fee": 40,
+            "Fuel Expenses": 50,
+            "Parking Charge": 60,
+            "Taxi Fare / Ride-Hailing Fare": 70,
+            "MRO Supplies": 80,
+        }
+        with self.module.app.app_context():
+            connection = self.module.db()
+            project_ids = {}
+            for project_name in category_amounts:
+                project = connection.execute(
+                    "select id from projects where project_type = 'expense' and name_key = ? limit 1",
+                    (self.module.project_name_key(project_name),),
+                ).fetchone()
+                if project is None:
+                    project_id = connection.execute(
+                        """
+                        insert into projects (
+                            name, name_key, project_type, default_amount, unit_price,
+                            tax_rate, is_active, created_at
+                        ) values (?, ?, 'expense', 0, 0, 0, 1, '2026-08-15T00:00:00')
+                        """,
+                        (project_name, self.module.project_name_key(project_name)),
+                    ).lastrowid
+                else:
+                    project_id = project["id"]
+                project_ids[project_name] = project_id
+
+            expense_id = connection.execute(
+                """
+                insert into expenses (
+                    service_order_id, expense_number, project_id, project, expense_date,
+                    amount, currency, status, created_by, created_at, updated_at
+                ) values (?, 'EX-AUTO-CATEGORIES', ?, 'Accommodation/Lodging', '2026-08-14',
+                          1359, 'USD', 'approved', ?, '2026-08-14T00:00:00', '2026-08-14T00:00:00')
+                """,
+                (self.open_order_id, project_ids["Accommodation/Lodging"], self.user_id),
+            ).lastrowid
+            for sort_order, (project_name, amount) in enumerate(category_amounts.items()):
+                connection.execute(
+                    """
+                    insert into expense_items (
+                        expense_id, project_id, project, amount, description,
+                        fuel_vehicle_type, sort_order
+                    ) values (?, ?, ?, ?, '', ?, ?)
+                    """,
+                    (
+                        expense_id,
+                        project_ids[project_name],
+                        project_name,
+                        amount,
+                        "rental" if project_name == "Fuel Expenses" else None,
+                        sort_order,
+                    ),
+                )
+            connection.execute(
+                """
+                insert into expense_items (
+                    expense_id, project_id, project, amount, description,
+                    fuel_vehicle_type, sort_order
+                ) values (?, ?, 'Fuel Expenses', 999, '', 'personal', 99)
+                """,
+                (expense_id, project_ids["Fuel Expenses"]),
+            )
+            reimbursement_id = connection.execute(
+                """
+                insert into customer_reimbursements (
+                    service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, 'category-test.pdf', 'category-test.pdf', ?, '2026-08-15T00:00:00')
+                """,
+                (self.open_order_id, self.user_id),
+            ).lastrowid
+            connection.execute(
+                """
+                insert into customer_reimbursement_items (
+                    customer_reimbursement_id, worker_name, project_date, other, sort_order
+                ) values (?, 'Admin', '2026-08-14', 5, 0)
+                """,
+                (reimbursement_id,),
+            )
+            connection.commit()
+
+            totals = self.module.update_customer_reimbursement_totals(reimbursement_id)
+            row = connection.execute(
+                "select * from customer_reimbursement_items where customer_reimbursement_id = ?",
+                (reimbursement_id,),
+            ).fetchone()
+            self.assertEqual(row["auto_lodging"], 10)
+            self.assertEqual(row["auto_airfare"], 20)
+            self.assertEqual(row["auto_rental_car"], 30)
+            self.assertEqual(row["auto_baggage"], 40)
+            self.assertEqual(row["auto_fuel"], 50)
+            self.assertEqual(row["auto_parking"], 60)
+            self.assertEqual(row["auto_taxi"], 70)
+            self.assertEqual(row["auto_other"], 80)
+            self.assertEqual(row["other"], 5)
+            self.assertEqual(totals["employee_expense_total"], 360)
+            self.assertEqual(totals["travel_total"], 365)
+            self.assertEqual(totals["total_amount"], 365)
+
+            connection.execute(
+                "update customer_reimbursements set expense_transfer_cutoff_at = '2026-08-15T00:00:00' where id = ?",
+                (reimbursement_id,),
+            )
+            late_expense_id = connection.execute(
+                """
+                insert into expenses (
+                    service_order_id, expense_number, project_id, project, expense_date,
+                    amount, currency, status, reviewed_at, created_by, created_at, updated_at
+                ) values (?, 'EX-LATE-MRO', ?, 'MRO Supplies', '2026-08-14', 500, 'USD',
+                          'approved', '2026-08-16T00:00:00', ?,
+                          '2026-08-14T00:00:00', '2026-08-16T00:00:00')
+                """,
+                (self.open_order_id, project_ids["MRO Supplies"], self.user_id),
+            ).lastrowid
+            connection.execute(
+                """
+                insert into expense_items (
+                    expense_id, project_id, project, amount, description, sort_order
+                ) values (?, ?, 'MRO Supplies', 500, '', 0)
+                """,
+                (late_expense_id, project_ids["MRO Supplies"]),
+            )
+            totals = self.module.update_customer_reimbursement_totals(reimbursement_id)
+            row = connection.execute(
+                "select * from customer_reimbursement_items where customer_reimbursement_id = ?",
+                (reimbursement_id,),
+            ).fetchone()
+            self.assertEqual(row["auto_other"], 80)
+            self.assertEqual(totals["total_amount"], 365)
+
+    def test_employee_lodging_over_limit_is_warning_not_validation_error(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            self.module.set_setting("payroll_lodging_limit", 100)
+            lodging_project = connection.execute(
+                "select * from projects where project_type = 'expense' and name_key = ? limit 1",
+                (self.module.project_name_key("Accommodation/Lodging"),),
+            ).fetchone()
+            if lodging_project is None:
+                lodging_project_id = connection.execute(
+                    """
+                    insert into projects (
+                        name, name_key, project_type, default_amount, unit_price,
+                        tax_rate, is_active, created_at
+                    ) values ('Accommodation/Lodging', 'accommodation/lodging', 'expense',
+                              0, 0, 0, 1, '2026-08-15T00:00:00')
+                    """
+                ).lastrowid
+            else:
+                lodging_project_id = lodging_project["id"]
+            connection.commit()
+
+        with self.module.app.test_request_context(
+            "/expenses/new",
+            method="POST",
+            data={
+                "project_id": [str(lodging_project_id)],
+                "item_amount": ["450"],
+                "item_description": ["Three employees, three nights"],
+                "fuel_vehicle_type": [""],
+            },
+        ):
+            with self.module.app.app_context():
+                rows = self.module.expense_items_from_form()
+                self.assertEqual(rows[0]["amount"], 450)
+
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute("update users set role = 'manager' where id = ?", (self.user_id,))
+            connection.execute(
+                "update service_orders set start_date = '2026-08-13' where id = ?",
+                (self.open_order_id,),
+            )
+            connection.commit()
+        page = self.http.get(f"/service-orders/{self.open_order_id}/expenses/new").get_data(as_text=True)
+        self.assertIn("expenseLodgingLimit = 100", page)
+        self.assertIn("isLodging: true", page)
 
 
 if __name__ == "__main__":

@@ -2509,3 +2509,18 @@ body.service-order-map-page {
   line-height: 1;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
 }
+.auto-expense-amount {
+  display: block;
+  margin-top: 0.25rem;
+  color: #087f5b;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.lodging-limit-warning {
+  display: block;
+  margin-top: 0.35rem;
+  color: #b45309;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
