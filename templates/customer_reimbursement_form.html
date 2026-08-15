@@ -162,7 +162,7 @@
           {% for attachment in attachments %}
             <tr>
               <td>
-                {% if (attachment.content_type or "").startswith("image/") %}
+                {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}
                   <a
                     href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}"
                     data-image-preview

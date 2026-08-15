@@ -2674,6 +2674,13 @@ def client_order_number_warning(customer_name, client_order_number):
     return ""
 
 
+def is_image_attachment(content_type, filename):
+    if (content_type or "").strip().casefold().startswith("image/"):
+        return True
+    name = (filename or "").strip().casefold()
+    return "." in name and name.rsplit(".", 1)[1] in ALLOWED_IMAGE_EXTENSIONS
+
+
 app.jinja_env.filters["money"] = money
 app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
@@ -2701,6 +2708,7 @@ app.jinja_env.globals["has_action_permission"] = has_action_permission
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["requires_user_address"] = requires_user_address
 app.jinja_env.globals["client_order_number_warning"] = client_order_number_warning
+app.jinja_env.globals["is_image_attachment"] = is_image_attachment
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
 app.jinja_env.globals["customer_reimbursement_labels"] = CUSTOMER_REIMBURSEMENT_STATUS_LABELS

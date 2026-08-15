@@ -273,6 +273,12 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertIn("client-order-number-warning", calendar_page)
         self.assertIn("SO-INVALID", calendar_page)
 
+    def test_image_attachments_are_recognized_by_mime_type_or_filename(self):
+        self.assertTrue(self.module.is_image_attachment("image/jpeg", "receipt.bin"))
+        self.assertTrue(self.module.is_image_attachment("", "receipt.JPG"))
+        self.assertTrue(self.module.is_image_attachment(None, "receipt.webp"))
+        self.assertFalse(self.module.is_image_attachment("application/pdf", "receipt.pdf"))
+
 
 if __name__ == "__main__":
     unittest.main()
