@@ -716,6 +716,7 @@ body.service-order-calendar-page .service-order-calendar-panel {
 }
 .work-order-calendar-event {
   display: grid;
+  height: 44px;
   gap: 1px;
   padding: 4px 6px;
   border-left: 3px solid #98a2b3;

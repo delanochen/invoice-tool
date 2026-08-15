@@ -279,6 +279,27 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertTrue(self.module.is_image_attachment(None, "receipt.webp"))
         self.assertFalse(self.module.is_image_attachment("application/pdf", "receipt.pdf"))
 
+    def test_calendar_keeps_multiday_order_on_one_lane(self):
+        shared_first = {"order_id": 1, "order_number": "SO-1"}
+        shared_second = {"order_id": 1, "order_number": "SO-1"}
+        monday_only = {"order_id": 2, "order_number": "SO-2"}
+        thursday_only = {"order_id": 3, "order_number": "SO-3"}
+        week = [
+            {"events": [shared_first, monday_only]},
+            {"events": []},
+            {"events": []},
+            {"events": [shared_second, thursday_only]},
+            {"events": []},
+            {"events": []},
+            {"events": []},
+        ]
+        self.module.assign_service_order_calendar_lanes(week)
+        self.assertEqual(shared_first["lane"], shared_second["lane"])
+        self.assertNotEqual(shared_first["lane"], monday_only["lane"])
+        self.assertNotEqual(shared_second["lane"], thursday_only["lane"])
+        self.assertEqual(monday_only["lane"], thursday_only["lane"])
+        self.assertTrue(all(day["lane_count"] == 2 for day in week))
+
 
 if __name__ == "__main__":
     unittest.main()

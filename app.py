@@ -9747,6 +9747,48 @@ def service_order_calendar_rows(date_from, date_to):
     ).fetchall()
 
 
+def assign_service_order_calendar_lanes(week):
+    """Keep each work order on one compact horizontal lane within a calendar week."""
+    intervals = {}
+    for day_index, day in enumerate(week):
+        for event in day["events"]:
+            interval = intervals.setdefault(
+                event["order_id"],
+                {
+                    "order_id": event["order_id"],
+                    "order_number": event.get("order_number") or "",
+                    "start": day_index,
+                    "end": day_index,
+                    "events": [],
+                },
+            )
+            interval["start"] = min(interval["start"], day_index)
+            interval["end"] = max(interval["end"], day_index)
+            interval["events"].append(event)
+
+    lane_ends = []
+    for interval in sorted(
+        intervals.values(),
+        key=lambda item: (item["start"], item["end"], item["order_number"], item["order_id"]),
+    ):
+        lane = next(
+            (index for index, lane_end in enumerate(lane_ends) if lane_end < interval["start"]),
+            len(lane_ends),
+        )
+        if lane == len(lane_ends):
+            lane_ends.append(interval["end"])
+        else:
+            lane_ends[lane] = interval["end"]
+        for event in interval["events"]:
+            event["lane"] = lane
+
+    lane_count = len(lane_ends)
+    for day in week:
+        day["lane_count"] = lane_count
+        day["events"].sort(key=lambda event: (event.get("lane", 0), event.get("order_number") or ""))
+    return week
+
+
 def service_order_calendar_weeks(year, month):
     month_start = date(year, month, 1)
     month_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
@@ -9815,7 +9857,7 @@ def service_order_calendar_weeks(year, month):
                 }
             )
             current += timedelta(days=1)
-        weeks.append(week)
+        weeks.append(assign_service_order_calendar_lanes(week))
     return weeks
 
 

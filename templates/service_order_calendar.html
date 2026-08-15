@@ -25,9 +25,9 @@
         {% for day in week %}
           <div class="work-order-calendar-day {{ '' if day.in_month else 'muted-day' }} {{ 'today' if day.is_today else '' }}">
             <span class="calendar-date">{{ day.date.day }}</span>
-            <div class="work-order-calendar-events">
+            <div class="work-order-calendar-events"{% if day.lane_count %} style="grid-template-rows: repeat({{ day.lane_count }}, 44px);"{% endif %}>
               {% for event in day.events %}
-                <a class="work-order-calendar-event{% if event.billing_state %} {{ event.billing_state }}{% endif %} continues-{{ event.continuation }}" href="{{ event.detail_url }}" title="{{ event.site_name }} · {{ event.order_number }} · {{ event.status_label }}{% if event.work_order_type %} · {{ event.work_order_type }}{% endif %}{% if event.client_order_number_warning %} · {{ event.client_order_number_warning }}{% endif %}">
+                <a class="work-order-calendar-event{% if event.billing_state %} {{ event.billing_state }}{% endif %} continues-{{ event.continuation }}" style="grid-row: {{ event.lane + 1 }};" href="{{ event.detail_url }}" title="{{ event.site_name }} · {{ event.order_number }} · {{ event.status_label }}{% if event.work_order_type %} · {{ event.work_order_type }}{% endif %}{% if event.client_order_number_warning %} · {{ event.client_order_number_warning }}{% endif %}">
                   <span>{{ event.site_name }}</span>
                   <small{% if event.client_order_number_warning %} class="client-order-number-warning"{% endif %}>
                     {{ event.client_order_number or "未填写服务订单号码" }}{% if event.client_order_number_warning %} <span class="client-order-warning-icon" aria-hidden="true">⚠</span>{% endif %}
