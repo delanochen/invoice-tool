@@ -321,6 +321,35 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertIn("2 张报销 · 合计 $655.59", page)
         self.assertIn('data-selected-summary="2 张报销 · 合计 $655.59"', page)
 
+    def test_projects_can_filter_by_type_and_name(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute(
+                """
+                insert into projects (
+                    name, name_key, project_type, default_amount, unit_price,
+                    tax_rate, is_active, created_at
+                ) values ('Filter Expense Alpha', 'filter expense alpha', 'expense', 0, 0, 0, 1,
+                          '2026-08-15T00:00:00')
+                """
+            )
+            connection.execute(
+                """
+                insert into projects (
+                    name, name_key, project_type, default_amount, unit_price,
+                    tax_rate, is_active, created_at
+                ) values ('Filter Invoice Beta', 'filter invoice beta', 'invoice', 0, 0, 0, 1,
+                          '2026-08-15T00:00:00')
+                """
+            )
+            connection.commit()
+
+        page = self.http.get("/projects?project_type=expense&q=Alpha").get_data(as_text=True)
+        self.assertIn("Filter Expense Alpha", page)
+        self.assertNotIn("Filter Invoice Beta", page)
+        self.assertIn('value="expense" selected', page)
+        self.assertIn('value="Alpha"', page)
+
 
 if __name__ == "__main__":
     unittest.main()

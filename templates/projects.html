@@ -6,6 +6,24 @@
     <button class="primary" type="button" data-dialog-open="newProjectDialog">新增项目</button>
   </header>
 
+  <form class="filter-bar service-filter no-print" method="get">
+    <label>项目名称
+      <input name="q" value="{{ q }}" placeholder="输入项目名称">
+    </label>
+    <label>项目类型
+      <select name="project_type">
+        <option value="">全部类型</option>
+        {% for value, label in project_type_labels.items() %}
+          <option value="{{ value }}" {% if selected_project_type == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="filter-actions">
+      <button type="submit">查询</button>
+      <button type="button" onclick="window.location.href='{{ url_for('projects') }}'">重置</button>
+    </div>
+  </form>
+
   <section class="panel">
     <div class="panel-title"><h2>项目列表</h2><span class="muted-line">{{ projects|length }} 个项目</span></div>
     <table class="list-table">
@@ -29,7 +47,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="empty">还没有项目。</td></tr>
+          <tr><td colspan="7" class="empty">没有符合条件的项目。</td></tr>
         {% endfor %}
       </tbody>
     </table>

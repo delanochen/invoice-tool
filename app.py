@@ -7515,8 +7515,28 @@ def projects():
         return redirect(url_for("projects"))
     merge_duplicate_projects(db())
     db().commit()
-    rows = db().execute("select * from projects order by is_active desc, name").fetchall()
-    return render_template("projects.html", projects=rows)
+    q = request.args.get("q", "").strip()
+    project_type = request.args.get("project_type", "").strip()
+    if project_type not in PROJECT_TYPE_LABELS:
+        project_type = ""
+    clauses = ["1 = 1"]
+    params = []
+    if q:
+        clauses.append("name like ?")
+        params.append(f"%{q}%")
+    if project_type:
+        clauses.append("project_type = ?")
+        params.append(project_type)
+    rows = db().execute(
+        f"select * from projects where {' and '.join(clauses)} order by is_active desc, name",
+        params,
+    ).fetchall()
+    return render_template(
+        "projects.html",
+        projects=rows,
+        q=q,
+        selected_project_type=project_type,
+    )
 
 
 @app.route("/projects/<int:project_id>/edit", methods=["GET", "POST"])
