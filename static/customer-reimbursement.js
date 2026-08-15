@@ -3,6 +3,7 @@ const addRowButton = document.getElementById("addCustomerReimbursementRow");
 const reimbursementForm = document.getElementById("customerReimbursementForm");
 const reimbursementRates = window.customerReimbursementRates || {};
 const reimbursementMro = reimbursementNumber(window.customerReimbursementMro);
+const reimbursementRentalFuel = reimbursementNumber(window.customerReimbursementRentalFuel);
 const reimbursementLiveTotalsEnabled = reimbursementForm?.dataset.liveTotals === "true";
 const travelAmountFields = ["lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"];
 let reimbursementSubmitting = false;
@@ -37,7 +38,14 @@ function calculateReimbursementRow(row) {
 
 function updateCustomerReimbursementTotals() {
   if (!reimbursementLiveTotalsEnabled) return;
-  const totals = { labor: 0, travel: 0, mileage: 0, mro: reimbursementMro, total: reimbursementMro };
+  const totals = {
+    labor: 0,
+    travel: reimbursementRentalFuel,
+    mileage: 0,
+    rentalFuel: reimbursementRentalFuel,
+    mro: reimbursementMro,
+    total: reimbursementMro + reimbursementRentalFuel,
+  };
   table?.querySelectorAll("tbody tr").forEach((row) => {
     const rowTotals = calculateReimbursementRow(row);
     Object.keys(rowTotals).forEach((key) => {

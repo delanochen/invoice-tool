@@ -30,12 +30,22 @@
       {% set rows = form_items if form_items else [{}] %}
       {% for item in rows %}
         <tr class="expense-item-row">
-          <td><select name="project_id" class="expense-project-select" aria-label="员工报销项目" required>
-            <option value="">选择员工报销项目</option>
-            {% for project in expense_projects %}
-              <option value="{{ project.id }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.name }}{% if not project.is_active %}（已停用）{% endif %}</option>
-            {% endfor %}
-          </select></td>
+          <td>
+            <select name="project_id" class="expense-project-select" aria-label="员工报销项目" required>
+              <option value="">选择员工报销项目</option>
+              {% for project in expense_projects %}
+                <option value="{{ project.id }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.name }}{% if not project.is_active %}（已停用）{% endif %}</option>
+              {% endfor %}
+            </select>
+            <label class="fuel-vehicle-field" hidden>
+              <span>加油车辆 <em class="required-mark">*</em></span>
+              <select name="fuel_vehicle_type" aria-label="加油车辆类型">
+                <option value="">请选择车辆类型</option>
+                <option value="personal" {% if item.fuel_vehicle_type == 'personal' %}selected{% endif %}>个人／自有车辆（仅员工报销）</option>
+                <option value="rental" {% if item.fuel_vehicle_type == 'rental' %}selected{% endif %}>租赁车辆（可计入工单结算）</option>
+              </select>
+            </label>
+          </td>
           <td><input type="number" step="0.01" min="0.01" name="item_amount" value="{{ item.amount or '' }}" placeholder="金额（USD）" aria-label="金额" required></td>
           <td><input name="item_description" value="{{ item.description or '' }}" placeholder="明细说明" aria-label="明细说明"></td>
           <td><button type="button" class="ghost remove-expense-item">删除</button></td>
@@ -111,7 +121,7 @@
   <script>
     window.expenseProjects = [
       {% for project in expense_projects %}
-        {id: "{{ project.id }}", name: {{ project.name|tojson }}, active: {{ "true" if project.is_active else "false" }}}{% if not loop.last %},{% endif %}
+        {id: "{{ project.id }}", name: {{ project.name|tojson }}, active: {{ "true" if project.is_active else "false" }}, isFuel: {{ "true" if is_fuel_project_name(project.name) else "false" }}}{% if not loop.last %},{% endif %}
       {% endfor %}
     ];
   </script>

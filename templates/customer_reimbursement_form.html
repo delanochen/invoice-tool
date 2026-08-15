@@ -94,6 +94,7 @@
       <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>
       <div class="metric"><span>差旅费小计</span><strong data-reimbursement-total="travel">{{ totals.travel_total|money }}</strong></div>
       <div class="metric"><span>里程费小计</span><strong data-reimbursement-total="mileage">{{ totals.mileage_total|money }}</strong></div>
+      <div class="metric"><span>租赁车辆油费</span><strong data-reimbursement-total="rentalFuel">{{ totals.rental_fuel_total|money }}</strong><small>来自已通过的员工报销，已计入差旅费</small></div>
       <div class="metric"><span>MRO Supplies</span><strong data-reimbursement-total="mro">{{ totals.mro_supplies_total|money }}</strong><small>来自同一工单中已通过的员工报销</small></div>
       <div class="metric"><span>合计</span><strong data-reimbursement-total="total">{{ totals.total_amount|money }}</strong></div>
     </div>
@@ -214,6 +215,7 @@
       "mileage": rates["里程费"]
     }|tojson }};
     window.customerReimbursementMro = {{ totals.mro_supplies_total|tojson }};
+    window.customerReimbursementRentalFuel = {{ totals.rental_fuel_total|tojson }};
   </script>
   <script src="{{ url_for('static', filename='customer-reimbursement.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>

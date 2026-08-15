@@ -55,7 +55,14 @@
       <tbody>
         {% for item in items %}
           <tr>
-            <td>{{ item.project }}</td>
+            <td>
+              {{ item.project }}
+              {% if item.fuel_vehicle_type == "rental" %}
+                <small class="muted-line">租赁车辆 · 审核通过后计入工单结算</small>
+              {% elif item.fuel_vehicle_type == "personal" %}
+                <small class="muted-line">个人／自有车辆 · 仅员工报销</small>
+              {% endif %}
+            </td>
             <td>{{ item.description or "-" }}</td>
             <td>{{ item.amount|money(expense.currency) }}</td>
           </tr>

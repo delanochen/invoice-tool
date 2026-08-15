@@ -350,6 +350,112 @@ class PaymentTermsTest(unittest.TestCase):
         self.assertIn('value="expense" selected', page)
         self.assertIn('value="Alpha"', page)
 
+    def test_rental_vehicle_fuel_is_customer_billable_but_personal_fuel_is_not(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            fuel_project = connection.execute(
+                "select * from projects where project_type = 'expense' and lower(name) like '%fuel%' limit 1"
+            ).fetchone()
+            if fuel_project is None:
+                fuel_project_id = connection.execute(
+                    """
+                    insert into projects (
+                        name, name_key, project_type, default_amount, unit_price,
+                        tax_rate, is_active, created_at
+                    ) values ('Fuel Expenses', 'fuel expenses', 'expense', 0, 0, 0, 1,
+                              '2026-08-15T00:00:00')
+                    """
+                ).lastrowid
+                fuel_project = connection.execute(
+                    "select * from projects where id = ?", (fuel_project_id,)
+                ).fetchone()
+            expense_id = connection.execute(
+                """
+                insert into expenses (
+                    service_order_id, expense_number, project_id, project, expense_date,
+                    amount, currency, status, created_by, created_at, updated_at
+                ) values (?, 'EX-FUEL-TYPES', ?, ?, '2026-08-13', 300, 'USD', 'approved', ?,
+                          '2026-08-13T00:00:00', '2026-08-13T00:00:00')
+                """,
+                (self.open_order_id, fuel_project["id"], fuel_project["name"], self.user_id),
+            ).lastrowid
+            connection.executemany(
+                """
+                insert into expense_items (
+                    expense_id, project_id, project, amount, description,
+                    fuel_vehicle_type, sort_order
+                ) values (?, ?, ?, ?, '', ?, ?)
+                """,
+                [
+                    (expense_id, fuel_project["id"], fuel_project["name"], 100, "personal", 0),
+                    (expense_id, fuel_project["id"], fuel_project["name"], 200, "rental", 1),
+                ],
+            )
+            connection.commit()
+            self.assertEqual(
+                self.module.approved_rental_vehicle_fuel_total(self.open_order_id),
+                200,
+            )
+            totals = self.module.customer_reimbursement_totals([], 0, 200)
+            self.assertEqual(totals["rental_fuel_total"], 200)
+            self.assertEqual(totals["travel_total"], 200)
+            self.assertEqual(totals["total_amount"], 200)
+            reimbursement_id = connection.execute(
+                """
+                insert into customer_reimbursements (
+                    service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, 'fuel-test.pdf', 'fuel-test.pdf', ?, '2026-08-15T00:00:00')
+                """,
+                (self.open_order_id, self.user_id),
+            ).lastrowid
+            self.module.update_customer_reimbursement_totals(reimbursement_id, [])
+            reimbursement = connection.execute(
+                "select * from customer_reimbursements where id = ?", (reimbursement_id,)
+            ).fetchone()
+            self.assertEqual(reimbursement["rental_fuel_total"], 200)
+            self.assertEqual(reimbursement["travel_total"], 200)
+            self.assertEqual(reimbursement["total_amount"], 200)
+            connection.execute(
+                "update service_orders set start_date = '2026-08-13' where id = ?",
+                (self.open_order_id,),
+            )
+            connection.execute("update users set role = 'manager' where id = ?", (self.user_id,))
+            connection.commit()
+
+        form_page = self.http.get(
+            f"/service-orders/{self.open_order_id}/expenses/new"
+        ).get_data(as_text=True)
+        self.assertIn("个人／自有车辆（仅员工报销）", form_page)
+        self.assertIn("租赁车辆（可计入工单结算）", form_page)
+
+        with self.module.app.test_request_context(
+            "/expenses/new",
+            method="POST",
+            data={
+                "project_id": [str(fuel_project["id"])],
+                "item_amount": ["50"],
+                "item_description": ["Rental fuel"],
+                "fuel_vehicle_type": ["rental"],
+            },
+        ):
+            with self.module.app.app_context():
+                rows = self.module.expense_items_from_form()
+                self.assertEqual(rows[0]["fuel_vehicle_type"], "rental")
+
+        with self.module.app.test_request_context(
+            "/expenses/new",
+            method="POST",
+            data={
+                "project_id": [str(fuel_project["id"])],
+                "item_amount": ["50"],
+                "item_description": ["Missing vehicle type"],
+                "fuel_vehicle_type": [""],
+            },
+        ):
+            with self.module.app.app_context():
+                with self.assertRaisesRegex(ValueError, "必须选择"):
+                    self.module.expense_items_from_form()
+
 
 if __name__ == "__main__":
     unittest.main()

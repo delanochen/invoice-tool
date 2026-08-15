@@ -1426,6 +1426,16 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   color: var(--muted);
   font-size: 12px;
 }
+.fuel-vehicle-field {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.fuel-vehicle-field[hidden] { display: none; }
+.fuel-vehicle-field select { width: 100%; }
+.required-mark { color: #d92d20; font-style: normal; }
 #serviceWorkersTable {
   min-width: 980px;
   table-layout: fixed;
