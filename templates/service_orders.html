@@ -32,7 +32,13 @@
             <td>{{ order.report_count }}</td>
             <td>{{ order.buyer_equipment_manufacturer or "-" }}</td>
             <td>{{ order.start_date or "-" }}</td>
-            <td>{{ order.client_order_number }}</td>
+            {% set order_number_warning = client_order_number_warning(order.customer_name, order.client_order_number) %}
+            <td>
+              <span{% if order_number_warning %} class="client-order-number-warning" title="{{ order_number_warning }}"{% endif %}>
+                {{ order.client_order_number or "-" }}
+                {% if order_number_warning %}<span class="client-order-warning-icon" aria-label="{{ order_number_warning }}">⚠</span>{% endif %}
+              </span>
+            </td>
             <td>{{ order.buyer_owner or "-" }}</td>
             <td>
               {% if order.contract_id %}

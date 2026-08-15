@@ -2657,6 +2657,23 @@ def is_read_sql(sql):
     return sql_statement_kind(sql) in {"select", "with", "pragma", "explain"}
 
 
+def client_order_number_warning(customer_name, client_order_number):
+    """Return a warning for the current Sanhe Tongfei work-order number convention."""
+    normalized_customer = (customer_name or "").strip().casefold()
+    if "三河同飞" not in normalized_customer and "sanhe tongfei" not in normalized_customer:
+        return ""
+    number = (client_order_number or "").strip()
+    if not number:
+        return "未填写服务订单号码，无法按三河同飞规则识别。"
+    if not number.startswith("SHPG") and len(number) != 16:
+        return "服务订单号码应以 SHPG 开头且总长度为16位，当前格式不符合三河同飞规则。"
+    if not number.startswith("SHPG"):
+        return "服务订单号码应以 SHPG 开头，当前格式不符合三河同飞规则。"
+    if len(number) != 16:
+        return f"服务订单号码总长度应为16位，当前为{len(number)}位。"
+    return ""
+
+
 app.jinja_env.filters["money"] = money
 app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
@@ -2683,6 +2700,7 @@ app.jinja_env.globals["has_menu_permission"] = has_menu_permission
 app.jinja_env.globals["has_action_permission"] = has_action_permission
 app.jinja_env.globals["normalized_role"] = normalized_role
 app.jinja_env.globals["requires_user_address"] = requires_user_address
+app.jinja_env.globals["client_order_number_warning"] = client_order_number_warning
 app.jinja_env.globals["expense_labels"] = EXPENSE_STATUS_LABELS
 app.jinja_env.globals["expense_payout_labels"] = EXPENSE_PAYOUT_LABELS
 app.jinja_env.globals["customer_reimbursement_labels"] = CUSTOMER_REIMBURSEMENT_STATUS_LABELS
@@ -9697,6 +9715,7 @@ def service_order_calendar_rows(date_from, date_to):
               and service_orders.start_date is not null
         )
         select service_orders.*,
+               clients.name as customer_name,
                work_order_types.name as work_order_type_name,
                coalesce(owners.name, buyers.owner) as buyer_owner,
                (
@@ -9709,6 +9728,7 @@ def service_order_calendar_rows(date_from, date_to):
                      and invoices.status != 'void' and invoices.paid_at is not null
                ) as paid_invoice_count
         from calendar_orders as service_orders
+        left join clients on clients.id = service_orders.client_id
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
         left join owners on owners.id = buyers.owner_id
@@ -9745,6 +9765,8 @@ def service_order_calendar_weeks(year, month):
             {
                 "order_id": row["id"],
                 "order_number": row["order_number"],
+                "client_order_number": row["client_order_number"],
+                "client_order_number_warning": client_order_number_warning(row["customer_name"], row["client_order_number"]),
                 "site_name": row["client_name"],
                 "owner": row["buyer_owner"],
                 "status": row["status"],
@@ -10420,6 +10442,7 @@ def service_orders():
     rows = db().execute(
         f"""
         select service_orders.*,
+               clients.name as customer_name,
                work_order_types.name as work_order_type_name,
                coalesce(owners.name, buyers.owner) as buyer_owner,
                coalesce(order_manufacturers.name, buyers.equipment_manufacturer) as buyer_equipment_manufacturer,
@@ -10428,6 +10451,7 @@ def service_orders():
                count(distinct invoices.id) as invoice_count,
                count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count
         from service_orders
+        left join clients on clients.id = service_orders.client_id
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
         left join buyers on buyers.id = service_orders.buyer_id
         left join manufacturers as order_manufacturers on order_manufacturers.id = service_orders.manufacturer_id

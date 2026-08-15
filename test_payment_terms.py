@@ -240,6 +240,39 @@ class PaymentTermsTest(unittest.TestCase):
             )
             self.assertEqual(payroll["rows"][0]["car_allowance"], 80)
 
+    def test_sanhe_service_order_number_warning_in_list_and_calendar(self):
+        self.assertEqual(
+            self.module.client_order_number_warning(
+                "Sanhe Tongfei Refrigeration Co., Ltd.", "SHPG123456789012"
+            ),
+            "",
+        )
+        self.assertTrue(
+            self.module.client_order_number_warning("三河同飞制冷股份有限公司", "SO-INVALID")
+        )
+        self.assertEqual(
+            self.module.client_order_number_warning("Another Customer", "SO-INVALID"),
+            "",
+        )
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute(
+                "update clients set name = 'Sanhe Tongfei Refrigeration Co., Ltd.' where id = ?",
+                (self.client_id,),
+            )
+            connection.execute(
+                "update service_orders set client_order_number = 'SO-INVALID', start_date = '2026-08-13' where id = ?",
+                (self.open_order_id,),
+            )
+            connection.commit()
+
+        list_page = self.http.get("/service-orders").get_data(as_text=True)
+        self.assertIn("client-order-number-warning", list_page)
+        self.assertIn("SO-INVALID", list_page)
+        calendar_page = self.http.get("/service-orders/calendar?year=2026&month=8").get_data(as_text=True)
+        self.assertIn("client-order-number-warning", calendar_page)
+        self.assertIn("SO-INVALID", calendar_page)
+
 
 if __name__ == "__main__":
     unittest.main()

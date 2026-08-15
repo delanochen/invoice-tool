@@ -766,6 +766,16 @@ body.service-order-calendar-page .service-order-calendar-panel {
 .work-order-calendar-event small {
   color: var(--muted);
 }
+.client-order-number-warning,
+.work-order-calendar-event .client-order-number-warning {
+  color: #d92d20;
+  font-weight: 800;
+}
+.client-order-warning-icon {
+  margin-left: 3px;
+  color: #d92d20;
+  font-size: 0.95em;
+}
 .payroll-batch-dialog {
   width: min(1180px, calc(100vw - 40px));
   max-height: calc(100vh - 48px);
