@@ -1346,6 +1346,75 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .compact-table input[name="worker_name"] {
   min-width: 130px;
 }
+.pending-attachment-panel {
+  grid-column: 1 / -1;
+  border: 1px dashed #98a2b3;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+.pending-attachment-panel[hidden] { display: none; }
+.pending-attachment-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.pending-attachment-heading span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.pending-attachment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+.pending-attachment-card {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+.pending-attachment-preview {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #e8eef5;
+  color: #344054;
+  font-weight: 800;
+  text-decoration: none;
+}
+.pending-attachment-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pending-attachment-preview.is-pdf { color: #b42318; background: #fee4e2; }
+.pending-attachment-preview.is-word { color: #175cd3; background: #dbeafe; }
+.pending-attachment-preview.is-excel { color: #027a48; background: #d1fadf; }
+.pending-attachment-details {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.pending-attachment-details strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-attachment-details span {
+  color: var(--muted);
+  font-size: 12px;
+}
 #serviceWorkersTable {
   min-width: 980px;
   table-layout: fixed;

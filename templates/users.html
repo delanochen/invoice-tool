@@ -240,17 +240,24 @@
         {% endif %}
         {% if user_attachments[user.id] %}
           <section class="subsection" data-user-attachments>
-            <h3>已有附件</h3>
+            <h3>已保存附件</h3>
             <p class="empty" data-attachment-empty hidden>暂无附件。</p>
             {% for attachment in user_attachments[user.id] %}
               <div class="attachment-row" data-attachment-row>
                 <a
-                  href="{% if (attachment.content_type or '').startswith('image/') %}{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}{% else %}{{ url_for('download_user_attachment', attachment_id=attachment.id) }}{% endif %}"
+                  href="{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}"
                   {% if (attachment.content_type or '').startswith('image/') %}
                     data-image-preview
                     data-preview-name="{{ attachment.original_filename }}"
+                  {% else %}
+                    target="_blank"
                   {% endif %}
-                >{{ attachment.original_filename }}</a>
+                >
+                  {% if (attachment.content_type or '').startswith('image/') %}
+                    <img class="inline-thumb" src="{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                  {% endif %}
+                  {{ attachment.original_filename }}
+                </a>
                 <button
                   class="danger small"
                   type="button"

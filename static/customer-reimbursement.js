@@ -1,7 +1,5 @@
 const table = document.getElementById("customerReimbursementTable");
 const addRowButton = document.getElementById("addCustomerReimbursementRow");
-const attachmentInput = document.getElementById("customerReimbursementAttachments");
-const selectedFiles = document.getElementById("selectedCustomerReimbursementFiles");
 const reimbursementForm = document.getElementById("customerReimbursementForm");
 const reimbursementRates = window.customerReimbursementRates || {};
 const reimbursementMro = reimbursementNumber(window.customerReimbursementMro);
@@ -80,25 +78,6 @@ function cloneCustomerReimbursementRow() {
   updateCustomerReimbursementTotals();
 }
 
-function renderSelectedFiles() {
-  selectedFiles?.replaceChildren();
-  Array.from(attachmentInput?.files || []).forEach((file) => {
-    const card = document.createElement("figure");
-    card.className = "selected-photo-card";
-    if (file.type.startsWith("image/")) {
-      const img = document.createElement("img");
-      img.src = URL.createObjectURL(file);
-      img.alt = file.name;
-      img.addEventListener("load", () => URL.revokeObjectURL(img.src), { once: true });
-      card.appendChild(img);
-    }
-    const caption = document.createElement("figcaption");
-    caption.textContent = file.name;
-    card.appendChild(caption);
-    selectedFiles.appendChild(card);
-  });
-}
-
 addRowButton?.addEventListener("click", cloneCustomerReimbursementRow);
 
 table?.addEventListener("click", (event) => {
@@ -117,7 +96,6 @@ table?.addEventListener("input", (event) => {
   updateCustomerReimbursementTotals();
 });
 
-attachmentInput?.addEventListener("change", renderSelectedFiles);
 
 reimbursementForm?.addEventListener("keydown", (event) => {
   const target = event.target;

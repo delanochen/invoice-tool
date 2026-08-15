@@ -147,7 +147,7 @@
 
     <section class="edit-attachments attachment-download-scope" id="customerReimbursementAttachmentsSection">
       <div class="panel-title">
-        <div><h2>附件</h2><span class="muted-line">酒店、机票、租车、加油、停车等凭证</span></div>
+        <div><h2>已保存附件</h2><span class="muted-line">酒店、机票、租车、加油、停车等凭证</span></div>
         {% if attachments %}<button class="small" type="button" data-download-all-attachments>下载全部附件</button>{% endif %}
       </div>
       {% if can_edit %}
@@ -155,7 +155,6 @@
           <span>上传附件</span>
           <input id="customerReimbursementAttachments" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
         </div>
-        <div id="selectedCustomerReimbursementFiles" class="selected-photo-grid"></div>
       {% endif %}
       <table class="list-table attachment-table">
         <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
@@ -173,7 +172,7 @@
                     {{ attachment.original_filename }}
                   </a>
                 {% else %}
-                  {{ attachment.original_filename }}
+                  <a href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
                 {% endif %}
               </td>
               <td>{{ attachment.uploader_name or "-" }}</td>

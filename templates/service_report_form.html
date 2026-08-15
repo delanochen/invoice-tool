@@ -223,6 +223,7 @@
       </div>
       {% set mileage_proofs = attachments.mileage_proof %}
       {% if mileage_proofs %}
+        <h3>已保存附件</h3>
         <table class="list-table attachment-table">
           <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
           <tbody>
@@ -237,7 +238,12 @@
                     {% else %}
                       target="_blank"
                     {% endif %}
-                  >{{ attachment.original_filename }}</a>
+                  >
+                    {% if (attachment.content_type or '').startswith('image/') %}
+                      <img class="inline-thumb" src="{{ url_for('preview_report_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                    {% endif %}
+                    {{ attachment.original_filename }}
+                  </a>
                 </td>
                 <td>{{ attachment.uploader_name or "Unknown" }}</td>
                 <td>{{ attachment.uploaded_at[:10] }}</td>

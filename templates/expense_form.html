@@ -55,11 +55,8 @@
       <input id="expenseAttachmentsInput" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
       <small>支持图片、PDF、Word、Excel，可多选。</small>
     </div>
-    <div class="selected-attachment-panel" data-expense-attachment-panel hidden>
-      <h3>已选择附件</h3>
-      <ul class="selected-attachment-list" data-expense-attachment-list></ul>
-    </div>
     {% if attachments %}
+      <h3>已保存附件</h3>
       <table class="list-table attachment-table">
         <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
         <tbody>

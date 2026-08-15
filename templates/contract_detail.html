@@ -35,7 +35,7 @@
   </section>
 
   <section class="panel">
-    <div class="panel-title"><h2>合同附件</h2><span class="muted-line">{{ attachments|length }} 个文件</span></div>
+    <div class="panel-title"><h2>已保存附件</h2><span class="muted-line">{{ attachments|length }} 个合同文件</span></div>
     <table class="list-table">
       <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
       <tbody>
@@ -50,7 +50,12 @@
                 {% else %}
                   target="_blank"
                 {% endif %}
-              >{{ attachment.original_filename }}</a>
+              >
+                {% if (attachment.content_type or '').startswith('image/') %}
+                  <img class="inline-thumb" src="{{ url_for('preview_contract_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                {% endif %}
+                {{ attachment.original_filename }}
+              </a>
             </td>
             <td>{{ attachment.uploader_name or "-" }}</td>
             <td>{{ attachment.uploaded_at|local_datetime }}</td>
