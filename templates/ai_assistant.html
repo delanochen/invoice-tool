@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}智能助手 - 发票工具{% endblock %}
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">AI ASSISTANT</p>
+      <h1>智能助手 <span class="status approved">只读</span></h1>
+      <p class="muted-line">{{ assistant_model }} · 查询结果受当前账号权限控制</p>
+    </div>
+    <div class="actions"><button type="button" id="clearAiChat">清空对话</button></div>
+  </header>
+
+  {% if not assistant_enabled %}
+    <section class="panel"><div class="flash error">智能助手尚未启用或未配置 DeepSeek API Key，请联系管理员在“系统配置 → 系统设置”中完成配置。</div></section>
+  {% endif %}
+
+  <section class="panel ai-assistant-shell" data-ai-enabled="{{ 'true' if assistant_enabled else 'false' }}">
+    <div class="ai-suggestions" aria-label="示例问题">
+      <button type="button" data-ai-question="查询我最近的员工报销及付款状态">我的报销</button>
+      <button type="button" data-ai-question="查询目前进行中的工单">进行中的工单</button>
+      <button type="button" data-ai-question="查询最近的工作日报">最近日报</button>
+      <button type="button" data-ai-question="查询尚未核销的发票">待核销发票</button>
+      <button type="button" data-ai-question="查询知识库中与安全有关的文档">知识库</button>
+    </div>
+    <div id="aiChatMessages" class="ai-chat-messages" aria-live="polite">
+      <article class="ai-message assistant">
+        <strong>智能助手</strong>
+        <p>你好，我可以只读查询报销、工单、站点、发票、日报、工单结算和知识库。不会修改系统数据。</p>
+      </article>
+    </div>
+    <form id="aiChatForm" class="ai-chat-form">
+      <label for="aiChatInput">请输入查询问题</label>
+      <textarea id="aiChatInput" rows="3" maxlength="4000" placeholder="例如：我7月份有哪些报销还没有付款？" {% if not assistant_enabled %}disabled{% endif %}></textarea>
+      <div class="form-actions">
+        <span class="muted-line">AI 可能出现错误，关键数据请点击结果链接核对。</span>
+        <button class="primary" type="submit" {% if not assistant_enabled %}disabled{% endif %}>发送</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script>window.aiAssistantChatUrl = {{ url_for('ai_assistant_chat')|tojson }};</script>
+  <script src="{{ url_for('static', filename='ai-assistant.js', v=app_version) }}"></script>
+{% endblock %}

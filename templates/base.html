@@ -21,6 +21,7 @@
         {% set map_endpoints = ["service_order_map"] %}
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document"] %}
+        {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
@@ -123,6 +124,9 @@
           {% endif %}
           {% if has_menu_permission("knowledge_base") and has_action_permission("knowledge_base", "view") %}
             {{ nav_link("knowledge_base", "知识库", knowledge_base_endpoints) }}
+          {% endif %}
+          {% if has_menu_permission("ai_assistant") and has_action_permission("ai_assistant", "view") %}
+            {{ nav_link("ai_assistant", "智能助手", ai_assistant_endpoints) }}
           {% endif %}
           {% if not is_external_manager() and not is_external_employee() %}
             {% set show_basic_data =

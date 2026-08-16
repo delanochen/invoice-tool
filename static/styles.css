@@ -2561,3 +2561,70 @@ body.service-order-map-page {
   padding: 0.35rem;
   font-size: 0.8rem;
 }
+/* Read-only AI assistant */
+.ai-assistant-shell {
+  max-width: 1100px;
+  display: grid;
+  gap: 16px;
+}
+
+.ai-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-chat-messages {
+  min-height: 420px;
+  max-height: 62vh;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.ai-message {
+  width: fit-content;
+  max-width: 82%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.ai-message.user {
+  justify-self: end;
+  border-color: #a7ddd7;
+  background: #e9f8f5;
+}
+
+.ai-message.error {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.ai-message p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.ai-chat-form {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-chat-form textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+@media (max-width: 700px) {
+  .ai-chat-messages { min-height: 360px; padding: 12px; }
+  .ai-message { max-width: 94%; }
+}

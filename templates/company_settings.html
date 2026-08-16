@@ -43,6 +43,26 @@
         <input type="number" name="inspection_cycle_days" min="1" step="1" value="{{ inspection_cycle_days }}">
       </label>
     </section>
+    <section class="form-stack full-span">
+      <h2>DeepSeek 智能助手</h2>
+      <p class="muted-line">第一阶段仅允许读取当前登录用户有权限查看的数据，不执行新增、修改、删除或任意 SQL。</p>
+      <label>启用智能助手
+        <select name="deepseek_enabled">
+          <option value="false" {% if not deepseek_enabled %}selected{% endif %}>停用</option>
+          <option value="true" {% if deepseek_enabled %}selected{% endif %}>启用</option>
+        </select>
+      </label>
+      <label>模型
+        <select name="deepseek_model">
+          <option value="deepseek-v4-flash" {% if deepseek_model == 'deepseek-v4-flash' %}selected{% endif %}>DeepSeek V4 Flash（日常查询）</option>
+          <option value="deepseek-v4-pro" {% if deepseek_model == 'deepseek-v4-pro' %}selected{% endif %}>DeepSeek V4 Pro（复杂分析）</option>
+        </select>
+      </label>
+      <label>API Key
+        <input type="password" name="deepseek_api_key" value="" autocomplete="new-password" placeholder="{{ '已配置；留空保持不变' if deepseek_api_key_configured else '请输入 DeepSeek API Key' }}">
+      </label>
+      <small>API Key 仅保存在服务器设置中，不会发送到浏览器。</small>
+    </section>
     <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
   </form>
 {% endblock %}
