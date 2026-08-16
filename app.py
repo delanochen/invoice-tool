@@ -2472,6 +2472,7 @@ def required_action_for_request():
         ("users", "POST"): ("users", "create"),
         ("system_settings", "GET"): ("system_settings", "view"),
         ("system_settings", "POST"): ("system_settings", "edit"),
+        ("deepseek_connection_test", "POST"): ("system_settings", "edit"),
         ("database_console", "GET"): ("database_console", "view"),
         ("database_console", "POST"): ("database_console", "execute"),
         ("company_info", "GET"): ("company_info", "view"),
@@ -8820,19 +8821,40 @@ AI_ASSISTANT_TOOLS = [
 ]
 
 
-def call_deepseek_chat(messages, settings):
-    payload = json.dumps(
-        {
-            "model": settings["model"],
-            "messages": messages,
-            "tools": AI_ASSISTANT_TOOLS,
-            "tool_choice": "auto",
-            "temperature": 0.1,
-            "max_tokens": 1600,
-            "user": f"invoice-tool-user-{g.user['id']}",
-        },
-        ensure_ascii=False,
-    ).encode("utf-8")
+def deepseek_api_error_message(status_code, response_body):
+    api_message = ""
+    try:
+        error_payload = json.loads(response_body or "{}")
+        api_error = error_payload.get("error") if isinstance(error_payload, dict) else None
+        if isinstance(api_error, dict):
+            api_message = str(api_error.get("message") or "").strip()
+        elif api_error:
+            api_message = str(api_error).strip()
+    except json.JSONDecodeError:
+        pass
+    friendly = {
+        400: "请求参数不被 DeepSeek 接受",
+        401: "API Key 无效或已失效",
+        402: "DeepSeek 账户余额不足",
+        403: "当前 API Key 没有调用权限",
+        429: "DeepSeek 请求过于频繁，请稍后重试",
+        500: "DeepSeek 服务内部错误",
+        503: "DeepSeek 服务暂时繁忙",
+    }.get(status_code, f"DeepSeek API 返回 HTTP {status_code}")
+    return f"{friendly}：{api_message}" if api_message else friendly
+
+
+def call_deepseek_chat(messages, settings, include_tools=True, max_tokens=1600):
+    request_payload = {
+        "model": settings["model"],
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": max_tokens,
+    }
+    if include_tools:
+        request_payload["tools"] = AI_ASSISTANT_TOOLS
+        request_payload["tool_choice"] = "auto"
+    payload = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
     api_request = Request(
         "https://api.deepseek.com/chat/completions",
         data=payload,
@@ -8844,13 +8866,36 @@ def call_deepseek_chat(messages, settings):
             result = json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")[:500]
-        raise RuntimeError(f"DeepSeek API 返回错误 {error.code}：{detail}") from error
-    except (URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"暂时无法连接 DeepSeek API：{error}") from error
+        raise RuntimeError(deepseek_api_error_message(error.code, detail)) from error
+    except (URLError, TimeoutError, OSError) as error:
+        raise RuntimeError(f"NAS 无法连接 DeepSeek API：{error}") from error
+    except json.JSONDecodeError as error:
+        raise RuntimeError("DeepSeek API 返回了无法解析的数据。") from error
+    if not isinstance(result, dict):
+        raise RuntimeError("DeepSeek API 没有返回有效的 JSON 对象。")
     choices = result.get("choices") or []
     if not choices or not isinstance(choices[0].get("message"), dict):
         raise RuntimeError("DeepSeek API 没有返回有效回答。")
     return choices[0]["message"]
+
+
+@app.post("/api/settings/deepseek-test")
+@admin_required
+def deepseek_connection_test():
+    settings = deepseek_assistant_settings()
+    if not settings["api_key"]:
+        return jsonify({"ok": False, "error": "尚未配置 DeepSeek API Key。"}), 422
+    try:
+        response = call_deepseek_chat(
+            [{"role": "user", "content": "请只回复：连接成功"}],
+            settings,
+            include_tools=False,
+            max_tokens=32,
+        )
+        answer = str(response.get("content") or "").strip()
+        return jsonify({"ok": True, "message": answer or "连接成功。", "model": settings["model"]})
+    except RuntimeError as error:
+        return jsonify({"ok": False, "error": str(error)}), 422
 
 
 @app.get("/ai-assistant")
@@ -8937,7 +8982,7 @@ def ai_assistant_chat():
                 )
         raise RuntimeError("本次问题需要的查询步骤过多，请缩小查询范围后重试。")
     except RuntimeError as error:
-        return jsonify({"error": str(error)}), 502
+        return jsonify({"error": str(error)}), 422
 
 
 @app.route("/settings/menu-permissions", methods=["GET", "POST"])

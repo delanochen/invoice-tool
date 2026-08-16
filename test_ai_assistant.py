@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import shutil
 import tempfile
 import unittest
@@ -115,6 +116,40 @@ class AiAssistantTest(unittest.TestCase):
         self.assertEqual(len(tool_messages), 1)
         self.assertIn("EX-AI-OWN", tool_messages[0]["content"])
         self.assertNotIn("EX-AI-OTHER", tool_messages[0]["content"])
+
+    def test_deepseek_request_uses_only_official_request_fields(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"choices":[{"message":{"role":"assistant","content":"OK"}}]}'
+
+        settings = {"model": "deepseek-v4-flash", "api_key": "test-key"}
+        with self.module.app.test_request_context("/"), patch.object(
+            self.module, "urlopen", return_value=FakeResponse()
+        ) as mocked:
+            result = self.module.call_deepseek_chat(
+                [{"role": "user", "content": "test"}], settings, include_tools=False, max_tokens=32
+            )
+        self.assertEqual(result["content"], "OK")
+        request_payload = json.loads(mocked.call_args.args[0].data.decode("utf-8"))
+        self.assertNotIn("user", request_payload)
+        self.assertNotIn("tools", request_payload)
+        self.assertEqual(request_payload["max_tokens"], 32)
+
+    def test_connection_test_returns_readable_api_error(self):
+        with self.module.app.app_context():
+            self.module.set_setting("deepseek_api_key", "test-key")
+            self.module.db().execute("update users set role = 'admin' where id = ?", (self.user_id,))
+            self.module.db().commit()
+        with patch.object(self.module, "call_deepseek_chat", side_effect=RuntimeError("DeepSeek 账户余额不足")):
+            response = self.client.post("/api/settings/deepseek-test")
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("余额不足", response.get_json()["error"])
 
 
 if __name__ == "__main__":

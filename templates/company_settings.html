@@ -61,8 +61,34 @@
       <label>API Key
         <input type="password" name="deepseek_api_key" value="" autocomplete="new-password" placeholder="{{ '已配置；留空保持不变' if deepseek_api_key_configured else '请输入 DeepSeek API Key' }}">
       </label>
-      <small>API Key 仅保存在服务器设置中，不会发送到浏览器。</small>
+      <small>API Key 仅保存在服务器设置中，不会发送到浏览器；更换 Key 后请先保存，再测试连接。</small>
+      <div class="form-actions">
+        <button type="button" id="testDeepSeekConnection">测试 DeepSeek 连接</button>
+        <span id="deepSeekConnectionResult" class="muted-line" aria-live="polite"></span>
+      </div>
     </section>
     <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
   </form>
+{% endblock %}
+{% block scripts %}
+  <script>
+    (() => {
+      const button = document.getElementById("testDeepSeekConnection");
+      const result = document.getElementById("deepSeekConnectionResult");
+      button?.addEventListener("click", async () => {
+        button.disabled = true;
+        result.textContent = "正在测试...";
+        try {
+          const response = await fetch({{ url_for('deepseek_connection_test')|tojson }}, {method: "POST"});
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) throw new Error(data.error || `测试失败（${response.status}）`);
+          result.textContent = `${data.model}：${data.message}`;
+        } catch (error) {
+          result.textContent = error.message || "测试失败。";
+        } finally {
+          button.disabled = false;
+        }
+      });
+    })();
+  </script>
 {% endblock %}
