@@ -10,6 +10,10 @@ LOCK_DIR="/tmp/invoice-tool-auto-update.lock"
 DOCKER="/usr/local/bin/docker"
 COMPOSE="/var/packages/ContainerManager/target/usr/bin/docker-compose"
 GIT_IMAGE="${INVOICE_TOOL_GIT_IMAGE:-alpine/git:2.49.1}"
+EXPECTED_DATA_DIR="${INVOICE_TOOL_DATA_DIR:-$APP_DIR/data}"
+BACKUP_DIR="${INVOICE_TOOL_BACKUP_DIR:-$(dirname "$APP_DIR")/invoice-tool-db-backups}"
+ALLOW_DATA_SWITCH="${INVOICE_TOOL_ALLOW_DATA_SWITCH:-0}"
+BACKUP_STAMP="$(date '+%Y%m%d-%H%M%S')"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 exec >>"$LOG_FILE" 2>&1
@@ -47,6 +51,122 @@ if [ ! -x "$DOCKER" ] || [ ! -x "$COMPOSE" ]; then
     log "error: Container Manager executables are unavailable"
     exit 1
 fi
+
+if [ "$EXPECTED_DATA_DIR" != "$APP_DIR/data" ]; then
+    log "error: expected data directory must be the data folder inside the application checkout: $EXPECTED_DATA_DIR"
+    exit 1
+fi
+if [ ! -f "$EXPECTED_DATA_DIR/invoices.db" ]; then
+    log "error: target database is missing: $EXPECTED_DATA_DIR/invoices.db"
+    exit 1
+fi
+mkdir -p "$BACKUP_DIR"
+
+container_data_dir() {
+    "$DOCKER" inspect invoice-tool \
+        --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' \
+        2>/dev/null || true
+}
+
+backup_database() {
+    LABEL="$1"
+    SOURCE_DIR="$2"
+    BACKUP_NAME="invoices-${BACKUP_STAMP}-${LABEL}.db"
+
+    if [ ! -f "$SOURCE_DIR/invoices.db" ]; then
+        log "error: database backup source is missing: $SOURCE_DIR/invoices.db"
+        return 1
+    fi
+
+    log "backing up database ($LABEL): $SOURCE_DIR/invoices.db -> $BACKUP_DIR/$BACKUP_NAME"
+    if ! "$DOCKER" run --rm \
+        -v "$SOURCE_DIR:/source:ro" \
+        -v "$BACKUP_DIR:/backup:rw" \
+        --entrypoint python \
+        invoice-tool:latest \
+        -c 'import json, os, sqlite3, sys
+source = sqlite3.connect("file:/source/invoices.db?mode=ro", uri=True)
+source_integrity = source.execute("PRAGMA integrity_check").fetchone()[0]
+if source_integrity != "ok":
+    raise SystemExit("source integrity check failed: " + source_integrity)
+target_path = "/backup/" + sys.argv[1]
+target = sqlite3.connect(target_path)
+source.backup(target)
+target.commit()
+target_integrity = target.execute("PRAGMA integrity_check").fetchone()[0]
+if target_integrity != "ok":
+    raise SystemExit("backup integrity check failed: " + target_integrity)
+print(json.dumps({"backup": target_path, "bytes": os.path.getsize(target_path), "integrity": target_integrity}))
+source.close()
+target.close()' \
+        "$BACKUP_NAME"; then
+        log "error: database backup failed for $SOURCE_DIR"
+        return 1
+    fi
+    if [ ! -s "$BACKUP_DIR/$BACKUP_NAME" ]; then
+        log "error: database backup is empty: $BACKUP_DIR/$BACKUP_NAME"
+        return 1
+    fi
+}
+
+prepare_database_for_deploy() {
+    RUNNING_DATA_DIR="$(container_data_dir)"
+    if [ -n "$RUNNING_DATA_DIR" ]; then
+        log "running container data directory: $RUNNING_DATA_DIR"
+        backup_database running "$RUNNING_DATA_DIR" || return 1
+    else
+        log "running container data directory: unavailable; backing up target database only"
+    fi
+
+    if [ "$RUNNING_DATA_DIR" != "$EXPECTED_DATA_DIR" ]; then
+        backup_database target "$EXPECTED_DATA_DIR" || return 1
+        if [ "$ALLOW_DATA_SWITCH" != "1" ]; then
+            log "error: refusing database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
+            log "set INVOICE_TOOL_ALLOW_DATA_SWITCH=1 only for a reviewed recovery or migration"
+            return 1
+        fi
+        log "approved database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
+    fi
+
+    export DATA_HOST_DIR="$EXPECTED_DATA_DIR"
+}
+
+verify_database_mount() {
+    ACTUAL_DATA_DIR="$(container_data_dir)"
+    if [ "$ACTUAL_DATA_DIR" != "$EXPECTED_DATA_DIR" ]; then
+        log "error: container data mount mismatch after deploy: ${ACTUAL_DATA_DIR:-missing} != $EXPECTED_DATA_DIR"
+        return 1
+    fi
+    log "verified container data mount: $ACTUAL_DATA_DIR"
+
+    if ! "$DOCKER" exec invoice-tool python -c 'import json, sqlite3
+db = sqlite3.connect("/app/data/invoices.db")
+result = {
+    "integrity": db.execute("PRAGMA integrity_check").fetchone()[0],
+    "service_reports": db.execute("SELECT COUNT(*) FROM service_reports").fetchone()[0],
+    "expenses": db.execute("SELECT COUNT(*) FROM expenses").fetchone()[0],
+}
+print(json.dumps(result))
+raise SystemExit(0 if result["integrity"] == "ok" else 1)'; then
+        log "error: deployed database verification failed"
+        return 1
+    fi
+}
+
+wait_for_health() {
+    attempt=1
+    while [ "$attempt" -le 30 ]; do
+        HTTP_CODE="$("$CURL" -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/ 2>/dev/null || true)"
+        if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ]; then
+            log "health check passed (HTTP $HTTP_CODE)"
+            return 0
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    log "error: health check failed"
+    return 1
+}
 
 GIT_BIN="$(command -v git || true)"
 CURL="$(command -v curl || true)"
@@ -161,6 +281,9 @@ NEW_VERSION="$(version_from_commit "$NEW_COMMIT")"
 
 if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
     log "up-to-date: $OLD_VERSION; reconciling containers"
+    if ! prepare_database_for_deploy; then
+        exit 1
+    fi
     RUNNING_VERSION="$("$DOCKER" inspect invoice-tool \
         --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
         | sed -n 's/^APP_VERSION=//p' \
@@ -182,6 +305,10 @@ if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
         log "error: unable to reconcile containers"
         exit 1
     fi
+    if ! verify_database_mount || ! wait_for_health; then
+        exit 1
+    fi
+    log "success: running $OLD_VERSION"
     exit 0
 fi
 
@@ -207,6 +334,11 @@ if ! git_repo merge --ff-only "origin/$BRANCH"; then
     exit 1
 fi
 
+if ! prepare_database_for_deploy; then
+    git_repo reset --hard "$OLD_COMMIT" || true
+    exit 1
+fi
+
 log "building: $OLD_VERSION -> $NEW_VERSION"
 if ! APP_VERSION="$NEW_VERSION" "$COMPOSE" \
     -f "$APP_DIR/docker-compose.yml" \
@@ -226,17 +358,9 @@ if ! APP_VERSION="$NEW_VERSION" "$COMPOSE" \
     exit 1
 fi
 
-attempt=1
-while [ "$attempt" -le 30 ]; do
-    HTTP_CODE="$("$CURL" -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/ 2>/dev/null || true)"
-    if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ]; then
-        log "success: running $NEW_VERSION (HTTP $HTTP_CODE)"
-        exit 0
-    fi
-    sleep 2
-    attempt=$((attempt + 1))
-done
-
-log "error: health check failed"
+if verify_database_mount && wait_for_health; then
+    log "success: running $NEW_VERSION"
+    exit 0
+fi
 rollback
 exit 1

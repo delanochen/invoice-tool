@@ -17,7 +17,7 @@ services:
       GOOGLE_MAPS_BROWSER_API_KEY: "${GOOGLE_MAPS_BROWSER_API_KEY:-}"
       GOOGLE_GEOCODING_API_KEY: "${GOOGLE_GEOCODING_API_KEY:-}"
     volumes:
-      - ./data:/app/data
+      - "${DATA_HOST_DIR:-./data}:/app/data"
       - "${SHARED_PHOTOS_HOST_DIR:-/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures}:/app/shared-photos"
   cloudflared:
     image: cloudflare/cloudflared:latest
