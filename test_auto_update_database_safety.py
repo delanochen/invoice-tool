@@ -10,8 +10,15 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.script = (REPO_DIR / "scripts" / "auto-update.sh").read_text(encoding="utf-8")
         self.compose = (REPO_DIR / "docker-compose.yml").read_text(encoding="utf-8")
 
-    def test_compose_uses_an_explicitly_overridable_data_directory(self):
-        self.assertIn('${DATA_HOST_DIR:-./data}:/app/data', self.compose)
+    def test_compose_pins_the_only_approved_data_directory(self):
+        self.assertIn('/volume1/invoice-tool/invoice-tool/data:/app/data', self.compose)
+        self.assertNotIn('${DATA_HOST_DIR', self.compose)
+
+    def test_container_refuses_an_unidentified_data_directory(self):
+        self.assertIn('REQUIRE_DATA_DIRECTORY_IDENTITY: "1"', self.compose)
+        self.assertIn('DATA_DIRECTORY_IDENTITY: "invoice-tool-primary-volume1-20260816"', self.compose)
+        self.assertIn('DATA_IDENTITY_FILE=', self.script)
+        self.assertIn('created target data directory identity marker', self.script)
 
     def test_deploy_backs_up_the_real_running_database(self):
         self.assertIn("container_data_dir()", self.script)

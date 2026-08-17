@@ -79,6 +79,9 @@ KNOWLEDGE_MAX_PDF_BYTES = 50 * 1024 * 1024
 KNOWLEDGE_MAX_EXTRACTED_TEXT = 500_000
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 APP_VERSION = os.environ.get("APP_VERSION", "0.0.0").strip() or "0.0.0"
+REQUIRE_DATA_DIRECTORY_IDENTITY = os.environ.get("REQUIRE_DATA_DIRECTORY_IDENTITY", "0") == "1"
+DATA_DIRECTORY_IDENTITY = os.environ.get("DATA_DIRECTORY_IDENTITY", "").strip()
+DATA_IDENTITY_FILE = os.path.join(DATA_DIR, ".invoice-tool-data-id")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
 REPORT_PHOTO_FOLDERS = {
@@ -456,6 +459,24 @@ def db():
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
     return g.db
+
+
+def verify_data_directory_identity():
+    if not REQUIRE_DATA_DIRECTORY_IDENTITY:
+        return
+    if not DATA_DIRECTORY_IDENTITY:
+        raise RuntimeError("DATA_DIRECTORY_IDENTITY is required in protected deployments.")
+    try:
+        with open(DATA_IDENTITY_FILE, "r", encoding="utf-8") as identity_file:
+            actual_identity = identity_file.read().strip()
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Refusing to start: the mounted data directory has no identity marker."
+        ) from error
+    if actual_identity != DATA_DIRECTORY_IDENTITY:
+        raise RuntimeError(
+            "Refusing to start: the mounted data directory identity does not match."
+        )
 
 
 def merge_duplicate_projects(connection):
@@ -14706,8 +14727,10 @@ def monthly_paid_chart():
 
 
 if __name__ == "__main__":
+    verify_data_directory_identity()
     init_db()
     app.run(host="0.0.0.0", port=8000, debug=True)
 else:
+    verify_data_directory_identity()
     init_db()
 

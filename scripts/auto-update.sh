@@ -10,9 +10,11 @@ LOCK_DIR="/tmp/invoice-tool-auto-update.lock"
 DOCKER="/usr/local/bin/docker"
 COMPOSE="/var/packages/ContainerManager/target/usr/bin/docker-compose"
 GIT_IMAGE="${INVOICE_TOOL_GIT_IMAGE:-alpine/git:2.49.1}"
-EXPECTED_DATA_DIR="${INVOICE_TOOL_DATA_DIR:-$APP_DIR/data}"
+EXPECTED_DATA_DIR="$APP_DIR/data"
 BACKUP_DIR="${INVOICE_TOOL_BACKUP_DIR:-$(dirname "$APP_DIR")/invoice-tool-db-backups}"
 ALLOW_DATA_SWITCH="${INVOICE_TOOL_ALLOW_DATA_SWITCH:-0}"
+DATA_DIRECTORY_IDENTITY="invoice-tool-primary-volume1-20260816"
+DATA_IDENTITY_FILE="$EXPECTED_DATA_DIR/.invoice-tool-data-id"
 BACKUP_STAMP="$(date '+%Y%m%d-%H%M%S')"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -52,10 +54,6 @@ if [ ! -x "$DOCKER" ] || [ ! -x "$COMPOSE" ]; then
     exit 1
 fi
 
-if [ "$EXPECTED_DATA_DIR" != "$APP_DIR/data" ]; then
-    log "error: expected data directory must be the data folder inside the application checkout: $EXPECTED_DATA_DIR"
-    exit 1
-fi
 if [ ! -f "$EXPECTED_DATA_DIR/invoices.db" ]; then
     log "error: target database is missing: $EXPECTED_DATA_DIR/invoices.db"
     exit 1
@@ -126,6 +124,18 @@ prepare_database_for_deploy() {
             return 1
         fi
         log "approved database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
+    fi
+
+    if [ -f "$DATA_IDENTITY_FILE" ]; then
+        STORED_DATA_IDENTITY="$(tr -d '\r\n' < "$DATA_IDENTITY_FILE")"
+        if [ "$STORED_DATA_IDENTITY" != "$DATA_DIRECTORY_IDENTITY" ]; then
+            log "error: target data directory has an unexpected identity marker"
+            return 1
+        fi
+    else
+        umask 077
+        printf '%s\n' "$DATA_DIRECTORY_IDENTITY" > "$DATA_IDENTITY_FILE"
+        log "created target data directory identity marker"
     fi
 
     export DATA_HOST_DIR="$EXPECTED_DATA_DIR"
