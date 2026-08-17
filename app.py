@@ -49,6 +49,10 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from pypdf import PdfReader
 from image_processing import compress_image
+from customer_report_logic import (
+    migrate_historical_customer_reports,
+    normalize_customer_report_choice,
+)
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
@@ -1245,6 +1249,8 @@ def init_db():
         ensure_column(connection, "service_orders", "buyer_id", "integer")
         ensure_column(connection, "service_orders", "client_id", "integer")
         ensure_column(connection, "service_orders", "manufacturer_id", "integer")
+        ensure_column(connection, "buyers", "manufacturer_id", "integer")
+        migrate_historical_customer_reports(connection, now(), app.logger)
         ensure_column(connection, "service_orders", "buyer_contact_name", "text")
         ensure_column(connection, "service_orders", "buyer_contact_details", "text")
         ensure_column(connection, "service_orders", "start_date", "text")
@@ -5618,18 +5624,21 @@ def group_expense_attachments(attachments):
 
 
 def posted_report_writer_id():
-    value = request.form.get("report_writer_id", "").strip()
-    if not value:
+    customer_report_choice, value = normalize_customer_report_choice(
+        request.form.get("has_customer_report", ""),
+        request.form.get("report_writer_id", ""),
+    )
+    if customer_report_choice == "no":
         return None
     if not value.isdigit():
-        raise ValueError("请选择有效的报告撰写人。")
+        raise ValueError("请选择有效的客户日报填写员工。")
     row = db().execute(
         """select id from users where id = ? and is_active = 1
            and role in ('manager', 'finance', 'employee', 'external_employee')""",
         (int(value),),
     ).fetchone()
     if not row:
-        raise ValueError("请选择有效的报告撰写人。")
+        raise ValueError("请选择有效的客户日报填写员工。")
     return row["id"]
 
 

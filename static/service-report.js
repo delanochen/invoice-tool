@@ -464,6 +464,23 @@ serviceReportForm?.querySelectorAll(
 });
 updateReportCalculatedFields();
 
+const hasCustomerReport = document.getElementById("hasCustomerReport");
+const customerReportWriterField = document.getElementById("customerReportWriterField");
+const customerReportWriter = document.getElementById("customerReportWriter");
+
+function updateCustomerReportWriterField() {
+  const isRequired = hasCustomerReport?.value === "yes";
+  if (customerReportWriterField) customerReportWriterField.hidden = !isRequired;
+  if (customerReportWriter) {
+    customerReportWriter.disabled = !isRequired;
+    customerReportWriter.required = isRequired;
+    if (!isRequired) customerReportWriter.value = "";
+  }
+}
+
+hasCustomerReport?.addEventListener("change", updateCustomerReportWriterField);
+updateCustomerReportWriterField();
+
 const serviceWorkersTable = document.getElementById("serviceWorkersTable");
 const addServiceWorkerRow = document.getElementById("addServiceWorkerRow");
 const deleteServiceWorkerRow = document.getElementById("deleteServiceWorkerRow");

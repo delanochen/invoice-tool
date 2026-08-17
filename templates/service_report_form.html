@@ -75,8 +75,14 @@
         </span>
       </label>
       <label>机柜编号 <input name="cabinet_number" value="{{ report.cabinet_number or '' }}"></label>
-      <label>报告撰写人
-        <select name="report_writer_id">
+      <label>是否填写客户日报
+        <select name="has_customer_report" id="hasCustomerReport">
+          <option value="no" {% if not report.report_writer_id %}selected{% endif %}>否</option>
+          <option value="yes" {% if report.report_writer_id %}selected{% endif %}>是</option>
+        </select>
+      </label>
+      <label id="customerReportWriterField">客户日报填写员工 <span class="required-mark" aria-hidden="true">*</span>
+        <select name="report_writer_id" id="customerReportWriter">
           <option value="">请选择</option>
           {% for writer in report_writers %}
             <option value="{{ writer.id }}" {% if report.report_writer_id == writer.id %}selected{% endif %}>{{ writer.name }}</option>
