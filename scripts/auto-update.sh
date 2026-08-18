@@ -12,7 +12,6 @@ COMPOSE="/var/packages/ContainerManager/target/usr/bin/docker-compose"
 GIT_IMAGE="${INVOICE_TOOL_GIT_IMAGE:-alpine/git:2.49.1}"
 EXPECTED_DATA_DIR="$APP_DIR/data"
 BACKUP_DIR="${INVOICE_TOOL_BACKUP_DIR:-$(dirname "$APP_DIR")/invoice-tool-db-backups}"
-ALLOW_DATA_SWITCH="${INVOICE_TOOL_ALLOW_DATA_SWITCH:-0}"
 DATA_DIRECTORY_IDENTITY="invoice-tool-primary-volume1-20260816"
 DATA_IDENTITY_FILE="$EXPECTED_DATA_DIR/.invoice-tool-data-id"
 LEGACY_DATA_DIR="/volume1/docker/invoice-tool/data"
@@ -147,8 +146,19 @@ print(json.dumps({"running": running, "target": target, "SO2608006_reports": so2
 }
 
 retire_legacy_database() {
-    if [ "$SWITCHED_FROM_LEGACY" != "1" ]; then
-        return 0
+    if [ "$SWITCHED_FROM_LEGACY" != "1" ] && [ -f "$LEGACY_DATA_DIR/invoices.db" ]; then
+        ACTIVE_DATA_DIR="$(container_data_dir)"
+        if [ "$ACTIVE_DATA_DIR" != "$EXPECTED_DATA_DIR" ]; then
+            return 0
+        fi
+        ORIGINAL_RUNNING_DATA_DIR="$RUNNING_DATA_DIR"
+        RUNNING_DATA_DIR="$LEGACY_DATA_DIR"
+        if ! validate_reviewed_legacy_switch; then
+            RUNNING_DATA_DIR="$ORIGINAL_RUNNING_DATA_DIR"
+            log "error: refusing to retire the legacy database because validation failed"
+            return 1
+        fi
+        RUNNING_DATA_DIR="$ORIGINAL_RUNNING_DATA_DIR"
     fi
     if [ -f "$LEGACY_DATA_DIR/invoices.db" ]; then
         RETIRED_DB="$LEGACY_DATA_DIR/invoices.db.retired-$BACKUP_STAMP"
@@ -173,17 +183,12 @@ prepare_database_for_deploy() {
 
     if [ "$RUNNING_DATA_DIR" != "$EXPECTED_DATA_DIR" ]; then
         backup_database target "$EXPECTED_DATA_DIR" || return 1
-        if [ "$ALLOW_DATA_SWITCH" != "1" ]; then
-            if validate_reviewed_legacy_switch; then
-                SWITCHED_FROM_LEGACY=1
-                log "automatically approved the validated legacy database correction"
-            else
-                log "error: refusing database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
-                log "set INVOICE_TOOL_ALLOW_DATA_SWITCH=1 only for a reviewed recovery or migration"
-                return 1
-            fi
-        elif [ "$RUNNING_DATA_DIR" = "$LEGACY_DATA_DIR" ]; then
+        if validate_reviewed_legacy_switch; then
             SWITCHED_FROM_LEGACY=1
+            log "automatically approved the validated legacy database correction"
+        else
+            log "error: refusing database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
+            return 1
         fi
         log "approved database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
     fi

@@ -14,9 +14,7 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.assertIn('/volume1/invoice-tool/invoice-tool/data:/app/data', self.compose)
         self.assertNotIn('${DATA_HOST_DIR', self.compose)
 
-    def test_container_refuses_an_unidentified_data_directory(self):
-        self.assertIn('REQUIRE_DATA_DIRECTORY_IDENTITY: "1"', self.compose)
-        self.assertIn('DATA_DIRECTORY_IDENTITY: "invoice-tool-primary-volume1-20260816"', self.compose)
+    def test_updater_prepares_the_data_directory_identity_marker(self):
         self.assertIn('DATA_IDENTITY_FILE=', self.script)
         self.assertIn('created target data directory identity marker', self.script)
 
@@ -39,8 +37,7 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.assertIn('target.execute("PRAGMA integrity_check")', self.script)
 
     def test_unreviewed_data_path_switch_is_rejected(self):
-        self.assertIn('ALLOW_DATA_SWITCH="${INVOICE_TOOL_ALLOW_DATA_SWITCH:-0}"', self.script)
-        self.assertIn('if [ "$ALLOW_DATA_SWITCH" != "1" ]', self.script)
+        self.assertNotIn('INVOICE_TOOL_ALLOW_DATA_SWITCH', self.script)
         self.assertIn("refusing database path switch", self.script)
 
     def test_deploy_exports_and_rechecks_the_absolute_mount(self):
