@@ -15,6 +15,8 @@ BACKUP_DIR="${INVOICE_TOOL_BACKUP_DIR:-$(dirname "$APP_DIR")/invoice-tool-db-bac
 ALLOW_DATA_SWITCH="${INVOICE_TOOL_ALLOW_DATA_SWITCH:-0}"
 DATA_DIRECTORY_IDENTITY="invoice-tool-primary-volume1-20260816"
 DATA_IDENTITY_FILE="$EXPECTED_DATA_DIR/.invoice-tool-data-id"
+LEGACY_DATA_DIR="/volume1/docker/invoice-tool/data"
+SWITCHED_FROM_LEGACY=0
 BACKUP_STAMP="$(date '+%Y%m%d-%H%M%S')"
 
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -107,6 +109,59 @@ target.close()' \
     fi
 }
 
+validate_reviewed_legacy_switch() {
+    if [ "$RUNNING_DATA_DIR" != "$LEGACY_DATA_DIR" ] || [ "$EXPECTED_DATA_DIR" != "/volume1/invoice-tool/invoice-tool/data" ]; then
+        return 1
+    fi
+    log "validating the reviewed legacy database correction"
+    "$DOCKER" run --rm \
+        -v "$RUNNING_DATA_DIR:/running:ro" \
+        -v "$EXPECTED_DATA_DIR:/target:ro" \
+        --entrypoint python \
+        invoice-tool:latest \
+        -c 'import json, sqlite3
+def inspect(path):
+    db = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
+    integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+    if integrity != "ok":
+        raise SystemExit(path + " integrity check failed: " + integrity)
+    result = {
+        "reports": db.execute("SELECT COUNT(*) FROM service_reports").fetchone()[0],
+        "expenses": db.execute("SELECT COUNT(*) FROM expenses").fetchone()[0],
+    }
+    db.close()
+    return result
+running = inspect("/running/invoices.db")
+target = inspect("/target/invoices.db")
+target_db = sqlite3.connect("file:/target/invoices.db?mode=ro", uri=True)
+so2608006_reports = target_db.execute(
+    "SELECT COUNT(*) FROM service_reports JOIN service_orders ON service_orders.id = service_reports.service_order_id WHERE service_orders.order_number = ?",
+    ("SO2608006",),
+).fetchone()[0]
+target_db.close()
+if target["reports"] < running["reports"] or target["expenses"] < running["expenses"]:
+    raise SystemExit("target database has fewer business records than the running legacy database")
+if so2608006_reports != 4:
+    raise SystemExit("target database does not contain exactly four SO2608006 daily reports")
+print(json.dumps({"running": running, "target": target, "SO2608006_reports": so2608006_reports}))'
+}
+
+retire_legacy_database() {
+    if [ "$SWITCHED_FROM_LEGACY" != "1" ]; then
+        return 0
+    fi
+    if [ -f "$LEGACY_DATA_DIR/invoices.db" ]; then
+        RETIRED_DB="$LEGACY_DATA_DIR/invoices.db.retired-$BACKUP_STAMP"
+        mv "$LEGACY_DATA_DIR/invoices.db" "$RETIRED_DB"
+        log "retired legacy database: $RETIRED_DB"
+    fi
+    if [ -f "$APP_DIR/.env" ] && grep -q '^DATA_HOST_DIR=' "$APP_DIR/.env"; then
+        sed '/^DATA_HOST_DIR=/d' "$APP_DIR/.env" > "$APP_DIR/.env.tmp"
+        mv "$APP_DIR/.env.tmp" "$APP_DIR/.env"
+        log "removed obsolete DATA_HOST_DIR from .env"
+    fi
+}
+
 prepare_database_for_deploy() {
     RUNNING_DATA_DIR="$(container_data_dir)"
     if [ -n "$RUNNING_DATA_DIR" ]; then
@@ -119,9 +174,16 @@ prepare_database_for_deploy() {
     if [ "$RUNNING_DATA_DIR" != "$EXPECTED_DATA_DIR" ]; then
         backup_database target "$EXPECTED_DATA_DIR" || return 1
         if [ "$ALLOW_DATA_SWITCH" != "1" ]; then
-            log "error: refusing database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
-            log "set INVOICE_TOOL_ALLOW_DATA_SWITCH=1 only for a reviewed recovery or migration"
-            return 1
+            if validate_reviewed_legacy_switch; then
+                SWITCHED_FROM_LEGACY=1
+                log "automatically approved the validated legacy database correction"
+            else
+                log "error: refusing database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
+                log "set INVOICE_TOOL_ALLOW_DATA_SWITCH=1 only for a reviewed recovery or migration"
+                return 1
+            fi
+        elif [ "$RUNNING_DATA_DIR" = "$LEGACY_DATA_DIR" ]; then
+            SWITCHED_FROM_LEGACY=1
         fi
         log "approved database path switch: ${RUNNING_DATA_DIR:-missing} -> $EXPECTED_DATA_DIR"
     fi
@@ -318,6 +380,7 @@ if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
     if ! verify_database_mount || ! wait_for_health; then
         exit 1
     fi
+    retire_legacy_database || exit 1
     log "success: running $OLD_VERSION"
     exit 0
 fi
@@ -369,6 +432,7 @@ if ! APP_VERSION="$NEW_VERSION" "$COMPOSE" \
 fi
 
 if verify_database_mount && wait_for_health; then
+    retire_legacy_database || exit 1
     log "success: running $NEW_VERSION"
     exit 0
 fi

@@ -20,6 +20,17 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.assertIn('DATA_IDENTITY_FILE=', self.script)
         self.assertIn('created target data directory identity marker', self.script)
 
+    def test_known_legacy_database_is_switched_only_after_business_validation(self):
+        self.assertIn('validate_reviewed_legacy_switch()', self.script)
+        self.assertIn('target database has fewer business records', self.script)
+        self.assertIn('SO2608006_reports', self.script)
+        self.assertIn('so2608006_reports != 4', self.script)
+
+    def test_successful_legacy_switch_retires_the_old_database_and_env_override(self):
+        self.assertIn('retire_legacy_database()', self.script)
+        self.assertIn('invoices.db.retired-', self.script)
+        self.assertIn("sed '/^DATA_HOST_DIR=/d'", self.script)
+
     def test_deploy_backs_up_the_real_running_database(self):
         self.assertIn("container_data_dir()", self.script)
         self.assertIn("backup_database running", self.script)
