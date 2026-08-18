@@ -14,7 +14,9 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.assertIn('/volume1/invoice-tool/invoice-tool/data:/app/data', self.compose)
         self.assertNotIn('${DATA_HOST_DIR', self.compose)
 
-    def test_updater_prepares_the_data_directory_identity_marker(self):
+    def test_container_requires_the_prepared_data_directory_identity_marker(self):
+        self.assertIn('REQUIRE_DATA_DIRECTORY_IDENTITY: "1"', self.compose)
+        self.assertIn('DATA_DIRECTORY_IDENTITY: "invoice-tool-primary-volume1-20260816"', self.compose)
         self.assertIn('DATA_IDENTITY_FILE=', self.script)
         self.assertIn('created target data directory identity marker', self.script)
 
