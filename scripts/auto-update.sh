@@ -108,6 +108,80 @@ target.close()' \
     fi
 }
 
+recover_catastrophic_parent_loss() {
+    log "checking the production database for catastrophic parent-record loss"
+    "$DOCKER" run --rm \
+        -v "$EXPECTED_DATA_DIR:/target:rw" \
+        -v "$BACKUP_DIR:/backups:rw" \
+        --entrypoint python \
+        invoice-tool:latest \
+        -c 'import glob, json, os, sqlite3, sys
+
+TABLES = ("service_orders", "service_reports", "expenses", "invoices")
+
+def inspect(path):
+    db = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
+    try:
+        integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            return None
+        counts = {table: db.execute("SELECT COUNT(*) FROM " + table).fetchone()[0] for table in TABLES}
+        return counts
+    except sqlite3.DatabaseError:
+        return None
+    finally:
+        db.close()
+
+target_path = "/target/invoices.db"
+current = inspect(target_path)
+if current is None:
+    raise SystemExit("production database integrity/schema check failed")
+
+catastrophic = current["service_orders"] == 0 and any(
+    current[table] > 0 for table in ("service_reports", "expenses", "invoices")
+)
+if not catastrophic:
+    print(json.dumps({"recovery": "not-required", "current": current}))
+    raise SystemExit(0)
+
+candidates = []
+for path in glob.glob("/backups/invoices-*.db"):
+    counts = inspect(path)
+    if counts is None or counts["service_orders"] <= 0:
+        continue
+    if counts["service_reports"] < current["service_reports"]:
+        continue
+    if counts["expenses"] < current["expenses"]:
+        continue
+    candidates.append((
+        counts["service_reports"], counts["expenses"], counts["service_orders"],
+        counts["invoices"], os.path.getmtime(path), path, counts,
+    ))
+
+if not candidates:
+    raise SystemExit("catastrophic parent-record loss detected, but no complete backup is eligible")
+
+_, _, _, _, _, source_path, source_counts = max(candidates)
+source = sqlite3.connect("file:" + source_path + "?mode=ro", uri=True)
+# sqlite3 backup writes through SQLite itself, so the running application can
+# finish readers safely; the compose reconciliation immediately afterward
+# recreates the application connection against the recovered database.
+target = sqlite3.connect(target_path, timeout=30)
+source.backup(target)
+target.commit()
+target.close()
+source.close()
+recovered = inspect(target_path)
+if recovered != source_counts:
+    raise SystemExit("recovered database verification failed")
+print(json.dumps({
+    "recovery": "restored",
+    "broken": current,
+    "backup": source_path,
+    "recovered": recovered,
+}))'
+}
+
 validate_reviewed_legacy_switch() {
     if [ "$RUNNING_DATA_DIR" != "$LEGACY_DATA_DIR" ] || [ "$EXPECTED_DATA_DIR" != "/volume1/invoice-tool/invoice-tool/data" ]; then
         return 1
@@ -180,6 +254,12 @@ prepare_database_for_deploy() {
     else
         log "running container data directory: unavailable; backing up target database only"
     fi
+
+    # Recover only an unmistakable corruption pattern: all parent work orders
+    # vanished while dependent business rows still exist. The broken database
+    # has already been preserved above, and a backup is accepted only when it
+    # contains at least all current reports and expenses.
+    recover_catastrophic_parent_loss || return 1
 
     if [ "$RUNNING_DATA_DIR" != "$EXPECTED_DATA_DIR" ]; then
         backup_database target "$EXPECTED_DATA_DIR" || return 1

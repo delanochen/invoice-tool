@@ -458,6 +458,11 @@ def db():
         os.makedirs(USER_ATTACHMENT_DIR, exist_ok=True)
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
+        # SQLite does not enforce declared foreign keys unless every connection
+        # enables them.  Without this, a parent work order can disappear while
+        # daily reports and expenses remain as inaccessible orphan records.
+        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db.execute("PRAGMA busy_timeout = 5000")
     return g.db
 
 
