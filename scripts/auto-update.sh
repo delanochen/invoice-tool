@@ -538,6 +538,14 @@ if ! git_repo merge --ff-only "origin/$BRANCH"; then
     exit 1
 fi
 
+# The current shell may keep executing the pre-update copy of this file after
+# the fast-forward. Restart immediately when the updater itself changed so all
+# database safeguards and verification below come from the reviewed commit.
+if ! git_repo diff --quiet "$OLD_COMMIT" "$NEW_COMMIT" -- scripts/auto-update.sh; then
+    log "auto-update script changed; restarting with the updated script"
+    exec /bin/sh "$APP_DIR/scripts/auto-update.sh"
+fi
+
 if ! prepare_database_for_deploy; then
     git_repo reset --hard "$OLD_COMMIT" || true
     exit 1
