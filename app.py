@@ -482,6 +482,20 @@ def verify_data_directory_identity():
         raise RuntimeError(
             "Refusing to start: the mounted data directory identity does not match."
         )
+    if not os.path.isfile(DB_PATH) or os.path.getsize(DB_PATH) < 4096:
+        raise RuntimeError("Refusing to start: the protected production database is missing or empty.")
+    try:
+        identity_db = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+        identity_row = identity_db.execute(
+            "select value from settings where key = 'production_database_identity'"
+        ).fetchone()
+        identity_db.close()
+    except sqlite3.Error as error:
+        raise RuntimeError(
+            "Refusing to start: the protected production database identity cannot be read."
+        ) from error
+    if not identity_row or identity_row[0] != DATA_DIRECTORY_IDENTITY:
+        raise RuntimeError("Refusing to start: the protected production database identity is incorrect.")
 
 
 def merge_duplicate_projects(connection):

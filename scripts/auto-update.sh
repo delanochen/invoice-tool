@@ -117,7 +117,7 @@ recover_catastrophic_parent_loss() {
         invoice-tool:latest \
         -c 'import glob, json, os, sqlite3, sys
 
-TABLES = ("service_orders", "service_reports", "expenses", "invoices")
+TABLES = ("users", "service_orders", "service_reports", "expenses", "invoices")
 
 def inspect(path):
     db = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
@@ -137,9 +137,7 @@ current = inspect(target_path)
 if current is None:
     raise SystemExit("production database integrity/schema check failed")
 
-catastrophic = current["service_orders"] == 0 and any(
-    current[table] > 0 for table in ("service_reports", "expenses", "invoices")
-)
+catastrophic = current["service_orders"] == 0 or current["users"] <= 1
 if not catastrophic:
     print(json.dumps({"recovery": "not-required", "current": current}))
     raise SystemExit(0)
@@ -147,21 +145,21 @@ if not catastrophic:
 candidates = []
 for path in glob.glob("/backups/invoices-*.db"):
     counts = inspect(path)
-    if counts is None or counts["service_orders"] <= 0:
+    if counts is None or counts["service_orders"] <= 0 or counts["users"] <= 1:
         continue
     if counts["service_reports"] < current["service_reports"]:
         continue
     if counts["expenses"] < current["expenses"]:
         continue
     candidates.append((
-        counts["service_reports"], counts["expenses"], counts["service_orders"],
+        counts["service_reports"], counts["expenses"], counts["service_orders"], counts["users"],
         counts["invoices"], os.path.getmtime(path), path, counts,
     ))
 
 if not candidates:
     raise SystemExit("catastrophic parent-record loss detected, but no complete backup is eligible")
 
-_, _, _, _, _, source_path, source_counts = max(candidates)
+_, _, _, _, _, _, source_path, source_counts = max(candidates)
 source = sqlite3.connect("file:" + source_path + "?mode=ro", uri=True)
 # sqlite3 backup writes through SQLite itself, so the running application can
 # finish readers safely; the compose reconciliation immediately afterward
@@ -180,6 +178,40 @@ print(json.dumps({
     "backup": source_path,
     "recovered": recovered,
 }))'
+}
+
+ensure_database_identity() {
+    log "writing and verifying the production database identity"
+    "$DOCKER" run --rm \
+        -v "$EXPECTED_DATA_DIR:/target:rw" \
+        --entrypoint python \
+        invoice-tool:latest \
+        -c 'import json, sqlite3, sys
+path = "/target/invoices.db"
+identity = sys.argv[1]
+db = sqlite3.connect(path)
+integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+counts = {
+    "users": db.execute("SELECT COUNT(*) FROM users").fetchone()[0],
+    "service_orders": db.execute("SELECT COUNT(*) FROM service_orders").fetchone()[0],
+    "service_reports": db.execute("SELECT COUNT(*) FROM service_reports").fetchone()[0],
+    "expenses": db.execute("SELECT COUNT(*) FROM expenses").fetchone()[0],
+}
+if integrity != "ok" or counts["users"] <= 1 or counts["service_orders"] <= 0:
+    raise SystemExit("refusing to identify an empty or incomplete production database: " + json.dumps(counts))
+db.execute(
+    "insert or replace into settings (key, value) values (?, ?)",
+    ("production_database_identity", identity),
+)
+db.commit()
+stored = db.execute(
+    "select value from settings where key = ?", ("production_database_identity",)
+).fetchone()
+db.close()
+if not stored or stored[0] != identity:
+    raise SystemExit("production database identity verification failed")
+print(json.dumps({"identity": stored[0], "counts": counts}))' \
+        "$DATA_DIRECTORY_IDENTITY"
 }
 
 validate_reviewed_legacy_switch() {
@@ -260,6 +292,7 @@ prepare_database_for_deploy() {
     # has already been preserved above, and a backup is accepted only when it
     # contains at least all current reports and expenses.
     recover_catastrophic_parent_loss || return 1
+    ensure_database_identity || return 1
 
     if [ "$RUNNING_DATA_DIR" != "$EXPECTED_DATA_DIR" ]; then
         backup_database target "$EXPECTED_DATA_DIR" || return 1
@@ -300,11 +333,24 @@ verify_database_mount() {
 db = sqlite3.connect("/app/data/invoices.db")
 result = {
     "integrity": db.execute("PRAGMA integrity_check").fetchone()[0],
+    "users": db.execute("SELECT COUNT(*) FROM users").fetchone()[0],
+    "service_orders": db.execute("SELECT COUNT(*) FROM service_orders").fetchone()[0],
     "service_reports": db.execute("SELECT COUNT(*) FROM service_reports").fetchone()[0],
     "expenses": db.execute("SELECT COUNT(*) FROM expenses").fetchone()[0],
+    "database_identity": db.execute(
+        "SELECT value FROM settings WHERE key = 'production_database_identity'"
+    ).fetchone(),
 }
 print(json.dumps(result))
-raise SystemExit(0 if result["integrity"] == "ok" else 1)'; then
+business_rows = result["service_reports"] + result["expenses"]
+valid = (
+    result["integrity"] == "ok"
+    and (business_rows == 0 or result["service_orders"] > 0)
+    and (result["service_orders"] == 0 or result["users"] > 1)
+    and result["database_identity"]
+    and result["database_identity"][0] == "invoice-tool-primary-volume1-20260816"
+)
+raise SystemExit(0 if valid else 1)'; then
         log "error: deployed database verification failed"
         return 1
     fi
