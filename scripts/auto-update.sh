@@ -338,7 +338,7 @@ result = {
     "service_reports": db.execute("SELECT COUNT(*) FROM service_reports").fetchone()[0],
     "expenses": db.execute("SELECT COUNT(*) FROM expenses").fetchone()[0],
     "database_identity": db.execute(
-        "SELECT value FROM settings WHERE key = 'production_database_identity'"
+        "SELECT value FROM settings WHERE key = ?", ("production_database_identity",)
     ).fetchone(),
 }
 print(json.dumps(result))
