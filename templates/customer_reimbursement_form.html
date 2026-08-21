@@ -5,7 +5,8 @@
     {% set auto_amount = item['auto_' ~ field_name] or 0 %}
     <td>
       <input name="{{ field_name }}" type="number" step="0.01" min="0" value="{{ item[field_name] }}" data-auto-amount="{{ auto_amount }}">
-      {% if auto_amount > 0 %}<small class="auto-expense-amount">员工报销转入 +{{ auto_amount|money }}</small>{% endif %}
+      {% if auto_amount > 0 %}<small class="auto-expense-amount">自动转入 +{{ auto_amount|money }}</small>{% endif %}
+      {% if field_name == "lodging" %}<small class="lodging-limit-warning" hidden></small>{% endif %}
     </td>
   {% endmacro %}
   <header class="page-header">
@@ -101,9 +102,9 @@
       <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>
       <div class="metric"><span>差旅费小计</span><strong data-reimbursement-total="travel">{{ totals.travel_total|money }}</strong></div>
       <div class="metric"><span>里程费小计</span><strong data-reimbursement-total="mileage">{{ totals.mileage_total|money }}</strong></div>
-      <div class="metric"><span>员工报销转入</span><strong data-reimbursement-total="employeeExpense">{{ totals.employee_expense_total|money }}</strong><small>已分配到下方对应费用列</small></div>
-      {% if totals.mro_supplies_total or totals.rental_fuel_total %}
-        <div class="metric"><span>历史独立转入</span><strong>{{ (totals.mro_supplies_total + totals.rental_fuel_total)|money }}</strong><small>旧版已锁定结算记录</small></div>
+      <div class="metric"><span>其他</span><strong data-reimbursement-total="other">{{ totals.other_total|money }}</strong><small>其中 MRO Supplies {{ totals.mro_supplies_total|money }}，开票时进入 MRO Supplies</small></div>
+      {% if totals.rental_fuel_total %}
+        <div class="metric"><span>历史独立转入</span><strong>{{ totals.rental_fuel_total|money }}</strong><small>旧版已锁定结算记录</small></div>
       {% endif %}
       <div class="metric"><span>合计</span><strong data-reimbursement-total="total">{{ totals.total_amount|money }}</strong></div>
     </div>
@@ -229,6 +230,7 @@
     }|tojson }};
     window.customerReimbursementMro = {{ totals.mro_supplies_total|tojson }};
     window.customerReimbursementRentalFuel = {{ totals.rental_fuel_total|tojson }};
+    window.customerReimbursementLodgingLimit = {{ lodging_reimbursement_limit()|tojson }};
   </script>
   <script src="{{ url_for('static', filename='customer-reimbursement.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>

@@ -4,8 +4,10 @@ const reimbursementForm = document.getElementById("customerReimbursementForm");
 const reimbursementRates = window.customerReimbursementRates || {};
 const reimbursementMro = reimbursementNumber(window.customerReimbursementMro);
 const reimbursementRentalFuel = reimbursementNumber(window.customerReimbursementRentalFuel);
+const reimbursementLodgingLimit = reimbursementNumber(window.customerReimbursementLodgingLimit);
 const reimbursementLiveTotalsEnabled = reimbursementForm?.dataset.liveTotals === "true";
-const travelAmountFields = ["lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"];
+const travelAmountFields = ["lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi"];
+const allExpenseAmountFields = [...travelAmountFields, "other"];
 let reimbursementSubmitting = false;
 let reimbursementResetTimer = null;
 
@@ -38,7 +40,19 @@ function calculateReimbursementRow(row) {
     reimbursementInputValue(row, "holiday_hours") * reimbursementNumber(reimbursementRates.holiday);
   const mileage = reimbursementInputValue(row, "miles") * reimbursementNumber(reimbursementRates.mileage);
   const travel = travelAmountFields.reduce((sum, name) => sum + reimbursementInputValue(row, name), 0);
-  return { labor, travel, mileage, total: labor + travel + mileage };
+  const other = reimbursementInputValue(row, "other");
+  return { labor, travel, mileage, other, total: labor + travel + mileage + other };
+}
+
+function updateReimbursementLodgingWarning(row) {
+  const warning = row.querySelector(".lodging-limit-warning");
+  if (!warning) return;
+  const amount = reimbursementInputValue(row, "lodging");
+  const overLimit = reimbursementLodgingLimit > 0 && amount > reimbursementLodgingLimit;
+  warning.hidden = !overLimit;
+  warning.textContent = overLimit
+    ? `提醒：住宿费 ${reimbursementMoney(amount)} 超过参考上限 ${reimbursementMoney(reimbursementLodgingLimit)}，请核对后再保存。`
+    : "";
 }
 
 function updateCustomerReimbursementTotals() {
@@ -50,11 +64,13 @@ function updateCustomerReimbursementTotals() {
     rentalFuel: reimbursementRentalFuel,
     mro: reimbursementMro,
     employeeExpense: 0,
-    total: reimbursementMro + reimbursementRentalFuel,
+    other: 0,
+    total: reimbursementRentalFuel,
   };
   table?.querySelectorAll("tbody tr").forEach((row) => {
+    updateReimbursementLodgingWarning(row);
     const rowTotals = calculateReimbursementRow(row);
-    totals.employeeExpense += travelAmountFields.reduce(
+    totals.employeeExpense += allExpenseAmountFields.reduce(
       (sum, name) => sum + reimbursementAutoValue(row, name),
       0,
     );

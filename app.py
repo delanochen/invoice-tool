@@ -4773,7 +4773,7 @@ def merge_approved_expenses_into_customer_reimbursement(rows, order_id, cutoff_a
     return [calculate_customer_reimbursement_item(row, index) for index, row in enumerate(merged)]
 
 
-def approved_mro_supplies_total(order_id):
+def approved_mro_supplies_total(order_id, cutoff_at=None):
     row = db().execute(
         """
         select coalesce(sum(expense_items.amount), 0) as total
@@ -4783,8 +4783,9 @@ def approved_mro_supplies_total(order_id):
         where expenses.service_order_id = ?
           and expenses.status = 'approved'
           and coalesce(projects.name_key, lower(trim(expense_items.project))) = ?
+          and (? is null or coalesce(expenses.reviewed_at, expenses.updated_at, expenses.created_at) <= ?)
         """,
-        (order_id, project_name_key("MRO Supplies")),
+        (order_id, project_name_key("MRO Supplies"), cutoff_at, cutoff_at),
     ).fetchone()
     return money_float(row["total"] if row else 0)
 
@@ -4820,8 +4821,12 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
     manual_travel_total = sum(
         customer_reimbursement_item_expense_amount(item, key)
         for item in items
-        for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
+        for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")
     ) or Decimal("0")
+    other_total = sum(
+        (customer_reimbursement_item_expense_amount(item, "other") for item in items),
+        Decimal("0"),
+    )
     mileage_total = sum((money_decimal(item["mileage_total"]) for item in items), Decimal("0"))
     mro_supplies_total = money_decimal(mro_supplies_total)
     rental_fuel_total = money_decimal(rental_fuel_total)
@@ -4833,13 +4838,13 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
     travel_total = manual_travel_total + rental_fuel_total
     total_amount = (
         sum((money_decimal(item["total"]) for item in items), Decimal("0"))
-        + mro_supplies_total
         + rental_fuel_total
     )
     return {
         "labor_total": money_float(labor_total),
         "lodging_total": money_float(lodging_total),
         "travel_total": money_float(travel_total),
+        "other_total": money_float(other_total),
         "mileage_total": money_float(mileage_total),
         "mro_supplies_total": money_float(mro_supplies_total),
         "rental_fuel_total": money_float(rental_fuel_total),
@@ -5034,7 +5039,6 @@ def customer_reimbursement_items_from_form():
         )
         if not row["worker_name"] or not row["project_date"]:
             raise ValueError("工单结算每一行都必须有姓名和项目时间。")
-        validate_lodging_reimbursement(row["lodging"], "工单结算住宿报销")
         validate_fuel_reimbursement_allowed(row["fuel"], "工单结算油费")
         rows.append(calculate_customer_reimbursement_item(row, len(rows)))
     if not rows:
@@ -5176,7 +5180,13 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
         reimbursement["expense_transfer_cutoff_at"],
     )
     save_customer_reimbursement_items(reimbursement_id, rows)
-    totals = customer_reimbursement_totals(rows)
+    totals = customer_reimbursement_totals(
+        rows,
+        approved_mro_supplies_total(
+            reimbursement["service_order_id"],
+            reimbursement["expense_transfer_cutoff_at"],
+        ),
+    )
     db().execute(
         """
         update customer_reimbursements
@@ -5385,7 +5395,7 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
         table,
         Spacer(1, 3 * mm),
         Paragraph(
-            f"员工报销转入：{money(pdf_totals['employee_expense_total'])}　　"
+            f"其他：{money(pdf_totals['other_total'])}　　"
             f"结算总计：{money(reimbursement['total_amount'])}",
             meta_style,
         ),
@@ -10990,6 +11000,7 @@ def customer_reimbursement_query():
 @login_required
 def expense_query():
     q = request.args.get("q", "").strip()
+    person_id = request.args.get("person_id", "").strip()
     status = request.args.get("status", "")
     payout_status = request.args.get("payout_status", "")
     date_from = request.args.get("date_from", "")
@@ -11002,9 +11013,21 @@ def expense_query():
     if normalized_role() == "employee":
         clauses.append("expenses.created_by = ?")
         params.append(g.user["id"])
+        person_id = str(g.user["id"])
+    elif person_id.isdigit():
+        clauses.append("expenses.created_by = ?")
+        params.append(int(person_id))
+    else:
+        person_id = ""
     if q:
-        clauses.append("(expenses.expense_number like ? or expenses.project like ? or service_orders.order_number like ? or service_orders.client_name like ?)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+        clauses.append(
+            """(expenses.expense_number like ?
+                 or coalesce(projects.name, expense_items.project) like ?
+                 or coalesce(expense_items.description, '') like ?
+                 or service_orders.order_number like ?
+                 or service_orders.client_name like ?)"""
+        )
+        params.extend([f"%{q}%"] * 5)
     if status:
         clauses.append("expenses.status = ?")
         params.append(status)
@@ -11021,30 +11044,47 @@ def expense_query():
         params.append(date_to)
     rows = db().execute(
         f"""
-        select expenses.*, service_orders.order_number, service_orders.client_name, users.name as creator_name,
+        select expenses.*, expense_items.id as item_id,
+               coalesce(projects.name, expense_items.project) as item_project,
+               expense_items.description as item_description, expense_items.amount as item_amount,
+               service_orders.order_number, service_orders.client_name, users.name as creator_name,
                coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name
         from expenses
+        join expense_items on expense_items.expense_id = expenses.id
         join service_orders on service_orders.id = expenses.service_order_id
         left join users on users.id = expenses.created_by
+        left join projects on projects.id = expense_items.project_id
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
         left join country_translations country_zh
           on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
         where {" and ".join(clauses)}
-        order by expenses.expense_date desc, expenses.id desc
+        order by expenses.expense_date desc, expenses.id desc, expense_items.sort_order, expense_items.id
         """,
         [current_language(), *params],
     ).fetchall()
     total = sum(
-        float(row["amount"] or 0)
+        float(row["item_amount"] or 0)
         for row in rows
         if row["status"] == "approved" and row["payout_status"] != "paid"
     )
+    people = db().execute(
+        """
+        select distinct users.id, users.name
+        from users
+        join expenses on expenses.created_by = users.id
+        where (? = 0 or users.id = ?)
+        order by users.name
+        """,
+        (1 if normalized_role() == "employee" else 0, g.user["id"]),
+    ).fetchall()
     return render_template(
         "expense_query.html",
         rows=rows,
         q=q,
+        person_id=person_id,
+        people=people,
         status=status,
         payout_status=payout_status,
         date_from=date_from,

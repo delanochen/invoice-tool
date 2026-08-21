@@ -561,7 +561,9 @@ class PaymentTermsTest(unittest.TestCase):
             self.assertEqual(row["auto_other"], 80)
             self.assertEqual(row["other"], 5)
             self.assertEqual(totals["employee_expense_total"], 360)
-            self.assertEqual(totals["travel_total"], 365)
+            self.assertEqual(totals["travel_total"], 280)
+            self.assertEqual(totals["other_total"], 85)
+            self.assertEqual(totals["mro_supplies_total"], 80)
             self.assertEqual(totals["total_amount"], 365)
 
             connection.execute(
@@ -593,6 +595,7 @@ class PaymentTermsTest(unittest.TestCase):
                 (reimbursement_id,),
             ).fetchone()
             self.assertEqual(row["auto_other"], 80)
+            self.assertEqual(totals["mro_supplies_total"], 80)
             self.assertEqual(totals["total_amount"], 365)
 
     def test_employee_lodging_over_limit_is_warning_not_validation_error(self):

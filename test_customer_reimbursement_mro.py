@@ -90,9 +90,10 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             )
             connection.commit()
             self.order_id = order_id
+            self.user_id = user_id
             self.reimbursement_id = reimbursement_id
 
-    def test_only_approved_mro_flows_to_other_and_travel_invoice(self):
+    def test_only_approved_mro_flows_to_other_and_mro_invoice(self):
         with self.module.app.app_context():
             totals = self.module.update_customer_reimbursement_totals(self.reimbursement_id)
             reimbursement = self.module.db().execute(
@@ -113,12 +114,65 @@ class CustomerReimbursementMroTest(unittest.TestCase):
                 (self.reimbursement_id,),
             ).fetchone()
             self.assertEqual(transferred["auto_other"], 125.0)
-            self.assertEqual(totals["mro_supplies_total"], 0.0)
+            self.assertEqual(totals["mro_supplies_total"], 125.0)
+            self.assertEqual(totals["other_total"], 125.0)
+            self.assertEqual(totals["travel_total"], 0.0)
             self.assertEqual(totals["employee_expense_total"], 125.0)
             self.assertEqual(totals["total_amount"], 195.0)
-            self.assertEqual(reimbursement["mro_supplies_total"], 0.0)
-            self.assertEqual(invoice_projects["Travel Expenses Reimbursement"]["amount"], 125.0)
-            self.assertNotIn("MRO Supplies", invoice_projects)
+            self.assertEqual(reimbursement["mro_supplies_total"], 125.0)
+            self.assertEqual(invoice_projects["MRO Supplies"]["amount"], 125.0)
+            self.assertNotIn("Travel Expenses Reimbursement", invoice_projects)
+
+    def test_customer_reimbursement_lodging_over_limit_is_warning_only(self):
+        with self.module.app.test_request_context(
+            "/customer-reimbursements/test",
+            method="POST",
+            data={
+                "worker_name": ["Worker"],
+                "project_date": ["2026-08-12"],
+                "standard_hours": ["0"],
+                "transport_hours": ["0"],
+                "overtime_hours": ["0"],
+                "holiday_hours": ["0"],
+                "lodging": ["450"],
+                "airfare": ["0"],
+                "baggage": ["0"],
+                "rental_car": ["0"],
+                "fuel": ["0"],
+                "parking": ["0"],
+                "taxi": ["0"],
+                "other": ["0"],
+                "miles": ["0"],
+            },
+        ):
+            rows = self.module.customer_reimbursement_items_from_form()
+            self.assertEqual(rows[0]["lodging"], 450.0)
+
+    def test_expense_detail_report_lists_each_item_and_filters_person(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            expense = connection.execute(
+                "select id from expenses where expense_number = 'EXP-APPROVED'"
+            ).fetchone()
+            project = connection.execute(
+                "select id from projects where project_type = 'expense' and name_key = 'mro supplies'"
+            ).fetchone()
+            connection.execute(
+                """
+                insert into expense_items (expense_id, project_id, project, amount, description, sort_order)
+                values (?, ?, 'MRO Supplies', 25, 'Second receipt', 1)
+                """,
+                (expense["id"], project["id"]),
+            )
+            connection.commit()
+        client = self.module.app.test_client()
+        with client.session_transaction() as session:
+            session["user_id"] = self.user_id
+        page = client.get(f"/reports/expenses?person_id={self.user_id}").get_data(as_text=True)
+        self.assertEqual(page.count("EXP-APPROVED"), 2)
+        self.assertIn("Second receipt", page)
+        self.assertIn("明细金额", page)
+        self.assertIn("人员", page)
 
     def test_coordinate_pair_accepts_one_paste_and_validates_ranges(self):
         parse = self.module.parse_coordinate_pair
