@@ -79,8 +79,15 @@ KNOWLEDGE_MAX_PDF_BYTES = 50 * 1024 * 1024
 KNOWLEDGE_MAX_EXTRACTED_TEXT = 500_000
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 APP_VERSION = os.environ.get("APP_VERSION", "0.0.0").strip() or "0.0.0"
-REQUIRE_DATA_DIRECTORY_IDENTITY = os.environ.get("REQUIRE_DATA_DIRECTORY_IDENTITY", "0") == "1"
-DATA_DIRECTORY_IDENTITY = os.environ.get("DATA_DIRECTORY_IDENTITY", "").strip()
+PRODUCTION_DATA_DIRECTORY_IDENTITY = "invoice-tool-primary-volume1-20260816"
+IS_RELEASE_BUILD = bool(re.fullmatch(r"\d+\.\d+\.\d+", APP_VERSION)) and APP_VERSION != "0.0.0"
+REQUIRE_DATA_DIRECTORY_IDENTITY = (
+    os.environ.get("REQUIRE_DATA_DIRECTORY_IDENTITY", "1" if IS_RELEASE_BUILD else "0") == "1"
+)
+DATA_DIRECTORY_IDENTITY = os.environ.get(
+    "DATA_DIRECTORY_IDENTITY",
+    PRODUCTION_DATA_DIRECTORY_IDENTITY if REQUIRE_DATA_DIRECTORY_IDENTITY else "",
+).strip()
 DATA_IDENTITY_FILE = os.path.join(DATA_DIR, ".invoice-tool-data-id")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}

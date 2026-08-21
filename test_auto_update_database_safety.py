@@ -19,6 +19,14 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.assertIn('DATA_DIRECTORY_IDENTITY: "invoice-tool-primary-volume1-20260816"', self.compose)
         self.assertIn('DATA_IDENTITY_FILE=', self.script)
         self.assertIn('created target data directory identity marker', self.script)
+        app_source = (REPO_DIR / "app.py").read_text(encoding="utf-8")
+        self.assertIn('IS_RELEASE_BUILD', app_source)
+        self.assertIn('"1" if IS_RELEASE_BUILD else "0"', app_source)
+
+    def test_updater_rejects_compose_without_the_production_data_contract(self):
+        self.assertIn("verify_compose_data_contract()", self.script)
+        self.assertIn("compose file does not pin the approved production data directory", self.script)
+        self.assertIn("compose file does not require the production data identity", self.script)
 
     def test_known_legacy_database_is_switched_only_after_business_validation(self):
         self.assertIn('validate_reviewed_legacy_switch()', self.script)

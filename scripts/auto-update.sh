@@ -404,6 +404,24 @@ git_repo() {
 
 cd "$APP_DIR"
 
+verify_compose_data_contract() {
+    if ! grep -Fq -- '"/volume1/invoice-tool/invoice-tool/data:/app/data"' "$APP_DIR/docker-compose.yml"; then
+        log "error: compose file does not pin the approved production data directory"
+        return 1
+    fi
+    if ! grep -Fq -- 'REQUIRE_DATA_DIRECTORY_IDENTITY: "1"' "$APP_DIR/docker-compose.yml"; then
+        log "error: compose file does not require the production data identity"
+        return 1
+    fi
+    if ! grep -Fq -- 'DATA_DIRECTORY_IDENTITY: "invoice-tool-primary-volume1-20260816"' "$APP_DIR/docker-compose.yml"; then
+        log "error: compose file has the wrong production data identity"
+        return 1
+    fi
+    log "verified compose production data contract"
+}
+
+verify_compose_data_contract || exit 1
+
 CONFIGURED_SHARED_PHOTOS=""
 if [ -f "$APP_DIR/.env" ]; then
     CONFIGURED_SHARED_PHOTOS="$(sed -n 's/^SHARED_PHOTOS_HOST_DIR=//p' "$APP_DIR/.env" | tail -n 1)"
