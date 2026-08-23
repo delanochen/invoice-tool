@@ -248,6 +248,17 @@ class PaymentTermsTest(unittest.TestCase):
             ),
             "",
         )
+        self.assertEqual(
+            self.module.client_order_number_warning(
+                "Sanhe Tongfei Refrigeration Co., Ltd.", "SHPG1234567890123"
+            ),
+            "",
+        )
+        self.assertTrue(
+            self.module.client_order_number_warning(
+                "三河同飞制冷股份有限公司", "SHPG12345678901"
+            )
+        )
         self.assertTrue(
             self.module.client_order_number_warning("三河同飞制冷股份有限公司", "SO-INVALID")
         )
