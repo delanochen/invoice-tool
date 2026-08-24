@@ -561,6 +561,8 @@ fi
 # database safeguards and verification below come from the reviewed commit.
 if ! git_repo diff --quiet "$OLD_COMMIT" "$NEW_COMMIT" -- scripts/auto-update.sh; then
     log "auto-update script changed; restarting with the updated script"
+    finish
+    trap - EXIT INT TERM
     exec /bin/sh "$APP_DIR/scripts/auto-update.sh"
 fi
 

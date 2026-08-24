@@ -4711,8 +4711,25 @@ CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS = {
 }
 
 
+def canonical_project_mapping_key(value, canonical_keys):
+    key = project_name_key(value)
+    if key in canonical_keys:
+        return key
+    for canonical_key in canonical_keys:
+        if not key.startswith(canonical_key):
+            continue
+        suffix = key[len(canonical_key):].lstrip()
+        if suffix and (not suffix[0].isascii() or not suffix[0].isalnum()):
+            return canonical_key
+    return key
+
+
 def customer_reimbursement_expense_field(project_name, fuel_vehicle_type=None):
-    field_name = CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS.get(project_name_key(project_name))
+    project_key = canonical_project_mapping_key(
+        project_name,
+        CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS,
+    )
+    field_name = CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS.get(project_key)
     if field_name == "fuel" and fuel_vehicle_type != "rental":
         return None
     return field_name
@@ -4781,20 +4798,19 @@ def merge_approved_expenses_into_customer_reimbursement(rows, order_id, cutoff_a
 
 
 def approved_mro_supplies_total(order_id, cutoff_at=None):
-    row = db().execute(
-        """
-        select coalesce(sum(expense_items.amount), 0) as total
-        from expenses
-        join expense_items on expense_items.expense_id = expenses.id
-        left join projects on projects.id = expense_items.project_id
-        where expenses.service_order_id = ?
-          and expenses.status = 'approved'
-          and coalesce(projects.name_key, lower(trim(expense_items.project))) = ?
-          and (? is null or coalesce(expenses.reviewed_at, expenses.updated_at, expenses.created_at) <= ?)
-        """,
-        (order_id, project_name_key("MRO Supplies"), cutoff_at, cutoff_at),
-    ).fetchone()
-    return money_float(row["total"] if row else 0)
+    mro_key = project_name_key("MRO Supplies")
+    total = sum(
+        (
+            money_decimal(row["amount"])
+            for row in approved_customer_reimbursement_expense_rows(order_id, cutoff_at)
+            if canonical_project_mapping_key(
+                row["project_name"],
+                CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS,
+            ) == mro_key
+        ),
+        Decimal("0"),
+    )
+    return money_float(total)
 
 
 def approved_rental_vehicle_fuel_total(order_id):
@@ -5121,16 +5137,23 @@ def customer_reimbursement_linked_invoice(reimbursement, order_id):
 
 def customer_reimbursement_invoice_items(reimbursement):
     project_names = tuple(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS.keys())
-    placeholders = ", ".join("?" for _ in project_names)
     projects = db().execute(
-        f"""
+        """
         select *
         from projects
-        where project_type = 'invoice' and name in ({placeholders})
-        """,
-        project_names,
+        where project_type = 'invoice'
+        """
     ).fetchall()
-    projects_by_name = {project["name"]: project for project in projects}
+    canonical_invoice_keys = tuple(project_name_key(name) for name in project_names)
+    projects_by_name = {}
+    for project in projects:
+        canonical_key = canonical_project_mapping_key(project["name"], canonical_invoice_keys)
+        if canonical_key not in canonical_invoice_keys:
+            continue
+        expected_name = project_names[canonical_invoice_keys.index(canonical_key)]
+        current = projects_by_name.get(expected_name)
+        if current is None or project_name_key(project["name"]) == canonical_key:
+            projects_by_name[expected_name] = project
     missing = [name for name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS if name not in projects_by_name]
     if missing:
         raise ValueError(f"请先在项目维护中创建发票项目：{', '.join(missing)}。")
