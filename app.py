@@ -2586,7 +2586,6 @@ def required_action_for_request():
         "export_service_report": ("service_reports", "export"),
         "delete_report_attachment": ("service_reports", "edit"),
         "expense_processing": ("expenses", "view"),
-        "process_expense_action": ("expenses", "approve"),
         "expense_query": ("expenses", "view"),
         "new_expense": ("expenses", "create"),
         "edit_expense": ("expenses", "edit"),

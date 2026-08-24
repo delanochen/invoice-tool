@@ -184,6 +184,60 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         self.assertEqual(response.headers["Location"], f"/expenses/{self.expense_id}")
         self.assertEqual(len(self.transferred_rows()), 1)
 
+    def test_admin_can_reset_expense_without_approve_permission(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute(
+                """
+                update role_action_permissions
+                set is_enabled = 0
+                where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
+                """
+            )
+            connection.execute(
+                """
+                update expenses
+                set status = 'approved', payout_status = 'paid', reimbursed_by = ?, reimbursed_at = ?
+                where id = ?
+                """,
+                (self.user_id, "2026-08-02T12:00:00", self.expense_id),
+            )
+            connection.commit()
+
+        response = self.client.post(
+            "/expense-processing/action",
+            data={"expense_id": self.expense_id, "action": "reset_workflow"},
+        )
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            expense = self.module.db().execute(
+                "select status, payout_status from expenses where id = ?", (self.expense_id,)
+            ).fetchone()
+        self.assertEqual(expense["status"], "submitted")
+        self.assertEqual(expense["payout_status"], "pending")
+
+    def test_admin_without_approve_permission_still_cannot_reimburse(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute(
+                """
+                update role_action_permissions
+                set is_enabled = 0
+                where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
+                """
+            )
+            connection.execute(
+                "update expenses set status = 'approved', payout_status = 'pending' where id = ?",
+                (self.expense_id,),
+            )
+            connection.commit()
+
+        response = self.client.post(
+            "/expense-processing/action",
+            data={"expense_id": self.expense_id, "action": "reimburse"},
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_line_attachment_is_rendered_with_its_expense_item(self):
         edit_html = self.client.get(f"/expenses/{self.expense_id}/edit").get_data(as_text=True)
         self.assertIn('name="item_line_key" value="line-travel"', edit_html)
