@@ -26,7 +26,7 @@
       <tbody>
         {% for order in orders %}
           {% set is_paid = order.invoice_count and order.paid_invoice_count == order.invoice_count %}
-          <tr{% if can_view_invoices() and order.status == "closed" and is_paid %} class="closed-paid"{% elif can_view_invoices() and order.status == "closed" and order.invoice_count %} class="closed-invoiced"{% elif can_view_invoices() and order.status != "closed" and order.invoice_count %} class="open-invoiced"{% endif %}>
+          <tr{% if order.status == "closed" and is_paid %} class="closed-paid"{% elif order.status == "closed" and order.invoice_count %} class="closed-invoiced"{% elif order.status != "closed" and order.invoice_count %} class="open-invoiced"{% endif %}>
             <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
             <td>{{ order.client_name }}</td>
             <td>{{ order.report_count }}</td>

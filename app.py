@@ -10666,7 +10666,6 @@ def service_order_calendar_weeks(year, month):
     grid_end = month_end + timedelta(days=6 - month_end.weekday())
     events_by_day = {}
     dates_by_order = {}
-    show_invoice_status = can_view_invoices()
     for row in service_order_calendar_rows(grid_start, grid_end):
         event_date = parsed_iso_date(row["calendar_date"])
         if not event_date:
@@ -10675,11 +10674,11 @@ def service_order_calendar_weeks(year, month):
         invoice_count = int(row["invoice_count"] or 0)
         paid_invoice_count = int(row["paid_invoice_count"] or 0)
         billing_state = ""
-        if show_invoice_status and row["status"] == "closed" and invoice_count and paid_invoice_count == invoice_count:
+        if row["status"] == "closed" and invoice_count and paid_invoice_count == invoice_count:
             billing_state = "closed-paid"
-        elif show_invoice_status and row["status"] == "closed" and invoice_count:
+        elif row["status"] == "closed" and invoice_count:
             billing_state = "closed-invoiced"
-        elif show_invoice_status and row["status"] != "closed" and invoice_count:
+        elif row["status"] != "closed" and invoice_count:
             billing_state = "open-invoiced"
         events_by_day.setdefault(event_date, []).append(
             {
