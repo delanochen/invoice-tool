@@ -190,6 +190,22 @@ button:disabled {
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 .login-card { width: min(440px, 100%); padding: 32px; display: grid; gap: 14px; }
+.ios-login-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid #cfd8e3;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #17212b;
+  font-weight: 700;
+}
+.mobile-install-card { width: min(540px, 100%); }
+.mobile-install-card > p { margin-bottom: 0; }
+.mobile-install-button { min-height: 50px; }
+.mobile-install-steps { display: grid; gap: 10px; margin: 0; padding-left: 22px; color: var(--muted); line-height: 1.5; }
+.mobile-package-missing { padding: 14px; border: 1px solid #fedf89; border-radius: 9px; background: #fffaeb; color: #93370d; }
 .login-logo { width: 56px; height: 56px; border-radius: 8px; }
 .eyebrow {
   margin: 0 0 6px;
@@ -409,6 +425,11 @@ label {
 }
 .required-field .required-mark {
   display: inline;
+}
+
+/* Keep controls clear of the iPhone home indicator when opened by the native app. */
+@supports (padding: max(0px)) {
+  body { padding-bottom: env(safe-area-inset-bottom); }
 }
 .payment-term-fields label.is-disabled {
   color: #98a2b3;

@@ -34,6 +34,9 @@ http://你的NAS地址:8088
 - 附件支持 Word、Excel、PDF 和图片，可多选上传、预览、删除、下载和随 ZIP 导出。
 - 邮件发送的 SMTP host、端口、账号、应用专用密码、发件人和 TLS 设置在“公司设置”中维护。
 - 导出 ZIP 会包含发票 PDF 和该发票的全部附件。
+- 提供团队内部使用的 iOS 客户端源码，见 [`ios-app`](ios-app/README.md)。
+- iOS 客户端默认提供带站点、操作员、可调时间和 GPS 坐标水印的团队打卡，并自动上传 NAS。
+- 网页登录首页提供内部签名 IPA 的下载和信任证书安装说明。
 
 ## 数据
 
@@ -97,3 +100,12 @@ sudo docker compose up -d --build --force-recreate
 ```
 
 系统首次启动时会将 `.env` 中的密钥迁移到“基础数据 > 公司设置 > 工单地图设置”。以后可直接在公司设置页面修改或清空，不需要重新构建容器。配置密钥后，工单地图会自动切换为 Google 地图，并在浏览器中实时解析地址。Google 坐标不会写入数据库。未配置密钥时，系统自动保留免费模式。
+# Debian production deployment
+
+The PVE Debian deployment keeps code in `/opt/invoice-tool` and persistent state
+under `/srv/invoice-tool` (`data`, `shared-photos`, and `backups`). Copy
+`deploy/invoice-tool-deploy.service` and `deploy/invoice-tool-deploy.timer` to
+`/etc/systemd/system/`, then enable the timer. It checks GitHub every five
+minutes; `scripts/debian-auto-deploy.sh` creates an online SQLite backup,
+rebuilds the containers, performs an HTTP health check, and rolls back the Git
+revision if deployment fails.

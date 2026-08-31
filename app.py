@@ -75,6 +75,10 @@ CUSTOMER_REIMBURSEMENT_DIR = os.path.join(DATA_DIR, "customer-reimbursements")
 COMPANY_ATTACHMENT_DIR = os.path.join(DATA_DIR, "company-attachments")
 USER_ATTACHMENT_DIR = os.path.join(DATA_DIR, "user-attachments")
 KNOWLEDGE_BASE_DIR = os.path.join(DATA_DIR, "knowledge-base")
+MOBILE_APP_DIR = os.path.join(DATA_DIR, "mobile-app")
+IOS_IPA_PATH = os.path.join(MOBILE_APP_DIR, "PrasinosPower.ipa")
+IOS_BUNDLE_ID = os.environ.get("IOS_BUNDLE_ID", "com.prasinospower.internal").strip()
+IOS_APP_VERSION = os.environ.get("IOS_APP_VERSION", "1.0.0").strip()
 KNOWLEDGE_MAX_PDF_BYTES = 50 * 1024 * 1024
 KNOWLEDGE_MAX_EXTRACTED_TEXT = 500_000
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
@@ -877,6 +881,22 @@ def init_db():
                 geocode_version text,
                 manual_coordinates integer not null default 0,
                 created_at text not null
+            );
+
+            create table if not exists clock_in_photos (
+                id integer primary key autoincrement,
+                buyer_id integer not null,
+                user_id integer not null,
+                captured_at text not null,
+                server_received_at text not null,
+                time_offset_minutes integer not null default 0,
+                latitude real not null,
+                longitude real not null,
+                location_accuracy real,
+                relative_path text not null unique,
+                original_filename text not null,
+                foreign key(buyer_id) references buyers(id),
+                foreign key(user_id) references users(id)
             );
 
             create table if not exists work_order_types (
@@ -6387,6 +6407,48 @@ def login():
             return redirect(request.args.get("next") or url_for("dashboard"))
         flash("邮箱或密码不正确。", "error")
     return render_template("login.html")
+
+
+@app.get("/mobile-app")
+def mobile_app_install():
+    ipa_available = os.path.isfile(IOS_IPA_PATH) and os.path.getsize(IOS_IPA_PATH) > 0
+    manifest_url = url_for("mobile_app_manifest", _external=True, _scheme="https")
+    install_url = "itms-services://?" + urlencode({"action": "download-manifest", "url": manifest_url})
+    return render_template(
+        "mobile_app_install.html",
+        ipa_available=ipa_available,
+        install_url=install_url,
+        ios_app_version=IOS_APP_VERSION,
+    )
+
+
+@app.get("/mobile-app/manifest.plist")
+def mobile_app_manifest():
+    if not os.path.isfile(IOS_IPA_PATH):
+        abort(404)
+    ipa_url = html.escape(url_for("mobile_app_ipa", _external=True, _scheme="https"), quote=True)
+    bundle_id = html.escape(IOS_BUNDLE_ID, quote=True)
+    version = html.escape(IOS_APP_VERSION, quote=True)
+    manifest = f'''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>items</key><array><dict>
+<key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>{ipa_url}</string></dict></array>
+<key>metadata</key><dict><key>bundle-identifier</key><string>{bundle_id}</string><key>bundle-version</key><string>{version}</string><key>kind</key><string>software</string><key>title</key><string>Prasinos Power</string></dict>
+</dict></array></dict></plist>'''
+    return app.response_class(manifest, mimetype="application/xml")
+
+
+@app.get("/mobile-app/PrasinosPower.ipa")
+def mobile_app_ipa():
+    if not os.path.isfile(IOS_IPA_PATH):
+        abort(404)
+    return send_file(
+        IOS_IPA_PATH,
+        mimetype="application/octet-stream",
+        as_attachment=True,
+        download_name="PrasinosPower.ipa",
+        conditional=True,
+    )
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -12679,6 +12741,103 @@ def delete_service_report(report_id):
     db().commit()
     flash("工作日报已删除。", "success")
     return redirect(url_for("service_order_detail", order_id=order["id"]))
+
+
+def clock_in_site_rows():
+    if is_external_user():
+        if not g.user["client_id"]:
+            return []
+        return db().execute(
+            "select id, buyer_number, name, detailed_address from buyers where client_id = ? order by name",
+            (g.user["client_id"],),
+        ).fetchall()
+    return db().execute(
+        "select id, buyer_number, name, detailed_address from buyers order by name"
+    ).fetchall()
+
+
+@app.get("/mobile-clock-in")
+@login_required
+def mobile_clock_in():
+    recent = db().execute(
+        """
+        select clock_in_photos.*, buyers.name as site_name
+        from clock_in_photos
+        join buyers on buyers.id = clock_in_photos.buyer_id
+        where clock_in_photos.user_id = ?
+        order by clock_in_photos.id desc limit 5
+        """,
+        (g.user["id"],),
+    ).fetchall()
+    return render_template(
+        "mobile_clock_in.html",
+        sites=clock_in_site_rows(),
+        operator_name=g.user["name"],
+        recent=recent,
+    )
+
+
+@app.post("/api/mobile-clock-in")
+@login_required
+def upload_mobile_clock_in():
+    site_id = request.form.get("site_id", "")
+    site = next((row for row in clock_in_site_rows() if str(row["id"]) == site_id), None)
+    if not site:
+        return jsonify({"ok": False, "error": "请选择有效站点。"}), 422
+    try:
+        latitude = float(request.form.get("latitude", ""))
+        longitude = float(request.form.get("longitude", ""))
+        accuracy = float(request.form.get("accuracy", "") or 0)
+        offset_minutes = int(request.form.get("time_offset_minutes", "0"))
+        captured_at = datetime.fromisoformat(request.form.get("captured_at", "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "时间或坐标格式不正确。"}), 422
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return jsonify({"ok": False, "error": "坐标超出有效范围。"}), 422
+    if not (-1440 <= offset_minutes <= 1440):
+        return jsonify({"ok": False, "error": "打卡时间最多只能前后调整 24 小时。"}), 422
+    if captured_at.tzinfo is None:
+        captured_at = captured_at.replace(tzinfo=timezone.utc)
+    expected_capture = datetime.now(timezone.utc) + timedelta(minutes=offset_minutes)
+    if abs((captured_at.astimezone(timezone.utc) - expected_capture).total_seconds()) > 300:
+        return jsonify({"ok": False, "error": "水印时间与调整值不一致，请刷新页面后重试。"}), 422
+    photo = request.files.get("photo")
+    if not photo:
+        return jsonify({"ok": False, "error": "没有收到照片。"}), 422
+    content = photo.read(15 * 1024 * 1024 + 1)
+    if not content or len(content) > 15 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "照片无效或超过 15MB。"}), 422
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image.verify()
+            if image.format not in {"JPEG", "PNG"}:
+                raise ValueError
+    except (OSError, ValueError):
+        return jsonify({"ok": False, "error": "只接受有效的 JPG 或 PNG 照片。"}), 422
+
+    local_capture = captured_at.astimezone(app_timezone())
+    folder = shared_photos_root() / "clock-ins" / local_capture.date().isoformat() / site["buyer_number"]
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = f"{local_capture.strftime('%H%M%S')}-{g.user['id']}-{secrets.token_hex(4)}.jpg"
+    target = folder / filename
+    target.write_bytes(content)
+    relative_path = target.relative_to(shared_photos_root()).as_posix()
+    received_at = now()
+    cursor = db().execute(
+        """
+        insert into clock_in_photos (
+            buyer_id, user_id, captured_at, server_received_at, time_offset_minutes,
+            latitude, longitude, location_accuracy, relative_path, original_filename
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            site["id"], g.user["id"], captured_at.isoformat(), received_at, offset_minutes,
+            latitude, longitude, accuracy, relative_path, photo.filename or "clock-in.jpg",
+        ),
+    )
+    log_action("create", "clock_in_photo", cursor.lastrowid, site["name"], "移动打卡拍照")
+    db().commit()
+    return jsonify({"ok": True, "message": "打卡照片已上传到 NAS。", "id": cursor.lastrowid})
 
 
 @app.route("/shared-photos/browse")

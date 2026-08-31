@@ -10,9 +10,8 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.script = (REPO_DIR / "scripts" / "auto-update.sh").read_text(encoding="utf-8")
         self.compose = (REPO_DIR / "docker-compose.yml").read_text(encoding="utf-8")
 
-    def test_compose_pins_the_only_approved_data_directory(self):
-        self.assertIn('/volume1/invoice-tool/invoice-tool/data:/app/data', self.compose)
-        self.assertNotIn('${DATA_HOST_DIR', self.compose)
+    def test_compose_uses_the_approved_data_directory_contract(self):
+        self.assertIn('${DATA_HOST_DIR:-/volume1/invoice-tool/invoice-tool/data}:/app/data', self.compose)
 
     def test_container_requires_the_prepared_data_directory_identity_marker(self):
         self.assertIn('REQUIRE_DATA_DIRECTORY_IDENTITY: "1"', self.compose)
@@ -25,7 +24,7 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
 
     def test_updater_rejects_compose_without_the_production_data_contract(self):
         self.assertIn("verify_compose_data_contract()", self.script)
-        self.assertIn("compose file does not pin the approved production data directory", self.script)
+        self.assertIn("compose file does not use the approved data directory contract", self.script)
         self.assertIn("compose file does not require the production data identity", self.script)
 
     def test_known_legacy_database_is_switched_only_after_business_validation(self):

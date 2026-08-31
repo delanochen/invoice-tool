@@ -405,8 +405,8 @@ git_repo() {
 cd "$APP_DIR"
 
 verify_compose_data_contract() {
-    if ! grep -Fq -- '"/volume1/invoice-tool/invoice-tool/data:/app/data"' "$APP_DIR/docker-compose.yml"; then
-        log "error: compose file does not pin the approved production data directory"
+    if ! grep -Fq -- '"${DATA_HOST_DIR:-/volume1/invoice-tool/invoice-tool/data}:/app/data"' "$APP_DIR/docker-compose.yml"; then
+        log "error: compose file does not use the approved data directory contract"
         return 1
     fi
     if ! grep -Fq -- 'REQUIRE_DATA_DIRECTORY_IDENTITY: "1"' "$APP_DIR/docker-compose.yml"; then

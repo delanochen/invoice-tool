@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}安装 iPhone App - Prasinos Power{% endblock %}
+{% block content %}
+  <section class="login-card mobile-install-card">
+    <img class="login-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power logo">
+    <p class="eyebrow">IOS INTERNAL APP</p>
+    <h1>安装 Prasinos Power</h1>
+    <p>团队内部版本，无需进入 App Store。</p>
+    {% if ipa_available %}
+      <a class="button primary mobile-install-button" href="{{ install_url }}">安装 iPhone App</a>
+      <p class="muted-line">版本 {{ ios_app_version }}。请使用 iPhone Safari 打开本页并点击安装。</p>
+      <ol class="mobile-install-steps">
+        <li>安装完成后打开“设置 > 通用 > VPN 与设备管理”。</li>
+        <li>选择公司开发者证书并点击“信任”；iOS 18 或更新版本按提示“允许并重新启动”。</li>
+        <li>返回桌面打开 Prasinos Power，登录后默认进入团队拍照打卡。</li>
+      </ol>
+    {% else %}
+      <div class="mobile-package-missing">安装包正在准备中，请管理员先上传已签名的 IPA。</div>
+      <p class="muted-line">部署位置：NAS 项目数据目录中的 <code>mobile-app/PrasinosPower.ipa</code></p>
+    {% endif %}
+    <a href="{{ url_for('login') }}">返回网页版登录</a>
+  </section>
+{% endblock %}

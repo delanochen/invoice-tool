@@ -1,0 +1,35 @@
+:root { color-scheme: light; --accent: #0f766e; --ink: #17212b; --muted: #667085; --line: #d8dee8; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); background: linear-gradient(160deg, #dff7f2, #f5f7f9 42%); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, select { font: inherit; }
+.clock-shell { width: min(680px, 100%); margin: auto; padding: 18px; }
+.clock-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 4px 0 18px; }
+.clock-header h1 { margin: 3px 0 0; font-size: 30px; }
+.clock-header a { color: var(--accent); font-weight: 700; text-decoration: none; }
+.eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+.clock-card, .recent-card { padding: 20px; border: 1px solid rgba(15,118,110,.14); border-radius: 20px; background: rgba(255,255,255,.95); box-shadow: 0 12px 38px rgba(15,23,42,.09); }
+label { display: grid; gap: 8px; font-weight: 700; }
+select { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); }
+.clock-time-panel { display: grid; gap: 9px; margin-top: 20px; padding: 15px; border-radius: 14px; background: #f5f8fa; }
+.clock-time-panel > span, .clock-location span { color: var(--muted); font-size: 13px; }
+.clock-time-panel strong { font-size: 20px; }
+.clock-time-panel small { color: var(--accent); }
+.clock-adjustments { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+button { min-height: 38px; padding: 5px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink); }
+.clock-location { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0; }
+.clock-location div { display: grid; gap: 4px; }
+.clock-location strong { font-size: 14px; overflow-wrap: anywhere; }
+.clock-location button { flex: 0 0 auto; color: var(--accent); }
+.camera-button { display: flex; align-items: center; justify-content: center; min-height: 58px; border-radius: 15px; background: var(--accent); color: #fff; font-size: 18px; text-align: center; cursor: pointer; }
+.camera-button.disabled { opacity: .45; cursor: not-allowed; }
+.camera-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.clock-hint { margin: 11px 2px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.clock-status { display: none; margin-top: 14px; padding: 12px; border-radius: 12px; background: #ecfdf3; color: #067647; font-weight: 700; }
+.clock-status.show { display: block; }
+.clock-status.error { background: #fff1f0; color: #b42318; }
+#clockPreview { width: 100%; height: auto; margin-top: 14px; border-radius: 14px; }
+.recent-card { margin-top: 16px; }
+.recent-card h2 { margin: 0 0 12px; font-size: 18px; }
+.recent-card div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid #edf0f3; }
+.recent-card span { color: var(--muted); font-size: 13px; }
+@media (max-width: 430px) { .clock-adjustments { grid-template-columns: repeat(3, 1fr); } .clock-header h1 { font-size: 26px; } }

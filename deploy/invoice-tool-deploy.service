@@ -1,0 +1,9 @@
+[Unit]
+Description=Invoice Tool GitHub auto-deployment
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/invoice-tool
+ExecStart=/bin/sh /opt/invoice-tool/scripts/debian-auto-deploy.sh

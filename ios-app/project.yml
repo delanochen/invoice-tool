@@ -1,0 +1,29 @@
+name: PrasinosPower
+options:
+  bundleIdPrefix: com.prasinospower
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 1.0.0
+targets:
+  PrasinosPower:
+    type: application
+    platform: iOS
+    sources:
+      - path: PrasinosPower
+    info:
+      path: PrasinosPower/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.prasinospower.internal
+        PRODUCT_NAME: Prasinos Power
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        GENERATE_INFOPLIST_FILE: NO
+    scheme:
+      testTargets: []
+

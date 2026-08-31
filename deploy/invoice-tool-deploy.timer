@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub for Invoice Tool updates
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
