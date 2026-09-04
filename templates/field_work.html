@@ -19,7 +19,13 @@
         <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
         <p id="orderContext" class="muted"></p>
         <small class="muted">同一站点可有多个工单。定位异常只会提醒，照片始终归入你明确选中的工单。</small>
-        <fieldset class="device-session"><legend>当前设备</legend>
+        <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><p id="kindStatus" class="muted">请选择照片类型。</p></fieldset>
+        <fieldset id="timeSettings" hidden><legend>水印时间</legend>
+          <label class="check-label"><input id="systemTime" type="checkbox" checked> 使用当前系统时间</label>
+          <div id="adjustedTimeFields" hidden><label>调整密码<input id="watermarkPassword" type="password" autocomplete="off"></label><button id="verifyTimePassword" type="button">验证密码</button><label>水印开始时间<input id="watermarkStart" type="datetime-local"></label></div>
+          <p id="timeStatus" class="muted">使用当前系统时间。</p>
+        </fieldset>
+        <fieldset id="deviceSession" class="device-session" hidden><legend>当前设备</legend>
           <label>设备编号<input id="equipmentNumber" maxlength="200" autocomplete="off" placeholder="扫描或输入一次"></label>
           <label>位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如：B6-1（可留空）"></label>
           <label class="check-label"><input id="noEquipmentNumber" type="checkbox"> 此设备没有编号</label>
@@ -29,14 +35,15 @@
         <div class="location-row"><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
         <div class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
-        <div class="camera-stage"><video id="viewfinder" autoplay playsinline muted hidden></video><img id="photoPreview" alt="刚拍摄的照片预览" hidden><div id="cameraPlaceholder"><span aria-hidden="true">◎</span><p>选择工单，打开相机</p><small>照片将压缩、水印并自动上传</small></div></div>
+        <div class="camera-stage"><video id="viewfinder" autoplay playsinline muted hidden></video><img id="photoPreview" alt="刚拍摄的照片预览" hidden><div id="cameraPlaceholder"><span aria-hidden="true">◎</span><p>选择工单，打开相机</p><small>照片将压缩、加水印并保存为本机草稿</small></div></div>
         <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
         </div>
         <label>工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label>
         <button id="fileCapture" class="text-button" type="button">使用系统相机 / 选择照片</button><input id="photoFile" type="file" accept="image/*" capture="environment" hidden>
         <small class="muted">选择已有照片时，记录的是本次选图时间，并标明“选图”，不作为原始拍摄时间认证。</small>
       </div>
-      <div class="card"><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><button id="retryUpload" type="button">重试上传</button></div><p class="muted">确认服务器接收成功后才清理手机待传副本。请勿清理浏览器数据。</p><div id="queueList"></div></div>
+      <div id="draftCard" class="card"><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><button id="retryUpload" type="button">重试上传</button></div><p class="muted">照片先保存在本机。点击缩略图可放大或删除；点击完成后统一上传。</p><div id="queueList"></div></div>
+      <button id="completeBatch" class="primary complete-batch" type="button" hidden>完成并上传本组照片</button>
     </section>
     <section data-panel="orders" hidden><div class="section-heading"><h1>我的工单</h1><button id="reloadOrders" type="button">刷新</button></div><p class="muted">按距当前位置的远近排列。同一站点可有多个工单，请确认编号。</p><input id="orderSearch" type="search" placeholder="搜索工单、站点或客户" aria-label="搜索工单"><div id="orderList"></div><div class="card"><h2>没有对应工单？</h2><a id="createOrder" class="primary button" href="/service-orders/new" hidden>新建工单</a><button id="requestOrder" type="button">申请新建工单</button><p class="muted">联网后新建或申请；确认工单后再拍照归档。</p></div></section>
     <section data-panel="ledger" hidden><div class="section-heading"><h1>照片台账</h1><button id="refreshLedger" type="button">查询</button></div><form id="ledgerFilter" class="card"><label>关键词<input name="q" placeholder="工单、客户、站点、员工、备注"></label><div class="two-columns"><label>开始日期<input name="date_from" type="date"></label><label>结束日期<input name="date_to" type="date"></label></div><button class="primary" type="submit">查询照片</button><a id="exportLedger" class="button" href="/api/field/photos.xlsx">导出 Excel</a></form><p id="ledgerSummary" class="muted"></p><div id="ledgerList"></div></section>
@@ -46,6 +53,7 @@
 <nav class="bottom-tabs" aria-label="现场工作导航"><button data-tab="camera" aria-current="page">拍照</button><button data-tab="orders">工单</button><button data-tab="ledger">台账</button><button data-tab="profile">我的</button></nav>
 <dialog id="locationDialog"><h2>请确认现场与工单</h2><p id="locationWarning"></p><div id="nearbyOrders"></div><label>仍使用当前工单的原因<input id="locationReason" maxlength="500" placeholder="例如：现场范围较大"></label><div class="dialog-actions"><button id="switchOrder" type="button">选择 / 新建工单</button><button id="keepOrder" class="primary" type="button">确认当前工单</button><button id="cancelLocation" type="button">取消</button></div></dialog>
 <dialog id="requestDialog"><h2>申请新建工单</h2><form id="requestForm"><label>站点和工作说明<textarea id="requestDetail" rows="5" maxlength="1000" required></textarea></label><button class="primary" type="submit">提交申请</button><button id="cancelRequest" type="button">取消</button></form></dialog>
+<dialog id="draftDialog"><h2>照片预览</h2><img id="draftLarge" alt="草稿照片"><p id="draftDetail"></p><div class="dialog-actions"><button id="deleteDraft" type="button">删除这张</button><button id="closeDraft" class="primary" type="button">关闭</button></div></dialog>
 <script src="/static/field-watermark.js" defer></script>
 <script src="/static/field-work.js" defer></script>
 </body></html>

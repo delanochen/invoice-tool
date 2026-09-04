@@ -8729,6 +8729,7 @@ def system_settings():
         set_setting("deepseek_model", model)
         set_setting("inspection_warning_days", str(warning_days))
         set_setting("inspection_cycle_days", str(cycle_days))
+        set_setting("field_watermark_time_password", request.form.get("field_watermark_time_password", "").strip())
         db().commit()
         flash("系统设置已保存。", "success")
         return redirect(url_for("system_settings"))
@@ -8745,6 +8746,7 @@ def system_settings():
         deepseek_model=get_setting("deepseek_model", "deepseek-v4-flash"),
         inspection_warning_days=inspection_warning_days(),
         inspection_cycle_days=inspection_cycle_days(),
+        field_watermark_time_password=get_setting("field_watermark_time_password", ""),
     )
 
 

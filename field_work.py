@@ -35,7 +35,7 @@ def init_field_schema(connection):
         create index if not exists idx_field_photos_user on field_photos(user_id);
     ''')
     columns = {row[1] for row in connection.execute('pragma table_info(field_photos)')}
-    for name in ('equipment_number', 'position_number', 'equipment_session'):
+    for name in ('equipment_number', 'position_number', 'equipment_session', 'photo_type', 'watermark_at', 'batch_id'):
         if name not in columns:
             connection.execute(f"alter table field_photos add column {name} text not null default ''")
 
@@ -92,7 +92,7 @@ def register_field_routes(app, api):
             clauses.append('(service_orders.order_number like ? or service_orders.client_name like ? or users.name like ? or p.note like ? or clients.name like ?)')
             params.extend(['%' + q + '%'] * 5)
         return api['db']().execute('''
-            select p.*, service_orders.order_number, service_orders.client_name as site_name,
+            select p.*, service_orders.order_number, service_orders.client_name as site_name, service_orders.site_address,
                    users.name as employee_name, clients.name as customer_name
             from field_photos p join service_orders on service_orders.id = p.order_id
             join users on users.id = p.user_id
@@ -136,6 +136,15 @@ def register_field_routes(app, api):
                        create_order_url=url_for('new_service_order') if api['can_create_service_order']() else None,
                        distance_limit=max(100, min(10000, int(os.environ.get('FIELD_DISTANCE_METERS', '500')))))
 
+    @app.post('/api/field/verify-watermark-password')
+    @access
+    def verify_watermark_password():
+        check_write()
+        configured = api['get_setting']('field_watermark_time_password', '')
+        supplied = request.get_json(silent=True) or {}
+        valid = bool(configured) and api['secrets'].compare_digest(str(supplied.get('password', '')), configured)
+        return jsonify(ok=valid), (200 if valid else 403)
+
     @app.post('/api/field/photos')
     @access
     def upload_field_photo():
@@ -155,6 +164,9 @@ def register_field_routes(app, api):
                 raise ValueError
             tz_name = request.form.get('timezone_name', 'UTC')
             local = captured.astimezone(ZoneInfo(tz_name))
+            watermark = datetime.fromisoformat(request.form.get('watermark_at', request.form.get('captured_at', '')).replace('Z', '+00:00'))
+            if watermark.tzinfo is None or watermark.year < 1900 or watermark.year > 2200:
+                raise ValueError
             lat, lng, accuracy = (float(request.form.get(k, '')) for k in ('latitude', 'longitude', 'accuracy'))
             if not all(math.isfinite(v) for v in (lat, lng, accuracy)) or not (-90 <= lat <= 90 and -180 <= lng <= 180 and 0 <= accuracy <= 100000):
                 raise ValueError
@@ -168,6 +180,11 @@ def register_field_routes(app, api):
         equipment_number = request.form.get('equipment_number', '').strip()[:200]
         position_number = request.form.get('position_number', '').strip()[:200]
         equipment_session = request.form.get('equipment_session', '').strip()[:64]
+        photo_type = request.form.get('photo_type', 'legacy').strip()
+        watermark_at = watermark.isoformat()
+        batch_id = request.form.get('batch_id', '').strip()[:64]
+        if photo_type not in {'equipment', 'general', 'legacy'}:
+            return jsonify(error='照片类型无效。'), 422
         no_equipment_number = request.form.get('no_equipment_number') == 'true'
         if has_device_metadata and ((not equipment_number and not no_equipment_number) or not equipment_session):
             return jsonify(error='请确认设备编号，或明确选择“此设备无编号”。'), 422
@@ -209,11 +226,12 @@ def register_field_routes(app, api):
             cursor = db.execute('''insert into field_photos
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
-                 equipment_number, position_number, equipment_session)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 equipment_number, position_number, equipment_session, photo_type, watermark_at, batch_id)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
-                 relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, equipment_session))
+                 relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, equipment_session,
+                 photo_type, watermark_at, batch_id))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
         except Exception:

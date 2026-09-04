@@ -36,7 +36,7 @@
     return lines.length ? lines : ['—'];
   }
   function localTime(context) {
-    const date = new Date(context.captured_at);
+    const date = new Date(context.watermark_at || context.captured_at);
     const parts = new Intl.DateTimeFormat('en-GB', {timeZone:context.timezone_name || 'UTC',
       year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23', timeZoneName:'shortOffset'}).formatToParts(date);
     const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
@@ -56,9 +56,7 @@
     const headerHeight = pad * 2 + title.length * headerFont * 1.18 + companyFont * 1.5;
     ctx.font = `600 ${font}px ${FONT}`;
     const rows = [
-      ['工单', context.order_number, 1],
-      ['设备', context.equipment_number || '无设备编号', 2],
-      ['位置', context.position_number || '—', 1],
+      ...(context.photo_type === 'equipment' ? [['设备', context.equipment_number || 'N/A', 2], ['位置', context.position_number || '—', 1]] : []),
       ['施工员', context.employee_name, 2],
       ['Time', localTime(context), 2],
       ['Address', context.site_address || context.site_name || '未填写地址', 3]

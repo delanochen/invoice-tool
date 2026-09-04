@@ -106,6 +106,23 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json['candidates'], ['1023231239085'])
 
+    def test_watermark_password_and_adjusted_time_metadata(self):
+        with self.module.app.app_context():
+            self.module.set_setting('field_watermark_time_password', 'plain-test-password')
+            self.module.db().commit()
+        wrong = self.http.post('/api/field/verify-watermark-password', json={'password':'wrong'}, headers={'X-Field-Token':self.csrf})
+        right = self.http.post('/api/field/verify-watermark-password', json={'password':'plain-test-password'}, headers={'X-Field-Token':self.csrf})
+        self.assertEqual(wrong.status_code, 403)
+        self.assertEqual(right.status_code, 200)
+        adjusted = '2010-05-06T07:08:09+00:00'
+        response = self.upload(photo_type='equipment', watermark_at=adjusted, batch_id=uuid.uuid4().hex)
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.module.app.app_context():
+            row = self.module.db().execute('select photo_type, watermark_at, batch_id from field_photos').fetchone()
+        self.assertEqual(row['photo_type'], 'equipment')
+        self.assertEqual(row['watermark_at'], adjusted)
+        self.assertTrue(row['batch_id'])
+
     def test_csrf_login_and_permission_required(self):
         self.csrf = 'invalid'
         self.assertEqual(self.upload().status_code,403)
