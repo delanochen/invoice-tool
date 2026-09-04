@@ -12,7 +12,7 @@
 
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词
-      <input name="q" value="{{ q }}" placeholder="报销编号、工单、站点或提交人">
+      <input name="q" value="{{ q }}" placeholder="报销编号、工单、站点、归属员工或提交人">
     </label>
     <label>流程状态
       <select name="status">
@@ -54,8 +54,8 @@
       <table class="list-table selectable-list-table" data-selectable-table>
         <thead>
           <tr>
-            <th>报销编号</th><th>工单</th><th>日期</th><th>提交人</th><th>金额</th>
-            <th>流程状态</th><th>报销状态</th><th>报销人</th><th>报销时间</th>
+            <th>报销编号</th><th>工单</th><th>日期</th><th>报销归属员工</th><th>提交人</th><th>金额</th>
+            <th>流程状态</th><th>报销状态</th><th>发放操作人</th><th>报销时间</th>
           </tr>
         </thead>
         <tbody>
@@ -68,7 +68,7 @@
               {% endif %}
             >
               <td>
-                {% if normalized_role() in ["admin", "manager", "finance"] or row.created_by == g.user.id %}
+                {% if normalized_role() in ["admin", "manager", "finance"] or row.created_by == g.user.id or row.beneficiary_id == g.user.id %}
                   <a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a>
                 {% else %}
                   {{ row.expense_number }}
@@ -76,6 +76,7 @@
               </td>
               <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
               <td>{{ row.expense_date }}</td>
+              <td>{{ row.beneficiary_name or row.creator_name or "Unknown" }}</td>
               <td>{{ row.creator_name or "Unknown" }}</td>
               <td>{{ row.amount|money(row.currency) }}</td>
               <td><span class="status {{ row.status }}">{{ expense_labels[row.status] }}</span></td>
@@ -84,7 +85,7 @@
               <td>{{ row.reimbursed_at|local_datetime if row.reimbursed_at else "-" }}</td>
             </tr>
           {% else %}
-            <tr><td colspan="9" class="empty">没有符合条件的报销。</td></tr>
+            <tr><td colspan="10" class="empty">没有符合条件的报销。</td></tr>
           {% endfor %}
         </tbody>
       </table>

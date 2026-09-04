@@ -1173,6 +1173,9 @@ def init_db():
             );
             """
         )
+        ensure_column(connection, "expenses", "beneficiary_id", "integer references users(id)")
+        connection.execute("update expenses set beneficiary_id = created_by where beneficiary_id is null")
+        connection.execute("create index if not exists idx_expenses_beneficiary on expenses(beneficiary_id)")
         ensure_column(connection, "invoices", "service_order_id", "integer")
         ensure_column(connection, "service_orders", "contract_id", "integer")
         ensure_column(connection, "users", "is_active", "integer not null default 1")
@@ -4762,7 +4765,7 @@ def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
                expenses.expense_date, users.name as worker_name
         from expenses
         join expense_items on expense_items.expense_id = expenses.id
-        join users on users.id = expenses.created_by
+        join users on users.id = coalesce(expenses.beneficiary_id, expenses.created_by)
         left join projects on projects.id = expense_items.project_id
         where expenses.service_order_id = ? and expenses.status = 'approved'
           and (? is null or coalesce(expenses.reviewed_at, expenses.updated_at, expenses.created_at) <= ?)
@@ -5575,12 +5578,49 @@ def deliver_customer_reimbursement_email(reimbursement, order):
     return recipient
 
 
+def expense_beneficiary_id(expense):
+    return expense["beneficiary_id"] or expense["created_by"]
+
+
+def expense_beneficiary_options(expense=None):
+    # Keep a historical recipient selectable, even after their account is disabled.
+    current_id = expense_beneficiary_id(expense) if expense is not None else g.user["id"]
+    return db().execute(
+        """select id, name, is_active from users
+           where (is_active = 1 and role in ('admin', 'manager', 'finance', 'employee', 'internal', 'user'))
+              or id = ?
+           order by name, id""", (current_id,),
+    ).fetchall()
+
+
+def posted_expense_beneficiary(expense=None):
+    default_id = expense_beneficiary_id(expense) if expense is not None else g.user["id"]
+    raw = request.form.get("beneficiary_id", str(default_id)).strip()
+    if not raw.isdigit():
+        raise ValueError("请选择有效的报销归属员工。")
+    beneficiary = next((row for row in expense_beneficiary_options(expense) if row["id"] == int(raw)), None)
+    if beneficiary is None:
+        raise ValueError("只能选择在职的内部员工，或保留本单原有的报销归属员工。")
+    return beneficiary
+
+
+def expense_access_filter():
+    if normalized_role() in {"admin", "manager", "finance"}:
+        return "1 = 1", []
+    return "(expenses.created_by = ? or coalesce(expenses.beneficiary_id, expenses.created_by) = ?)", [g.user["id"], g.user["id"]]
+
+
+def notify_expense_participants(expense, title, body, link):
+    for user_id in {expense["created_by"], expense_beneficiary_id(expense)}:
+        create_message(user_id, title, body, link)
+
+
 def can_access_expense(expense):
     if not g.user:
         return False
     if normalized_role() in {"admin", "manager", "finance"}:
         return True
-    return expense["created_by"] == g.user["id"]
+    return g.user["id"] in {expense["created_by"], expense_beneficiary_id(expense)}
 
 
 def require_expense(expense_id):
@@ -8743,9 +8783,9 @@ def ai_search_business_records(arguments):
     if domain == "expenses":
         if not has_action_permission("expenses", "view"):
             return {"error": "当前用户没有查看员工报销的权限。"}
-        if normalized_role() not in {"admin", "manager", "finance"}:
-            clauses.append("expenses.created_by = ?")
-            params.append(g.user["id"])
+        access_clause, access_params = expense_access_filter()
+        clauses.append(access_clause)
+        params.extend(access_params)
         if query:
             clauses.append("(expenses.expense_number like ? or expenses.project like ? or service_orders.order_number like ?)")
             params.extend([ai_search_like(query)] * 3)
@@ -8763,9 +8803,10 @@ def ai_search_business_records(arguments):
             f"""
             select expenses.id, expenses.expense_number, expenses.expense_date, expenses.project,
                    expenses.amount, expenses.currency, expenses.status, expenses.payout_status,
-                   users.name as submitter, service_orders.order_number
+                   users.name as submitter, beneficiaries.name as beneficiary, service_orders.order_number
             from expenses join service_orders on service_orders.id = expenses.service_order_id
             join users on users.id = expenses.created_by
+            left join users as beneficiaries on beneficiaries.id = coalesce(expenses.beneficiary_id, expenses.created_by)
             where {where} order by expenses.expense_date desc, expenses.id desc limit 25
             """,
             params,
@@ -11100,12 +11141,11 @@ def expense_query():
     params = []
     clauses.extend(location_clauses)
     params.extend(location_params)
-    if normalized_role() == "employee":
-        clauses.append("expenses.created_by = ?")
-        params.append(g.user["id"])
-        person_id = str(g.user["id"])
-    elif person_id.isdigit():
-        clauses.append("expenses.created_by = ?")
+    access_clause, access_params = expense_access_filter()
+    clauses.append(access_clause)
+    params.extend(access_params)
+    if person_id.isdigit():
+        clauses.append("coalesce(expenses.beneficiary_id, expenses.created_by) = ?")
         params.append(int(person_id))
     else:
         person_id = ""
@@ -11137,13 +11177,14 @@ def expense_query():
         select expenses.*, expense_items.id as item_id,
                coalesce(projects.name, expense_items.project) as item_project,
                expense_items.description as item_description, expense_items.amount as item_amount,
-               service_orders.order_number, service_orders.client_name, users.name as creator_name,
+               service_orders.order_number, service_orders.client_name, users.name as creator_name, beneficiaries.name as beneficiary_name,
                coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name
         from expenses
         join expense_items on expense_items.expense_id = expenses.id
         join service_orders on service_orders.id = expenses.service_order_id
         left join users on users.id = expenses.created_by
+        left join users as beneficiaries on beneficiaries.id = coalesce(expenses.beneficiary_id, expenses.created_by)
         left join projects on projects.id = expense_items.project_id
         left join country_translations country_local
           on country_local.country_code = service_orders.country_code and country_local.language_code = ?
@@ -11160,14 +11201,14 @@ def expense_query():
         if row["status"] == "approved" and row["payout_status"] != "paid"
     )
     people = db().execute(
-        """
+        f"""
         select distinct users.id, users.name
         from users
-        join expenses on expenses.created_by = users.id
-        where (? = 0 or users.id = ?)
+        join expenses on coalesce(expenses.beneficiary_id, expenses.created_by) = users.id
+        where {access_clause}
         order by users.name
         """,
-        (1 if normalized_role() == "employee" else 0, g.user["id"]),
+        access_params,
     ).fetchall()
     return render_template(
         "expense_query.html",
@@ -11199,17 +11240,17 @@ def expense_processing():
     payout_status = request.args.get("payout_status", "").strip()
     clauses = ["1 = 1"]
     params = []
-    if normalized_role() == "employee":
-        clauses.append("expenses.created_by = ?")
-        params.append(g.user["id"])
+    access_clause, access_params = expense_access_filter()
+    clauses.append(access_clause)
+    params.extend(access_params)
     if q:
         clauses.append(
             """
             (expenses.expense_number like ? or service_orders.order_number like ?
-             or service_orders.client_name like ? or users.name like ?)
+             or service_orders.client_name like ? or users.name like ? or beneficiaries.name like ?)
             """
         )
-        params.extend([f"%{q}%"] * 4)
+        params.extend([f"%{q}%"] * 5)
     if status in EXPENSE_STATUS_LABELS:
         clauses.append("expenses.status = ?")
         params.append(status)
@@ -11223,10 +11264,11 @@ def expense_processing():
     rows = db().execute(
         f"""
         select expenses.*, service_orders.order_number, service_orders.client_name,
-               users.name as creator_name, reimbursers.name as reimbursed_by_name
+               users.name as creator_name, beneficiaries.name as beneficiary_name, reimbursers.name as reimbursed_by_name
         from expenses
         join service_orders on service_orders.id = expenses.service_order_id
         left join users on users.id = expenses.created_by
+        left join users as beneficiaries on beneficiaries.id = coalesce(expenses.beneficiary_id, expenses.created_by)
         left join users as reimbursers on reimbursers.id = expenses.reimbursed_by
         where {" and ".join(clauses)}
         order by
@@ -11243,13 +11285,13 @@ def expense_processing():
         params,
     ).fetchall()
     totals = db().execute(
-        """
+        f"""
         select
             coalesce(sum(case when payout_status != 'paid' then amount else 0 end), 0) as pending_total,
             coalesce(sum(case when payout_status = 'paid' then amount else 0 end), 0) as paid_total
         from expenses
-        where status = 'approved'
-        """
+        where status = 'approved' and {access_clause}
+        """, access_params,
     ).fetchone()
     return render_template(
         "expense_processing.html",
@@ -11300,8 +11342,8 @@ def process_expense_action():
             flash("这张报销单已经完成报销或流程状态已变化。", "error")
             return redirect(url_for("expense_processing"))
         message = f"报销 {expense['expense_number']} 已完成发放，金额 {money(expense['amount'], expense['currency'])}。"
-        create_message(
-            expense["created_by"],
+        notify_expense_participants(
+            expense,
             "报销已发放",
             message,
             url_for("expense_detail", expense_id=expense_id),
@@ -12045,12 +12087,14 @@ def service_order_detail(order_id):
     if is_external_user():
         expenses_rows = []
     else:
-        expense_access = "" if normalized_role() in {"admin", "manager", "finance"} else "and expenses.created_by = ?"
-        expense_params = [order_id] if not expense_access else [order_id, g.user["id"]]
+        access_clause, access_params = expense_access_filter()
+        expense_access = f"and {access_clause}"
+        expense_params = [order_id, *access_params]
         expenses_rows = db().execute(
             f"""
-            select expenses.*, users.name as creator_name
+            select expenses.*, users.name as creator_name, beneficiaries.name as beneficiary_name
             from expenses left join users on users.id = expenses.created_by
+            left join users as beneficiaries on beneficiaries.id = coalesce(expenses.beneficiary_id, expenses.created_by)
             where expenses.service_order_id = ? {expense_access}
             order by expenses.created_at desc, expenses.id desc
             """,
@@ -13097,8 +13141,9 @@ def export_service_report(report_id):
 
 def expense_defaults(expense=None):
     if expense:
-        return dict(expense)
+        return dict(expense) | {"beneficiary_id": expense_beneficiary_id(expense)}
     return {
+        "beneficiary_id": g.user["id"],
         "expense_number": next_expense_number(),
         "project_id": None,
         "project": "",
@@ -13240,6 +13285,7 @@ def new_expense(order_id):
             return redirect(url_for("new_expense", order_id=order_id))
         submit_for_review = request.form.get("action") == "submit"
         try:
+            beneficiary = posted_expense_beneficiary()
             item_rows = expense_items_from_form()
             total_amount = sum(item["amount"] for item in item_rows)
             project_names = ", ".join(dict.fromkeys(item["project"]["name"] for item in item_rows))
@@ -13249,8 +13295,8 @@ def new_expense(order_id):
                 """
                 insert into expenses (
                     service_order_id, expense_number, project_id, project, expense_date, amount, currency,
-                    description, status, created_by, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    description, status, created_by, created_at, updated_at, beneficiary_id
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
@@ -13265,13 +13311,14 @@ def new_expense(order_id):
                     g.user["id"],
                     now(),
                     now(),
+                    beneficiary["id"],
                 ),
             )
             expense_id = cursor.lastrowid
             finish_expense_save_token(save_token, expense_id)
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
-            expense_summary = f"工单：{order['order_number']}；金额：{money(total_amount)}"
+            expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("create", "expense", expense_id, expense_number, expense_summary)
             if submit_for_review:
                 log_action("submit", "expense", expense_id, expense_number, expense_summary)
@@ -13281,10 +13328,16 @@ def new_expense(order_id):
             flash(str(error), "error")
             return redirect(url_for("new_expense", order_id=order_id))
         if submit_for_review:
+            if beneficiary["id"] != g.user["id"]:
+                create_message(
+                    beneficiary["id"], "报销已提交审核",
+                    f"{g.user['name']}为你提交了报销 {expense_number}，金额 {money(total_amount)}。",
+                    url_for("expense_detail", expense_id=expense_id),
+                )
             notify_role(
                 ["admin", "manager"],
                 "新报销待审核",
-                f"{g.user['name']}提交了报销 {expense_number}，工单 {order['order_number']}，金额 {money(total_amount)}。",
+                f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense_number}，工单 {order['order_number']}，金额 {money(total_amount)}。",
                 url_for("expense_detail", expense_id=expense_id),
             )
             db().commit()
@@ -13296,6 +13349,7 @@ def new_expense(order_id):
         "expense_form.html",
         order=order,
         expense=expense_defaults(),
+        beneficiaries=expense_beneficiary_options(),
         form_items=[],
         expense_projects=expense_projects,
         is_edit=False,
@@ -13334,6 +13388,7 @@ def edit_expense(expense_id):
             return redirect(url_for("edit_expense", expense_id=expense_id))
         submit_for_review = request.form.get("action") == "submit"
         try:
+            beneficiary = posted_expense_beneficiary(expense)
             item_rows = expense_items_from_form(expense_id)
             total_amount = sum(item["amount"] for item in item_rows)
             project_names = ", ".join(dict.fromkeys(item["project"]["name"] for item in item_rows))
@@ -13342,7 +13397,7 @@ def edit_expense(expense_id):
                 """
                 update expenses
                 set project_id = ?, project = ?, expense_date = ?, amount = ?, currency = ?, description = ?,
-                    status = ?, return_reason = null, updated_at = ?
+                    status = ?, return_reason = null, updated_at = ?, beneficiary_id = ?
                 where id = ?
                 """,
                 (
@@ -13354,12 +13409,13 @@ def edit_expense(expense_id):
                     request.form.get("description", "").strip(),
                     "submitted" if submit_for_review else "draft",
                     now(),
+                    beneficiary["id"],
                     expense_id,
                 ),
             )
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
-            expense_summary = f"工单：{order['order_number']}；金额：{money(total_amount)}"
+            expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("update", "expense", expense_id, expense["expense_number"], expense_summary)
             if submit_for_review:
                 log_action("submit", "expense", expense_id, expense["expense_number"], expense_summary)
@@ -13369,10 +13425,16 @@ def edit_expense(expense_id):
             flash(str(error), "error")
             return redirect(url_for("edit_expense", expense_id=expense_id))
         if submit_for_review:
+            if beneficiary["id"] != g.user["id"]:
+                create_message(
+                    beneficiary["id"], "报销已提交审核",
+                    f"{g.user['name']}为你提交了报销 {expense['expense_number']}，金额 {money(total_amount)}。",
+                    url_for("expense_detail", expense_id=expense_id),
+                )
             notify_role(
                 ["admin", "manager"],
                 "报销已提交审核",
-                f"{g.user['name']}提交了报销 {expense['expense_number']}，工单 {order['order_number']}，金额 {money(total_amount)}。",
+                f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense['expense_number']}，工单 {order['order_number']}，金额 {money(total_amount)}。",
                 url_for("expense_detail", expense_id=expense_id),
             )
             db().commit()
@@ -13386,6 +13448,7 @@ def edit_expense(expense_id):
         "expense_form.html",
         order=order,
         expense=expense_defaults(expense),
+        beneficiaries=expense_beneficiary_options(expense),
         form_items=expense_items(expense_id),
         expense_projects=expense_projects,
         is_edit=True,
@@ -13416,6 +13479,7 @@ def expense_detail(expense_id):
         expense=expense,
         items=expense_items(expense_id),
         creator=creator,
+        beneficiary=db().execute("select name from users where id = ?", (expense_beneficiary_id(expense),)).fetchone(),
         reviewer=reviewer,
         reimburser=reimburser,
         attachments=attachments,
@@ -13451,13 +13515,13 @@ def approve_expense(expense_id):
         f"{g.user['name']}已审核通过报销 {expense['expense_number']}，"
         f"工单 {order['order_number']}，金额 {money(expense['amount'], expense['currency'])}。"
     )
-    create_message(expense["created_by"], "报销已审核通过", message_body, message_link)
+    notify_expense_participants(expense, "报销已审核通过", message_body, message_link)
     notify_role(
         ["admin"],
         "报销已审核通过",
         message_body,
         message_link,
-        exclude_user_ids={expense["created_by"], g.user["id"]},
+        exclude_user_ids={expense["created_by"], expense_beneficiary_id(expense), g.user["id"]},
     )
     log_action("approve", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
     db().commit()
@@ -13480,7 +13544,7 @@ def return_expense(expense_id):
         "update expenses set status = 'returned', return_reason = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? where id = ?",
         (reason, g.user["id"], now(), now(), expense_id),
     )
-    create_message(expense["created_by"], "报销已被退回", f"报销 {expense['expense_number']} 已被退回。原因：{reason}", url_for("expense_detail", expense_id=expense_id))
+    notify_expense_participants(expense, "报销已被退回", f"报销 {expense['expense_number']} 已被退回。原因：{reason}", url_for("expense_detail", expense_id=expense_id))
     log_action("return", "expense", expense_id, expense["expense_number"], f"原因：{reason}")
     db().commit()
     flash("报销已退回。", "success")
@@ -13540,6 +13604,8 @@ def delete_expense_attachment(attachment_id):
     if not attachment:
         abort(404)
     expense, order = require_expense(attachment["expense_id"])
+    if expense["created_by"] != g.user["id"] and not is_manager():
+        abort(403)
     if expense["status"] not in {"draft", "returned"}:
         abort(403)
     try:

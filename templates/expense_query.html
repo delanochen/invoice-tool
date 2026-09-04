@@ -10,7 +10,7 @@
   </header>
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词 <input name="q" value="{{ q }}" placeholder="报销编号、明细项目、说明、工单、站点名称"></label>
-    <label>人员
+    <label>报销归属员工
       <select name="person_id">
         <option value="">全部人员</option>
         {% for person in people %}<option value="{{ person.id }}" {% if person_id == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}
@@ -53,7 +53,7 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>报销编号</th><th>工单</th><th>站点名称</th><th>洲</th><th>国家</th><th>明细项目</th><th>明细说明</th><th>日期</th><th>提交人</th><th>明细金额</th><th>流程状态</th><th>报销状态</th></tr></thead>
+      <thead><tr><th>报销编号</th><th>工单</th><th>站点名称</th><th>洲</th><th>国家</th><th>明细项目</th><th>明细说明</th><th>日期</th><th>报销归属员工</th><th>提交人</th><th>明细金额</th><th>流程状态</th><th>报销状态</th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>
@@ -65,13 +65,14 @@
             <td>{{ row.item_project }}</td>
             <td>{{ row.item_description or "-" }}</td>
             <td>{{ row.expense_date }}</td>
+            <td>{{ row.beneficiary_name or row.creator_name or "Unknown" }}</td>
             <td>{{ row.creator_name or "Unknown" }}</td>
             <td>{{ row.item_amount|money(row.currency) }}</td>
             <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
             <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
           </tr>
         {% else %}
-          <tr><td colspan="12" class="empty">没有符合条件的报销明细。</td></tr>
+          <tr><td colspan="13" class="empty">没有符合条件的报销明细。</td></tr>
         {% endfor %}
       </tbody>
     </table>

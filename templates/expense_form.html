@@ -40,6 +40,13 @@
   <form method="post" enctype="multipart/form-data" class="panel form-stack expense-form" id="expenseForm">
     <input type="hidden" name="save_token" value="{{ save_token }}">
     <div class="form-grid expense-header-fields">
+      <label>报销归属员工
+        <select name="beneficiary_id" required>
+          {% for person in beneficiaries %}
+            <option value="{{ person.id }}" {% if person.id == expense.beneficiary_id %}selected{% endif %}>{{ person.name }}{% if not person.is_active %}（已停用）{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>报销编号 <input value="{{ expense.expense_number }}" readonly></label>
       <label>费用日期 <input type="date" name="expense_date" value="{{ expense.expense_date }}" required></label>
     </div>

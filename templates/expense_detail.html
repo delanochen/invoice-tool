@@ -63,11 +63,12 @@
     <div class="detail-grid">
       <p><strong>报销总额</strong><span>{{ expense.amount|money(expense.currency) }}</span></p>
       <p><strong>费用日期</strong><span>{{ expense.expense_date }}</span></p>
+      <p><strong>报销归属员工</strong><span>{{ beneficiary.name if beneficiary else "Unknown" }}</span></p>
       <p><strong>提交人</strong><span>{{ creator.name if creator else "Unknown" }}</span></p>
       <p><strong>审核人</strong><span>{{ reviewer.name if reviewer else "-" }}</span></p>
       <p><strong>审核时间</strong><span>{{ expense.reviewed_at|local_datetime if expense.reviewed_at else "-" }}</span></p>
       <p><strong>报销状态</strong><span class="status {{ expense.payout_status }}">{{ expense_payout_labels[expense.payout_status] }}</span></p>
-      <p><strong>报销人</strong><span>{{ reimburser.name if reimburser else "-" }}</span></p>
+      <p><strong>发放操作人</strong><span>{{ reimburser.name if reimburser else "-" }}</span></p>
       <p><strong>报销时间</strong><span>{{ expense.reimbursed_at|local_datetime if expense.reimbursed_at else "-" }}</span></p>
       <p class="full-span"><strong>说明</strong><span>{{ expense.description or "-" }}</span></p>
       {% if expense.return_reason %}

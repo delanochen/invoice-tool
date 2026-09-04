@@ -1,5 +1,7 @@
 ﻿(() => {
   const en = {
+    "报销归属员工": "Expense beneficiary",
+    "发放操作人": "Payment recorded by",
     "发票工具": "Invoice Tool",
     "登录": "Sign in",
     "语言": "Language",
@@ -739,6 +741,8 @@
   };
 
   const nl = {
+    "报销归属员工": "Medewerker voor wie de kosten zijn",
+    "发放操作人": "Betaling geregistreerd door",
     "发票工具": "Facturatietool",
     "登录": "Inloggen",
     "语言": "Taal",
@@ -1435,6 +1439,8 @@
   };
 
   const de = {
+    "报销归属员工": "Mitarbeiter der Erstattung",
+    "发放操作人": "Zahlung erfasst von",
     ...en,
     "合同": "Verträge",
     "Contracts": "Verträge",
@@ -2013,6 +2019,8 @@
   };
 
   const es = {
+    "报销归属员工": "Empleado beneficiario",
+    "发放操作人": "Pago registrado por",
     ...en,
     "合同": "Contratos",
     "Contracts": "Contratos",
