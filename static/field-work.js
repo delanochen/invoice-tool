@@ -48,6 +48,27 @@
       if (value) { $('equipmentNumber').value = value.slice(0,200); $('deviceStatus').textContent = '自动识别到：'+value+'。请核对后确认。'; }
     } catch (_) {}
   }
+  async function recognizeDevice() {
+    if (!stream || !$('viewfinder').videoWidth) { notice('请先打开相机并对准设备铭牌。', true); return; }
+    const button = $('recognizeDevice'); button.disabled = true;
+    try {
+      const video = $('viewfinder'), scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+      const canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('无法读取相机画面')),'image/jpeg',.86));
+      const data = new FormData(); data.append('photo',blob,'nameplate.jpg');
+      notice('正在识别铭牌，请保持相机对准设备编号…');
+      const response = await requestAPI('/api/field/recognize-equipment',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
+      const result = await response.json().catch(()=>({}));
+      if (!response.ok) throw new Error(result.error || '铭牌识别失败');
+      if (!result.candidates?.length) throw new Error('没有识别到 Machine Number，请靠近铭牌重试或手工输入。');
+      $('equipmentNumber').disabled = false; $('noEquipmentNumber').checked = false;
+      $('equipmentNumber').value = result.candidates[0]; deviceSession = null;
+      $('deviceStatus').textContent = '识别到：'+result.candidates.join('、')+'。请核对设备编号后点击确认。';
+      notice('已识别设备编号 '+result.candidates[0]+'，请核对后确认。');
+    } catch(error) { notice(error.message,true); }
+    finally { button.disabled = false; }
+  }
 
   function openDB() {
     if (database) return database;
@@ -407,6 +428,7 @@
   });
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
   $('confirmDevice').addEventListener('click',confirmDevice);
+  $('recognizeDevice').addEventListener('click',recognizeDevice);
   $('nextDevice').addEventListener('click', () => { stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='编号已修改，请重新确认。'; });

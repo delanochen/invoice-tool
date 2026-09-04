@@ -2,12 +2,14 @@ import hashlib
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from PIL import Image
 import test_expense_on_behalf as fixture
 import photo_worker
+import field_work
 
 
 class FieldWorkTest(unittest.TestCase):
@@ -94,6 +96,15 @@ class FieldWorkTest(unittest.TestCase):
             rows = self.module.db().execute('select equipment_number, position_number, equipment_session from field_photos order by id').fetchall()
         self.assertEqual(tuple(rows[0]), ('INV-42', 'TOP', session_id))
         self.assertEqual(tuple(rows[1]), ('', 'LEFT', session_id))
+
+    def test_nameplate_recognition_prefers_labeled_machine_number(self):
+        completed = type('Result', (), {'returncode':0, 'stdout':b'Machine Type LCI-400CR-01AZ-3487U\nManufacture Year 2024\nMachine Number 1023231239085\n'})()
+        with patch.object(field_work.subprocess, 'run', return_value=completed):
+            response = self.http.post('/api/field/recognize-equipment',
+                                      data={'photo':(BytesIO(self.photo),'plate.jpg')},
+                                      headers={'X-Field-Token':self.csrf})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json['candidates'], ['1023231239085'])
 
     def test_csrf_login_and_permission_required(self):
         self.csrf = 'invalid'

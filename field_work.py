@@ -3,6 +3,7 @@ import hashlib
 import math
 import os
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from io import BytesIO
@@ -219,6 +220,36 @@ def register_field_routes(app, api):
             db.rollback()
             raise
         return jsonify(ok=True, id=cursor.lastrowid)
+
+    @app.post('/api/field/recognize-equipment')
+    @access
+    def recognize_equipment():
+        check_write()
+        photo = request.files.get('photo')
+        content = photo.read(10 * 1024 * 1024 + 1) if photo else b''
+        if not content or len(content) > 10 * 1024 * 1024:
+            return jsonify(error='铭牌照片为空或超过 10MB。'), 422
+        try:
+            with Image.open(BytesIO(content)) as image:
+                if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
+                    raise ValueError
+                image.verify()
+            result = subprocess.run(['tesseract', 'stdin', 'stdout', '--psm', '11', '-l', 'eng'], input=content,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=False)
+        except (OSError, ValueError, Image.DecompressionBombError):
+            return jsonify(error='无法读取铭牌照片。'), 422
+        except subprocess.TimeoutExpired:
+            return jsonify(error='铭牌识别超时，请重试或手工输入。'), 504
+        if result.returncode != 0:
+            return jsonify(error='服务器暂时无法识别铭牌，请手工输入。'), 503
+        text = result.stdout.decode('utf-8', errors='ignore')
+        labels = r'(?:machine\s*(?:number|no\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)'
+        candidates = []
+        for match in re.finditer(labels + r'\s*[:：#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})', text, re.I):
+            value = match.group(1).strip('._/-')
+            if value and value.casefold() not in {item.casefold() for item in candidates}:
+                candidates.append(value)
+        return jsonify(ok=True, candidates=candidates[:5])
 
     @app.get('/api/field/photos')
     @access
