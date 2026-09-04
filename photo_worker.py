@@ -142,7 +142,7 @@ def image_taken_datetime(path):
 
 
 def filename_taken_datetime(path):
-    match = re.match(r"^(\d{8})_(\d{6})(?:-\d+)?$", path.stem)
+    match = re.match(r"^(\d{8})_(\d{6})(?:-\d+|-u\d+-[0-9a-f]{32})?$", path.stem)
     if not match:
         return None
     try:

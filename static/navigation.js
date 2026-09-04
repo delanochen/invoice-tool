@@ -21,6 +21,9 @@
     if (event.target.closest('form[method="post"]')) hasUnsavedInput = true;
   });
   document.addEventListener('submit', () => { hasUnsavedInput = false; });
+  document.querySelectorAll('a[href="/logout"]').forEach(link => link.addEventListener('click', () => {
+    localStorage.removeItem('field-session');
+  }));
   window.addEventListener('pageshow', (event) => {
     setOpen(false);
     if (event.persisted && !hasUnsavedInput) window.location.reload();

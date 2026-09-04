@@ -8,6 +8,10 @@
       <p class="muted-line">{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
+      {% if has_menu_permission("field_work") %}
+        <a class="button" href="{{ url_for('field_work', order_id=order.id) }}">工单拍照</a>
+        <a class="button" href="{{ url_for('field_photo_query', order_id=order.id) }}">照片台账</a>
+      {% endif %}
       {% if not (normalized_role() in ["employee", "external_employee", "external_manager"] and order.status == "closed") %}
         <button type="button" onclick="window.location.href='{{ url_for('edit_service_order', order_id=order.id) }}'">
           {% if is_external_manager() or is_external_employee() %}修改开始日期{% else %}编辑工单{% endif %}

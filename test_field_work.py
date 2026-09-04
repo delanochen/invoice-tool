@@ -1,0 +1,115 @@
+import hashlib
+import tempfile
+import unittest
+import uuid
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
+from pathlib import Path
+from PIL import Image
+import test_expense_on_behalf as fixture
+import photo_worker
+
+
+class FieldWorkTest(unittest.TestCase):
+    def setUp(self):
+        self.fixture = fixture.ExpenseOnBehalfTest()
+        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.setUp()
+        self.module = self.fixture.app
+        self.http = self.fixture.http
+        self.root = Path(self.fixture.temp.name) / 'shared'
+        self.module.SHARED_PHOTOS_DIR = str(self.root)
+        self.module.app.static_folder = str(fixture.ROOT / 'static')
+        self.csrf = self.http.get('/api/field/session').json['csrf']
+        self.capture_time = (datetime.now(timezone.utc) - timedelta(days=2)).replace(hour=23,minute=30,second=0,microsecond=0)
+        photo = BytesIO()
+        Image.new('RGB', (2600, 1950), 'green').save(photo, 'JPEG')
+        self.photo = photo.getvalue()
+
+    def upload(self, **overrides):
+        data = dict(client_id=uuid.uuid4().hex, order_id=str(self.fixture.order),
+                    user_id=str(self.fixture.people['Submitter']), captured_at=self.capture_time.isoformat(),
+                    timezone_name='Pacific/Kiritimati', latitude='52.1', longitude='4.3', accuracy='8',
+                    source='camera', note='Equipment check', photo=(BytesIO(self.photo), 'photo.jpg'))
+        data.update(overrides)
+        return self.http.post('/api/field/photos', data=data, headers={'X-Field-Token':self.csrf})
+
+    def test_offline_capture_date_compression_and_worker_stable_filename(self):
+        response = self.upload()
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.module.app.app_context():
+            row = self.module.db().execute('select * from field_photos').fetchone()
+        expected_date = (self.capture_time + timedelta(hours=14)).date().isoformat()
+        self.assertEqual(row['capture_date'], expected_date)
+        path = self.root / row['relative_path']
+        self.assertEqual(path.parent.name, expected_date)
+        self.assertIn(f"-u{self.fixture.people['Submitter']}-", path.name)
+        with Image.open(path) as photo:
+            self.assertEqual(photo.format,'JPEG')
+            self.assertLessEqual(max(photo.size),1800)
+        old_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.assertEqual(photo_worker.rename_existing_pictures_by_datetime(self.root / 'SO-DELEGATE'),0)
+        self.assertEqual(photo_worker.clean_duplicate_pictures(self.root / 'SO-DELEGATE'),0)
+        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),old_hash)
+
+    def test_retry_is_idempotent_and_collision_is_rejected(self):
+        key = uuid.uuid4().hex
+        first = self.upload(client_id=key)
+        retry = self.upload(client_id=key)
+        self.assertTrue(retry.json['duplicate'])
+        self.assertEqual(first.json['id'],retry.json['id'])
+        self.photo = self.photo + b'extra'
+        self.assertEqual(self.upload(client_id=key).status_code,409)
+        with self.module.app.app_context():
+            self.assertEqual(self.module.db().execute('select count(*) from field_photos').fetchone()[0],1)
+
+    def test_invalid_coordinates_time_image_and_owner_rejected(self):
+        for changes in ({'latitude':'nan'}, {'accuracy':'-1'}, {'longitude':'inf'},
+                        {'timezone_name':'Unknown/Zone'}, {'captured_at':'2026-09-01'},
+                        {'captured_at':(datetime.now(timezone.utc)+timedelta(days=2)).isoformat()},
+                        {'photo':(BytesIO(b'not an image'),'fake.jpg')}):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.upload(**changes).status_code,422)
+        self.assertEqual(self.upload(user_id=str(self.fixture.people['Beneficiary'])).status_code,409)
+
+    def test_csrf_login_and_permission_required(self):
+        self.csrf = 'invalid'
+        self.assertEqual(self.upload().status_code,403)
+        with self.http.session_transaction() as session:
+            session.clear()
+        self.assertEqual(self.http.get('/api/field/session').status_code,401)
+        self.assertEqual(self.upload().status_code,401)
+
+    def test_photo_visibility_respects_owner_and_order_access(self):
+        photo_id = self.upload().json['id']
+        self.fixture.login('Beneficiary')
+        self.assertEqual(self.http.get('/api/field/photos').json['rows'],[])
+        self.assertEqual(self.http.get(f'/field/photos/{photo_id}').status_code,403)
+        self.fixture.login('External')
+        self.assertEqual(self.http.get('/api/field/session').json['orders'],[])
+        self.assertEqual(self.http.get(f'/field/photos/{photo_id}').status_code,403)
+        self.fixture.login('Manager')
+        listing = self.http.get('/api/field/photos')
+        self.assertEqual(len(listing.json['rows']),1)
+        self.assertIn('no-store',listing.headers['Cache-Control'])
+        with self.http.get(f'/field/photos/{photo_id}?thumb=1') as response:
+            self.assertEqual(response.status_code,200)
+            self.assertIn('no-store',response.headers['Cache-Control'])
+        self.assertEqual(self.http.get('/reports/field-photos').status_code,200)
+        self.assertEqual(self.http.get('/api/field/photos?q=unknown').json['rows'],[])
+        self.assertEqual(self.http.get('/api/field/photos.xlsx?q=Equipment').status_code,200)
+
+    def test_public_shell_has_no_employee_data_and_manifest_exists(self):
+        with self.http.session_transaction() as session:
+            session.clear()
+        response = self.http.get('/field/')
+        self.assertEqual(response.status_code,200)
+        self.assertNotIn('Submitter',response.text)
+        self.assertNotIn('SO-DELEGATE',response.text)
+        self.assertEqual(self.http.get('/field/manifest.webmanifest').json['scope'],'/field/')
+        with self.http.get('/field/sw.js') as response:
+            self.assertEqual(response.status_code,200)
+
+
+if __name__ == '__main__':
+    unittest.main()

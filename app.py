@@ -49,6 +49,8 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from pypdf import PdfReader
 from image_processing import compress_image
+from field_work import init_field_schema, register_field_routes
+from staff_reports import register_staff_reports
 from customer_report_logic import (
     migrate_historical_customer_reports,
     normalize_customer_report_choice,
@@ -221,6 +223,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "dashboard", "label": "概览", "roles": {"admin", "manager", "finance"}},
             {"key": "contracts", "label": "合同", "roles": {"admin", "manager", "finance", "external_manager"}},
             {"key": "service_orders", "label": "工单", "roles": set(ROLE_OPTIONS)},
+            {"key": "field_work", "label": "现场工作", "roles": set(ROLE_OPTIONS)},
             {"key": "service_order_map", "label": "站点地图", "roles": {"admin", "manager", "finance", "employee", "external_manager"}},
             {"key": "service_order_calendar", "label": "工单日历", "roles": set(ROLE_OPTIONS)},
             {"key": "expense_processing", "label": "报销处理", "roles": {"admin", "manager", "finance", "employee"}},
@@ -240,6 +243,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "service_order_query", "label": "工单查询", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "service_report_query", "label": "日报查询", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "expense_query", "label": "报销明细查询", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "user_certificate_query", "label": "员工证书查询", "roles": set(ROLE_OPTIONS)},
             {"key": "audit_log_report", "label": "操作日志", "roles": {"admin", "manager", "finance"}},
         ],
     },
@@ -1181,6 +1185,7 @@ def init_db():
             """
         )
         ensure_column(connection, "expenses", "beneficiary_id", "integer references users(id)")
+        init_field_schema(connection)
         connection.execute("update expenses set beneficiary_id = created_by where beneficiary_id is null")
         connection.execute("create index if not exists idx_expenses_beneficiary on expenses(beneficiary_id)")
         ensure_column(connection, "invoices", "service_order_id", "integer")
@@ -15055,6 +15060,10 @@ def monthly_paid_chart():
         return []
     max_value = max(buckets.values()) or 1
     return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
+
+
+register_field_routes(app, globals())
+register_staff_reports(app, globals())
 
 
 if __name__ == "__main__":

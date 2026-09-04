@@ -1,5 +1,6 @@
 ﻿(() => {
   const en = {
+    "现场工作": "Field work", "员工证书查询": "Employee certificates", "工单拍照": "Take job photos", "照片台账": "Photo register", "工单照片台账": "Job photo register",
     "请填写地址。": "Please enter an address.",
     "菜单": "Menu",
     "报销归属员工": "Expense beneficiary",
@@ -743,6 +744,7 @@
   };
 
   const nl = {
+    "现场工作": "Werk op locatie", "员工证书查询": "Medewerkerscertificaten", "工单拍照": "Werkfoto's maken", "照片台账": "Fotoregister", "工单照片台账": "Werkfotoregister",
     "请填写地址。": "Vul een adres in.",
     "菜单": "Menu",
     "报销归属员工": "Medewerker voor wie de kosten zijn",
@@ -1443,6 +1445,7 @@
   };
 
   const de = {
+    "现场工作": "Vor-Ort-Arbeit", "员工证书查询": "Mitarbeiterzertifikate", "工单拍照": "Auftragsfotos aufnehmen", "照片台账": "Fotoregister", "工单照片台账": "Auftragsfotoregister",
     "请填写地址。": "Bitte geben Sie eine Adresse ein.",
     "菜单": "Menü",
     "报销归属员工": "Mitarbeiter der Erstattung",
@@ -2025,6 +2028,7 @@
   };
 
   const es = {
+    "现场工作": "Trabajo de campo", "员工证书查询": "Certificados del personal", "工单拍照": "Tomar fotos del trabajo", "照片台账": "Registro de fotos", "工单照片台账": "Registro de fotos de trabajo",
     "请填写地址。": "Introduce una dirección.",
     "菜单": "Menú",
     "报销归属员工": "Empleado beneficiario",

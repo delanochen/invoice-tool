@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e"><meta name="apple-mobile-web-app-capable" content="yes">
+  <title>现场工作 · Prasinos Power</title>
+  <link rel="manifest" href="/field/manifest.webmanifest"><link rel="apple-touch-icon" href="/static/field-icon-192.png">
+  <link rel="stylesheet" href="/static/field-work.css">
+</head>
+<body>
+<header class="fw-header"><img src="/static/logo.svg" alt=""><div><strong>Prasinos Power</strong><small>现场工作</small></div><span id="networkStatus">正在连接</span></header>
+<main>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <section id="loginPanel" class="card" hidden><h1>使用员工账号登录</h1><p>照片自动归入现有系统的工单文件夹。</p><a class="primary button" href="/login?next=/field/">登录系统</a></section>
+  <div id="workspace" hidden>
+    <section data-panel="camera">
+      <div class="section-heading"><div><small>FIELD CAMERA</small><h1>记录现场</h1></div><span id="operatorName"></span></div>
+      <div class="card">
+        <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
+        <p id="orderContext" class="muted"></p>
+        <div class="location-row"><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
+        <div class="camera-stage"><video id="viewfinder" autoplay playsinline muted hidden></video><img id="photoPreview" alt="刚拍摄的照片预览" hidden><div id="cameraPlaceholder"><span aria-hidden="true">◎</span><p>选择工单，打开相机</p><small>照片将压缩、水印并自动上传</small></div></div>
+        <label>工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label>
+        <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
+        <button id="fileCapture" class="text-button" type="button">使用系统相机 / 选择照片</button><input id="photoFile" type="file" accept="image/*" capture="environment" hidden>
+        <small class="muted">选择已有照片时，记录的是本次选图时间，并标明“选图”，不作为原始拍摄时间认证。</small>
+      </div>
+      <div class="card"><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><button id="retryUpload" type="button">重试上传</button></div><p class="muted">确认服务器接收成功后才清理手机待传副本。请勿清理浏览器数据。</p><div id="queueList"></div></div>
+    </section>
+    <section data-panel="orders" hidden><div class="section-heading"><h1>我的工单</h1><button id="reloadOrders" type="button">刷新</button></div><p class="muted">按距当前位置的远近排列。同一站点可有多个工单，请确认编号。</p><input id="orderSearch" type="search" placeholder="搜索工单、站点或客户" aria-label="搜索工单"><div id="orderList"></div><div class="card"><h2>没有对应工单？</h2><a id="createOrder" class="primary button" href="/service-orders/new" hidden>新建工单</a><button id="requestOrder" type="button">申请新建工单</button><p class="muted">联网后新建或申请；确认工单后再拍照归档。</p></div></section>
+    <section data-panel="ledger" hidden><div class="section-heading"><h1>照片台账</h1><button id="refreshLedger" type="button">查询</button></div><form id="ledgerFilter" class="card"><label>关键词<input name="q" placeholder="工单、客户、站点、员工、备注"></label><div class="two-columns"><label>开始日期<input name="date_from" type="date"></label><label>结束日期<input name="date_to" type="date"></label></div><button class="primary" type="submit">查询照片</button><a id="exportLedger" class="button" href="/api/field/photos.xlsx">导出 Excel</a></form><p id="ledgerSummary" class="muted"></p><div id="ledgerList"></div></section>
+    <section data-panel="profile" hidden><h1>我的</h1><div class="card"><h2 id="profileName"></h2><p id="versionText"></p><label>照片归档时区<input id="timezoneName" placeholder="例如 Europe/Amsterdam"></label><p class="muted">默认使用手机时区。出差时请确认与现场一致；补传不会改变拍摄日期。</p><button id="installApp" type="button" hidden>添加到主屏幕</button><p>iPhone：在 Safari 分享菜单选择“添加到主屏幕”。</p><p>后台定位和上传可能暂停，回到这里后会继续。</p><a class="button" href="/service-orders">进入管理系统</a><a class="button" id="fieldLogout" href="/logout">退出登录</a></div></section>
+  </div>
+</main>
+<nav class="bottom-tabs" aria-label="现场工作导航"><button data-tab="camera" aria-current="page">拍照</button><button data-tab="orders">工单</button><button data-tab="ledger">台账</button><button data-tab="profile">我的</button></nav>
+<dialog id="locationDialog"><h2>请确认现场与工单</h2><p id="locationWarning"></p><div id="nearbyOrders"></div><label>仍使用当前工单的原因<input id="locationReason" maxlength="500" placeholder="例如：现场范围较大"></label><div class="dialog-actions"><button id="switchOrder" type="button">选择 / 新建工单</button><button id="keepOrder" class="primary" type="button">确认当前工单</button><button id="cancelLocation" type="button">取消</button></div></dialog>
+<dialog id="requestDialog"><h2>申请新建工单</h2><form id="requestForm"><label>站点和工作说明<textarea id="requestDetail" rows="5" maxlength="1000" required></textarea></label><button class="primary" type="submit">提交申请</button><button id="cancelRequest" type="button">取消</button></form></dialog>
+<script src="/static/field-work.js" defer></script>
+</body></html>

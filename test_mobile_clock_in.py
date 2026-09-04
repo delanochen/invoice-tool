@@ -65,9 +65,9 @@ class MobileClockInTest(unittest.TestCase):
         self.assertIn("测试站点", response.get_data(as_text=True))
         self.assertIn("现场员工", response.get_data(as_text=True))
 
-    def test_login_links_to_internal_app_install_page(self):
+    def test_login_no_longer_links_to_internal_app_install_page(self):
         login = self.client.get("/login")
-        self.assertIn("下载 iPhone 内部版 App", login.get_data(as_text=True))
+        self.assertNotIn('class="ios-login-link"', login.get_data(as_text=True))
         install = self.client.get("/mobile-app")
         self.assertEqual(install.status_code, 200)
         self.assertIn("安装包正在准备中", install.get_data(as_text=True))

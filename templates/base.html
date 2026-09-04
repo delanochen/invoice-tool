@@ -25,7 +25,7 @@
         {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document"] %}
         {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
-        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report"] %}
+        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
@@ -35,6 +35,12 @@
           <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
         {%- endmacro %}
         <nav id="sidebar-navigation">
+          {% if has_menu_permission("field_work") and has_action_permission("service_orders", "view") %}
+            {{ nav_link("field_work", "现场工作", ["field_work", "field_photo_query"]) }}
+          {% endif %}
+          {% if is_external_employee() and has_menu_permission("user_certificate_query") and has_action_permission("users", "view") %}
+            {{ nav_link("user_certificate_query", "员工证书查询") }}
+          {% endif %}
           {% if has_menu_permission("dashboard") and can_view_invoices() and not is_external_manager() %}
             {{ nav_link("dashboard", "概览") }}
           {% endif %}
@@ -64,12 +70,16 @@
             or (has_menu_permission("service_order_query") and not is_external_manager())
             or (has_menu_permission("service_report_query") and not is_external_manager())
             or (has_menu_permission("expense_query") and not is_external_manager())
+            or (has_menu_permission("user_certificate_query") and has_action_permission("users", "view"))
             or (has_menu_permission("audit_log_report") and can_view_audit_logs())
           %}
           {% if show_reports_menu and not is_external_employee() %}
           <details class="nav-group {{ 'active' if active_endpoint in report_endpoints else '' }}" {% if active_endpoint in report_endpoints %}open{% endif %}>
             <summary>报表</summary>
             <div class="nav-submenu">
+              {% if has_menu_permission("user_certificate_query") and has_action_permission("users", "view") %}
+                {{ nav_link("user_certificate_query", "员工证书查询") }}
+              {% endif %}
               {% if has_menu_permission("invoices") and can_view_invoices() %}
                 {{ nav_link("invoices", "发票查询") }}
               {% endif %}

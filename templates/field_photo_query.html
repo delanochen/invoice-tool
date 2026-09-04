@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}工单照片台账 - 发票工具{% endblock %}
+{% block content %}
+<header class="page-header"><h1>工单照片台账</h1><a class="button" href="{{ url_for('field_work') }}">进入现场工作</a></header>
+<form method="get" class="filter-bar no-print">
+<label>关键词<input name="q" value="{{ request.args.get('q','') }}" placeholder="工单、客户、站点、员工、备注"></label>
+<input type="hidden" name="order_id" value="{{ request.args.get('order_id','') }}">
+<label>开始日期<input type="date" name="date_from" value="{{ request.args.get('date_from','') }}"></label>
+<label>结束日期<input type="date" name="date_to" value="{{ request.args.get('date_to','') }}"></label>
+<button type="submit">查询</button><a class="button" href="{{ url_for('field_photo_export', **request.args) }}">导出 Excel</a></form>
+<p>共显示 {{ rows|length }} 张照片。设备拍摄时间和上传时间分别保留；选图记录不代表原始拍摄时间。</p>
+{% if truncated %}<p class="flash error">结果超过 2000 条，请缩小查询范围。</p>{% endif %}
+<section class="panel" style="overflow-x:auto"><table class="list-table"><thead><tr><th>照片</th><th>工单</th><th>客户 / 站点</th><th>员工</th><th>日期 / 时区</th><th>设备时间（UTC）</th><th>上传时间</th><th>位置 / 精度</th><th>备注</th><th>来源</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><a href="{{ url_for('field_photo_preview', photo_id=row.id) }}" target="_blank"><img class="inline-thumb" loading="lazy" alt="工单照片" src="{{ url_for('field_photo_preview', photo_id=row.id, thumb=1) }}"></a></td><td><a href="{{ url_for('service_order_detail', order_id=row.order_id) }}">{{ row.order_number }}</a></td><td>{{ row.customer_name or '-' }} / {{ row.site_name }}</td><td>{{ row.employee_name }}</td><td>{{ row.capture_date }}<br>{{ row.timezone_name }}</td><td>{{ row.captured_at }}</td><td>{{ row.received_at }}</td><td>{{ row.latitude }}, {{ row.longitude }}<br>±{{ row.accuracy|round }}m<br>{{ row.location_note }}</td><td>{{ row.note }}</td><td>{{ '现场相机' if row.source == 'camera' else '系统相机 / 选图' }}</td></tr>
+{% else %}<tr><td colspan="10" class="empty">没有符合条件的照片。</td></tr>{% endfor %}
+</tbody></table></section>
+{% endblock %}

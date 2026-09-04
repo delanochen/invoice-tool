@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}员工证书查询 - 发票工具{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">Reports</p><h1>员工证书查询</h1></div><div class="metric"><span>{{ employee_count }} 位员工</span><strong>{{ attachment_count }} 份附件</strong></div></header>
+<form method="get" class="filter-bar no-print">
+  <label>关键词<input name="q" value="{{ request.args.get('q','') }}" placeholder="姓名、邮箱、证书文件名或国家代码"></label>
+  <label>员工<select name="user_id"><option value="">全部人员</option>{% for person in people %}<option value="{{ person.id }}" {% if request.args.get('user_id') == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}</select></label>
+  <label>附件情况<select name="presence">{% for value,label in [('yes','有附件'),('no','没有附件'),('','全部')] %}<option value="{{ value }}" {% if request.args.get('presence','yes') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>账号状态<select name="active">{% for value,label in [('','全部'),('1','启用'),('0','停用')] %}<option value="{{ value }}" {% if request.args.get('active','') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <button type="submit">查询</button><a class="button" href="{{ url_for('user_certificate_query') }}">重置</a>
+</form>
+<p class="muted-line">清单来自员工资料中的现有附件，按文件名展示，一份附件一行。附件尚未区分证书类型和有效期；“没有附件”不等同于没有证书。</p>
+<section class="panel" style="overflow-x:auto"><table class="list-table"><thead><tr><th>员工编号</th><th>员工</th><th>邮箱</th><th>角色</th><th>国家</th><th>账号状态</th><th>证书 / 附件名称</th><th>上传日期</th><th>上传人</th><th>操作</th></tr></thead><tbody>
+{% for row in rows %}<tr><td>{{ row.user_id }}</td><td>{{ row.name }}</td><td>{{ row.email }}</td><td>{{ row.role|role_label }}</td><td>{{ row.country_code or '-' }}</td><td>{{ '启用' if row.is_active else '停用' }}</td><td>{{ row.original_filename or '没有附件' }}</td><td>{{ row.uploaded_at or '-' }}</td><td>{{ row.uploader_name or '-' }}</td><td>{% if row.attachment_id %}<a href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" target="_blank" rel="noopener">预览</a> · <a href="{{ url_for('download_user_attachment', attachment_id=row.attachment_id) }}">下载</a>{% endif %}</td></tr>
+{% else %}<tr><td colspan="10" class="empty">没有符合条件的记录。</td></tr>{% endfor %}
+</tbody></table></section>
+{% endblock %}
