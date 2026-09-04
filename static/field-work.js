@@ -129,6 +129,7 @@
     const previous = currentOrder?.id;
     currentOrder = profile?.orders.find(order => String(order.id) === String(id)) || null;
     $('orderSelect').value = currentOrder ? String(currentOrder.id) : '';
+    $('cameraOrder').textContent = currentOrder ? currentOrder.order_number + ' · ' + currentOrder.client_name : '';
     $('orderContext').textContent = currentOrder ? [currentOrder.customer_name,currentOrder.site_address].filter(Boolean).join(' · ') : '请先选择照片所属工单。';
     if (profile) localStorage.setItem('field-order-' + profile.user.id, String(currentOrder?.id || ''));
     if (previous !== currentOrder?.id) {
@@ -207,6 +208,7 @@
     $('photoPreview').hidden = true;
   }
   function stopCamera() {
+    document.body.classList.remove('camera-active');
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
     $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
@@ -220,6 +222,7 @@
       stream?.getTracks().forEach(track => track.stop());
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
+      document.body.classList.add('camera-active');
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('takePhoto').hidden = false; $('closeCamera').hidden = false;
     } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }

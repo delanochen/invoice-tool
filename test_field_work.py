@@ -63,6 +63,17 @@ class FieldWorkTest(unittest.TestCase):
         with self.module.app.app_context():
             self.assertEqual(self.module.db().execute('select count(*) from field_photos').fetchone()[0],1)
 
+    def test_uploaded_photo_immediately_available_in_nas_date_folder(self):
+        self.assertEqual(self.upload().status_code, 200)
+        day = (self.capture_time + timedelta(hours=14)).date().isoformat()
+        response = self.http.get('/shared-photos/browse', query_string={'path':'SO-DELEGATE', 'day':day})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json['images']), 1)
+        self.assertEqual(response.json['status']['completed'], 1)
+        self.assertIn('/pictures/' + day + '/', response.json['images'][0]['path'])
+        with self.http.get(response.json['images'][0]['thumbnail']) as thumbnail:
+            self.assertEqual(thumbnail.status_code, 200)
+
     def test_invalid_coordinates_time_image_and_owner_rejected(self):
         for changes in ({'latitude':'nan'}, {'accuracy':'-1'}, {'longitude':'inf'},
                         {'timezone_name':'Unknown/Zone'}, {'captured_at':'2026-09-01'},
