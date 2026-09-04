@@ -188,19 +188,13 @@
   async function checkLocation(forCapture) {
     if (!currentOrder) { panel('orders'); return false; }
     if (!position || Date.now()-position.timestamp > 30000) await locate();
-    if ($('locationDialog').open) return false;
     const d = distance(currentOrder);
-    const warning = position.accuracy > 100 ? `当前定位精度较低（±${Math.round(position.accuracy)}米），请确认现场。` : d === null ? '当前工单的站点还没有坐标，请确认工单。' : d-position.accuracy > profile.distance_limit ? `当前位置距离当前工单站点约 ${(d/1000).toFixed(2)} 公里，是否需要切换工单？` : '';
+    const warning = position.accuracy > 100 ? `当前定位精度较低（±${Math.round(position.accuracy)}米）。` : d === null ? '当前工单的站点还没有坐标。' : d-position.accuracy > profile.distance_limit ? `当前位置距离所选工单站点约 ${(d/1000).toFixed(2)} 公里。` : '';
     if (!warning) { locationNote = ''; return true; }
-    if (!forCapture && (position.accuracy > 100 || d === null)) return false;
     lastWarning = Date.now();
-    $('locationWarning').textContent = warning;
-    $('locationReason').value = '';
-    $('nearbyOrders').replaceChildren();
-    // A location warning must not offer one-tap reassignment, especially at shared sites.
-    // Switching requires returning to the explicit order selector after closing the camera.
-    $('locationDialog').showModal();
-    return new Promise(resolve => { warningResolve = resolve; });
+    locationNote = warning + ' 系统保留员工明确选择的工单。';
+    notice(warning + ' 照片仍保存到 ' + currentOrder.order_number + '；如需更换，请先关闭相机。');
+    return true;
   }
   function finishWarning(result) { $('locationDialog').close(); const resolve = warningResolve; warningResolve = null; resolve?.(result); }
   $('keepOrder').addEventListener('click', () => { const reason = $('locationReason').value.trim(); if (!reason) { $('locationReason').focus(); $('locationReason').setCustomValidity('请填写确认原因'); $('locationReason').reportValidity(); return; } locationNote = $('locationWarning').textContent + ' ' + reason; finishWarning(true); });
