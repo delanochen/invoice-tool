@@ -57,6 +57,8 @@
     ctx.font = `600 ${font}px ${FONT}`;
     const rows = [
       ['工单', context.order_number, 1],
+      ['设备', context.equipment_number || '无设备编号', 2],
+      ['位置', context.position_number || '—', 1],
       ['施工员', context.employee_name, 2],
       ['Time', localTime(context), 2],
       ['Address', context.site_address || context.site_name || '未填写地址', 3]

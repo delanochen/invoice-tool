@@ -33,6 +33,10 @@ def init_field_schema(connection):
         create index if not exists idx_field_photos_order_date on field_photos(order_id, capture_date);
         create index if not exists idx_field_photos_user on field_photos(user_id);
     ''')
+    columns = {row[1] for row in connection.execute('pragma table_info(field_photos)')}
+    for name in ('equipment_number', 'position_number', 'equipment_session'):
+        if name not in columns:
+            connection.execute(f"alter table field_photos add column {name} text not null default ''")
 
 
 def register_field_routes(app, api):
@@ -159,6 +163,15 @@ def register_field_routes(app, api):
         if source not in {'camera', 'file'}:
             return jsonify(error='照片来源无效。'), 422
         note = request.form.get('note', '').strip()[:1000]
+        has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'equipment_session', 'no_equipment_number'))
+        equipment_number = request.form.get('equipment_number', '').strip()[:200]
+        position_number = request.form.get('position_number', '').strip()[:200]
+        equipment_session = request.form.get('equipment_session', '').strip()[:64]
+        no_equipment_number = request.form.get('no_equipment_number') == 'true'
+        if has_device_metadata and ((not equipment_number and not no_equipment_number) or not equipment_session):
+            return jsonify(error='请确认设备编号，或明确选择“此设备无编号”。'), 422
+        if not has_device_metadata:
+            equipment_session = 'legacy-pending-photo'
         location_note = request.form.get('location_note', '').strip()[:500]
         photo = request.files.get('photo')
         content = photo.read(15 * 1024 * 1024 + 1) if photo else b''
@@ -194,11 +207,12 @@ def register_field_routes(app, api):
             create_thumbnail(target, thumb)
             cursor = db.execute('''insert into field_photos
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
-                 latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
+                 equipment_number, position_number, equipment_session)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
-                 relative.as_posix(), digest, target.stat().st_size))
+                 relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, equipment_session))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
         except Exception:
@@ -241,7 +255,7 @@ def register_field_routes(app, api):
         if len(rows) > 2000:
             return jsonify(error='结果超过 2000 条，请缩小日期或工单范围后导出。'), 422
         headers = ['工单', '客户', '站点', '员工', '拍摄日期', '设备拍摄时间（UTC）', '归档时区', '上传时间', '纬度', '经度', '精度（米）', '备注', '位置确认说明', '来源', '文件路径']
-        keys = ['order_number', 'customer_name', 'site_name', 'employee_name', 'capture_date', 'captured_at', 'timezone_name', 'received_at', 'latitude', 'longitude', 'accuracy', 'note', 'location_note', 'source', 'relative_path']
+        keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'employee_name', 'capture_date', 'captured_at', 'timezone_name', 'received_at', 'latitude', 'longitude', 'accuracy', 'note', 'location_note', 'source', 'relative_path']
         buffer = api['build_simple_xlsx'](headers, [[str(row[key] or '') for key in keys] for row in rows], sheet_name='工单照片台账')
         return send_file(buffer, as_attachment=True, download_name='field-photos.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 

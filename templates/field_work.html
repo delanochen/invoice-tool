@@ -19,6 +19,13 @@
         <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
         <p id="orderContext" class="muted"></p>
         <small class="muted">同一站点可有多个工单。定位异常只会提醒，照片始终归入你明确选中的工单。</small>
+        <fieldset class="device-session"><legend>当前设备</legend>
+          <label>设备编号<input id="equipmentNumber" maxlength="200" autocomplete="off" placeholder="扫描或输入一次"></label>
+          <label>位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如：B6-1（可留空）"></label>
+          <label class="check-label"><input id="noEquipmentNumber" type="checkbox"> 此设备没有编号</label>
+          <div class="device-actions"><button id="confirmDevice" class="primary" type="button">确认并连续拍摄</button><button id="nextDevice" type="button">下一台设备</button></div>
+          <p id="deviceStatus" class="muted">拍照前必须确认设备；条码或二维码可自动识别。</p>
+        </fieldset>
         <div class="location-row"><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
         <div class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>

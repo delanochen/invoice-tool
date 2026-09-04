@@ -9,6 +9,7 @@
   let farSamples = 0;
   let initialOrder = new URLSearchParams(location.search).get('order_id');
   let cameraSelection = null, bootstrapGeneration = 0;
+  let deviceSession = null, scanTimer = null, detector = null;
   async function requestAPI(url, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
@@ -18,6 +19,35 @@
   const notice = (text, error = false) => { $('notice').textContent = text; $('notice').classList.toggle('error', error); };
   const textNode = (tag, text, className = '') => { const el = document.createElement(tag); el.textContent = text; el.className = className; return el; };
   const key = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+
+  function resetDevice() {
+    deviceSession = null;
+    $('equipmentNumber').closest('fieldset').classList.remove('locked');
+    $('equipmentNumber').value = '';
+    $('positionNumber').value = '';
+    $('noEquipmentNumber').checked = false;
+    $('equipmentNumber').disabled = false;
+    $('deviceStatus').textContent = '新设备：请扫描或输入编号，然后确认。';
+  }
+  function confirmDevice() {
+    const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
+    if (!number && !noNumber) { notice('请输入设备编号，或勾选“此设备没有编号”。', true); $('equipmentNumber').focus(); return; }
+    deviceSession = {id:key(), equipment_number:noNumber ? '' : number, position_number:$('positionNumber').value.trim(), no_equipment_number:noNumber};
+    $('equipmentNumber').closest('fieldset').classList.add('locked');
+    $('equipmentNumber').value = deviceSession.equipment_number;
+    $('equipmentNumber').disabled = noNumber;
+    $('deviceStatus').textContent = `已锁定：${number || '无设备编号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}。后续照片沿用；换设备请点“下一台设备”。`;
+    notice('设备已确认，可以连续拍摄。');
+  }
+  async function scanDevice() {
+    if (!stream || deviceSession || !('BarcodeDetector' in window)) return;
+    try {
+      detector ||= new BarcodeDetector();
+      const results = await detector.detect($('viewfinder'));
+      const value = results.map(item => item.rawValue?.trim()).find(Boolean);
+      if (value) { $('equipmentNumber').value = value.slice(0,200); $('deviceStatus').textContent = '自动识别到：'+value+'。请核对后确认。'; }
+    } catch (_) {}
+  }
 
   function openDB() {
     if (database) return database;
@@ -218,6 +248,7 @@
     $('photoPreview').hidden = true;
   }
   function stopCamera() {
+    clearInterval(scanTimer); scanTimer = null;
     cameraSelection = null;
     document.body.classList.remove('camera-active');
     stream?.getTracks().forEach(track => track.stop()); stream = null;
@@ -239,12 +270,14 @@
       document.body.classList.add('camera-active');
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('takePhoto').hidden = false; $('closeCamera').hidden = false;
+      scanDevice(); scanTimer = setInterval(scanDevice, 800);
     } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }
   }
   async function makeContext(source) {
     const resolved = chosenOrder();
     if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
     const selected = cameraSelection?.order || {...resolved};
+    if (!deviceSession) throw new Error('请先确认设备编号，或明确选择“此设备没有编号”。');
     const selectedId = selected.id, selectedUser = cameraSelection?.userId || profile.user.id;
     // Refresh before every capture. The snapshot will not change while uploading.
     await locate();
@@ -255,7 +288,8 @@
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);
     return {client_id:key(),user_id:profile.user.id,employee_name:profile.user.name,order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
       captured_at:new Date().toISOString(),timezone_name:timezoneName,latitude:position.latitude,longitude:position.longitude,accuracy:position.accuracy,
-      note:$('photoNote').value.trim(),location_note:locationNote,source,error:''};
+      note:$('photoNote').value.trim(),location_note:locationNote,source,error:'',equipment_number:deviceSession.equipment_number,
+      position_number:deviceSession.position_number,equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number};
   }
   async function watermarked(source, context) {
     const width = source.videoWidth || source.naturalWidth || source.width;
@@ -356,7 +390,7 @@
       result.rows.forEach(photo => {
         const card = textNode('article','','photo-card'), link = document.createElement('a'), image = document.createElement('img');
         link.href = photo.preview; link.target = '_blank'; link.rel = 'noopener'; image.src = photo.thumbnail; image.alt = '工单照片'; image.loading = 'lazy'; link.append(image);
-        const detail = document.createElement('div'); detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',photo.employee_name+' · '+photo.capture_date+' · '+photo.timezone_name),textNode('p',photo.note),textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
+        const detail = document.createElement('div'); detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p','设备：'+(photo.equipment_number || '无编号')+(photo.position_number ? ' · 位置：'+photo.position_number : '')),textNode('p',photo.employee_name+' · '+photo.capture_date+' · '+photo.timezone_name),textNode('p',photo.note),textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
         card.append(link,detail); $('ledgerList').append(card);
       });
     } catch(error) { $('ledgerSummary').textContent = '台账需要联网查看。待上传照片请到“拍照”页面查看。'; }
@@ -372,6 +406,11 @@
     catch(error) { notice(error.message,true); } finally { button.disabled = false; }
   });
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
+  $('confirmDevice').addEventListener('click',confirmDevice);
+  $('nextDevice').addEventListener('click', () => { stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
+  $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
+  $('equipmentNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='编号已修改，请重新确认。'; });
+  $('positionNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='位置号已修改，请重新确认。'; });
   $('orderSelect').addEventListener('input', () => chooseOrder($('orderSelect').value));
   $('orderSelect').addEventListener('change', () => chooseOrder($('orderSelect').value));
   $('orderSearch').addEventListener('input',renderOrders);

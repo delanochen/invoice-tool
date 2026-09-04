@@ -31,6 +31,8 @@ class FieldWorkTest(unittest.TestCase):
                     user_id=str(self.fixture.people['Submitter']), captured_at=self.capture_time.isoformat(),
                     timezone_name='Pacific/Kiritimati', latitude='52.1', longitude='4.3', accuracy='8',
                     source='camera', note='Equipment check', photo=(BytesIO(self.photo), 'photo.jpg'))
+        data.update(equipment_number='BESB-2B6-1', position_number='B6-1', equipment_session=uuid.uuid4().hex,
+                    no_equipment_number='false')
         data.update(overrides)
         return self.http.post('/api/field/photos', data=data, headers={'X-Field-Token':self.csrf})
 
@@ -82,6 +84,16 @@ class FieldWorkTest(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.assertEqual(self.upload(**changes).status_code,422)
         self.assertEqual(self.upload(user_id=str(self.fixture.people['Beneficiary'])).status_code,409)
+        self.assertEqual(self.upload(equipment_number='', no_equipment_number='false').status_code,422)
+
+    def test_device_session_metadata_is_saved_and_empty_number_is_explicit(self):
+        session_id = uuid.uuid4().hex
+        self.assertEqual(self.upload(equipment_number='INV-42', position_number='TOP', equipment_session=session_id).status_code, 200)
+        self.assertEqual(self.upload(equipment_number='', position_number='LEFT', equipment_session=session_id, no_equipment_number='true').status_code, 200)
+        with self.module.app.app_context():
+            rows = self.module.db().execute('select equipment_number, position_number, equipment_session from field_photos order by id').fetchall()
+        self.assertEqual(tuple(rows[0]), ('INV-42', 'TOP', session_id))
+        self.assertEqual(tuple(rows[1]), ('', 'LEFT', session_id))
 
     def test_csrf_login_and_permission_required(self):
         self.csrf = 'invalid'
