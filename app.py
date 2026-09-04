@@ -6509,6 +6509,7 @@ def mobile_app_ipa():
 def register():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
+        address = request.form.get("address", "").strip()
         email = request.form.get("registration_email", "").strip().lower()
         password = request.form.get("registration_password", "")
         password_confirm = request.form.get("registration_password_confirm", "")
@@ -6516,6 +6517,9 @@ def register():
         country = country_from_form()
         if account_type not in {"employee", "external_employee"}:
             account_type = "external_employee"
+        if not address:
+            flash("请填写地址。", "error")
+            return redirect(url_for("register"))
         if "�" in name:
             flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
             return redirect(url_for("register"))
@@ -6529,9 +6533,9 @@ def register():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, is_active, default_language, region_code, country_code, created_at
+                    name, email, password_hash, role, is_active, default_language, region_code, country_code, created_at, address
                 )
-                values (?, ?, ?, ?, 0, ?, ?, ?, ?)
+                values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """,
                 (
                     name or email,
@@ -6542,6 +6546,7 @@ def register():
                     country["region_code"],
                     country["code"],
                     now(),
+                    address,
                 ),
             )
             user_id = cursor.lastrowid

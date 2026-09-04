@@ -1,5 +1,6 @@
 ﻿(() => {
   const en = {
+    "请填写地址。": "Please enter an address.",
     "菜单": "Menu",
     "报销归属员工": "Expense beneficiary",
     "发放操作人": "Payment recorded by",
@@ -742,6 +743,7 @@
   };
 
   const nl = {
+    "请填写地址。": "Vul een adres in.",
     "菜单": "Menu",
     "报销归属员工": "Medewerker voor wie de kosten zijn",
     "发放操作人": "Betaling geregistreerd door",
@@ -1441,6 +1443,7 @@
   };
 
   const de = {
+    "请填写地址。": "Bitte geben Sie eine Adresse ein.",
     "菜单": "Menü",
     "报销归属员工": "Mitarbeiter der Erstattung",
     "发放操作人": "Zahlung erfasst von",
@@ -2022,6 +2025,7 @@
   };
 
   const es = {
+    "请填写地址。": "Introduce una dirección.",
     "菜单": "Menú",
     "报销归属员工": "Empleado beneficiario",
     "发放操作人": "Pago registrado por",
