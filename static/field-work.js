@@ -7,6 +7,7 @@
   let captureContext = null, previewURL = null, database = null, installPrompt = null;
   let identityReady = false;
   let farSamples = 0;
+  let initialOrder = new URLSearchParams(location.search).get('order_id');
   async function requestAPI(url, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
@@ -110,20 +111,31 @@
     syncQueue();
   }
   function renderSelect() {
-    const selected = currentOrder?.id || new URLSearchParams(location.search).get('order_id') || localStorage.getItem('field-order-' + profile.user.id);
-    $('orderSelect').replaceChildren(new Option('请选择工单',''));
-    profile.orders.forEach(order => $('orderSelect').add(new Option(order.order_number + ' · ' + order.client_name, String(order.id))));
+    const selected = currentOrder?.id || initialOrder || localStorage.getItem('field-order-' + profile.user.id);
+    // A launch link is only an initial selection, never a permanent override on reload.
+    initialOrder = null;
+    const url = new URL(location.href);
+    if (url.searchParams.has('order_id')) { url.searchParams.delete('order_id'); history.replaceState(history.state, '', url); }
+    const options = [['', '请选择工单'], ...profile.orders.map(order => [String(order.id), order.order_number + ' · ' + order.client_name])];
+    const existing = Array.from($('orderSelect').options, option => [option.value, option.text]);
+    // Foreground refresh must not rebuild a native phone picker while it is open.
+    if (JSON.stringify(existing) !== JSON.stringify(options)) {
+      $('orderSelect').replaceChildren(...options.map(([value, label]) => new Option(label, value)));
+    }
     $('orderSelect').value = String(selected || '');
     chooseOrder($('orderSelect').value);
   }
   function chooseOrder(id) {
+    const previous = currentOrder?.id;
     currentOrder = profile?.orders.find(order => String(order.id) === String(id)) || null;
     $('orderSelect').value = currentOrder ? String(currentOrder.id) : '';
     $('orderContext').textContent = currentOrder ? [currentOrder.customer_name,currentOrder.site_address].filter(Boolean).join(' · ') : '请先选择照片所属工单。';
     if (profile) localStorage.setItem('field-order-' + profile.user.id, String(currentOrder?.id || ''));
-    locationNote = '';
-    lastWarning = 0;
-    farSamples = 0;
+    if (previous !== currentOrder?.id) {
+      locationNote = '';
+      lastWarning = 0;
+      farSamples = 0;
+    }
   }
   function distance(order) {
     if (!position || order.latitude === null || order.longitude === null) return null;
@@ -214,9 +226,11 @@
   }
   async function makeContext(source) {
     if (!identityReady || !profile?.can_capture || !currentOrder) throw new Error('请登录并选择工单。');
+    const selectedId = currentOrder.id, selectedUser = profile.user.id;
     // Refresh before every capture. The snapshot will not change while uploading.
     await locate();
     if (!(await checkLocation(true))) return null;
+    if (!identityReady || profile?.user.id !== selectedUser || currentOrder?.id !== selectedId) throw new Error('工单或账号已改变，请确认当前工单后重新拍照。');
     const timezoneName = $('timezoneName').value.trim() || 'UTC';
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);

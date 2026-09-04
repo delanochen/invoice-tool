@@ -18,6 +18,7 @@
       <div class="card">
         <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
         <p id="orderContext" class="muted"></p>
+        <small class="muted">同一站点可有多个工单。照片归入你选中的工单，定位不会自动切换工单。</small>
         <div class="location-row"><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
         <div class="camera-stage"><video id="viewfinder" autoplay playsinline muted hidden></video><img id="photoPreview" alt="刚拍摄的照片预览" hidden><div id="cameraPlaceholder"><span aria-hidden="true">◎</span><p>选择工单，打开相机</p><small>照片将压缩、水印并自动上传</small></div></div>
         <label>工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label>
