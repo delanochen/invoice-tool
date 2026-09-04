@@ -35,5 +35,6 @@
 <nav class="bottom-tabs" aria-label="现场工作导航"><button data-tab="camera" aria-current="page">拍照</button><button data-tab="orders">工单</button><button data-tab="ledger">台账</button><button data-tab="profile">我的</button></nav>
 <dialog id="locationDialog"><h2>请确认现场与工单</h2><p id="locationWarning"></p><div id="nearbyOrders"></div><label>仍使用当前工单的原因<input id="locationReason" maxlength="500" placeholder="例如：现场范围较大"></label><div class="dialog-actions"><button id="switchOrder" type="button">选择 / 新建工单</button><button id="keepOrder" class="primary" type="button">确认当前工单</button><button id="cancelLocation" type="button">取消</button></div></dialog>
 <dialog id="requestDialog"><h2>申请新建工单</h2><form id="requestForm"><label>站点和工作说明<textarea id="requestDetail" rows="5" maxlength="1000" required></textarea></label><button class="primary" type="submit">提交申请</button><button id="cancelRequest" type="button">取消</button></form></dialog>
+<script src="/static/field-watermark.js" defer></script>
 <script src="/static/field-work.js" defer></script>
 </body></html>

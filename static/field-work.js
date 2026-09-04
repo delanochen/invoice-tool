@@ -220,7 +220,7 @@
     const timezoneName = $('timezoneName').value.trim() || 'UTC';
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);
-    return {client_id:key(),user_id:profile.user.id,employee_name:profile.user.name,order_id:currentOrder.id,order_number:currentOrder.order_number,site_name:currentOrder.client_name,
+    return {client_id:key(),user_id:profile.user.id,employee_name:profile.user.name,order_id:currentOrder.id,order_number:currentOrder.order_number,site_name:currentOrder.client_name,site_address:currentOrder.site_address,
       captured_at:new Date().toISOString(),timezone_name:timezoneName,latitude:position.latitude,longitude:position.longitude,accuracy:position.accuracy,
       note:$('photoNote').value.trim(),location_note:locationNote,source,error:''};
   }
@@ -231,16 +231,7 @@
     const scale = Math.min(1,1800/Math.max(width,height));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(width*scale); canvas.height = Math.round(height*scale);
     const ctx = canvas.getContext('2d'); ctx.drawImage(source,0,0,canvas.width,canvas.height);
-    const size = Math.max(12,Math.round(canvas.width*.024));
-    const time = new Intl.DateTimeFormat('zh-CN',{timeZone:context.timezone_name,dateStyle:'short',timeStyle:'medium',hour12:false}).format(new Date(context.captured_at));
-    const lines = ['PRASINOS POWER · '+context.order_number, context.site_name+' · '+context.employee_name,
-      time+' · '+context.timezone_name,`${context.latitude.toFixed(6)}, ${context.longitude.toFixed(6)} ±${Math.round(context.accuracy)}m`,
-      context.source === 'camera' ? '现场相机 · 设备时间' : '系统相机 / 选图 · 本次记录时间'];
-    if (context.note) lines.push(context.note.slice(0,80));
-    const pad = size*.7, lineHeight = size*1.4, box = lines.length*lineHeight+pad*2;
-    ctx.fillStyle = 'rgba(0,0,0,.70)'; ctx.fillRect(0,canvas.height-box,canvas.width,box);
-    ctx.font = `600 ${size}px sans-serif`; ctx.fillStyle = 'white';
-    lines.forEach((line,i) => ctx.fillText(line,pad,canvas.height-box+pad+lineHeight*(i+.8),canvas.width-pad*2));
+    await window.PrasinosWatermark.draw(ctx,canvas.width,canvas.height,context);
     return new Promise((resolve,reject) => canvas.toBlob(blob => blob ? resolve(blob):reject(new Error('照片压缩失败')),'image/jpeg',.82));
   }
   async function keepCapture(source, context) {
