@@ -83,6 +83,13 @@ KNOWLEDGE_MAX_PDF_BYTES = 50 * 1024 * 1024
 KNOWLEDGE_MAX_EXTRACTED_TEXT = 500_000
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 APP_VERSION = os.environ.get("APP_VERSION", "0.0.0").strip() or "0.0.0"
+if APP_VERSION == "0.0.0":
+    try:
+        release_version = Path(BASE_DIR, "VERSION").read_text(encoding="utf-8").strip()
+        if re.fullmatch(r"\d+\.\d+\.\d+", release_version):
+            APP_VERSION = release_version
+    except OSError:
+        pass
 PRODUCTION_DATA_DIRECTORY_IDENTITY = "invoice-tool-primary-volume1-20260816"
 IS_RELEASE_BUILD = bool(re.fullmatch(r"\d+\.\d+\.\d+", APP_VERSION)) and APP_VERSION != "0.0.0"
 REQUIRE_DATA_DIRECTORY_IDENTITY = (

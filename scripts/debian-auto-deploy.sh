@@ -9,6 +9,15 @@ HEALTH_URL="${INVOICE_TOOL_HEALTH_URL:-http://127.0.0.1:8088/}"
 
 log() { printf '%s %s\n' "$(date -Is)" "$*"; }
 cleanup() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
+build_current_version() {
+  APP_VERSION="$(tr -d '\r\n' < VERSION)"
+  if ! printf '%s' "$APP_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    log "invalid release VERSION: $APP_VERSION"
+    return 1
+  fi
+  export APP_VERSION
+  docker compose up -d --build
+}
 trap cleanup EXIT INT TERM
 
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -34,7 +43,7 @@ fi
 
 log "deploying $NEW_COMMIT"
 git reset --hard "$NEW_COMMIT"
-if docker compose up -d --build && wait_ok=0; then
+if build_current_version && wait_ok=0; then
   i=0
   while [ "$i" -lt 30 ]; do
     if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null; then wait_ok=1; break; fi
@@ -45,5 +54,5 @@ fi
 
 log "deployment failed; rolling back to $OLD_COMMIT"
 git reset --hard "$OLD_COMMIT"
-docker compose up -d --build
+build_current_version
 exit 1
