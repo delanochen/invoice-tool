@@ -8,6 +8,7 @@
   let identityReady = false;
   let farSamples = 0;
   let initialOrder = new URLSearchParams(location.search).get('order_id');
+  let cameraSelection = null, bootstrapGeneration = 0;
   async function requestAPI(url, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
@@ -56,6 +57,7 @@
     if (name === 'ledger') loadLedger();
   }
   function lock(message) {
+    bootstrapGeneration++;
     identityReady = false;
     profile = null;
     currentOrder = null;
@@ -74,17 +76,20 @@
     notice(message, true);
   }
   async function bootstrap() {
+    const generation = ++bootstrapGeneration;
     try {
       const response = await requestAPI('/api/field/session', {cache:'no-store'});
       if (response.status === 401 || response.status === 403) { lock('请使用有工单权限的员工账号登录。'); return; }
       if (!response.ok) throw new Error('服务器暂时不可用');
       const next = await response.json();
+      if (generation !== bootstrapGeneration) return;
       if (profile && profile.user.id !== next.user.id) { stopCamera(); clearPreview(); currentOrder = null; captureContext = null; $('timezoneName').value = ''; $('ledgerList').replaceChildren(); }
       profile = next;
       try { localStorage.setItem(SESSION_KEY, JSON.stringify(profile)); }
       catch (_) { notice('无法保存离线登录资料，请检查手机存储空间。',true); }
       $('networkStatus').textContent = '在线';
     } catch (error) {
+      if (generation !== bootstrapGeneration) return;
       try { profile = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { profile = null; }
       if (!profile) { lock('首次使用需要联网登录。'); return; }
       $('networkStatus').textContent = '离线暂存';
@@ -111,6 +116,9 @@
     syncQueue();
   }
   function renderSelect() {
+    // iOS native pickers may still be committing their input when visibility resumes.
+    // Never reset the control underneath an open picker or an active camera session.
+    if (document.activeElement === $('orderSelect') || cameraSelection || captureContext || taking) return;
     const selected = currentOrder?.id || initialOrder || localStorage.getItem('field-order-' + profile.user.id);
     // A launch link is only an initial selection, never a permanent override on reload.
     initialOrder = null;
@@ -126,6 +134,7 @@
     chooseOrder($('orderSelect').value);
   }
   function chooseOrder(id) {
+    if (cameraSelection || taking) { $('orderSelect').value = String(currentOrder?.id || ''); return; }
     const previous = currentOrder?.id;
     currentOrder = profile?.orders.find(order => String(order.id) === String(id)) || null;
     $('orderSelect').value = currentOrder ? String(currentOrder.id) : '';
@@ -188,9 +197,8 @@
     $('locationWarning').textContent = warning;
     $('locationReason').value = '';
     $('nearbyOrders').replaceChildren();
-    sortedOrders().filter(order => order.id !== currentOrder.id).slice(0,3).forEach(order => $('nearbyOrders').append(orderButton(order, item => {
-      finishWarning(false); chooseOrder(item.id); notice('已切换工单，请确认后重新拍照。');
-    })));
+    // A location warning must not offer one-tap reassignment, especially at shared sites.
+    // Switching requires returning to the explicit order selector after closing the camera.
     $('locationDialog').showModal();
     return new Promise(resolve => { warningResolve = resolve; });
   }
@@ -208,6 +216,7 @@
     $('photoPreview').hidden = true;
   }
   function stopCamera() {
+    cameraSelection = null;
     document.body.classList.remove('camera-active');
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
@@ -219,6 +228,7 @@
     if (!identityReady || !profile?.can_capture) return;
     if (!currentOrder) { panel('orders'); notice('先选择工单。'); return; }
     try {
+      cameraSelection = {order:{...currentOrder}, userId:profile.user.id};
       stream?.getTracks().forEach(track => track.stop());
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
@@ -229,7 +239,8 @@
   }
   async function makeContext(source) {
     if (!identityReady || !profile?.can_capture || !currentOrder) throw new Error('请登录并选择工单。');
-    const selectedId = currentOrder.id, selectedUser = profile.user.id;
+    const selected = cameraSelection?.order || {...currentOrder};
+    const selectedId = selected.id, selectedUser = cameraSelection?.userId || profile.user.id;
     // Refresh before every capture. The snapshot will not change while uploading.
     await locate();
     if (!(await checkLocation(true))) return null;
@@ -237,7 +248,7 @@
     const timezoneName = $('timezoneName').value.trim() || 'UTC';
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);
-    return {client_id:key(),user_id:profile.user.id,employee_name:profile.user.name,order_id:currentOrder.id,order_number:currentOrder.order_number,site_name:currentOrder.client_name,site_address:currentOrder.site_address,
+    return {client_id:key(),user_id:profile.user.id,employee_name:profile.user.name,order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
       captured_at:new Date().toISOString(),timezone_name:timezoneName,latitude:position.latitude,longitude:position.longitude,accuracy:position.accuracy,
       note:$('photoNote').value.trim(),location_note:locationNote,source,error:''};
   }
@@ -259,7 +270,7 @@
     if (previewURL) URL.revokeObjectURL(previewURL);
     previewURL = URL.createObjectURL(photo.blob); $('photoPreview').src = previewURL;
     if (!stream) { $('photoPreview').hidden = false; $('cameraPlaceholder').hidden = true; }
-    notice('照片已保存在本机，正在尝试上传。');
+    notice('照片已保存在本机：'+photo.order_number+'，正在尝试上传。');
     await renderQueue(); syncQueue();
   }
   $('takePhoto').addEventListener('click', async () => {
@@ -282,6 +293,7 @@
     catch(error) { notice('照片未保存：'+error.message+'。请保留原照片后重试。',true); }
     finally { URL.revokeObjectURL(url); $('photoFile').value = ''; }
   });
+  $('photoFile').addEventListener('cancel', () => { captureContext = null; });
   async function renderQueue() {
     try {
       const photos = await queued(); $('queueCount').textContent = String(photos.length); $('queueList').replaceChildren();
@@ -355,6 +367,7 @@
     catch(error) { notice(error.message,true); } finally { button.disabled = false; }
   });
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
+  $('orderSelect').addEventListener('input', () => chooseOrder($('orderSelect').value));
   $('orderSelect').addEventListener('change', () => chooseOrder($('orderSelect').value));
   $('orderSearch').addEventListener('input',renderOrders);
   $('refreshLocation').addEventListener('click', () => locate().catch(error => notice(error.message,true)));
