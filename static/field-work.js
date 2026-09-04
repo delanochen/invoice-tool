@@ -147,6 +147,14 @@
       farSamples = 0;
     }
   }
+  function chosenOrder() {
+    const ids = [$('orderSelect').value, currentOrder?.id, profile && localStorage.getItem('field-order-' + profile.user.id)];
+    for (const id of ids) {
+      const order = profile?.orders.find(item => String(item.id) === String(id));
+      if (order) return order;
+    }
+    return null;
+  }
   function distance(order) {
     if (!position || order.latitude === null || order.longitude === null) return null;
     const rad = x => x * Math.PI / 180;
@@ -185,15 +193,15 @@
       updatePosition(result); resolve(position);
     }, () => { position = null; $('locationStatus').textContent = '定位失败，请允许定位后重试'; reject(new Error('请允许定位，并重新检查位置。')); }, {enableHighAccuracy:true,timeout:15000,maximumAge:0}));
   }
-  async function checkLocation(forCapture) {
-    if (!currentOrder) { panel('orders'); return false; }
+  async function checkLocation(forCapture, selected = chosenOrder()) {
+    if (!selected) return false;
     if (!position || Date.now()-position.timestamp > 30000) await locate();
-    const d = distance(currentOrder);
+    const d = distance(selected);
     const warning = position.accuracy > 100 ? `当前定位精度较低（±${Math.round(position.accuracy)}米）。` : d === null ? '当前工单的站点还没有坐标。' : d-position.accuracy > profile.distance_limit ? `当前位置距离所选工单站点约 ${(d/1000).toFixed(2)} 公里。` : '';
     if (!warning) { locationNote = ''; return true; }
     lastWarning = Date.now();
     locationNote = warning + ' 系统保留员工明确选择的工单。';
-    notice(warning + ' 照片仍保存到 ' + currentOrder.order_number + '；如需更换，请先关闭相机。');
+    notice(warning + ' 照片仍保存到 ' + selected.order_number + '；如需更换，请先关闭相机。');
     return true;
   }
   function finishWarning(result) { $('locationDialog').close(); const resolve = warningResolve; warningResolve = null; resolve?.(result); }
@@ -220,9 +228,11 @@
   }
   async function openCamera() {
     if (!identityReady || !profile?.can_capture) return;
-    if (!currentOrder) { panel('orders'); notice('先选择工单。'); return; }
+    const selected = chosenOrder();
+    if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
     try {
-      cameraSelection = {order:{...currentOrder}, userId:profile.user.id};
+      currentOrder = selected;
+      cameraSelection = {order:{...selected}, userId:profile.user.id};
       stream?.getTracks().forEach(track => track.stop());
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
@@ -232,13 +242,14 @@
     } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }
   }
   async function makeContext(source) {
-    if (!identityReady || !profile?.can_capture || !currentOrder) throw new Error('请登录并选择工单。');
-    const selected = cameraSelection?.order || {...currentOrder};
+    const resolved = chosenOrder();
+    if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
+    const selected = cameraSelection?.order || {...resolved};
     const selectedId = selected.id, selectedUser = cameraSelection?.userId || profile.user.id;
     // Refresh before every capture. The snapshot will not change while uploading.
     await locate();
-    if (!(await checkLocation(true))) return null;
-    if (!identityReady || profile?.user.id !== selectedUser || currentOrder?.id !== selectedId) throw new Error('工单或账号已改变，请确认当前工单后重新拍照。');
+    if (!(await checkLocation(true, selected))) return null;
+    if (!identityReady || profile?.user.id !== selectedUser) throw new Error('账号已改变，请重新拍照。');
     const timezoneName = $('timezoneName').value.trim() || 'UTC';
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);
