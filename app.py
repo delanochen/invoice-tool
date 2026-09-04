@@ -2222,6 +2222,13 @@ def current_user():
     return user
 
 
+@app.after_request
+def prevent_stale_business_pages(response):
+    if response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "no-store, private"
+    return response
+
+
 @app.before_request
 def load_user():
     requested_language = request.args.get("lang")

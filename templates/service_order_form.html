@@ -4,7 +4,7 @@
   <header class="page-header">
     <div><p class="eyebrow">Service Order</p><h1>{{ form_title }}</h1></div>
     <div class="actions">
-      <button type="button" onclick="history.back()">返回</button>
+      <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) if order else url_for('service_orders') }}'">返回</button>
       <button class="primary" type="submit" form="serviceOrderForm">保存</button>
     </div>
   </header>
