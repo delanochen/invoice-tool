@@ -226,8 +226,8 @@ class PaymentTermsTest(unittest.TestCase):
             grade_id = self.module.db().execute(
                 """
                 insert into employee_grades (
-                    grade_name, car_allowance_method, car_mileage_rate, car_hourly_rate, created_at
-                ) values ('Travel Test', 'mileage', 0.5, 10, '2026-08-13T00:00:00')
+                    grade_name, car_allowance_method, car_mileage_rate, car_hourly_rate, transport_hourly_rate, created_at
+                ) values ('Travel Test', 'mileage', 0.5, 99, 10, '2026-08-13T00:00:00')
                 """
             ).lastrowid
             self.module.db().execute(
@@ -331,7 +331,6 @@ class PaymentTermsTest(unittest.TestCase):
                 "meal_daily_amount": "0",
                 "car_allowance_method": "mileage",
                 "car_mileage_rate": "0.5",
-                "car_hourly_rate": "10",
                 "rental_driving_hourly_rate": "22.5",
                 "standard_hourly_rate": "0",
                 "transport_hourly_rate": "0",
@@ -346,6 +345,9 @@ class PaymentTermsTest(unittest.TestCase):
                 "select * from employee_grades where grade_name = 'Rental Grade Route'"
             ).fetchone()
             self.assertEqual(grade["rental_driving_hourly_rate"], 22.5)
+            self.assertEqual(grade["car_hourly_rate"], grade["transport_hourly_rate"])
+        page = self.http.get('/employee-grades').get_data(as_text=True)
+        self.assertNotIn('车补时长单价', page)
 
     def test_sanhe_service_order_number_warning_in_list_and_calendar(self):
         self.assertEqual(

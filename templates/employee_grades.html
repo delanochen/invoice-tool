@@ -15,7 +15,7 @@
     <table class="list-table selectable-list-table">
       <thead>
         <tr>
-          <th>等级</th><th>等级描述</th><th>基本工资</th><th>餐费补贴/天</th><th>车补方式</th><th>里程单价</th><th>时长单价</th><th>租车驾驶补贴/小时</th><th>标准时薪</th><th>交通时薪</th><th>加班时薪</th><th>假期时薪</th><th>状态</th>
+          <th>等级</th><th>等级描述</th><th>基本工资</th><th>餐费补贴/天</th><th>车补方式</th><th>里程单价</th><th>租车驾驶补贴/小时</th><th>标准时薪</th><th>交通时薪</th><th>加班时薪</th><th>假期时薪</th><th>状态</th>
         </tr>
       </thead>
       <tbody>
@@ -27,7 +27,6 @@
             <td>{{ grade.meal_daily_amount|money }}</td>
             <td>{{ "按时长" if grade.car_allowance_method == "hourly" else "按里程" }}</td>
             <td>{{ grade.car_mileage_rate|money }}</td>
-            <td>{{ grade.car_hourly_rate|money }}</td>
             <td>{{ grade.rental_driving_hourly_rate|money }}</td>
             <td>{{ grade.standard_hourly_rate|money }}</td>
             <td>{{ grade.transport_hourly_rate|money }}</td>
@@ -36,7 +35,7 @@
             <td>{{ "启用" if grade.is_active else "停用" }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="13" class="empty">还没有员工等级。</td></tr>
+          <tr><td colspan="12" class="empty">还没有员工等级。</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -60,7 +59,6 @@
           <select name="car_allowance_method"><option value="mileage" {% if not grade or grade.car_allowance_method != 'hourly' %}selected{% endif %}>按里程</option><option value="hourly" {% if grade and grade.car_allowance_method == 'hourly' %}selected{% endif %}>按时长</option></select>
         </label>
         <label>车补里程单价 <input type="number" step="0.01" min="0" name="car_mileage_rate" value="{{ grade.car_mileage_rate if grade else 0.5 }}"></label>
-        <label>车补时长单价 <input type="number" step="0.01" min="0" name="car_hourly_rate" value="{{ grade.car_hourly_rate if grade else 10 }}"></label>
         <label>租车驾驶补贴/小时 <input type="number" step="0.01" min="0" name="rental_driving_hourly_rate" value="{{ grade.rental_driving_hourly_rate if grade else 15 }}"></label>
         <label>标准时薪 <input type="number" step="0.01" min="0" name="standard_hourly_rate" value="{{ grade.standard_hourly_rate if grade else 0 }}"></label>
         <label>交通时薪 <input type="number" step="0.01" min="0" name="transport_hourly_rate" value="{{ grade.transport_hourly_rate if grade else 0 }}"></label>

@@ -8271,6 +8271,7 @@ def employee_grades():
         car_method = request.form.get("car_allowance_method", "mileage")
         if car_method not in {"mileage", "hourly"}:
             car_method = "mileage"
+        transport_hourly_rate = to_float(request.form.get("transport_hourly_rate"))
         values = (
             grade_name,
             request.form.get("description", "").strip(),
@@ -8278,10 +8279,10 @@ def employee_grades():
             max(to_float(request.form.get("meal_daily_amount")), 0),
             car_method,
             max(to_float(request.form.get("car_mileage_rate")), 0),
-            max(to_float(request.form.get("car_hourly_rate")), 0),
+            max(transport_hourly_rate, 0),
             max(to_float(request.form.get("rental_driving_hourly_rate") or 15), 0),
             to_float(request.form.get("standard_hourly_rate")),
-            to_float(request.form.get("transport_hourly_rate")),
+            transport_hourly_rate,
             to_float(request.form.get("overtime_hourly_rate")),
             to_float(request.form.get("holiday_hourly_rate")),
             1 if request.form.get("is_active", "1") == "1" else 0,
@@ -10370,7 +10371,6 @@ def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actu
                employee_grades.meal_daily_amount,
                employee_grades.car_allowance_method,
                employee_grades.car_mileage_rate,
-               employee_grades.car_hourly_rate,
                employee_grades.rental_driving_hourly_rate,
                employee_grades.standard_hourly_rate,
                employee_grades.transport_hourly_rate,
@@ -10473,7 +10473,6 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             "meal_daily_amount": float(row["meal_daily_amount"] or 0),
             "car_allowance_method": row["car_allowance_method"] or "mileage",
             "car_mileage_rate": float(row["car_mileage_rate"] or 0),
-            "car_hourly_rate": float(row["car_hourly_rate"] or 10),
             "rental_driving_hourly_rate": float(
                 row["rental_driving_hourly_rate"]
                 if row["rental_driving_hourly_rate"] is not None else 15
@@ -10517,7 +10516,6 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
                employee_grades.grade_name, employee_grades.base_salary,
                employee_grades.meal_daily_amount, employee_grades.standard_hourly_rate,
                employee_grades.car_allowance_method, employee_grades.car_mileage_rate,
-               employee_grades.car_hourly_rate,
                employee_grades.rental_driving_hourly_rate,
                employee_grades.transport_hourly_rate, employee_grades.overtime_hourly_rate,
                employee_grades.holiday_hourly_rate, count(service_reports.id) as report_writing_count
@@ -10538,10 +10536,10 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
         holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
         if worker["car_allowance_method"] == "hourly":
-            self_drive_allowance = worker["self_drive_travel_hours"] * worker["car_hourly_rate"]
+            self_drive_allowance = worker["self_drive_travel_hours"] * worker["transport_rate"]
         else:
             self_drive_allowance = worker["driving_miles"] * worker["car_mileage_rate"]
-        following_allowance = worker["following_travel_hours"] * worker["car_hourly_rate"]
+        following_allowance = worker["following_travel_hours"] * worker["transport_rate"]
         rental_driving_allowance = worker["rental_driving_hours"] * worker["rental_driving_hourly_rate"]
         car_allowance = self_drive_allowance + following_allowance + rental_driving_allowance
         meal_allowance = attendance_days * worker["meal_daily_amount"]
@@ -10606,12 +10604,12 @@ def payroll_payslip_payload(row):
             "label": "自驾车补",
             "miles": round(row["driving_miles"], 1),
             "hours": round(row["self_drive_travel_hours"], 2),
-            "rate": round(row["car_hourly_rate"] if row["car_allowance_method"] == "hourly" else row["car_mileage_rate"], 2),
+            "rate": round(row["transport_rate"] if row["car_allowance_method"] == "hourly" else row["car_mileage_rate"], 2),
             "amount": round(row["self_drive_allowance"], 2),
         })
     if row["following_allowance"] > 0:
         lines.append({"label": "随行车补", "hours": round(row["following_travel_hours"], 2),
-            "rate": round(row["car_hourly_rate"], 2), "amount": round(row["following_allowance"], 2)})
+            "rate": round(row["transport_rate"], 2), "amount": round(row["following_allowance"], 2)})
     if row["rental_driving_allowance"] > 0:
         lines.append({"label": "租车驾驶补贴", "miles": round(row["rental_driving_miles"], 1),
             "hours": round(row["rental_driving_hours"], 2), "rate": round(row["rental_driving_hourly_rate"], 2),
