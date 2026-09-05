@@ -32,7 +32,7 @@
           <th>交通工时</th><th>交通工资</th>
           <th>加班工时</th><th>加班工资</th>
           <th>假期工时</th><th>假期工资</th>
-          <th>补贴</th>
+          <th>自驾车补</th><th>随行车补</th><th>租车驾驶补贴</th><th>补贴</th>
           <th>合计工资</th>
         </tr>
       </thead>
@@ -52,11 +52,14 @@
             <td>{{ row.overtime_pay|money }}</td>
             <td>{{ "%.2f"|format(row.holiday_hours) }}</td>
             <td>{{ row.holiday_pay|money }}</td>
+            <td>{{ row.self_drive_allowance|money }}</td>
+            <td>{{ row.following_allowance|money }}</td>
+            <td>{{ row.rental_driving_allowance|money }}</td>
             <td>{{ row.subsidy_total|money }}</td>
             <td>{{ row.total_pay|money }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="15" class="empty">当前两周周期没有薪酬记录。</td></tr>
+          <tr><td colspan="18" class="empty">当前两周周期没有薪酬记录。</td></tr>
         {% endfor %}
       </tbody>
     </table>

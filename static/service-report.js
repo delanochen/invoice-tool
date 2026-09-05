@@ -82,7 +82,7 @@ function calculateWorkerDrivingMiles() {
   const method = serviceReportForm?.elements.mileage_billing_method?.value || "per_person";
   return serviceWorkerRows().reduce((total, row) => {
     const worker = serviceWorkerRowValues(row);
-    if (worker.mode === "flight") return total;
+    if (worker.mode === "flight" || worker.mode === "rental_drive") return total;
     if (method === "per_vehicle" && worker.mode !== "self_drive") return total;
     return total + worker.miles;
   }, 0);
@@ -538,7 +538,7 @@ serviceReportForm?.addEventListener("submit", (event) => {
   const invalidWorker = workerRows.find((row) => {
     const worker = serviceWorkerRowValues(row);
     return !worker.userId
-      || ((worker.mode === "self_drive" || worker.mode === "following") && (worker.miles <= 0 || worker.travelHours <= 0))
+      || ((worker.mode === "self_drive" || worker.mode === "following" || worker.mode === "rental_drive") && (worker.miles <= 0 || worker.travelHours <= 0))
       || (worker.mode === "flight" && worker.publicHours <= 0);
   });
   if (!workerRows.length || invalidWorker || new Set(workerIds).size !== workerIds.length) {

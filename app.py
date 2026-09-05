@@ -605,6 +605,7 @@ def init_db():
                 car_allowance_method text not null default 'mileage',
                 car_mileage_rate real not null default 0.5,
                 car_hourly_rate real not null default 10,
+                rental_driving_hourly_rate real not null default 15,
                 standard_hourly_rate real not null default 0,
                 transport_hourly_rate real not null default 0,
                 overtime_hourly_rate real not null default 0,
@@ -1204,6 +1205,7 @@ def init_db():
         ensure_column(connection, "employee_grades", "car_allowance_method", "text not null default 'mileage'")
         ensure_column(connection, "employee_grades", "car_mileage_rate", "real not null default 0.5")
         ensure_column(connection, "employee_grades", "car_hourly_rate", "real not null default 10")
+        ensure_column(connection, "employee_grades", "rental_driving_hourly_rate", "real not null default 15")
         if "car_mileage_rate" not in existing_grade_columns:
             legacy_rate = connection.execute(
                 "select value from settings where key = 'payroll_car_mileage_rate'"
@@ -4346,7 +4348,7 @@ def report_worker_ids_from_form():
     return list(dict.fromkeys(value for value in request.form.getlist("worker_user_id") if value))
 
 
-REPORT_TRAVEL_MODES = {"self_drive", "flight", "following"}
+REPORT_TRAVEL_MODES = {"self_drive", "flight", "following", "rental_drive"}
 
 
 def report_worker_rows_from_form():
@@ -4371,10 +4373,10 @@ def report_worker_rows_from_form():
         miles = to_float(row["worker_driving_miles"])
         travel_hours = to_float(row["worker_travel_hours"])
         public_hours = to_float(row["worker_public_transport_hours"])
-        if mode in {"self_drive", "following"} and miles <= 0:
-            raise ValueError("自驾和随行人员必须填写里程。")
-        if mode in {"self_drive", "following"} and travel_hours <= 0:
-            raise ValueError("自驾和随行人员必须填写交通时长。")
+        if mode in {"self_drive", "following", "rental_drive"} and miles <= 0:
+            raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
+        if mode in {"self_drive", "following", "rental_drive"} and travel_hours <= 0:
+            raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
         if mode == "flight" and public_hours <= 0:
             raise ValueError("飞机出行必须填写公共交通时长。")
         row.update(
@@ -4620,10 +4622,12 @@ def customer_reimbursement_seed_rows(order_id):
             worker_report["worker_public_transport_hours"] = worker["worker_public_transport_hours"]
             labor_hours = split_report_labor_hours(worker_report, len(workers))
             mode = worker["travel_mode"] or "legacy"
-            if report["mileage_billing_method"] == "per_vehicle":
+            if mode == "rental_drive":
+                billing_miles = 0
+            elif report["mileage_billing_method"] == "per_vehicle":
                 billing_miles = worker["driving_miles"] if mode in {"self_drive", "legacy"} else 0
             else:
-                billing_miles = worker["driving_miles"] if mode != "flight" else 0
+                billing_miles = worker["driving_miles"] if mode in {"self_drive", "following", "legacy"} else 0
             row = {
                 "source_report_id": report["id"],
                 "source_worker_user_id": worker["worker_user_id"],
@@ -8202,6 +8206,7 @@ def employee_grades():
             car_method,
             max(to_float(request.form.get("car_mileage_rate")), 0),
             max(to_float(request.form.get("car_hourly_rate")), 0),
+            max(to_float(request.form.get("rental_driving_hourly_rate") or 15), 0),
             to_float(request.form.get("standard_hourly_rate")),
             to_float(request.form.get("transport_hourly_rate")),
             to_float(request.form.get("overtime_hourly_rate")),
@@ -8214,7 +8219,7 @@ def employee_grades():
                     """
                     update employee_grades
                     set grade_name = ?, description = ?, base_salary = ?, meal_daily_amount = ?,
-                        car_allowance_method = ?, car_mileage_rate = ?, car_hourly_rate = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
+                        car_allowance_method = ?, car_mileage_rate = ?, car_hourly_rate = ?, rental_driving_hourly_rate = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
                         overtime_hourly_rate = ?, holiday_hourly_rate = ?, is_active = ?
                     where id = ?
                     """,
@@ -8226,9 +8231,9 @@ def employee_grades():
                     """
                     insert into employee_grades (
                         grade_name, description, base_salary, meal_daily_amount, car_allowance_method,
-                        car_mileage_rate, car_hourly_rate, standard_hourly_rate, transport_hourly_rate,
+                        car_mileage_rate, car_hourly_rate, rental_driving_hourly_rate, standard_hourly_rate, transport_hourly_rate,
                         overtime_hourly_rate, holiday_hourly_rate, is_active, created_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (*values, now()),
                 )
@@ -10293,6 +10298,7 @@ def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actu
                employee_grades.car_allowance_method,
                employee_grades.car_mileage_rate,
                employee_grades.car_hourly_rate,
+               employee_grades.rental_driving_hourly_rate,
                employee_grades.standard_hourly_rate,
                employee_grades.transport_hourly_rate,
                employee_grades.overtime_hourly_rate,
@@ -10395,13 +10401,18 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             "car_allowance_method": row["car_allowance_method"] or "mileage",
             "car_mileage_rate": float(row["car_mileage_rate"] or 0),
             "car_hourly_rate": float(row["car_hourly_rate"] or 10),
+            "rental_driving_hourly_rate": float(
+                row["rental_driving_hourly_rate"]
+                if row["rental_driving_hourly_rate"] is not None else 15
+            ),
             "standard_rate": float(row["standard_hourly_rate"] or 0),
             "transport_rate": float(row["transport_hourly_rate"] or 0),
             "overtime_rate": float(row["overtime_hourly_rate"] or 0),
             "holiday_rate": float(row["holiday_hourly_rate"] or 0),
             "standard_hours": 0, "transport_hours": 0, "overtime_hours": 0,
             "holiday_hours": 0, "attendance_dates": set(), "driving_miles": 0,
-            "following_travel_hours": 0, "car_travel_hours": 0,
+            "self_drive_travel_hours": 0, "following_travel_hours": 0,
+            "rental_driving_hours": 0, "rental_driving_miles": 0,
             "report_writing_count": 0,
         })
 
@@ -10414,10 +10425,12 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         travel_mode = row["worker_travel_mode"] or "legacy"
         if travel_mode in {"self_drive", "legacy"}:
             worker["driving_miles"] += float(row["worker_driving_miles"] or 0)
+            worker["self_drive_travel_hours"] += float(row["worker_travel_hours"] or 0)
         if travel_mode == "following":
             worker["following_travel_hours"] += float(row["worker_travel_hours"] or 0)
-        if travel_mode in {"self_drive", "following", "legacy"}:
-            worker["car_travel_hours"] += float(row["worker_travel_hours"] or 0)
+        if travel_mode == "rental_drive":
+            worker["rental_driving_hours"] += float(row["worker_travel_hours"] or 0)
+            worker["rental_driving_miles"] += float(row["worker_driving_miles"] or 0)
 
     date_expr = "date(service_reports.report_date)" if date_mode == "report" else "date(coalesce(service_reports.actual_work_date, service_reports.report_date))"
     clauses = [f"{date_expr} >= ?", f"{date_expr} <= ?", "service_reports.report_writer_id is not null"]
@@ -10432,6 +10445,7 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
                employee_grades.meal_daily_amount, employee_grades.standard_hourly_rate,
                employee_grades.car_allowance_method, employee_grades.car_mileage_rate,
                employee_grades.car_hourly_rate,
+               employee_grades.rental_driving_hourly_rate,
                employee_grades.transport_hourly_rate, employee_grades.overtime_hourly_rate,
                employee_grades.holiday_hourly_rate, count(service_reports.id) as report_writing_count
         from service_reports join users on users.id = service_reports.report_writer_id
@@ -10451,24 +10465,27 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
         holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
         if worker["car_allowance_method"] == "hourly":
-            car_allowance = worker["car_travel_hours"] * worker["car_hourly_rate"]
+            self_drive_allowance = worker["self_drive_travel_hours"] * worker["car_hourly_rate"]
         else:
-            car_allowance = (
-                worker["driving_miles"] * worker["car_mileage_rate"]
-                + worker["following_travel_hours"] * worker["car_hourly_rate"]
-            )
+            self_drive_allowance = worker["driving_miles"] * worker["car_mileage_rate"]
+        following_allowance = worker["following_travel_hours"] * worker["car_hourly_rate"]
+        rental_driving_allowance = worker["rental_driving_hours"] * worker["rental_driving_hourly_rate"]
+        car_allowance = self_drive_allowance + following_allowance + rental_driving_allowance
         meal_allowance = attendance_days * worker["meal_daily_amount"]
         report_writing_fee = worker["report_writing_count"] * subsidy_settings["report_writing_fee"]
         subsidy_total = car_allowance + meal_allowance + report_writing_fee
         total_pay = worker["base_salary"] + standard_pay + transport_pay + overtime_pay + holiday_pay + subsidy_total
         payroll_rows.append({**worker, "attendance_days": attendance_days, "standard_pay": standard_pay,
             "transport_pay": transport_pay, "overtime_pay": overtime_pay, "holiday_pay": holiday_pay,
-            "car_allowance": car_allowance, "meal_allowance": meal_allowance,
+            "self_drive_allowance": self_drive_allowance, "following_allowance": following_allowance,
+            "rental_driving_allowance": rental_driving_allowance, "car_allowance": car_allowance,
+            "meal_allowance": meal_allowance,
             "report_writing_fee": report_writing_fee, "subsidy_total": subsidy_total, "total_pay": total_pay})
     payroll_rows.sort(key=lambda row: row["worker_name"])
     totals = {key: sum(row[key] for row in payroll_rows) for key in (
         "base_salary", "standard_pay", "transport_pay", "overtime_pay", "holiday_pay",
-        "car_allowance", "meal_allowance", "report_writing_fee", "subsidy_total", "total_pay")}
+        "self_drive_allowance", "following_allowance", "rental_driving_allowance", "car_allowance",
+        "meal_allowance", "report_writing_fee", "subsidy_total", "total_pay")}
     return {"rows": payroll_rows, "totals": totals, "period_start": period_start,
             "period_end": period_end, "pay_date": pay_date, "subsidy_settings": subsidy_settings}
 
@@ -10485,10 +10502,14 @@ def payroll_row_export(row):
         "基本工资": round(row["base_salary"], 2),
         "出勤天数": row["attendance_days"],
         "里程": round(row["driving_miles"], 1),
+        "租车里程": round(row["rental_driving_miles"], 1),
         "标准工时": round(row["standard_hours"], 2),
         "标准工资": round(row["standard_pay"], 2),
         "交通工时": round(row["transport_hours"], 2),
         "交通工资": round(row["transport_pay"], 2),
+        "自驾车补": round(row["self_drive_allowance"], 2),
+        "随行车补": round(row["following_allowance"], 2),
+        "租车驾驶补贴": round(row["rental_driving_allowance"], 2),
         "加班工时": round(row["overtime_hours"], 2),
         "加班工资": round(row["overtime_pay"], 2),
         "假期工时": round(row["holiday_hours"], 2),
@@ -10507,14 +10528,21 @@ def payroll_payslip_payload(row):
         {"label": "加班工资", "hours": round(row["overtime_hours"], 2), "rate": round(row["overtime_rate"], 2), "amount": round(row["overtime_pay"], 2)},
         {"label": "假期工资", "hours": round(row["holiday_hours"], 2), "rate": round(row["holiday_rate"], 2), "amount": round(row["holiday_pay"], 2)},
     ]
-    if row["car_allowance"] > 0:
+    if row["self_drive_allowance"] > 0:
         lines.append({
-            "label": "车补",
+            "label": "自驾车补",
             "miles": round(row["driving_miles"], 1),
-            "hours": round(row["car_travel_hours"], 2),
+            "hours": round(row["self_drive_travel_hours"], 2),
             "rate": round(row["car_hourly_rate"] if row["car_allowance_method"] == "hourly" else row["car_mileage_rate"], 2),
-            "amount": round(row["car_allowance"], 2),
+            "amount": round(row["self_drive_allowance"], 2),
         })
+    if row["following_allowance"] > 0:
+        lines.append({"label": "随行车补", "hours": round(row["following_travel_hours"], 2),
+            "rate": round(row["car_hourly_rate"], 2), "amount": round(row["following_allowance"], 2)})
+    if row["rental_driving_allowance"] > 0:
+        lines.append({"label": "租车驾驶补贴", "miles": round(row["rental_driving_miles"], 1),
+            "hours": round(row["rental_driving_hours"], 2), "rate": round(row["rental_driving_hourly_rate"], 2),
+            "amount": round(row["rental_driving_allowance"], 2)})
     if row["meal_allowance"] > 0:
         lines.append({"label": "餐补", "days": row["attendance_days"], "rate": round(row["meal_daily_amount"], 2), "amount": round(row["meal_allowance"], 2)})
     if row["report_writing_fee"] > 0:
@@ -10524,6 +10552,7 @@ def payroll_payslip_payload(row):
         "grade": row["grade_name"],
         "attendance_days": row["attendance_days"],
         "driving_miles": round(row["driving_miles"], 1),
+        "rental_driving_miles": round(row["rental_driving_miles"], 1),
         "lines": lines,
         "total_pay": round(row["total_pay"], 2),
     }

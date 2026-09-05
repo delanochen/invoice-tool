@@ -239,7 +239,113 @@ class PaymentTermsTest(unittest.TestCase):
                 self.module.date(2026, 8, 6), self.module.date(2026, 8, 19),
                 self.module.date(2026, 9, 2), str(self.employee_id),
             )
+            self.assertEqual(payroll["rows"][0]["self_drive_allowance"], 0)
+            self.assertEqual(payroll["rows"][0]["following_allowance"], 80)
+            self.assertEqual(payroll["rows"][0]["rental_driving_allowance"], 0)
             self.assertEqual(payroll["rows"][0]["car_allowance"], 80)
+
+    def test_rental_driver_uses_hourly_allowance_and_never_bills_mileage(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute(
+                "update service_orders set start_date = '2026-08-14' where id = ?",
+                (self.open_order_id,),
+            )
+            grade_id = connection.execute(
+                """
+                insert into employee_grades (
+                    grade_name, car_allowance_method, car_mileage_rate, car_hourly_rate,
+                    rental_driving_hourly_rate, created_at
+                ) values ('Rental Test', 'mileage', 0.5, 10, 15, '2026-08-14T00:00:00')
+                """
+            ).lastrowid
+            connection.execute(
+                "update users set employee_grade_id = ? where id = ?",
+                (grade_id, self.employee_id),
+            )
+            connection.commit()
+
+        response = self.http.post(
+            f"/service-orders/{self.open_order_id}/reports/new",
+            data={
+                "save_token": "rental-driving-test-token",
+                "report_date": "2026-08-14",
+                "actual_work_date": "2026-08-14",
+                "arrival_time_hour": "08", "arrival_time_minute": "00",
+                "departure_time_hour": "16", "departure_time_minute": "00",
+                "mileage_billing_method": "per_person",
+                "worker_user_id": [str(self.employee_id)],
+                "worker_travel_mode": ["rental_drive"],
+                "worker_driving_miles": ["120"],
+                "worker_travel_hours": ["3"],
+                "worker_public_transport_hours": [""],
+                "worker_work_description": ["租车驾驶"],
+                "site_address": "Test Site",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.module.app.app_context():
+            connection = self.module.db()
+            report = connection.execute(
+                "select * from service_reports where service_order_id = ? order by id desc limit 1",
+                (self.open_order_id,),
+            ).fetchone()
+            worker = connection.execute(
+                "select * from service_report_workers where report_id = ?", (report["id"],)
+            ).fetchone()
+            self.assertEqual(worker["travel_mode"], "rental_drive")
+            self.assertEqual(worker["driving_miles"], 120)
+            self.assertEqual(worker["travel_hours"], 3)
+            self.assertEqual(report["driving_miles"], 0)
+
+            reimbursement_rows = self.module.customer_reimbursement_seed_rows(self.open_order_id)
+            rental_row = next(row for row in reimbursement_rows if row["source_report_id"] == report["id"])
+            self.assertEqual(rental_row["miles"], 0)
+
+            payroll = self.module.payroll_rows_for_range(
+                self.module.date(2026, 8, 6), self.module.date(2026, 8, 19),
+                self.module.date(2026, 9, 2), str(self.employee_id),
+            )
+            row = payroll["rows"][0]
+            self.assertEqual(row["rental_driving_miles"], 120)
+            self.assertEqual(row["rental_driving_hours"], 3)
+            self.assertEqual(row["self_drive_allowance"], 0)
+            self.assertEqual(row["following_allowance"], 0)
+            self.assertEqual(row["rental_driving_allowance"], 45)
+            self.assertEqual(row["car_allowance"], 45)
+            payslip = self.module.payroll_payslip_payload(row)
+            rental_line = next(line for line in payslip["lines"] if line["label"] == "租车驾驶补贴")
+            self.assertEqual(rental_line["hours"], 3)
+            self.assertEqual(rental_line["rate"], 15)
+            self.assertEqual(rental_line["miles"], 120)
+            self.assertEqual(rental_line["amount"], 45)
+
+    def test_employee_grade_saves_rental_driving_hourly_rate(self):
+        response = self.http.post(
+            "/employee-grades",
+            data={
+                "grade_name": "Rental Grade Route",
+                "description": "Rental allowance test",
+                "base_salary": "0",
+                "meal_daily_amount": "0",
+                "car_allowance_method": "mileage",
+                "car_mileage_rate": "0.5",
+                "car_hourly_rate": "10",
+                "rental_driving_hourly_rate": "22.5",
+                "standard_hourly_rate": "0",
+                "transport_hourly_rate": "0",
+                "overtime_hourly_rate": "0",
+                "holiday_hourly_rate": "0",
+                "is_active": "1",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            grade = self.module.db().execute(
+                "select * from employee_grades where grade_name = 'Rental Grade Route'"
+            ).fetchone()
+            self.assertEqual(grade["rental_driving_hourly_rate"], 22.5)
 
     def test_sanhe_service_order_number_warning_in_list_and_calendar(self):
         self.assertEqual(

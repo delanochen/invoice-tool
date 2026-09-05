@@ -106,7 +106,7 @@
             {% for worker in worker_rows %}
               <tr tabindex="0" aria-selected="false">
                 <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}" {% if worker.id == user.id %}selected{% endif %}>{{ user.name }}</option>{% endfor %}</select></td>
-                <td><select name="worker_travel_mode"><option value="self_drive" {% if worker.travel_mode in ['self_drive', 'legacy'] %}selected{% endif %}>自驾</option><option value="flight" {% if worker.travel_mode == 'flight' %}selected{% endif %}>飞机</option><option value="following" {% if worker.travel_mode == 'following' %}selected{% endif %}>随行</option></select></td>
+                <td><select name="worker_travel_mode"><option value="self_drive" {% if worker.travel_mode in ['self_drive', 'legacy'] %}selected{% endif %}>自驾</option><option value="rental_drive" {% if worker.travel_mode == 'rental_drive' %}selected{% endif %}>租车驾驶</option><option value="flight" {% if worker.travel_mode == 'flight' %}selected{% endif %}>飞机</option><option value="following" {% if worker.travel_mode == 'following' %}selected{% endif %}>随行</option></select></td>
                 <td><input type="number" step="0.1" min="0" name="worker_driving_miles" value="{{ worker.driving_miles or 0 }}"></td>
                 <td><input type="number" step="0.1" min="0" name="worker_travel_hours" value="{{ worker.travel_hours if worker.travel_hours is not none else report.travel_hours or 0 }}"></td>
                 <td><input type="number" step="0.1" min="0" name="worker_public_transport_hours" value="{{ worker.public_transport_hours if worker.public_transport_hours is not none else report.public_transport_hours or 0 }}"></td>
@@ -118,7 +118,7 @@
       </div>
       <template id="serviceWorkerRowTemplate"><tr tabindex="0" aria-selected="false">
         <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}">{{ user.name }}</option>{% endfor %}</select></td>
-        <td><select name="worker_travel_mode"><option value="self_drive">自驾</option><option value="flight">飞机</option><option value="following">随行</option></select></td>
+        <td><select name="worker_travel_mode"><option value="self_drive">自驾</option><option value="rental_drive">租车驾驶</option><option value="flight">飞机</option><option value="following">随行</option></select></td>
         <td><input type="number" step="0.1" min="0" name="worker_driving_miles"></td>
         <td><input type="number" step="0.1" min="0" name="worker_travel_hours"></td>
         <td><input type="number" step="0.1" min="0" name="worker_public_transport_hours"></td>
