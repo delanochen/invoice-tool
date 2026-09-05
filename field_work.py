@@ -35,9 +35,12 @@ def init_field_schema(connection):
         create index if not exists idx_field_photos_user on field_photos(user_id);
     ''')
     columns = {row[1] for row in connection.execute('pragma table_info(field_photos)')}
-    for name in ('equipment_number', 'position_number', 'equipment_session', 'photo_type', 'watermark_at', 'batch_id'):
+    for name in ('equipment_number', 'position_number', 'container_number', 'equipment_session', 'photo_type',
+                 'watermark_at', 'batch_id', 'technician_name'):
         if name not in columns:
             connection.execute(f"alter table field_photos add column {name} text not null default ''")
+    if 'technician_user_id' not in columns:
+        connection.execute('alter table field_photos add column technician_user_id integer')
 
 
 def register_field_routes(app, api):
@@ -89,8 +92,10 @@ def register_field_routes(app, api):
                 params.append(value)
         q = request.args.get('q', '').strip()
         if q:
-            clauses.append('(service_orders.order_number like ? or service_orders.client_name like ? or users.name like ? or p.note like ? or clients.name like ?)')
-            params.extend(['%' + q + '%'] * 5)
+            clauses.append('''(service_orders.order_number like ? or service_orders.client_name like ? or users.name like ?
+                              or p.technician_name like ? or p.equipment_number like ? or p.position_number like ?
+                              or p.container_number like ? or p.note like ? or clients.name like ?)''')
+            params.extend(['%' + q + '%'] * 9)
         return api['db']().execute('''
             select p.*, service_orders.order_number, service_orders.client_name as site_name, service_orders.site_address,
                    users.name as employee_name, clients.name as customer_name
@@ -130,7 +135,13 @@ def register_field_routes(app, api):
     @app.get('/api/field/session')
     @access
     def field_session():
+        technicians = api['db']().execute('''
+            select id, name from users
+            where is_active = 1 and role in ('admin', 'manager', 'finance', 'employee', 'internal', 'user', 'external_employee')
+            order by name collate nocase
+        ''').fetchall()
         return jsonify(user=dict(id=g.user['id'], name=g.user['name']), csrf=token(),
+                       technicians=[dict(row) for row in technicians],
                        orders=[dict(row) for row in order_rows()], version=api['APP_VERSION'],
                        can_capture=api['has_action_permission']('service_reports', 'create'),
                        create_order_url=url_for('new_service_order') if api['can_create_service_order']() else None,
@@ -176,9 +187,11 @@ def register_field_routes(app, api):
         if source not in {'camera', 'file'}:
             return jsonify(error='照片来源无效。'), 422
         note = request.form.get('note', '').strip()[:1000]
-        has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'equipment_session', 'no_equipment_number'))
+        has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'container_number',
+                                                                   'equipment_session', 'no_equipment_number'))
         equipment_number = request.form.get('equipment_number', '').strip()[:200]
         position_number = request.form.get('position_number', '').strip()[:200]
+        container_number = request.form.get('container_number', '').strip()[:200]
         equipment_session = request.form.get('equipment_session', '').strip()[:64]
         photo_type = request.form.get('photo_type', 'legacy').strip()
         watermark_at = watermark.isoformat()
@@ -190,6 +203,16 @@ def register_field_routes(app, api):
             return jsonify(error='请确认设备编号，或明确选择“此设备无编号”。'), 422
         if not has_device_metadata:
             equipment_session = 'legacy-pending-photo'
+        technician_user_id = request.form.get('technician_user_id', str(g.user['id'])).strip()
+        technician = None
+        if technician_user_id.isdigit():
+            technician = api['db']().execute('''
+                select id, name from users where id = ? and is_active = 1
+                and role in ('admin', 'manager', 'finance', 'employee', 'internal', 'user', 'external_employee')
+            ''', (int(technician_user_id),)).fetchone()
+        if not technician:
+            return jsonify(error='请选择有效的施工员。'), 422
+        technician_name = technician['name']
         location_note = request.form.get('location_note', '').strip()[:500]
         photo = request.files.get('photo')
         content = photo.read(15 * 1024 * 1024 + 1) if photo else b''
@@ -226,12 +249,13 @@ def register_field_routes(app, api):
             cursor = db.execute('''insert into field_photos
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
-                 equipment_number, position_number, equipment_session, photo_type, watermark_at, batch_id)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 equipment_number, position_number, container_number, equipment_session, photo_type, watermark_at,
+                 batch_id, technician_user_id, technician_name)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
-                 relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, equipment_session,
-                 photo_type, watermark_at, batch_id))
+                 relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, container_number,
+                 equipment_session, photo_type, watermark_at, batch_id, technician['id'], technician_name))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
         except Exception:
@@ -303,8 +327,12 @@ def register_field_routes(app, api):
         rows = photo_rows()
         if len(rows) > 2000:
             return jsonify(error='结果超过 2000 条，请缩小日期或工单范围后导出。'), 422
-        headers = ['工单', '客户', '站点', '员工', '拍摄日期', '设备拍摄时间（UTC）', '归档时区', '上传时间', '纬度', '经度', '精度（米）', '备注', '位置确认说明', '来源', '文件路径']
-        keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'employee_name', 'capture_date', 'captured_at', 'timezone_name', 'received_at', 'latitude', 'longitude', 'accuracy', 'note', 'location_note', 'source', 'relative_path']
+        headers = ['工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '施工员', '实际拍摄账号', '拍摄日期',
+                   '设备拍摄时间（UTC）', '水印时间', '归档时区', '上传时间', '纬度', '经度', '精度（米）',
+                   '备注', '位置确认说明', '来源', '文件路径']
+        keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'container_number',
+                'technician_name', 'employee_name', 'capture_date', 'captured_at', 'watermark_at', 'timezone_name',
+                'received_at', 'latitude', 'longitude', 'accuracy', 'note', 'location_note', 'source', 'relative_path']
         buffer = api['build_simple_xlsx'](headers, [[str(row[key] or '') for key in keys] for row in rows], sheet_name='工单照片台账')
         return send_file(buffer, as_attachment=True, download_name='field-photos.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 

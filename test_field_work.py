@@ -90,12 +90,26 @@ class FieldWorkTest(unittest.TestCase):
 
     def test_device_session_metadata_is_saved_and_empty_number_is_explicit(self):
         session_id = uuid.uuid4().hex
-        self.assertEqual(self.upload(equipment_number='INV-42', position_number='TOP', equipment_session=session_id).status_code, 200)
+        self.assertEqual(self.upload(equipment_number='INV-42', position_number='TOP', container_number='LYGU0217133',
+                                     technician_user_id=str(self.fixture.people['Beneficiary']),
+                                     equipment_session=session_id).status_code, 200)
         self.assertEqual(self.upload(equipment_number='', position_number='LEFT', equipment_session=session_id, no_equipment_number='true').status_code, 200)
         with self.module.app.app_context():
-            rows = self.module.db().execute('select equipment_number, position_number, equipment_session from field_photos order by id').fetchall()
-        self.assertEqual(tuple(rows[0]), ('INV-42', 'TOP', session_id))
-        self.assertEqual(tuple(rows[1]), ('', 'LEFT', session_id))
+            rows = self.module.db().execute('''select equipment_number, position_number, container_number,
+                                              equipment_session, technician_user_id, technician_name, user_id
+                                       from field_photos order by id''').fetchall()
+        self.assertEqual(tuple(rows[0]), ('INV-42', 'TOP', 'LYGU0217133', session_id,
+                                         self.fixture.people['Beneficiary'], 'Beneficiary', self.fixture.people['Submitter']))
+        self.assertEqual(tuple(rows[1]), ('', 'LEFT', '', session_id,
+                                         self.fixture.people['Submitter'], 'Submitter', self.fixture.people['Submitter']))
+
+    def test_session_lists_technicians_and_invalid_technician_is_rejected(self):
+        session = self.http.get('/api/field/session').json
+        self.assertIn({'id': self.fixture.people['Submitter'], 'name': 'Submitter'}, session['technicians'])
+        self.assertIn({'id': self.fixture.people['Beneficiary'], 'name': 'Beneficiary'}, session['technicians'])
+        response = self.upload(technician_user_id='999999')
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json['error'], '请选择有效的施工员。')
 
     def test_nameplate_recognition_prefers_labeled_machine_number(self):
         completed = type('Result', (), {'returncode':0, 'stdout':b'Machine Type LCI-400CR-01AZ-3487U\nManufacture Year 2024\nMachine Number 1023231239085\n'})()

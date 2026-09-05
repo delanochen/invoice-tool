@@ -19,6 +19,7 @@
         <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
         <p id="orderContext" class="muted"></p>
         <small class="muted">同一站点可有多个工单。定位异常只会提醒，照片始终归入你明确选中的工单。</small>
+        <label>Technician（施工员）<select id="technicianSelect"></select></label>
         <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><p id="kindStatus" class="muted">请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
           <label class="check-label"><input id="systemTime" type="checkbox" checked> 使用当前系统时间</label>
@@ -26,8 +27,9 @@
           <p id="timeStatus" class="muted">使用当前系统时间。</p>
         </fieldset>
         <fieldset id="deviceSession" class="device-session" hidden><legend>当前设备</legend>
-          <label>设备编号<input id="equipmentNumber" maxlength="200" autocomplete="off" placeholder="扫描或输入一次"></label>
+          <label>铭牌号（Machine Number）<input id="equipmentNumber" maxlength="200" autocomplete="off" placeholder="识别或输入一次"></label>
           <label>位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如：B6-1（可留空）"></label>
+          <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off" placeholder="可留空"></label>
           <label class="check-label"><input id="noEquipmentNumber" type="checkbox"> 此设备没有编号</label>
           <div class="device-actions"><button id="recognizeDevice" type="button">识别铭牌</button><button id="confirmDevice" class="primary" type="button">确认并连续拍摄</button><button id="nextDevice" type="button">下一台设备</button></div>
           <p id="deviceStatus" class="muted">拍照前必须确认设备；条码或二维码可自动识别。</p>

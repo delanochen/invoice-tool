@@ -44,57 +44,61 @@
   }
   async function draw(ctx, width, height, context) {
     const image = await logo();
-    const font = Math.max(12, Math.min(width, height) * .024);
+    const font = Math.max(11, Math.min(width, height) * .021);
     const cardWidth = width * (width > height ? .50 : .65);
-    const pad = font * .85, labelWidth = font * 3.5, lineHeight = font * 1.36;
+    const pad = font * .68, labelWidth = font * 5.8, lineHeight = font * 1.18;
     const innerWidth = cardWidth - pad * 2, valueWidth = innerWidth - labelWidth;
     const headerFont = font * 1.22, companyFont = font * .90;
     const logoSize = font * 2.12, logoGap = font * .55;
     ctx.save(); ctx.textBaseline = 'top';
     ctx.font = `700 ${headerFont}px ${FONT}`;
-    const title = wrap(ctx, context.site_name || context.order_number, innerWidth - logoSize - logoGap, 2);
-    const headerHeight = pad * 2 + title.length * headerFont * 1.18 + companyFont * 1.5;
+    const title = wrap(ctx, context.site_name || 'Prasinos Power', innerWidth - logoSize - logoGap, 2);
+    const headerHeight = pad * 1.65 + title.length * headerFont * 1.08 + companyFont * 1.28;
     ctx.font = `600 ${font}px ${FONT}`;
     const rows = [
-      ...(context.photo_type === 'equipment' ? [['设备', context.equipment_number || 'N/A', 2], ['位置', context.position_number || '—', 1]] : []),
-      ['施工员', context.employee_name, 2],
+      ...(context.photo_type === 'equipment' ? [
+        ['Machine No.', context.equipment_number || 'N/A', 2],
+        ...(context.position_number ? [['Location No.', context.position_number, 1]] : []),
+        ...(context.container_number ? [['Container No.', context.container_number, 1]] : [])
+      ] : []),
+      ['Technician', context.employee_name, 2],
       ['Time', localTime(context), 2],
       ['Address', context.site_address || context.site_name || '未填写地址', 3]
     ];
     if (context.note) rows.push(['备注', context.note, 2]);
     const renderedRows = rows.map(([label,value,maxLines]) => ({label, lines:wrap(ctx,value,valueWidth,maxLines)}));
-    const bodyHeight = renderedRows.reduce((sum,row) => sum + row.lines.length * lineHeight + font * .35, 0);
+    const bodyHeight = renderedRows.reduce((sum,row) => sum + row.lines.length * lineHeight + font * .20, 0);
     const footerFont = font * .72;
     ctx.font = `500 ${footerFont}px ${FONT}`;
     const coords = `${Number(context.latitude).toFixed(5)}, ${Number(context.longitude).toFixed(5)}  ·  ±${Math.round(context.accuracy)}m`;
     const footer = [coords, context.source === 'camera' ? '现场拍摄 · 设备时间' : '系统相机 / 选图 · 本次记录时间'];
-    const cardHeight = headerHeight + pad * 2 + bodyHeight + footerFont * 3.2;
+    const cardHeight = headerHeight + pad * 1.5 + bodyHeight + footerFont * 2.75;
     // Landscape, portrait and small images use the same proportions without clipping.
     const scale = Math.min(1, height * .43 / cardHeight);
     const margin = Math.max(6, Math.min(width,height) * .018);
     const x = margin, y = height - margin - cardHeight * scale;
     ctx.translate(x, y); ctx.scale(scale, scale);
     ctx.shadowColor = 'rgba(0,0,0,.18)'; ctx.shadowBlur = font * .6; ctx.shadowOffsetY = font * .16;
-    rounded(ctx,0,0,cardWidth,cardHeight,font*.4); ctx.fillStyle='rgba(255,255,255,.91)'; ctx.fill();
+    rounded(ctx,0,0,cardWidth,cardHeight,font*.4); ctx.fillStyle='rgba(255,255,255,.84)'; ctx.fill();
     ctx.shadowColor = 'transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
     ctx.save(); rounded(ctx,0,0,cardWidth,cardHeight,font*.4); ctx.clip();
     const gradient=ctx.createLinearGradient(0,0,cardWidth,headerHeight);
-    gradient.addColorStop(0,'rgba(9,83,73,.96)'); gradient.addColorStop(1,'rgba(15,118,110,.93)');
+    gradient.addColorStop(0,'rgba(9,83,73,.88)'); gradient.addColorStop(1,'rgba(15,118,110,.85)');
     ctx.fillStyle=gradient; ctx.fillRect(0,0,cardWidth,headerHeight);
     ctx.fillStyle='#8dc63f'; ctx.fillRect(0,headerHeight-font*.13,cardWidth,font*.13);
     ctx.restore();
     if (image) ctx.drawImage(image,pad,pad,logoSize,logoSize);
     const titleX=pad+logoSize+logoGap;
     ctx.font=`700 ${headerFont}px ${FONT}`; ctx.fillStyle='#fff';
-    title.forEach((line,i)=>ctx.fillText(line,titleX,pad+i*headerFont*1.18));
+    title.forEach((line,i)=>ctx.fillText(line,titleX,pad+i*headerFont*1.08));
     ctx.font=`600 ${companyFont}px ${FONT}`; ctx.fillStyle='#e1f2ec';
-    ctx.fillText('Prasinos Power',titleX,pad+title.length*headerFont*1.18+companyFont*.17);
-    let rowY=headerHeight+pad;
+    ctx.fillText('Prasinos Power',titleX,pad+title.length*headerFont*1.08+companyFont*.10);
+    let rowY=headerHeight+pad*.75;
     renderedRows.forEach(row=>{
       ctx.font=`500 ${font*.86}px ${FONT}`; ctx.fillStyle='#53645e'; ctx.fillText(row.label,pad,rowY+font*.08);
       ctx.font=`600 ${font}px ${FONT}`; ctx.fillStyle='#142e28';
       row.lines.forEach((line,i)=>ctx.fillText(line,pad+labelWidth,rowY+i*lineHeight));
-      rowY+=row.lines.length*lineHeight+font*.35;
+      rowY+=row.lines.length*lineHeight+font*.20;
     });
     ctx.fillStyle='rgba(15,118,110,.18)'; ctx.fillRect(pad,rowY,innerWidth,Math.max(1,font*.035));
     ctx.font=`500 ${footerFont}px ${FONT}`; ctx.fillStyle='#586b63';
