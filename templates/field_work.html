@@ -30,6 +30,7 @@
           <label>铭牌号（Machine Number）<input id="equipmentNumber" maxlength="200" autocomplete="off" placeholder="识别或输入一次"></label>
           <label>位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如：B6-1（可留空）"></label>
           <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off" placeholder="可留空"></label>
+          <label>已更换水泵保险编号<input id="pumpFuseNumbers" maxlength="200" autocomplete="off" placeholder="例如：1/2/3/4/5（可留空）"></label>
           <label class="check-label"><input id="noEquipmentNumber" type="checkbox"> 此设备没有编号</label>
           <div class="device-actions"><button id="recognizeDevice" type="button">识别铭牌</button><button id="confirmDevice" class="primary" type="button">确认并连续拍摄</button><button id="nextDevice" type="button">下一台设备</button></div>
           <p id="deviceStatus" class="muted">拍照前必须确认设备；条码或二维码可自动识别。</p>
@@ -48,7 +49,7 @@
       <button id="completeBatch" class="primary complete-batch" type="button" hidden>完成并上传本组照片</button>
     </section>
     <section data-panel="orders" hidden><div class="section-heading"><h1>我的工单</h1><button id="reloadOrders" type="button">刷新</button></div><p class="muted">按距当前位置的远近排列。同一站点可有多个工单，请确认编号。</p><input id="orderSearch" type="search" placeholder="搜索工单、站点或客户" aria-label="搜索工单"><div id="orderList"></div><div class="card"><h2>没有对应工单？</h2><a id="createOrder" class="primary button" href="/service-orders/new" hidden>新建工单</a><button id="requestOrder" type="button">申请新建工单</button><p class="muted">联网后新建或申请；确认工单后再拍照归档。</p></div></section>
-    <section data-panel="ledger" hidden><div class="section-heading"><h1>照片台账</h1><button id="refreshLedger" type="button">查询</button></div><form id="ledgerFilter" class="card"><label>关键词<input name="q" placeholder="工单、客户、站点、员工、备注"></label><div class="two-columns"><label>开始日期<input name="date_from" type="date"></label><label>结束日期<input name="date_to" type="date"></label></div><button class="primary" type="submit">查询照片</button><a id="exportLedger" class="button" href="/api/field/photos.xlsx">导出 Excel</a></form><p id="ledgerSummary" class="muted"></p><div id="ledgerList"></div></section>
+    <section data-panel="ledger" hidden><div class="section-heading"><h1>照片台账</h1><button id="refreshLedger" type="button">查询</button></div><form id="ledgerFilter" class="card"><label>关键词<input name="q" placeholder="工单、客户、站点、员工、设备信息、备注"></label><div class="two-columns"><label>开始日期<input name="date_from" type="date"></label><label>结束日期<input name="date_to" type="date"></label></div><button class="primary" type="submit">查询照片</button><a id="exportLedger" class="button" href="/api/field/photos.xlsx">导出照片台账</a><a id="repairReport" class="button" href="/reports/field-repairs">设备维修清单</a></form><p id="ledgerSummary" class="muted"></p><div id="ledgerList"></div></section>
     <section data-panel="profile" hidden><h1>我的</h1><div class="card"><h2 id="profileName"></h2><p id="versionText"></p><label>照片归档时区<input id="timezoneName" placeholder="例如 Europe/Amsterdam"></label><p class="muted">默认使用手机时区。出差时请确认与现场一致；补传不会改变拍摄日期。</p><button id="installApp" type="button" hidden>添加到主屏幕</button><p>iPhone：在 Safari 分享菜单选择“添加到主屏幕”。</p><p>后台定位和上传可能暂停，回到这里后会继续。</p><a class="button" href="/service-orders">进入管理系统</a><a class="button" id="fieldLogout" href="/logout">退出登录</a></div></section>
   </div>
 </main>

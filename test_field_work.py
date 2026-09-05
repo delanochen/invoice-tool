@@ -91,16 +91,17 @@ class FieldWorkTest(unittest.TestCase):
     def test_device_session_metadata_is_saved_and_empty_number_is_explicit(self):
         session_id = uuid.uuid4().hex
         self.assertEqual(self.upload(equipment_number='INV-42', position_number='TOP', container_number='LYGU0217133',
+                                     pump_fuse_numbers='1/2/3/4/5',
                                      technician_user_id=str(self.fixture.people['Beneficiary']),
                                      equipment_session=session_id).status_code, 200)
         self.assertEqual(self.upload(equipment_number='', position_number='LEFT', equipment_session=session_id, no_equipment_number='true').status_code, 200)
         with self.module.app.app_context():
-            rows = self.module.db().execute('''select equipment_number, position_number, container_number,
+            rows = self.module.db().execute('''select equipment_number, position_number, container_number, pump_fuse_numbers,
                                               equipment_session, technician_user_id, technician_name, user_id
                                        from field_photos order by id''').fetchall()
-        self.assertEqual(tuple(rows[0]), ('INV-42', 'TOP', 'LYGU0217133', session_id,
+        self.assertEqual(tuple(rows[0]), ('INV-42', 'TOP', 'LYGU0217133', '1/2/3/4/5', session_id,
                                          self.fixture.people['Beneficiary'], 'Beneficiary', self.fixture.people['Submitter']))
-        self.assertEqual(tuple(rows[1]), ('', 'LEFT', '', session_id,
+        self.assertEqual(tuple(rows[1]), ('', 'LEFT', '', '', session_id,
                                          self.fixture.people['Submitter'], 'Submitter', self.fixture.people['Submitter']))
 
     def test_session_lists_technicians_and_invalid_technician_is_rejected(self):
@@ -163,6 +164,23 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(self.http.get('/reports/field-photos').status_code,200)
         self.assertEqual(self.http.get('/api/field/photos?q=unknown').json['rows'],[])
         self.assertEqual(self.http.get('/api/field/photos.xlsx?q=Equipment').status_code,200)
+
+    def test_repair_register_groups_device_photos_and_exports_manual_fields(self):
+        session_id = uuid.uuid4().hex
+        for note in ('Before repair', 'After repair'):
+            response = self.upload(equipment_number='10232502W0738', position_number='4A1-4',
+                                   container_number='LYGU0217133', pump_fuse_numbers='1/2/3/4/5',
+                                   equipment_session=session_id, batch_id='batch-one', photo_type='equipment', note=note)
+            self.assertEqual(response.status_code, 200, response.text)
+        self.fixture.login('Manager')
+        page = self.http.get('/reports/field-repairs')
+        self.assertEqual(page.status_code, 200)
+        body = page.get_data(as_text=True)
+        for value in ('10232502W0738', '4A1-4', 'LYGU0217133', '1/2/3/4/5', '2 张'):
+            self.assertIn(value, body)
+        export = self.http.get('/api/field/repairs.xlsx')
+        self.assertEqual(export.status_code, 200)
+        self.assertIn('spreadsheetml', export.content_type)
 
     def test_public_shell_has_no_employee_data_and_manifest_exists(self):
         with self.http.session_transaction() as session:

@@ -588,7 +588,12 @@ def init_db():
                 password_hash text not null,
                 role text not null default 'user',
                 address text not null default '',
+                phone text not null default '',
+                phone_verified integer not null default 0,
+                phone_verified_at text,
                 default_language text not null default 'zh-CN',
+                preferred_communication_language text not null default 'zh-CN',
+                communication_languages text not null default 'zh-CN',
                 employee_grade_id integer,
                 client_id integer,
                 created_at text not null,
@@ -1196,7 +1201,12 @@ def init_db():
         ensure_column(connection, "users", "country_code", "text not null default 'US'")
         ensure_column(connection, "users", "employee_grade_id", "integer")
         ensure_column(connection, "users", "address", "text not null default ''")
+        ensure_column(connection, "users", "phone", "text not null default ''")
+        ensure_column(connection, "users", "phone_verified", "integer not null default 0")
+        ensure_column(connection, "users", "phone_verified_at", "text")
         ensure_column(connection, "users", "default_language", "text not null default 'zh-CN'")
+        ensure_column(connection, "users", "preferred_communication_language", "text not null default 'zh-CN'")
+        ensure_column(connection, "users", "communication_languages", "text not null default 'zh-CN'")
         existing_grade_columns = {
             row["name"] for row in connection.execute("pragma table_info(employee_grades)").fetchall()
         }
@@ -1869,6 +1879,36 @@ def current_language():
 def language_from_form(default=DEFAULT_LANGUAGE):
     language = request.form.get("default_language", default or DEFAULT_LANGUAGE)
     return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+
+
+COMMUNICATION_LANGUAGES = {
+    "zh-CN": "中文",
+    "en": "English",
+    "es": "Español",
+}
+
+
+def communication_languages_from_form(default="zh-CN"):
+    preferred = request.form.get("preferred_communication_language", default or "zh-CN")
+    if preferred not in COMMUNICATION_LANGUAGES:
+        preferred = "zh-CN"
+    selected = [code for code in request.form.getlist("communication_language")
+                if code in COMMUNICATION_LANGUAGES]
+    return preferred, ",".join(dict.fromkeys([preferred, *selected]))
+
+
+def normalize_phone(value, country_code="US"):
+    raw = str(value or "").strip()
+    digits = re.sub(r"\D", "", raw)
+    if country_code == "US" and len(digits) == 10:
+        digits = "1" + digits
+    if raw.startswith("+") and 8 <= len(digits) <= 15:
+        return "+" + digits
+    if country_code == "US" and len(digits) == 11 and digits.startswith("1"):
+        return "+" + digits
+    if 8 <= len(digits) <= 15:
+        return "+" + digits
+    raise ValueError("请填写有效的手机号，并包含国家代码。")
 
 
 def clear_session_preserving_language():
@@ -3289,21 +3329,23 @@ def contract_form_values(contract=None):
 
 def next_service_order_number():
     prefix = f"SO{date.today():%y%m}"
-    row = db().execute(
+    rows = db().execute(
         """
         select order_number from service_orders
         where order_number like ?
-        order by order_number desc limit 1
+        order by order_number
         """,
         (f"{prefix}%",),
-    ).fetchone()
-    if not row:
-        return f"{prefix}001"
-    suffix = row["order_number"][len(prefix):]
-    try:
-        return f"{prefix}{int(suffix) + 1:03d}"
-    except ValueError:
-        return f"{prefix}{secrets.randbelow(900) + 100}"
+    ).fetchall()
+    used = set()
+    for row in rows:
+        suffix = row["order_number"][len(prefix):]
+        if suffix.isdigit() and int(suffix) > 0:
+            used.add(int(suffix))
+    sequence = 1
+    while sequence in used:
+        sequence += 1
+    return f"{prefix}{sequence:03d}"
 
 
 def next_expense_number():
@@ -3812,8 +3854,29 @@ def shared_photos_root():
     return Path(SHARED_PHOTOS_DIR).resolve()
 
 
+def service_order_photo_folder(order_number):
+    root = shared_photos_root()
+    folder = (root / secure_filename(order_number)).resolve()
+    if not folder.is_relative_to(root):
+        raise ValueError("工单照片目录无效。")
+    return folder
+
+
+def service_order_photo_summary(order_number):
+    folder = service_order_photo_folder(order_number)
+    if not folder.exists():
+        return {"exists": False, "nonempty": False, "file_count": 0, "bytes": 0}
+    files = [path for path in folder.rglob("*") if path.is_file()]
+    return {
+        "exists": True,
+        "nonempty": any(folder.iterdir()),
+        "file_count": len(files),
+        "bytes": sum(path.stat().st_size for path in files),
+    }
+
+
 def ensure_service_order_picture_folder(order_number):
-    folder = shared_photos_root() / secure_filename(order_number) / "pictures"
+    folder = service_order_photo_folder(order_number) / "pictures"
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
@@ -6524,10 +6587,16 @@ def register():
         password_confirm = request.form.get("registration_password_confirm", "")
         account_type = request.form.get("account_type", "external_employee")
         country = country_from_form()
+        preferred_language, communication_languages = communication_languages_from_form(current_language())
         if account_type not in {"employee", "external_employee"}:
             account_type = "external_employee"
         if not address:
             flash("请填写地址。", "error")
+            return redirect(url_for("register"))
+        try:
+            phone = normalize_phone(request.form.get("phone"), country["code"])
+        except ValueError as error:
+            flash(str(error), "error")
             return redirect(url_for("register"))
         if "�" in name:
             flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
@@ -6542,9 +6611,10 @@ def register():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, is_active, default_language, region_code, country_code, created_at, address
+                    name, email, password_hash, role, is_active, default_language, region_code, country_code,
+                    created_at, address, phone, preferred_communication_language, communication_languages
                 )
-                values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name or email,
@@ -6556,6 +6626,9 @@ def register():
                     country["code"],
                     now(),
                     address,
+                    phone,
+                    preferred_language,
+                    communication_languages,
                 ),
             )
             user_id = cursor.lastrowid
@@ -12159,6 +12232,11 @@ def service_order_detail(order_id):
     expense_currency = expenses_rows[0]["currency"] if expenses_rows else "USD"
     customer_reimbursement = latest_customer_reimbursement(order_id) if can_view_customer_reimbursement() else None
     delete_blockers = service_order_delete_blockers(order_id)
+    photo_summary = (
+        service_order_photo_summary(order["order_number"])
+        if can_delete_service_order() and not delete_blockers
+        else {"exists": False, "nonempty": False, "file_count": 0, "bytes": 0}
+    )
     return render_template(
         "service_order_detail.html",
         order=order,
@@ -12170,6 +12248,7 @@ def service_order_detail(order_id):
         customer_reimbursement=customer_reimbursement,
         can_delete_order=can_delete_service_order() and not delete_blockers,
         delete_blockers=delete_blockers,
+        photo_summary=photo_summary,
         labels=STATUS_LABELS,
         expense_labels=EXPENSE_STATUS_LABELS,
     )
@@ -12185,11 +12264,23 @@ def delete_service_order(order_id):
     if blockers:
         flash(f"这个工单已有{', '.join(blockers)}，不能删除。", "error")
         return redirect(url_for("service_order_detail", order_id=order_id))
+    photo_summary = service_order_photo_summary(order["order_number"])
+    if photo_summary["nonempty"] and request.form.get("confirm_photo_cleanup") != "yes":
+        flash("这个工单的照片目录不为空，请确认同时永久删除全部照片。", "error")
+        return redirect(url_for("service_order_detail", order_id=order_id))
+    photo_folder = service_order_photo_folder(order["order_number"])
+    if photo_folder.exists():
+        try:
+            shutil.rmtree(photo_folder)
+        except OSError:
+            app.logger.exception("Unable to remove photo folder for service order %s", order["order_number"])
+            flash("照片目录清理失败，工单没有删除。请检查服务器文件权限后重试。", "error")
+            return redirect(url_for("service_order_detail", order_id=order_id))
     db().execute("delete from user_service_orders where service_order_id = ?", (order_id,))
     db().execute("delete from service_orders where id = ?", (order_id,))
     log_action("delete", "service_order", order_id, order["order_number"], f"站点：{order['client_name']}")
     db().commit()
-    flash("工单已删除。", "success")
+    flash("工单及照片目录已删除；这个工单号可以重新使用。", "success")
     return redirect(url_for("service_orders"))
 
 

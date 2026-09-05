@@ -28,6 +28,7 @@
     $('equipmentNumber').value = '';
     $('positionNumber').value = '';
     $('containerNumber').value = '';
+    $('pumpFuseNumbers').value = '';
     $('noEquipmentNumber').checked = false;
     $('equipmentNumber').disabled = false;
     $('deviceStatus').textContent = '新设备：请扫描或输入编号，然后确认。';
@@ -37,11 +38,12 @@
     if (!number && !noNumber) { notice('请输入设备编号，或勾选“此设备没有编号”。', true); $('equipmentNumber').focus(); return; }
     deviceSession = {id:key(), equipment_number:noNumber ? '' : number,
       position_number:$('positionNumber').value.trim(), container_number:$('containerNumber').value.trim(),
+      pump_fuse_numbers:$('pumpFuseNumbers').value.trim(),
       no_equipment_number:noNumber};
     $('equipmentNumber').closest('fieldset').classList.add('locked');
     $('equipmentNumber').value = deviceSession.equipment_number;
     $('equipmentNumber').disabled = noNumber;
-    $('deviceStatus').textContent = `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}。后续照片沿用；换设备请点“下一台设备”。`;
+    $('deviceStatus').textContent = `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}${deviceSession.pump_fuse_numbers ? ' · 水泵保险 '+deviceSession.pump_fuse_numbers : ''}。后续照片沿用；换设备请点“下一台设备”。`;
     notice('设备已确认，可以连续拍摄。');
   }
   function chooseKind(type) {
@@ -57,7 +59,7 @@
     $('timeSettings').hidden = false;
     $('kindStatus').textContent = type === 'equipment' ? '设备照片：需确认 Machine Number。' : '非设备照片：不显示铭牌号、位置号和集装箱号。';
     $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type==='general');
-    if (type === 'general') deviceSession = {id:batch.id,equipment_number:'',position_number:'',container_number:'',no_equipment_number:true};
+    if (type === 'general') deviceSession = {id:batch.id,equipment_number:'',position_number:'',container_number:'',pump_fuse_numbers:'',no_equipment_number:true};
     else if (previousType !== 'equipment') resetDevice();
   }
   async function verifyTimePassword() {
@@ -353,6 +355,7 @@
       captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:batch.id,photo_type:batch.type,timezone_name:timezoneName,latitude:position.latitude,longitude:position.longitude,accuracy:position.accuracy,
       note:$('photoNote').value.trim(),location_note:locationNote,source,error:'',equipment_number:deviceSession.equipment_number,
       position_number:deviceSession.position_number,container_number:deviceSession.container_number,
+      pump_fuse_numbers:deviceSession.pump_fuse_numbers,
       equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number};
   }
   async function watermarked(source, context) {
@@ -462,6 +465,7 @@
     if (!identityReady) return;
     const params = new URLSearchParams(new FormData($('ledgerFilter')));
     $('exportLedger').href = '/api/field/photos.xlsx?'+params;
+    $('repairReport').href = '/reports/field-repairs?'+params;
     try {
       const response = await requestAPI('/api/field/photos?'+params,{cache:'no-store'});
       if (response.status === 401 || response.status === 403) { lock('请重新登录后查询台账。'); return; }
@@ -474,7 +478,7 @@
         const detail = document.createElement('div');
         const map=document.createElement('a'); map.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`; map.target='_blank'; map.rel='noopener'; map.textContent=`坐标：${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}`;
         const address=document.createElement('a'); address.href=map.href; address.target='_blank'; address.rel='noopener'; address.textContent='现场地址：'+(photo.site_address||photo.site_name);
-        const deviceDetail = ['铭牌号：'+(photo.equipment_number || '无'), photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : ''].filter(Boolean).join(' · ');
+        const deviceDetail = ['铭牌号：'+(photo.equipment_number || '无'), photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', photo.pump_fuse_numbers ? '水泵保险：'+photo.pump_fuse_numbers : ''].filter(Boolean).join(' · ');
         detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+photo.captured_at+' · 水印：'+(photo.watermark_at||photo.captured_at)),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+photo.received_at),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
         card.append(link,detail); $('ledgerList').append(card);
       });
@@ -498,6 +502,7 @@
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='编号已修改，请重新确认。'; });
   $('positionNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='位置号已修改，请重新确认。'; });
   $('containerNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='集装箱号已修改，请重新确认。'; });
+  $('pumpFuseNumbers').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='水泵保险编号已修改，请重新确认。'; });
   $('orderSelect').addEventListener('input', () => chooseOrder($('orderSelect').value));
   $('orderSelect').addEventListener('change', () => chooseOrder($('orderSelect').value));
   $('orderSearch').addEventListener('input',renderOrders);

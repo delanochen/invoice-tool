@@ -19,7 +19,9 @@ class RegistrationAddressTest(unittest.TestCase):
         data = dict(name='New Person', registration_email=role+'@new.invalid',
                     registration_password='test-password-123',
                     registration_password_confirm='test-password-123',
-                    account_type=role, country_code='US')
+                    account_type=role, country_code='US', phone='+1 713 555 1234',
+                    preferred_communication_language='en',
+                    communication_language=['en', 'es'])
         data.update(extra)
         return self.http.post('/register', data=data)
 
@@ -45,6 +47,10 @@ class RegistrationAddressTest(unittest.TestCase):
                 self.assertEqual(user['address'], '123 Test Street\nApartment 4')
                 self.assertEqual(user['is_active'], 0)
                 self.assertEqual(user['role'], role)
+                self.assertEqual(user['phone'], '+17135551234')
+                self.assertEqual(user['phone_verified'], 0)
+                self.assertEqual(user['preferred_communication_language'], 'en')
+                self.assertEqual(user['communication_languages'], 'en,es')
                 user_id = user['id']
             self.fixture.login('Manager')
             page = self.http.get(f'/users/{user_id}/edit')
@@ -52,6 +58,19 @@ class RegistrationAddressTest(unittest.TestCase):
             self.assertIn('123 Test Street\nApartment 4', page.text)
             with self.http.session_transaction() as session:
                 session.clear()
+
+    def test_phone_is_required_and_normalized(self):
+        for phone in ('', '1234'):
+            with self.subTest(phone=phone):
+                response = self.register('employee', address='123 Test Street', phone=phone)
+                self.assertTrue(response.location.endswith('/register'))
+        response = self.register('employee', address='123 Test Street', phone='(713) 555-9876')
+        self.assertTrue(response.location.endswith('/login'))
+        with self.fixture.app.app.app_context():
+            user = self.fixture.app.db().execute(
+                "select * from users where email = 'employee@new.invalid'"
+            ).fetchone()
+            self.assertEqual(user['phone'], '+17135559876')
 
 
 if __name__ == '__main__':

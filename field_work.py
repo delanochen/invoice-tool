@@ -35,7 +35,7 @@ def init_field_schema(connection):
         create index if not exists idx_field_photos_user on field_photos(user_id);
     ''')
     columns = {row[1] for row in connection.execute('pragma table_info(field_photos)')}
-    for name in ('equipment_number', 'position_number', 'container_number', 'equipment_session', 'photo_type',
+    for name in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers', 'equipment_session', 'photo_type',
                  'watermark_at', 'batch_id', 'technician_name'):
         if name not in columns:
             connection.execute(f"alter table field_photos add column {name} text not null default ''")
@@ -94,8 +94,8 @@ def register_field_routes(app, api):
         if q:
             clauses.append('''(service_orders.order_number like ? or service_orders.client_name like ? or users.name like ?
                               or p.technician_name like ? or p.equipment_number like ? or p.position_number like ?
-                              or p.container_number like ? or p.note like ? or clients.name like ?)''')
-            params.extend(['%' + q + '%'] * 9)
+                              or p.container_number like ? or p.pump_fuse_numbers like ? or p.note like ? or clients.name like ?)''')
+            params.extend(['%' + q + '%'] * 10)
         return api['db']().execute('''
             select p.*, service_orders.order_number, service_orders.client_name as site_name, service_orders.site_address,
                    users.name as employee_name, clients.name as customer_name
@@ -187,11 +187,12 @@ def register_field_routes(app, api):
         if source not in {'camera', 'file'}:
             return jsonify(error='照片来源无效。'), 422
         note = request.form.get('note', '').strip()[:1000]
-        has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'container_number',
+        has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
                                                                    'equipment_session', 'no_equipment_number'))
         equipment_number = request.form.get('equipment_number', '').strip()[:200]
         position_number = request.form.get('position_number', '').strip()[:200]
         container_number = request.form.get('container_number', '').strip()[:200]
+        pump_fuse_numbers = request.form.get('pump_fuse_numbers', '').strip()[:200]
         equipment_session = request.form.get('equipment_session', '').strip()[:64]
         photo_type = request.form.get('photo_type', 'legacy').strip()
         watermark_at = watermark.isoformat()
@@ -249,12 +250,12 @@ def register_field_routes(app, api):
             cursor = db.execute('''insert into field_photos
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
-                 equipment_number, position_number, container_number, equipment_session, photo_type, watermark_at,
+                 equipment_number, position_number, container_number, pump_fuse_numbers, equipment_session, photo_type, watermark_at,
                  batch_id, technician_user_id, technician_name)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
-                 relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, container_number,
+                 relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, container_number, pump_fuse_numbers,
                  equipment_session, photo_type, watermark_at, batch_id, technician['id'], technician_name))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
@@ -327,14 +328,56 @@ def register_field_routes(app, api):
         rows = photo_rows()
         if len(rows) > 2000:
             return jsonify(error='结果超过 2000 条，请缩小日期或工单范围后导出。'), 422
-        headers = ['工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '施工员', '实际拍摄账号', '拍摄日期',
+        headers = ['工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '已更换水泵保险编号', '施工员', '实际拍摄账号', '拍摄日期',
                    '设备拍摄时间（UTC）', '水印时间', '归档时区', '上传时间', '纬度', '经度', '精度（米）',
                    '备注', '位置确认说明', '来源', '文件路径']
-        keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'container_number',
+        keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
                 'technician_name', 'employee_name', 'capture_date', 'captured_at', 'watermark_at', 'timezone_name',
                 'received_at', 'latitude', 'longitude', 'accuracy', 'note', 'location_note', 'source', 'relative_path']
         buffer = api['build_simple_xlsx'](headers, [[str(row[key] or '') for key in keys] for row in rows], sheet_name='工单照片台账')
         return send_file(buffer, as_attachment=True, download_name='field-photos.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    def repair_table_rows():
+        photos = [row for row in photo_rows() if row['photo_type'] == 'equipment']
+        grouped = {}
+        for photo in photos:
+            group_key = (photo['order_id'], photo['equipment_session'] or f"photo-{photo['id']}")
+            entry = grouped.setdefault(group_key, dict(
+                order_number=photo['order_number'], date=photo['capture_date'], position_number='',
+                container_number='', equipment_number='', pump_fuse_numbers='', notes=[], technicians=[], photo_count=0,
+            ))
+            entry['photo_count'] += 1
+            entry['date'] = min(entry['date'], photo['capture_date'])
+            for key in ('position_number', 'container_number', 'equipment_number', 'pump_fuse_numbers'):
+                if not entry[key] and photo[key]:
+                    entry[key] = photo[key]
+            if photo['note'] and photo['note'] not in entry['notes']:
+                entry['notes'].append(photo['note'])
+            technician = photo['technician_name'] or photo['employee_name']
+            if technician and technician not in entry['technicians']:
+                entry['technicians'].append(technician)
+        rows = []
+        for index, entry in enumerate(sorted(grouped.values(), key=lambda item: (item['date'], item['order_number'], item['position_number'])), 1):
+            entry['sequence'] = index
+            entry['note'] = ' / '.join(entry.pop('notes'))
+            entry['technician'] = ' / '.join(entry.pop('technicians'))
+            rows.append(entry)
+        return rows
+
+    @app.get('/reports/field-repairs')
+    @access
+    def field_repair_report():
+        return render_template('field_repair_report.html', rows=repair_table_rows())
+
+    @app.get('/api/field/repairs.xlsx')
+    @access
+    def field_repair_export():
+        rows = repair_table_rows()
+        headers = ['序号', '日期', '地标号', '集装箱号', '同飞铭牌', '已更换水泵保险编号', '备注', '维修人员', '工单', '照片数量']
+        keys = ['sequence', 'date', 'position_number', 'container_number', 'equipment_number', 'pump_fuse_numbers',
+                'note', 'technician', 'order_number', 'photo_count']
+        buffer = api['build_simple_xlsx'](headers, [[str(row[key] or '') for key in keys] for row in rows], sheet_name='设备维修清单')
+        return send_file(buffer, as_attachment=True, download_name='field-repairs.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.post('/api/field/order-request')
     @access

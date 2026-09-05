@@ -67,10 +67,10 @@ class PhotoWorkerDayFolderTest(unittest.TestCase):
 
         self.assertEqual(output.as_posix(), "2026-08-08/20260808_162030.jpg")
 
-    def test_compose_mount_defaults_to_volume1_and_can_be_overridden(self):
+    def test_compose_mount_defaults_to_debian_storage_and_can_be_overridden(self):
         compose = (REPO_DIR / "docker-compose.yml").read_text(encoding="utf-8")
         updater = (REPO_DIR / "scripts" / "auto-update.sh").read_text(encoding="utf-8")
-        expected = "${SHARED_PHOTOS_HOST_DIR:-/volume1/TeamFolder/PrasinosPower/"
+        expected = "${SHARED_PHOTOS_HOST_DIR:-/srv/invoice-tool/shared-photos}"
         self.assertEqual(compose.count(expected), 2)
         self.assertNotIn("/volume2/TeamFolder", compose)
         self.assertIn('log "shared photos auto-detected: $SHARED_PHOTOS_HOST_DIR"', updater)

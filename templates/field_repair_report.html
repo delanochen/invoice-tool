@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}设备维修清单 - 发票工具{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">Field Repair Register</p><h1>设备维修清单</h1></div><div class="actions"><a class="button" href="{{ url_for('field_photo_query', **request.args) }}">照片台账</a><a class="button primary" href="{{ url_for('field_repair_export', **request.args) }}">导出 Excel</a></div></header>
+<form method="get" class="filter-bar no-print">
+  <label>关键词<input name="q" value="{{ request.args.get('q','') }}" placeholder="工单、铭牌号、位置号、集装箱号、保险编号"></label>
+  <input type="hidden" name="order_id" value="{{ request.args.get('order_id','') }}">
+  <label>开始日期<input type="date" name="date_from" value="{{ request.args.get('date_from','') }}"></label>
+  <label>结束日期<input type="date" name="date_to" value="{{ request.args.get('date_to','') }}"></label>
+  <button type="submit">查询</button>
+</form>
+<p>每个设备拍摄批次汇总为一行；集装箱号和水泵保险编号来自现场人员确认的信息，不通过图片猜测。</p>
+<section class="panel" style="overflow-x:auto"><table class="list-table"><thead><tr><th>序号</th><th>日期</th><th>地标号</th><th>集装箱号</th><th>同飞铭牌</th><th>已更换水泵保险编号</th><th>备注</th><th>维修人员</th><th>工单</th><th>照片</th></tr></thead><tbody>
+{% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{{ row.position_number or '-' }}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.pump_fuse_numbers or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.technician or '-' }}</td><td>{{ row.order_number }}</td><td>{{ row.photo_count }} 张</td></tr>
+{% else %}<tr><td colspan="10" class="empty">没有符合条件的设备照片。</td></tr>{% endfor %}
+</tbody></table></section>
+{% endblock %}

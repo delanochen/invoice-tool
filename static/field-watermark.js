@@ -59,7 +59,8 @@
       ...(context.photo_type === 'equipment' ? [
         ['Machine No.', context.equipment_number || 'N/A', 2],
         ...(context.position_number ? [['Location No.', context.position_number, 1]] : []),
-        ...(context.container_number ? [['Container No.', context.container_number, 1]] : [])
+        ...(context.container_number ? [['Container No.', context.container_number, 1]] : []),
+        ...(context.pump_fuse_numbers ? [['Pump Fuse', context.pump_fuse_numbers, 1]] : [])
       ] : []),
       ['Technician', context.employee_name, 2],
       ['Time', localTime(context), 2],
