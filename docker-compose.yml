@@ -19,8 +19,8 @@ services:
       REQUIRE_DATA_DIRECTORY_IDENTITY: "1"
       DATA_DIRECTORY_IDENTITY: "invoice-tool-primary-volume1-20260816"
     volumes:
-      - "${DATA_HOST_DIR:-/volume1/invoice-tool/invoice-tool/data}:/app/data"
-      - "${SHARED_PHOTOS_HOST_DIR:-/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures}:/app/shared-photos"
+      - "${DATA_HOST_DIR:-/srv/invoice-tool/data}:/app/data"
+      - "${SHARED_PHOTOS_HOST_DIR:-/srv/invoice-tool/shared-photos}:/app/shared-photos"
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: invoice-tool-cloudflared
@@ -48,4 +48,4 @@ services:
       PHOTO_WORKER_BATCH_SIZE: "10"
       PHOTO_BACKUP_DAYS: "7"
     volumes:
-      - "${SHARED_PHOTOS_HOST_DIR:-/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures}:/app/shared-photos"
+      - "${SHARED_PHOTOS_HOST_DIR:-/srv/invoice-tool/shared-photos}:/app/shared-photos"

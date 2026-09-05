@@ -1,6 +1,6 @@
 # Prasinos Power iOS（内部版）
 
-这是现有 Flask 系统的原生 iOS 客户端外壳。业务、账号和权限继续由 NAS 上的系统统一管理；App 提供独立入口、持久登录、拍照/文件上传、下载分享、原生返回/首页/刷新和服务器切换。
+这是早期 Flask 系统的原生 iOS 客户端外壳。业务、账号和权限由 Debian 上的现有平台统一管理。当前现场拍照入口已经改为网页 PWA `/field/`，本目录仅保留历史源码，不是生产发布方式。
 
 ## 构建环境
 
@@ -18,9 +18,9 @@
 5. 如签名提示 Bundle ID 已占用，把 `com.prasinospower.internal` 改成唯一值。
 6. 用 USB 连接 iPhone，选择该设备，点击 Run。首次安装后可能需要在 iPhone 的“设置 > 通用 > VPN 与设备管理”信任开发者。
 
-首次启动输入团队系统地址。外网使用时应填写 Cloudflare Tunnel 对应的 HTTPS 域名；局域网可填写 `http://NAS-IP:8088`。
+首次启动输入团队系统地址。外网使用时填写 `https://invoice.prasinospower.com`；生产服务器不直接开放 Debian 的 8088 端口。
 
-App 登录后默认进入“团队打卡”：选择站点、取得 GPS、调整水印时间并拍照，照片加水印后会自动上传 NAS 的 `clock-ins/日期/站点编号` 目录。
+此客户端的旧“团队打卡”流程已经由现场工作 PWA 取代。PWA 照片上传到 Debian 的 `/srv/invoice-tool/shared-photos`，按工单和拍摄日期归档。
 
 ## 团队分发（不进 App Store）
 
@@ -33,14 +33,14 @@ App 登录后默认进入“团队打卡”：选择站点、取得 GPS、调整
 ## 把下载入口部署到网页登录页
 
 1. 在 Mac 上用企业签名或 Ad Hoc 签名导出 `PrasinosPower.ipa`。
-2. 将文件上传到 NAS 项目的持久化数据目录：`data/mobile-app/PrasinosPower.ipa`。当前 Docker 映射下，对应容器内 `/app/data/mobile-app/PrasinosPower.ipa`。
-3. 确保员工用 HTTPS 域名访问系统。iOS OTA 安装不能使用普通 HTTP NAS 地址。
+2. 如需保留历史 IPA，可放入 Debian 持久化目录：`/srv/invoice-tool/data/mobile-app/PrasinosPower.ipa`，对应容器内 `/app/data/mobile-app/PrasinosPower.ipa`。
+3. 确保员工用 HTTPS 域名访问系统。iOS OTA 安装不能使用普通 HTTP 地址。
 4. 登录首页的“下载 iPhone 内部版 App”会自动变成可安装按钮，并使用系统生成的 OTA manifest 安装。
 
 如修改 Bundle ID 或版本号，请在容器环境变量中同步设置 `IOS_BUNDLE_ID` 和 `IOS_APP_VERSION`。
 
 ## 安全建议
 
-- 外网访问只使用 HTTPS，不要直接暴露 NAS 的 8088 端口。
+- 外网访问只使用 HTTPS，不要直接暴露 Debian 的 8088 端口。
 - 上线前务必更换 `docker-compose.yml` 里的默认 `SECRET_KEY` 和管理员密码，并把密钥放在 `.env`。
 - 若服务器域名或地址变更，点击 App 底部齿轮即可修改。

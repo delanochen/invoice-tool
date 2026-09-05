@@ -11,7 +11,7 @@ class AutoUpdateDatabaseSafetyTest(unittest.TestCase):
         self.compose = (REPO_DIR / "docker-compose.yml").read_text(encoding="utf-8")
 
     def test_compose_uses_the_approved_data_directory_contract(self):
-        self.assertIn('${DATA_HOST_DIR:-/volume1/invoice-tool/invoice-tool/data}:/app/data', self.compose)
+        self.assertIn('${DATA_HOST_DIR:-/srv/invoice-tool/data}:/app/data', self.compose)
 
     def test_container_requires_the_prepared_data_directory_identity_marker(self):
         self.assertIn('REQUIRE_DATA_DIRECTORY_IDENTITY: "1"', self.compose)

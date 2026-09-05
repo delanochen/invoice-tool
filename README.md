@@ -1,117 +1,100 @@
-# NAS 发票工具
+# Prasinos Power 业务管理平台
 
-适合部署在群晖 NAS Container Manager 上的开票系统。支持多用户、客户编号、项目维护、发票工作流、附件、ZIP 导出、Gmail SMTP、核销和统计图表。
+Prasinos Power 内部使用的 Flask 业务平台，整合客户、合同、工单、现场工作日报、员工报销、客户结算、发票、工资核算、人员资料和现场照片管理。
 
-## 启动
+生产站点：`https://invoice.prasinospower.com`
 
-1. 修改 `docker-compose.yml`：
-   - `SECRET_KEY`
-   - `ADMIN_EMAIL`
-   - `ADMIN_PASSWORD`
+## 主要功能
 
-   邮件 SMTP 设置进入系统后在“公司设置”里维护。
-2. 在群晖 Container Manager 里用 Project 导入本目录，或 SSH 运行：
+- 客户、站点、合同、项目和工单管理，支持工单日历、地图、状态和人员分配。
+- 现场工作日报、客户费用结算、发票审核、附件、邮件发送、收款核销和 Excel/ZIP 导出。
+- 员工报销支持代填，分别保存费用归属员工和实际提交人。
+- 薪酬按员工等级计算标准、交通、加班和假期工资，并拆分自驾、随行、租车驾驶、餐费和报告补贴。
+- 现场工作 PWA 使用员工账号登录，支持固定工单、拍照前定位、断网草稿、恢复上传、照片压缩和按工单/日期归档。
+- 设备照片支持 Machine Number OCR、位置号、集装箱号和连续设备会话；水印显示站点、Technician、设备信息、时间、地址与坐标。
+- 照片台账保留工单、施工员、实际拍摄账号、拍摄时间、水印时间、上传时间、位置和文件路径，并支持筛选与 Excel 导出。
+- 员工资料附件和证书查询；更完整的证书分类、语言、人员评价、人员报表和短信功能正在逐步加入。
+- 角色、菜单和操作权限覆盖管理员、经理、财务、内部员工、外部经理和外部员工。
+
+## 生产部署
+
+生产环境运行在 PVE 虚拟机中的 Debian：
+
+```text
+应用代码       /opt/invoice-tool
+SQLite及附件   /srv/invoice-tool/data
+工单照片       /srv/invoice-tool/shared-photos
+部署备份       /srv/invoice-tool/backups
+容器端口       127.0.0.1:8088 → container:8000
+公网入口       Cloudflare Tunnel → invoice.prasinospower.com
+```
+
+Docker Compose 运行三个服务：
+
+- `invoice-tool`：Flask/Gunicorn Web 应用。
+- `invoice-tool-photo-worker`：照片整理、缩略图和重复文件处理。
+- `invoice-tool-cloudflared`：HTTPS 公网隧道，不直接暴露 Debian 的应用端口。
+
+`invoice-tool-deploy.timer` 定期检查 GitHub `main` 分支。检测到新提交后，部署脚本会：
+
+1. 在线备份 SQLite 数据库。
+2. 将代码更新到指定 Git 提交。
+3. 重新构建并启动容器。
+4. 执行 HTTP 健康检查。
+5. 健康检查失败时回滚代码并重新构建上一版本。
+
+Debian 使用本仓库专用的 GitHub Deploy Key 拉取代码，不需要保存 GitHub 用户密码。
+
+## 配置与启动
+
+复制环境变量示例并填写密钥：
 
 ```bash
+cp .env.example .env
 docker compose up -d --build
 ```
 
-3. 打开：
+主要环境变量：
 
 ```text
-http://你的NAS地址:8088
+SECRET_KEY=
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
+CLOUDFLARE_TUNNEL_TOKEN=
+DATA_HOST_DIR=/srv/invoice-tool/data
+SHARED_PHOTOS_HOST_DIR=/srv/invoice-tool/shared-photos
+GOOGLE_MAPS_BROWSER_API_KEY=
+GOOGLE_GEOCODING_API_KEY=
 ```
 
-## 功能
+SMTP、公司资料、水印时间调整密码和业务参数在系统设置页面维护。生产密钥只保存在 Debian 的 `.env`，不提交到 GitHub。
 
-- 客户编号从 `00001` 自动递增，支持客户查找。
-- 经理和管理员维护项目；开票时只能选择已启用项目，并自动带出税率。
-- 外部用户可自行注册，但必须由管理员绑定客户后才能创建和查询发票。
-- 员工或外部员工创建发票并上传多个附件，提交经理审核。
-- 经理通过消息进入发票详情审核，可退回或确认完成。
-- 发票完成后可记录收款日期、金额和备注进行核销。
-- 概览统计开票、完成、已核销、待核销、流程中，并显示月度开票和核销趋势。
-- 附件支持 Word、Excel、PDF 和图片，可多选上传、预览、删除、下载和随 ZIP 导出。
-- 邮件发送的 SMTP host、端口、账号、应用专用密码、发件人和 TLS 设置在“公司设置”中维护。
-- 导出 ZIP 会包含发票 PDF 和该发票的全部附件。
-- 提供团队内部使用的 iOS 客户端源码，见 [`ios-app`](ios-app/README.md)。
-- iOS 客户端默认提供带站点、操作员、可调时间和 GPS 坐标水印的团队打卡，并自动上传 NAS。
-- 网页登录首页提供内部签名 IPA 的下载和信任证书安装说明。
+## 数据与照片
 
-## 数据
+SQLite、业务附件和照片都保存在 Debian 的持久化目录中。删除或重新构建容器不会删除 `/srv/invoice-tool` 中的数据。
 
-### 员工报销代填
-
-新建报销时可选择“报销归属员工”，默认为本人，可替其他启用的内部员工填写。系统分别保存费用归属员工与实际提交人；旧报销自动沿用原提交人为归属员工。
-
-提交人和归属员工均可查看该单，草稿编辑仍由原提交人或有相应权限的管理人员进行。查询按归属员工筛选，客户结算按归属员工归集费用，审核、退回、发放消息通知双方。原“报销人”字段改称“发放操作人”，与费用归属区分。
-
-数据库：
+现场照片保存结构：
 
 ```text
-./data/invoices.db
+/srv/invoice-tool/shared-photos/
+  工单编号/
+    pictures/
+      YYYY-MM-DD/
+        YYYYMMDD_HHMMSS-u员工ID-照片UUID.jpg
 ```
 
-附件：
+照片先在手机 IndexedDB 中保存为待上传草稿，点击完成后上传。锁屏、关闭页面或断网时上传可能暂停，重新打开 PWA 并联网后可以继续。
 
-```text
-./data/attachments
-```
+## 地图
 
-本次代码不考虑历史数据；要彻底重建，删除 NAS 项目目录里的 `data` 文件夹后重新 Build。
+未配置 Google Maps 密钥时，系统使用 OpenStreetMap、U.S. Census Geocoder 和 Nominatim。配置浏览器及 Geocoding API Key 后，工单地图切换到 Google 地图。
 
-## Google 工单地图
-
-系统默认继续使用免费的 OpenStreetMap、U.S. Census Geocoder 和 Nominatim。
-
-如需启用 Google 地图和更准确的 Google 地址解析：
-
-1. 在 Google Cloud 启用 `Maps JavaScript API` 和 `Geocoding API`。
-2. 创建一个浏览器 API Key，并按实际访问地址限制允许的网站来源。
-3. 可在 NAS 项目目录的 `.env` 中填写初始密钥：
-
-```text
-GOOGLE_MAPS_BROWSER_API_KEY=你的浏览器API密钥
-```
-
-NAS 共享照片目录可在 `.env` 中单独配置，迁移磁盘卷后只需修改这一项：
-
-```text
-SHARED_PHOTOS_HOST_DIR=/volume1/TeamFolder/PrasinosPower/甲方-三河同飞制冷股份有限公司/pictures
-```
-
-NAS 自动更新脚本会根据自身位置识别 `/volume1/docker/invoice-tool`
-或 `/volume2/docker/invoice-tool`，更换磁盘卷后只需在群晖定时任务中更新脚本路径。
-
-### 从 Volume1 迁回 Volume2
-
-在 DSM 任务计划中以 `root` 身份创建一次性用户定义脚本：
-
-```sh
-/bin/sh /volume1/docker/invoice-tool/scripts/migrate-to-volume2.sh
-```
-
-脚本会先复制并核对数据库，再停止旧容器、从 Volume2 重建并进行 HTTP 与数据挂载检查。
-原有的 Volume1、Volume2 目录都会以带时间戳的名称保留。迁移成功后，旧的自动更新命令仍可通过兼容入口工作，建议最终改为：
-
-```sh
-/bin/sh /volume2/docker/invoice-tool/scripts/auto-update.sh
-```
-
-4. 在 Google Cloud 控制台设置每日请求配额和费用提醒。
-5. 重新创建容器：
+## 验证
 
 ```bash
-sudo docker compose up -d --build --force-recreate
+python -m unittest discover -s . -p "test_*.py" -v
 ```
 
-系统首次启动时会将 `.env` 中的密钥迁移到“基础数据 > 公司设置 > 工单地图设置”。以后可直接在公司设置页面修改或清空，不需要重新构建容器。配置密钥后，工单地图会自动切换为 Google 地图，并在浏览器中实时解析地址。Google 坐标不会写入数据库。未配置密钥时，系统自动保留免费模式。
-# Debian production deployment
+测试使用隔离数据库和临时文件目录，覆盖权限、审批、工单、报销、结算、工资、照片上传、离线元数据、归档和自动部署安全检查。PWA 相机、定位和主屏幕安装仍需在 iPhone/Android 真机上验证。
 
-The PVE Debian deployment keeps code in `/opt/invoice-tool` and persistent state
-under `/srv/invoice-tool` (`data`, `shared-photos`, and `backups`). Copy
-`deploy/invoice-tool-deploy.service` and `deploy/invoice-tool-deploy.timer` to
-`/etc/systemd/system/`, then enable the timer. It checks GitHub every five
-minutes; `scripts/debian-auto-deploy.sh` creates an online SQLite backup,
-rebuilds the containers, performs an HTTP health check, and rolls back the Git
-revision if deployment fails.
+现场工作实现细节见 [`FIELD_WORK.md`](FIELD_WORK.md)。
