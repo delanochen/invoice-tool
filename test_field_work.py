@@ -207,12 +207,14 @@ class FieldWorkTest(unittest.TestCase):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
         page = (fixture.ROOT / 'templates' / 'field_work.html').read_text(encoding='utf-8')
         self.assertIn('class="native-photo-picker button"', page)
-        self.assertIn('id="photoFile" type="file"', page)
+        self.assertIn('id="photoFile" type="file" accept="image/*" multiple', page)
         self.assertNotIn('capture="environment"', page)
         self.assertNotIn('id="photoFile" type="file" accept="image/*" hidden', page)
         self.assertIn("$('photoFile').addEventListener('click', event =>", script)
         self.assertNotIn("$('photoFile').click()", script)
         self.assertLess(script.index("$('photoFile').addEventListener('change'"), script.index("await makeContext('file', selection)"))
+        self.assertIn("Array.from($('photoFile').files || [])", script)
+        self.assertIn('for (const file of files)', script)
 
     def test_watermark_omits_blank_optional_equipment_fields(self):
         script = (fixture.ROOT / 'static' / 'field-watermark.js').read_text(encoding='utf-8')

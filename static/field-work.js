@@ -399,18 +399,27 @@
     captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:$('existingWatermark').checked ? 'original' : 'system'};
   });
   $('photoFile').addEventListener('change', async () => {
-    const file = $('photoFile').files[0], selection = captureContext; captureContext = null;
-    if (!file || !selection) return;
+    const files = Array.from($('photoFile').files || []), selection = captureContext; captureContext = null;
+    if (!files.length || !selection) return;
     taking = true;
-    const url = URL.createObjectURL(file);
     try {
-      const context = await makeContext('file', selection);
-      if (!context) return;
-      context.watermark_source = selection.watermarkSource;
-      const image = new Image(); image.src = url; await image.decode(); context.captured_at = new Date().toISOString(); await keepCapture(image,context);
+      const baseContext = await makeContext('file', selection);
+      if (!baseContext) return;
+      baseContext.watermark_source = selection.watermarkSource;
+      let saved = 0;
+      for (const file of files) {
+        const url = URL.createObjectURL(file);
+        try {
+          const image = new Image(); image.src = url; await image.decode();
+          const context = {...baseContext, client_id:key(), captured_at:new Date().toISOString()};
+          await keepCapture(image,context); saved++;
+        } catch(error) { notice(`照片 ${file.name || saved + 1} 未保存：${error.message}。`,true); }
+        finally { URL.revokeObjectURL(url); }
+      }
+      if (saved) notice(`已保存 ${saved} 张本机草稿，完成本组后统一上传。`);
     }
     catch(error) { notice('照片未保存：'+error.message+'。请保留原照片后重试。',true); }
-    finally { taking = false; URL.revokeObjectURL(url); $('photoFile').value = ''; }
+    finally { taking = false; $('photoFile').value = ''; }
   });
   $('photoFile').addEventListener('cancel', () => { captureContext = null; });
   async function renderQueue() {
