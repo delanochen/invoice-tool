@@ -386,6 +386,14 @@
     notice('照片已保存为本机草稿：'+photo.order_number+'。完成本组后再统一上传。');
     await renderQueue();
   }
+  async function keepOriginalFile(file, context) {
+    if (!context || context.user_id !== profile?.user.id || !identityReady) throw new Error('账号已改变，请重新选择照片。');
+    const photo = {...context, blob:file, original_filename:file.name || '', content_type:file.type || 'application/octet-stream'};
+    await storePhoto(photo);
+    if (previewURL) URL.revokeObjectURL(previewURL);
+    previewURL = URL.createObjectURL(file); $('photoPreview').src = previewURL; $('photoPreview').hidden = false; $('cameraPlaceholder').hidden = true;
+    await renderQueue();
+  }
   $('takePhoto').addEventListener('click', async () => {
     if (taking) return; taking = true; $('takePhoto').disabled = true;
     try { const context = await makeContext('camera'); if (context) { context.watermark_source = 'system'; await keepCapture($('viewfinder'),context); } }
@@ -421,9 +429,10 @@
         $('photoProcessStatus').textContent = `正在处理第 ${processingDone + 1}/${processingTotal} 张：${file.name || '照片'}…`;
         const url = URL.createObjectURL(file);
         try {
-          const image = new Image(); image.src = url; await image.decode();
           const context = {...baseContext, client_id:key(), captured_at:new Date().toISOString()};
-          await keepCapture(image,context); saved++;
+          if (selection.watermarkSource === 'original') await keepOriginalFile(file,context);
+          else { const image = new Image(); image.src = url; await image.decode(); await keepCapture(image,context); }
+          saved++;
         } catch(error) { const message=`照片 ${file.name || processingDone + 1} 未保存：${error.message}。`; notice(message,true); $('photoProcessStatus').textContent=message; }
         finally { URL.revokeObjectURL(url); }
         processingDone++;
@@ -474,7 +483,7 @@
         try {
           const data = new FormData();
           Object.entries(photo).forEach(([k,v]) => { if (k !== 'blob' && k !== 'error') data.append(k,String(v)); });
-          data.append('photo',photo.blob,photo.client_id+'.jpg');
+          data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
           const response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
           if (response.status === 401) { lock('登录已过期，照片仍留在本机。请重新登录后补传。'); break; }
           const result = await response.json().catch(() => ({}));

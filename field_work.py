@@ -225,13 +225,13 @@ def register_field_routes(app, api):
         technician_name = technician['name']
         location_note = request.form.get('location_note', '').strip()[:500]
         photo = request.files.get('photo')
-        content = photo.read(15 * 1024 * 1024 + 1) if photo else b''
-        if not content or len(content) > 15 * 1024 * 1024:
-            return jsonify(error='照片为空或超过 15MB。'), 422
+        content = photo.read(40 * 1024 * 1024 + 1) if photo else b''
+        if not content or len(content) > 40 * 1024 * 1024:
+            return jsonify(error='照片为空或超过 40MB。'), 422
         digest = hashlib.sha256(content).hexdigest()
         try:
             with Image.open(BytesIO(content)) as image:
-                if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
+                if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC'} or image.width * image.height > 40_000_000:
                     raise ValueError
                 image.verify()
         except (OSError, ValueError, Image.DecompressionBombError):

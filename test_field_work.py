@@ -230,6 +230,8 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn("watermarkSource:$('existingWatermark').checked ? 'original' : 'system'", script)
         self.assertIn("if (!keepsOriginalWatermark) {", script)
         self.assertIn("location_verified:!keepsOriginalWatermark", script)
+        self.assertIn("if (selection.watermarkSource === 'original') await keepOriginalFile(file,context)", script)
+        self.assertIn("data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg')", script)
 
 
 if __name__ == '__main__':
