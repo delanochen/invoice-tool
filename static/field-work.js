@@ -341,9 +341,12 @@
     const selected = lockedSelection?.order || cameraSelection?.order || {...resolved};
     if (!batch || !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
-    // Refresh before every capture. The snapshot will not change while uploading.
-    await locate();
-    if (!(await checkLocation(true, selected))) return null;
+    const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
+    // Current phone location does not prove where an imported photo was taken.
+    if (!keepsOriginalWatermark) {
+      await locate();
+      if (!(await checkLocation(true, selected))) return null;
+    }
     if (!identityReady || profile?.user.id !== selectedUser) throw new Error('账号已改变，请重新拍照。');
     const timezoneName = $('timezoneName').value.trim() || 'UTC';
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
@@ -355,8 +358,9 @@
     if (!technician) throw new Error('请选择施工员。');
     return {client_id:key(),user_id:profile.user.id,employee_name:technician.name,technician_user_id:technician.id,
       order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
-      captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:batch.id,photo_type:batch.type,timezone_name:timezoneName,latitude:position.latitude,longitude:position.longitude,accuracy:position.accuracy,
-      note:$('photoNote').value.trim(),location_note:locationNote,source,error:'',equipment_number:deviceSession.equipment_number,
+      captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:batch.id,photo_type:batch.type,timezone_name:timezoneName,
+      latitude:keepsOriginalWatermark ? 0 : position.latitude,longitude:keepsOriginalWatermark ? 0 : position.longitude,accuracy:keepsOriginalWatermark ? 100000 : position.accuracy,
+      location_verified:!keepsOriginalWatermark,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : locationNote,source,error:'',equipment_number:deviceSession.equipment_number,
       position_number:deviceSession.position_number,container_number:deviceSession.container_number,
       pump_fuse_numbers:deviceSession.pump_fuse_numbers,
       equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number};
@@ -404,7 +408,9 @@
     const files = Array.from($('photoFile').files || []), selection = captureContext; captureContext = null;
     if (!files.length || !selection) return;
     taking = true; processingFiles = true; processingTotal = files.length; processingDone = 0;
-    $('photoProcessStatus').textContent = `正在检查位置并准备处理 ${files.length} 张照片…`;
+    $('photoProcessStatus').textContent = selection.watermarkSource === 'original'
+      ? `已跳过位置检查，正在准备处理 ${files.length} 张照片…`
+      : `正在检查位置并准备处理 ${files.length} 张照片…`;
     await renderQueue();
     try {
       const baseContext = await makeContext('file', selection);
@@ -507,8 +513,12 @@
         const card = textNode('article','','photo-card'), link = document.createElement('a'), image = document.createElement('img');
         link.href = photo.preview; link.target = '_blank'; link.rel = 'noopener'; image.src = photo.thumbnail; image.alt = '工单照片'; image.loading = 'lazy'; link.append(image);
         const detail = document.createElement('div');
-        const map=document.createElement('a'); map.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`; map.target='_blank'; map.rel='noopener'; map.textContent=`坐标：${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}`;
-        const address=document.createElement('a'); address.href=map.href; address.target='_blank'; address.rel='noopener'; address.textContent='现场地址：'+(photo.site_address||photo.site_name);
+        const map=document.createElement(photo.location_verified ? 'a' : 'span');
+        if (photo.location_verified) { map.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`; map.target='_blank'; map.rel='noopener'; map.textContent=`坐标：${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}`; }
+        else map.textContent='坐标：未检查';
+        const address=document.createElement(photo.location_verified ? 'a' : 'span');
+        if (photo.location_verified) { address.href=map.href; address.target='_blank'; address.rel='noopener'; }
+        address.textContent='现场地址：'+(photo.site_address||photo.site_name);
         const deviceDetail = ['铭牌号：'+(photo.equipment_number || '无'), photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', photo.pump_fuse_numbers ? '水泵保险：'+photo.pump_fuse_numbers : ''].filter(Boolean).join(' · ');
         const watermarkDetail = photo.watermark_source === 'original' ? '水印：保留原图水印' : '水印：系统生成 · '+(photo.watermark_at||photo.captured_at);
         detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+photo.captured_at+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+photo.received_at),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
