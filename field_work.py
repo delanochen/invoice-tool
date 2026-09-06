@@ -169,9 +169,20 @@ def register_field_routes(app, api):
         # may carry an old local user id after iOS restores or refreshes the app.
         # Never attribute an upload to that client-supplied value.
         raw_key = request.form.get('client_id', '')[:500]
+        source = request.form.get('source', '')
+        if source not in {'camera', 'file'}:
+            return jsonify(error='照片来源无效。'), 422
+        watermark_source = request.form.get('watermark_source', 'system').strip()
+        if watermark_source not in {'system', 'original'} or (watermark_source == 'original' and source != 'file'):
+            return jsonify(error='水印来源无效。'), 422
+        original_import = source == 'file' and watermark_source == 'original'
+        location_verified = False if original_import else request.form.get('location_verified', 'true') == 'true'
         try:
             order_id = int(request.form.get('order_id', ''))
-            order = api['require_service_order'](order_id)
+        except (ValueError, TypeError):
+            return jsonify(error='工单无效。'), 422
+        order = api['require_service_order'](order_id)
+        try:
             captured = datetime.fromisoformat(request.form.get('captured_at', '').replace('Z', '+00:00'))
             if captured.tzinfo is None or captured.year < 2000 or captured > datetime.now(timezone.utc) + timedelta(minutes=10):
                 raise ValueError
@@ -184,14 +195,13 @@ def register_field_routes(app, api):
             if not all(math.isfinite(v) for v in (lat, lng, accuracy)) or not (-90 <= lat <= 90 and -180 <= lng <= 180 and 0 <= accuracy <= 100000):
                 raise ValueError
         except (ValueError, TypeError, OverflowError, ZoneInfoNotFoundError):
-            return jsonify(error='拍摄时间、时区或定位数据不正确。'), 422
-        source = request.form.get('source', '')
-        if source not in {'camera', 'file'}:
-            return jsonify(error='照片来源无效。'), 422
-        watermark_source = request.form.get('watermark_source', 'system').strip()
-        if watermark_source not in {'system', 'original'} or (watermark_source == 'original' and source != 'file'):
-            return jsonify(error='水印来源无效。'), 422
-        location_verified = request.form.get('location_verified', 'true') == 'true'
+            if not original_import:
+                return jsonify(error='拍摄时间、时区或定位数据不正确。'), 422
+            captured = datetime.now(timezone.utc)
+            watermark = captured
+            tz_name = 'UTC'
+            local = captured
+            lat, lng, accuracy = 0.0, 0.0, 100000.0
         if not location_verified and not (source == 'file' and watermark_source == 'original'):
             return jsonify(error='只有保留原图水印的选图可以跳过位置检查。'), 422
         note = request.form.get('note', '').strip()[:1000]

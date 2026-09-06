@@ -160,6 +160,9 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(listed['watermark_source'], 'original')
         self.assertEqual(self.upload(source='camera', watermark_source='original').status_code, 422)
         self.assertEqual(self.upload(source='file', watermark_source='system', location_verified='false').status_code, 422)
+        repaired = self.upload(client_id='old-draft', source='file', watermark_source='original',
+                               location_verified='false', captured_at='invalid', timezone_name='Old/Phone', latitude='nan')
+        self.assertEqual(repaired.status_code, 200, repaired.text)
 
     def test_csrf_login_and_permission_required(self):
         self.csrf = 'invalid'
