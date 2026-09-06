@@ -85,7 +85,10 @@ class FieldWorkTest(unittest.TestCase):
                         {'photo':(BytesIO(b'not an image'),'fake.jpg')}):
             with self.subTest(changes=changes):
                 self.assertEqual(self.upload(**changes).status_code,422)
-        self.assertEqual(self.upload(user_id=str(self.fixture.people['Beneficiary'])).status_code,409)
+        self.assertEqual(self.upload(user_id=str(self.fixture.people['Beneficiary'])).status_code,200)
+        with self.module.app.app_context():
+            owner = self.module.db().execute('select user_id from field_photos order by id desc').fetchone()['user_id']
+        self.assertEqual(owner, self.fixture.people['Submitter'])
         self.assertEqual(self.upload(equipment_number='', no_equipment_number='false').status_code,422)
 
     def test_device_session_metadata_is_saved_and_empty_number_is_explicit(self):
@@ -232,6 +235,7 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn("location_verified:!keepsOriginalWatermark", script)
         self.assertIn("if (selection.watermarkSource === 'original') await keepOriginalFile(file,context)", script)
         self.assertIn("data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg')", script)
+        self.assertIn("thumb.replaceWith(fallback)", script)
         backend = (fixture.ROOT / 'field_work.py').read_text(encoding='utf-8')
         self.assertIn("'HEIF', 'HEIC', 'AVIF'", backend)
 

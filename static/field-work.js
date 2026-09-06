@@ -450,6 +450,7 @@
       photos.forEach(photo => {
         const row = textNode('div','','queue-item draft-item');
         const thumb=document.createElement('img'); const thumbURL=URL.createObjectURL(photo.blob); thumb.src=thumbURL; thumb.alt='草稿照片'; thumb.onload=()=>URL.revokeObjectURL(thumbURL);
+        thumb.onerror=()=>{ URL.revokeObjectURL(thumbURL); const fallback=textNode('div','原图','original-photo-placeholder'); fallback.addEventListener('click',()=>openDraft(photo)); thumb.replaceWith(fallback); };
         thumb.addEventListener('click',()=>openDraft(photo));
         row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
         const save = textNode('button','保存备份到手机'); save.type = 'button'; save.addEventListener('click', () => {

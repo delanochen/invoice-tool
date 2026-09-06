@@ -165,8 +165,9 @@ def register_field_routes(app, api):
         check_write()
         if not api['has_action_permission']('service_reports', 'create'):
             abort(403)
-        if request.form.get('user_id') != str(g.user['id']):
-            return jsonify(error='照片属于另一个账号，请切换回拍摄账号上传。'), 409
+        # The authenticated server session is authoritative. A stale PWA draft
+        # may carry an old local user id after iOS restores or refreshes the app.
+        # Never attribute an upload to that client-supplied value.
         key = request.form.get('client_id', '')
         if not re.fullmatch(r'[0-9a-f]{32}', key):
             return jsonify(error='照片编号无效。'), 422
