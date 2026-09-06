@@ -11,6 +11,7 @@
   let cameraSelection = null, bootstrapGeneration = 0;
   let deviceSession = null, scanTimer = null, detector = null;
   let batch = null, timeAuthorized = false, draftSelection = null;
+  let processingFiles = false, processingTotal = 0, processingDone = 0;
   async function requestAPI(url, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
@@ -61,6 +62,7 @@
     $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type==='general');
     if (type === 'general') deviceSession = {id:batch.id,equipment_number:'',position_number:'',container_number:'',pump_fuse_numbers:'',no_equipment_number:true};
     else if (previousType !== 'equipment') resetDevice();
+    renderQueue();
   }
   async function verifyTimePassword() {
     const response = await requestAPI('/api/field/verify-watermark-password',{method:'POST',headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf},body:JSON.stringify({password:$('watermarkPassword').value})});
@@ -401,25 +403,29 @@
   $('photoFile').addEventListener('change', async () => {
     const files = Array.from($('photoFile').files || []), selection = captureContext; captureContext = null;
     if (!files.length || !selection) return;
-    taking = true;
+    taking = true; processingFiles = true; processingTotal = files.length; processingDone = 0;
+    $('photoProcessStatus').textContent = `正在检查位置并准备处理 ${files.length} 张照片…`;
+    await renderQueue();
     try {
       const baseContext = await makeContext('file', selection);
       if (!baseContext) return;
       baseContext.watermark_source = selection.watermarkSource;
       let saved = 0;
       for (const file of files) {
+        $('photoProcessStatus').textContent = `正在处理第 ${processingDone + 1}/${processingTotal} 张：${file.name || '照片'}…`;
         const url = URL.createObjectURL(file);
         try {
           const image = new Image(); image.src = url; await image.decode();
           const context = {...baseContext, client_id:key(), captured_at:new Date().toISOString()};
           await keepCapture(image,context); saved++;
-        } catch(error) { notice(`照片 ${file.name || saved + 1} 未保存：${error.message}。`,true); }
+        } catch(error) { const message=`照片 ${file.name || processingDone + 1} 未保存：${error.message}。`; notice(message,true); $('photoProcessStatus').textContent=message; }
         finally { URL.revokeObjectURL(url); }
+        processingDone++;
       }
-      if (saved) notice(`已保存 ${saved} 张本机草稿，完成本组后统一上传。`);
+      if (saved) { const message=`已保存 ${saved}/${files.length} 张本机草稿，请点击下方完成按钮上传。`; notice(message); $('photoProcessStatus').textContent=message; }
     }
-    catch(error) { notice('照片未保存：'+error.message+'。请保留原照片后重试。',true); }
-    finally { taking = false; $('photoFile').value = ''; }
+    catch(error) { const message='照片未保存：'+error.message+'。请保留原照片后重试。'; notice(message,true); $('photoProcessStatus').textContent=message; }
+    finally { taking = false; processingFiles = false; processingTotal = 0; processingDone = 0; $('photoFile').value = ''; await renderQueue(); }
   });
   $('photoFile').addEventListener('cancel', () => { captureContext = null; });
   async function renderQueue() {
@@ -436,7 +442,10 @@
         }); row.append(save); $('queueList').append(row);
       });
       if (!photos.length) $('queueList').append(textNode('p','没有待上传照片。','muted'));
-      $('completeBatch').hidden = !(batch && photos.some(photo=>photo.batch_id===batch.id));
+      const batchCount = batch ? photos.filter(photo=>photo.batch_id===batch.id).length : 0;
+      $('completeBatch').hidden = !batch;
+      $('completeBatch').disabled = processingFiles || batchCount === 0;
+      $('completeBatch').textContent = processingFiles ? `正在处理照片（${processingDone}/${processingTotal}）` : batchCount ? `完成并上传本组照片（${batchCount} 张）` : '请先拍照或选择照片';
     } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }
   }
   function openDraft(photo) {

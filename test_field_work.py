@@ -215,6 +215,8 @@ class FieldWorkTest(unittest.TestCase):
         self.assertLess(script.index("$('photoFile').addEventListener('change'"), script.index("await makeContext('file', selection)"))
         self.assertIn("Array.from($('photoFile').files || [])", script)
         self.assertIn('for (const file of files)', script)
+        self.assertIn('正在处理第 ${processingDone + 1}/${processingTotal} 张', script)
+        self.assertIn("$('completeBatch').hidden = !batch", script)
 
     def test_watermark_omits_blank_optional_equipment_fields(self):
         script = (fixture.ROOT / 'static' / 'field-watermark.js').read_text(encoding='utf-8')
