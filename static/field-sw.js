@@ -1,4 +1,4 @@
-const FIELD_CACHE = 'prasinos-field-15';
+const FIELD_CACHE = 'prasinos-field-16';
 const ASSETS = ['/field/', '/static/field-watermark.js', '/static/field-work.js', '/static/field-work.css', '/static/logo.svg', '/static/field-icon-192.png', '/static/field-icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(FIELD_CACHE).then(cache => cache.addAll(ASSETS)));

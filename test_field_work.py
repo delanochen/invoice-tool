@@ -203,13 +203,15 @@ class FieldWorkTest(unittest.TestCase):
         with self.http.get('/field/sw.js') as response:
             self.assertEqual(response.status_code,200)
 
-    def test_system_photo_picker_opens_before_async_location_work(self):
+    def test_system_photo_picker_uses_a_direct_native_input_click(self):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
-        picker_click = script.index("$('photoFile').click();")
-        deferred_context = script.index("await makeContext('file', selection)")
-        self.assertLess(picker_click, deferred_context)
-        handler = script[script.index("$('fileCapture').addEventListener"):picker_click]
-        self.assertNotIn('await ', handler)
+        page = (fixture.ROOT / 'templates' / 'field_work.html').read_text(encoding='utf-8')
+        self.assertIn('class="native-photo-picker button"', page)
+        self.assertIn('id="photoFile" type="file"', page)
+        self.assertNotIn('id="photoFile" type="file" accept="image/*" capture="environment" hidden', page)
+        self.assertIn("$('photoFile').addEventListener('click', event =>", script)
+        self.assertNotIn("$('photoFile').click()", script)
+        self.assertLess(script.index("$('photoFile').addEventListener('change'"), script.index("await makeContext('file', selection)"))
 
     def test_watermark_omits_blank_optional_equipment_fields(self):
         script = (fixture.ROOT / 'static' / 'field-watermark.js').read_text(encoding='utf-8')

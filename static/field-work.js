@@ -192,7 +192,8 @@
     $('createOrder').hidden = !profile.create_order_url;
     if (profile.create_order_url) $('createOrder').href = profile.create_order_url;
     $('openCamera').disabled = !profile.can_capture;
-    $('fileCapture').disabled = !profile.can_capture;
+    $('fileCapture').classList.toggle('disabled', !profile.can_capture);
+    $('fileCapture').setAttribute('aria-disabled', profile.can_capture ? 'false' : 'true');
     renderSelect();
     renderOrders();
     await renderQueue();
@@ -385,20 +386,17 @@
     catch (error) { notice('照片未保存：'+error.message,true); }
     finally { taking = false; $('takePhoto').disabled = false; }
   });
-  $('fileCapture').addEventListener('click', () => {
-    if (taking) return;
-    if (!identityReady || !profile?.can_capture) return;
-    if (!batch) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
-    if (!$('existingWatermark').checked && !$('systemTime').checked && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
-    if (!deviceSession) { notice('请先确认本组照片类型和设备信息。',true); return; }
+  $('photoFile').addEventListener('click', event => {
+    const reject = message => { event.preventDefault(); captureContext = null; notice(message,true); };
+    if (taking || !identityReady || !profile?.can_capture) { reject('照片功能尚未准备好，请稍后重试。'); return; }
+    if (!batch) { reject('请先选择“设备照片”或“非设备照片”。'); return; }
+    if (!$('existingWatermark').checked && !$('systemTime').checked && !timeAuthorized) { reject('请先验证水印时间调整密码。'); return; }
+    if (!deviceSession) { reject('请先确认本组照片类型和设备信息。'); return; }
     const selected = chosenOrder();
-    if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
-    // iPhone/Safari only opens a file picker during the original user gesture.
-    // Save the selected order first, then open the picker synchronously; location
-    // and watermark work continues after the user has chosen a photo.
+    if (!selected) { reject('请先在上方选择工单。'); $('orderSelect').focus(); return; }
+    // This handler runs on the native file input itself. iPhone/PWA therefore
+    // receives a direct trusted user gesture instead of a scripted input click.
     captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:$('existingWatermark').checked ? 'original' : 'system'};
-    $('photoFile').value = '';
-    $('photoFile').click();
   });
   $('photoFile').addEventListener('change', async () => {
     const file = $('photoFile').files[0], selection = captureContext; captureContext = null;
