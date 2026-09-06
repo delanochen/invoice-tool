@@ -201,6 +201,11 @@ class FieldWorkTest(unittest.TestCase):
         handler = script[script.index("$('fileCapture').addEventListener"):picker_click]
         self.assertNotIn('await ', handler)
 
+    def test_watermark_omits_blank_optional_equipment_fields(self):
+        script = (fixture.ROOT / 'static' / 'field-watermark.js').read_text(encoding='utf-8')
+        self.assertIn("String(context.position_number || '').trim()", script)
+        self.assertIn("String(context.container_number || '').trim()", script)
+
 
 if __name__ == '__main__':
     unittest.main()

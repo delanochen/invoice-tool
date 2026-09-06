@@ -58,8 +58,8 @@
     const rows = [
       ...(context.photo_type === 'equipment' ? [
         ['Machine No.', context.equipment_number || 'N/A', 2],
-        ...(context.position_number ? [['Location No.', context.position_number, 1]] : []),
-        ...(context.container_number ? [['Container No.', context.container_number, 1]] : []),
+        ...(String(context.position_number || '').trim() ? [['Location No.', String(context.position_number).trim(), 1]] : []),
+        ...(String(context.container_number || '').trim() ? [['Container No.', String(context.container_number).trim(), 1]] : []),
         ...(context.pump_fuse_numbers ? [['Pump Fuse', context.pump_fuse_numbers, 1]] : [])
       ] : []),
       ['Technician', context.employee_name, 2],
