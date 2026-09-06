@@ -155,10 +155,11 @@ class ExpenseOnBehalfTest(unittest.TestCase):
         self.login('Unrelated')
         self.assertEqual(self.http.post(f'/expenses/{expense["id"]}/edit',data=self.form()).status_code,403)
 
-    def test_recipient_read_access_does_not_grant_edit_or_delete(self):
+    def test_recipient_can_delete_own_returned_expense_but_not_edit_attachments_or_approve(self):
         expense = self.create(action='save')
         with self.app.app.app_context():
             db=self.app.db()
+            db.execute("update expenses set status='returned', return_reason='Please correct' where id=?", (expense['id'],))
             aid=db.execute("""insert into expense_attachments (expense_id,original_filename,stored_filename,uploaded_by,uploaded_at)
                 values (?,'receipt.pdf','receipt.pdf',?,?)""",(expense['id'],self.people['Submitter'],self.app.now())).lastrowid
             (Path(self.app.expense_attachment_dir(expense['id']))/'receipt.pdf').write_bytes(b'%PDF-test')
@@ -167,8 +168,13 @@ class ExpenseOnBehalfTest(unittest.TestCase):
         with self.http.get(f'/expense-attachments/{aid}/download') as response:
             self.assertEqual(response.status_code,200)
         self.assertEqual(self.http.post(f'/expense-attachments/{aid}/delete').status_code,403)
-        self.assertEqual(self.http.post(f'/expenses/{expense["id"]}/delete').status_code,403)
         self.assertEqual(self.http.post(f'/expenses/{expense["id"]}/approve').status_code,403)
+        page = self.http.get(f'/expenses/{expense["id"]}')
+        self.assertIn(f'/expenses/{expense["id"]}/delete', page.get_data(as_text=True))
+        self.assertEqual(self.http.post(f'/expenses/{expense["id"]}/delete').status_code,302)
+        with self.app.app.app_context():
+            self.assertIsNone(self.app.db().execute('select id from expenses where id=?',(expense['id'],)).fetchone())
+            self.assertFalse((Path(self.app.EXPENSE_ATTACHMENTS_DIR) / str(expense['id'])).exists())
 
     def test_legacy_migration_is_repeatable_and_preserves_delegation(self):
         expense=self.create(action='save')

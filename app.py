@@ -5709,6 +5709,18 @@ def can_access_expense(expense):
     return g.user["id"] in {expense["created_by"], expense_beneficiary_id(expense)}
 
 
+def can_delete_expense(expense):
+    if not g.user:
+        return False
+    if normalized_role() == "admin":
+        return True
+    if expense["status"] not in {"draft", "returned"}:
+        return False
+    if is_manager():
+        return True
+    return g.user["id"] in {expense["created_by"], expense_beneficiary_id(expense)}
+
+
 def require_expense(expense_id):
     expense = db().execute("select * from expenses where id = ?", (expense_id,)).fetchone()
     if not expense:
@@ -13631,6 +13643,7 @@ def expense_detail(expense_id):
         attachments_by_item=attachments_by_item,
         transfer_reimbursement=latest_customer_reimbursement(order["id"]) if can_transfer_attachments else None,
         can_transfer_attachments=can_transfer_attachments,
+        can_delete=can_delete_expense(expense),
         labels=EXPENSE_STATUS_LABELS,
     )
 
@@ -13699,12 +13712,11 @@ def return_expense(expense_id):
 @login_required
 def delete_expense(expense_id):
     expense, order = require_expense(expense_id)
-    is_admin = normalized_role() == "admin"
-    if not is_admin and expense["created_by"] != g.user["id"] and not is_manager():
+    if not can_delete_expense(expense):
+        if expense["status"] not in {"draft", "returned"}:
+            flash("只有保存未提交或被退回的报销可以删除。", "error")
+            return redirect(url_for("expense_detail", expense_id=expense_id))
         abort(403)
-    if not is_admin and expense["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或被退回的报销可以删除。", "error")
-        return redirect(url_for("expense_detail", expense_id=expense_id))
     shutil.rmtree(expense_attachment_dir(expense_id), ignore_errors=True)
     db().execute("delete from expense_attachments where expense_id = ?", (expense_id,))
     db().execute("delete from expense_items where expense_id = ?", (expense_id,))
