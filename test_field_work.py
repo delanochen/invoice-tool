@@ -64,6 +64,15 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(first.json['id'],retry.json['id'])
         self.photo = self.photo + b'extra'
         self.assertEqual(self.upload(client_id=key).status_code,409)
+
+    def test_legacy_invalid_photo_id_is_repaired_idempotently(self):
+        first = self.upload(client_id='undefined', source='file', watermark_source='original', location_verified='false')
+        retry = self.upload(client_id='undefined', source='file', watermark_source='original', location_verified='false')
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(retry.status_code, 200, retry.text)
+        self.assertTrue(retry.json['duplicate'])
+        with self.module.app.app_context():
+            self.assertEqual(self.module.db().execute('select count(*) from field_photos').fetchone()[0], 1)
         with self.module.app.app_context():
             self.assertEqual(self.module.db().execute('select count(*) from field_photos').fetchone()[0],1)
 

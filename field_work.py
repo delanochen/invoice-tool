@@ -168,9 +168,7 @@ def register_field_routes(app, api):
         # The authenticated server session is authoritative. A stale PWA draft
         # may carry an old local user id after iOS restores or refreshes the app.
         # Never attribute an upload to that client-supplied value.
-        key = request.form.get('client_id', '')
-        if not re.fullmatch(r'[0-9a-f]{32}', key):
-            return jsonify(error='照片编号无效。'), 422
+        raw_key = request.form.get('client_id', '')[:500]
         try:
             order_id = int(request.form.get('order_id', ''))
             order = api['require_service_order'](order_id)
@@ -230,6 +228,15 @@ def register_field_routes(app, api):
         if not content or len(content) > 40 * 1024 * 1024:
             return jsonify(error='照片为空或超过 40MB。'), 422
         digest = hashlib.sha256(content).hexdigest()
+        if re.fullmatch(r'[0-9a-f]{32}', raw_key):
+            key = raw_key
+        else:
+            # Repair legacy or partially restored PWA identifiers deterministically.
+            # Including the content hash keeps different selected files distinct,
+            # while the same retry resolves to the same id and remains idempotent.
+            identity = '|'.join((str(g.user['id']), raw_key, str(order_id), captured.isoformat(),
+                                 batch_id, photo.filename or '', digest))
+            key = hashlib.sha256(identity.encode('utf-8')).hexdigest()[:32]
         try:
             with Image.open(BytesIO(content)) as image:
                 if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC', 'AVIF'} or image.width * image.height > 40_000_000:
