@@ -43,7 +43,7 @@
         </div>
         <label>工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label>
         <label class="check-label"><input id="existingWatermark" type="checkbox"> 所选原照片已有水印，不再添加系统水印</label>
-        <label id="fileCapture" class="native-photo-picker button"><span>使用系统相机 / 选择照片</span><input id="photoFile" type="file" accept="image/*" capture="environment"></label>
+        <label id="fileCapture" class="native-photo-picker button"><span>拍照 / 从相册选择</span><input id="photoFile" type="file" accept="image/*"></label>
         <small class="muted">选择已有照片时，记录的是本次选图时间，并标明“选图”，不作为原始拍摄时间认证。</small>
       </div>
       <div id="draftCard" class="card"><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><button id="retryUpload" type="button">重试上传</button></div><p class="muted">照片先保存在本机。点击缩略图可放大或删除；点击完成后统一上传。</p><div id="queueList"></div></div>
