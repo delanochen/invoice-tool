@@ -208,7 +208,7 @@ class FieldWorkTest(unittest.TestCase):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
         page = (fixture.ROOT / 'templates' / 'field_work.html').read_text(encoding='utf-8')
         self.assertIn('class="native-photo-picker button"', page)
-        self.assertIn('id="photoFile" type="file" accept="image/*" multiple', page)
+        self.assertIn('id="photoFile" type="file" accept="image/*,.heic,.heif,.avif" multiple', page)
         self.assertNotIn('capture="environment"', page)
         self.assertNotIn('id="photoFile" type="file" accept="image/*" hidden', page)
         self.assertIn("$('photoFile').addEventListener('click', event =>", script)
@@ -232,6 +232,8 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn("location_verified:!keepsOriginalWatermark", script)
         self.assertIn("if (selection.watermarkSource === 'original') await keepOriginalFile(file,context)", script)
         self.assertIn("data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg')", script)
+        backend = (fixture.ROOT / 'field_work.py').read_text(encoding='utf-8')
+        self.assertIn("'HEIF', 'HEIC', 'AVIF'", backend)
 
 
 if __name__ == '__main__':

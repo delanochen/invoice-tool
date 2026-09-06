@@ -231,7 +231,7 @@ def register_field_routes(app, api):
         digest = hashlib.sha256(content).hexdigest()
         try:
             with Image.open(BytesIO(content)) as image:
-                if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC'} or image.width * image.height > 40_000_000:
+                if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC', 'AVIF'} or image.width * image.height > 40_000_000:
                     raise ValueError
                 image.verify()
         except (OSError, ValueError, Image.DecompressionBombError):

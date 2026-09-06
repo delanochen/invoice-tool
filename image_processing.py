@@ -5,7 +5,7 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 
 
-ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif", "avif"}
 
 register_heif_opener()
 
