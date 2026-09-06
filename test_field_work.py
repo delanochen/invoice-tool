@@ -138,6 +138,16 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(row['watermark_at'], adjusted)
         self.assertTrue(row['batch_id'])
 
+    def test_selected_photo_can_keep_its_original_watermark(self):
+        response = self.upload(source='file', watermark_source='original')
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.module.app.app_context():
+            row = self.module.db().execute('select source, watermark_source from field_photos').fetchone()
+        self.assertEqual(dict(row), {'source': 'file', 'watermark_source': 'original'})
+        listed = self.http.get('/api/field/photos').json['rows'][0]
+        self.assertEqual(listed['watermark_source'], 'original')
+        self.assertEqual(self.upload(source='camera', watermark_source='original').status_code, 422)
+
     def test_csrf_login_and_permission_required(self):
         self.csrf = 'invalid'
         self.assertEqual(self.upload().status_code,403)
@@ -205,6 +215,11 @@ class FieldWorkTest(unittest.TestCase):
         script = (fixture.ROOT / 'static' / 'field-watermark.js').read_text(encoding='utf-8')
         self.assertIn("String(context.position_number || '').trim()", script)
         self.assertIn("String(context.container_number || '').trim()", script)
+
+    def test_original_watermark_option_skips_system_overlay(self):
+        script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
+        self.assertIn("context.watermark_source !== 'original'", script)
+        self.assertIn("watermarkSource:$('existingWatermark').checked ? 'original' : 'system'", script)
 
 
 if __name__ == '__main__':

@@ -358,19 +358,19 @@
       pump_fuse_numbers:deviceSession.pump_fuse_numbers,
       equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number};
   }
-  async function watermarked(source, context) {
+  async function processedPhoto(source, context) {
     const width = source.videoWidth || source.naturalWidth || source.width;
     const height = source.videoHeight || source.naturalHeight || source.height;
     if (!width || !height) throw new Error('相机尚未准备好，请重试。');
     const scale = Math.min(1,1800/Math.max(width,height));
     const canvas = document.createElement('canvas'); canvas.width = Math.round(width*scale); canvas.height = Math.round(height*scale);
     const ctx = canvas.getContext('2d'); ctx.drawImage(source,0,0,canvas.width,canvas.height);
-    await window.PrasinosWatermark.draw(ctx,canvas.width,canvas.height,context);
+    if (context.watermark_source !== 'original') await window.PrasinosWatermark.draw(ctx,canvas.width,canvas.height,context);
     return new Promise((resolve,reject) => canvas.toBlob(blob => blob ? resolve(blob):reject(new Error('照片压缩失败')),'image/jpeg',.82));
   }
   async function keepCapture(source, context) {
     if (!context || context.user_id !== profile?.user.id || !identityReady) throw new Error('账号已改变，请重新拍照。');
-    const photo = {...context,blob:await watermarked(source,context)};
+    const photo = {...context,blob:await processedPhoto(source,context)};
     // Do not report success or clear the capture until the IDB transaction commits.
     await storePhoto(photo);
     if (previewURL) URL.revokeObjectURL(previewURL);
@@ -381,7 +381,7 @@
   }
   $('takePhoto').addEventListener('click', async () => {
     if (taking) return; taking = true; $('takePhoto').disabled = true;
-    try { const context = await makeContext('camera'); if (context) await keepCapture($('viewfinder'),context); }
+    try { const context = await makeContext('camera'); if (context) { context.watermark_source = 'system'; await keepCapture($('viewfinder'),context); } }
     catch (error) { notice('照片未保存：'+error.message,true); }
     finally { taking = false; $('takePhoto').disabled = false; }
   });
@@ -389,14 +389,14 @@
     if (taking) return;
     if (!identityReady || !profile?.can_capture) return;
     if (!batch) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
-    if (!$('systemTime').checked && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
+    if (!$('existingWatermark').checked && !$('systemTime').checked && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
     if (!deviceSession) { notice('请先确认本组照片类型和设备信息。',true); return; }
     const selected = chosenOrder();
     if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
     // iPhone/Safari only opens a file picker during the original user gesture.
     // Save the selected order first, then open the picker synchronously; location
     // and watermark work continues after the user has chosen a photo.
-    captureContext = {order:{...selected}, userId:profile.user.id};
+    captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:$('existingWatermark').checked ? 'original' : 'system'};
     $('photoFile').value = '';
     $('photoFile').click();
   });
@@ -408,6 +408,7 @@
     try {
       const context = await makeContext('file', selection);
       if (!context) return;
+      context.watermark_source = selection.watermarkSource;
       const image = new Image(); image.src = url; await image.decode(); context.captured_at = new Date().toISOString(); await keepCapture(image,context);
     }
     catch(error) { notice('照片未保存：'+error.message+'。请保留原照片后重试。',true); }
@@ -422,7 +423,7 @@
         const row = textNode('div','','queue-item draft-item');
         const thumb=document.createElement('img'); const thumbURL=URL.createObjectURL(photo.blob); thumb.src=thumbURL; thumb.alt='草稿照片'; thumb.onload=()=>URL.revokeObjectURL(thumbURL);
         thumb.addEventListener('click',()=>openDraft(photo));
-        row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',new Date(photo.captured_at).toLocaleString()),textNode('span',photo.error || '本机草稿'));
+        row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
         const save = textNode('button','保存备份到手机'); save.type = 'button'; save.addEventListener('click', () => {
           const href = URL.createObjectURL(photo.blob), link = document.createElement('a'); link.href = href; link.download = photo.order_number+'-'+photo.client_id+'.jpg'; link.click(); setTimeout(() => URL.revokeObjectURL(href),10000);
         }); row.append(save); $('queueList').append(row);
@@ -433,7 +434,7 @@
   }
   function openDraft(photo) {
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
-    $('draftLarge').src=previewURL; $('draftDetail').textContent=(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString(); $('draftDialog').showModal();
+    $('draftLarge').src=previewURL; $('draftDetail').textContent=(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'); $('draftDialog').showModal();
   }
   async function syncQueue(batchId = null) {
     if (syncing || !navigator.onLine || !profile || !identityReady) return;
@@ -472,7 +473,7 @@
     const id=batch.id; await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('systemTime').checked=true; $('adjustedTimeFields').hidden=true; $('watermarkPassword').value='';
-    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('kindStatus').textContent='请选择下一组照片类型。'; $('photoNote').value='';
+    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('kindStatus').textContent='请选择下一组照片类型。'; $('photoNote').value=''; $('existingWatermark').checked=false;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
   async function loadLedger() {
@@ -493,7 +494,8 @@
         const map=document.createElement('a'); map.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`; map.target='_blank'; map.rel='noopener'; map.textContent=`坐标：${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}`;
         const address=document.createElement('a'); address.href=map.href; address.target='_blank'; address.rel='noopener'; address.textContent='现场地址：'+(photo.site_address||photo.site_name);
         const deviceDetail = ['铭牌号：'+(photo.equipment_number || '无'), photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', photo.pump_fuse_numbers ? '水泵保险：'+photo.pump_fuse_numbers : ''].filter(Boolean).join(' · ');
-        detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+photo.captured_at+' · 水印：'+(photo.watermark_at||photo.captured_at)),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+photo.received_at),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
+        const watermarkDetail = photo.watermark_source === 'original' ? '水印：保留原图水印' : '水印：系统生成 · '+(photo.watermark_at||photo.captured_at);
+        detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+photo.captured_at+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+photo.received_at),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
         card.append(link,detail); $('ledgerList').append(card);
       });
     } catch(error) { $('ledgerSummary').textContent = '台账需要联网查看。待上传照片请到“拍照”页面查看。'; }

@@ -36,9 +36,10 @@ def init_field_schema(connection):
     ''')
     columns = {row[1] for row in connection.execute('pragma table_info(field_photos)')}
     for name in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers', 'equipment_session', 'photo_type',
-                 'watermark_at', 'batch_id', 'technician_name'):
+                 'watermark_at', 'watermark_source', 'batch_id', 'technician_name'):
         if name not in columns:
             connection.execute(f"alter table field_photos add column {name} text not null default ''")
+    connection.execute("update field_photos set watermark_source = 'system' where watermark_source = ''")
     if 'technician_user_id' not in columns:
         connection.execute('alter table field_photos add column technician_user_id integer')
 
@@ -186,6 +187,9 @@ def register_field_routes(app, api):
         source = request.form.get('source', '')
         if source not in {'camera', 'file'}:
             return jsonify(error='照片来源无效。'), 422
+        watermark_source = request.form.get('watermark_source', 'system').strip()
+        if watermark_source not in {'system', 'original'} or (watermark_source == 'original' and source != 'file'):
+            return jsonify(error='水印来源无效。'), 422
         note = request.form.get('note', '').strip()[:1000]
         has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
                                                                    'equipment_session', 'no_equipment_number'))
@@ -251,12 +255,12 @@ def register_field_routes(app, api):
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
                  equipment_number, position_number, container_number, pump_fuse_numbers, equipment_session, photo_type, watermark_at,
-                 batch_id, technician_user_id, technician_name)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 watermark_source, batch_id, technician_user_id, technician_name)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
                  relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, container_number, pump_fuse_numbers,
-                 equipment_session, photo_type, watermark_at, batch_id, technician['id'], technician_name))
+                 equipment_session, photo_type, watermark_at, watermark_source, batch_id, technician['id'], technician_name))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
         except Exception:
@@ -329,12 +333,18 @@ def register_field_routes(app, api):
         if len(rows) > 2000:
             return jsonify(error='结果超过 2000 条，请缩小日期或工单范围后导出。'), 422
         headers = ['工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '已更换水泵保险编号', '施工员', '实际拍摄账号', '拍摄日期',
-                   '设备拍摄时间（UTC）', '水印时间', '归档时区', '上传时间', '纬度', '经度', '精度（米）',
+                   '设备拍摄时间（UTC）', '水印时间', '水印来源', '归档时区', '上传时间', '纬度', '经度', '精度（米）',
                    '备注', '位置确认说明', '来源', '文件路径']
         keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
-                'technician_name', 'employee_name', 'capture_date', 'captured_at', 'watermark_at', 'timezone_name',
+                'technician_name', 'employee_name', 'capture_date', 'captured_at', 'watermark_at', 'watermark_source', 'timezone_name',
                 'received_at', 'latitude', 'longitude', 'accuracy', 'note', 'location_note', 'source', 'relative_path']
-        buffer = api['build_simple_xlsx'](headers, [[str(row[key] or '') for key in keys] for row in rows], sheet_name='工单照片台账')
+        export_rows = []
+        for row in rows:
+            values = [str(row[key] or '') for key in keys]
+            source_index = keys.index('watermark_source')
+            values[source_index] = '保留原图水印' if row['watermark_source'] == 'original' else '系统生成水印'
+            export_rows.append(values)
+        buffer = api['build_simple_xlsx'](headers, export_rows, sheet_name='工单照片台账')
         return send_file(buffer, as_attachment=True, download_name='field-photos.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     def repair_table_rows():
