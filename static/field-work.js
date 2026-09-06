@@ -332,12 +332,12 @@
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
     } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }
   }
-  async function makeContext(source) {
+  async function makeContext(source, lockedSelection = null) {
     const resolved = chosenOrder();
     if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
-    const selected = cameraSelection?.order || {...resolved};
+    const selected = lockedSelection?.order || cameraSelection?.order || {...resolved};
     if (!batch || !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');
-    const selectedId = selected.id, selectedUser = cameraSelection?.userId || profile.user.id;
+    const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     // Refresh before every capture. The snapshot will not change while uploading.
     await locate();
     if (!(await checkLocation(true, selected))) return null;
@@ -385,19 +385,33 @@
     catch (error) { notice('照片未保存：'+error.message,true); }
     finally { taking = false; $('takePhoto').disabled = false; }
   });
-  $('fileCapture').addEventListener('click', async () => {
-    if (taking) return; taking = true;
-    try { captureContext = await makeContext('file'); if (captureContext) $('photoFile').click(); }
-    catch (error) { notice(error.message,true); }
-    finally { taking = false; }
+  $('fileCapture').addEventListener('click', () => {
+    if (taking) return;
+    if (!identityReady || !profile?.can_capture) return;
+    if (!batch) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
+    if (!$('systemTime').checked && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
+    if (!deviceSession) { notice('请先确认本组照片类型和设备信息。',true); return; }
+    const selected = chosenOrder();
+    if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
+    // iPhone/Safari only opens a file picker during the original user gesture.
+    // Save the selected order first, then open the picker synchronously; location
+    // and watermark work continues after the user has chosen a photo.
+    captureContext = {order:{...selected}, userId:profile.user.id};
+    $('photoFile').value = '';
+    $('photoFile').click();
   });
   $('photoFile').addEventListener('change', async () => {
-    const file = $('photoFile').files[0], context = captureContext; captureContext = null;
-    if (!file || !context) return;
+    const file = $('photoFile').files[0], selection = captureContext; captureContext = null;
+    if (!file || !selection) return;
+    taking = true;
     const url = URL.createObjectURL(file);
-    try { const image = new Image(); image.src = url; await image.decode(); context.captured_at = new Date().toISOString(); await keepCapture(image,context); }
+    try {
+      const context = await makeContext('file', selection);
+      if (!context) return;
+      const image = new Image(); image.src = url; await image.decode(); context.captured_at = new Date().toISOString(); await keepCapture(image,context);
+    }
     catch(error) { notice('照片未保存：'+error.message+'。请保留原照片后重试。',true); }
-    finally { URL.revokeObjectURL(url); $('photoFile').value = ''; }
+    finally { taking = false; URL.revokeObjectURL(url); $('photoFile').value = ''; }
   });
   $('photoFile').addEventListener('cancel', () => { captureContext = null; });
   async function renderQueue() {

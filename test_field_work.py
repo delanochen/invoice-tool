@@ -193,6 +193,14 @@ class FieldWorkTest(unittest.TestCase):
         with self.http.get('/field/sw.js') as response:
             self.assertEqual(response.status_code,200)
 
+    def test_system_photo_picker_opens_before_async_location_work(self):
+        script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
+        picker_click = script.index("$('photoFile').click();")
+        deferred_context = script.index("await makeContext('file', selection)")
+        self.assertLess(picker_click, deferred_context)
+        handler = script[script.index("$('fileCapture').addEventListener"):picker_click]
+        self.assertNotIn('await ', handler)
+
 
 if __name__ == '__main__':
     unittest.main()
