@@ -76,6 +76,52 @@
       {% endif %}
     </div>
   </section>
+  {% if duplicate_checks and normalized_role() in ["admin", "manager"] %}
+    <section class="panel">
+      <div class="panel-title">
+        <h2>重复附件检查</h2>
+        <span class="status returned">{{ duplicate_checks|length }} 项疑点</span>
+      </div>
+      <p class="muted-line">系统根据文件内容、图片相似度、金额、日期、员工和费用项目筛查。结果仅供审核，需人工确认。</p>
+      <div class="responsive-table">
+        <table class="list-table">
+          <thead><tr><th>风险</th><th>当前附件</th><th>匹配记录</th><th>判断依据</th><th>智能复核</th><th>处理</th></tr></thead>
+          <tbody>
+            {% for check in duplicate_checks %}
+              <tr>
+                <td><strong>{{ "高" if check.risk_level == "high" else "中" }} · {{ check.score }}</strong></td>
+                <td><a href="{{ url_for('preview_expense_attachment', attachment_id=check.attachment_id) }}" target="_blank">{{ check.attachment_name }}</a></td>
+                <td>
+                  <a href="{{ url_for('expense_detail', expense_id=check.matched_expense_id) }}">{{ check.matched_expense_number }}</a><br>
+                  <a class="muted-line" href="{{ url_for('preview_expense_attachment', attachment_id=check.matched_attachment_id) }}" target="_blank">{{ check.matched_attachment_name }}</a>
+                </td>
+                <td>{{ check.reasons }}</td>
+                <td>
+                  {% if check.deepseek_analysis %}{{ check.deepseek_analysis }}
+                  {% elif check.deepseek_error %}<span class="muted-line">智能复核未完成：{{ check.deepseek_error }}</span>
+                  {% else %}<span class="muted-line">确定性规则已足够，或智能助手未启用。</span>{% endif %}
+                </td>
+                <td>
+                  {% if check.review_status == "pending" %}
+                    <div class="row-actions">
+                      <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="confirmed"><button class="danger small" type="submit">确认重复</button></form>
+                      <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="not_duplicate"><button class="small" type="submit">不是重复</button></form>
+                      <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="legal_split"><button class="small" type="submit">合法分摊</button></form>
+                    </div>
+                  {% else %}
+                    <span class="status approved">
+                      {% if check.review_status == "confirmed" %}确认重复{% elif check.review_status == "legal_split" %}合法分摊{% else %}不是重复{% endif %}
+                    </span>
+                    {% if check.reviewer_name %}<small class="muted-line">{{ check.reviewer_name }}</small>{% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
   <section class="panel">
     <h2>报销明细</h2>
     <table class="list-table">

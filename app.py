@@ -1110,6 +1110,30 @@ def init_db():
                 foreign key(uploaded_by) references users(id)
             );
 
+            create table if not exists expense_duplicate_checks (
+                id integer primary key autoincrement,
+                expense_id integer not null,
+                attachment_id integer not null,
+                matched_expense_id integer not null,
+                matched_attachment_id integer not null,
+                risk_level text not null,
+                score integer not null default 0,
+                reasons text not null default '',
+                deepseek_analysis text,
+                deepseek_error text,
+                review_status text not null default 'pending',
+                reviewed_by integer,
+                reviewed_at text,
+                created_at text not null,
+                updated_at text not null,
+                foreign key(expense_id) references expenses(id) on delete cascade,
+                foreign key(attachment_id) references expense_attachments(id) on delete cascade,
+                foreign key(matched_expense_id) references expenses(id) on delete cascade,
+                foreign key(matched_attachment_id) references expense_attachments(id) on delete cascade,
+                foreign key(reviewed_by) references users(id),
+                unique(expense_id, attachment_id, matched_attachment_id)
+            );
+
             create table if not exists customer_reimbursements (
                 id integer primary key autoincrement,
                 service_order_id integer not null,
@@ -1307,6 +1331,14 @@ def init_db():
         ensure_column(connection, "expense_items", "fuel_vehicle_type", "text")
         ensure_column(connection, "expense_items", "line_key", "text")
         ensure_column(connection, "expense_attachments", "expense_item_key", "text")
+        ensure_column(connection, "expense_attachments", "file_sha256", "text")
+        ensure_column(connection, "expense_attachments", "image_dhash", "text")
+        connection.execute(
+            "create index if not exists idx_expense_attachments_sha256 on expense_attachments(file_sha256)"
+        )
+        connection.execute(
+            "create index if not exists idx_expense_duplicate_checks_expense on expense_duplicate_checks(expense_id)"
+        )
         connection.execute(
             "update expense_items set line_key = 'item-' || id where coalesce(trim(line_key), '') = ''"
         )
@@ -5753,6 +5785,32 @@ def expense_attachment_path(attachment):
     return os.path.join(EXPENSE_ATTACHMENTS_DIR, str(attachment["expense_id"]), attachment["stored_filename"])
 
 
+def expense_attachment_fingerprints(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    image_hash = ""
+    try:
+        with Image.open(path) as image:
+            pixels = list(ImageOps.grayscale(image).resize((9, 8)).getdata())
+            bits = [pixels[row * 9 + column] > pixels[row * 9 + column + 1]
+                    for row in range(8) for column in range(8)]
+            image_hash = f"{sum(1 << index for index, bit in enumerate(bits) if bit):016x}"
+    except (OSError, ValueError):
+        pass
+    return digest.hexdigest(), image_hash
+
+
+def image_hash_distance(left, right):
+    if not left or not right or len(left) != len(right):
+        return None
+    try:
+        return (int(left, 16) ^ int(right, 16)).bit_count()
+    except ValueError:
+        return None
+
+
 def save_expense_attachment(expense_id, uploaded, expense_item_key=None):
     if not uploaded or not uploaded.filename:
         return
@@ -5762,19 +5820,21 @@ def save_expense_attachment(expense_id, uploaded, expense_item_key=None):
     extension = source_filename.rsplit(".", 1)[1].lower()
     original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
     stored_filename = f"{secrets.token_hex(12)}.{extension}"
-    uploaded.save(os.path.join(expense_attachment_dir(expense_id), stored_filename))
-    db().execute(
+    stored_path = os.path.join(expense_attachment_dir(expense_id), stored_filename)
+    uploaded.save(stored_path)
+    file_sha256, image_dhash = expense_attachment_fingerprints(stored_path)
+    return db().execute(
         """
         insert into expense_attachments (
             expense_id, expense_item_key, original_filename, stored_filename,
-            content_type, uploaded_by, uploaded_at
-        ) values (?, ?, ?, ?, ?, ?, ?)
+            content_type, uploaded_by, uploaded_at, file_sha256, image_dhash
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             expense_id, expense_item_key, original_filename, stored_filename,
-            uploaded.content_type, g.user["id"], now(),
+            uploaded.content_type, g.user["id"], now(), file_sha256, image_dhash,
         ),
-    )
+    ).lastrowid
 
 
 def save_expense_uploads(expense_id, item_rows=None):
@@ -5796,6 +5856,187 @@ def get_expense_attachments(expense_id):
           on transferred.source_expense_attachment_id = expense_attachments.id
         where expense_attachments.expense_id = ?
         order by expense_attachments.uploaded_at desc, expense_attachments.id desc
+        """,
+        (expense_id,),
+    ).fetchall()
+
+
+def expense_attachment_duplicate_context(attachment_id):
+    return db().execute(
+        """
+        select ea.*, e.expense_number, e.expense_date, e.amount as expense_amount,
+               e.description as expense_description,
+               coalesce(e.beneficiary_id, e.created_by) as beneficiary_id,
+               coalesce(ei.amount, e.amount) as matched_amount,
+               coalesce(p.name, ei.project, e.project) as project_name,
+               coalesce(ei.description, e.description, '') as item_description
+        from expense_attachments ea
+        join expenses e on e.id = ea.expense_id
+        left join expense_items ei
+          on ei.expense_id = ea.expense_id and ei.line_key = ea.expense_item_key
+        left join projects p on p.id = ei.project_id
+        where ea.id = ?
+        """,
+        (attachment_id,),
+    ).fetchone()
+
+
+def ensure_expense_attachment_fingerprints(attachment):
+    if attachment["file_sha256"]:
+        return attachment["file_sha256"], attachment["image_dhash"] or ""
+    try:
+        file_sha256, image_dhash = expense_attachment_fingerprints(expense_attachment_path(attachment))
+    except OSError:
+        return "", ""
+    db().execute(
+        "update expense_attachments set file_sha256 = ?, image_dhash = ? where id = ?",
+        (file_sha256, image_dhash, attachment["id"]),
+    )
+    return file_sha256, image_dhash
+
+
+def deepseek_duplicate_analysis(current, matched, reasons):
+    settings = deepseek_assistant_settings()
+    if not settings["enabled"] or not settings["api_key"]:
+        return "", ""
+    prompt = {
+        "task": "判断两条员工报销记录是否疑似为同一张单据。只根据提供的数据判断，不要虚构单据号码。",
+        "current": {
+            "expense_number": current["expense_number"],
+            "date": current["expense_date"],
+            "amount": current["matched_amount"],
+            "project": current["project_name"],
+            "description": current["item_description"],
+            "filename": current["original_filename"],
+        },
+        "matched": {
+            "expense_number": matched["expense_number"],
+            "date": matched["expense_date"],
+            "amount": matched["matched_amount"],
+            "project": matched["project_name"],
+            "description": matched["item_description"],
+            "filename": matched["original_filename"],
+        },
+        "rule_matches": reasons,
+        "response": "请用中文在120字内说明风险及需要人工核对的内容。",
+    }
+    try:
+        message = call_deepseek_chat(
+            [{"role": "user", "content": json.dumps(prompt, ensure_ascii=False)}],
+            settings,
+            include_tools=False,
+            max_tokens=220,
+        )
+        return str(message.get("content") or "").strip(), ""
+    except RuntimeError as error:
+        return "", str(error)[:500]
+
+
+def run_expense_duplicate_checks(expense_id, use_deepseek=False):
+    connection = db()
+    connection.execute("delete from expense_duplicate_checks where expense_id = ?", (expense_id,))
+    deepseek_checks_remaining = 3
+    for historical_attachment in connection.execute(
+        """
+        select * from expense_attachments
+        where expense_id != ? and coalesce(file_sha256, '') = ''
+        order by id
+        """,
+        (expense_id,),
+    ).fetchall():
+        ensure_expense_attachment_fingerprints(historical_attachment)
+    attachments = connection.execute(
+        "select * from expense_attachments where expense_id = ? order by id", (expense_id,)
+    ).fetchall()
+    for attachment in attachments:
+        current = expense_attachment_duplicate_context(attachment["id"])
+        current_sha, current_dhash = ensure_expense_attachment_fingerprints(current)
+        candidates = connection.execute(
+            """
+            select ea.id
+            from expense_attachments ea
+            join expenses e on e.id = ea.expense_id
+            left join expense_items ei
+              on ei.expense_id = ea.expense_id and ei.line_key = ea.expense_item_key
+            where ea.id != ?
+              and (ea.expense_id != ? or ea.id < ?)
+              and (
+                (? != '' and ea.file_sha256 = ?)
+                or (
+                  abs(julianday(e.expense_date) - julianday(?)) <= 3
+                  and abs(coalesce(ei.amount, e.amount) - ?) < 0.005
+                )
+              )
+            order by e.expense_date desc, ea.id desc
+            limit 30
+            """,
+            (attachment["id"], expense_id, attachment["id"], current_sha, current_sha,
+             current["expense_date"], current["matched_amount"]),
+        ).fetchall()
+        for candidate in candidates:
+            matched = expense_attachment_duplicate_context(candidate["id"])
+            matched_sha, matched_dhash = ensure_expense_attachment_fingerprints(matched)
+            reasons = []
+            score = 0
+            if current_sha and current_sha == matched_sha:
+                reasons.append("文件内容完全相同")
+                score = 100
+            distance = image_hash_distance(current_dhash, matched_dhash)
+            if score < 100 and distance is not None and distance <= 5:
+                reasons.append("图片内容高度相似")
+                score += 60 if distance else 80
+            try:
+                days = abs((date.fromisoformat(current["expense_date"]) - date.fromisoformat(matched["expense_date"])).days)
+            except (TypeError, ValueError):
+                days = 999
+            if abs(float(current["matched_amount"] or 0) - float(matched["matched_amount"] or 0)) < 0.005:
+                reasons.append("报销金额相同")
+                score += 15
+            if days <= 3:
+                reasons.append(f"费用日期相距{days}天")
+                score += 10
+            if current["beneficiary_id"] == matched["beneficiary_id"]:
+                reasons.append("报销归属员工相同")
+                score += 10
+            if (current["project_name"] or "").strip() == (matched["project_name"] or "").strip():
+                reasons.append("费用项目相同")
+                score += 5
+            score = min(score, 100)
+            if score < 25:
+                continue
+            level = "high" if score >= 70 else "medium"
+            analysis, analysis_error = ("", "")
+            if use_deepseek and score < 100 and deepseek_checks_remaining > 0:
+                analysis, analysis_error = deepseek_duplicate_analysis(current, matched, reasons)
+                deepseek_checks_remaining -= 1
+            timestamp = now()
+            connection.execute(
+                """
+                insert into expense_duplicate_checks (
+                    expense_id, attachment_id, matched_expense_id, matched_attachment_id,
+                    risk_level, score, reasons, deepseek_analysis, deepseek_error,
+                    review_status, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (expense_id, attachment["id"], matched["expense_id"], matched["id"],
+                 level, score, "；".join(reasons), analysis, analysis_error, timestamp, timestamp),
+            )
+
+
+def expense_duplicate_checks(expense_id):
+    return db().execute(
+        """
+        select checks.*, matched.expense_number as matched_expense_number,
+               current_attachment.original_filename as attachment_name,
+               matched_attachment.original_filename as matched_attachment_name,
+               reviewer.name as reviewer_name
+        from expense_duplicate_checks checks
+        join expenses matched on matched.id = checks.matched_expense_id
+        join expense_attachments current_attachment on current_attachment.id = checks.attachment_id
+        join expense_attachments matched_attachment on matched_attachment.id = checks.matched_attachment_id
+        left join users reviewer on reviewer.id = checks.reviewed_by
+        where checks.expense_id = ?
+        order by checks.score desc, checks.id desc
         """,
         (expense_id,),
     ).fetchall()
@@ -13486,6 +13727,7 @@ def new_expense(order_id):
             finish_expense_save_token(save_token, expense_id)
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
+            run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("create", "expense", expense_id, expense_number, expense_summary)
             if submit_for_review:
@@ -13583,6 +13825,7 @@ def edit_expense(expense_id):
             )
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
+            run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("update", "expense", expense_id, expense["expense_number"], expense_summary)
             if submit_for_review:
@@ -13656,8 +13899,41 @@ def expense_detail(expense_id):
         transfer_reimbursement=latest_customer_reimbursement(order["id"]) if can_transfer_attachments else None,
         can_transfer_attachments=can_transfer_attachments,
         can_delete=can_delete_expense(expense),
+        duplicate_checks=expense_duplicate_checks(expense_id),
         labels=EXPENSE_STATUS_LABELS,
     )
+
+
+@app.post("/expense-duplicate-checks/<int:check_id>/review")
+@login_required
+def review_expense_duplicate_check(check_id):
+    if normalized_role() not in {"admin", "manager"}:
+        abort(403)
+    check = db().execute(
+        "select * from expense_duplicate_checks where id = ?", (check_id,)
+    ).fetchone()
+    if not check:
+        abort(404)
+    status = request.form.get("review_status", "")
+    labels = {
+        "confirmed": "已确认重复",
+        "not_duplicate": "已标记为非重复",
+        "legal_split": "已标记为合法分摊",
+    }
+    if status not in labels:
+        abort(400)
+    db().execute(
+        """
+        update expense_duplicate_checks
+        set review_status = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
+        where id = ?
+        """,
+        (status, g.user["id"], now(), now(), check_id),
+    )
+    log_action("review", "expense_duplicate_check", check_id, labels[status], f"报销ID：{check['expense_id']}")
+    db().commit()
+    flash(labels[status], "success")
+    return redirect(url_for("expense_detail", expense_id=check["expense_id"]))
 
 
 @app.post("/expenses/<int:expense_id>/approve")

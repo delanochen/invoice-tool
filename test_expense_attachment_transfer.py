@@ -189,6 +189,51 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         )
         self.assertEqual(len(self.transferred_rows()), 1)
 
+    def test_duplicate_check_detects_identical_attachment_and_can_be_reviewed(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            historical_expense_id = connection.execute(
+                """
+                insert into expenses (
+                    service_order_id, expense_number, project, expense_date, amount, status,
+                    created_by, beneficiary_id, created_at, updated_at
+                ) values (?, 'EXP-OLD', 'Travel', '2026-07-01', 10, 'approved', ?, ?,
+                          '2026-07-01T12:00:00', '2026-07-01T12:00:00')
+                """,
+                (self.order_id, self.user_id, self.user_id),
+            ).lastrowid
+            historical_attachment_id = connection.execute(
+                """
+                insert into expense_attachments (
+                    expense_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+                ) values (?, 'old-receipt.png', 'old-source.png', 'image/png', ?, '2026-07-01T12:00:00')
+                """,
+                (historical_expense_id, self.user_id),
+            ).lastrowid
+            historical_path = Path(self.module.expense_attachment_dir(historical_expense_id)) / "old-source.png"
+            historical_path.write_bytes(b"test-image")
+            self.module.run_expense_duplicate_checks(self.expense_id)
+            checks = self.module.expense_duplicate_checks(self.expense_id)
+            exact = next(row for row in checks if row["matched_attachment_id"] == historical_attachment_id)
+            self.assertEqual(exact["risk_level"], "high")
+            self.assertEqual(exact["score"], 100)
+            self.assertIn("文件内容完全相同", exact["reasons"])
+            connection.commit()
+
+        detail = self.client.get(f"/expenses/{self.expense_id}")
+        self.assertIn("重复附件检查", detail.get_data(as_text=True))
+        response = self.client.post(
+            f"/expense-duplicate-checks/{exact['id']}/review",
+            data={"review_status": "not_duplicate"},
+        )
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            reviewed = self.module.db().execute(
+                "select * from expense_duplicate_checks where id = ?", (exact["id"],)
+            ).fetchone()
+            self.assertEqual(reviewed["review_status"], "not_duplicate")
+            self.assertEqual(reviewed["reviewed_by"], self.user_id)
+
     def test_admin_can_reset_expense_without_approve_permission(self):
         with self.module.app.app_context():
             connection = self.module.db()
