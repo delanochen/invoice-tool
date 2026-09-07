@@ -235,10 +235,17 @@ class PaymentTermsTest(unittest.TestCase):
                 (grade_id, self.employee_id),
             )
             self.module.db().commit()
+            reimbursement_rows = self.module.customer_reimbursement_seed_rows(self.open_order_id)
+            reimbursement_row = next(
+                row for row in reimbursement_rows if row["source_report_id"] == report["id"]
+            )
+            self.assertEqual(reimbursement_row["transport_hours"], 8)
             payroll = self.module.payroll_rows_for_range(
                 self.module.date(2026, 8, 6), self.module.date(2026, 8, 19),
                 self.module.date(2026, 9, 2), str(self.employee_id),
             )
+            self.assertEqual(payroll["rows"][0]["transport_hours"], 8)
+            self.assertEqual(payroll["rows"][0]["transport_pay"], 80)
             self.assertEqual(payroll["rows"][0]["self_drive_allowance"], 0)
             self.assertEqual(payroll["rows"][0]["following_allowance"], 80)
             self.assertEqual(payroll["rows"][0]["rental_driving_allowance"], 0)

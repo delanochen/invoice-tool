@@ -4628,12 +4628,23 @@ def report_actual_date(report):
 def split_report_labor_hours(report, worker_count=1):
     work_hours = report_duration_hours(report, worker_count)
     if "worker_public_transport_hours" in report.keys():
-        worker_public_hours = report["worker_public_transport_hours"]
-        transport_hours = float(
-            worker_public_hours if worker_public_hours is not None else report["public_transport_hours"] or 0
+        worker_travel_hours = (
+            report["worker_travel_hours"]
+            if "worker_travel_hours" in report.keys() else None
         )
+        worker_public_hours = report["worker_public_transport_hours"]
+        if worker_travel_hours is not None or worker_public_hours is not None:
+            transport_hours = float(worker_travel_hours or 0) + float(worker_public_hours or 0)
+        else:
+            transport_hours = (
+                float(report["travel_hours"] or 0)
+                + float(report["public_transport_hours"] or 0)
+            ) / max(worker_count, 1)
     else:
-        transport_hours = float(report["public_transport_hours"] or 0)
+        transport_hours = (
+            float(report["travel_hours"] or 0)
+            + float(report["public_transport_hours"] or 0)
+        ) / max(worker_count, 1)
     try:
         work_day = date.fromisoformat(report_actual_date(report))
     except (TypeError, ValueError):
@@ -4682,6 +4693,7 @@ def customer_reimbursement_seed_rows(order_id):
             continue
         for worker in workers:
             worker_report = dict(report)
+            worker_report["worker_travel_hours"] = worker["travel_hours"]
             worker_report["worker_public_transport_hours"] = worker["worker_public_transport_hours"]
             labor_hours = split_report_labor_hours(worker_report, len(workers))
             mode = worker["travel_mode"] or "legacy"
