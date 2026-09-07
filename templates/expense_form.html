@@ -156,7 +156,7 @@
     {% for attachment in attachments %}
       <form id="deleteExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('delete_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');"></form>
       {% if not attachment.transferred_attachment_id and transfer_reimbursement and transfer_reimbursement.status in ['draft', 'returned'] %}
-        <form id="transferExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('transfer_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定把这个附件复制到同一工单的工单结算附件中吗？');"></form>
+        <form id="transferExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('transfer_expense_attachment', attachment_id=attachment.id) }}" data-history-replace onsubmit="return confirm('确定把这个附件复制到同一工单的工单结算附件中吗？');"></form>
       {% endif %}
     {% endfor %}
   {% endif %}

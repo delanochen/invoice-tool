@@ -175,13 +175,18 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn('class="inline-thumb"', detail_html)
         self.assertIn(">传递</button>", detail_html)
+        self.assertIn("data-history-replace", detail_html)
 
         response = self.client.post(
             f"/expense-attachments/{self.attachment_id}/transfer",
             data={"return_to": "detail"},
+            headers={"X-History-Replace": "1"},
         )
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], f"/expenses/{self.expense_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"ok": True, "redirect": f"/expenses/{self.expense_id}"},
+        )
         self.assertEqual(len(self.transferred_rows()), 1)
 
     def test_admin_can_reset_expense_without_approve_permission(self):

@@ -13788,21 +13788,24 @@ def transfer_expense_attachment(attachment_id):
         expense_id=expense["id"],
     )
 
+    def finish_transfer(message, category="success"):
+        flash(message, category)
+        if request.headers.get("X-History-Replace") == "1":
+            return jsonify(ok=category == "success", redirect=return_url)
+        return redirect(return_url)
+
     existing = db().execute(
         "select id from customer_reimbursement_attachments where source_expense_attachment_id = ?",
         (attachment_id,),
     ).fetchone()
     if existing:
-        flash("该附件已经传递到工单结算。", "success")
-        return redirect(return_url)
+        return finish_transfer("该附件已经传递到工单结算。")
 
     reimbursement = latest_customer_reimbursement(order["id"])
     if not reimbursement:
-        flash("该工单尚未生成工单结算，暂时无法传递附件。", "error")
-        return redirect(return_url)
+        return finish_transfer("该工单尚未生成工单结算，暂时无法传递附件。", "error")
     if reimbursement["status"] not in {"draft", "returned"}:
-        flash("工单结算已经提交或审核完成，不能再传递附件。", "error")
-        return redirect(return_url)
+        return finish_transfer("工单结算已经提交或审核完成，不能再传递附件。", "error")
 
     try:
         copied = copy_file_to_customer_reimbursement_attachment(
@@ -13825,16 +13828,13 @@ def transfer_expense_attachment(attachment_id):
         db().commit()
     except sqlite3.IntegrityError:
         db().rollback()
-        flash("该附件已经传递到工单结算。", "success")
-        return redirect(return_url)
+        return finish_transfer("该附件已经传递到工单结算。")
     except (OSError, sqlite3.Error, ValueError) as error:
         db().rollback()
         app.logger.exception("Failed to transfer expense attachment %s", attachment_id)
-        flash(str(error) or "附件传递失败，请稍后重试。", "error")
-        return redirect(return_url)
+        return finish_transfer(str(error) or "附件传递失败，请稍后重试。", "error")
 
-    flash("附件已复制到工单结算。", "success")
-    return redirect(return_url)
+    return finish_transfer("附件已复制到工单结算。")
 
 
 @app.route("/invoices/new", methods=["GET", "POST"])
