@@ -170,9 +170,11 @@ def register_field_routes(app, api):
         # Never attribute an upload to that client-supplied value.
         raw_key = request.form.get('client_id', '')[:500]
         source = request.form.get('source', '')
+        watermark_source = request.form.get('watermark_source', 'system').strip()
+        if source not in {'camera', 'file'} and watermark_source == 'original':
+            source = 'file'
         if source not in {'camera', 'file'}:
             return jsonify(error='照片来源无效。'), 422
-        watermark_source = request.form.get('watermark_source', 'system').strip()
         if watermark_source not in {'system', 'original'} or (watermark_source == 'original' and source != 'file'):
             return jsonify(error='水印来源无效。'), 422
         original_import = source == 'file' and watermark_source == 'original'
