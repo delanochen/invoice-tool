@@ -83,7 +83,7 @@
     } catch (_) {}
   }
   async function recognizeDevice() {
-    if (!stream || !$('viewfinder').videoWidth) { await openCamera(true); if (!stream) return; }
+    if (!stream || !$('viewfinder').videoWidth) { await openCamera(true); if (stream) notice('请将铭牌放大并对准取景框，然后点击“识别铭牌”。'); return; }
     const button = $('recognizeDevice'); button.disabled = true;
     try {
       const video = $('viewfinder'), scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
@@ -98,6 +98,7 @@
       if (!result.candidates?.length) throw new Error('没有识别到 Machine Number，请靠近铭牌重试或手工输入。');
       $('equipmentNumber').disabled = false; $('noEquipmentNumber').checked = false;
       $('equipmentNumber').value = result.candidates[0]; deviceSession = null;
+      stopCamera();
       setFieldText('deviceStatus', '识别到：'+result.candidates.join('、')+'。请核对设备编号后点击确认。');
       notice('已识别设备编号 '+result.candidates[0]+'，请核对后确认。');
     } catch(error) { notice(error.message,true); }
@@ -317,7 +318,7 @@
     document.body.classList.remove('camera-active');
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
-    $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
+    $('openCamera').hidden = false; $('scanNameplate').hidden = true; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
     $('cameraPlaceholder').hidden = Boolean(previewURL);
     $('photoPreview').hidden = !previewURL;
   }
@@ -336,7 +337,7 @@
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
       document.body.classList.add('camera-active');
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
-      $('openCamera').hidden = true; $('takePhoto').hidden = false; $('closeCamera').hidden = false;
+      $('openCamera').hidden = true; $('scanNameplate').hidden = !recognitionOnly; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
     } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }
   }
@@ -458,9 +459,7 @@
         thumb.onerror=()=>{ URL.revokeObjectURL(thumbURL); const fallback=textNode('div','原图','original-photo-placeholder'); fallback.addEventListener('click',()=>openDraft(photo)); thumb.replaceWith(fallback); };
         thumb.addEventListener('click',()=>openDraft(photo));
         row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
-        const save = textNode('button','保存备份到手机'); save.type = 'button'; save.addEventListener('click', () => {
-          const href = URL.createObjectURL(photo.blob), link = document.createElement('a'); link.href = href; link.download = photo.order_number+'-'+photo.client_id+'.jpg'; link.click(); setTimeout(() => URL.revokeObjectURL(href),10000);
-        }); row.append(save); $('queueList').append(row);
+        const save = textNode('button','保存到手机相册'); save.type = 'button'; save.addEventListener('click', () => savePhotoToAlbum(photo)); row.append(save); $('queueList').append(row);
       });
       if (!photos.length) $('queueList').append(textNode('p','没有待上传照片。','muted'));
       const batchCount = batch ? photos.filter(photo=>photo.batch_id===batch.id).length : 0;
@@ -468,6 +467,20 @@
       $('completeBatch').disabled = processingFiles || batchCount === 0;
       setFieldText('completeBatch', processingFiles ? `正在处理照片（${processingDone}/${processingTotal}）` : batchCount ? `完成并上传本组照片（${batchCount} 张）` : '请先拍照或选择照片');
     } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }
+  }
+  async function savePhotoToAlbum(photo) {
+    const name = photo.order_number+'-'+photo.client_id+'.jpg';
+    const file = new File([photo.blob], name, {type:photo.blob.type || 'image/jpeg'});
+    try {
+      if (navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))) {
+        await navigator.share({files:[file], title:name});
+        notice('请在系统菜单中选择“存储图像”或“保存到照片”。');
+        return;
+      }
+      const href = URL.createObjectURL(photo.blob), link = document.createElement('a');
+      link.href = href; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(href),10000);
+      notice('照片已交给手机保存；请在“下载”中确认并移入相册。');
+    } catch(error) { if (error.name !== 'AbortError') notice('无法打开手机保存菜单：'+error.message,true); }
   }
   function openDraft(photo) {
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
@@ -554,6 +567,7 @@
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
   $('confirmDevice').addEventListener('click',confirmDevice);
   $('recognizeDevice').addEventListener('click',recognizeDevice);
+  $('scanNameplate').addEventListener('click',recognizeDevice);
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请重新确认。'); });

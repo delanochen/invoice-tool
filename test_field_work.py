@@ -269,6 +269,11 @@ class FieldWorkTest(unittest.TestCase):
         self.assertLess(script.index("$('photoFile').addEventListener('change'"), script.index("await makeContext('file', selection)"))
         self.assertIn("Array.from($('photoFile').files || [])", script)
         self.assertIn('for (const file of files)', script)
+        self.assertIn('id="scanNameplate"', page)
+        self.assertIn('id="recognizeDevice" class="ocr-button"', page)
+        self.assertIn("$('scanNameplate').addEventListener('click',recognizeDevice)", script)
+        self.assertIn("navigator.share({files:[file]", script)
+        self.assertIn('保存到手机相册', script)
         self.assertIn('正在处理第 ${processingDone + 1}/${processingTotal} 张', script)
         self.assertIn("$('completeBatch').hidden = !batch", script)
 
