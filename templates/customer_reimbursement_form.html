@@ -77,12 +77,13 @@
   {% if reviewer %}
     <p class="muted-line">最近审核人：{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</p>
   {% endif %}
-  {% if excessive_following_mileage %}
-    <section class="panel"><div class="flash error">
+  <section class="panel"><div class="flash {{ 'error' if excessive_following_mileage else 'success' }}">
+    <strong>{{ person_days }}个人天，住宿费 <span data-reimbursement-total="lodging">{{ totals.lodging_total|money }}</span></strong>
+    {% if excessive_following_mileage %}<br>
       随行人员的里程数超过500英里，请维护后再确认结算：
       {% for row in excessive_following_mileage %}<a href="{{ url_for('edit_service_report', report_id=row.report_id) }}">{{ row.report_date }} {{ row.worker_name }}（{{ row.driving_miles }}英里）</a>{% if not loop.last %}；{% endif %}{% endfor %}
-    </div></section>
-  {% endif %}
+    {% endif %}
+  </div></section>
 
   {% if reimbursement.status == "submitted" and normalized_role() in ["admin", "manager"] %}
     <dialog id="returnCustomerReimbursementDialog" class="modal">
@@ -120,10 +121,23 @@
       <table class="list-table compact-table" id="customerReimbursementTable">
         <thead>
           <tr>
-            <th>姓名</th><th>项目时间</th><th>标准</th><th>交通</th><th>加班</th><th>节假日</th>
-            <th>工时费</th>
-            <th>住宿</th><th>机票</th><th>行李</th><th>租车</th><th>加油</th><th>停车</th><th>打车</th>
-            <th>英里</th><th>里程费</th><th>其他</th><th>合计</th><th>操作</th>
+            <th>姓名</th><th>项目时间</th>
+            <th>标准（<span data-column-total="standard_hours">{{ "%g"|format(column_totals.standard_hours) }}</span>）</th>
+            <th>交通（<span data-column-total="transport_hours">{{ "%g"|format(column_totals.transport_hours) }}</span>）</th>
+            <th>加班（<span data-column-total="overtime_hours">{{ "%g"|format(column_totals.overtime_hours) }}</span>）</th>
+            <th>节假日（<span data-column-total="holiday_hours">{{ "%g"|format(column_totals.holiday_hours) }}</span>）</th>
+            <th>工时费（<span data-column-total="labor_total">{{ column_totals.labor_total|money }}</span>）</th>
+            <th>住宿（<span data-column-total="lodging">{{ column_totals.lodging|money }}</span>）</th>
+            <th>机票（<span data-column-total="airfare">{{ column_totals.airfare|money }}</span>）</th>
+            <th>行李（<span data-column-total="baggage">{{ column_totals.baggage|money }}</span>）</th>
+            <th>租车（<span data-column-total="rental_car">{{ column_totals.rental_car|money }}</span>）</th>
+            <th>加油（<span data-column-total="fuel">{{ column_totals.fuel|money }}</span>）</th>
+            <th>停车（<span data-column-total="parking">{{ column_totals.parking|money }}</span>）</th>
+            <th>打车（<span data-column-total="taxi">{{ column_totals.taxi|money }}</span>）</th>
+            <th>英里（<span data-column-total="miles">{{ "%g"|format(column_totals.miles) }}</span>）</th>
+            <th>里程费（<span data-column-total="mileage_total">{{ column_totals.mileage_total|money }}</span>）</th>
+            <th>其他（<span data-column-total="other">{{ column_totals.other|money }}</span>）</th>
+            <th>合计（<span data-column-total="total">{{ column_totals.total|money }}</span>）</th><th>操作</th>
           </tr>
         </thead>
         <tbody>

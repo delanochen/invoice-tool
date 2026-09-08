@@ -5035,6 +5035,39 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
     }
 
 
+def customer_reimbursement_person_days(order_id):
+    row = db().execute(
+        """
+        select count(*) as count
+        from (
+            select service_report_workers.user_id,
+                   date(coalesce(service_reports.actual_work_date, service_reports.report_date)) as work_date
+            from service_reports
+            join service_report_workers on service_report_workers.report_id = service_reports.id
+            where service_reports.service_order_id = ?
+            group by service_report_workers.user_id,
+                     date(coalesce(service_reports.actual_work_date, service_reports.report_date))
+        ) person_days
+        """,
+        (order_id,),
+    ).fetchone()
+    return int(row["count"] or 0)
+
+
+def customer_reimbursement_column_totals(items):
+    totals = {}
+    for field in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours", "miles"):
+        totals[field] = sum(float(item[field] or 0) for item in items)
+    for field in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"):
+        totals[field] = money_float(sum(
+            (customer_reimbursement_item_expense_amount(item, field) for item in items),
+            Decimal("0"),
+        ))
+    for field in ("labor_total", "mileage_total", "total"):
+        totals[field] = money_float(sum((money_decimal(item[field]) for item in items), Decimal("0")))
+    return totals
+
+
 def customer_reimbursement_items(reimbursement_id):
     return db().execute(
         """
@@ -12774,6 +12807,8 @@ def customer_reimbursement_form(order_id):
         reviewer=reviewer,
         email_delivery=email_delivery_summary("customer_reimbursement", reimbursement["id"]),
         excessive_following_mileage=excessive_following_mileage_rows(order_id),
+        person_days=customer_reimbursement_person_days(order_id),
+        column_totals=customer_reimbursement_column_totals(items),
         can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
     )
 

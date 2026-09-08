@@ -23,6 +23,12 @@ function reimbursementMoney(value) {
   })}`;
 }
 
+function reimbursementQuantity(value) {
+  return reimbursementNumber(value).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+  });
+}
+
 function reimbursementInputValue(row, name) {
   const input = row.querySelector(`[name="${name}"]`);
   return reimbursementNumber(input?.value) + reimbursementNumber(input?.dataset.autoAmount);
@@ -59,6 +65,7 @@ function updateCustomerReimbursementTotals() {
   if (!reimbursementLiveTotalsEnabled) return;
   const totals = {
     labor: 0,
+    lodging: 0,
     travel: reimbursementRentalFuel,
     mileage: 0,
     rentalFuel: reimbursementRentalFuel,
@@ -67,9 +74,24 @@ function updateCustomerReimbursementTotals() {
     other: 0,
     total: reimbursementRentalFuel,
   };
+  const columnTotals = {
+    standard_hours: 0, transport_hours: 0, overtime_hours: 0, holiday_hours: 0,
+    labor_total: 0, lodging: 0, airfare: 0, baggage: 0, rental_car: 0,
+    fuel: 0, parking: 0, taxi: 0, miles: 0, mileage_total: 0, other: 0, total: 0,
+  };
   table?.querySelectorAll("tbody tr").forEach((row) => {
     updateReimbursementLodgingWarning(row);
     const rowTotals = calculateReimbursementRow(row);
+    ["standard_hours", "transport_hours", "overtime_hours", "holiday_hours", "miles"].forEach((name) => {
+      columnTotals[name] += reimbursementInputValue(row, name);
+    });
+    allExpenseAmountFields.forEach((name) => {
+      columnTotals[name] += reimbursementInputValue(row, name);
+    });
+    columnTotals.labor_total += rowTotals.labor;
+    columnTotals.mileage_total += rowTotals.mileage;
+    columnTotals.total += rowTotals.total;
+    totals.lodging += reimbursementInputValue(row, "lodging");
     totals.employeeExpense += allExpenseAmountFields.reduce(
       (sum, name) => sum + reimbursementAutoValue(row, name),
       0,
@@ -83,6 +105,13 @@ function updateCustomerReimbursementTotals() {
   Object.entries(totals).forEach(([key, value]) => {
     const metric = document.querySelector(`[data-reimbursement-total="${key}"]`);
     if (metric) metric.textContent = reimbursementMoney(value);
+  });
+  Object.entries(columnTotals).forEach(([key, value]) => {
+    const target = document.querySelector(`[data-column-total="${key}"]`);
+    if (!target) return;
+    target.textContent = ["standard_hours", "transport_hours", "overtime_hours", "holiday_hours", "miles"].includes(key)
+      ? reimbursementQuantity(value)
+      : reimbursementMoney(value);
   });
 }
 

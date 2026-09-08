@@ -364,6 +364,9 @@ class PaymentTermsTest(unittest.TestCase):
             labor_row = next(item for item in labor_rows if item["report_id"] == report_id)
             self.assertEqual(labor_row["worker_travel_hours"], 4)
             self.assertEqual(labor_row["transport_hours"], 0)
+            self.assertEqual(
+                self.module.customer_reimbursement_person_days(self.open_order_id), 1
+            )
 
     def test_employee_grade_saves_rental_driving_hourly_rate(self):
         response = self.http.post(
