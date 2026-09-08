@@ -4724,11 +4724,13 @@ def customer_reimbursement_seed_rows(order_id):
         if not workers:
             continue
         for worker in workers:
+            mode = worker["travel_mode"] or "legacy"
             worker_report = dict(report)
-            worker_report["worker_travel_hours"] = worker["travel_hours"]
+            worker_report["worker_travel_hours"] = (
+                0 if mode in {"self_drive", "legacy"} else worker["travel_hours"]
+            )
             worker_report["worker_public_transport_hours"] = worker["worker_public_transport_hours"]
             labor_hours = split_report_labor_hours(worker_report, len(workers))
-            mode = worker["travel_mode"] or "legacy"
             if mode == "rental_drive":
                 billing_miles = 0
             elif report["mileage_billing_method"] == "per_vehicle":

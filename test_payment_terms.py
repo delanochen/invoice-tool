@@ -309,6 +309,7 @@ class PaymentTermsTest(unittest.TestCase):
             reimbursement_rows = self.module.customer_reimbursement_seed_rows(self.open_order_id)
             rental_row = next(row for row in reimbursement_rows if row["source_report_id"] == report["id"])
             self.assertEqual(rental_row["miles"], 0)
+            self.assertEqual(rental_row["transport_hours"], 3)
 
             payroll = self.module.payroll_rows_for_range(
                 self.module.date(2026, 8, 6), self.module.date(2026, 8, 19),
@@ -327,6 +328,36 @@ class PaymentTermsTest(unittest.TestCase):
             self.assertEqual(rental_line["rate"], 15)
             self.assertEqual(rental_line["miles"], 120)
             self.assertEqual(rental_line["amount"], 45)
+
+    def test_self_driver_bills_mileage_without_transport_hours(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            report_id = connection.execute(
+                """
+                insert into service_reports (
+                    service_order_id, report_date, actual_work_date, travel_hours,
+                    driving_miles, mileage_billing_method, arrival_time, departure_time,
+                    created_by, created_at, updated_at
+                ) values (?, '2026-08-15', '2026-08-15', 4, 100, 'per_person',
+                          '08:00', '16:00', ?, '2026-08-15T00:00:00', '2026-08-15T00:00:00')
+                """,
+                (self.open_order_id, self.user_id),
+            ).lastrowid
+            connection.execute(
+                """
+                insert into service_report_workers (
+                    report_id, user_id, driving_miles, travel_mode, travel_hours,
+                    public_transport_hours, work_description
+                ) values (?, ?, 100, 'self_drive', 4, 0, '自驾')
+                """,
+                (report_id, self.employee_id),
+            )
+            connection.commit()
+
+            rows = self.module.customer_reimbursement_seed_rows(self.open_order_id)
+            row = next(item for item in rows if item["source_report_id"] == report_id)
+            self.assertEqual(row["transport_hours"], 0)
+            self.assertEqual(row["miles"], 100)
 
     def test_employee_grade_saves_rental_driving_hourly_rate(self):
         response = self.http.post(
