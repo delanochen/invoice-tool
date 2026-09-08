@@ -9,7 +9,7 @@
   let farSamples = 0;
   let initialOrder = new URLSearchParams(location.search).get('order_id');
   let cameraSelection = null, bootstrapGeneration = 0;
-  let deviceSession = null, scanTimer = null, ocrTimer = null, ocrBusy = false, detector = null;
+  let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, draftSelection = null;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
   const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
@@ -83,6 +83,7 @@
     } catch (_) {}
   }
   async function recognizeDevice(automatic = false) {
+    if (automatic && (batch?.type !== 'equipment' || deviceSession || !document.body.classList.contains('recognition-mode'))) return;
     if (!stream || !$('viewfinder').videoWidth) { await openCamera(true); if (stream) notice('请将13位铭牌号对准取景框，系统将自动识别。'); return; }
     if (ocrBusy) return;
     ocrBusy = true;
@@ -320,6 +321,7 @@
   function stopCamera() {
     clearInterval(scanTimer); scanTimer = null;
     clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
+    clearTimeout(ocrStartTimer); ocrStartTimer = null;
     cameraSelection = null;
     document.body.classList.remove('camera-active');
     document.body.classList.remove('recognition-mode');
@@ -350,7 +352,7 @@
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
-      if (recognitionOnly) { setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
+      if (recognitionOnly) { ocrStartTimer = setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
     } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }
   }
   async function makeContext(source, lockedSelection = null) {
