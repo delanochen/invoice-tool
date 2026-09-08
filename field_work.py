@@ -11,7 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import abort, g, jsonify, render_template, request, send_file, session, url_for
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from werkzeug.utils import secure_filename
 from image_processing import compress_image, create_thumbnail
 
@@ -316,22 +316,38 @@ def register_field_routes(app, api):
             with Image.open(BytesIO(content)) as image:
                 if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
                     raise ValueError
-                image.verify()
-            result = subprocess.run(['tesseract', 'stdin', 'stdout', '--psm', '11', '-l', 'eng'], input=content,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=False)
+                image.load()
+                enhanced = ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)
+                scale = min(3, max(1, math.ceil(2400 / max(enhanced.width, enhanced.height))))
+                if scale > 1:
+                    enhanced = enhanced.resize((enhanced.width * scale, enhanced.height * scale), Image.Resampling.LANCZOS)
+                enhanced = ImageEnhance.Contrast(enhanced).enhance(1.5).filter(ImageFilter.SHARPEN).filter(ImageFilter.SHARPEN)
+                processed = BytesIO()
+                enhanced.save(processed, format='PNG')
+            results = [
+                subprocess.run(['tesseract', 'stdin', 'stdout', '--psm', psm, '-l', 'eng'], input=payload,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=False)
+                for psm, payload in [('11', content), ('6', processed.getvalue())]
+            ]
         except (OSError, ValueError, Image.DecompressionBombError):
             return jsonify(error='无法读取铭牌照片。'), 422
         except subprocess.TimeoutExpired:
             return jsonify(error='铭牌识别超时，请重试或手工输入。'), 504
-        if result.returncode != 0:
+        if not any(result.returncode == 0 for result in results):
             return jsonify(error='服务器暂时无法识别铭牌，请手工输入。'), 503
-        text = result.stdout.decode('utf-8', errors='ignore')
-        labels = r'(?:machine\s*(?:number|no\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)'
+        text = '\n'.join(result.stdout.decode('utf-8', errors='ignore') for result in results if result.returncode == 0)
+        labels = r'(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)'
         candidates = []
         for match in re.finditer(labels + r'\s*[:：#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})', text, re.I):
             value = match.group(1).strip('._/-')
             if value and value.casefold() not in {item.casefold() for item in candidates}:
                 candidates.append(value)
+        if not candidates:
+            # OCR often separates the label and value or slightly damages the label. Offer only long,
+            # number-like identifiers; the employee still confirms the result before taking photos.
+            fallback = re.findall(r'(?<![A-Z0-9])[A-Z0-9][A-Z0-9._/-]{9,23}(?![A-Z0-9])', text, re.I)
+            candidates.extend(sorted({value.strip('._/-') for value in fallback if sum(ch.isdigit() for ch in value) >= 8},
+                                     key=lambda value: (-len(value), value))[:5])
         return jsonify(ok=True, candidates=candidates[:5])
 
     @app.get('/api/field/photos')

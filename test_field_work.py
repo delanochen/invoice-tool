@@ -133,6 +133,16 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json['candidates'], ['1023231239085'])
 
+    def test_nameplate_recognition_tolerates_ocr_label_damage_and_unlabeled_long_number(self):
+        damaged = type('Result', (), {'returncode':0, 'stdout':b'Machlne Nurnber\n1023231239551\n'})()
+        with patch.object(field_work.subprocess, 'run', return_value=damaged) as run:
+            response = self.http.post('/api/field/recognize-equipment',
+                                      data={'photo':(BytesIO(self.photo),'plate.jpg')},
+                                      headers={'X-Field-Token':self.csrf})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json['candidates'], ['1023231239551'])
+        self.assertEqual(run.call_count, 2)
+
     def test_watermark_password_and_adjusted_time_metadata(self):
         with self.module.app.app_context():
             self.module.set_setting('field_watermark_time_password', 'plain-test-password')
