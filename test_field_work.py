@@ -223,6 +223,20 @@ class FieldWorkTest(unittest.TestCase):
         with self.http.get('/field/sw.js') as response:
             self.assertEqual(response.status_code,200)
 
+    def test_field_shell_uses_selected_language_and_caches_translations(self):
+        with self.http.session_transaction() as session:
+            session['language'] = 'es'
+        response = self.http.get('/field/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('<html lang="es">', response.text)
+        self.assertIn('name="language"', response.text)
+        self.assertIn('/static/field-i18n.js', response.text)
+        translations = (fixture.ROOT / 'static' / 'field-i18n.js').read_text(encoding='utf-8')
+        worker = (fixture.ROOT / 'static' / 'field-sw.js').read_text(encoding='utf-8')
+        self.assertIn("'现场工作':'Trabajo de campo'", translations)
+        self.assertIn('window.fieldTranslate', translations)
+        self.assertIn('/static/field-i18n.js', worker)
+
     def test_system_photo_picker_uses_a_direct_native_input_click(self):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
         page = (fixture.ROOT / 'templates' / 'field_work.html').read_text(encoding='utf-8')

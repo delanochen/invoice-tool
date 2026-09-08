@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{ current_language }}">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f766e"><meta name="apple-mobile-web-app-capable" content="yes">
@@ -52,13 +52,14 @@
     </section>
     <section data-panel="orders" hidden><div class="section-heading"><h1>我的工单</h1><button id="reloadOrders" type="button">刷新</button></div><p class="muted">按距当前位置的远近排列。同一站点可有多个工单，请确认编号。</p><input id="orderSearch" type="search" placeholder="搜索工单、站点或客户" aria-label="搜索工单"><div id="orderList"></div><div class="card"><h2>没有对应工单？</h2><a id="createOrder" class="primary button" href="/service-orders/new" hidden>新建工单</a><button id="requestOrder" type="button">申请新建工单</button><p class="muted">联网后新建或申请；确认工单后再拍照归档。</p></div></section>
     <section data-panel="ledger" hidden><div class="section-heading"><h1>照片台账</h1><button id="refreshLedger" type="button">查询</button></div><form id="ledgerFilter" class="card"><label>关键词<input name="q" placeholder="工单、客户、站点、员工、设备信息、备注"></label><div class="two-columns"><label>开始日期<input name="date_from" type="date"></label><label>结束日期<input name="date_to" type="date"></label></div><button class="primary" type="submit">查询照片</button><a id="exportLedger" class="button" href="/api/field/photos.xlsx">导出照片台账</a><a id="repairReport" class="button" href="/reports/field-repairs">设备维修清单</a></form><p id="ledgerSummary" class="muted"></p><div id="ledgerList"></div></section>
-    <section data-panel="profile" hidden><h1>我的</h1><div class="card"><h2 id="profileName"></h2><p id="versionText"></p><label>照片归档时区<input id="timezoneName" placeholder="例如 Europe/Amsterdam"></label><p class="muted">默认使用手机时区。出差时请确认与现场一致；补传不会改变拍摄日期。</p><button id="installApp" type="button" hidden>添加到主屏幕</button><p>iPhone：在 Safari 分享菜单选择“添加到主屏幕”。</p><p>后台定位和上传可能暂停，回到这里后会继续。</p><a class="button" href="/service-orders">进入管理系统</a><a class="button" id="fieldLogout" href="/logout">退出登录</a></div></section>
+    <section data-panel="profile" hidden><h1>我的</h1><div class="card"><h2 id="profileName"></h2><p id="versionText"></p><form method="post" action="/language"><input type="hidden" name="next" value="/field/"><label>界面语言<select name="language" onchange="this.form.submit()">{% for code, language in supported_languages.items() %}<option value="{{ code }}" {% if current_language == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>{% endfor %}</select></label></form><label>照片归档时区<input id="timezoneName" placeholder="例如 Europe/Amsterdam"></label><p class="muted">默认使用手机时区。出差时请确认与现场一致；补传不会改变拍摄日期。</p><button id="installApp" type="button" hidden>添加到主屏幕</button><p>iPhone：在 Safari 分享菜单选择“添加到主屏幕”。</p><p>后台定位和上传可能暂停，回到这里后会继续。</p><a class="button" href="/service-orders">进入管理系统</a><a class="button" id="fieldLogout" href="/logout">退出登录</a></div></section>
   </div>
 </main>
 <nav class="bottom-tabs" aria-label="现场工作导航"><button data-tab="camera" aria-current="page">拍照</button><button data-tab="orders">工单</button><button data-tab="ledger">台账</button><button data-tab="profile">我的</button></nav>
 <dialog id="locationDialog"><h2>请确认现场与工单</h2><p id="locationWarning"></p><div id="nearbyOrders"></div><label>仍使用当前工单的原因<input id="locationReason" maxlength="500" placeholder="例如：现场范围较大"></label><div class="dialog-actions"><button id="switchOrder" type="button">选择 / 新建工单</button><button id="keepOrder" class="primary" type="button">确认当前工单</button><button id="cancelLocation" type="button">取消</button></div></dialog>
 <dialog id="requestDialog"><h2>申请新建工单</h2><form id="requestForm"><label>站点和工作说明<textarea id="requestDetail" rows="5" maxlength="1000" required></textarea></label><button class="primary" type="submit">提交申请</button><button id="cancelRequest" type="button">取消</button></form></dialog>
 <dialog id="draftDialog"><h2>照片预览</h2><img id="draftLarge" alt="草稿照片"><p id="draftDetail"></p><div class="dialog-actions"><button id="deleteDraft" type="button">删除这张</button><button id="closeDraft" class="primary" type="button">关闭</button></div></dialog>
+<script src="/static/field-i18n.js?v={{ app_version }}" defer></script>
 <script src="/static/field-watermark.js" defer></script>
 <script src="/static/field-work.js" defer></script>
 </body></html>

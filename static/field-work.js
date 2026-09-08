@@ -12,14 +12,16 @@
   let deviceSession = null, scanTimer = null, detector = null;
   let batch = null, timeAuthorized = false, draftSelection = null;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
+  const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
   async function requestAPI(url, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
     try { return await fetch(url, {...options, signal:controller.signal}); }
     finally { clearTimeout(timer); }
   }
-  const notice = (text, error = false) => { $('notice').textContent = text; $('notice').classList.toggle('error', error); };
-  const textNode = (tag, text, className = '') => { const el = document.createElement(tag); el.textContent = text; el.className = className; return el; };
+  const notice = (text, error = false) => { $('notice').textContent = fieldText(text); $('notice').classList.toggle('error', error); };
+  const textNode = (tag, text, className = '') => { const el = document.createElement(tag); el.textContent = fieldText(text); el.className = className; return el; };
+  const setFieldText = (id, text) => { $(id).textContent = fieldText(text); };
   const key = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   const orderStorageKey = () => 'field-order-' + profile.user.id + '-' + new Date().toLocaleDateString('en-CA');
 
@@ -32,7 +34,7 @@
     $('pumpFuseNumbers').value = '';
     $('noEquipmentNumber').checked = false;
     $('equipmentNumber').disabled = false;
-    $('deviceStatus').textContent = '新设备：请扫描或输入编号，然后确认。';
+    setFieldText('deviceStatus', '新设备：请扫描或输入编号，然后确认。');
   }
   function confirmDevice() {
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
@@ -44,7 +46,7 @@
     $('equipmentNumber').closest('fieldset').classList.add('locked');
     $('equipmentNumber').value = deviceSession.equipment_number;
     $('equipmentNumber').disabled = noNumber;
-    $('deviceStatus').textContent = `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}${deviceSession.pump_fuse_numbers ? ' · 水泵保险 '+deviceSession.pump_fuse_numbers : ''}。后续照片沿用；换设备请点“下一台设备”。`;
+    setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}${deviceSession.pump_fuse_numbers ? ' · 水泵保险 '+deviceSession.pump_fuse_numbers : ''}。后续照片沿用；换设备请点“下一台设备”。`);
     notice('设备已确认，可以连续拍摄。');
   }
   function chooseKind(type) {
@@ -58,7 +60,7 @@
     batch.type = type;
     $('deviceSession').hidden = type !== 'equipment';
     $('timeSettings').hidden = false;
-    $('kindStatus').textContent = type === 'equipment' ? '设备照片：需确认 Machine Number。' : '非设备照片：不显示铭牌号、位置号和集装箱号。';
+    setFieldText('kindStatus', type === 'equipment' ? '设备照片：需确认 Machine Number。' : '非设备照片：不显示铭牌号、位置号和集装箱号。');
     $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type==='general');
     if (type === 'general') deviceSession = {id:batch.id,equipment_number:'',position_number:'',container_number:'',pump_fuse_numbers:'',no_equipment_number:true};
     else if (previousType !== 'equipment') resetDevice();
@@ -68,7 +70,7 @@
     const response = await requestAPI('/api/field/verify-watermark-password',{method:'POST',headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf},body:JSON.stringify({password:$('watermarkPassword').value})});
     timeAuthorized = response.ok;
     $('watermarkStart').disabled = !timeAuthorized;
-    $('timeStatus').textContent = timeAuthorized ? '密码正确，可以调整本组水印时间。' : '密码错误。';
+    setFieldText('timeStatus', timeAuthorized ? '密码正确，可以调整本组水印时间。' : '密码错误。');
     if (!timeAuthorized) notice('水印时间调整密码错误。',true);
   }
   async function scanDevice() {
@@ -77,7 +79,7 @@
       detector ||= new BarcodeDetector();
       const results = await detector.detect($('viewfinder'));
       const value = results.map(item => item.rawValue?.trim()).find(Boolean);
-      if (value) { $('equipmentNumber').value = value.slice(0,200); $('deviceStatus').textContent = '自动识别到：'+value+'。请核对后确认。'; }
+      if (value) { $('equipmentNumber').value = value.slice(0,200); setFieldText('deviceStatus', '自动识别到：'+value+'。请核对后确认。'); }
     } catch (_) {}
   }
   async function recognizeDevice() {
@@ -96,7 +98,7 @@
       if (!result.candidates?.length) throw new Error('没有识别到 Machine Number，请靠近铭牌重试或手工输入。');
       $('equipmentNumber').disabled = false; $('noEquipmentNumber').checked = false;
       $('equipmentNumber').value = result.candidates[0]; deviceSession = null;
-      $('deviceStatus').textContent = '识别到：'+result.candidates.join('、')+'。请核对设备编号后点击确认。';
+      setFieldText('deviceStatus', '识别到：'+result.candidates.join('、')+'。请核对设备编号后点击确认。');
       notice('已识别设备编号 '+result.candidates[0]+'，请核对后确认。');
     } catch(error) { notice(error.message,true); }
     finally { button.disabled = false; }
@@ -155,7 +157,7 @@
     $('loginPanel').hidden = false;
     $('queueList').replaceChildren();
     $('ledgerList').replaceChildren();
-    $('networkStatus').textContent = '请登录';
+    setFieldText('networkStatus', '请登录');
     notice(message, true);
   }
   async function bootstrap() {
@@ -170,12 +172,12 @@
       profile = next;
       try { localStorage.setItem(SESSION_KEY, JSON.stringify(profile)); }
       catch (_) { notice('无法保存离线登录资料，请检查手机存储空间。',true); }
-      $('networkStatus').textContent = '在线';
+      setFieldText('networkStatus', '在线');
     } catch (error) {
       if (generation !== bootstrapGeneration) return;
       try { profile = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { profile = null; }
       if (!profile) { lock('首次使用需要联网登录。'); return; }
-      $('networkStatus').textContent = '离线暂存';
+      setFieldText('networkStatus', '离线暂存');
       notice('暂时无法连接系统。使用最近同步的工单，照片先保存在本机。');
     }
     identityReady = true;
@@ -189,7 +191,7 @@
     $('technicianSelect').replaceChildren(...technicians.map(person => new Option(person.name, String(person.id))));
     $('technicianSelect').value = technicians.some(person => String(person.id) === technicianId)
       ? technicianId : String(profile.user.id);
-    $('versionText').textContent = '系统版本 V' + profile.version;
+    setFieldText('versionText', '系统版本 V' + profile.version);
     if (!$('timezoneName').value) $('timezoneName').value = localStorage.getItem('field-timezone-' + profile.user.id) || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     $('createOrder').hidden = !profile.create_order_url;
     if (profile.create_order_url) $('createOrder').href = profile.create_order_url;
@@ -213,7 +215,7 @@
     initialOrder = null;
     const url = new URL(location.href);
     if (url.searchParams.has('order_id')) { url.searchParams.delete('order_id'); history.replaceState(history.state, '', url); }
-    const options = [['', '请选择工单'], ...profile.orders.map(order => [String(order.id), order.order_number + ' · ' + order.client_name])];
+    const options = [['', fieldText('请选择工单')], ...profile.orders.map(order => [String(order.id), order.order_number + ' · ' + order.client_name])];
     const existing = Array.from($('orderSelect').options, option => [option.value, option.text]);
     // Foreground refresh must not rebuild a native phone picker while it is open.
     if (JSON.stringify(existing) !== JSON.stringify(options)) {
@@ -228,7 +230,7 @@
     currentOrder = profile?.orders.find(order => String(order.id) === String(id)) || null;
     $('orderSelect').value = currentOrder ? String(currentOrder.id) : '';
     $('cameraOrder').textContent = currentOrder ? currentOrder.order_number + ' · ' + currentOrder.client_name : '';
-    $('orderContext').textContent = currentOrder ? [currentOrder.customer_name,currentOrder.site_address].filter(Boolean).join(' · ') : '请先选择照片所属工单。';
+    setFieldText('orderContext', currentOrder ? [currentOrder.customer_name,currentOrder.site_address].filter(Boolean).join(' · ') : '请先选择照片所属工单。');
     if (profile) localStorage.setItem(orderStorageKey(), String(currentOrder?.id || ''));
     if (previous !== currentOrder?.id) {
       locationNote = '';
@@ -277,10 +279,10 @@
   }
   async function locate() {
     if (!navigator.geolocation) { notice('设备不支持定位。',true); throw new Error('定位不可用'); }
-    $('locationStatus').textContent = '正在检查位置…';
+    setFieldText('locationStatus', '正在检查位置…');
     return new Promise((resolve,reject) => navigator.geolocation.getCurrentPosition(result => {
       updatePosition(result); resolve(position);
-    }, () => { position = null; $('locationStatus').textContent = '定位失败，请允许定位后重试'; reject(new Error('请允许定位，并重新检查位置。')); }, {enableHighAccuracy:true,timeout:15000,maximumAge:0}));
+    }, () => { position = null; setFieldText('locationStatus', '定位失败，请允许定位后重试'); reject(new Error('请允许定位，并重新检查位置。')); }, {enableHighAccuracy:true,timeout:15000,maximumAge:0}));
   }
   async function checkLocation(forCapture, selected = chosenOrder()) {
     if (!selected) return false;
@@ -294,7 +296,7 @@
     return true;
   }
   function finishWarning(result) { $('locationDialog').close(); const resolve = warningResolve; warningResolve = null; resolve?.(result); }
-  $('keepOrder').addEventListener('click', () => { const reason = $('locationReason').value.trim(); if (!reason) { $('locationReason').focus(); $('locationReason').setCustomValidity('请填写确认原因'); $('locationReason').reportValidity(); return; } locationNote = $('locationWarning').textContent + ' ' + reason; finishWarning(true); });
+  $('keepOrder').addEventListener('click', () => { const reason = $('locationReason').value.trim(); if (!reason) { $('locationReason').focus(); $('locationReason').setCustomValidity(fieldText('请填写确认原因')); $('locationReason').reportValidity(); return; } locationNote = $('locationWarning').textContent + ' ' + reason; finishWarning(true); });
   $('locationReason').addEventListener('input', () => $('locationReason').setCustomValidity(''));
   $('switchOrder').addEventListener('click', () => { finishWarning(false); panel('orders'); });
   $('cancelLocation').addEventListener('click', () => finishWarning(false));
@@ -416,9 +418,9 @@
     const files = Array.from($('photoFile').files || []), selection = captureContext; captureContext = null;
     if (!files.length || !selection) return;
     taking = true; processingFiles = true; processingTotal = files.length; processingDone = 0;
-    $('photoProcessStatus').textContent = selection.watermarkSource === 'original'
+    setFieldText('photoProcessStatus', selection.watermarkSource === 'original'
       ? `已跳过位置检查，正在准备处理 ${files.length} 张照片…`
-      : `正在检查位置并准备处理 ${files.length} 张照片…`;
+      : `正在检查位置并准备处理 ${files.length} 张照片…`);
     await renderQueue();
     try {
       const baseContext = await makeContext('file', selection);
@@ -426,20 +428,20 @@
       baseContext.watermark_source = selection.watermarkSource;
       let saved = 0;
       for (const file of files) {
-        $('photoProcessStatus').textContent = `正在处理第 ${processingDone + 1}/${processingTotal} 张：${file.name || '照片'}…`;
+        setFieldText('photoProcessStatus', `正在处理第 ${processingDone + 1}/${processingTotal} 张：${file.name || '照片'}…`);
         const url = URL.createObjectURL(file);
         try {
           const context = {...baseContext, client_id:key(), captured_at:new Date().toISOString()};
           if (selection.watermarkSource === 'original') await keepOriginalFile(file,context);
           else { const image = new Image(); image.src = url; await image.decode(); await keepCapture(image,context); }
           saved++;
-        } catch(error) { const message=`照片 ${file.name || processingDone + 1} 未保存：${error.message}。`; notice(message,true); $('photoProcessStatus').textContent=message; }
+        } catch(error) { const message=`照片 ${file.name || processingDone + 1} 未保存：${error.message}。`; notice(message,true); setFieldText('photoProcessStatus', message); }
         finally { URL.revokeObjectURL(url); }
         processingDone++;
       }
-      if (saved) { const message=`已保存 ${saved}/${files.length} 张本机草稿，请点击下方完成按钮上传。`; notice(message); $('photoProcessStatus').textContent=message; }
+      if (saved) { const message=`已保存 ${saved}/${files.length} 张本机草稿，请点击下方完成按钮上传。`; notice(message); setFieldText('photoProcessStatus', message); }
     }
-    catch(error) { const message='照片未保存：'+error.message+'。请保留原照片后重试。'; notice(message,true); $('photoProcessStatus').textContent=message; }
+    catch(error) { const message='照片未保存：'+error.message+'。请保留原照片后重试。'; notice(message,true); setFieldText('photoProcessStatus', message); }
     finally { taking = false; processingFiles = false; processingTotal = 0; processingDone = 0; $('photoFile').value = ''; await renderQueue(); }
   });
   $('photoFile').addEventListener('cancel', () => { captureContext = null; });
@@ -449,7 +451,7 @@
       $('draftCard').classList.toggle('has-drafts',photos.length > 0);
       photos.forEach(photo => {
         const row = textNode('div','','queue-item draft-item');
-        const thumb=document.createElement('img'); const thumbURL=URL.createObjectURL(photo.blob); thumb.src=thumbURL; thumb.alt='草稿照片'; thumb.onload=()=>URL.revokeObjectURL(thumbURL);
+        const thumb=document.createElement('img'); const thumbURL=URL.createObjectURL(photo.blob); thumb.src=thumbURL; thumb.alt=fieldText('草稿照片'); thumb.onload=()=>URL.revokeObjectURL(thumbURL);
         thumb.onerror=()=>{ URL.revokeObjectURL(thumbURL); const fallback=textNode('div','原图','original-photo-placeholder'); fallback.addEventListener('click',()=>openDraft(photo)); thumb.replaceWith(fallback); };
         thumb.addEventListener('click',()=>openDraft(photo));
         row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
@@ -461,12 +463,12 @@
       const batchCount = batch ? photos.filter(photo=>photo.batch_id===batch.id).length : 0;
       $('completeBatch').hidden = !batch;
       $('completeBatch').disabled = processingFiles || batchCount === 0;
-      $('completeBatch').textContent = processingFiles ? `正在处理照片（${processingDone}/${processingTotal}）` : batchCount ? `完成并上传本组照片（${batchCount} 张）` : '请先拍照或选择照片';
+      setFieldText('completeBatch', processingFiles ? `正在处理照片（${processingDone}/${processingTotal}）` : batchCount ? `完成并上传本组照片（${batchCount} 张）` : '请先拍照或选择照片');
     } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }
   }
   function openDraft(photo) {
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
-    $('draftLarge').src=previewURL; $('draftDetail').textContent=(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'); $('draftDialog').showModal();
+    $('draftLarge').src=previewURL; setFieldText('draftDetail',(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印')); $('draftDialog').showModal();
   }
   async function syncQueue(batchId = null) {
     if (syncing || !navigator.onLine || !profile || !identityReady) return;
@@ -478,7 +480,7 @@
       const live = await sessionResponse.json();
       if (live.user.id !== profile.user.id) { lock('账号已改变，已暂停原账号的照片上传。'); return; }
       profile.csrf = live.csrf;
-      $('networkStatus').textContent = '在线';
+      setFieldText('networkStatus', '在线');
       for (const photo of await queued(batchId)) {
         if (!identityReady || photo.user_id !== profile?.user.id) break;
         try {
@@ -505,7 +507,7 @@
     const id=batch.id; await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('systemTime').checked=true; $('adjustedTimeFields').hidden=true; $('watermarkPassword').value='';
-    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('kindStatus').textContent='请选择下一组照片类型。'; $('photoNote').value=''; $('existingWatermark').checked=false;
+    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=false;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
   async function loadLedger() {
@@ -518,23 +520,23 @@
       if (response.status === 401 || response.status === 403) { lock('请重新登录后查询台账。'); return; }
       if (!response.ok) throw new Error('查询失败');
       const result = await response.json(); $('ledgerList').replaceChildren();
-      $('ledgerSummary').textContent = `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`;
+      setFieldText('ledgerSummary', `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`);
       result.rows.forEach(photo => {
         const card = textNode('article','','photo-card'), link = document.createElement('a'), image = document.createElement('img');
-        link.href = photo.preview; link.target = '_blank'; link.rel = 'noopener'; image.src = photo.thumbnail; image.alt = '工单照片'; image.loading = 'lazy'; link.append(image);
+        link.href = photo.preview; link.target = '_blank'; link.rel = 'noopener'; image.src = photo.thumbnail; image.alt = fieldText('工单照片'); image.loading = 'lazy'; link.append(image);
         const detail = document.createElement('div');
         const map=document.createElement(photo.location_verified ? 'a' : 'span');
-        if (photo.location_verified) { map.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`; map.target='_blank'; map.rel='noopener'; map.textContent=`坐标：${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}`; }
-        else map.textContent='坐标：未检查';
+        if (photo.location_verified) { map.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`; map.target='_blank'; map.rel='noopener'; map.textContent=fieldText(`坐标：${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}`); }
+        else map.textContent=fieldText('坐标：未检查');
         const address=document.createElement(photo.location_verified ? 'a' : 'span');
         if (photo.location_verified) { address.href=map.href; address.target='_blank'; address.rel='noopener'; }
-        address.textContent='现场地址：'+(photo.site_address||photo.site_name);
+        address.textContent=fieldText('现场地址：')+(photo.site_address||photo.site_name);
         const deviceDetail = ['铭牌号：'+(photo.equipment_number || '无'), photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', photo.pump_fuse_numbers ? '水泵保险：'+photo.pump_fuse_numbers : ''].filter(Boolean).join(' · ');
         const watermarkDetail = photo.watermark_source === 'original' ? '水印：保留原图水印' : '水印：系统生成 · '+(photo.watermark_at||photo.captured_at);
         detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+photo.captured_at+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+photo.received_at),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
         card.append(link,detail); $('ledgerList').append(card);
       });
-    } catch(error) { $('ledgerSummary').textContent = '台账需要联网查看。待上传照片请到“拍照”页面查看。'; }
+    } catch(error) { setFieldText('ledgerSummary', '台账需要联网查看。待上传照片请到“拍照”页面查看。'); }
   }
   $('requestOrder').addEventListener('click', () => {
     if (!navigator.onLine) { notice('新建工单申请需要联网。',true); return; }
@@ -551,10 +553,10 @@
   $('recognizeDevice').addEventListener('click',recognizeDevice);
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
-  $('equipmentNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='编号已修改，请重新确认。'; });
-  $('positionNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='位置号已修改，请重新确认。'; });
-  $('containerNumber').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='集装箱号已修改，请重新确认。'; });
-  $('pumpFuseNumbers').addEventListener('input', () => { deviceSession=null; $('deviceStatus').textContent='水泵保险编号已修改，请重新确认。'; });
+  $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请重新确认。'); });
+  $('positionNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','位置号已修改，请重新确认。'); });
+  $('containerNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','集装箱号已修改，请重新确认。'); });
+  $('pumpFuseNumbers').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','水泵保险编号已修改，请重新确认。'); });
   $('orderSelect').addEventListener('input', () => chooseOrder($('orderSelect').value));
   $('orderSelect').addEventListener('change', () => chooseOrder($('orderSelect').value));
   $('orderSearch').addEventListener('input',renderOrders);
@@ -562,7 +564,7 @@
   $('openCamera').addEventListener('click',()=>openCamera(false)); $('closeCamera').addEventListener('click',stopCamera);
   $('retryUpload').addEventListener('click',()=>syncQueue()); $('reloadOrders').addEventListener('click',bootstrap);
   $('equipmentKind').addEventListener('click',()=>chooseKind('equipment')); $('generalKind').addEventListener('click',()=>chooseKind('general'));
-  $('systemTime').addEventListener('change',()=>{ const adjusted=!$('systemTime').checked; $('adjustedTimeFields').hidden=!adjusted; timeAuthorized=!adjusted; $('watermarkStart').disabled=adjusted; if(adjusted&&!$('watermarkStart').value){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());$('watermarkStart').value=d.toISOString().slice(0,16);} $('timeStatus').textContent=adjusted?'请输入密码并设置水印开始时间。':'使用当前系统时间。'; });
+  $('systemTime').addEventListener('change',()=>{ const adjusted=!$('systemTime').checked; $('adjustedTimeFields').hidden=!adjusted; timeAuthorized=!adjusted; $('watermarkStart').disabled=adjusted; if(adjusted&&!$('watermarkStart').value){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());$('watermarkStart').value=d.toISOString().slice(0,16);} setFieldText('timeStatus',adjusted?'请输入密码并设置水印开始时间。':'使用当前系统时间。'); });
   $('verifyTimePassword').addEventListener('click',verifyTimePassword);
   $('completeBatch').addEventListener('click',completeBatch);
   $('closeDraft').addEventListener('click',()=>$('draftDialog').close());
@@ -573,7 +575,7 @@
   $('fieldLogout').addEventListener('click', () => { localStorage.removeItem(SESSION_KEY); identityReady = false; stopCamera(); });
   window.addEventListener('storage', event => { if (event.key === SESSION_KEY && event.newValue === null) lock('账号已退出，请重新登录。'); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); else if (!taking) bootstrap(); });
-  window.addEventListener('online',bootstrap); window.addEventListener('offline', () => { $('networkStatus').textContent = '离线暂存'; });
+  window.addEventListener('online',bootstrap); window.addEventListener('offline', () => { setFieldText('networkStatus', '离线暂存'); });
   window.addEventListener('pagehide',stopCamera);
   window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); installPrompt = event; $('installApp').hidden = false; });
   $('installApp').addEventListener('click', async () => { await installPrompt?.prompt(); installPrompt = null; $('installApp').hidden = true; });
