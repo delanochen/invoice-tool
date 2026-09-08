@@ -316,6 +316,7 @@
     clearInterval(scanTimer); scanTimer = null;
     cameraSelection = null;
     document.body.classList.remove('camera-active');
+    document.body.classList.remove('recognition-mode');
     $('ocrGuide').hidden = true;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
@@ -337,6 +338,7 @@
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
       document.body.classList.add('camera-active');
+      document.body.classList.toggle('recognition-mode', recognitionOnly);
       $('ocrGuide').hidden = !recognitionOnly;
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('scanNameplate').hidden = !recognitionOnly; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
