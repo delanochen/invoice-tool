@@ -9,7 +9,7 @@
   let farSamples = 0;
   let initialOrder = new URLSearchParams(location.search).get('order_id');
   let cameraSelection = null, bootstrapGeneration = 0;
-  let deviceSession = null, scanTimer = null, detector = null;
+  let deviceSession = null, scanTimer = null, ocrTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, draftSelection = null;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
   const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
@@ -82,8 +82,10 @@
       if (value) { $('equipmentNumber').value = value.slice(0,200); setFieldText('deviceStatus', '自动识别到：'+value+'。请核对后确认。'); }
     } catch (_) {}
   }
-  async function recognizeDevice() {
-    if (!stream || !$('viewfinder').videoWidth) { await openCamera(true); if (stream) notice('请将铭牌放大并对准取景框，然后点击“识别铭牌”。'); return; }
+  async function recognizeDevice(automatic = false) {
+    if (!stream || !$('viewfinder').videoWidth) { await openCamera(true); if (stream) notice('请将13位铭牌号对准取景框，系统将自动识别。'); return; }
+    if (ocrBusy) return;
+    ocrBusy = true;
     const button = $('recognizeDevice'); button.disabled = true;
     try {
       const video = $('viewfinder'), cropWidth = Math.round(video.videoWidth * .82), cropHeight = Math.round(video.videoHeight * .28);
@@ -93,16 +95,19 @@
       canvas.getContext('2d').drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('无法读取相机画面')),'image/jpeg',.86));
       const data = new FormData(); data.append('photo',blob,'nameplate.jpg');
-      notice('正在识别铭牌，请保持相机对准设备编号…');
+      if (!automatic) notice('正在识别铭牌，请保持相机对准设备编号…');
       const response = await requestAPI('/api/field/recognize-equipment',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
       const result = await response.json().catch(()=>({}));
       if (!response.ok) throw new Error(result.error || '铭牌识别失败');
-      if (!result.candidates?.length) throw new Error('没有识别到 Machine Number，请靠近铭牌重试或手工输入。');
+      if (!result.candidates?.length) {
+        if (automatic) { notice('自动识别中，请保持13位数字清晰并完整位于框内。'); return; }
+        throw new Error('没有识别到 Machine Number，请靠近铭牌重试或手工输入。');
+      }
       stopCamera();
       $('recognizedNumber').textContent = result.candidates[0];
       $('recognitionDialog').showModal();
-    } catch(error) { notice(error.message,true); }
-    finally { button.disabled = false; }
+    } catch(error) { if (!automatic) notice(error.message,true); }
+    finally { ocrBusy = false; button.disabled = false; }
   }
 
   function openDB() {
@@ -314,13 +319,14 @@
   }
   function stopCamera() {
     clearInterval(scanTimer); scanTimer = null;
+    clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
     cameraSelection = null;
     document.body.classList.remove('camera-active');
     document.body.classList.remove('recognition-mode');
     $('ocrGuide').hidden = true;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
-    $('openCamera').hidden = false; $('scanNameplate').hidden = true; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
+    $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
     $('cameraPlaceholder').hidden = Boolean(previewURL);
     $('photoPreview').hidden = !previewURL;
   }
@@ -341,8 +347,9 @@
       document.body.classList.toggle('recognition-mode', recognitionOnly);
       $('ocrGuide').hidden = !recognitionOnly;
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
-      $('openCamera').hidden = true; $('scanNameplate').hidden = !recognitionOnly; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
+      $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
+      if (recognitionOnly) { setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
     } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }
   }
   async function makeContext(source, lockedSelection = null) {
@@ -570,8 +577,7 @@
   });
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
   $('confirmDevice').addEventListener('click',confirmDevice);
-  $('recognizeDevice').addEventListener('click',recognizeDevice);
-  $('scanNameplate').addEventListener('click',recognizeDevice);
+  $('recognizeDevice').addEventListener('click',() => recognizeDevice(false));
   $('confirmRecognizedNumber').addEventListener('click', () => {
     const value = $('recognizedNumber').textContent.trim();
     $('equipmentNumber').disabled = false; $('noEquipmentNumber').checked = false;
@@ -579,7 +585,7 @@
     setFieldText('deviceStatus', '识别到：'+value+'。请核对设备编号后点击确认。');
     notice('已识别设备编号 '+value+'，请核对后确认。');
   });
-  $('retryRecognition').addEventListener('click', async () => { $('recognitionDialog').close(); await openCamera(true); if (stream) notice('请将铭牌放大并对准取景框，然后点击“识别铭牌”。'); });
+  $('retryRecognition').addEventListener('click', async () => { $('recognitionDialog').close(); await openCamera(true); if (stream) notice('请将13位铭牌号对准取景框，系统将自动识别。'); });
   $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('equipmentNumber').focus(); });
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
