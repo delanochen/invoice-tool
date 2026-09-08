@@ -1,4 +1,4 @@
-const FIELD_CACHE = 'prasinos-field-27';
+const FIELD_CACHE = 'prasinos-field-28';
 const ASSETS = ['/field/', '/static/field-i18n.js', '/static/field-watermark.js', '/static/field-work.js', '/static/field-work.css', '/static/logo.svg', '/static/field-icon-192.png', '/static/field-icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(FIELD_CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -13,6 +13,9 @@ self.addEventListener('fetch', event => {
   if (url.pathname === '/field/' && event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request).catch(() => caches.match('/field/')));
   } else if (ASSETS.includes(url.pathname) && url.pathname !== '/field/') {
-    event.respondWith(caches.match(url.pathname).then(cached => cached || fetch(event.request)));
+    event.respondWith(fetch(event.request).then(response => {
+      if (response.ok) caches.open(FIELD_CACHE).then(cache => cache.put(url.pathname, response.clone()));
+      return response;
+    }).catch(() => caches.match(url.pathname)));
   }
 });
