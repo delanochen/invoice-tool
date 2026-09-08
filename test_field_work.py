@@ -143,6 +143,13 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(response.json['candidates'], ['1023231239551'])
         self.assertEqual(run.call_count, 2)
 
+        invalid = type('Result', (), {'returncode':0, 'stdout':b'Machine Number INV-1023231239551\n123456789012\n'})()
+        with patch.object(field_work.subprocess, 'run', return_value=invalid):
+            response = self.http.post('/api/field/recognize-equipment',
+                                      data={'photo':(BytesIO(self.photo),'plate.jpg')},
+                                      headers={'X-Field-Token':self.csrf})
+        self.assertEqual(response.json['candidates'], [])
+
     def test_watermark_password_and_adjusted_time_metadata(self):
         with self.module.app.app_context():
             self.module.set_setting('field_watermark_time_password', 'plain-test-password')
@@ -276,6 +283,8 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn('id="recognizeDevice" class="ocr-button"', page)
         self.assertIn('id="recognitionDialog"', page)
         self.assertIn('id="recognizedNumber" class="recognized-number"', page)
+        self.assertIn('id="ocrGuide" class="ocr-guide"', page)
+        self.assertIn('cropWidth = Math.round(video.videoWidth * .82)', script)
         self.assertIn("$('confirmRecognizedNumber').addEventListener", script)
         self.assertIn("$('scanNameplate').addEventListener('click',recognizeDevice)", script)
         self.assertIn("navigator.share({files:[file]", script)

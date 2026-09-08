@@ -336,18 +336,15 @@ def register_field_routes(app, api):
         if not any(result.returncode == 0 for result in results):
             return jsonify(error='服务器暂时无法识别铭牌，请手工输入。'), 503
         text = '\n'.join(result.stdout.decode('utf-8', errors='ignore') for result in results if result.returncode == 0)
+        text = re.sub(r'(?<=\d)[ \t](?=\d)', '', text)
         labels = r'(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)'
         candidates = []
         for match in re.finditer(labels + r'\s*[:：#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})', text, re.I):
             value = match.group(1).strip('._/-')
-            if value and value.casefold() not in {item.casefold() for item in candidates}:
+            if re.fullmatch(r'\d{13}', value) and value not in candidates:
                 candidates.append(value)
         if not candidates:
-            # OCR often separates the label and value or slightly damages the label. Offer only long,
-            # number-like identifiers; the employee still confirms the result before taking photos.
-            fallback = re.findall(r'(?<![A-Z0-9])[A-Z0-9][A-Z0-9._/-]{9,23}(?![A-Z0-9])', text, re.I)
-            candidates.extend(sorted({value.strip('._/-') for value in fallback if sum(ch.isdigit() for ch in value) >= 8},
-                                     key=lambda value: (-len(value), value))[:5])
+            candidates.extend(dict.fromkeys(re.findall(r'(?<![A-Z0-9_-])\d{13}(?![A-Z0-9_-])', text, re.I)))
         return jsonify(ok=True, candidates=candidates[:5])
 
     @app.get('/api/field/photos')

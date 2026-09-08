@@ -86,9 +86,11 @@
     if (!stream || !$('viewfinder').videoWidth) { await openCamera(true); if (stream) notice('请将铭牌放大并对准取景框，然后点击“识别铭牌”。'); return; }
     const button = $('recognizeDevice'); button.disabled = true;
     try {
-      const video = $('viewfinder'), scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
-      const canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
-      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      const video = $('viewfinder'), cropWidth = Math.round(video.videoWidth * .82), cropHeight = Math.round(video.videoHeight * .28);
+      const cropX = Math.round((video.videoWidth - cropWidth) / 2), cropY = Math.round((video.videoHeight - cropHeight) / 2);
+      const scale = Math.min(3, Math.max(1, 1800 / cropWidth));
+      const canvas = document.createElement('canvas'); canvas.width = Math.round(cropWidth * scale); canvas.height = Math.round(cropHeight * scale);
+      canvas.getContext('2d').drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('无法读取相机画面')),'image/jpeg',.86));
       const data = new FormData(); data.append('photo',blob,'nameplate.jpg');
       notice('正在识别铭牌，请保持相机对准设备编号…');
@@ -314,6 +316,7 @@
     clearInterval(scanTimer); scanTimer = null;
     cameraSelection = null;
     document.body.classList.remove('camera-active');
+    $('ocrGuide').hidden = true;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
     $('openCamera').hidden = false; $('scanNameplate').hidden = true; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
@@ -334,6 +337,7 @@
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
       document.body.classList.add('camera-active');
+      $('ocrGuide').hidden = !recognitionOnly;
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('scanNameplate').hidden = !recognitionOnly; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
