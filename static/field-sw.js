@@ -1,7 +1,7 @@
-const FIELD_CACHE = 'prasinos-field-24';
+const FIELD_CACHE = 'prasinos-field-25';
 const ASSETS = ['/field/', '/static/field-i18n.js', '/static/field-watermark.js', '/static/field-work.js', '/static/field-work.css', '/static/logo.svg', '/static/field-icon-192.png', '/static/field-icon-512.png'];
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(FIELD_CACHE).then(cache => cache.addAll(ASSETS)));
+  event.waitUntil(caches.open(FIELD_CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', event => {
   event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('prasinos-field-') && key !== FIELD_CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));

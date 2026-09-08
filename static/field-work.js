@@ -288,11 +288,11 @@
     if (!selected) return false;
     if (!position || Date.now()-position.timestamp > 30000) await locate();
     const d = distance(selected);
-    const warning = position.accuracy > 100 ? `当前定位精度较低（±${Math.round(position.accuracy)}米）。` : d === null ? '当前工单的站点还没有坐标。' : d-position.accuracy > profile.distance_limit ? `当前位置距离所选工单站点约 ${(d/1000).toFixed(2)} 公里。` : '';
+    const warning = position.accuracy > 100 ? fieldText(`当前定位精度较低（±${Math.round(position.accuracy)}米）。`) : d === null ? fieldText('当前工单的站点还没有坐标。') : d-position.accuracy > profile.distance_limit ? fieldText(`当前位置距离所选工单站点约 ${(d/1000).toFixed(2)} 公里。`) : '';
     if (!warning) { locationNote = ''; return true; }
     lastWarning = Date.now();
     locationNote = warning + ' 系统保留员工明确选择的工单。';
-    notice(warning + ' 照片仍保存到 ' + selected.order_number + '；如需更换，请先关闭相机。');
+    notice(warning + fieldText(' 照片仍保存到 ') + selected.order_number + fieldText('；如需更换，请先关闭相机。'));
     return true;
   }
   function finishWarning(result) { $('locationDialog').close(); const resolve = warningResolve; warningResolve = null; resolve?.(result); }

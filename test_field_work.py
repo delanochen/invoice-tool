@@ -236,6 +236,9 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn("'现场工作':'Trabajo de campo'", translations)
         self.assertIn('window.fieldTranslate', translations)
         self.assertIn('/static/field-i18n.js', worker)
+        self.assertIn('self.skipWaiting()', worker)
+        field_script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
+        self.assertIn("fieldText(' 照片仍保存到 ')", field_script)
 
     def test_system_photo_picker_uses_a_direct_native_input_click(self):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
