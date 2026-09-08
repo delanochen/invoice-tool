@@ -345,6 +345,7 @@
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
       document.body.classList.add('camera-active');
       document.body.classList.toggle('recognition-mode', recognitionOnly);
+      window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
       $('ocrGuide').hidden = !recognitionOnly;
       $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;

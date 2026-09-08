@@ -288,6 +288,8 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn("document.body.classList.toggle('recognition-mode', recognitionOnly)", script)
         field_css = (fixture.ROOT / 'static' / 'field-work.css').read_text(encoding='utf-8')
         self.assertIn('.recognition-mode .camera-actions', field_css)
+        self.assertIn('width:100vw!important', field_css)
+        self.assertIn("window.scrollTo({left:0", script)
         self.assertNotIn('.camera-active #deviceSession:not([hidden])', field_css)
         self.assertIn("$('confirmRecognizedNumber').addEventListener", script)
         self.assertIn('ocrTimer = setInterval(() => recognizeDevice(true), 2200)', script)
