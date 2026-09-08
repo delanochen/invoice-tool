@@ -107,6 +107,17 @@ def register_field_routes(app, api):
             left join clients on clients.id = service_orders.client_id
             where ''' + (' and '.join(clauses) or '1=1') + ' order by p.captured_at desc, p.id desc limit 2001', params).fetchall()
 
+    def photo_order_rows():
+        clauses, params = api['service_order_access_filters']()
+        if api['normalized_role']() in {'employee', 'external_employee'}:
+            clauses.append('p.user_id = ?')
+            params.append(g.user['id'])
+        return api['db']().execute('''
+            select distinct service_orders.id, service_orders.order_number, service_orders.client_name
+            from field_photos p join service_orders on service_orders.id = p.order_id
+            where ''' + (' and '.join(clauses) or '1=1') + '''
+            order by service_orders.order_number desc''', params).fetchall()
+
     def photo_file(row, thumb=False):
         root = api['shared_photos_root']()
         relative = Path(row['relative_path'])
@@ -349,7 +360,8 @@ def register_field_routes(app, api):
     @access
     def field_photo_query():
         rows = photo_rows()
-        return render_template('field_photo_query.html', rows=rows[:2000], truncated=len(rows) > 2000)
+        return render_template('field_photo_query.html', rows=rows[:2000], truncated=len(rows) > 2000,
+                               photo_orders=photo_order_rows())
 
     @app.get('/api/field/photos.xlsx')
     @access

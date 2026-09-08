@@ -192,7 +192,12 @@ class FieldWorkTest(unittest.TestCase):
             self.assertEqual(response.status_code,200)
             self.assertIn('no-store',response.headers['Cache-Control'])
         self.assertEqual(self.http.get('/reports/field-photos').status_code,200)
+        page = self.http.get('/reports/field-photos')
+        self.assertIn('name="order_id"', page.text)
+        self.assertIn('全部工单', page.text)
+        self.assertIn('SO-DELEGATE', page.text)
         self.assertEqual(self.http.get('/api/field/photos?q=unknown').json['rows'],[])
+        self.assertEqual(self.http.get('/api/field/photos?order_id=999999').json['rows'], [])
         self.assertEqual(self.http.get('/api/field/photos.xlsx?q=Equipment').status_code,200)
 
     def test_repair_register_groups_device_photos_and_exports_manual_fields(self):
@@ -239,6 +244,8 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn('self.skipWaiting()', worker)
         field_script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
         self.assertIn("fieldText(' 照片仍保存到 ')", field_script)
+        self.assertIn('id="ledgerOrder" name="order_id"', response.text)
+        self.assertIn("new Option(fieldText('全部工单'), '')", field_script)
 
     def test_system_photo_picker_uses_a_direct_native_input_click(self):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
