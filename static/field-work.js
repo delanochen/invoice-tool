@@ -158,11 +158,18 @@
     return database;
   }
   async function storePhoto(photo, remove = false) {
+    // ArrayBuffer is structured-cloned into IDB instead of retaining an iOS File handle.
+    // On failure keep the original draft intact, including its error message.
+    let saved = photo;
+    if (!remove && photo.blob instanceof Blob) {
+      try { saved = {...photo, blob:await photo.blob.arrayBuffer(), blob_type:photo.blob.type}; }
+      catch (error) { if (!photo.error) throw error; }
+    }
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('photos', 'readwrite');
       const store = tx.objectStore('photos');
-      if (remove) store.delete(photo.client_id); else store.put(photo);
+      if (remove) store.delete(photo.client_id); else store.put(saved);
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error('手机存储写入失败'));
@@ -173,7 +180,7 @@
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const request = db.transaction('photos').objectStore('photos').getAll();
-      request.onsuccess = () => resolve(request.result.filter(item => item.user_id === profile.user.id && (!batchId || item.batch_id === batchId)).sort((a,b) => a.captured_at.localeCompare(b.captured_at)));
+      request.onsuccess = () => resolve(request.result.filter(item => item.user_id === profile.user.id && (!batchId || item.batch_id === batchId)).sort((a,b) => a.captured_at.localeCompare(b.captured_at)).map(item => item.blob instanceof ArrayBuffer ? {...item, blob:new Blob([item.blob], {type:item.blob_type || item.content_type || 'image/jpeg'})} : item));
       request.onerror = () => reject(request.error);
     });
   }
@@ -456,7 +463,9 @@
   }
   async function keepOriginalFile(file, context) {
     if (!context || context.user_id !== profile?.user.id || !identityReady) throw new Error('账号已改变，请重新选择照片。');
-    const photo = {...context, blob:file, original_filename:file.name || '', content_type:file.type || 'application/octet-stream'};
+    const bytes = await file.arrayBuffer();
+    if (!bytes.byteLength || bytes.byteLength !== file.size) throw new Error('无法完整读取照片，请从相册重新选择');
+    const photo = {...context, blob:new Blob([bytes], {type:file.type || 'application/octet-stream'}), original_filename:file.name || '', content_type:file.type || 'application/octet-stream'};
     await storePhoto(photo);
     await renderQueue();
   }
@@ -607,7 +616,7 @@
     try {
       const sessionResponse = await requestAPI('/api/field/session',{cache:'no-store'});
       if (sessionResponse.status === 401 || sessionResponse.status === 403) { lock('登录已过期或权限已改变。照片仍留在本机，请重新登录拍摄账号。'); return; }
-      if (!sessionResponse.ok) return;
+      if (!sessionResponse.ok) throw new Error('登录状态检查失败（HTTP '+sessionResponse.status+'），请稍后重试。');
       const live = await sessionResponse.json();
       if (live.user.id !== profile.user.id) { lock('账号已改变，已暂停原账号的照片上传。'); return; }
       profile.csrf = live.csrf;
@@ -621,6 +630,17 @@
             photo.source = 'file'; await storePhoto(photo);
           }
           await renderQueue();
+          // Rebuild legacy IDB File/Blob records from readable bytes before multipart encoding.
+          let uploadBytes;
+          try {
+            uploadBytes = await photo.blob.arrayBuffer();
+            if (!uploadBytes.byteLength || uploadBytes.byteLength !== photo.blob.size) throw new Error('incomplete');
+          } catch (_) {
+            throw new Error('无法读取本机照片文件，请从相册重新选择这张照片。原草稿仍保留。');
+          }
+          photo.blob = new Blob([uploadBytes], {type:photo.blob.type || photo.content_type || 'application/octet-stream'});
+          photo.error = '';
+          await storePhoto(photo);
           const data = new FormData();
           Object.entries(photo).forEach(([k,v]) => { if (k !== 'blob' && k !== 'error') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
@@ -638,7 +658,7 @@
             response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
             result = await response.json().catch(() => ({}));
           }
-          if (!response.ok || !result.ok) throw new Error(result.error || '上传未成功（'+response.status+'），照片仍保留');
+          if (!response.ok || !result.ok) throw new Error((result.error || '上传未成功，照片仍保留')+' [HTTP '+response.status+' / '+(response.headers.get('X-Field-Version') || '未知服务版本')+']');
           await storePhoto(photo,true);
           notice('照片已上传到 '+photo.order_number+'，系统已按拍摄日期归档。');
         } catch(error) {
@@ -648,7 +668,7 @@
         uploadingPhotoId = null;
         await renderQueue();
       }
-    } catch(error) { notice('暂时无法上传，照片仍保留在本机。'); }
+    } catch(error) { notice('暂时无法上传：'+error.message+' 照片仍保留在本机。',true); }
     finally { syncing = false; uploadingPhotoId = null; await renderQueue(); }
   }
   async function completeBatch() {

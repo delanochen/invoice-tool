@@ -48,6 +48,13 @@ def init_field_schema(connection):
 
 
 def register_field_routes(app, api):
+    @app.after_request
+    def field_response_version(response):
+        if request.path.startswith('/api/field/'):
+            response.headers['X-Field-Version'] = api['APP_VERSION']
+            response.headers['Cache-Control'] = 'no-store, private'
+        return response
+
     def access(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
