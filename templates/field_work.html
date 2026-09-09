@@ -32,13 +32,13 @@
           <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off" placeholder="可留空"></label>
           <label>已更换水泵保险编号<input id="pumpFuseNumbers" maxlength="200" autocomplete="off" placeholder="例如：1/2/3/4/5（可留空）"></label>
           <label class="check-label"><input id="noEquipmentNumber" type="checkbox"> 此设备没有编号</label>
-          <div class="device-actions"><button id="confirmDevice" class="primary" type="button">确认并连续拍摄</button><button id="nextDevice" type="button">下一台设备</button></div>
-          <p id="deviceStatus" class="muted">拍照前必须确认设备；条码或二维码可自动识别。</p>
+          <div class="device-actions"><button id="nextDevice" type="button">下一台设备</button></div>
+          <p id="deviceStatus" class="muted">填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
         <div class="location-row"><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
         <div class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
-        <div class="camera-stage"><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将13位数字放入框内</span></div><img id="photoPreview" alt="刚拍摄的照片预览" hidden><div id="cameraPlaceholder"><span aria-hidden="true">◎</span><p>选择工单，打开相机</p><small>照片将压缩、加水印并保存为本机草稿</small></div></div>
+        <div class="camera-stage"><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将13位数字放入框内</span></div><div id="cameraPlaceholder"><span aria-hidden="true">◎</span><p>选择工单，打开相机</p><small>照片将压缩、加水印并保存为本机草稿</small></div></div>
         <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
         </div>
         <label>工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label>

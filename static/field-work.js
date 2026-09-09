@@ -35,11 +35,11 @@
     $('pumpFuseNumbers').value = '';
     $('noEquipmentNumber').checked = false;
     $('equipmentNumber').disabled = false;
-    setFieldText('deviceStatus', '新设备：请扫描或输入编号，然后确认。');
+    setFieldText('deviceStatus', '新设备：请扫描或输入编号，然后点击“打开相机”。');
   }
-  async function confirmDevice() {
+  function confirmDevice() {
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
-    if (!number && !noNumber) { notice('请输入设备编号，或勾选“此设备没有编号”。', true); $('equipmentNumber').focus(); return; }
+    if (!number && !noNumber) { notice('请输入设备编号，或勾选“此设备没有编号”。', true); $('equipmentNumber').focus(); return false; }
     deviceSession = {id:key(), equipment_number:noNumber ? '' : number,
       position_number:$('positionNumber').value.trim(), container_number:$('containerNumber').value.trim(),
       pump_fuse_numbers:$('pumpFuseNumbers').value.trim(),
@@ -48,8 +48,8 @@
     $('equipmentNumber').value = deviceSession.equipment_number;
     $('equipmentNumber').disabled = noNumber;
     setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}${deviceSession.pump_fuse_numbers ? ' · 水泵保险 '+deviceSession.pump_fuse_numbers : ''}。后续照片沿用；换设备请点“下一台设备”。`);
-    notice('设备已确认，可以连续拍摄。');
-    await openCamera(false);
+    notice('设备信息已确认，正在打开相机。');
+    return true;
   }
   function chooseKind(type) {
     if (batch && batch.type !== type) {
@@ -81,7 +81,7 @@
       detector ||= new BarcodeDetector();
       const results = await detector.detect($('viewfinder'));
       const value = results.map(item => item.rawValue?.trim()).find(Boolean);
-      if (value) { $('equipmentNumber').value = value.slice(0,200); setFieldText('deviceStatus', '自动识别到：'+value+'。请核对后确认。'); }
+      if (value) { $('equipmentNumber').value = value.slice(0,200); setFieldText('deviceStatus', '自动识别到：'+value+'。请核对后点击“打开相机”。'); }
     } catch (_) {}
   }
   async function recognizeDevice(automatic = false) {
@@ -318,8 +318,6 @@
   function clearPreview() {
     if (previewURL) URL.revokeObjectURL(previewURL);
     previewURL = null;
-    $('photoPreview').removeAttribute('src');
-    $('photoPreview').hidden = true;
   }
   function stopCamera() {
     clearInterval(scanTimer); scanTimer = null;
@@ -332,14 +330,13 @@
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
     $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
-    $('cameraPlaceholder').hidden = Boolean(previewURL);
-    $('photoPreview').hidden = !previewURL;
+    $('cameraPlaceholder').hidden = false;
   }
   async function openCamera(recognitionOnly = false) {
     if (!identityReady || !profile?.can_capture) return;
     if (!batch) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
     if (!$('systemTime').checked && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
-    if (batch.type === 'equipment' && !deviceSession && !recognitionOnly) { notice('请先识别或输入 Machine Number 并确认。',true); return; }
+    if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;
     const selected = chosenOrder();
     if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
     try {
@@ -352,7 +349,7 @@
       document.body.classList.toggle('recognition-mode', recognitionOnly);
       window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
       $('ocrGuide').hidden = !recognitionOnly;
-      $('photoPreview').hidden = true; $('cameraPlaceholder').hidden = true;
+      $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
       if (recognitionOnly) { ocrStartTimer = setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
@@ -403,9 +400,6 @@
     const photo = {...context,blob:await processedPhoto(source,context)};
     // Do not report success or clear the capture until the IDB transaction commits.
     await storePhoto(photo);
-    if (previewURL) URL.revokeObjectURL(previewURL);
-    previewURL = URL.createObjectURL(photo.blob); $('photoPreview').src = previewURL;
-    if (!stream) { $('photoPreview').hidden = false; $('cameraPlaceholder').hidden = true; }
     notice('照片已保存为本机草稿：'+photo.order_number+'。完成本组后再统一上传。');
     await renderQueue();
   }
@@ -413,8 +407,6 @@
     if (!context || context.user_id !== profile?.user.id || !identityReady) throw new Error('账号已改变，请重新选择照片。');
     const photo = {...context, blob:file, original_filename:file.name || '', content_type:file.type || 'application/octet-stream'};
     await storePhoto(photo);
-    if (previewURL) URL.revokeObjectURL(previewURL);
-    previewURL = URL.createObjectURL(file); $('photoPreview').src = previewURL; $('photoPreview').hidden = false; $('cameraPlaceholder').hidden = true;
     await renderQueue();
   }
   $('takePhoto').addEventListener('click', async () => {
@@ -609,23 +601,22 @@
     catch(error) { notice(error.message,true); } finally { button.disabled = false; }
   });
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
-  $('confirmDevice').addEventListener('click',()=>confirmDevice());
   $('recognizeDevice').addEventListener('click',() => recognizeDevice(false));
   $('confirmRecognizedNumber').addEventListener('click', () => {
     const value = $('recognizedNumber').textContent.trim();
     $('equipmentNumber').disabled = false; $('noEquipmentNumber').checked = false;
     $('equipmentNumber').value = value; deviceSession = null; $('recognitionDialog').close();
-    setFieldText('deviceStatus', '识别到：'+value+'。请核对设备编号后点击确认。');
-    notice('已识别设备编号 '+value+'，请核对后确认。');
+    setFieldText('deviceStatus', '识别到：'+value+'。请核对后点击“打开相机”。');
+    notice('已识别设备编号 '+value+'，请核对后打开相机。');
   });
   $('retryRecognition').addEventListener('click', async () => { $('recognitionDialog').close(); await openCamera(true); if (stream) notice('请将13位铭牌号对准取景框，系统将自动识别。'); });
   $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('equipmentNumber').focus(); });
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
-  $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请重新确认。'); });
-  $('positionNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','位置号已修改，请重新确认。'); });
-  $('containerNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','集装箱号已修改，请重新确认。'); });
-  $('pumpFuseNumbers').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','水泵保险编号已修改，请重新确认。'); });
+  $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请点击“打开相机”确认。'); });
+  $('positionNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','位置号已修改，请点击“打开相机”确认。'); });
+  $('containerNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','集装箱号已修改，请点击“打开相机”确认。'); });
+  $('pumpFuseNumbers').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','水泵保险编号已修改，请点击“打开相机”确认。'); });
   $('orderSelect').addEventListener('input', () => chooseOrder($('orderSelect').value));
   $('orderSelect').addEventListener('change', () => chooseOrder($('orderSelect').value));
   $('orderSearch').addEventListener('input',renderOrders);
