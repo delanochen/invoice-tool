@@ -224,12 +224,18 @@ class FieldWorkTest(unittest.TestCase):
                                    container_number='LYGU0217133', pump_fuse_numbers='1/2/3/4/5',
                                    equipment_session=session_id, batch_id='batch-one', photo_type='equipment', note=note)
             self.assertEqual(response.status_code, 200, response.text)
+        response = self.upload(equipment_number='10232502W0738', position_number='4A1-4',
+                               container_number='LYGU0217133', pump_fuse_numbers='4/6',
+                               equipment_session=uuid.uuid4().hex, batch_id='batch-two',
+                               photo_type='equipment', note='Fuse replaced')
+        self.assertEqual(response.status_code, 200, response.text)
         self.fixture.login('Manager')
         page = self.http.get('/reports/field-repairs')
         self.assertEqual(page.status_code, 200)
         body = page.get_data(as_text=True)
-        for value in ('10232502W0738', '4A1-4', 'LYGU0217133', '1/2/3/4/5', '2 张'):
+        for value in ('10232502W0738', '4A1-4', 'LYGU0217133', '1/2/3/4/5/6', '3 张'):
             self.assertIn(value, body)
+        self.assertEqual(body.count('10232502W0738'), 1)
         export = self.http.get('/api/field/repairs.xlsx')
         self.assertEqual(export.status_code, 200)
         self.assertIn('spreadsheetml', export.content_type)

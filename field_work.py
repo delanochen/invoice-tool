@@ -403,24 +403,34 @@ def register_field_routes(app, api):
         photos = [row for row in photo_rows() if row['photo_type'] == 'equipment']
         grouped = {}
         for photo in photos:
-            group_key = (photo['order_id'], photo['equipment_session'] or f"photo-{photo['id']}")
+            technician = (photo['technician_name'] or photo['employee_name'] or '').strip()
+            equipment_number = (photo['equipment_number'] or '').strip()
+            position_number = (photo['position_number'] or '').strip()
+            container_number = (photo['container_number'] or '').strip()
+            if equipment_number:
+                group_key = (
+                    'device', photo['order_id'], photo['capture_date'], equipment_number.casefold(),
+                    position_number.casefold(), container_number.casefold(), technician.casefold(),
+                )
+            else:
+                group_key = ('session', photo['order_id'], photo['equipment_session'] or f"photo-{photo['id']}")
             entry = grouped.setdefault(group_key, dict(
-                order_number=photo['order_number'], date=photo['capture_date'], position_number='',
-                container_number='', equipment_number='', pump_fuse_numbers='', notes=[], technicians=[], photo_count=0,
+                order_number=photo['order_number'], date=photo['capture_date'], position_number=position_number,
+                container_number=container_number, equipment_number=equipment_number, pump_fuses=[],
+                notes=[], technicians=[], photo_count=0,
             ))
             entry['photo_count'] += 1
-            entry['date'] = min(entry['date'], photo['capture_date'])
-            for key in ('position_number', 'container_number', 'equipment_number', 'pump_fuse_numbers'):
-                if not entry[key] and photo[key]:
-                    entry[key] = photo[key]
+            for fuse in re.split(r'[/,，;；\s]+', (photo['pump_fuse_numbers'] or '').strip()):
+                if fuse and fuse.casefold() not in {item.casefold() for item in entry['pump_fuses']}:
+                    entry['pump_fuses'].append(fuse)
             if photo['note'] and photo['note'] not in entry['notes']:
                 entry['notes'].append(photo['note'])
-            technician = photo['technician_name'] or photo['employee_name']
             if technician and technician not in entry['technicians']:
                 entry['technicians'].append(technician)
         rows = []
         for index, entry in enumerate(sorted(grouped.values(), key=lambda item: (item['date'], item['order_number'], item['position_number'])), 1):
             entry['sequence'] = index
+            entry['pump_fuse_numbers'] = '/'.join(entry.pop('pump_fuses'))
             entry['note'] = ' / '.join(entry.pop('notes'))
             entry['technician'] = ' / '.join(entry.pop('technicians'))
             rows.append(entry)
