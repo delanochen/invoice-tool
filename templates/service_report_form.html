@@ -136,7 +136,7 @@
     <section class="subsection" id="report-photos-departure">
       <h2>现场到达时间照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="arrival_photos" accept="image/*,.heic,.heif" multiple data-local-photo="arrival">
+        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="arrival_photos" accept="image/*,.heic,.heif" multiple data-local-photo="arrival"></label>
         <button type="button" class="small" data-open-nas="arrival">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="arrival"></div>
@@ -148,7 +148,7 @@
     <section class="subsection" id="report-photos-self-check">
       <h2>离开现场时间照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="departure_photos" accept="image/*,.heic,.heif" multiple data-local-photo="departure">
+        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="departure_photos" accept="image/*,.heic,.heif" multiple data-local-photo="departure"></label>
         <button type="button" class="small" data-open-nas="departure">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="departure"></div>
@@ -160,7 +160,7 @@
     <section class="subsection" id="report-photos-site">
       <h2>自检照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="self_check_photos" accept="image/*,.heic,.heif" multiple data-local-photo="self_check">
+        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="self_check_photos" accept="image/*,.heic,.heif" multiple data-local-photo="self_check"></label>
         <button type="button" class="small" data-open-nas="self_check">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="self_check"></div>
@@ -172,7 +172,7 @@
     <section class="subsection" id="report-mileage-proof">
       <h2>现场服务照片</h2>
       <div class="photo-source-actions">
-        <input type="file" name="site_photos" accept="image/*,.heic,.heif" multiple data-local-photo="site">
+        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="site_photos" accept="image/*,.heic,.heif" multiple data-local-photo="site"></label>
         <button type="button" class="small" data-open-nas="site">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="site"></div>
