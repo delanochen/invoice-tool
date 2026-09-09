@@ -430,7 +430,9 @@ def register_field_routes(app, api):
         rows = []
         for index, entry in enumerate(sorted(grouped.values(), key=lambda item: (item['date'], item['order_number'], item['position_number'])), 1):
             entry['sequence'] = index
-            entry['pump_fuse_numbers'] = '/'.join(entry.pop('pump_fuses'))
+            pump_fuses = entry.pop('pump_fuses')
+            pump_fuses.sort(key=lambda value: (0, int(value)) if value.isdigit() else (1, value.casefold()))
+            entry['pump_fuse_numbers'] = '/'.join(pump_fuses)
             entry['note'] = ' / '.join(entry.pop('notes'))
             entry['technician'] = ' / '.join(entry.pop('technicians'))
             rows.append(entry)
