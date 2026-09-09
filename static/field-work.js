@@ -233,7 +233,7 @@
     $('orderSelect').value = String(selected || '');
     chooseOrder($('orderSelect').value);
     const ledgerValue = $('ledgerOrder').value;
-    $('ledgerOrder').replaceChildren(new Option(fieldText('全部工单'), ''), ...profile.orders.map(order => new Option(order.order_number + ' · ' + order.client_name, String(order.id))));
+    $('ledgerOrder').replaceChildren(new Option(fieldText('全部工单'), ''), ...(profile.ledger_orders||profile.orders).map(order => new Option(order.order_number + ' · ' + order.client_name, String(order.id))));
     $('ledgerOrder').value = ledgerValue;
   }
   function chooseOrder(id) {

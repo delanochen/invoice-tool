@@ -193,14 +193,16 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(self.http.get('/api/field/session').status_code,401)
         self.assertEqual(self.upload().status_code,401)
 
-    def test_photo_visibility_respects_owner_and_order_access(self):
+    def test_photo_register_is_shared_between_authenticated_field_accounts(self):
         photo_id = self.upload().json['id']
         self.fixture.login('Beneficiary')
-        self.assertEqual(self.http.get('/api/field/photos').json['rows'],[])
-        self.assertEqual(self.http.get(f'/field/photos/{photo_id}').status_code,403)
+        self.assertEqual(len(self.http.get('/api/field/photos').json['rows']), 1)
+        self.assertEqual(self.http.get(f'/field/photos/{photo_id}').status_code,200)
         self.fixture.login('External')
         self.assertEqual(self.http.get('/api/field/session').json['orders'],[])
-        self.assertEqual(self.http.get(f'/field/photos/{photo_id}').status_code,403)
+        self.assertEqual(len(self.http.get('/api/field/session').json['ledger_orders']), 1)
+        self.assertEqual(len(self.http.get('/api/field/photos').json['rows']), 1)
+        self.assertEqual(self.http.get(f'/field/photos/{photo_id}').status_code,200)
         self.fixture.login('Manager')
         listing = self.http.get('/api/field/photos')
         self.assertEqual(len(listing.json['rows']),1)

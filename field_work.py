@@ -78,11 +78,8 @@ def register_field_routes(app, api):
             where ''' + ' and '.join(clauses) + ' order by service_orders.id desc', params).fetchall()
 
     def photo_clauses():
-        clauses, params = api['service_order_access_filters']()
-        if api['normalized_role']() in {'employee', 'external_employee'}:
-            clauses.append('p.user_id = ?')
-            params.append(g.user['id'])
-        return clauses, params
+        # The photo register is shared among all authenticated Field Work users.
+        return [], []
 
     def photo_rows():
         clauses, params = photo_clauses()
@@ -108,15 +105,10 @@ def register_field_routes(app, api):
             where ''' + (' and '.join(clauses) or '1=1') + ' order by p.captured_at desc, p.id desc limit 2001', params).fetchall()
 
     def photo_order_rows():
-        clauses, params = api['service_order_access_filters']()
-        if api['normalized_role']() in {'employee', 'external_employee'}:
-            clauses.append('p.user_id = ?')
-            params.append(g.user['id'])
         return api['db']().execute('''
             select distinct service_orders.id, service_orders.order_number, service_orders.client_name
             from field_photos p join service_orders on service_orders.id = p.order_id
-            where ''' + (' and '.join(clauses) or '1=1') + '''
-            order by service_orders.order_number desc''', params).fetchall()
+            order by service_orders.order_number desc''').fetchall()
 
     def photo_file(row, thumb=False):
         root = api['shared_photos_root']()
@@ -157,6 +149,7 @@ def register_field_routes(app, api):
         return jsonify(user=dict(id=g.user['id'], name=g.user['name']), csrf=token(),
                        technicians=[dict(row) for row in technicians],
                        orders=[dict(row) for row in order_rows()], version=api['APP_VERSION'],
+                       ledger_orders=[dict(row) for row in photo_order_rows()],
                        can_capture=api['has_action_permission']('service_reports', 'create'),
                        create_order_url=url_for('new_service_order') if api['can_create_service_order']() else None,
                        distance_limit=max(100, min(10000, int(os.environ.get('FIELD_DISTANCE_METERS', '500')))))
@@ -361,9 +354,6 @@ def register_field_routes(app, api):
         row = api['db']().execute('select * from field_photos where id = ?', (photo_id,)).fetchone()
         if not row:
             abort(404)
-        api['require_service_order'](row['order_id'])
-        if api['normalized_role']() in {'employee', 'external_employee'} and row['user_id'] != g.user['id']:
-            abort(403)
         response = send_file(photo_file(row, request.args.get('thumb') == '1'), mimetype='image/jpeg',
                              as_attachment=request.args.get('download') == '1')
         response.headers['Cache-Control'] = 'no-store, private'
