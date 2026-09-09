@@ -1,6 +1,14 @@
 (() => {
   'use strict';
   const en = {
+    "全部删除":"Delete all",
+    "确认删除全部待上传照片？":"Delete all pending photos?",
+    "张照片将从当前账号的本机草稿中删除。":"photos will be deleted from this account’s local drafts.",
+    "此操作无法撤销。不会删除手机相册或已上传到服务器的照片。":"This cannot be undone. Photos in your device gallery or already on the server will remain.",
+    "确认全部删除":"Confirm delete all",
+    "已删除当前账号的全部待上传草稿。":"All pending drafts for the current account have been deleted.",
+    "删除失败：":"Deletion failed: ",
+
     "选择拍摄日期":"Choose capture date",
     "未识别到唯一的拍摄日期，请确认后上传。":"No unique capture date was found. Confirm the date to upload.",
     "待确认日期的照片":"Photo requiring capture date",
@@ -35,6 +43,14 @@
     '全部工单':'Todas las órdenes',
     '当前定位精度较低（±':'La precisión de ubicación es baja (±','米）。':' m).','当前工单的站点还没有坐标。':'El sitio de la orden seleccionada no tiene coordenadas.','当前位置距离所选工单站点约 ':'La ubicación actual está a unos ',' 公里。':' km del sitio de la orden seleccionada.',' 照片仍保存到 ':' Las fotos se guardarán en ','；如需更换，请先关闭相机。':'; cierre la cámara antes de cambiar la orden.',
     ...en,
+    "全部删除":"Eliminar todo",
+    "确认删除全部待上传照片？":"¿Eliminar todas las fotos pendientes?",
+    "张照片将从当前账号的本机草稿中删除。":"fotos se eliminarán de los borradores locales de esta cuenta.",
+    "此操作无法撤销。不会删除手机相册或已上传到服务器的照片。":"No se puede deshacer. Las fotos de la galería y las ya subidas al servidor se conservarán.",
+    "确认全部删除":"Confirmar eliminación",
+    "已删除当前账号的全部待上传草稿。":"Se eliminaron todos los borradores pendientes de esta cuenta.",
+    "删除失败：":"Error al eliminar: ",
+
     "选择拍摄日期":"Elegir fecha de captura",
     "未识别到唯一的拍摄日期，请确认后上传。":"No se encontró una fecha única. Confirme la fecha para subir.",
     "待确认日期的照片":"Foto cuya fecha debe confirmarse",

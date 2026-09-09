@@ -13,6 +13,7 @@
   let batch = null, timeAuthorized = false, draftSelection = null;
   let ledgerPhotos = [], ledgerPhotoIndex = 0, ledgerTouchStart = null;
   let captureMode = 'camera', deviceStatusText = '';
+  let deletingDrafts = false, deleteDraftSnapshot = null;
   const queueViews = new Map();
   let queueRenderGeneration = 0, uploadingPhotoId = null, uploadIndex = 0, uploadTotal = 0;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
@@ -177,6 +178,7 @@
   function lock(message) {
     bootstrapGeneration++;
     if ($('captureDateDialog').open) finishCaptureDate(null);
+    deleteDraftSnapshot = null; $('deleteAllDraftsDialog').close();
     identityReady = false;
     profile = null;
     currentOrder = null;
@@ -541,11 +543,12 @@
         if (current !== view.row) $('queueList').insertBefore(view.row,current || null);
       });
       $('draftCard').hidden = photos.length === 0;
-      $('retryUpload').disabled = syncing;
+      $('retryUpload').disabled = syncing || deletingDrafts;
+      $('deleteAllDrafts').disabled = syncing || taking || processingFiles || deletingDrafts;
       setFieldText('retryUpload', syncing ? `${fieldText('正在上传')} ${uploadIndex}/${uploadTotal}` : '重试上传');
       const batchCount = batch ? photos.filter(photo=>photo.batch_id===batch.id).length : 0;
       $('completeBatch').hidden = batchCount === 0 && !processingFiles;
-      $('completeBatch').disabled = syncing || processingFiles || batchCount === 0;
+      $('completeBatch').disabled = deletingDrafts || syncing || processingFiles || batchCount === 0;
       setFieldText('completeBatch', processingFiles ? `正在处理照片（${processingDone}/${processingTotal}）` : batchCount ? `完成并上传本组照片（${batchCount} 张）` : '请先拍照或选择照片');
     } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }
   }
@@ -588,7 +591,7 @@
   $('cancelCaptureDate').addEventListener('click', () => finishCaptureDate(null));
   $('captureDateDialog').addEventListener('cancel', event => { event.preventDefault(); finishCaptureDate(null); });
   async function syncQueue(batchId = null) {
-    if (syncing || !navigator.onLine || !profile || !identityReady) return;
+    if (deletingDrafts || $('deleteAllDraftsDialog').open || syncing || !navigator.onLine || !profile || !identityReady) return;
     syncing = true; uploadIndex = 0; uploadTotal = 0;
     await renderQueue();
     try {
@@ -734,6 +737,44 @@
   $('cameraMode').addEventListener('click', () => setCaptureMode('camera'));
   $('uploadMode').addEventListener('click', () => setCaptureMode('upload'));
   $('openCamera').addEventListener('click',()=>openCamera(false)); $('closeCamera').addEventListener('click',stopCamera);
+  $('deleteAllDrafts').addEventListener('click', async () => {
+    if (syncing || taking || processingFiles || deletingDrafts || !identityReady) return;
+    const userId = profile.user.id;
+    try {
+      const photos = await queued();
+      if (!photos.length || !identityReady || profile?.user.id !== userId || syncing || taking || processingFiles) return;
+      deleteDraftSnapshot = {userId, ids:new Set(photos.map(photo => photo.client_id))};
+      $('deleteAllDraftsCount').textContent = String(photos.length);
+      $('confirmDeleteAllDrafts').disabled = false;
+      $('deleteAllDraftsDialog').showModal();
+    } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }
+  });
+  $('cancelDeleteAllDrafts').addEventListener('click', () => { deleteDraftSnapshot = null; $('deleteAllDraftsDialog').close(); });
+  $('deleteAllDraftsDialog').addEventListener('cancel', () => { deleteDraftSnapshot = null; });
+  $('confirmDeleteAllDrafts').addEventListener('click', async () => {
+    const snapshot = deleteDraftSnapshot;
+    if (!snapshot || deletingDrafts || syncing || taking || processingFiles || !identityReady || profile?.user.id !== snapshot.userId) return;
+    deletingDrafts = true; $('confirmDeleteAllDrafts').disabled = true;
+    try {
+      const db = await openDB();
+      if (!identityReady || profile?.user.id !== snapshot.userId) throw new Error('账号已改变，请重试。');
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('photos','readwrite'), storage = tx.objectStore('photos');
+        const request = storage.openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          if (cursor.value.user_id === snapshot.userId && snapshot.ids.has(cursor.value.client_id)) cursor.delete();
+          cursor.continue();
+        };
+        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || new Error('删除失败'));
+      });
+      deleteDraftSnapshot = null; $('deleteAllDraftsDialog').close();
+      if (draftSelection && snapshot.ids.has(draftSelection.client_id)) { draftSelection = null; $('draftDialog').close(); clearPreview(); }
+      notice('已删除当前账号的全部待上传草稿。');
+    } catch(error) { notice('删除失败：'+error.message,true); $('confirmDeleteAllDrafts').disabled = false; }
+    finally { deletingDrafts = false; await renderQueue(); }
+  });
   $('retryUpload').addEventListener('click',()=>syncQueue()); $('reloadOrders').addEventListener('click',bootstrap);
   $('equipmentKind').addEventListener('click',()=>chooseKind('equipment')); $('generalKind').addEventListener('click',()=>chooseKind('general'));
   $('systemTime').addEventListener('change',()=>{ const adjusted=!$('systemTime').checked; $('adjustedTimeFields').hidden=!adjusted; timeAuthorized=!adjusted; $('watermarkStart').disabled=adjusted; if(adjusted&&!$('watermarkStart').value){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());$('watermarkStart').value=d.toISOString().slice(0,16);} setFieldText('timeStatus',adjusted?'请输入密码并设置水印开始时间。':'使用当前系统时间。'); });
