@@ -4,11 +4,14 @@
   <header class="page-header">
     <div>
       <p class="eyebrow">Daily Report</p>
-      <h1>工作日报</h1>
+      <h1>{{ "复制日报" if source_report else "工作日报" }}</h1>
       <p class="muted-line">{{ order.client_name }} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
+      {% if is_edit and can_create_service_report(order) %}
+        <button type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id, copy_from=report.id) }}'">复制日报</button>
+      {% endif %}
       {% if is_edit %}
         <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
           <button type="submit">导出 Word</button>
@@ -17,7 +20,8 @@
       {% if can_edit_report %}<button class="primary" type="submit" form="serviceReportForm" id="saveServiceReport">保存</button>{% endif %}
     </div>
   </header>
-  <form method="post" enctype="multipart/form-data" class="panel service-report-form" id="serviceReportForm">
+  {% if source_report %}<p class="muted-line">已复制 {{ source_report.report_date }} 的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。</p>{% endif %}
+  <form method="post" {% if not is_edit %}action="{{ url_for('new_service_report', order_id=order.id) }}"{% endif %} enctype="multipart/form-data" class="panel service-report-form" id="serviceReportForm">
     <input type="hidden" name="save_token" value="{{ save_token }}">
     <fieldset class="plain-fieldset" {% if not can_edit_report %}disabled{% endif %}>
     <div class="form-grid">

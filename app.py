@@ -13101,15 +13101,46 @@ def new_service_report(order_id):
             return redirect(url_for("new_service_report", order_id=order_id))
         flash("工作日报已保存。", "success")
         return redirect(url_for("edit_service_report", report_id=report_id))
+    source_report = None
+    report_data = report_form_defaults(order=order)
+    worker_rows = []
+    saved_parts = [{} for _ in range(4)]
+    replaced_parts = [{} for _ in range(4)]
+    copy_from = request.args.get("copy_from")
+    if copy_from is not None:
+        if not copy_from.isdigit():
+            abort(400)
+        if not has_action_permission("service_reports", "view"):
+            abort(403)
+        source_report, source_order = require_service_report(int(copy_from))
+        if source_order["id"] != order_id:
+            abort(404)
+        if is_external_employee() and source_report["created_by"] != g.user["id"]:
+            abort(403)
+        report_data = report_form_defaults(report=source_report)
+        for name in ("id", "created_by", "created_at", "updated_at"):
+            report_data.pop(name, None)
+        report_data["report_date"] = date.today().isoformat()
+        report_data["actual_work_date"] = date.today().isoformat()
+        allowed_workers = {row["id"] for row in users_rows}
+        original_workers = service_report_workers(source_report["id"])
+        worker_rows = [row for row in original_workers if row["id"] in allowed_workers]
+        if len(worker_rows) != len(original_workers):
+            flash("部分原服务人员已不可选，请补充本次日报的服务人员。", "error")
+        if report_data["report_writer_id"] not in {row["id"] for row in report_writers}:
+            report_data["report_writer_id"] = None
+        saved_parts = list(report_parts("service_report_saved_parts", source_report["id"])) or saved_parts
+        replaced_parts = list(report_parts("service_report_replaced_parts", source_report["id"])) or replaced_parts
     return render_template(
         "service_report_form.html",
         order=order,
-        report=report_form_defaults(order=order),
+        report=report_data,
+        source_report=source_report,
         users=users_rows,
         report_writers=report_writers,
-        worker_rows=[],
-        saved_parts=[{} for _ in range(4)],
-        replaced_parts=[{} for _ in range(4)],
+        worker_rows=worker_rows,
+        saved_parts=saved_parts,
+        replaced_parts=replaced_parts,
         attachments=get_report_attachments(0),
         save_token=secrets.token_urlsafe(24),
         is_edit=False,
