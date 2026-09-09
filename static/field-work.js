@@ -11,6 +11,7 @@
   let cameraSelection = null, bootstrapGeneration = 0;
   let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, draftSelection = null;
+  let ledgerPhotos = [], ledgerPhotoIndex = 0, ledgerTouchStart = null;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
   const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
   async function requestAPI(url, options = {}) {
@@ -550,15 +551,16 @@
       const response = await requestAPI('/api/field/photos?'+params,{cache:'no-store'});
       if (response.status === 401 || response.status === 403) { lock('请重新登录后查询台账。'); return; }
       if (!response.ok) throw new Error('查询失败');
-      const result = await response.json(); $('ledgerList').replaceChildren();
+      const result = await response.json(); ledgerPhotos = result.rows; $('ledgerList').replaceChildren();
       setFieldText('ledgerSummary', `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`);
       const table = document.createElement('table'); table.className = 'ledger-table';
       const thead = document.createElement('thead'), headerRow = document.createElement('tr');
       ['照片','工单 / 站点','设备信息','施工员 / 拍摄账号','拍摄时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
       thead.append(headerRow); const tbody = document.createElement('tbody'); table.append(thead,tbody); $('ledgerList').append(table);
-      result.rows.forEach(photo => {
+      result.rows.forEach((photo, photoIndex) => {
         const card = textNode('article','','photo-card'), link = document.createElement('a'), image = document.createElement('img');
-        link.href = photo.preview; link.target = '_blank'; link.rel = 'noopener'; image.src = photo.thumbnail; image.alt = fieldText('工单照片'); image.loading = 'lazy'; link.append(image);
+        link.href = photo.preview; image.src = photo.thumbnail; image.alt = fieldText('工单照片'); image.loading = 'lazy'; link.append(image);
+        link.addEventListener('click',event=>{event.preventDefault();openLedgerPhoto(photoIndex);});
         const detail = document.createElement('div');
         const map=document.createElement(photo.location_verified ? 'a' : 'span');
         if (photo.location_verified) { map.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`; map.target='_blank'; map.rel='noopener'; map.textContent=fieldText(`坐标：${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}`); }
@@ -572,7 +574,7 @@
         card.append(link,detail); $('ledgerList').append(card);
         const row = document.createElement('tr');
         const imageCell = document.createElement('td'), tableLink = link.cloneNode(false), tableImage = image.cloneNode(false);
-        tableLink.append(tableImage); imageCell.append(tableLink); row.append(imageCell);
+        tableLink.append(tableImage); tableLink.addEventListener('click',event=>{event.preventDefault();openLedgerPhoto(photoIndex);}); imageCell.append(tableLink); row.append(imageCell);
         const values = [photo.order_number+'\n'+photo.site_name, deviceDetail,
           (photo.technician_name||photo.employee_name)+'\n拍摄账号：'+photo.employee_name,
           photo.captured_at+'\n接收：'+photo.received_at, watermarkDetail,
@@ -583,6 +585,17 @@
         tbody.append(row);
       });
     } catch(error) { setFieldText('ledgerSummary', '台账需要联网查看。待上传照片请到“拍照”页面查看。'); }
+  }
+  function openLedgerPhoto(index) {
+    if (!ledgerPhotos.length) return;
+    ledgerPhotoIndex = (index + ledgerPhotos.length) % ledgerPhotos.length;
+    const photo = ledgerPhotos[ledgerPhotoIndex];
+    $('ledgerPhotoImage').src = photo.preview;
+    $('ledgerPhotoTitle').textContent = photo.order_number+' · '+photo.site_name;
+    $('ledgerPhotoCounter').textContent = `${ledgerPhotoIndex + 1} / ${ledgerPhotos.length}`;
+    $('ledgerPhotoDetail').textContent = [photo.equipment_number ? '铭牌号：'+photo.equipment_number : '', photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', '拍摄：'+photo.captured_at, '施工员：'+(photo.technician_name||photo.employee_name), photo.note||''].filter(Boolean).map(fieldText).join(' · ');
+    $('previousLedgerPhoto').disabled = ledgerPhotos.length < 2; $('nextLedgerPhoto').disabled = ledgerPhotos.length < 2;
+    if (!$('ledgerPhotoDialog').open) $('ledgerPhotoDialog').showModal();
   }
   $('requestOrder').addEventListener('click', () => {
     if (!navigator.onLine) { notice('新建工单申请需要联网。',true); return; }
@@ -625,6 +638,12 @@
   $('closeDraft').addEventListener('click',()=>$('draftDialog').close());
   $('deleteDraft').addEventListener('click',async()=>{if(!draftSelection)return;await storePhoto(draftSelection,true);draftSelection=null;$('draftDialog').close();await renderQueue();notice('已删除本机草稿照片。');});
   $('refreshLedger').addEventListener('click',loadLedger);
+  $('closeLedgerPhoto').addEventListener('click',()=>$('ledgerPhotoDialog').close());
+  $('previousLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex-1));
+  $('nextLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex+1));
+  $('ledgerPhotoStage').addEventListener('touchstart',event=>{ledgerTouchStart=event.changedTouches[0].clientX;},{passive:true});
+  $('ledgerPhotoStage').addEventListener('touchend',event=>{if(ledgerTouchStart===null)return;const distance=event.changedTouches[0].clientX-ledgerTouchStart;ledgerTouchStart=null;if(Math.abs(distance)>45)openLedgerPhoto(ledgerPhotoIndex+(distance<0?1:-1));},{passive:true});
+  document.addEventListener('keydown',event=>{if(!$('ledgerPhotoDialog').open)return;if(event.key==='ArrowLeft')openLedgerPhoto(ledgerPhotoIndex-1);if(event.key==='ArrowRight')openLedgerPhoto(ledgerPhotoIndex+1);});
   $('ledgerFilter').addEventListener('submit', event => { event.preventDefault(); loadLedger(); });
   document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => panel(button.dataset.tab)));
   $('fieldLogout').addEventListener('click', () => { localStorage.removeItem(SESSION_KEY); identityReady = false; stopCamera(); });

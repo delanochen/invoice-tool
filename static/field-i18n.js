@@ -3,7 +3,7 @@
   const en = {
     '请将13位铭牌号对准取景框，系统将自动识别。':'Center the 13-digit nameplate number in the frame. Recognition starts automatically.','自动识别中，请保持13位数字清晰并完整位于框内。':'Scanning automatically. Keep all 13 digits sharp and inside the frame.',
     '将13位数字放入框内':'Place the 13-digit number inside the frame',
-    '请确认铭牌号':'Confirm nameplate number','请与设备铭牌逐位核对，确认后才会用于后续照片。':'Compare every character with the equipment nameplate. It will be used for later photos only after confirmation.','确认使用':'Confirm and use','重新识别':'Scan again','手工输入':'Enter manually',
+    '请确认铭牌号':'Confirm nameplate number','请与设备铭牌逐位核对，确认后才会用于后续照片。':'Compare every character with the equipment nameplate. It will be used for later photos only after confirmation.','确认使用':'Confirm and use','重新识别':'Scan again','手工输入':'Enter manually','上一张':'Previous photo','下一张':'Next photo',
     '请将铭牌放大并对准取景框，然后点击“识别铭牌”。':'Move closer and center the nameplate, then tap “Scan nameplate”.','保存到手机相册':'Save to phone photos','请在系统菜单中选择“存储图像”或“保存到照片”。':'Choose “Save Image” or “Save to Photos” in the system menu.','照片已交给手机保存；请在“下载”中确认并移入相册。':'The photo was sent to your phone. Check Downloads and move it to Photos.','无法打开手机保存菜单：':'Unable to open the phone save menu: ',
     '全部工单':'All work orders',
     '当前定位精度较低（±':'Location accuracy is low (±','米）。':' m).','当前工单的站点还没有坐标。':'The selected work order site has no coordinates.','当前位置距离所选工单站点约 ':'The current location is about ',' 公里。':' km from the selected work order site.',' 照片仍保存到 ':' Photos will still be saved to ','；如需更换，请先关闭相机。':'; close the camera before changing the order.',
