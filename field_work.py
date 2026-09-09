@@ -173,13 +173,25 @@ def register_field_routes(app, api):
         # The authenticated server session is authoritative. A stale PWA draft
         # may carry an old local user id after iOS restores or refreshes the app.
         # Never attribute an upload to that client-supplied value.
+        if not request.form or 'photo' not in request.files:
+            # Log transport shape only, never photo bytes, names, tokens or notes.
+            app.logger.warning(
+                'field_upload_parse_failed mime=%s length=%s transfer=%s terminated=%s fields=%d files=%d',
+                request.mimetype, request.content_length,
+                request.environ.get('HTTP_TRANSFER_ENCODING', ''),
+                request.environ.get('wsgi.input_terminated', False),
+                len(request.form), len(request.files))
+            return jsonify(error='上传数据未完整解析，照片仍保留在本机。请刷新页面后重试。',
+                           code='upload_body_invalid'), 400
         raw_key = request.form.get('client_id', '')[:500]
         source = request.form.get('source', '')
         watermark_source = request.form.get('watermark_source', 'system').strip()
         if source not in {'camera', 'file'} and watermark_source == 'original':
             source = 'file'
         if source not in {'camera', 'file'}:
-            return jsonify(error='照片来源无效。'), 422
+            app.logger.warning('field_upload_source_invalid source_present=%s watermark_present=%s fields=%d',
+                               'source' in request.form, 'watermark_source' in request.form, len(request.form))
+            return jsonify(error='照片来源无效。', code='upload_source_invalid'), 422
         if watermark_source not in {'system', 'original'} or (watermark_source == 'original' and source != 'file'):
             return jsonify(error='水印来源无效。'), 422
         original_import = source == 'file' and watermark_source == 'original'

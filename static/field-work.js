@@ -21,7 +21,17 @@
   async function requestAPI(url, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
-    try { return await fetch(url, {...options, signal:controller.signal}); }
+    try {
+      if (options.body instanceof FormData) {
+        // Materialize multipart bytes once, including their matching boundary.
+        // This avoids relying on a restored iOS File during fetch serialization.
+        const encoded = new Response(options.body);
+        const headers = new Headers(options.headers);
+        headers.set('Content-Type', encoded.headers.get('Content-Type'));
+        options = {...options, headers, body:await encoded.blob()};
+      }
+      return await fetch(url, {...options, signal:controller.signal});
+    }
     finally { clearTimeout(timer); }
   }
   const notice = (text, error = false) => { $('notice').textContent = fieldText(text); $('notice').classList.toggle('error', error); };

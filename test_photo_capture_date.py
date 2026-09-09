@@ -47,6 +47,15 @@ class ImportDateEndpointTest(unittest.TestCase):
     def upload(self,**kwargs):
         return self.f.upload(source='file',watermark_source='original',location_verified='false',**kwargs)
 
+    def test_broken_multipart_reports_transport_error_without_writing(self):
+        response = self.f.http.post('/api/field/photos', data=b'not a multipart body',
+            content_type='multipart/form-data; boundary=missing',
+            headers={'X-Field-Token':self.f.csrf})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json['code'], 'upload_body_invalid')
+        with self.f.module.app.app_context():
+            self.assertEqual(self.f.module.db().execute('select count(*) from field_photos').fetchone()[0], 0)
+
     def test_watermark_date_controls_ledger_and_directory(self):
         with patch.object(dates,'read_watermark',return_value='2026-09-02 23:45:10 GMT-5'):
             response=self.upload()
