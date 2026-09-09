@@ -13,6 +13,8 @@
   let batch = null, timeAuthorized = false, draftSelection = null;
   let ledgerPhotos = [], ledgerPhotoIndex = 0, ledgerTouchStart = null;
   let captureMode = 'camera', deviceStatusText = '';
+  const queueViews = new Map();
+  let queueRenderGeneration = 0, uploadingPhotoId = null, uploadIndex = 0, uploadTotal = 0;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
   const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
   async function requestAPI(url, options = {}) {
@@ -187,7 +189,7 @@
     watchId = null;
     $('workspace').hidden = true;
     $('loginPanel').hidden = false;
-    $('queueList').replaceChildren();
+    clearQueueViews();
     $('ledgerList').replaceChildren();
     setFieldText('networkStatus', '请登录');
     notice(message, true);
@@ -495,22 +497,55 @@
     finally { taking = false; processingFiles = false; processingTotal = 0; processingDone = 0; $('photoFile').value = ''; await renderQueue(); }
   });
   $('photoFile').addEventListener('cancel', () => { captureContext = null; });
+  function clearQueueViews() {
+    queueRenderGeneration++;
+    for (const view of queueViews.values()) URL.revokeObjectURL(view.url);
+    queueViews.clear();
+    $('queueList').replaceChildren();
+  }
   async function renderQueue() {
+    const generation = ++queueRenderGeneration;
     try {
-      const photos = await queued(); $('queueCount').textContent = String(photos.length); $('queueList').replaceChildren();
+      const photos = await queued();
+      if (generation !== queueRenderGeneration) return;
+      $('queueCount').textContent = String(photos.length);
+      const ids = new Set(photos.map(photo => photo.client_id));
+      for (const [id, view] of queueViews) {
+        if (!ids.has(id)) { view.row.remove(); URL.revokeObjectURL(view.url); queueViews.delete(id); }
+      }
       $('draftCard').classList.toggle('has-drafts',photos.length > 0);
-      photos.forEach(photo => {
-        const row = textNode('div','','queue-item draft-item');
-        const thumb=document.createElement('img'); const thumbURL=URL.createObjectURL(photo.blob); thumb.src=thumbURL; thumb.alt=fieldText('草稿照片'); thumb.onload=()=>URL.revokeObjectURL(thumbURL);
-        thumb.onerror=()=>{ URL.revokeObjectURL(thumbURL); const fallback=textNode('div','原图','original-photo-placeholder'); fallback.addEventListener('click',()=>openDraft(photo)); thumb.replaceWith(fallback); };
-        thumb.addEventListener('click',()=>openDraft(photo));
-        row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',photo.source === 'file' ? (photo.manual_capture_date || '上传时识别拍摄日期') : new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
-        const save = textNode('button','保存到手机相册'); save.type = 'button'; save.addEventListener('click', () => savePhotoToAlbum(photo)); row.append(save); $('queueList').append(row);
+      photos.forEach((photo, index) => {
+        let view = queueViews.get(photo.client_id);
+        if (!view) {
+          const row = textNode('div','','queue-item draft-item');
+          const thumb = document.createElement('img'), url = URL.createObjectURL(photo.blob);
+          view = {row, url, photo, title:textNode('strong',''), date:textNode('small',''), watermark:textNode('span',''), status:textNode('span','')};
+          queueViews.set(photo.client_id, view);
+          thumb.src = url; thumb.alt = fieldText('草稿照片');
+          thumb.onerror = () => {
+            const fallback = textNode('div','原图','original-photo-placeholder');
+            fallback.addEventListener('click',()=>openDraft(view.photo)); thumb.replaceWith(fallback);
+          };
+          thumb.addEventListener('click',()=>openDraft(view.photo));
+          const save = textNode('button','保存到手机相册'); save.type = 'button';
+          save.addEventListener('click',()=>savePhotoToAlbum(view.photo));
+          row.append(thumb,view.title,view.date,view.watermark,view.status,save);
+        }
+        view.photo = photo;
+        const update = (node, text) => { const translated = fieldText(text); if (node.textContent !== translated) node.textContent = translated; };
+        update(view.title,(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number);
+        update(view.date,photo.source === 'file' || photo.watermark_source === 'original' ? (photo.manual_capture_date || '上传时识别拍摄日期') : new Date(photo.captured_at).toLocaleString());
+        update(view.watermark,photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印');
+        update(view.status,uploadingPhotoId === photo.client_id ? `${fieldText('正在上传')} ${uploadIndex}/${uploadTotal}` : photo.error || '本机草稿');
+        const current = $('queueList').children[index];
+        if (current !== view.row) $('queueList').insertBefore(view.row,current || null);
       });
       $('draftCard').hidden = photos.length === 0;
+      $('retryUpload').disabled = syncing;
+      setFieldText('retryUpload', syncing ? `${fieldText('正在上传')} ${uploadIndex}/${uploadTotal}` : '重试上传');
       const batchCount = batch ? photos.filter(photo=>photo.batch_id===batch.id).length : 0;
       $('completeBatch').hidden = batchCount === 0 && !processingFiles;
-      $('completeBatch').disabled = processingFiles || batchCount === 0;
+      $('completeBatch').disabled = syncing || processingFiles || batchCount === 0;
       setFieldText('completeBatch', processingFiles ? `正在处理照片（${processingDone}/${processingTotal}）` : batchCount ? `完成并上传本组照片（${batchCount} 张）` : '请先拍照或选择照片');
     } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }
   }
@@ -554,7 +589,8 @@
   $('captureDateDialog').addEventListener('cancel', event => { event.preventDefault(); finishCaptureDate(null); });
   async function syncQueue(batchId = null) {
     if (syncing || !navigator.onLine || !profile || !identityReady) return;
-    syncing = true;
+    syncing = true; uploadIndex = 0; uploadTotal = 0;
+    await renderQueue();
     try {
       const sessionResponse = await requestAPI('/api/field/session',{cache:'no-store'});
       if (sessionResponse.status === 401 || sessionResponse.status === 403) { lock('登录已过期或权限已改变。照片仍留在本机，请重新登录拍摄账号。'); return; }
@@ -563,9 +599,15 @@
       if (live.user.id !== profile.user.id) { lock('账号已改变，已暂停原账号的照片上传。'); return; }
       profile.csrf = live.csrf;
       setFieldText('networkStatus', '在线');
-      for (const photo of await queued(batchId)) {
+      const pending = await queued(batchId); uploadTotal = pending.length;
+      for (const photo of pending) {
         if (!identityReady || photo.user_id !== profile?.user.id) break;
+        uploadingPhotoId = photo.client_id; uploadIndex++;
         try {
+          if (photo.watermark_source === 'original' && photo.source !== 'file') {
+            photo.source = 'file'; await storePhoto(photo);
+          }
+          await renderQueue();
           const data = new FormData();
           Object.entries(photo).forEach(([k,v]) => { if (k !== 'blob' && k !== 'error') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
@@ -590,10 +632,11 @@
           photo.error = error.message; await storePhoto(photo);
           if (!navigator.onLine || error instanceof TypeError) break;
         }
+        uploadingPhotoId = null;
         await renderQueue();
       }
     } catch(error) { notice('暂时无法上传，照片仍保留在本机。'); }
-    finally { syncing = false; await renderQueue(); }
+    finally { syncing = false; uploadingPhotoId = null; await renderQueue(); }
   }
   async function completeBatch() {
     if (!batch) return;
