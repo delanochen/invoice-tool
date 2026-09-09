@@ -34,7 +34,7 @@
   const orderStorageKey = () => 'field-order-' + profile.user.id + '-' + new Date().toLocaleDateString('en-CA');
 
   function setCaptureMode(mode) {
-    if (taking || processingFiles || captureContext) return;
+    if (taking || processingFiles || captureContext || syncing) return;
     stopCamera();
     captureMode = mode;
     if (deviceStatusText) setFieldText('deviceStatus', deviceStatusText);
@@ -174,6 +174,7 @@
   }
   function lock(message) {
     bootstrapGeneration++;
+    if ($('captureDateDialog').open) finishCaptureDate(null);
     identityReady = false;
     profile = null;
     currentOrder = null;
@@ -503,7 +504,7 @@
         const thumb=document.createElement('img'); const thumbURL=URL.createObjectURL(photo.blob); thumb.src=thumbURL; thumb.alt=fieldText('草稿照片'); thumb.onload=()=>URL.revokeObjectURL(thumbURL);
         thumb.onerror=()=>{ URL.revokeObjectURL(thumbURL); const fallback=textNode('div','原图','original-photo-placeholder'); fallback.addEventListener('click',()=>openDraft(photo)); thumb.replaceWith(fallback); };
         thumb.addEventListener('click',()=>openDraft(photo));
-        row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
+        row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',photo.source === 'file' ? (photo.manual_capture_date || '上传时识别拍摄日期') : new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
         const save = textNode('button','保存到手机相册'); save.type = 'button'; save.addEventListener('click', () => savePhotoToAlbum(photo)); row.append(save); $('queueList').append(row);
       });
       $('draftCard').hidden = photos.length === 0;
@@ -531,6 +532,26 @@
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
     $('draftLarge').src=previewURL; setFieldText('draftDetail',(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印')); $('draftDialog').showModal();
   }
+  let captureDateResolve = null, captureDateURL = null;
+  function finishCaptureDate(value) {
+    const resolve = captureDateResolve; captureDateResolve = null;
+    $('captureDateDialog').close();
+    if (captureDateURL) URL.revokeObjectURL(captureDateURL);
+    captureDateURL = null; $('captureDateImage').removeAttribute('src');
+    resolve?.(value);
+  }
+  function chooseCaptureDate(photo, candidates) {
+    captureDateURL = URL.createObjectURL(photo.blob);
+    $('captureDateImage').src = captureDateURL;
+    $('captureDateFilename').textContent = photo.original_filename || photo.order_number;
+    $('captureDateCandidates').textContent = (candidates || []).join(' / ');
+    $('captureDateInput').value = photo.manual_capture_date || '';
+    $('captureDateDialog').showModal();
+    return new Promise(resolve => { captureDateResolve = resolve; });
+  }
+  $('captureDateForm').addEventListener('submit', event => { event.preventDefault(); if ($('captureDateForm').reportValidity()) finishCaptureDate($('captureDateInput').value); });
+  $('cancelCaptureDate').addEventListener('click', () => finishCaptureDate(null));
+  $('captureDateDialog').addEventListener('cancel', event => { event.preventDefault(); finishCaptureDate(null); });
   async function syncQueue(batchId = null) {
     if (syncing || !navigator.onLine || !profile || !identityReady) return;
     syncing = true;
@@ -548,9 +569,20 @@
           const data = new FormData();
           Object.entries(photo).forEach(([k,v]) => { if (k !== 'blob' && k !== 'error') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
-          const response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
+          if (photo.source === 'file') notice('正在识别水印和 EXIF 拍摄日期…');
+          let response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
           if (response.status === 401) { lock('登录已过期，照片仍留在本机。请重新登录后补传。'); break; }
-          const result = await response.json().catch(() => ({}));
+          let result = await response.json().catch(() => ({}));
+          if (result.needs_capture_date) {
+            const selectedDate = await chooseCaptureDate(photo, result.date_candidates);
+            if (!selectedDate) { photo.error = fieldText('请选择照片的拍摄日期。'); await storePhoto(photo); break; }
+            if (!identityReady || photo.user_id !== profile?.user.id) break;
+            photo.manual_capture_date = selectedDate;
+            await storePhoto(photo);
+            data.set('manual_capture_date', selectedDate);
+            response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
+            result = await response.json().catch(() => ({}));
+          }
           if (!response.ok || !result.ok) throw new Error(result.error || '上传未成功（'+response.status+'），照片仍保留');
           await storePhoto(photo,true);
           notice('照片已上传到 '+photo.order_number+'，系统已按拍摄日期归档。');

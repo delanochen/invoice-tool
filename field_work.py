@@ -14,6 +14,7 @@ from flask import abort, g, jsonify, render_template, request, send_file, sessio
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from werkzeug.utils import secure_filename
 from image_processing import compress_image, create_thumbnail
+from photo_capture_date import resolve_capture_date
 
 
 def init_field_schema(connection):
@@ -36,7 +37,7 @@ def init_field_schema(connection):
     ''')
     columns = {row[1] for row in connection.execute('pragma table_info(field_photos)')}
     for name in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers', 'equipment_session', 'photo_type',
-                 'watermark_at', 'watermark_source', 'batch_id', 'technician_name'):
+                 'watermark_at', 'watermark_source', 'batch_id', 'technician_name', 'capture_date_source'):
         if name not in columns:
             connection.execute(f"alter table field_photos add column {name} text not null default ''")
     connection.execute("update field_photos set watermark_source = 'system' where watermark_source = ''")
@@ -261,6 +262,23 @@ def register_field_routes(app, api):
         except (OSError, ValueError, Image.DecompressionBombError):
             return jsonify(error='无法读取照片，请重新拍摄。'), 422
         db = api['db']()
+        capture_date_source = 'camera'
+        if source == 'file':
+            previous = db.execute('select * from field_photos where user_id = ? and client_id = ?', (g.user['id'], key)).fetchone()
+            if previous:
+                if previous['content_hash'] != digest or previous['order_id'] != order_id:
+                    return jsonify(error='照片编号已用于不同的内容。'), 409
+                return jsonify(ok=True, id=previous['id'], duplicate=True, capture_date=previous['capture_date'])
+            try:
+                local, capture_date_source, candidates = resolve_capture_date(content, tz_name, request.form.get('manual_capture_date', ''))
+            except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                return jsonify(error='照片日期识别暂时失败，请重试。'), 503
+            except ValueError as error:
+                return jsonify(error=str(error)), 422
+            if local is None:
+                return jsonify(error='请选择照片的拍摄日期。', needs_capture_date=True, date_candidates=candidates), 422
+            captured = local
+            watermark_at = local.isoformat()
         # Serialize retries before writing files: timeout/lost responses never duplicate a photo.
         db.execute('begin immediate')
         try:
@@ -284,18 +302,18 @@ def register_field_routes(app, api):
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
                  equipment_number, position_number, container_number, pump_fuse_numbers, equipment_session, photo_type, watermark_at,
-                 watermark_source, batch_id, technician_user_id, technician_name, location_verified)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 watermark_source, batch_id, technician_user_id, technician_name, location_verified, capture_date_source)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
                  relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, container_number, pump_fuse_numbers,
-                 equipment_session, photo_type, watermark_at, watermark_source, batch_id, technician['id'], technician_name, int(location_verified)))
+                 equipment_session, photo_type, watermark_at, watermark_source, batch_id, technician['id'], technician_name, int(location_verified), capture_date_source))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
         except Exception:
             db.rollback()
             raise
-        return jsonify(ok=True, id=cursor.lastrowid)
+        return jsonify(ok=True, id=cursor.lastrowid, capture_date=local.date().isoformat(), capture_date_source=capture_date_source)
 
     @app.post('/api/field/recognize-equipment')
     @access

@@ -1,6 +1,18 @@
 (() => {
   'use strict';
   const en = {
+    "选择拍摄日期":"Choose capture date",
+    "未识别到唯一的拍摄日期，请确认后上传。":"No unique capture date was found. Confirm the date to upload.",
+    "待确认日期的照片":"Photo requiring capture date",
+    "拍摄日期":"Capture date",
+    "确认日期并上传":"Confirm date and upload",
+    "暂不上传":"Upload later",
+    "请选择照片的拍摄日期。":"Choose the photo capture date.",
+    "照片日期识别暂时失败，请重试。":"Photo date detection failed. Please retry.",
+    "请选择有效的拍摄日期。":"Choose a valid capture date.",
+    "上传时识别拍摄日期":"Capture date detected during upload",
+    "正在识别水印和 EXIF 拍摄日期…":"Detecting watermark and EXIF capture date…",
+
     '铭牌号（Machine Number，必填）':'Machine Number (required)','上传照片默认保留原图水印，不再添加系统水印。':'Uploaded photos keep their original watermarks; no system watermark is added.','支持相册多选。点击完成后上传原文件，由服务器压缩归档。':'Select multiple photos. Tap Finish to upload originals for server compression and archiving.',
     '拍照或上传':'Take photos or upload','上传':'Upload','选择照片上传':'Select photos to upload',
     '点击“打开相机”即确认本组信息并同意拍照。':'Tap “Open camera” to confirm this batch’s details and agree to take photos.',
@@ -23,6 +35,18 @@
     '全部工单':'Todas las órdenes',
     '当前定位精度较低（±':'La precisión de ubicación es baja (±','米）。':' m).','当前工单的站点还没有坐标。':'El sitio de la orden seleccionada no tiene coordenadas.','当前位置距离所选工单站点约 ':'La ubicación actual está a unos ',' 公里。':' km del sitio de la orden seleccionada.',' 照片仍保存到 ':' Las fotos se guardarán en ','；如需更换，请先关闭相机。':'; cierre la cámara antes de cambiar la orden.',
     ...en,
+    "选择拍摄日期":"Elegir fecha de captura",
+    "未识别到唯一的拍摄日期，请确认后上传。":"No se encontró una fecha única. Confirme la fecha para subir.",
+    "待确认日期的照片":"Foto cuya fecha debe confirmarse",
+    "拍摄日期":"Fecha de captura",
+    "确认日期并上传":"Confirmar fecha y subir",
+    "暂不上传":"Subir más tarde",
+    "请选择照片的拍摄日期。":"Elija la fecha de captura de la foto.",
+    "照片日期识别暂时失败，请重试。":"No se pudo detectar la fecha. Inténtelo de nuevo.",
+    "请选择有效的拍摄日期。":"Elija una fecha de captura válida.",
+    "上传时识别拍摄日期":"Fecha detectada al subir",
+    "正在识别水印和 EXIF 拍摄日期…":"Detectando fecha de marca de agua y EXIF…",
+
     '铭牌号（Machine Number，必填）':'Machine Number (obligatorio)','上传照片默认保留原图水印，不再添加系统水印。':'Las fotos conservan sus marcas de agua originales; no se añade otra.','支持相册多选。点击完成后上传原文件，由服务器压缩归档。':'Seleccione varias fotos. Pulse Finalizar para subir los originales y comprimirlos y archivarlos en el servidor.',
     '拍照或上传':'Tomar fotos o subir','上传':'Subir','选择照片上传':'Seleccionar fotos para subir',
     '点击“打开相机”即确认本组信息并同意拍照。':'Al pulsar «Abrir cámara», confirma los datos de este grupo y acepta tomar fotos.',
