@@ -20,6 +20,7 @@
         <p id="orderContext" class="muted"></p>
         <small class="muted">同一站点可有多个工单。定位异常只会提醒，照片始终归入你明确选中的工单。</small>
         <fieldset id="captureSource" class="capture-kind" hidden><legend>拍照或上传</legend><div class="kind-actions"><button id="cameraMode" class="primary" type="button" aria-pressed="true">拍照</button><button id="uploadMode" type="button" aria-pressed="false">上传</button></div></fieldset>
+        <div id="captureDetails">
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
         <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><p id="kindStatus" class="muted">请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
@@ -28,7 +29,7 @@
           <p id="timeStatus" class="muted">使用当前系统时间。</p>
         </fieldset>
         <fieldset id="deviceSession" class="device-session" hidden><legend>当前设备</legend>
-          <label>铭牌号（Machine Number）<span class="machine-number-row"><input id="equipmentNumber" maxlength="200" autocomplete="off" placeholder="识别或输入一次"><button id="recognizeDevice" class="ocr-button" type="button" title="识别铭牌" aria-label="识别铭牌">T</button></span></label>
+          <label>铭牌号（Machine Number，必填）<span class="machine-number-row"><input id="equipmentNumber" required maxlength="200" autocomplete="off" placeholder="识别或输入一次"><button id="recognizeDevice" class="ocr-button" type="button" title="识别铭牌" aria-label="识别铭牌">T</button></span></label>
           <label>位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如：B6-1（可留空）"></label>
           <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off" placeholder="可留空"></label>
           <label>已更换水泵保险编号<input id="pumpFuseNumbers" maxlength="200" autocomplete="off" placeholder="例如：1/2/3/4/5（可留空）"></label>
@@ -37,18 +38,19 @@
           <p id="deviceStatus" class="muted">填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
         <div class="location-row"><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
+        </div>
         <div id="cameraView" class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将13位数字放入框内</span></div></div>
         <p id="cameraConsent" class="muted">点击“打开相机”即确认本组信息并同意拍照。</p>
         <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
         </div>
-        <label>工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label>
+        <label id="captureNote">工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label>
         <div id="uploadControls" hidden>
-        <label class="check-label"><input id="existingWatermark" type="checkbox"> 所选原照片已有水印，不再添加系统水印</label>
+        <input id="existingWatermark" type="checkbox" checked hidden><p class="muted">上传照片默认保留原图水印，不再添加系统水印。</p>
         <label id="fileCapture" class="native-photo-picker button"><span>选择照片上传</span><input id="photoFile" type="file" accept="image/*,.heic,.heif,.avif" multiple></label>
         <p id="photoProcessStatus" class="muted" role="status" aria-live="polite">选择照片后将在这里显示处理进度。</p>
-        <small class="muted">支持 iPhone 和 Android 相册多选。勾选原图已有水印后，手机不压缩，点击完成上传原文件，由服务器压缩归档。</small>
+        <small class="muted">支持相册多选。点击完成后上传原文件，由服务器压缩归档。</small>
         </div>
       </div>
       <div id="draftCard" class="card"><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><button id="retryUpload" type="button">重试上传</button></div><p class="muted">照片先保存在本机。点击缩略图可放大或删除；点击完成后统一上传。</p><div id="queueList"></div></div>

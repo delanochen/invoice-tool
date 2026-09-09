@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const en = {
+    '铭牌号（Machine Number，必填）':'Machine Number (required)','上传照片默认保留原图水印，不再添加系统水印。':'Uploaded photos keep their original watermarks; no system watermark is added.','支持相册多选。点击完成后上传原文件，由服务器压缩归档。':'Select multiple photos. Tap Finish to upload originals for server compression and archiving.',
     '拍照或上传':'Take photos or upload','上传':'Upload','选择照片上传':'Select photos to upload',
     '点击“打开相机”即确认本组信息并同意拍照。':'Tap “Open camera” to confirm this batch’s details and agree to take photos.',
     '本组设备信息已确认。':'Equipment details confirmed for this batch.',
@@ -22,6 +23,7 @@
     '全部工单':'Todas las órdenes',
     '当前定位精度较低（±':'La precisión de ubicación es baja (±','米）。':' m).','当前工单的站点还没有坐标。':'El sitio de la orden seleccionada no tiene coordenadas.','当前位置距离所选工单站点约 ':'La ubicación actual está a unos ',' 公里。':' km del sitio de la orden seleccionada.',' 照片仍保存到 ':' Las fotos se guardarán en ','；如需更换，请先关闭相机。':'; cierre la cámara antes de cambiar la orden.',
     ...en,
+    '铭牌号（Machine Number，必填）':'Machine Number (obligatorio)','上传照片默认保留原图水印，不再添加系统水印。':'Las fotos conservan sus marcas de agua originales; no se añade otra.','支持相册多选。点击完成后上传原文件，由服务器压缩归档。':'Seleccione varias fotos. Pulse Finalizar para subir los originales y comprimirlos y archivarlos en el servidor.',
     '拍照或上传':'Tomar fotos o subir','上传':'Subir','选择照片上传':'Seleccionar fotos para subir',
     '点击“打开相机”即确认本组信息并同意拍照。':'Al pulsar «Abrir cámara», confirma los datos de este grupo y acepta tomar fotos.',
     '本组设备信息已确认。':'Datos del equipo confirmados para este grupo.',

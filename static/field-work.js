@@ -40,6 +40,9 @@
     if (deviceStatusText) setFieldText('deviceStatus', deviceStatusText);
     $('cameraView').hidden = mode !== 'camera';
     $('uploadControls').hidden = mode !== 'upload';
+    $('captureDetails').hidden = mode !== 'camera';
+    $('captureNote').hidden = mode !== 'camera';
+    $('existingWatermark').checked = true;
     for (const value of ['camera', 'upload']) {
       $(value + 'Mode').classList.toggle('primary', value === mode);
       $(value + 'Mode').setAttribute('aria-pressed', String(value === mode));
@@ -54,6 +57,7 @@
     $('pumpFuseNumbers').value = '';
     $('noEquipmentNumber').checked = false;
     $('equipmentNumber').disabled = false;
+    $('equipmentNumber').required = true;
     setFieldText('deviceStatus', '新设备：请扫描或输入编号，然后点击“打开相机”。');
   }
   function confirmDevice() {
@@ -71,7 +75,7 @@
     return true;
   }
   function chooseKind(type) {
-    if (batch && batch.type !== type) {
+    if (batch?.type && batch.type !== type) {
       queued(batch.id).then(items => { if (items.length) notice('当前组已有照片，请先完成上传或删除后再更换类型。',true); else startKind(type); });
     } else startKind(type);
   }
@@ -358,7 +362,7 @@
   async function openCamera(recognitionOnly = false) {
     if (!identityReady || !profile?.can_capture) return;
     if (!recognitionOnly && captureMode !== 'camera') return;
-    if (!batch) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
+    if (!batch?.type) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
     if (!$('systemTime').checked && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
     if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;
     const selected = chosenOrder();
@@ -385,6 +389,17 @@
     const resolved = chosenOrder();
     if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
     const selected = lockedSelection?.order || cameraSelection?.order || {...resolved};
+    if (source === 'file' && lockedSelection?.watermarkSource === 'original') {
+      if (!batch || lockedSelection.userId !== profile.user.id) throw new Error('照片功能尚未准备好，请稍后重试。');
+      const actual = new Date().toISOString();
+      const timezoneName = $('timezoneName').value.trim() || 'UTC';
+      new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
+      return {client_id:key(),user_id:profile.user.id,employee_name:profile.user.name,technician_user_id:profile.user.id,
+        order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
+        captured_at:actual,watermark_at:actual,batch_id:batch.id,photo_type:'legacy',timezone_name:timezoneName,
+        latitude:0,longitude:0,accuracy:100000,location_verified:false,note:'',
+        location_note:'原图已有水印，未检查拍摄位置。',source,error:''};
+    }
     if (!batch || !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
@@ -445,15 +460,13 @@
     const reject = message => { event.preventDefault(); captureContext = null; notice(message,true); };
     if (captureMode !== 'upload') { event.preventDefault(); return; }
     if (taking || !identityReady || !profile?.can_capture) { reject('照片功能尚未准备好，请稍后重试。'); return; }
-    if (!batch) { reject('请先选择“设备照片”或“非设备照片”。'); return; }
-    if (!$('existingWatermark').checked && !$('systemTime').checked && !timeAuthorized) { reject('请先验证水印时间调整密码。'); return; }
-    if (!deviceSession && batch.type === 'equipment' && !confirmDevice()) { event.preventDefault(); captureContext = null; return; }
-    if (!deviceSession) { reject('请先确认本组照片类型和设备信息。'); return; }
+
     const selected = chosenOrder();
     if (!selected) { reject('请先在上方选择工单。'); $('orderSelect').focus(); return; }
     // This handler runs on the native file input itself. iPhone/PWA therefore
     // receives a direct trusted user gesture instead of a scripted input click.
-    captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:$('existingWatermark').checked ? 'original' : 'system'};
+    batch ||= {id:key(),type:null,actual_start:Date.now(),watermark_start:null};
+    captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:'original'};
   });
   $('photoFile').addEventListener('change', async () => {
     const files = Array.from($('photoFile').files || []), selection = captureContext; captureContext = null;
@@ -560,7 +573,7 @@
     const id=batch.id; await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('systemTime').checked=true; $('adjustedTimeFields').hidden=true; $('watermarkPassword').value='';
-    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=false;
+    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
   async function loadLedger() {
@@ -640,7 +653,7 @@
   $('retryRecognition').addEventListener('click', async () => { $('recognitionDialog').close(); await openCamera(true); if (stream) notice('请将13位铭牌号对准取景框，系统将自动识别。'); });
   $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('equipmentNumber').focus(); });
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
-  $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
+  $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; $('equipmentNumber').required = !$('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请点击“打开相机”确认。'); });
   $('positionNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','位置号已修改，请点击“打开相机”确认。'); });
   $('containerNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','集装箱号已修改，请点击“打开相机”确认。'); });
