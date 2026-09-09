@@ -37,7 +37,7 @@
     $('equipmentNumber').disabled = false;
     setFieldText('deviceStatus', '新设备：请扫描或输入编号，然后确认。');
   }
-  function confirmDevice() {
+  async function confirmDevice() {
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
     if (!number && !noNumber) { notice('请输入设备编号，或勾选“此设备没有编号”。', true); $('equipmentNumber').focus(); return; }
     deviceSession = {id:key(), equipment_number:noNumber ? '' : number,
@@ -49,6 +49,7 @@
     $('equipmentNumber').disabled = noNumber;
     setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}${deviceSession.pump_fuse_numbers ? ' · 水泵保险 '+deviceSession.pump_fuse_numbers : ''}。后续照片沿用；换设备请点“下一台设备”。`);
     notice('设备已确认，可以连续拍摄。');
+    await openCamera(false);
   }
   function chooseKind(type) {
     if (batch && batch.type !== type) {
@@ -608,7 +609,7 @@
     catch(error) { notice(error.message,true); } finally { button.disabled = false; }
   });
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
-  $('confirmDevice').addEventListener('click',confirmDevice);
+  $('confirmDevice').addEventListener('click',()=>confirmDevice());
   $('recognizeDevice').addEventListener('click',() => recognizeDevice(false));
   $('confirmRecognizedNumber').addEventListener('click', () => {
     const value = $('recognizedNumber').textContent.trim();
