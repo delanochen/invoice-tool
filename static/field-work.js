@@ -142,6 +142,7 @@
     });
   }
   function panel(name) {
+    document.body.dataset.panel = name;
     document.querySelectorAll('[data-panel]').forEach(el => { el.hidden = el.dataset.panel !== name; });
     document.querySelectorAll('[data-tab]').forEach(el => el.setAttribute('aria-current', el.dataset.tab === name ? 'page':'false'));
     if (name !== 'camera') stopCamera();
@@ -551,6 +552,10 @@
       if (!response.ok) throw new Error('查询失败');
       const result = await response.json(); $('ledgerList').replaceChildren();
       setFieldText('ledgerSummary', `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`);
+      const table = document.createElement('table'); table.className = 'ledger-table';
+      const thead = document.createElement('thead'), headerRow = document.createElement('tr');
+      ['照片','工单 / 站点','设备信息','施工员 / 拍摄账号','拍摄时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
+      thead.append(headerRow); const tbody = document.createElement('tbody'); table.append(thead,tbody); $('ledgerList').append(table);
       result.rows.forEach(photo => {
         const card = textNode('article','','photo-card'), link = document.createElement('a'), image = document.createElement('img');
         link.href = photo.preview; link.target = '_blank'; link.rel = 'noopener'; image.src = photo.thumbnail; image.alt = fieldText('工单照片'); image.loading = 'lazy'; link.append(image);
@@ -565,6 +570,17 @@
         const watermarkDetail = photo.watermark_source === 'original' ? '水印：保留原图水印' : '水印：系统生成 · '+(photo.watermark_at||photo.captured_at);
         detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+photo.captured_at+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+photo.received_at),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
         card.append(link,detail); $('ledgerList').append(card);
+        const row = document.createElement('tr');
+        const imageCell = document.createElement('td'), tableLink = link.cloneNode(false), tableImage = image.cloneNode(false);
+        tableLink.append(tableImage); imageCell.append(tableLink); row.append(imageCell);
+        const values = [photo.order_number+'\n'+photo.site_name, deviceDetail,
+          (photo.technician_name||photo.employee_name)+'\n拍摄账号：'+photo.employee_name,
+          photo.captured_at+'\n接收：'+photo.received_at, watermarkDetail,
+          (photo.site_address||photo.site_name)+(photo.location_verified ? `\n${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}` : '\n未检查坐标'),
+          photo.note || '', photo.source === 'camera' ? '现场相机':'系统相机 / 选图'];
+        values.forEach((value,index) => { const cell=document.createElement('td'); cell.textContent=fieldText(value);
+          if(index===5 && photo.location_verified){const locationLink=document.createElement('a');locationLink.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`;locationLink.target='_blank';locationLink.rel='noopener';locationLink.textContent=cell.textContent;cell.replaceChildren(locationLink);} row.append(cell); });
+        tbody.append(row);
       });
     } catch(error) { setFieldText('ledgerSummary', '台账需要联网查看。待上传照片请到“拍照”页面查看。'); }
   }
