@@ -12,6 +12,7 @@
   let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, draftSelection = null;
   let ledgerPhotos = [], ledgerPhotoIndex = 0, ledgerTouchStart = null;
+  let captureMode = 'camera', deviceStatusText = '';
   let processingFiles = false, processingTotal = 0, processingDone = 0;
   const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
   async function requestAPI(url, options = {}) {
@@ -22,10 +23,28 @@
   }
   const notice = (text, error = false) => { $('notice').textContent = fieldText(text); $('notice').classList.toggle('error', error); };
   const textNode = (tag, text, className = '') => { const el = document.createElement(tag); el.textContent = fieldText(text); el.className = className; return el; };
-  const setFieldText = (id, text) => { $(id).textContent = fieldText(text); };
+  const setFieldText = (id, text) => {
+    if (id === 'deviceStatus') {
+      deviceStatusText = text;
+      if (captureMode === 'upload') text = text.replaceAll('打开相机', '选择照片上传');
+    }
+    $(id).textContent = fieldText(text);
+  };
   const key = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
   const orderStorageKey = () => 'field-order-' + profile.user.id + '-' + new Date().toLocaleDateString('en-CA');
 
+  function setCaptureMode(mode) {
+    if (taking || processingFiles || captureContext) return;
+    stopCamera();
+    captureMode = mode;
+    if (deviceStatusText) setFieldText('deviceStatus', deviceStatusText);
+    $('cameraView').hidden = mode !== 'camera';
+    $('uploadControls').hidden = mode !== 'upload';
+    for (const value of ['camera', 'upload']) {
+      $(value + 'Mode').classList.toggle('primary', value === mode);
+      $(value + 'Mode').setAttribute('aria-pressed', String(value === mode));
+    }
+  }
   function resetDevice() {
     deviceSession = null;
     $('equipmentNumber').closest('fieldset').classList.remove('locked');
@@ -48,7 +67,7 @@
     $('equipmentNumber').value = deviceSession.equipment_number;
     $('equipmentNumber').disabled = noNumber;
     setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}${deviceSession.pump_fuse_numbers ? ' · 水泵保险 '+deviceSession.pump_fuse_numbers : ''}。后续照片沿用；换设备请点“下一台设备”。`);
-    notice('设备信息已确认，正在打开相机。');
+    notice('本组设备信息已确认。');
     return true;
   }
   function chooseKind(type) {
@@ -242,10 +261,12 @@
     const previous = currentOrder?.id;
     currentOrder = profile?.orders.find(order => String(order.id) === String(id)) || null;
     $('orderSelect').value = currentOrder ? String(currentOrder.id) : '';
+    $('captureSource').hidden = !currentOrder;
     $('cameraOrder').textContent = currentOrder ? currentOrder.order_number + ' · ' + currentOrder.client_name : '';
     setFieldText('orderContext', currentOrder ? [currentOrder.customer_name,currentOrder.site_address].filter(Boolean).join(' · ') : '请先选择照片所属工单。');
     if (profile) localStorage.setItem(orderStorageKey(), String(currentOrder?.id || ''));
     if (previous !== currentOrder?.id) {
+      setCaptureMode('camera');
       locationNote = '';
       lastWarning = 0;
       farSamples = 0;
@@ -330,10 +351,13 @@
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
     $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
-    $('cameraPlaceholder').hidden = false;
+    $('cameraStage').hidden = true;
+    $('cameraConsent').hidden = false;
+    $('cameraView').hidden = captureMode !== 'camera';
   }
   async function openCamera(recognitionOnly = false) {
     if (!identityReady || !profile?.can_capture) return;
+    if (!recognitionOnly && captureMode !== 'camera') return;
     if (!batch) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
     if (!$('systemTime').checked && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
     if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;
@@ -344,16 +368,18 @@
       cameraSelection = {order:{...selected}, userId:profile.user.id};
       stream?.getTracks().forEach(track => track.stop());
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
+      $('cameraView').hidden = false;
+      $('cameraStage').hidden = false;
+      $('cameraConsent').hidden = true;
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
       document.body.classList.add('camera-active');
       document.body.classList.toggle('recognition-mode', recognitionOnly);
       window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
       $('ocrGuide').hidden = !recognitionOnly;
-      $('cameraPlaceholder').hidden = true;
       $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
       if (recognitionOnly) { ocrStartTimer = setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
-    } catch (error) { notice('无法打开实时相机，可使用下方“系统相机 / 选择照片”。请检查相机权限。',true); stopCamera(); }
+    } catch (error) { notice('无法打开相机，请检查相机权限，或切换到“上传”选择照片。',true); stopCamera(); }
   }
   async function makeContext(source, lockedSelection = null) {
     const resolved = chosenOrder();
@@ -417,9 +443,11 @@
   });
   $('photoFile').addEventListener('click', event => {
     const reject = message => { event.preventDefault(); captureContext = null; notice(message,true); };
+    if (captureMode !== 'upload') { event.preventDefault(); return; }
     if (taking || !identityReady || !profile?.can_capture) { reject('照片功能尚未准备好，请稍后重试。'); return; }
     if (!batch) { reject('请先选择“设备照片”或“非设备照片”。'); return; }
     if (!$('existingWatermark').checked && !$('systemTime').checked && !timeAuthorized) { reject('请先验证水印时间调整密码。'); return; }
+    if (!deviceSession && batch.type === 'equipment' && !confirmDevice()) { event.preventDefault(); captureContext = null; return; }
     if (!deviceSession) { reject('请先确认本组照片类型和设备信息。'); return; }
     const selected = chosenOrder();
     if (!selected) { reject('请先在上方选择工单。'); $('orderSelect').focus(); return; }
@@ -621,6 +649,8 @@
   $('orderSelect').addEventListener('change', () => chooseOrder($('orderSelect').value));
   $('orderSearch').addEventListener('input',renderOrders);
   $('refreshLocation').addEventListener('click', () => locate().catch(error => notice(error.message,true)));
+  $('cameraMode').addEventListener('click', () => setCaptureMode('camera'));
+  $('uploadMode').addEventListener('click', () => setCaptureMode('upload'));
   $('openCamera').addEventListener('click',()=>openCamera(false)); $('closeCamera').addEventListener('click',stopCamera);
   $('retryUpload').addEventListener('click',()=>syncQueue()); $('reloadOrders').addEventListener('click',bootstrap);
   $('equipmentKind').addEventListener('click',()=>chooseKind('equipment')); $('generalKind').addEventListener('click',()=>chooseKind('general'));
