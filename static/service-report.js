@@ -357,6 +357,17 @@ function downloadSelectedNasPhotos() {
   form.remove();
 }
 
+function pendingPhotoPreviewButton(thumbnail, image) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "selected-photo-preview";
+  button.title = reportText("点击放大查看");
+  button.setAttribute("aria-label", `${reportText("预览")} ${image.name}`);
+  button.appendChild(thumbnail);
+  button.addEventListener("click", () => openNasPhotoPreview(image));
+  return button;
+}
+
 function renderSelectedNasPhotos(category) {
   const container = document.querySelector(`[data-nas-list="${category}"]`);
   container.replaceChildren();
@@ -379,7 +390,7 @@ function renderSelectedNasPhotos(category) {
       selected.delete(path);
       renderSelectedNasPhotos(category);
     });
-    card.append(thumbnail, caption, removeButton);
+    card.append(pendingPhotoPreviewButton(thumbnail, image), caption, removeButton);
     container.appendChild(card);
     const hidden = document.createElement("input");
     hidden.type = "hidden";
@@ -432,7 +443,7 @@ function renderLocalPhotoPreviews(category) {
       syncLocalPhotoInput(category);
       renderLocalPhotoPreviews(category);
     });
-    card.append(thumbnail, caption, removeButton);
+    card.append(pendingPhotoPreviewButton(thumbnail, {preview:objectUrl, name:file.name}), caption, removeButton);
     container.appendChild(card);
   });
   localPhotoUrls.set(category, nextUrls);

@@ -2680,3 +2680,5 @@ body.service-order-map-page {
   .flash-stack { position: static; margin-bottom: 16px; }
   body.service-order-map-page { grid-template-rows: auto minmax(0, 1fr); }
 }
+
+.selected-photo-card .selected-photo-preview{display:block;padding:0;min-height:0;border:0;background:transparent;cursor:zoom-in;line-height:0}
