@@ -69,7 +69,6 @@
     $('equipmentNumber').value = deviceSession.equipment_number;
     $('equipmentNumber').disabled = noNumber;
     setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}。后续照片沿用；换设备请点“下一台设备”。`);
-    notice('本组设备信息已确认。');
     return true;
   }
   function chooseKind(type) {
@@ -355,7 +354,6 @@
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
     $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
     $('cameraStage').hidden = true;
-    $('cameraConsent').hidden = false;
     $('cameraView').hidden = captureMode !== 'camera';
   }
   async function openCamera(recognitionOnly = false) {
@@ -373,7 +371,6 @@
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
       $('cameraView').hidden = false;
       $('cameraStage').hidden = false;
-      $('cameraConsent').hidden = true;
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
       document.body.classList.add('camera-active');
       document.body.classList.toggle('recognition-mode', recognitionOnly);
@@ -509,9 +506,9 @@
         row.append(thumb,textNode('strong',(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number),textNode('small',new Date(photo.captured_at).toLocaleString()),textNode('span',photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印'),textNode('span',photo.error || '本机草稿'));
         const save = textNode('button','保存到手机相册'); save.type = 'button'; save.addEventListener('click', () => savePhotoToAlbum(photo)); row.append(save); $('queueList').append(row);
       });
-      if (!photos.length) $('queueList').append(textNode('p','没有待上传照片。','muted'));
+      $('draftCard').hidden = photos.length === 0;
       const batchCount = batch ? photos.filter(photo=>photo.batch_id===batch.id).length : 0;
-      $('completeBatch').hidden = !batch;
+      $('completeBatch').hidden = batchCount === 0 && !processingFiles;
       $('completeBatch').disabled = processingFiles || batchCount === 0;
       setFieldText('completeBatch', processingFiles ? `正在处理照片（${processingDone}/${processingTotal}）` : batchCount ? `完成并上传本组照片（${batchCount} 张）` : '请先拍照或选择照片');
     } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }

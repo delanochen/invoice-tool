@@ -18,11 +18,11 @@
       <div class="card">
         <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
         <p id="orderContext" class="muted"></p>
-        <small class="muted">同一站点可有多个工单。定位异常只会提醒，照片始终归入你明确选中的工单。</small>
+
         <fieldset id="captureSource" class="capture-kind" hidden><legend>拍照或上传</legend><div class="kind-actions"><button id="cameraMode" class="primary" type="button" aria-pressed="true">拍照</button><button id="uploadMode" type="button" aria-pressed="false">上传</button></div></fieldset>
         <div id="captureDetails">
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
-        <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><p id="kindStatus" class="muted">请选择照片类型。</p></fieldset>
+        <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
           <label class="check-label"><input id="systemTime" type="checkbox" checked> 使用当前系统时间</label>
           <div id="adjustedTimeFields" hidden><label>调整密码<input id="watermarkPassword" type="password" autocomplete="off"></label><button id="verifyTimePassword" type="button">验证密码</button><label>水印开始时间<input id="watermarkStart" type="datetime-local"></label></div>
@@ -35,15 +35,14 @@
           <div id="deviceNoteSlot"><label id="captureNote">工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
           <label class="check-label"><input id="noEquipmentNumber" type="checkbox"> 此设备没有编号</label>
           <div class="device-actions"><button id="nextDevice" type="button">下一台设备</button></div>
-          <p id="deviceStatus" class="muted">填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
+          <p id="deviceStatus" class="muted" hidden>填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
         <div id="generalNoteSlot"></div>
-        <div class="location-row"><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
+        <div class="location-row" hidden><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
         </div>
         <div id="cameraView" class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将13位数字放入框内</span></div></div>
-        <p id="cameraConsent" class="muted">点击“打开相机”即确认本组信息并同意拍照。</p>
         <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
         </div>
         <div id="uploadControls" hidden>
@@ -53,7 +52,7 @@
         <small class="muted">支持相册多选。点击完成后上传原文件，由服务器压缩归档。</small>
         </div>
       </div>
-      <div id="draftCard" class="card"><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><button id="retryUpload" type="button">重试上传</button></div><p class="muted">照片先保存在本机。点击缩略图可放大或删除；点击完成后统一上传。</p><div id="queueList"></div></div>
+      <div id="draftCard" class="card" hidden><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><button id="retryUpload" type="button">重试上传</button></div><div id="queueList"></div></div>
       <button id="completeBatch" class="primary complete-batch" type="button" hidden disabled>请先拍照或选择照片</button>
     </section>
     <section data-panel="orders" hidden><div class="section-heading"><h1>我的工单</h1><button id="reloadOrders" type="button">刷新</button></div><p class="muted">按距当前位置的远近排列。同一站点可有多个工单，请确认编号。</p><input id="orderSearch" type="search" placeholder="搜索工单、站点或客户" aria-label="搜索工单"><div id="orderList"></div><div class="card"><h2>没有对应工单？</h2><a id="createOrder" class="primary button" href="/service-orders/new" hidden>新建工单</a><button id="requestOrder" type="button">申请新建工单</button><p class="muted">联网后新建或申请；确认工单后再拍照归档。</p></div></section>
