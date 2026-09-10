@@ -5,6 +5,10 @@
 <form method="get" class="filter-bar no-print">
   <label>关键词<input name="q" value="{{ request.args.get('q','') }}" placeholder="工单、铭牌号、位置号、集装箱号、保险编号"></label>
   <input type="hidden" name="order_id" value="{{ request.args.get('order_id','') }}">
+  <label>施工员<input name="technician" value="{{ request.args.get('technician','') }}" placeholder="输入姓名"></label>
+  <label>位置号<input name="position_number" value="{{ request.args.get('position_number','') }}"></label>
+  <label>集装箱号<input name="container_number" value="{{ request.args.get('container_number','') }}"></label>
+  <label>铭牌号<input name="equipment_number" value="{{ request.args.get('equipment_number','') }}"></label>
   <label>开始日期<input type="date" name="date_from" value="{{ request.args.get('date_from','') }}"></label>
   <label>结束日期<input type="date" name="date_to" value="{{ request.args.get('date_to','') }}"></label>
   <button type="submit">查询</button>

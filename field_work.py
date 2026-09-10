@@ -93,6 +93,10 @@ def register_field_routes(app, api):
 
     def photo_rows():
         clauses, params = photo_clauses()
+        technician = request.args.get('technician', '').strip()
+        if technician:
+            clauses.append("instr(lower(coalesce(nullif(trim(p.technician_name), ''), users.name)), lower(?)) > 0")
+            params.append(technician)
         for key in ('equipment_number', 'position_number', 'container_number'):
             value = request.args.get(key, '').strip()
             if value:

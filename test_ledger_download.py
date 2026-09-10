@@ -35,3 +35,29 @@ class LedgerDownloadTest(unittest.TestCase):
         with self.f.http.session_transaction() as session:
             session.clear()
         self.assertEqual(self.f.http.get('/api/field/photos.zip').status_code, 401)
+
+    def test_repair_filters_match_export_and_technician_not_uploader(self):
+        from openpyxl import load_workbook
+        with self.f.module.app.app_context():
+            db = self.f.module.db()
+            db.execute("update field_photos set photo_type='equipment', technician_name='Repair Alice' where equipment_number='M-101'")
+            db.execute("update field_photos set photo_type='equipment', technician_name='Repair Bob' where equipment_number='M-202'")
+            db.commit()
+        filters = dict(technician='alice', equipment_number='101', position_number='P-7', container_number='C-8')
+        response = self.f.http.get('/reports/field-repairs', query_string=filters)
+        self.assertEqual(response.status_code, 200)
+        for field in filters:
+            self.assertIn(f'name="{field}"', response.text)
+        self.assertIn('Repair Alice', response.text)
+        self.assertNotIn('Repair Bob', response.text)
+        export = self.f.http.get('/api/field/repairs.xlsx', query_string=filters)
+        self.assertEqual(export.status_code, 200)
+        workbook = load_workbook(BytesIO(export.data), read_only=True)
+        rows = list(workbook.active.values)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1][4], 'M-101')
+        self.assertEqual(rows[1][7], 'Repair Alice')
+        workbook.close()
+        filters['technician'] = 'Bob'
+        empty = self.f.http.get('/reports/field-repairs', query_string=filters)
+        self.assertIn('没有符合条件的设备照片。', empty.text)
