@@ -8,6 +8,7 @@
       <p class="muted-line">{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
+      <a class="button" href="{{ url_for('download_service_order_attachments', order_id=order.id) }}">批量下载附件</a>
       {% if has_menu_permission("field_work") %}
         <a class="button" href="{{ url_for('field_work', order_id=order.id) }}">工单拍照</a>
         <a class="button" href="{{ url_for('field_photo_query', order_id=order.id) }}">照片台账</a>

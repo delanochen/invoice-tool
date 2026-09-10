@@ -14277,6 +14277,80 @@ def transfer_expense_attachment(attachment_id):
     return finish_transfer("附件已复制到工单结算。")
 
 
+@app.get("/service-orders/<int:order_id>/attachments.zip")
+@login_required
+def download_service_order_attachments(order_id):
+    order = require_service_order(order_id)
+    categories = {"self_check": "自检照片", "arrival": "进场照片", "departure": "离场照片",
+                  "site": "现场工作照片", "mileage_proof": "里程佐证"}
+    folders = [*categories.values(), "报销佐证", "工单结算"]
+    files = []
+    def collect(folder, path, name, root):
+        path = Path(path).resolve()
+        if not path.is_relative_to(Path(root).resolve()):
+            abort(400, description="附件路径无效。")
+        name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(name)).strip('. ') or '附件'
+        files.append((folder, path, name))
+    if has_action_permission('service_reports', 'view'):
+        for row in db().execute("""select a.*, r.report_date from service_report_attachments a
+                join service_reports r on r.id=a.report_id where r.service_order_id=? order by r.report_date,a.id""", (order_id,)):
+            if row['category'] in categories:
+                collect(categories[row['category']], report_attachment_path(row),
+                        f"{row['report_date']}-日报{row['report_id']}-{row['original_filename']}", REPORT_ATTACHMENTS_DIR)
+    if has_menu_permission('field_work'):
+        root = shared_photos_root()
+        # Include server-imported photos as well as phone uploads, without thumbnails.
+        picture_dir = (root / str(order['order_number']) / 'pictures').resolve()
+        if not picture_dir.is_relative_to(root.resolve()):
+            abort(400)
+        if picture_dir.is_dir():
+            for path in sorted(picture_dir.rglob('*')):
+                if path.is_file() and path.suffix.lower().lstrip('.') in ALLOWED_IMAGE_EXTENSIONS:
+                    collect('现场工作照片', path, '-'.join(path.relative_to(picture_dir).parts), picture_dir)
+    if has_action_permission('expenses', 'view'):
+        for expense in db().execute('select * from expenses where service_order_id=? order by id', (order_id,)):
+            if not can_access_expense(expense):
+                continue
+            for row in db().execute('select * from expense_attachments where expense_id=? order by id', (expense['id'],)):
+                collect('报销佐证', expense_attachment_path(row),
+                        f"{expense['expense_number']}-{row['original_filename']}", EXPENSE_ATTACHMENTS_DIR)
+    if can_view_customer_reimbursement():
+        for reimbursement in db().execute('select * from customer_reimbursements where service_order_id=? order by id', (order_id,)):
+            collect('工单结算', customer_reimbursement_file_path(reimbursement), reimbursement['file_name'], CUSTOMER_REIMBURSEMENT_DIR)
+            for row in db().execute('select * from customer_reimbursement_attachments where customer_reimbursement_id=? order by id', (reimbursement['id'],)):
+                collect('工单结算', customer_reimbursement_attachment_path(row), row['original_filename'], CUSTOMER_REIMBURSEMENT_DIR)
+    archive_file = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode='w+b')
+    try:
+        with zipfile.ZipFile(archive_file, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+            used = set()
+            missing = {folder: [] for folder in folders}
+            for folder in folders:
+                archive.writestr(folder+'/', b'')
+            for folder, path, name in files:
+                if not path.is_file():
+                    missing[folder].append(name)
+                    continue
+                stem, suffix = os.path.splitext(name)
+                candidate = folder+'/'+name
+                index = 2
+                while candidate.casefold() in used:
+                    candidate = f'{folder}/{stem}-{index}{suffix}'
+                    index += 1
+                used.add(candidate.casefold())
+                archive.write(path, candidate)
+            for folder, names in missing.items():
+                if names:
+                    archive.writestr(folder+'/缺失文件说明.txt', ('以下附件有记录，但服务器文件不存在：\n'+'\n'.join(names)).encode('utf-8'))
+        archive_file.seek(0)
+        response = send_file(archive_file, mimetype='application/zip', as_attachment=True,
+                             download_name=f"{secure_filename(order['order_number']) or order_id}-附件.zip")
+        response.call_on_close(archive_file.close)
+        return response
+    except Exception:
+        archive_file.close()
+        raise
+
+
 @app.route("/invoices/new", methods=["GET", "POST"])
 @login_required
 def new_invoice():
