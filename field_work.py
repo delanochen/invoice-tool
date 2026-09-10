@@ -93,6 +93,10 @@ def register_field_routes(app, api):
 
     def photo_rows():
         clauses, params = photo_clauses()
+        order_number = request.args.get('order_number', '').strip()
+        if order_number:
+            clauses.append('instr(lower(service_orders.order_number), lower(?)) > 0')
+            params.append(order_number)
         technician = request.args.get('technician', '').strip()
         if technician:
             clauses.append("instr(lower(coalesce(nullif(trim(p.technician_name), ''), users.name)), lower(?)) > 0")
@@ -504,7 +508,11 @@ def register_field_routes(app, api):
     @app.get('/reports/field-repairs')
     @access
     def field_repair_report():
-        return render_template('field_repair_report.html', rows=repair_table_rows())
+        order_number_filter = request.args.get('order_number', '')
+        if not order_number_filter and request.args.get('order_id'):
+            order = api['db']().execute('select order_number from service_orders where id = ?', (request.args['order_id'],)).fetchone()
+            order_number_filter = order['order_number'] if order else ''
+        return render_template('field_repair_report.html', rows=repair_table_rows(), order_number_filter=order_number_filter)
 
     @app.get('/api/field/repairs.xlsx')
     @access

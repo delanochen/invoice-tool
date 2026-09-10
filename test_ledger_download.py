@@ -43,7 +43,7 @@ class LedgerDownloadTest(unittest.TestCase):
             db.execute("update field_photos set photo_type='equipment', technician_name='Repair Alice' where equipment_number='M-101'")
             db.execute("update field_photos set photo_type='equipment', technician_name='Repair Bob' where equipment_number='M-202'")
             db.commit()
-        filters = dict(technician='alice', equipment_number='101', position_number='P-7', container_number='C-8')
+        filters = dict(order_number='so-deleg', technician='alice', equipment_number='101', position_number='P-7', container_number='C-8')
         response = self.f.http.get('/reports/field-repairs', query_string=filters)
         self.assertEqual(response.status_code, 200)
         for field in filters:
@@ -58,6 +58,8 @@ class LedgerDownloadTest(unittest.TestCase):
         self.assertEqual(rows[1][4], 'M-101')
         self.assertEqual(rows[1][7], 'Repair Alice')
         workbook.close()
+        no_order = self.f.http.get('/reports/field-repairs', query_string={**filters, 'order_number': 'NO-SUCH-ORDER'})
+        self.assertIn('没有符合条件的设备照片。', no_order.text)
         filters['technician'] = 'Bob'
         empty = self.f.http.get('/reports/field-repairs', query_string=filters)
         self.assertIn('没有符合条件的设备照片。', empty.text)

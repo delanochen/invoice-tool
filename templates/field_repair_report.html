@@ -4,7 +4,7 @@
 <header class="page-header"><div><p class="eyebrow">Field Repair Register</p><h1>设备维修清单</h1></div><div class="actions"><a class="button" href="{{ url_for('field_photo_query', **request.args) }}">照片台账</a><a class="button primary" href="{{ url_for('field_repair_export', **request.args) }}">导出 Excel</a></div></header>
 <form method="get" class="filter-bar no-print">
   <label>关键词<input name="q" value="{{ request.args.get('q','') }}" placeholder="工单、铭牌号、位置号、集装箱号、保险编号"></label>
-  <input type="hidden" name="order_id" value="{{ request.args.get('order_id','') }}">
+  <label>工单号<input name="order_number" value="{{ order_number_filter }}" placeholder="输入完整或部分工单号"></label>
   <label>施工员<input name="technician" value="{{ request.args.get('technician','') }}" placeholder="输入姓名"></label>
   <label>位置号<input name="position_number" value="{{ request.args.get('position_number','') }}"></label>
   <label>集装箱号<input name="container_number" value="{{ request.args.get('container_number','') }}"></label>
