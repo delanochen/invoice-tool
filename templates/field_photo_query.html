@@ -19,4 +19,5 @@
 {% else %}<tr><td colspan="12" class="empty">没有符合条件的照片。</td></tr>{% endfor %}
 </tbody></table></section>
 <script src="{{ url_for('static', filename='ledger-download.js', v=app_version) }}" defer></script>
+<script src="{{ url_for('static', filename='device-identifiers.js', v=app_version) }}" defer></script>
 {% endblock %}

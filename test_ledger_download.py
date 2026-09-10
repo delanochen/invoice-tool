@@ -36,6 +36,21 @@ class LedgerDownloadTest(unittest.TestCase):
             session.clear()
         self.assertEqual(self.f.http.get('/api/field/photos.zip').status_code, 401)
 
+    def test_position_and_container_normalized_on_upload_and_existing_records(self):
+        import field_work
+        response = self.f.upload(position_number='  ab-1\t', container_number='\n box-2  ')
+        self.assertEqual(response.status_code, 200)
+        with self.f.module.app.app_context():
+            db = self.f.module.db()
+            row = db.execute('select * from field_photos where id = ?', (response.json['id'],)).fetchone()
+            self.assertEqual(row['position_number'], 'AB-1')
+            self.assertEqual(row['container_number'], 'BOX-2')
+            db.execute("update field_photos set position_number='  ab-1  ', container_number='  box-2  ' where id=?", (row['id'],))
+            field_work.init_field_schema(db)
+            saved = db.execute('select * from field_photos where id = ?', (row['id'],)).fetchone()
+            self.assertEqual(saved['position_number'], 'AB-1')
+            self.assertEqual(saved['container_number'], 'BOX-2')
+
     def test_repair_filters_match_export_and_technician_not_uploader(self):
         from openpyxl import load_workbook
         with self.f.module.app.app_context():

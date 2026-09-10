@@ -18,4 +18,5 @@
 {% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{{ row.position_number or '-' }}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.pump_fuse_numbers or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.technician or '-' }}</td><td>{{ row.order_number }}</td><td>{{ row.photo_count }} 张</td></tr>
 {% else %}<tr><td colspan="10" class="empty">没有符合条件的设备照片。</td></tr>{% endfor %}
 </tbody></table></section>
+<script src="{{ url_for('static', filename='device-identifiers.js', v=app_version) }}" defer></script>
 {% endblock %}

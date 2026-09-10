@@ -47,6 +47,13 @@ def init_field_schema(connection):
         connection.execute('alter table field_photos add column technician_user_id integer')
     if 'location_verified' not in columns:
         connection.execute('alter table field_photos add column location_verified integer not null default 1')
+    # Normalize historical metadata as well as newly uploaded device identifiers.
+    for row in connection.execute('select id, position_number, container_number from field_photos').fetchall():
+        position = (row[1] or '').strip().upper()
+        container = (row[2] or '').strip().upper()
+        if position != row[1] or container != row[2]:
+            connection.execute('update field_photos set position_number = ?, container_number = ? where id = ?',
+                               (position, container, row[0]))
 
 
 def register_field_routes(app, api):
@@ -249,8 +256,8 @@ def register_field_routes(app, api):
         has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
                                                                    'equipment_session', 'no_equipment_number'))
         equipment_number = request.form.get('equipment_number', '').strip()[:200]
-        position_number = request.form.get('position_number', '').strip()[:200]
-        container_number = request.form.get('container_number', '').strip()[:200]
+        position_number = request.form.get('position_number', '').strip().upper()[:200]
+        container_number = request.form.get('container_number', '').strip().upper()[:200]
         pump_fuse_numbers = request.form.get('pump_fuse_numbers', '').strip()[:200]
         equipment_session = request.form.get('equipment_session', '').strip()[:64]
         photo_type = request.form.get('photo_type', 'legacy').strip()

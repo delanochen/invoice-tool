@@ -76,7 +76,7 @@
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
     if (!number && !noNumber) { notice('请输入设备编号，或勾选“此设备没有编号”。', true); $('equipmentNumber').focus(); return false; }
     deviceSession = {id:key(), equipment_number:noNumber ? '' : number,
-      position_number:$('positionNumber').value.trim(), container_number:$('containerNumber').value.trim(),
+      position_number:$('positionNumber').value.trim().toUpperCase(), container_number:$('containerNumber').value.trim().toUpperCase(),
       no_equipment_number:noNumber};
     $('equipmentNumber').closest('fieldset').classList.add('locked');
     $('equipmentNumber').value = deviceSession.equipment_number;
