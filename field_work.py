@@ -508,11 +508,7 @@ def register_field_routes(app, api):
     @app.get('/reports/field-repairs')
     @access
     def field_repair_report():
-        order_number_filter = request.args.get('order_number', '')
-        if not order_number_filter and request.args.get('order_id'):
-            order = api['db']().execute('select order_number from service_orders where id = ?', (request.args['order_id'],)).fetchone()
-            order_number_filter = order['order_number'] if order else ''
-        return render_template('field_repair_report.html', rows=repair_table_rows(), order_number_filter=order_number_filter)
+        return render_template('field_repair_report.html', rows=repair_table_rows(), photo_orders=photo_order_rows())
 
     @app.get('/api/field/repairs.xlsx')
     @access
