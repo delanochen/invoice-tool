@@ -11370,14 +11370,25 @@ def export_visible_report():
 def payroll_report():
     if not can_view_labor_payroll_reports():
         abort(403)
-    requested_start = request.args.get("period_start", "")
     try:
-        period_start = date.fromisoformat(requested_start) if requested_start else current_payroll_period_start()
-    except ValueError:
-        period_start = current_payroll_period_start()
-    payroll_batch = payroll_rows_for_period(period_start, effective_payroll_worker_id())
+        period_start = date.fromisoformat(request.args['period_start']) if request.args.get('period_start') else current_payroll_period_start()
+        period_end = date.fromisoformat(request.args['period_end']) if request.args.get('period_end') else payroll_period_dates(period_start)[0]
+        if period_end < period_start:
+            abort(400, description='结束日期不能早于开始日期。')
+        pay_date = period_end + timedelta(days=14)
+    except (ValueError, OverflowError):
+        abort(400, description='请选择有效的开始日期和结束日期。')
+    can_filter_workers = normalized_role() in {'admin', 'manager', 'finance'}
+    worker_id = request.args.get('worker_id', '').strip() if can_filter_workers else str(g.user['id'])
+    if worker_id and not worker_id.isdigit():
+        abort(400, description='请选择有效的人员。')
+    workers = db().execute("""select id, name from users
+        where role in ('admin', 'manager', 'finance', 'employee', 'external_employee', 'internal', 'user')
+        order by name""").fetchall() if can_filter_workers else []
+    payroll_batch = payroll_rows_for_range(period_start, period_end, pay_date, worker_id)
     return render_template(
         "payroll_report.html",
+        workers=workers, worker_id=worker_id, can_filter_workers=can_filter_workers,
         rows=payroll_batch["rows"],
         totals=payroll_batch["totals"],
         period_start=payroll_batch["period_start"].isoformat(),

@@ -3,9 +3,14 @@
 {% block content %}
   <header class="page-header"><div><p class="eyebrow">Reports</p><h1>薪酬统计报表</h1></div></header>
   <form class="filter-bar service-filter no-print" method="get">
-    <label>两周开始日期 <input type="date" name="period_start" value="{{ period_start }}"></label>
-    <label>两周结束日期 <input type="date" value="{{ period_end }}" readonly></label>
+    <label>开始日期 <input type="date" required name="period_start" value="{{ period_start }}"></label>
+    <label>结束日期 <input type="date" required name="period_end" value="{{ period_end }}"></label>
     <label>发薪日期 <input type="date" value="{{ pay_date }}" readonly></label>
+    {% if can_filter_workers %}
+    <label>人员 <select name="worker_id"><option value="">全部人员</option>
+      {% for worker in workers %}<option value="{{ worker.id }}" {% if worker_id == worker.id|string %}selected{% endif %}>{{ worker.name }}</option>{% endfor %}
+    </select></label>
+    {% endif %}
     <div class="filter-actions">
       <button type="submit">查询</button>
       <button type="button" onclick="window.location.href='{{ url_for('payroll_report') }}'">本期</button>
@@ -59,7 +64,7 @@
             <td>{{ row.total_pay|money }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="18" class="empty">当前两周周期没有薪酬记录。</td></tr>
+          <tr><td colspan="18" class="empty">所选日期范围内没有薪酬记录。</td></tr>
         {% endfor %}
       </tbody>
     </table>
