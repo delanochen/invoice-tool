@@ -92,7 +92,11 @@
                 <td><strong>{{ "高" if check.risk_level == "high" else "中" }} · {{ check.score }}</strong></td>
                 <td><a href="{{ url_for('preview_expense_attachment', attachment_id=check.attachment_id) }}" target="_blank">{{ check.attachment_name }}</a></td>
                 <td>
+                  {% if check.expense_id == check.matched_expense_id %}
+                    <span>本报销单内的另一附件</span><br>
+                  {% else %}
                   <a href="{{ url_for('expense_detail', expense_id=check.matched_expense_id) }}">{{ check.matched_expense_number }}</a><br>
+                  {% endif %}
                   <a class="muted-line" href="{{ url_for('preview_expense_attachment', attachment_id=check.matched_attachment_id) }}" target="_blank">{{ check.matched_attachment_name }}</a>
                 </td>
                 <td>{{ check.reasons }}</td>

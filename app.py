@@ -6025,6 +6025,10 @@ def run_expense_duplicate_checks(expense_id, use_deepseek=False):
             if score < 100 and distance is not None and distance <= 5:
                 reasons.append("图片内容高度相似")
                 score += 60 if distance else 80
+            same_item = (current["expense_id"] == matched["expense_id"] and
+                         (current["expense_item_key"] or "") == (matched["expense_item_key"] or ""))
+            if same_item and score == 0:
+                continue
             try:
                 days = abs((date.fromisoformat(current["expense_date"]) - date.fromisoformat(matched["expense_date"])).days)
             except (TypeError, ValueError):
@@ -6076,6 +6080,9 @@ def expense_duplicate_checks(expense_id):
         join expense_attachments matched_attachment on matched_attachment.id = checks.matched_attachment_id
         left join users reviewer on reviewer.id = checks.reviewed_by
         where checks.expense_id = ?
+          and (checks.review_status != 'pending' or checks.score > 40
+               or checks.expense_id != checks.matched_expense_id
+               or coalesce(current_attachment.expense_item_key, '') != coalesce(matched_attachment.expense_item_key, ''))
         order by checks.score desc, checks.id desc
         """,
         (expense_id,),
@@ -11567,11 +11574,10 @@ def expense_query():
     payout_status = request.args.get("payout_status", "")
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
-    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
+    order_number = request.args.get("order_number", "").strip()
+    project_name = request.args.get("project_name", "").strip()
     clauses = ["1 = 1"]
     params = []
-    clauses.extend(location_clauses)
-    params.extend(location_params)
     access_clause, access_params = expense_access_filter()
     clauses.append(access_clause)
     params.extend(access_params)
@@ -11589,6 +11595,12 @@ def expense_query():
                  or service_orders.client_name like ?)"""
         )
         params.extend([f"%{q}%"] * 5)
+    if order_number:
+        clauses.append("service_orders.order_number like ?")
+        params.append(f"%{order_number}%")
+    if project_name:
+        clauses.append("coalesce(projects.name, expense_items.project) = ?")
+        params.append(project_name)
     if status:
         clauses.append("expenses.status = ?")
         params.append(status)
@@ -11641,6 +11653,11 @@ def expense_query():
         """,
         access_params,
     ).fetchall()
+    project_options = db().execute(
+        f"""select distinct coalesce(projects.name, expense_items.project) as name
+            from expenses join expense_items on expense_items.expense_id = expenses.id
+            left join projects on projects.id = expense_items.project_id
+            where {access_clause} order by name""", access_params).fetchall()
     return render_template(
         "expense_query.html",
         rows=rows,
@@ -11654,10 +11671,9 @@ def expense_query():
         total=total,
         labels=EXPENSE_STATUS_LABELS,
         payout_labels=EXPENSE_PAYOUT_LABELS,
-        countries=countries,
-        regions=regions,
-        region_code=region_code,
-        country_code=country_code,
+        order_number=order_number,
+        project_name=project_name,
+        project_options=project_options,
     )
 
 

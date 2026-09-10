@@ -16,16 +16,11 @@
         {% for person in people %}<option value="{{ person.id }}" {% if person_id == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}
       </select>
     </label>
-    <label>洲
-      <select name="region_code">
-        <option value="">全部</option>
-        {% for region in regions %}<option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>国家
-      <select name="country_code">
-        <option value="">全部</option>
-        {% for country in countries %}<option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>{% endfor %}
+    <label>工单号 <input name="order_number" value="{{ order_number }}" placeholder="输入完整或部分工单号"></label>
+    <label>项目
+      <select name="project_name">
+        <option value="">全部项目</option>
+        {% for project in project_options %}{% if project.name %}<option value="{{ project.name }}" {% if project_name == project.name %}selected{% endif %}>{{ project.name }}</option>{% endif %}{% endfor %}
       </select>
     </label>
     <label>状态

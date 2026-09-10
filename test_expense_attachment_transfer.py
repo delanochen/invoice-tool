@@ -189,6 +189,36 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         )
         self.assertEqual(len(self.transferred_rows()), 1)
 
+    def test_same_item_needs_content_evidence_and_old_pending_is_hidden(self):
+        with self.module.app.app_context():
+            db = self.module.db()
+            db.execute("update expense_attachments set expense_item_key = 'line-travel' where expense_id = ?", (self.expense_id,))
+            self.module.run_expense_duplicate_checks(self.expense_id)
+            self.assertEqual(self.module.expense_duplicate_checks(self.expense_id), [])
+            db.execute("""insert into expense_duplicate_checks
+                (expense_id, attachment_id, matched_expense_id, matched_attachment_id, risk_level, score, reasons, review_status, created_at, updated_at)
+                values (?, ?, ?, ?, 'medium', 40, 'metadata', 'pending', 'now', 'now')""",
+                (self.expense_id, self.line_attachment_id, self.expense_id, self.attachment_id))
+            self.assertEqual(self.module.expense_duplicate_checks(self.expense_id), [])
+            db.execute("update expense_duplicate_checks set review_status = 'not_duplicate' where expense_id = ?", (self.expense_id,))
+            self.assertEqual(len(self.module.expense_duplicate_checks(self.expense_id)), 1)
+            db.execute("update expense_attachments set file_sha256 = 'same' where expense_id = ?", (self.expense_id,))
+            self.module.run_expense_duplicate_checks(self.expense_id)
+            self.assertEqual(self.module.expense_duplicate_checks(self.expense_id)[0]['score'], 100)
+            db.commit()
+        self.assertIn('本报销单内的另一附件', self.client.get(f'/expenses/{self.expense_id}').text)
+
+    def test_expense_query_order_and_project_filters(self):
+        with self.module.app.test_request_context():
+            url = self.module.url_for('expense_query')
+        page = self.client.get(url, query_string={'order_number':'SO-TE', 'project_name':'Travel', 'region_code':'invalid', 'country_code':'invalid'})
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('EXP-TEST', page.text)
+        self.assertNotIn('name="region_code"', page.text)
+        self.assertNotIn('name="country_code"', page.text)
+        for args in ({'order_number':'NO-MATCH'}, {'project_name':'NO-MATCH'}, {'order_number':'SO-TE', 'project_name':'NO-MATCH'}):
+            self.assertNotIn('EXP-TEST', self.client.get(url, query_string=args).text)
+
     def test_duplicate_check_detects_identical_attachment_and_can_be_reviewed(self):
         with self.module.app.app_context():
             connection = self.module.db()
