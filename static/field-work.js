@@ -681,6 +681,7 @@
   }
   async function loadLedger() {
     if (!identityReady) return;
+    $('photoBatchDownload').hidden = true;
     const params = new URLSearchParams(new FormData($('ledgerFilter')));
     $('exportLedger').href = '/api/field/photos.xlsx?'+params;
     $('repairReport').href = '/reports/field-repairs?'+params;
@@ -689,6 +690,9 @@
       if (response.status === 401 || response.status === 403) { lock('请重新登录后查询台账。'); return; }
       if (!response.ok) throw new Error('查询失败');
       const result = await response.json(); ledgerPhotos = result.rows; $('ledgerList').replaceChildren();
+      $('photoBatchDownload').dataset.photoQuery = params.toString();
+      $('photoBatchDownload').querySelector('[data-photo-zip]').href = '/api/field/photos.zip?'+params;
+      $('photoBatchDownload').hidden = !result.rows.length || result.truncated;
       setFieldText('ledgerSummary', `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`);
       const table = document.createElement('table'); table.className = 'ledger-table';
       const thead = document.createElement('thead'), headerRow = document.createElement('tr');

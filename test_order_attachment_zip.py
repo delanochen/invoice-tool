@@ -10,7 +10,7 @@ class OrderZipTest(unittest.TestCase):
         self.m=self.f.module
         self.m.SHARED_PHOTOS_DIR=str(Path(self.f.temp_dir.name)/'shared')
 
-    def test_seven_categories_contents_and_other_order_isolation(self):
+    def test_six_categories_contents_and_other_order_isolation(self):
         with self.m.app.app_context():
             db=self.m.db()
             report=db.execute("""insert into service_reports(service_order_id,report_date,actual_work_date,created_by,created_at,updated_at)
@@ -28,8 +28,8 @@ class OrderZipTest(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         with ZipFile(BytesIO(response.data)) as archive:
             names=archive.namelist()
-            self.assertEqual({name for name in names if name.endswith('/')},{name+'/' for name in ('自检照片','进场照片','离场照片','现场工作照片','里程佐证','报销佐证','工单结算')})
-            self.assertTrue(any(name.startswith('报销佐证/EXP-TEST-') for name in names))
+            self.assertEqual({name for name in names if name.endswith('/')},{name+'/' for name in ('自检照片','进场照片','离场照片','现场工作照片','里程佐证','工单结算')})
+            self.assertFalse(any(name.startswith('报销佐证/') for name in names))
             self.assertIn('工单结算/settlement.pdf',names)
             self.assertTrue(any(archive.read(name)==b'SO-TEST' for name in names if not name.endswith('/')))
             self.assertFalse(any(archive.read(name)==b'OTHER-ORDER' for name in names if not name.endswith('/')))

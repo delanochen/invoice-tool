@@ -14283,7 +14283,7 @@ def download_service_order_attachments(order_id):
     order = require_service_order(order_id)
     categories = {"self_check": "自检照片", "arrival": "进场照片", "departure": "离场照片",
                   "site": "现场工作照片", "mileage_proof": "里程佐证"}
-    folders = [*categories.values(), "报销佐证", "工单结算"]
+    folders = [*categories.values(), "工单结算"]
     files = []
     def collect(folder, path, name, root):
         path = Path(path).resolve()
@@ -14307,13 +14307,6 @@ def download_service_order_attachments(order_id):
             for path in sorted(picture_dir.rglob('*')):
                 if path.is_file() and path.suffix.lower().lstrip('.') in ALLOWED_IMAGE_EXTENSIONS:
                     collect('现场工作照片', path, '-'.join(path.relative_to(picture_dir).parts), picture_dir)
-    if has_action_permission('expenses', 'view'):
-        for expense in db().execute('select * from expenses where service_order_id=? order by id', (order_id,)):
-            if not can_access_expense(expense):
-                continue
-            for row in db().execute('select * from expense_attachments where expense_id=? order by id', (expense['id'],)):
-                collect('报销佐证', expense_attachment_path(row),
-                        f"{expense['expense_number']}-{row['original_filename']}", EXPENSE_ATTACHMENTS_DIR)
     if can_view_customer_reimbursement():
         for reimbursement in db().execute('select * from customer_reimbursements where service_order_id=? order by id', (order_id,)):
             collect('工单结算', customer_reimbursement_file_path(reimbursement), reimbursement['file_name'], CUSTOMER_REIMBURSEMENT_DIR)

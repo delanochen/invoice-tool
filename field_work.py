@@ -4,6 +4,8 @@ import math
 import os
 import re
 import subprocess
+import tempfile
+import zipfile
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from io import BytesIO
@@ -91,6 +93,11 @@ def register_field_routes(app, api):
 
     def photo_rows():
         clauses, params = photo_clauses()
+        for key in ('equipment_number', 'position_number', 'container_number'):
+            value = request.args.get(key, '').strip()
+            if value:
+                clauses.append(f'instr(lower(p.{key}), lower(?)) > 0')
+                params.append(value)
         for key, column in [('order_id', 'p.order_id'), ('user_id', 'p.user_id'),
                             ('date_from', 'p.capture_date'), ('date_to', 'p.capture_date')]:
             value = request.args.get(key, '').strip()
@@ -425,6 +432,31 @@ def register_field_routes(app, api):
             export_rows.append(values)
         buffer = api['build_simple_xlsx'](headers, export_rows, sheet_name='工单照片台账')
         return send_file(buffer, as_attachment=True, download_name='field-photos.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    @app.get('/api/field/photos.zip')
+    @access
+    def field_photo_download_zip():
+        rows = photo_rows()
+        if len(rows) > 2000:
+            return jsonify(error='结果超过 2000 张，请缩小日期或工单范围后下载。'), 422
+        if not rows:
+            return jsonify(error='没有符合条件的照片。'), 422
+        # Validate every path before returning a ZIP; never silently omit a photo.
+        paths = [(row, photo_file(row)) for row in rows]
+        buffer = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode='w+b')
+        try:
+            with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
+                for row, path in paths:
+                    order = secure_filename(row['order_number']) or str(row['order_id'])
+                    archive.write(path, f"{order}/{row['capture_date']}/{row['id']}-{Path(path).name}")
+            buffer.seek(0)
+            response = send_file(buffer, as_attachment=True, download_name='field-photos.zip', mimetype='application/zip')
+            response.headers['Cache-Control'] = 'no-store, private'
+            response.call_on_close(buffer.close)
+            return response
+        except Exception:
+            buffer.close()
+            raise
 
     def repair_table_rows():
         photos = [row for row in photo_rows() if row['photo_type'] == 'equipment']
