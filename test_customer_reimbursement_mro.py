@@ -98,6 +98,19 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             self.user_id = user_id
             self.reimbursement_id = reimbursement_id
 
+    def test_auto_expense_source_snapshot_matches_amount(self):
+        import json
+        with self.module.app.app_context():
+            db = self.module.db()
+            reimbursement = db.execute("select id from customer_reimbursements limit 1").fetchone()
+            self.module.update_customer_reimbursement_totals(reimbursement['id'])
+            rows = db.execute("select * from customer_reimbursement_items where customer_reimbursement_id = ?", (reimbursement['id'],)).fetchall()
+            row = next(row for row in rows if row['auto_other'] > 0)
+            sources = json.loads(row['auto_expense_sources'])['other']
+            self.assertEqual(sum(source['amount'] for source in sources), row['auto_other'])
+            self.assertEqual(sources[0]['expense_number'], 'EXP-APPROVED')
+            self.assertEqual(sources[0]['line_number'], 1)
+
     def test_only_approved_mro_flows_to_other_and_mro_invoice(self):
         with self.module.app.app_context():
             totals = self.module.update_customer_reimbursement_totals(self.reimbursement_id)

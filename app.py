@@ -1329,6 +1329,7 @@ def init_db():
         ensure_column(connection, "customer_reimbursement_items", "source_report_id", "integer")
         ensure_column(connection, "customer_reimbursement_items", "source_worker_user_id", "integer")
         ensure_column(connection, "expense_items", "fuel_vehicle_type", "text")
+        ensure_column(connection, "customer_reimbursement_items", "auto_expense_sources", "text not null default '{}'")
         ensure_column(connection, "expense_items", "line_key", "text")
         ensure_column(connection, "expense_attachments", "expense_item_key", "text")
         ensure_column(connection, "expense_attachments", "file_sha256", "text")
@@ -4898,6 +4899,10 @@ def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
     return db().execute(
         """
         select expense_items.amount, expense_items.fuel_vehicle_type,
+               expenses.id as expense_id, expenses.expense_number, expense_items.line_key,
+               expense_items.description as item_description,
+               (select count(*) from expense_items ordinal where ordinal.expense_id = expenses.id
+                and (ordinal.sort_order < expense_items.sort_order or (ordinal.sort_order = expense_items.sort_order and ordinal.id <= expense_items.id))) as line_number,
                coalesce(projects.name, expense_items.project) as project_name,
                expenses.expense_date, users.name as worker_name
         from expenses
@@ -4916,6 +4921,7 @@ def merge_approved_expenses_into_customer_reimbursement(rows, order_id, cutoff_a
     auto_fields = tuple(f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"))
     merged = [dict(row) for row in rows]
     for row in merged:
+        row["auto_expense_sources"] = {}
         for field_name in auto_fields:
             row[field_name] = 0
 
@@ -4950,6 +4956,13 @@ def merge_approved_expenses_into_customer_reimbursement(rows, order_id, cutoff_a
                 row[auto_field] = 0
             merged.append(row)
             row_lookup[key] = row
+        row.setdefault("auto_expense_sources", {}).setdefault(field_name, []).append({
+            "expense_id": expense_item["expense_id"], "expense_number": expense_item["expense_number"],
+            "line_key": expense_item["line_key"], "line_number": expense_item["line_number"],
+            "worker_name": expense_item["worker_name"], "project_name": expense_item["project_name"],
+            "description": expense_item["item_description"], "amount": expense_item["amount"],
+            "date": expense_item["expense_date"],
+        })
         auto_field = f"auto_{field_name}"
         row[auto_field] = money_float(money_decimal(row.get(auto_field)) + money_decimal(expense_item["amount"]))
 
@@ -5288,6 +5301,10 @@ def save_customer_reimbursement_items(reimbursement_id, rows):
             ),
         )
 
+        sources = row.get("auto_expense_sources", {})
+        db().execute("update customer_reimbursement_items set auto_expense_sources = ? where customer_reimbursement_id = ? and sort_order = ?",
+                     (sources if isinstance(sources, str) else json.dumps(sources, ensure_ascii=False), reimbursement_id, row["sort_order"]))
+
 
 def latest_customer_reimbursement(order_id):
     return db().execute(
@@ -5387,6 +5404,31 @@ def create_customer_reimbursement(order):
     return db().execute("select * from customer_reimbursements where id = ?", (reimbursement_id,)).fetchone()
 
 
+def sync_expense_attachments_to_settlement(order_id):
+    reimbursement = latest_customer_reimbursement(order_id)
+    if not reimbursement or reimbursement["status"] not in {"draft", "returned"}:
+        return 0
+    attachments = db().execute("""
+        select ea.*, coalesce(p.name, ei.project, e.project) as project_name, ei.fuel_vehicle_type
+        from expense_attachments ea join expenses e on e.id = ea.expense_id
+        left join expense_items ei on ei.expense_id = e.id and ei.line_key = ea.expense_item_key
+        left join projects p on p.id = ei.project_id
+        where e.service_order_id = ? and not exists
+          (select 1 from customer_reimbursement_attachments ca where ca.source_expense_attachment_id = ea.id)
+        order by ea.id""", (order_id,)).fetchall()
+    copied = 0
+    for attachment in attachments:
+        project_key = canonical_project_mapping_key(attachment["project_name"], CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS)
+        if ((project_key == project_name_key("Fuel Expenses") and attachment["fuel_vehicle_type"] != "rental")
+                or normalized_project_name(attachment["project_name"]) == "个人自驾油费"):
+            continue
+        if copy_file_to_customer_reimbursement_attachment(reimbursement["id"], expense_attachment_path(attachment),
+                attachment["original_filename"], attachment["content_type"], attachment["uploaded_by"],
+                source_expense_attachment_id=attachment["id"]):
+            copied += 1
+    return copied
+
+
 def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     rows = rows if rows is not None else customer_reimbursement_items(reimbursement_id)
     reimbursement = db().execute(
@@ -5402,6 +5444,7 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
         reimbursement["expense_transfer_cutoff_at"],
     )
     save_customer_reimbursement_items(reimbursement_id, rows)
+    sync_expense_attachments_to_settlement(reimbursement["service_order_id"])
     totals = customer_reimbursement_totals(
         rows,
         approved_mro_supplies_total(
@@ -12806,6 +12849,13 @@ def customer_reimbursement_form(order_id):
             flash(str(error), "error")
             return redirect(url_for("customer_reimbursement_form", order_id=order_id))
     items = customer_reimbursement_items(reimbursement["id"])
+    items = [dict(item) for item in items]
+    for item in items:
+        try:
+            item["expense_sources"] = json.loads(item.get("auto_expense_sources") or '{}')
+        except (ValueError, TypeError):
+            item["expense_sources"] = {}
+
     linked_invoice = customer_reimbursement_linked_invoice(reimbursement, order_id)
     if linked_invoice and reimbursement["invoice_id"] != linked_invoice["id"]:
         db().execute(
@@ -13828,6 +13878,7 @@ def new_expense(order_id):
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
             run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
+            sync_expense_attachments_to_settlement(order["id"])
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("create", "expense", expense_id, expense_number, expense_summary)
             if submit_for_review:
@@ -13926,6 +13977,7 @@ def edit_expense(expense_id):
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
             run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
+            sync_expense_attachments_to_settlement(order["id"])
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("update", "expense", expense_id, expense["expense_number"], expense_summary)
             if submit_for_review:

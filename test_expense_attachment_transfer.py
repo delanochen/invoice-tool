@@ -129,7 +129,7 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         edit_response = self.client.get(f"/expenses/{self.expense_id}/edit")
         self.assertEqual(edit_response.status_code, 200)
         self.assertIn('class="inline-thumb"', edit_response.get_data(as_text=True))
-        self.assertIn(">传递</button>", edit_response.get_data(as_text=True))
+        self.assertNotIn(">传递</button>", edit_response.get_data(as_text=True))
 
         response = self.client.post(f"/expense-attachments/{self.attachment_id}/transfer")
         self.assertEqual(response.status_code, 302)
@@ -144,7 +144,7 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         self.assertEqual(copied_path.read_bytes(), b"test-image")
 
         edit_response = self.client.get(f"/expenses/{self.expense_id}/edit")
-        self.assertIn(">已传递</button>", edit_response.get_data(as_text=True))
+        self.assertNotIn(">已传递</button>", edit_response.get_data(as_text=True))
 
         response = self.client.post(f"/expense-attachments/{self.attachment_id}/transfer")
         self.assertEqual(response.status_code, 302)
@@ -174,8 +174,8 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         detail_html = detail_response.get_data(as_text=True)
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn('class="inline-thumb"', detail_html)
-        self.assertIn(">传递</button>", detail_html)
-        self.assertIn("data-history-replace", detail_html)
+        self.assertNotIn(">传递</button>", detail_html)
+        self.assertNotIn("data-history-replace", detail_html)
 
         response = self.client.post(
             f"/expense-attachments/{self.attachment_id}/transfer",
@@ -218,6 +218,24 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         self.assertNotIn('name="country_code"', page.text)
         for args in ({'order_number':'NO-MATCH'}, {'project_name':'NO-MATCH'}, {'order_number':'SO-TE', 'project_name':'NO-MATCH'}):
             self.assertNotIn('EXP-TEST', self.client.get(url, query_string=args).text)
+
+    def test_auto_attachment_sync_excludes_personal_fuel_and_is_idempotent(self):
+        with self.module.app.app_context():
+            db = self.module.db()
+            db.execute("update projects set name = 'Fuel Expenses' where id in (select project_id from expense_items where expense_id = ?)", (self.expense_id,))
+            db.execute("update expense_items set fuel_vehicle_type = 'personal' where expense_id = ?", (self.expense_id,))
+            self.assertEqual(self.module.sync_expense_attachments_to_settlement(self.order_id), 1)
+            self.assertEqual(self.module.sync_expense_attachments_to_settlement(self.order_id), 0)
+            ids = [row['source_expense_attachment_id'] for row in db.execute('select * from customer_reimbursement_attachments').fetchall()]
+            self.assertIn(self.attachment_id, ids)
+            self.assertNotIn(self.line_attachment_id, ids)
+            db.execute("update expense_items set fuel_vehicle_type = 'rental' where expense_id = ?", (self.expense_id,))
+            self.assertEqual(self.module.sync_expense_attachments_to_settlement(self.order_id), 1)
+
+    def test_auto_sync_preserves_locked_settlement(self):
+        with self.module.app.app_context():
+            self.module.db().execute("update customer_reimbursements set status = 'approved' where id = ?", (self.reimbursement_id,))
+            self.assertEqual(self.module.sync_expense_attachments_to_settlement(self.order_id), 0)
 
     def test_duplicate_check_detects_identical_attachment_and_can_be_reviewed(self):
         with self.module.app.app_context():

@@ -2687,3 +2687,9 @@ body.service-order-map-page {
 .photo-local-picker{position:relative;overflow:hidden;cursor:pointer}
 .photo-local-picker input[type=file]{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;opacity:0;cursor:pointer}
 .photo-local-picker:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+
+.expense-source-popover { position: relative; }
+.expense-source-popover summary { cursor: pointer; list-style: none; }
+.expense-source-content { display: none; position: fixed; z-index: 30; top: 100%; left: 0; min-width: 280px; max-width: 400px; max-height: 300px; overflow: auto; padding: 12px; border: 1px solid #ccd6df; border-radius: 8px; background: white; color: #152c3d; box-shadow: 0 6px 20px #0002; white-space: normal; text-align: left; }
+.expense-source-content > div + div { margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd; }
+.expense-source-popover[open] .expense-source-content, .expense-source-popover:hover .expense-source-content, .expense-source-popover:focus-within .expense-source-content { display: block; }
