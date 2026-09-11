@@ -12,6 +12,7 @@ document.querySelectorAll("[data-delete-user-attachment]").forEach((button) => {
         },
       });
       if (!response.ok) throw new Error("delete failed");
+      document.dispatchEvent(new Event('workspace:saved'));
 
       const row = button.closest("[data-attachment-row]");
       const section = button.closest("[data-user-attachments]");

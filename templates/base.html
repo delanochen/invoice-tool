@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#0f766e">
     <title>{% block title %}发票工具{% endblock %}</title>
+    {% if g.user %}
+      <script>
+        if (window.parent !== window) document.documentElement.classList.add('workspace-embedded');
+        else if (location.pathname !== {{ url_for('workspace')|tojson }} && !location.pathname.includes('/print')) {
+          location.replace({{ url_for('workspace')|tojson }} + '#' + encodeURIComponent(location.pathname + location.search + location.hash));
+        }
+      </script>
+      <link rel="stylesheet" href="{{ url_for('static', filename='workspace.css', v=app_version) }}">
+    {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=app_version) }}">
     {% block head %}{% endblock %}
   </head>
@@ -226,7 +235,7 @@
       </aside>
     {% endif %}
     <main class="{% if g.user %}main{% else %}auth-main{% endif %}">
-      {% with messages = get_flashed_messages(with_categories=true) %}
+      {% with messages = get_flashed_messages(with_categories=true) if not g.user or request.headers.get('Sec-Fetch-Dest') != 'document' or request.endpoint == 'workspace' else [] %}
         {% if messages %}
           <div class="flash-stack no-print">
             {% for category, message in messages %}

@@ -15,8 +15,11 @@
       });
       const result = await response.json();
       if (!response.ok || !result.redirect) throw new Error(result.message || '操作未完成，请重试。');
+      document.dispatchEvent(new Event('workspace:saved'));
+      document.dispatchEvent(new Event('workspace:navigate'));
       window.location.replace(result.redirect);
     } catch (error) {
+      document.dispatchEvent(new Event('workspace:save-failed'));
       if (submitter) submitter.disabled = false;
       window.alert(error.message || '操作未完成，请重试。');
     }

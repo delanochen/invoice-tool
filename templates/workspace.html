@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}工作区 - 发票工具{% endblock %}
+{% block body_class %}workspace-shell{% endblock %}
+{% block content %}
+<section id="workspace" aria-label="工作区">
+  <div class="workspace-toolbar no-print">
+    <div id="workspaceTabs" role="tablist" aria-label="已打开页面"></div>
+    <button type="button" id="workspaceRefresh" title="刷新当前页面">刷新</button>
+    <button type="button" id="workspaceCloseOthers" title="关闭其他标签">关闭其他</button>
+  </div>
+  <div id="workspaceNotice" class="workspace-notice no-print" hidden>其他页面已执行操作，本页数据可能已更新。<button type="button" id="workspaceNoticeRefresh">刷新本页</button><span>刷新前请先处理未保存内容。</span></div>
+  <div id="workspacePages"></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='workspace.js', v=app_version) }}"></script>{% endblock %}

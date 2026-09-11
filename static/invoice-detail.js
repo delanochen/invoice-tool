@@ -35,6 +35,7 @@ document.querySelectorAll("[data-delete-invoice-attachment]").forEach((form) => 
       return;
     }
     document.getElementById(form.dataset.rowId)?.remove();
+    document.dispatchEvent(new Event('workspace:saved'));
     const scope = document.querySelector(".attachment-download-scope");
     const remaining = scope?.querySelectorAll("[data-attachment-download]").length || 0;
     if (!remaining && scope) {

@@ -7059,6 +7059,12 @@ def message_detail(message_id):
     return redirect(url_for("messages"))
 
 
+@app.route("/workspace")
+@login_required
+def workspace():
+    return render_template("workspace.html")
+
+
 @app.route("/")
 @login_required
 def dashboard():
