@@ -176,6 +176,7 @@
         </div>
         <div class="row-actions">
           <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
+          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_excel', reimbursement_id=customer_reimbursement.id) }}'">下载 Excel</button>
         </div>
       {% else %}
         <p class="empty">还没有工单结算。生成后可补充住宿、交通费、英里数和附件。</p>

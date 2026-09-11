@@ -2751,6 +2751,7 @@ def required_action_for_request():
         "delete_attachment": ("invoices", "edit"),
         "customer_reimbursement_query": ("customer_reimbursements", "view"),
         "download_customer_reimbursement": ("customer_reimbursements", "export"),
+        "download_customer_reimbursement_excel": ("customer_reimbursements", "export"),
         "preview_customer_reimbursement": ("customer_reimbursements", "export"),
         "approve_customer_reimbursement": ("customer_reimbursements", "approve"),
         "return_customer_reimbursement": ("customer_reimbursements", "approve"),
@@ -12940,6 +12941,19 @@ def download_customer_reimbursement(reimbursement_id):
         build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement_id))
     db().commit()
     return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
+
+
+@app.get("/customer-reimbursements/<int:reimbursement_id>/download.xlsx")
+@login_required
+def download_customer_reimbursement_excel(reimbursement_id):
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    items = customer_reimbursement_items(reimbursement_id)
+    headers = ["序号", "姓名", "项目时间", "标准工时", "交通工时", "加班工时", "假期工时", "服务工时", "交通费", "里程费", "其他", "备注"]
+    rows = []
+    for index, item in enumerate(items, 1):
+        rows.append([index, item.get("worker_name", ""), item.get("project_time", ""), item.get("standard_hours", 0), item.get("travel_hours", 0), item.get("overtime_hours", 0), item.get("holiday_hours", 0), item.get("service_hours", 0), item.get("travel_total", 0), item.get("mileage_total", 0), item.get("other_total", 0), item.get("notes", "")])
+    workbook = build_simple_xlsx(headers, rows, sheet_name="工单结算")
+    return send_file(workbook, as_attachment=True, download_name=f"{order['order_number']}-工单结算.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.get("/customer-reimbursements/<int:reimbursement_id>/preview")
