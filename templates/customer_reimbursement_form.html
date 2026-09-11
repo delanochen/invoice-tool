@@ -25,6 +25,7 @@
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
       <button type="button" onclick="window.open('{{ url_for('preview_customer_reimbursement', reimbursement_id=reimbursement.id) }}', '_blank')">预览 PDF</button>
+      <a class="button" href="{{ url_for('download_customer_reimbursement_excel', reimbursement_id=reimbursement.id) }}">下载 Excel</a>
       {% if can_manage_customer_reimbursement() %}
         <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
       {% endif %}
@@ -110,7 +111,7 @@
       <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>
       <div class="metric"><span>差旅费小计</span><strong data-reimbursement-total="travel">{{ totals.travel_total|money }}</strong></div>
       <div class="metric"><span>里程费小计</span><strong data-reimbursement-total="mileage">{{ totals.mileage_total|money }}</strong></div>
-      <div class="metric"><span>其他</span><strong data-reimbursement-total="other">{{ totals.other_total|money }}</strong><small>其中 MRO Supplies {{ totals.mro_supplies_total|money }}，开票时进入 MRO Supplies</small></div>
+      <div class="metric"><span>其他</span><strong data-reimbursement-total="other">{{ totals.other_total|money }}</strong><small>其中 MRO Supplies配件及耗材费 {{ totals.mro_supplies_total|money }}，开票时计入同名项目</small></div>
       {% if totals.rental_fuel_total %}
         <div class="metric"><span>历史独立转入</span><strong>{{ totals.rental_fuel_total|money }}</strong><small>旧版已锁定结算记录</small></div>
       {% endif %}

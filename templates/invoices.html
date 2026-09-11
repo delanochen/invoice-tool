@@ -34,14 +34,14 @@
   </form>
   <section class="panel">
     <table class="list-table">
-      <thead><tr><th>编号</th><th>工单</th><th>工单状态</th><th>客户</th><th>日期</th><th>到期</th><th>开票人</th><th>金额</th><th>发票状态</th><th>核销</th></tr></thead>
+      <thead><tr><th>编号</th><th>工单</th><th>工单状态</th><th>服务订单号码</th><th>日期</th><th>到期</th><th>开票人</th><th>金额</th><th>发票状态</th><th>核销</th></tr></thead>
       <tbody>
         {% for invoice in invoices %}
           <tr>
             <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
             <td>{% if invoice.service_order_number %}<a href="{{ url_for('service_order_detail', order_id=invoice.service_order_id) }}">{{ invoice.service_order_number }}</a>{% else %}-{% endif %}</td>
             <td>{% if invoice.service_order_status == "closed" %}已关闭{% elif invoice.service_order_status %}进行中{% else %}-{% endif %}</td>
-            <td>{{ invoice.client_number }} · {{ invoice.client_name }}</td>
+            <td>{{ invoice.service_client_order_number or "-" }}</td>
             <td>{{ invoice.issue_date }}</td>
             <td>{{ invoice.due_date }}</td>
             <td>{{ invoice.creator_name or "Unknown" }}</td>
