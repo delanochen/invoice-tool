@@ -1,0 +1,11 @@
+{% macro multi_filter(label, name, options, selected, value_key, label_key) %}
+      <div class="report-multi-field"><span>{{ label }}</span>
+        <details class="report-multi" data-report-multi>
+          <summary aria-label="{{ label }}多选">全部</summary>
+          <div class="report-multi-options" role="group" aria-label="{{ label }}">
+            <button type="button" data-clear-multi>清空选择</button>
+            {% for option in options %}<label><input type="checkbox" name="{{ name }}" value="{{ option[value_key] }}" {% if option[value_key]|string in selected %}checked{% endif %}> <span>{{ option[label_key] }}</span></label>{% else %}<span>暂无选项</span>{% endfor %}
+          </div>
+        </details>
+      </div>
+    {% endmacro %}

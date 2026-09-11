@@ -10631,11 +10631,21 @@ def service_report_query():
     q = request.args.get("q", "").strip()
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
-    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
+    order_ids = list(dict.fromkeys(request.args.getlist("order_id")))
+    sites = list(dict.fromkeys(request.args.getlist("site")))
+    worker_ids = list(dict.fromkeys(request.args.getlist("worker_id")))
+    order_ids = [value for value in order_ids if value]
+    sites = [value for value in sites if value]
+    worker_ids = [value for value in worker_ids if value]
     clauses = ["1 = 1"]
     params = []
-    clauses.extend(location_clauses)
-    params.extend(location_params)
+    for column, values in [("service_orders.id", order_ids), ("service_orders.client_name", sites)]:
+        if values:
+            clauses.append(f"{column} in ({','.join('?' for _ in values)})")
+            params.extend(values)
+    if worker_ids:
+        clauses.append(f"exists (select 1 from service_report_workers matched_worker where matched_worker.report_id = service_reports.id and matched_worker.user_id in ({','.join('?' for _ in worker_ids)}))")
+        params.extend(worker_ids)
     if q:
         clauses.append(
             "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_reports.cabinet_number like ?)"
@@ -10676,10 +10686,10 @@ def service_report_query():
         q=q,
         date_from=date_from,
         date_to=date_to,
-        countries=countries,
-        regions=regions,
-        region_code=region_code,
-        country_code=country_code,
+        order_ids=order_ids, sites=sites, worker_ids=worker_ids,
+        order_options=db().execute("select distinct o.id, o.order_number from service_orders o join service_reports r on r.service_order_id=o.id order by o.order_number desc").fetchall(),
+        site_options=db().execute("select distinct o.client_name from service_orders o join service_reports r on r.service_order_id=o.id where o.client_name != '' order by o.client_name").fetchall(),
+        worker_options=db().execute("select distinct u.id, u.name from users u join service_report_workers w on w.user_id=u.id join service_reports r on r.id=w.report_id order by u.name, u.id").fetchall(),
     )
 
 
@@ -11538,15 +11548,18 @@ def customer_reimbursement_query():
     status = request.args.get("status", "")
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
-    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
+    order_ids = list(dict.fromkeys(value for value in request.args.getlist("order_id") if value))
+    sites = list(dict.fromkeys(value for value in request.args.getlist("site") if value))
     clauses = ["1 = 1"]
     params = []
-    if not is_external_manager():
-        clauses.extend(location_clauses)
-        params.extend(location_params)
-    else:
+    if is_external_manager():
         clauses.append("service_orders.client_id = ?")
         params.append(g.user["client_id"])
+    options = db().execute(f"select distinct service_orders.id, service_orders.order_number, service_orders.client_name from service_orders join customer_reimbursements on customer_reimbursements.service_order_id = service_orders.id where {' and '.join(clauses)} order by service_orders.order_number desc", params).fetchall()
+    for column, values in [("service_orders.id", order_ids), ("service_orders.client_name", sites)]:
+        if values:
+            clauses.append(f"{column} in ({','.join('?' for _ in values)})")
+            params.extend(values)
     if q:
         clauses.append(
             """
@@ -11616,12 +11629,9 @@ def customer_reimbursement_query():
         status=status,
         date_from=date_from,
         date_to=date_to,
-        countries=countries,
-        regions=regions,
-        region_code=region_code,
-        country_code=country_code,
         labels=CUSTOMER_REIMBURSEMENT_STATUS_LABELS,
-        show_location_filters=not is_external_manager(),
+        order_ids=order_ids, sites=sites, order_options=options,
+        site_options=[{"client_name": name} for name in sorted({row["client_name"] for row in options if row["client_name"]})],
     )
 
 

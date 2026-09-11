@@ -4,18 +4,10 @@
   <header class="page-header"><div><p class="eyebrow">Reports</p><h1>日报查询</h1></div></header>
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、站点名称、业主、机柜编号"></label>
-    <label>洲
-      <select name="region_code">
-        <option value="">全部</option>
-        {% for region in regions %}<option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>国家
-      <select name="country_code">
-        <option value="">全部</option>
-        {% for country in countries %}<option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>{% endfor %}
-      </select>
-    </label>
+    {% from "report_multiselect.html" import multi_filter %}
+    {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
+    {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
+    {{ multi_filter('人员', 'worker_id', worker_options, worker_ids, 'id', 'name') }}
     <label>实际开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
     <label>实际结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
     <div class="filter-actions">
@@ -47,4 +39,8 @@
       </tbody>
     </table>
   </section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">
 {% endblock %}

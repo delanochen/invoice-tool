@@ -1,0 +1,6 @@
+.report-multi-field { min-width: 0; color: var(--muted); font-weight: 600; }
+.report-multi { position: relative; margin-top: 6px; font-weight: 400; color: var(--ink); }
+.report-multi summary { cursor: pointer; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: white; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-multi-options { position: absolute; top: 100%; left: 0; min-width: 100%; max-width: min(350px, 85vw); max-height: 280px; overflow: auto; z-index: 20; background: white; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 12px #0002; padding: 8px; }
+.report-multi-options label { display: flex; align-items: center; gap: 8px; padding: 7px; cursor: pointer; }
+.report-multi-options input { width: auto; flex: 0 0 auto; }

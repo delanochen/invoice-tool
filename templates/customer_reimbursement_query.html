@@ -5,20 +5,9 @@
 
   <form class="filter-bar service-filter no-print" method="get">
     <label>关键词 <input name="q" value="{{ q }}" placeholder="结算文件、工单、站点、业主、发票编号"></label>
-    {% if show_location_filters %}
-      <label>洲
-        <select name="region_code">
-          <option value="">全部</option>
-          {% for region in regions %}<option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>国家
-        <select name="country_code">
-          <option value="">全部</option>
-          {% for country in countries %}<option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>{% endfor %}
-        </select>
-      </label>
-    {% endif %}
+    {% from "report_multiselect.html" import multi_filter %}
+    {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
+    {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
     <label>状态
       <select name="status">
         <option value="">全部</option>
@@ -77,3 +66,6 @@
     </table>
   </section>
 {% endblock %}
+
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>{% endblock %}
