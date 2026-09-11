@@ -98,6 +98,24 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             self.user_id = user_id
             self.reimbursement_id = reimbursement_id
 
+    def test_settlement_excel_download_preserves_database_values(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute("update customer_reimbursement_items set transport_hours=2, lodging=10, auto_lodging=20, other=3, auto_other=4, total=107 where customer_reimbursement_id=?", (self.reimbursement_id,))
+            connection.commit()
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as session:
+                session['user_id'] = self.user_id
+            response = client.get(f'/customer-reimbursements/{self.reimbursement_id}/download.xlsx')
+            self.assertEqual(response.status_code, 200)
+            workbook = load_workbook(BytesIO(response.data))
+            self.addCleanup(workbook.close)
+            rows = list(workbook.active.values)
+            self.assertEqual(rows[1], (1, 'Worker', '2026-08-12', 1, 2, 0, 0, 70, 30, 0, 0, 0, 0, 0, 0, 0, 7, 107))
+            response.close()
+
     def test_auto_expense_source_snapshot_matches_amount(self):
         import json
         with self.module.app.app_context():

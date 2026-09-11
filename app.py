@@ -10502,7 +10502,8 @@ def invoice_query():
         select invoices.id, invoices.invoice_number, invoices.issue_date, invoices.currency, invoices.status, invoices.paid_at,
                clients.client_number, clients.name as client_name, clients.short_name,
                invoice_items.description as project_name, invoice_items.amount, invoice_items.tax_rate,
-               service_orders.status as service_order_status
+               service_orders.status as service_order_status,
+               service_orders.client_order_number as service_client_order_number
         from invoice_items
         join invoices on invoices.id = invoice_items.invoice_id
         join clients on clients.id = invoices.client_id
@@ -12948,10 +12949,16 @@ def download_customer_reimbursement(reimbursement_id):
 def download_customer_reimbursement_excel(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
     items = customer_reimbursement_items(reimbursement_id)
-    headers = ["序号", "姓名", "项目时间", "标准工时", "交通工时", "加班工时", "假期工时", "服务工时", "交通费", "里程费", "其他", "备注"]
+    headers = ["序号", "姓名", "项目日期", "标准工时", "交通工时", "加班工时", "假期工时", "人工费", "住宿费", "机票费", "行李费", "租车费", "燃油费", "停车费", "出租车费", "里程费", "其他", "合计"]
     rows = []
     for index, item in enumerate(items, 1):
-        rows.append([index, item.get("worker_name", ""), item.get("project_time", ""), item.get("standard_hours", 0), item.get("travel_hours", 0), item.get("overtime_hours", 0), item.get("holiday_hours", 0), item.get("service_hours", 0), item.get("travel_total", 0), item.get("mileage_total", 0), item.get("other_total", 0), item.get("notes", "")])
+        item = dict(item)
+        expenses = [customer_reimbursement_item_expense_amount(item, key)
+                    for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")]
+        rows.append([index, item["worker_name"], item["project_date"], item["standard_hours"],
+                     item["transport_hours"], item["overtime_hours"], item["holiday_hours"],
+                     item["labor_total"], *expenses, item["mileage_total"],
+                     customer_reimbursement_item_expense_amount(item, "other"), item["total"]])
     workbook = build_simple_xlsx(headers, rows, sheet_name="工单结算")
     return send_file(workbook, as_attachment=True, download_name=f"{order['order_number']}-工单结算.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
