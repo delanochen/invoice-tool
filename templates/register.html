@@ -4,6 +4,13 @@
   <form method="post" class="login-card" autocomplete="off">
     <img class="login-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
     <h1>员工账号注册</h1>
+    <label>语言
+      <select name="language" onchange="window.location.href='{{ url_for('register') }}?lang=' + encodeURIComponent(this.value)">
+        {% for code, language in supported_languages.items() %}
+          <option value="{{ code }}" {% if current_language == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <input class="autofill-decoy" type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">
     <input class="autofill-decoy" type="password" name="current-password" autocomplete="current-password" tabindex="-1" aria-hidden="true">
     <label>姓名 <input name="name" value="" autocomplete="name" required></label>

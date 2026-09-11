@@ -2635,6 +2635,22 @@
     "设备维修清单": "Lista de reparaciones de equipos", "施工员": "Técnico", "实际拍摄账号": "Cuenta de captura", "照片": "Fotos", "序号": "N.º", "集装箱号": "Número de contenedor", "已更换水泵保险编号": "Fusibles de bomba reemplazados", "维修人员": "Técnicos"
   });
 
+  const registrationTranslations = {
+    "员工账号注册": ["Employee Account Registration", "Medewerkersaccount registreren", "Mitarbeiterkonto registrieren", "Registro de cuenta de empleado"],
+    "例如 +1 713 555 1234": ["e.g. +1 713 555 1234", "Bijv. +1 713 555 1234", "z. B. +1 713 555 1234", "p. ej. +1 713 555 1234"],
+    "请填写有效的手机号，并包含国家代码。": ["Enter a valid phone number including the country code.", "Vul een geldig telefoonnummer met landcode in.", "Geben Sie eine gültige Telefonnummer mit Ländervorwahl ein.", "Introduzca un número de teléfono válido con el código de país."],
+    "请填写地址。": ["Please enter an address.", "Vul een adres in.", "Bitte geben Sie eine Adresse ein.", "Introduzca una dirección."],
+    "姓名包含损坏字符，请重新输入正确姓名。": ["Your name contains invalid characters. Please enter it again.", "Uw naam bevat ongeldige tekens. Voer deze opnieuw in.", "Ihr Name enthält ungültige Zeichen. Bitte erneut eingeben.", "El nombre contiene caracteres no válidos. Vuelva a introducirlo."],
+    "密码至少需要 8 位。": ["Password must be at least 8 characters.", "Het wachtwoord moet minimaal 8 tekens bevatten.", "Das Passwort muss mindestens 8 Zeichen enthalten.", "La contraseña debe tener al menos 8 caracteres."],
+    "两次输入的密码不一致。": ["Passwords do not match.", "De wachtwoorden komen niet overeen.", "Die Passwörter stimmen nicht überein.", "Las contraseñas no coinciden."],
+    "这个邮箱已经注册。": ["This email is already registered.", "Dit e-mailadres is al geregistreerd.", "Diese E-Mail-Adresse ist bereits registriert.", "Este correo electrónico ya está registrado."],
+    "注册后账号默认为停用，需由管理员或经理批准启用后才能登录。": ["New accounts are disabled until approved by an administrator or manager.", "Nieuwe accounts zijn uitgeschakeld totdat een beheerder of manager ze goedkeurt.", "Neue Konten müssen vor der Anmeldung von einem Administrator oder Manager freigeschaltet werden.", "Las cuentas nuevas deben ser habilitadas por un administrador o gerente antes de iniciar sesión."],
+    "注册成功，请等待管理员或经理批准启用。": ["Registration successful. Please wait for administrator or manager approval.", "Registratie geslaagd. Wacht op goedkeuring van een beheerder of manager.", "Registrierung erfolgreich. Bitte warten Sie auf die Freigabe durch einen Administrator oder Manager.", "Registro completado. Espere la aprobación de un administrador o gerente."],
+    "返回登录": ["Back to sign in", "Terug naar inloggen", "Zurück zur Anmeldung", "Volver al inicio de sesión"]
+  };
+  [en, nl, de, es].forEach((dictionary, index) => {
+    Object.entries(registrationTranslations).forEach(([key, values]) => { dictionary[key] = values[index]; });
+  });
   const language = typeof document === "undefined" ? "en" : document.documentElement.lang;
   const dictionaries = { en, nl, de, es };
   const isChinese = language === "zh-CN";
