@@ -61,6 +61,27 @@ class ReportFiltersTest(unittest.TestCase):
         self.assertIn('data-report-multi', page)
         self.assertNotIn('name="country_code"', page)
 
+    def test_invoice_multiselect_and_removed_filters(self):
+        with self.m.app.app_context():
+            db = self.m.db()
+            client = db.execute("insert into clients (client_number,name,short_name,created_at) values ('TEST','Client','Client','now')").lastrowid
+            for index, order in enumerate([self.f.order, self.second]):
+                invoice = db.execute("insert into invoices (invoice_number,client_id,service_order_id,issue_date,due_date,created_by,created_at) values (?,?,?,'2026-09-10','2026-10-10',?,'now')", (f'TEST-{index}', client, order, self.f.people['Manager'])).lastrowid
+                db.execute("insert into invoice_items (invoice_id,project_id,description,amount,tax_rate) values (?,?,'test',?,0)", (invoice, self.f.project, 100 * (index + 1)))
+            db.commit()
+        with patch.object(self.m, 'render_template', return_value='ok') as render:
+            response = self.f.http.get('/invoices', query_string={'order_id': [str(self.f.order), str(self.second)], 'site': ['Site B'], 'q': 'no-match', 'status': 'invalid', 'created_by': 'invalid'})
+        self.assertEqual(response.status_code, 200)
+        result = render.call_args.kwargs
+        self.assertEqual(len(result['invoices']), 1)
+        self.assertEqual(result['summary_totals']['USD'], 200)
+        page = self.f.http.get('/invoices').text
+        self.assertIn('data-report-multi', page)
+        for name in ['q', 'status', 'created_by']:
+            self.assertNotIn(f'name="{name}"', page)
+        for name in ['paid_status', 'work_order_status', 'date_from', 'date_to']:
+            self.assertIn(f'name="{name}"', page)
+
 
 if __name__ == '__main__':
     unittest.main()

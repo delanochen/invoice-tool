@@ -8,15 +8,9 @@
     {% endif %}
   </header>
   <form class="filter-bar no-print" method="get">
-    <label>关键词 <input name="q" value="{{ q }}" placeholder="编号、客户编号、名称或简称"></label>
-    <label>状态
-      <select name="status">
-        <option value="">全部状态</option>
-        {% for key, label in labels.items() %}
-          <option value="{{ key }}" {% if status == key %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
+    {% from "report_multiselect.html" import multi_filter %}
+    {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
+    {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
     <label>核销
       <select name="paid_status">
         <option value="">全部</option>
@@ -33,14 +27,6 @@
     </label>
     <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
     <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
-    <label>开票人
-      <select name="created_by">
-        <option value="">全部开票人</option>
-        {% for user in users %}
-          <option value="{{ user.id }}" {% if created_by == user.id|string %}selected{% endif %}>{{ user.name }}{% if user.email %} · {{ user.email }}{% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
     <div class="filter-actions">
       <button type="submit">查询</button>
       <button type="button" onclick="window.location.href='{{ url_for('invoices') }}'">重置</button>
@@ -83,3 +69,6 @@
     </table>
   </section>
 {% endblock %}
+
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>{% endblock %}
