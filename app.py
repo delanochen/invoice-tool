@@ -422,7 +422,7 @@ CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
     "Technical Services": "labor_total",
     "Travel Expenses Reimbursement": "travel_total",
     "Mileage Reimbursement": "mileage_total",
-    "MRO Supplies": "mro_supplies_total",
+    "MRO Supplies配件及耗材费": "mro_supplies_total",
 }
 
 DEFAULT_OWNER_NAMES = [
@@ -518,6 +518,29 @@ def verify_data_directory_identity():
         ) from error
     if not identity_row or identity_row[0] != DATA_DIRECTORY_IDENTITY:
         raise RuntimeError("Refusing to start: the protected production database identity is incorrect.")
+
+
+def merge_mro_project_aliases(connection):
+    canonical_name = "MRO Supplies配件及耗材费"
+    def is_alias(value):
+        return "".join(normalized_project_name(value).casefold().split()) == "mrosupplies"
+    rows = connection.execute("select * from projects order by id").fetchall()
+    for old in rows:
+        if not is_alias(old["name"]):
+            continue
+        target = connection.execute("select id from projects where project_type = ? and name = ? order by id limit 1", (old["project_type"], canonical_name)).fetchone()
+        if target:
+            target_id = target["id"]
+            connection.execute("update invoice_items set project_id = ? where project_id = ?", (target_id, old["id"]))
+            for table in ("expense_items", "expenses"):
+                connection.execute(f"update {table} set project_id = ?, project = ? where project_id = ?", (target_id, canonical_name, old["id"]))
+            connection.execute("delete from projects where id = ?", (old["id"],))
+        else:
+            connection.execute("update projects set name = ?, name_key = ? where id = ?", (canonical_name, project_name_key(canonical_name), old["id"]))
+    for table, column in (("expense_items", "project"), ("expenses", "project"), ("invoice_items", "description")):
+        for row in connection.execute(f"select id, {column} as name from {table}").fetchall():
+            if is_alias(row["name"]):
+                connection.execute(f"update {table} set {column} = ? where id = ?", (canonical_name, row["id"]))
 
 
 def merge_duplicate_projects(connection):
@@ -1458,6 +1481,7 @@ def init_db():
                 "insert or replace into settings (key, value) values (?, ?)",
                 ("buyers_country_code_v1", now()),
             )
+        merge_mro_project_aliases(connection)
         try:
             merge_duplicate_projects(connection)
         except sqlite3.Error:
