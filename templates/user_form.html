@@ -5,9 +5,10 @@
     <div><p class="eyebrow">Users</p><h1>编辑用户</h1></div>
     <button type="button" onclick="window.location.href='{{ url_for('users') }}'">返回用户列表</button>
   </header>
-  <form method="post" enctype="multipart/form-data" class="panel form-stack narrow-form">
+  <form method="post" enctype="multipart/form-data" class="panel form-stack user-details-form">
     <label>姓名 <input name="name" value="{{ user.name }}" required></label>
     <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
+    <label>手机号 <input type="tel" name="phone" value="{{ user.phone or '' }}" autocomplete="tel" placeholder="例如 +1 713 555 1234"></label>
     <label><span>地址 <span class="required-mark">*</span></span>
       <textarea name="address" rows="2" data-user-address {% if requires_user_address(user.role) %}required{% endif %}>{{ user.address or "" }}</textarea>
     </label>
@@ -155,3 +156,5 @@
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
   <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
 {% endblock %}
+
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='user-details.css', v=app_version) }}">{% endblock %}

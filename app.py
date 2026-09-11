@@ -8982,10 +8982,14 @@ def edit_user(user_id):
             flash("内部员工必须填写地址。", "error")
             return redirect(url_for("edit_user", user_id=user_id))
         try:
+            phone = user["phone"] or ""
+            if "phone" in request.form:
+                raw_phone = request.form.get("phone", "").strip()
+                phone = normalize_phone(raw_phone, country["code"]) if raw_phone else ""
             db().execute(
                 """
                 update users
-                set name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?
+                set name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?, phone = ?
                 where id = ?
                 """,
                 (
@@ -8998,9 +9002,12 @@ def edit_user(user_id):
                     client_id,
                     country["region_code"],
                     country["code"],
+                    phone,
                     user_id,
                 ),
             )
+            if phone != (user["phone"] or ""):
+                db().execute("update users set phone_verified = 0 where id = ?", (user_id,))
             if user_id == g.user["id"]:
                 session["language"] = default_language
             if can_assign_external_employees():
@@ -10402,7 +10409,8 @@ def invoices():
         select invoices.*, clients.name as client_name, clients.short_name as client_short_name,
                clients.client_number, users.name as creator_name,
                service_orders.order_number as service_order_number,
-               service_orders.status as service_order_status
+               service_orders.status as service_order_status,
+               service_orders.client_order_number as service_client_order_number
         from invoices
         join clients on clients.id = invoices.client_id
         left join users on users.id = invoices.created_by

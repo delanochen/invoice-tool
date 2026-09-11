@@ -82,6 +82,18 @@ class ReportFiltersTest(unittest.TestCase):
         for name in ['paid_status', 'work_order_status', 'date_from', 'date_to']:
             self.assertIn(f'name="{name}"', page)
 
+    def test_invoice_detail_report_uses_service_order_number_and_no_customer_column(self):
+        with self.m.app.app_context():
+            db = self.m.db()
+            client = db.execute("insert into clients (client_number,name,short_name,created_at) values ('RPT','Report Client','RC','now')").lastrowid
+            invoice = db.execute("insert into invoices (invoice_number,client_id,service_order_id,issue_date,due_date,created_by,created_at) values ('RPT-1',?,?,'2026-09-10','2026-10-10',?,'now')", (client, self.f.order, self.f.people['Manager'])).lastrowid
+            db.execute("insert into invoice_items (invoice_id,project_id,description,amount,tax_rate) values (?,?,'test',10,0)", (invoice, self.f.project))
+            db.commit()
+        page = self.f.http.get('/reports/invoices').text
+        self.assertIn('服务订单号码', page)
+        self.assertIn('ORDER', page)
+        self.assertNotIn('<th>客户</th>', page)
+
 
 if __name__ == '__main__':
     unittest.main()

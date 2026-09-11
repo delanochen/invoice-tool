@@ -72,6 +72,27 @@ class RegistrationAddressTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(user['phone'], '+17135559876')
 
+    def test_edit_phone_display_validation_and_preservation(self):
+        self.register('employee', address='123 Test Street')
+        with self.fixture.app.app.app_context():
+            uid = self.fixture.app.db().execute("select id from users where email='employee@new.invalid'").fetchone()['id']
+        self.fixture.login('Manager')
+        for path in ['/users', f'/users/{uid}/edit']:
+            response = self.http.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('+17135551234', response.text)
+            self.assertIn('name="phone"', response.text)
+        data = dict(name='New Person', email='employee@new.invalid', role='employee', address='123 Test Street', country_code='US', phone='(713) 555-9876')
+        self.http.post(f'/users/{uid}/edit', data=data)
+        with self.fixture.app.app.app_context():
+            self.assertEqual(self.fixture.app.db().execute('select phone from users where id=?',(uid,)).fetchone()['phone'], '+17135559876')
+        data['phone'] = '1234'
+        self.http.post(f'/users/{uid}/edit', data=data)
+        del data['phone']
+        self.http.post(f'/users/{uid}/edit', data=data)
+        with self.fixture.app.app.app_context():
+            self.assertEqual(self.fixture.app.db().execute('select phone from users where id=?',(uid,)).fetchone()['phone'], '+17135559876')
+
 
 if __name__ == '__main__':
     unittest.main()

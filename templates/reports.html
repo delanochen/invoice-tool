@@ -70,7 +70,7 @@
     <table class="list-table">
       <thead>
         <tr>
-          <th>日期</th><th>发票编号</th><th>客户编号</th><th>客户</th><th>客户简称</th>
+          <th>日期</th><th>发票编号</th><th>客户编号</th><th>服务订单号码</th><th>客户简称</th>
           <th>项目</th><th>金额</th><th>税率</th><th>税额</th><th>合计</th><th>发票状态</th><th>工单状态</th><th>核销</th>
         </tr>
       </thead>
@@ -81,7 +81,7 @@
             <td>{{ row.issue_date }}</td>
             <td><a href="{{ url_for('invoice_detail', invoice_id=row.id) }}">{{ row.invoice_number }}</a></td>
             <td>{{ row.client_number }}</td>
-            <td>{{ row.client_name }}</td>
+            <td>{{ row.service_client_order_number or "-" }}</td>
             <td>{{ row.short_name }}</td>
             <td>{{ row.project_name }}</td>
             <td>{{ row.amount|money(row.currency) }}</td>

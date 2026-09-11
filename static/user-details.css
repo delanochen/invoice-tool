@@ -1,0 +1,11 @@
+.user-details-grid, .user-details-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 20px; align-items: start; }
+.user-details-grid label, .user-details-form > label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.user-full-width, .user-section-title, .user-details-form > fieldset, .user-details-form > section, .user-details-form > .form-actions, .user-details-form > label:has(textarea), .user-details-form > label:has(input[type=file]) { grid-column: 1 / -1; }
+.user-section-title { margin: 12px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 17px; }
+.user-section-title:first-child { margin-top: 0; }
+.user-details-dialog { width: min(880px,calc(100vw - 24px)); max-height: 90dvh; }
+.user-details-dialog .dialog-header { position: sticky; top: -1px; z-index: 3; background: white; padding: 8px 0; }
+.user-details-dialog .form-actions { position: sticky; bottom: -1px; z-index: 3; background: white; border-top: 1px solid var(--line); padding: 12px 0; }
+.user-details-dialog .assignment-table-wrap { max-height: 260px; }
+.user-details-grid input:not([type=checkbox]):not([type=file]), .user-details-grid select { min-height: 44px; }
+@media(max-width:640px) { .user-details-grid, .user-details-form { grid-template-columns: minmax(0,1fr); } .user-details-dialog { padding: 16px; } }
