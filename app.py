@@ -10661,17 +10661,30 @@ def service_order_query():
     if not is_internal_user():
         abort(403)
     q = request.args.get("q", "").strip()
+    order_number = request.args.get("order_number", "").strip()
+    site_name = request.args.get("site_name", "").strip()
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
     status = request.args.get("status", "")
-    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
     clauses = ["1 = 1"]
     params = []
-    clauses.extend(location_clauses)
-    params.extend(location_params)
     if q:
         clauses.append(
             "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_orders.client_order_number like ?)"
         )
         params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+    if order_number:
+        clauses.append("service_orders.order_number like ?")
+        params.append(f"%{order_number}%")
+    if site_name:
+        clauses.append("service_orders.client_name like ?")
+        params.append(f"%{site_name}%")
+    if date_from:
+        clauses.append("service_orders.start_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("service_orders.start_date <= ?")
+        params.append(date_to)
     if status:
         clauses.append("service_orders.status = ?")
         params.append(status)
@@ -10685,6 +10698,7 @@ def service_order_query():
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count,
+               count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count,
                coalesce(sum(case when expenses.status = 'approved' then expenses.amount else 0 end), 0) as approved_expense_total
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
@@ -10708,11 +10722,11 @@ def service_order_query():
         "service_order_query.html",
         orders=rows,
         q=q,
+        order_number=order_number,
+        site_name=site_name,
+        date_from=date_from,
+        date_to=date_to,
         status=status,
-        countries=countries,
-        regions=regions,
-        region_code=region_code,
-        country_code=country_code,
     )
 
 
@@ -12117,7 +12131,7 @@ def audit_log_report():
 def service_orders():
     q = request.args.get("q", "").strip()
     buyer_id = request.args.get("buyer_id", "").strip()
-    clauses = ["1 = 1"]
+    clauses = ["service_orders.status != 'closed'"]
     params = []
     if is_external_manager():
         if not g.user["client_id"]:
