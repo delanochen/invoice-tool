@@ -132,14 +132,14 @@
               {% endif %}
             </td>
             <td>{{ item.description or "-" }}</td>
-            <td>{{ item.amount|money(expense.currency) }}</td>
+            <td data-grid-currency="{{ expense.currency }}">{{ item.amount|money(expense.currency) }}</td>
             <td class="expense-line-attachments-cell">{{ attachment_list(attachments_by_item.get(item.line_key, [])) }}</td>
           </tr>
         {% else %}
           <tr><td colspan="4" class="empty">没有报销明细。</td></tr>
         {% endfor %}
       </tbody>
-      <tfoot><tr class="report-total"><td colspan="2">合计</td><td>{{ expense.amount|money(expense.currency) }}</td><td></td></tr></tfoot>
+      <tfoot><tr class="report-total"><td colspan="2">合计</td><td data-grid-currency="{{ expense.currency }}">{{ expense.amount|money(expense.currency) }}</td><td></td></tr></tfoot>
     </table>
   </section>
   <section class="panel">

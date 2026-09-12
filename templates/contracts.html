@@ -47,7 +47,7 @@
             <td>{{ contract.title }}</td>
             <td>{{ contract.client_name }}</td>
             <td>{{ contract_type_labels[contract.contract_type] }}</td>
-            <td>{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}-{% endif %}</td>
+            <td data-grid-currency="{{ contract.currency }}">{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}-{% endif %}</td>
             <td>{{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</td>
             <td>{{ contract.work_order_count }}</td>
             <td><span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span></td>

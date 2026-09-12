@@ -7,6 +7,8 @@ function exportableReportTable() {
 }
 
 function reportTablePayload(table) {
+  const grid = window.systemGrids?.payload(table);
+  if (grid) return {title: reportExportConfig.title || "报表", ...grid};
   const headerCells = Array.from(table.querySelectorAll("thead th"));
   const includedIndexes = headerCells
     .map((cell, index) => ({index, label: cell.textContent.trim()}))

@@ -84,10 +84,10 @@
             <td>{{ row.service_client_order_number or "-" }}</td>
             <td>{{ row.short_name }}</td>
             <td>{{ row.project_name }}</td>
-            <td>{{ row.amount|money(row.currency) }}</td>
+            <td data-grid-currency="{{ row.currency }}">{{ row.amount|money(row.currency) }}</td>
             <td>{{ "%.2f"|format(row.tax_rate) }}%</td>
-            <td>{{ item.tax|money(row.currency) }}</td>
-            <td>{{ item.line_total|money(row.currency) }}</td>
+            <td data-grid-currency="{{ row.currency }}">{{ item.tax|money(row.currency) }}</td>
+            <td data-grid-currency="{{ row.currency }}">{{ item.line_total|money(row.currency) }}</td>
             <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
             <td>{% if row.service_order_status == "closed" %}已关闭{% elif row.service_order_status %}进行中{% else %}-{% endif %}</td>
             <td><span class="status {% if row.paid_at %}completed{% elif row.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ row|payment_label }}</span></td>

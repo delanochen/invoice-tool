@@ -14,9 +14,19 @@
   <button type="submit">查询</button>
 </form>
 <p>同一工单、日期、铭牌号、位置号、集装箱号和维修人员相同的设备照片汇总为一行；照片数量相加，水泵保险编号合并去重。</p>
-<section class="panel" style="overflow-x:auto"><table class="list-table"><thead><tr><th>序号</th><th>日期</th><th>地标号</th><th>集装箱号</th><th>同飞铭牌</th><th>已更换水泵保险编号</th><th>备注</th><th>维修人员</th><th>工单</th><th>照片</th></tr></thead><tbody>
-{% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{{ row.position_number or '-' }}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.pump_fuse_numbers or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.technician or '-' }}</td><td>{{ row.order_number }}</td><td>{{ row.photo_count }} 张</td></tr>
-{% else %}<tr><td colspan="10" class="empty">没有符合条件的设备照片。</td></tr>{% endfor %}
+<section class="panel" style="overflow-x:auto"><table class="list-table"><thead><tr><th>序号</th><th>日期</th><th>地标号</th><th>集装箱号</th><th>同飞铭牌</th><th>已更换水泵保险编号</th><th>备注</th><th>维修人员</th><th>工单</th><th>照片</th>{% if can_delete_repairs %}<th>操作</th>{% endif %}</tr></thead><tbody>
+{% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{{ row.position_number or '-' }}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.pump_fuse_numbers or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.technician or '-' }}</td><td>{{ row.order_number }}</td><td>{{ row.photo_count }} 张</td>{% if can_delete_repairs %}<td>{% if row.can_delete %}<button type="button" class="danger small" data-repair-delete="{{ row.delete_token }}" data-photo-count="{{ row.photo_count }}" data-device-label="{{ row.order_number }} · {{ row.date }} · {{ row.equipment_number or '无铭牌号' }} · {{ row.position_number or '-' }} · {{ row.container_number or '-' }}">删除</button>{% endif %}</td>{% endif %}</tr>
+{% else %}<tr><td colspan="{{ 11 if can_delete_repairs else 10 }}" class="empty">没有符合条件的设备照片。</td></tr>{% endfor %}
 </tbody></table></section>
+{% if can_delete_repairs %}
+<dialog id="deleteRepairDialog" class="modal" style="max-width:520px" data-csrf="{{ field_csrf }}" data-url="{{ url_for('delete_field_repair') }}">
+  <div class="modal-header"><h2>确认删除维修记录？</h2></div>
+  <p id="deleteRepairDevice"></p>
+  <p>将删除本条维修记录、对应的照片台账信息，以及 <strong id="deleteRepairCount"></strong> 张照片和缩略图。此操作无法撤销。</p>
+  <p id="deleteRepairError" class="flash error" role="alert" hidden></p>
+  <div class="form-actions"><button type="button" id="cancelDeleteRepair">取消</button><button type="button" class="danger" id="confirmDeleteRepair">确认删除</button></div>
+</dialog>
+<script src="{{ url_for('static', filename='repair-delete.js', v=app_version) }}" defer></script>
+{% endif %}
 <script src="{{ url_for('static', filename='device-identifiers.js', v=app_version) }}" defer></script>
 {% endblock %}

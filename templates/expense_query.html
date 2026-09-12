@@ -62,7 +62,7 @@
             <td>{{ row.expense_date }}</td>
             <td>{{ row.beneficiary_name or row.creator_name or "Unknown" }}</td>
             <td>{{ row.creator_name or "Unknown" }}</td>
-            <td>{{ row.item_amount|money(row.currency) }}</td>
+            <td data-grid-currency="{{ row.currency }}">{{ row.item_amount|money(row.currency) }}</td>
             <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
             <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
           </tr>

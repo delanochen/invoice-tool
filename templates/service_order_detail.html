@@ -147,7 +147,7 @@
             <td>{{ expense.expense_date }}</td>
             <td>{{ expense.beneficiary_name or expense.creator_name or "Unknown" }}</td>
             <td>{{ expense.creator_name or "Unknown" }}</td>
-            <td>{{ expense.amount|money(expense.currency) }}</td>
+            <td data-grid-currency="{{ expense.currency }}">{{ expense.amount|money(expense.currency) }}</td>
             <td><span class="status {{ expense.status }}">{{ expense_labels[expense.status] }}</span></td>
           </tr>
         {% else %}

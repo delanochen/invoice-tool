@@ -45,7 +45,7 @@
             <td>{{ invoice.issue_date }}</td>
             <td>{{ invoice.due_date }}</td>
             <td>{{ invoice.creator_name or "Unknown" }}</td>
-            <td>{{ totals[invoice.id].total|money(invoice.currency) }}</td>
+            <td data-grid-currency="{{ invoice.currency }}">{{ totals[invoice.id].total|money(invoice.currency) }}</td>
             <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
             <td><span class="status {% if invoice.paid_at %}completed{% elif invoice.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ invoice|payment_label }}</span></td>
           </tr>
