@@ -47,6 +47,17 @@ Docker Compose 运行三个服务：
 
 Debian 使用本仓库专用的 GitHub Deploy Key 拉取代码，不需要保存 GitHub 用户密码。
 
+## 部署前安全基线与回滚
+
+部署或迁移前，在当前部署工作区执行只读基线检查：
+
+```bash
+/bin/sh scripts/security-baseline.sh
+```
+
+脚本从自身位置推导项目目录，并优先使用环境变量、现有 `.env` 和 `docker-compose.yml`；不预设固定 NAS 路径。它检查 Git revision、Compose 配置、SQLite `integrity_check`（数据库以只读方式打开）、数据目录和照片目录的状态/大小，以及 Docker 实际 bind mount 的 `host source -> container destination`，特别检查 `/app/data` 和 `/app/shared-photos`。输出区分 `PASS`、`WARNING` 和 `FAIL`；未执行的检查必须明确显示为 `WARNING`。脚本不修改数据库、附件、`.env` 或容器配置。
+
+部署或迁移前确认数据库与附件备份位置，并记录 Git revision。失败时恢复对应的代码 revision 和备份；在回滚验证完成前，不要删除旧目录或覆盖数据库。
 ## 配置与启动
 
 复制环境变量示例并填写密钥：
@@ -87,6 +98,9 @@ SQLite、业务附件和照片都保存在 Debian 的持久化目录中。删除
 
 照片先在手机 IndexedDB 中保存为待上传草稿，点击完成后上传。锁屏、关闭页面或断网时上传可能暂停，重新打开 PWA 并联网后可以继续。
 
+## 历史/兼容说明
+
+当前生产环境为 Debian `/opt` + `/srv` 架构。仓库仍保留部分 NAS、Volume1/Volume2 兼容或迁移逻辑；这些旧 NAS 逻辑不是当前 Debian 新部署的默认流程。
 ## 地图
 
 未配置 Google Maps 密钥时，系统使用 OpenStreetMap、U.S. Census Geocoder 和 Nominatim。配置浏览器及 Geocoding API Key 后，工单地图切换到 Google 地图。
