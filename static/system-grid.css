@@ -5,3 +5,4 @@
 @media(max-width:650px){.grid-cell-content input,.grid-cell-content select,.grid-cell-content textarea{font-size:16px!important}}
 
 .system-grid.photo-ledger-grid img,.system-grid.field-ledger-grid img{width:120px;height:120px;max-height:120px;object-fit:contain}.photo-query-table img{width:120px;height:120px;object-fit:contain}
+@media screen{html.grids-pending table:has(>thead>tr>th):not(.grid-source):not([data-grid-failed]):not(.system-grid table),.system-grid.grid-building{visibility:hidden}}

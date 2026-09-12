@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tabulator/tabulator.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='system-grid.css', v=app_version) }}">
+    <script src="{{ url_for('static', filename='grid-bootstrap.js', v=app_version) }}"></script>
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}" data-grid-user="{{ g.user.id if g.user else '' }}">

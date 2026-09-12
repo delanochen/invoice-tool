@@ -40,7 +40,7 @@
       this.money = this.labels.map(label => !location.pathname.includes('employee-grades') && monetary.test(label));
       this.editable = !!source.querySelector('input:not([type=checkbox]):not([type=hidden]),textarea,select');
       this.key = `grid:${document.body.dataset.gridUser || ''}:${location.pathname}:${source.id || [...document.querySelectorAll('table')].indexOf(source)}`;
-      this.shell = document.createElement('section'); this.shell.className = 'system-grid';
+      this.shell = document.createElement('section'); this.shell.className = 'system-grid grid-building';
       if(source.classList.contains('photo-query-table'))this.shell.classList.add('photo-ledger-grid');
       if(source.classList.contains('ledger-table'))this.shell.classList.add('field-ledger-grid');
       this.tools = document.createElement('div'); this.tools.className = 'grid-tools no-print';
@@ -68,7 +68,7 @@
         },
         rowFormatter: row => row.getElement().classList.toggle('is-selected', this.rows.get(row.getData()._id)?.classList.contains('is-selected')),
       });
-      this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); });
+      this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); this.shell.classList.remove('grid-building'); settle(); });
       this.grid.on('renderComplete', () => { this.parentTotals(); this.updateCount(); });
       this.grid.on('dataFiltered', () => this.updateCount());
       this.grid.on('dataProcessed', () => this.updateCount());
@@ -227,13 +227,17 @@
       return {headers:columns.map(column=>column.getDefinition().title),rows};
     }
   }
+  function settle() {
+    if([...instances.values()].every(instance=>instance.ready)) document.documentElement.classList.remove('grids-pending');
+  }
   function scan() {
-    if(!window.Tabulator || location.pathname.includes('/print')) return;
+    if(!window.Tabulator || location.pathname.includes('/print')) { document.documentElement.classList.remove('grids-pending'); return; }
     for(const [source,instance] of instances)if(!source.isConnected){clearTimeout(instance.timer);instance.listeners.abort();instance.observer.disconnect();instance.resizeObserver.disconnect();instance.grid.destroy();instance.shell.remove();instances.delete(source);}
     document.querySelectorAll('table').forEach(source=>{
       if(instances.has(source) || source.closest('.system-grid') || !source.tHead?.rows[0]?.cells.length) return;
-      try { const instance=new Grid(source); instances.set(source,instance); } catch(error) { console.error('Grid initialization failed',error); }
+      try { const instance=new Grid(source); instances.set(source,instance); } catch(error) { source.dataset.gridFailed='true'; source.previousElementSibling?.classList.contains('grid-building') && source.previousElementSibling.remove(); console.error('Grid initialization failed',error); }
     });
+    settle();
   }
   window.systemGrids={instances,scan,payload:source=>instances.get(source)?.export()};
   document.addEventListener('DOMContentLoaded',()=>{
