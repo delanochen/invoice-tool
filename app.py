@@ -2349,6 +2349,7 @@ def current_user():
 def prevent_stale_business_pages(response):
     if response.mimetype == "text/html":
         response.headers["Cache-Control"] = "no-store, private"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
 
@@ -4303,6 +4304,51 @@ def valid_image_file(path):
         return True
     except (OSError, ValueError):
         return False
+
+
+def safe_attachment_response(path, original_filename):
+    """Return an attachment response based only on server-side content checks."""
+    try:
+        with Image.open(path) as image:
+            image.verify()
+            image_format = image.format
+        image_mimetype = {
+            "JPEG": "image/jpeg",
+            "PNG": "image/png",
+            "WEBP": "image/webp",
+            "GIF": "image/gif",
+        }.get(image_format)
+        if image_mimetype:
+            return send_file(
+                path,
+                as_attachment=False,
+                download_name=original_filename,
+                mimetype=image_mimetype,
+                conditional=True,
+            )
+    except Exception:
+        pass
+
+    try:
+        with open(path, "rb") as file:
+            is_pdf = file.read(5) == b"%PDF-"
+    except Exception:
+        is_pdf = False
+    if is_pdf:
+        return send_file(
+            path,
+            as_attachment=False,
+            download_name=original_filename,
+            mimetype="application/pdf",
+            conditional=True,
+        )
+    return send_file(
+        path,
+        as_attachment=True,
+        download_name=original_filename,
+        mimetype="application/octet-stream",
+        conditional=True,
+    )
 
 
 def order_photo_status(order_dir):
@@ -7395,10 +7441,9 @@ def preview_contract_attachment(attachment_id):
     if not attachment:
         abort(404)
     require_contract_access(attachment["contract_id"])
-    return send_file(
+    return safe_attachment_response(
         contract_attachment_path(attachment),
-        mimetype=attachment["content_type"] or "application/octet-stream",
-        download_name=attachment["original_filename"],
+        attachment["original_filename"],
     )
 
 
@@ -9133,12 +9178,9 @@ def preview_user_attachment(attachment_id):
     owner = db().execute("select * from users where id = ?", (attachment["user_id"],)).fetchone()
     if not owner or not can_manage_user_record(owner):
         abort(403)
-    return send_file(
+    return safe_attachment_response(
         os.path.join(USER_ATTACHMENT_DIR, str(attachment["user_id"]), attachment["stored_filename"]),
-        as_attachment=False,
-        download_name=attachment["original_filename"],
-        mimetype=attachment["content_type"] or None,
-        conditional=True,
+        attachment["original_filename"],
     )
 
 
@@ -10359,12 +10401,9 @@ def preview_company_attachment(attachment_id):
     attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
     if not attachment:
         abort(404)
-    return send_file(
+    return safe_attachment_response(
         os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]),
-        as_attachment=False,
-        download_name=attachment["original_filename"],
-        mimetype=attachment["content_type"] or None,
-        conditional=True,
+        attachment["original_filename"],
     )
 
 
@@ -13154,7 +13193,10 @@ def preview_customer_reimbursement_attachment(attachment_id):
     if not attachment:
         abort(404)
     require_customer_reimbursement(attachment["customer_reimbursement_id"])
-    return send_file(customer_reimbursement_attachment_path(attachment), mimetype=attachment["content_type"] or None)
+    return safe_attachment_response(
+        customer_reimbursement_attachment_path(attachment),
+        attachment["original_filename"],
+    )
 
 
 @app.post("/customer-reimbursement-attachments/<int:attachment_id>/delete")
@@ -13728,12 +13770,9 @@ def preview_report_attachment(attachment_id):
     if not attachment:
         abort(404)
     require_service_report(attachment["report_id"])
-    return send_file(
+    return safe_attachment_response(
         report_attachment_path(attachment),
-        as_attachment=False,
-        download_name=attachment["original_filename"],
-        mimetype=attachment["content_type"] or None,
-        conditional=True,
+        attachment["original_filename"],
     )
 
 
@@ -14254,12 +14293,9 @@ def preview_expense_attachment(attachment_id):
     if not attachment:
         abort(404)
     require_expense(attachment["expense_id"])
-    return send_file(
+    return safe_attachment_response(
         expense_attachment_path(attachment),
-        as_attachment=False,
-        download_name=attachment["original_filename"],
-        mimetype=attachment["content_type"] or None,
-        conditional=True,
+        attachment["original_filename"],
     )
 
 
@@ -14973,12 +15009,9 @@ def preview_attachment(attachment_id):
     if not attachment:
         abort(404)
     require_invoice_access(attachment["invoice_id"])
-    return send_file(
+    return safe_attachment_response(
         attachment_file_path(attachment),
-        as_attachment=False,
-        download_name=attachment["original_filename"],
-        mimetype=attachment["content_type"] or None,
-        conditional=True,
+        attachment["original_filename"],
     )
 
 
