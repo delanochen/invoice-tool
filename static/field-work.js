@@ -818,7 +818,6 @@
   $('completeBatch').addEventListener('click',completeBatch);
   $('closeDraft').addEventListener('click',()=>$('draftDialog').close());
   $('deleteDraft').addEventListener('click',async()=>{if(!draftSelection)return;await storePhoto(draftSelection,true);draftSelection=null;$('draftDialog').close();await renderQueue();notice('已删除本机草稿照片。');});
-  $('refreshLedger').addEventListener('click',loadLedger);
   $('closeLedgerPhoto').addEventListener('click',()=>$('ledgerPhotoDialog').close());
   $('previousLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex-1));
   $('nextLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex+1));
