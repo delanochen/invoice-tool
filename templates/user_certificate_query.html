@@ -4,7 +4,7 @@
 {% block content %}
 <header class="page-header"><div><p class="eyebrow">Reports</p><h1>员工证书查询</h1></div><div class="metric"><span>{{ employee_count }} 位员工</span><strong>{{ attachment_count }} 份附件</strong></div></header>
 <form method="get" class="filter-bar no-print">
-  <label>关键词<input name="q" value="{{ request.args.get('q','') }}" placeholder="姓名、邮箱、证书文件名或国家代码"></label>
+  
   <label>员工<select name="user_id"><option value="">全部人员</option>{% for person in people %}<option value="{{ person.id }}" {% if request.args.get('user_id') == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}</select></label>
   <label>附件情况<select name="presence">{% for value,label in [('yes','有附件'),('no','没有附件'),('','全部')] %}<option value="{{ value }}" {% if request.args.get('presence','yes') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
   <label>账号状态<select name="active">{% for value,label in [('','全部'),('1','启用'),('0','停用')] %}<option value="{{ value }}" {% if request.args.get('active','') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>

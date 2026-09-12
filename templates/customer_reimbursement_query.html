@@ -4,7 +4,7 @@
   <header class="page-header"><div><p class="eyebrow">Reports</p><h1>工单结算报表</h1></div></header>
 
   <form class="filter-bar service-filter no-print" method="get">
-    <label>关键词 <input name="q" value="{{ q }}" placeholder="结算文件、工单、站点、业主、发票编号"></label>
+    
     {% from "report_multiselect.html" import multi_filter %}
     {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
     {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}

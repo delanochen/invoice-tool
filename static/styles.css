@@ -214,6 +214,7 @@ button:disabled {
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
+  display: none;
 }
 h1, h2, h3, p { margin-top: 0; }
 .page-header, .panel-title, .actions, .form-actions {
@@ -1649,8 +1650,12 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   font-size: 13px;
 }
 .service-report-form .form-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
 }
+.service-report-form { padding: 12px 14px; }
+.service-report-form label { min-width: 0; }
+.service-report-form .full-span { grid-column: 1 / -1; }
 .time-select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);

@@ -12044,6 +12044,8 @@ def process_expense_action():
         flash("流程状态和发放状态已重置。", "success")
     else:
         flash("请选择要执行的操作。", "error")
+    if action in {"reset_payout", "reset_workflow"}:
+        return redirect(url_for("expense_detail", expense_id=expense_id))
     return redirect(url_for("expense_processing"))
 
 

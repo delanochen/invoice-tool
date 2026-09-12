@@ -14,7 +14,7 @@
   </header>
   <form class="filter-bar service-filter no-print" method="get">
     <input type="hidden" name="buyer_id" value="{{ buyer_id or '' }}">
-    <label>关键词 <input name="q" value="{{ q }}" placeholder="工单编号、站点名称、业主或服务订单号码"></label>
+    
     <div class="filter-actions">
       <button type="submit">查询</button>
       <button type="button" onclick="window.location.href='{{ url_for('service_orders') }}'">重置</button>

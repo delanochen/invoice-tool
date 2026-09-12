@@ -11,9 +11,7 @@
   </section>
 
   <form class="filter-bar service-filter no-print" method="get">
-    <label>关键词
-      <input name="q" value="{{ q }}" placeholder="报销编号、工单、站点、归属员工或提交人">
-    </label>
+    
     <label>流程状态
       <select name="status">
         <option value="">全部</option>
@@ -42,12 +40,6 @@
       <div class="form-actions no-print">
         <span class="muted-line" data-selected-label>{{ rows|length }} 张报销</span>
         <button class="primary" type="submit" name="action" value="reimburse" data-enable-on-select disabled onclick="return window.uiConfirm ? window.uiConfirm('确认所选报销已经完成付款吗？') : confirm('确认所选报销已经完成付款吗？');">报销</button>
-      </div>
-    {% elif normalized_role() == "admin" %}
-      <div class="form-actions no-print">
-        <span class="muted-line" data-selected-label>{{ rows|length }} 张报销</span>
-        <button type="submit" name="action" value="reset_payout" data-enable-on-select disabled onclick="return window.uiConfirm ? window.uiConfirm('确认将所选单据重置为待报销吗？') : confirm('确认将所选单据重置为待报销吗？');">重置发放状态</button>
-        <button class="danger" type="submit" name="action" value="reset_workflow" data-enable-on-select disabled onclick="return window.uiConfirm ? window.uiConfirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？') : confirm('确认将所选单据重置为待经理审核，并同时重置发放状态吗？');">重置流程状态</button>
       </div>
     {% endif %}
     <section class="panel">

@@ -3,7 +3,7 @@
 {% block content %}
 <header class="page-header"><h1>工单照片台账</h1><a class="button" href="{{ url_for('field_work') }}">进入现场工作</a></header>
 <form method="get" class="filter-bar no-print">
-<label>关键词<input name="q" value="{{ request.args.get('q','') }}" placeholder="工单、站点、施工员、铭牌号、位置号、集装箱号"></label>
+
 <label>工单<select name="order_id"><option value="">全部工单</option>{% for order in photo_orders %}<option value="{{ order.id }}" {% if request.args.get('order_id','') == order.id|string %}selected{% endif %}>{{ order.order_number }} · {{ order.client_name }}</option>{% endfor %}</select></label>
 <label>开始日期<input type="date" name="date_from" value="{{ request.args.get('date_from','') }}"></label>
 <label>结束日期<input type="date" name="date_to" value="{{ request.args.get('date_to','') }}"></label>
