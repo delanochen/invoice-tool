@@ -20,7 +20,7 @@ from functools import wraps
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -2373,6 +2373,29 @@ def login_required(view):
         return view(*args, **kwargs)
 
     return wrapped
+
+
+def is_safe_redirect_target(target):
+    if not isinstance(target, str):
+        return False
+    candidate = target.strip()
+    if not candidate:
+        return False
+    for _ in range(3):
+        if any(ord(character) < 0x20 or ord(character) == 0x7F for character in candidate):
+            return False
+        if "\\" in candidate:
+            return False
+        parsed = urlsplit(candidate)
+        if not candidate.startswith("/") or candidate.startswith("//"):
+            return False
+        if parsed.scheme or parsed.netloc:
+            return False
+        decoded = unquote(candidate)
+        if decoded == candidate:
+            return True
+        candidate = decoded
+    return False
 
 
 def admin_required(view):
@@ -6975,7 +6998,10 @@ def login():
             session["user_id"] = user["id"]
             log_login_action(user)
             db().commit()
-            return redirect(request.args.get("next") or url_for("dashboard"))
+            next_target = request.args.get("next")
+            if not is_safe_redirect_target(next_target):
+                next_target = url_for("dashboard")
+            return redirect(next_target)
         flash("邮箱或密码不正确。", "error")
     return render_template("login.html")
 
