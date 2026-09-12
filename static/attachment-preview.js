@@ -56,12 +56,12 @@ function closeImageAttachmentPreview() {
   imageAttachmentPreviewDialog?.close();
 }
 
-document.addEventListener("click", (event) => {
-  const link = event.target.closest("[data-image-preview]");
+function openImageAttachmentPreview(link, event) {
   if (!link || !imageAttachmentPreviewDialog || !imageAttachmentPreviewImage) return;
   event.preventDefault();
   // Handle the visible thumbnail before grid adapters forward its click to a hidden source row.
   event.stopPropagation();
+  if (imageAttachmentPreviewDialog.open && imageAttachmentPreviewImage.src === link.href) return;
   const containers=[];
   for(let node=link.parentElement;node;node=node.parentElement) {
     if(node.scrollHeight>node.clientHeight || node.scrollWidth>node.clientWidth) containers.push([node,node.scrollLeft,node.scrollTop]);
@@ -73,6 +73,27 @@ document.addEventListener("click", (event) => {
   if (!imageAttachmentPreviewDialog.open) imageAttachmentPreviewDialog.showModal();
   applyImageAttachmentPreviewZoom();
   window.scrollTo(imagePreviewReturn.x,imagePreviewReturn.y);
+}
+
+// A grid can replace a cell between pointerdown and click. Handle the release
+// against the visible link as well; retain click for keyboard activation.
+let imagePreviewPointer = null;
+document.addEventListener('pointerdown', event => {
+  const link = event.target.closest?.('[data-image-preview]');
+  imagePreviewPointer = event.isPrimary && event.button === 0 && link
+    ? {id:event.pointerId, href:link.href, x:event.clientX, y:event.clientY} : null;
+}, true);
+document.addEventListener('pointercancel', () => { imagePreviewPointer = null; }, true);
+document.addEventListener('pointerup', event => {
+  const start = imagePreviewPointer; imagePreviewPointer = null;
+  const link = event.target.closest?.('[data-image-preview]');
+  if (start && start.id === event.pointerId && link?.href === start.href
+      && Math.hypot(event.clientX-start.x, event.clientY-start.y) < 8) {
+    openImageAttachmentPreview(link, event);
+  }
+}, true);
+document.addEventListener('click', event => {
+  openImageAttachmentPreview(event.target.closest?.('[data-image-preview]'), event);
 }, true);
 
 imageAttachmentPreviewFit?.addEventListener("click", setImageAttachmentPreviewFit);

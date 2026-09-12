@@ -15,7 +15,16 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
    assert.ok(bounds.start.x>=-1 && bounds.start.y>=-1,JSON.stringify(bounds));assert.ok(bounds.right<=1&&bounds.bottom<=1,JSON.stringify(bounds));
   }
   await page.locator('[data-image-preview-fit]').click();assert.ok(await page.locator('img').evaluate(img=>img.width<=img.parentElement.clientWidth&&img.height<=img.parentElement.clientHeight));
-  await page.locator('[data-image-preview-close]').click();assert.equal(await page.evaluate(()=>scrollY),before);assert.deepEqual(errors,[]);await page.close();
+  await page.locator('[data-image-preview-close]').click();assert.equal(await page.evaluate(()=>scrollY),before);
+  // Re-render a grid link while the pointer is held: the browser no longer
+  // dispatches click to that link, but a short release should still preview it.
+  const box=await page.locator('a').boundingBox();
+  await page.mouse.move(box.x+5,box.y+5);await page.mouse.down();
+  await page.locator('a').evaluate(link=>link.replaceWith(link.cloneNode(true)));
+  await page.mouse.up();await page.waitForSelector('dialog[open]');
+  await page.locator('[data-image-preview-close]').click();
+  await page.locator('a').focus();await page.keyboard.press('Enter');await page.waitForSelector('dialog[open]');
+  assert.deepEqual(errors,[]);await page.close();
  }
  console.log('PASS: portrait/landscape, both viewers, all four corners reachable, fit and page scroll restored');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1);});
