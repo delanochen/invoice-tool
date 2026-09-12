@@ -3,15 +3,14 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Users</p><h1>用户管理</h1></div>
-    {% if can_assign %}
-      <button class="primary" type="button" data-dialog-open="newUserDialog">新增用户</button>
-    {% endif %}
   </header>
 
   <section class="panel users-panel" data-selectable-scope>
     <div class="panel-title">
-      <h2>{% if can_assign %}用户与工单授权{% else %}我的信息{% endif %}</h2>
       <div class="toolbar-actions" data-selection-toolbar>
+        {% if can_assign %}
+          <button class="small primary" type="button" data-dialog-open="newUserDialog">新增用户</button>
+        {% endif %}
         <span class="muted-line" data-selected-label>{{ users|length }} 个用户</span>
         <button class="small" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>
         {% if can_approve %}
