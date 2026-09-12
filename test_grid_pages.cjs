@@ -25,6 +25,9 @@ try{
  const payload=await frame.evaluate(()=>{const data=new FormData(document.querySelector('#expenseItems').closest('form'));return {amounts:data.getAll('item_amount'),projects:data.getAll('project_id'),files:[...data].filter(([key,value])=>key.startsWith('item_attachments_')&&value.size).map(([key,value])=>[key,value.name])};});
  assert.deepEqual(payload.amounts,['12.34','56.78']);assert.equal(payload.projects.length,2);assert.equal(payload.files.length,1);assert.equal(payload.files[0][1],'proof.png');
  assert.ok(await frame.locator('.system-grid .pending-attachment-card').count());
+ await frame.locator('.system-grid .pending-attachment-card [data-image-preview]').click();
+ await frame.waitForSelector('#imageAttachmentPreviewDialog[open]',{timeout:3000});
+ await frame.locator('[data-image-preview-close]').click();
  await frame.locator('.system-grid .pending-attachment-card button').click();await frame.waitForTimeout(150);
  assert.equal(await frame.evaluate(()=>[...new FormData(document.querySelector('#expenseItems').closest('form'))].filter(([key,value])=>key.startsWith('item_attachments_')&&value.size).length),0);
  await frame.locator('.system-grid input[type=file]').first().setInputFiles({name:'saved-proof.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB9sAAAAASUVORK5CYII=','base64')});
@@ -33,6 +36,21 @@ try{
  await frame.waitForSelector('table.grid-source',{state:'attached'});
  assert.match(await frame.locator('main').innerText(),/saved-proof.png/);
  assert.match(await frame.locator('main').innerText(),/69.12/);
+ await frame.locator('.system-grid .saved-item-attachment [data-image-preview]').first().click();
+ await frame.waitForSelector('#imageAttachmentPreviewDialog[open]',{timeout:3000});
+ await frame.locator('[data-image-preview-in]').click();
+ assert.equal(await frame.locator('#imageAttachmentPreviewImage').evaluate(el=>el.style.transform),'scale(1.25)');
+ await frame.locator('[data-image-preview-close]').click();
+ await frame.locator('.system-grid .expense-line-attachment-name').first().click();
+ await frame.waitForSelector('#imageAttachmentPreviewDialog[open]',{timeout:3000});
+ await frame.locator('[data-image-preview-close]').click();
+ await frame.goto(frame.url().replace(/\/edit$/, ''));
+ await frame.waitForSelector('table.grid-source',{state:'attached'});
+ for(const selector of ['.expense-line-attachment img','.expense-line-attachment-name']) {
+  await frame.locator('.system-grid '+selector).first().click();
+  await frame.waitForSelector('#imageAttachmentPreviewDialog[open]',{timeout:3000});
+  await frame.locator('[data-image-preview-close]').click();
+ }
  await frame.goto('http://127.0.0.1:8786/reports/expenses');await frame.waitForTimeout(500);
  await page.screenshot({path:require('path').join(__dirname,'../tabulator-page.png'),fullPage:true});
  assert.deepEqual(errors,[]);

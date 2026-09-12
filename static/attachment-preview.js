@@ -44,11 +44,13 @@ document.addEventListener("click", (event) => {
   const link = event.target.closest("[data-image-preview]");
   if (!link || !imageAttachmentPreviewDialog || !imageAttachmentPreviewImage) return;
   event.preventDefault();
+  // Handle the visible thumbnail before grid adapters forward its click to a hidden source row.
+  event.stopPropagation();
   imageAttachmentPreviewTitle.textContent = link.dataset.previewName || link.textContent.trim() || "附件预览";
   imageAttachmentPreviewImage.src = link.href;
   setImageAttachmentPreviewFit();
-  imageAttachmentPreviewDialog.showModal();
-});
+  if (!imageAttachmentPreviewDialog.open) imageAttachmentPreviewDialog.showModal();
+}, true);
 
 imageAttachmentPreviewFit?.addEventListener("click", setImageAttachmentPreviewFit);
 imageAttachmentPreviewOriginal?.addEventListener("click", setImageAttachmentPreviewOriginal);

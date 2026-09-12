@@ -9,7 +9,7 @@
             <img class="inline-thumb" src="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
           </a>
         {% endif %}
-        <a class="expense-line-attachment-name" href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
+        <a class="expense-line-attachment-name" href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}data-image-preview data-preview-name="{{ attachment.original_filename }}"{% else %}target="_blank"{% endif %}>{{ attachment.original_filename }}</a>
         <div class="row-actions">
           <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
           <button class="danger small" type="submit" form="deleteExpenseAttachment{{ attachment.id }}">删除</button>
