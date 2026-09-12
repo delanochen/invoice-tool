@@ -693,7 +693,6 @@
       $('photoBatchDownload').dataset.photoQuery = params.toString();
       $('photoBatchDownload').querySelector('[data-photo-zip]').href = '/api/field/photos.zip?'+params;
       $('photoBatchDownload').hidden = !result.rows.length || result.truncated;
-      setFieldText('ledgerSummary', `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`);
       const table = document.createElement('table'); table.className = 'ledger-table';
       const thead = document.createElement('thead'), headerRow = document.createElement('tr');
       ['照片','工单','客户','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
@@ -727,7 +726,7 @@
           if(index===10 && photo.location_verified){const locationLink=document.createElement('a');locationLink.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`;locationLink.target='_blank';locationLink.rel='noopener';locationLink.textContent=cell.textContent;cell.replaceChildren(locationLink);} row.append(cell); });
         tbody.append(row);
       });
-    } catch(error) { setFieldText('ledgerSummary', '台账需要联网查看。待上传照片请到“拍照”页面查看。'); }
+    } catch(error) { setFieldText('ledgerList', '台账需要联网查看。待上传照片请到“拍照”页面查看。'); }
   }
   function openLedgerPhoto(index) {
     if (!ledgerPhotos.length) return;

@@ -70,7 +70,7 @@
           <span id="photoBatchDownload" hidden data-photo-query=""><a class="button" data-photo-zip href="/api/field/photos.zip">批量下载照片 ZIP</a> <button type="button" data-save-photos>批量分享照片</button></span>
         </div>
       </form>
-      <p id="ledgerSummary" class="muted"></p><div id="ledgerList"></div>
+      <div id="ledgerList"></div>
     </section>
     <section data-panel="profile" hidden><h1>我的</h1><div class="card"><h2 id="profileName"></h2><p id="versionText"></p><form method="post" action="/language"><input type="hidden" name="next" value="/field/"><label>界面语言<select name="language" onchange="this.form.submit()">{% for code, language in supported_languages.items() %}<option value="{{ code }}" {% if current_language == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>{% endfor %}</select></label></form><label>照片归档时区<input id="timezoneName" placeholder="例如 Europe/Amsterdam"></label><p class="muted">默认使用手机时区。出差时请确认与现场一致；补传不会改变拍摄日期。</p><button id="installApp" type="button" hidden>添加到主屏幕</button><p>iPhone：在 Safari 分享菜单选择“添加到主屏幕”。</p><p>后台定位和上传可能暂停，回到这里后会继续。</p><a class="button" href="/service-orders">进入管理系统</a><a class="button" id="fieldLogout" href="/logout">退出登录</a></div></section>
   </div>
