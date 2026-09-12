@@ -30,7 +30,7 @@
   .workspace-shell { display: flex; flex-direction: column; }
   .workspace-shell > .sidebar { flex-shrink: 0; max-height: 65dvh; overflow: auto; }
   .workspace-shell > .main { flex: 1; min-height: 0; }
-  .workspace-embedded .main { padding: 16px; }
+  .workspace-embedded .main { padding: 12px; }
 }
 @media (max-width: 640px) {
   .workspace-toolbar { padding: 0 4px; gap: 2px; }
