@@ -15,6 +15,9 @@ function applyImageAttachmentPreviewZoom() {
   imageAttachmentPreviewImage.classList.toggle("is-original", imageAttachmentPreviewMode === "original");
   imageAttachmentPreviewImage.classList.toggle("is-zoomed", imageAttachmentPreviewMode === "zoom");
   imageAttachmentPreviewImage.style.transform = imageAttachmentPreviewMode === "zoom" ? `scale(${imageAttachmentPreviewZoom})` : "none";
+  if (imageAttachmentPreviewMode === "zoom") {
+    imageAttachmentPreviewImage.closest(".ledger-photo-stage, .image-preview-wrap")?.scrollTo({left: 0, top: 0});
+  }
 }
 
 function setImageAttachmentPreviewFit() {

@@ -199,7 +199,7 @@
           {% for attachment in attachments %}
             <tr>
               <td>
-                {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}
+                {% if is_customer_reimbursement_image_attachment(attachment) %}
                   <a
                     href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}"
                     data-image-preview
@@ -258,4 +258,3 @@
   <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='expense-sources.js', v=app_version) }}"></script>
 {% endblock %}
-

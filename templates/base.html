@@ -275,7 +275,7 @@
       or active_endpoint == "labor_hours_report"
       or active_endpoint == "payroll_report"
       or active_endpoint == "payroll_calendar"
-      or active_endpoint.endswith("_query")
+      or (active_endpoint.endswith("_query") and active_endpoint != "field_photo_query")
     %}
     {% if automatic_report_export %}
       <script>window.reportExportConfig = {url: {{ url_for('export_visible_report')|tojson }}, title: {{ self.title()|striptags|replace(' - 发票工具', '')|tojson }}};</script>
@@ -286,4 +286,3 @@
     <script src="{{ url_for('static', filename='system-grid.js', v=app_version) }}"></script>
   </body>
 </html>
-

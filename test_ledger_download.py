@@ -30,6 +30,19 @@ class LedgerDownloadTest(unittest.TestCase):
             self.assertIn(f'name="{field}"', page.text)
         self.assertEqual(self.f.http.get('/api/field/photos', query_string=dict(container_number='C-9', equipment_number='101')).json['rows'], [])
 
+    def test_excel_export_contains_photo_thumbnails_and_split_customer_site(self):
+        from openpyxl import load_workbook
+
+        response = self.f.http.get('/api/field/photos.xlsx')
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(BytesIO(response.data))
+        sheet = workbook.active
+        self.assertEqual(sheet.cell(1, 1).value, '照片')
+        self.assertEqual(sheet.cell(1, 3).value, '客户')
+        self.assertEqual(sheet.cell(1, 4).value, '站点')
+        self.assertEqual(len(sheet._images), 2)
+        workbook.close()
+
     def test_empty_zip_and_unauthenticated_access(self):
         self.assertEqual(self.f.http.get('/api/field/photos.zip?equipment_number=no-match').status_code, 422)
         with self.f.http.session_transaction() as session:

@@ -2991,6 +2991,12 @@ def is_image_attachment(content_type, filename):
     return "." in name and name.rsplit(".", 1)[1] in ALLOWED_IMAGE_EXTENSIONS
 
 
+def is_customer_reimbursement_image_attachment(attachment):
+    if is_image_attachment(attachment["content_type"], attachment["original_filename"]):
+        return True
+    return valid_image_file(customer_reimbursement_attachment_path(attachment))
+
+
 app.jinja_env.filters["money"] = money
 app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
@@ -3003,6 +3009,7 @@ app.jinja_env.globals["can_create_service_order"] = can_create_service_order
 app.jinja_env.globals["can_delete_service_order"] = can_delete_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
+app.jinja_env.globals["is_customer_reimbursement_image_attachment"] = is_customer_reimbursement_image_attachment
 app.jinja_env.globals["can_manage_employee_grades"] = can_manage_employee_grades
 app.jinja_env.globals["can_view_labor_payroll_reports"] = can_view_labor_payroll_reports
 app.jinja_env.globals["can_view_customer_reimbursement"] = can_view_customer_reimbursement
@@ -15865,4 +15872,3 @@ if __name__ == "__main__":
 else:
     verify_data_directory_identity()
     init_db()
-

@@ -696,7 +696,7 @@
       setFieldText('ledgerSummary', `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`);
       const table = document.createElement('table'); table.className = 'ledger-table';
       const thead = document.createElement('thead'), headerRow = document.createElement('tr');
-      ['照片','工单','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
+      ['照片','工单','客户','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
       thead.append(headerRow); const tbody = document.createElement('tbody'); table.append(thead,tbody); $('ledgerList').append(table);
       result.rows.forEach((photo, photoIndex) => {
         const captureTime=window.formatPhotoTime(photo.captured_at,photo.timezone_name);
@@ -718,7 +718,7 @@
         const row = document.createElement('tr');
         const imageCell = document.createElement('td'), tableLink = link.cloneNode(false), tableImage = image.cloneNode(false);
         tableLink.append(tableImage); tableLink.addEventListener('click',event=>{event.preventDefault();openLedgerPhoto(photoIndex);}); imageCell.append(tableLink); row.append(imageCell);
-        const values = [photo.order_number, photo.site_name, photo.equipment_number||'—',photo.position_number||'—',photo.container_number||'—',
+        const values = [photo.order_number, photo.customer_name||'—', photo.site_name, photo.equipment_number||'—',photo.position_number||'—',photo.container_number||'—',
           photo.technician_name||photo.employee_name,photo.employee_name,
           captureTime,receiveTime, watermarkDetail,
           (photo.site_address||photo.site_name)+(photo.location_verified ? `\n${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}` : '\n未检查坐标'),

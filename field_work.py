@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import abort, g, jsonify, render_template, request, send_file, session, url_for
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from werkzeug.exceptions import NotFound
 from werkzeug.utils import secure_filename
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
@@ -432,21 +433,39 @@ def register_field_routes(app, api):
         rows = photo_rows()
         if len(rows) > 2000:
             return jsonify(error='结果超过 2000 条，请缩小日期或工单范围后导出。'), 422
-        headers = ['工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '已更换水泵保险编号', '施工员', '实际拍摄账号', '拍摄日期',
+        headers = ['照片', '工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '已更换水泵保险编号', '施工员', '实际拍摄账号', '拍摄日期',
                    '设备拍摄时间（UTC）', '水印时间', '水印来源', '归档时区', '上传时间', '纬度', '经度', '精度（米）',
                    '位置状态', '备注', '位置确认说明', '来源', '文件路径']
         keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
                 'technician_name', 'employee_name', 'capture_date', 'captured_at', 'watermark_at', 'watermark_source', 'timezone_name',
                 'received_at', 'latitude', 'longitude', 'accuracy', 'location_verified', 'note', 'location_note', 'source', 'relative_path']
-        export_rows = []
+        from openpyxl import Workbook
+        from openpyxl.drawing.image import Image as ExcelImage
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = '工单照片台账'
+        worksheet.append(headers)
         for row in rows:
             values = [str(row[key] or '') for key in keys]
             source_index = keys.index('watermark_source')
             values[source_index] = '保留原图水印' if row['watermark_source'] == 'original' else '系统生成水印'
             location_index = keys.index('location_verified')
             values[location_index] = '已检查' if row['location_verified'] else '未检查'
-            export_rows.append(values)
-        buffer = api['build_simple_xlsx'](headers, export_rows, sheet_name='工单照片台账')
+            worksheet.append([''] + values)
+            try:
+                image_path = photo_file(row, thumb=True)
+            except NotFound:
+                image_path = photo_file(row)
+            image = ExcelImage(str(image_path))
+            image.width = 76
+            image.height = 76
+            worksheet.add_image(image, f'A{worksheet.max_row}')
+            worksheet.row_dimensions[worksheet.max_row].height = 60
+        worksheet.freeze_panes = 'A2'
+        worksheet.auto_filter.ref = worksheet.dimensions
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
         return send_file(buffer, as_attachment=True, download_name='field-photos.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.get('/api/field/photos.zip')
