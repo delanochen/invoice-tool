@@ -38,7 +38,8 @@ section() {
 env_value() {
     key="$1"
     if [ -f "$ENV_FILE" ]; then
-        sed -n "s/^${key}=//p" "$ENV_FILE" | tail -n 1
+        sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\?${key}[[:space:]]*=[[:space:]]*//p" "$ENV_FILE" |
+            tail -n 1 | sed -e 's/[[:space:]]*#.*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
     fi
 }
 
@@ -50,18 +51,40 @@ compose_default() {
         printf '%s\n' "$value"
         return
     fi
-    printf '%s\n' "$fallback"
+    compose_value="$(sed -n "s/.*\${${key}:-\([^}]*\)}:.*/\1/p" "$COMPOSE_FILE" 2>/dev/null | head -n 1)"
+    if [ -n "$compose_value" ]; then
+        printf '%s\n' "$compose_value"
+    else
+        printf '%s\n' "$fallback"
+    fi
 }
 
-if [ -z "$DATA_DIR" ]; then
-    DATA_DIR="$(compose_default DATA_HOST_DIR "")"
+if [ -n "${DATA_HOST_DIR:-}" ]; then
+    DATA_DIR="$DATA_HOST_DIR"
+elif [ -z "$DATA_DIR" ]; then
+    DATA_DIR="$(compose_default DATA_HOST_DIR "/srv/invoice-tool/data")"
 fi
-if [ -z "$PHOTOS_DIR" ]; then
-    PHOTOS_DIR="$(compose_default SHARED_PHOTOS_HOST_DIR "")"
+if [ -n "${SHARED_PHOTOS_HOST_DIR:-}" ]; then
+    PHOTOS_DIR="$SHARED_PHOTOS_HOST_DIR"
+elif [ -z "$PHOTOS_DIR" ]; then
+    PHOTOS_DIR="$(compose_default SHARED_PHOTOS_HOST_DIR "/srv/invoice-tool/shared-photos")"
 fi
 if [ -z "$BACKUP_DIR" ]; then
     BACKUP_DIR="$(compose_default INVOICE_TOOL_BACKUP_DIR "")"
 fi
+
+normalize_path() {
+    path="$1"
+    [ -n "$path" ] || return 1
+    case "$path" in
+        /*) ;;
+        *) path="$APP_DIR/$path" ;;
+    esac
+    [ -e "$path" ] || return 1
+    normalized="$(readlink -f -- "$path" 2>/dev/null)" || return 1
+    [ -n "$normalized" ] || return 1
+    printf '%s\n' "$normalized"
+}
 
 section "Git revision"
 if [ -d "$APP_DIR/.git" ] && command -v git >/dev/null 2>&1; then
@@ -176,21 +199,66 @@ else
     warning "findmnt is unavailable; host mount checks were not executed"
 fi
 
-if command -v docker >/dev/null 2>&1; then
-    if mounts="$(docker inspect "$CONTAINER" --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}' 2>/dev/null)"; then
-        pass "Docker bind mounts resolved (host source -> container destination)"
-        printf '%s\n' "$mounts" | sed 's/^/container_mount: /'
-        printf '%s\n' "$mounts" | grep -Eq '(^| )/app/data$' \
-            && pass "Docker /app/data bind mount is present" \
-            || fail "Docker /app/data bind mount is missing"
-        printf '%s\n' "$mounts" | grep -Eq '(^| )/app/shared-photos$' \
-            && pass "Docker /app/shared-photos bind mount is present" \
-            || fail "Docker /app/shared-photos bind mount is missing"
-    else
-        warning "Docker container mount inspection was not executed: $CONTAINER is unavailable"
+mount_source() {
+    destination="$1"
+    mounts="$2"
+    match="$(printf '%s\n' "$mounts" | awk -F '\t' -v destination="$destination" '
+        $1 == destination {
+            count++
+            if (count == 1) {
+                print $2 "\t" $3
+            }
+        }
+        END {
+            if (count != 1) {
+                exit 1
+            }
+        }')" || return 1
+    printf '%s\n' "$match"
+}
+
+check_bind_mount() {
+    destination="$1"
+    expected="$2"
+    label="$3"
+    expected_normalized="$(normalize_path "$expected" 2>/dev/null)" || {
+        fail "$label expected path cannot be normalized: ${expected:-missing}"
+        return
+    }
+    match="$(mount_source "$destination" "$MOUNTS" 2>/dev/null)" || {
+        fail "$label mount destination is missing or duplicated: $destination"
+        return
+    }
+    mount_type="$(printf '%s\n' "$match" | awk -F '\t' '{print $1}')"
+    actual_source="$(printf '%s\n' "$match" | cut -f 2-)"
+    if [ "$mount_type" != "bind" ]; then
+        fail "$label mount is not a bind mount: ${mount_type:-missing}"
+        return
     fi
+    actual_normalized="$(normalize_path "$actual_source" 2>/dev/null)" || {
+        fail "$label source cannot be normalized: ${actual_source:-missing}"
+        return
+    }
+    if [ "$actual_normalized" != "$expected_normalized" ]; then
+        fail "$label source mismatch: $actual_normalized != $expected_normalized"
+        return
+    fi
+    pass "$label bind mount verified: $actual_normalized -> $destination"
+}
+
+if ! command -v docker >/dev/null 2>&1; then
+    fail "Docker is unavailable; actual bind mounts cannot be inspected"
+elif [ "$(docker inspect "$CONTAINER" --format '{{.State.Running}}' 2>/dev/null || true)" != "true" ]; then
+    fail "invoice-tool container is missing or not running: $CONTAINER"
+elif ! MOUNTS="$(docker inspect "$CONTAINER" \
+    --format '{{range .Mounts}}{{printf "%s\t%s\t%s\n" .Destination .Type .Source}}{{end}}' \
+    2>/dev/null)"; then
+    fail "Docker inspect failed for container: $CONTAINER"
 else
-    warning "Docker is unavailable; actual container bind mounts were not inspected"
+    pass "Docker bind mounts resolved (host source -> container destination)"
+    printf '%s\n' "$MOUNTS" | sed 's/^/container_mount: /'
+    check_bind_mount "/app/data" "$DATA_DIR" "data"
+    check_bind_mount "/app/shared-photos" "$PHOTOS_DIR" "shared_photos"
 fi
 
 for key_file in "$COMPOSE_FILE" "$ENV_FILE" "$APP_DIR/VERSION" \
