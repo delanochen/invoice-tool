@@ -297,7 +297,17 @@ function ensureMarker(buyer, position, placement) {
 
 function addHeadquartersMarker() {
   const headquarters = mapConfig.headquarters;
-  if (!headquarters) return;
+  if (
+    !headquarters ||
+    typeof headquarters.latitude !== "number" ||
+    typeof headquarters.longitude !== "number" ||
+    !Number.isFinite(headquarters.latitude) ||
+    !Number.isFinite(headquarters.longitude) ||
+    headquarters.latitude < -90 ||
+    headquarters.latitude > 90 ||
+    headquarters.longitude < -180 ||
+    headquarters.longitude > 180
+  ) return;
   const icon = L.divIcon({
     className: "headquarters-star",
     html: '<span aria-hidden="true">★</span>',

@@ -3,6 +3,7 @@ import hashlib
 import html
 import csv
 import json
+import math
 import re
 import secrets
 import shutil
@@ -2229,6 +2230,22 @@ def get_invoice_terms():
 
 def get_smtp_settings():
     return {key: get_setting(f"smtp_{key}", value) for key, value in DEFAULT_SMTP_SETTINGS.items()}
+
+
+def headquarters_coordinates():
+    try:
+        latitude = float(HEADQUARTERS_LATITUDE)
+        longitude = float(HEADQUARTERS_LONGITUDE)
+    except (TypeError, ValueError):
+        return None
+    if not (
+        math.isfinite(latitude)
+        and math.isfinite(longitude)
+        and -90 <= latitude <= 90
+        and -180 <= longitude <= 180
+    ):
+        return None
+    return {"latitude": latitude, "longitude": longitude}
 
 
 def get_google_maps_browser_api_key():
@@ -12303,17 +12320,19 @@ def service_order_map():
     buyers_payload = [buyer_map_payload(row) for row in rows]
     google_maps_browser_api_key = get_google_maps_browser_api_key()
     company = get_company_profile()
+    headquarters = headquarters_coordinates()
+    if headquarters:
+        headquarters = {
+            **headquarters,
+            "name": company["name"],
+            "address": company["address"],
+        }
     route_origin_address = (g.user["address"] or "").strip() or company["address"]
     return render_template(
         "service_order_map.html",
         map_buyers=buyers_payload,
         show_invoice_amounts=can_view_invoices(),
-        headquarters={
-            "name": company["name"],
-            "address": company["address"],
-            "latitude": HEADQUARTERS_LATITUDE,
-            "longitude": HEADQUARTERS_LONGITUDE,
-        },
+        headquarters=headquarters,
         company_address=company["address"],
         route_origin_address=route_origin_address,
         geocoding_enabled=GEOCODING_ENABLED,

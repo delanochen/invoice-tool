@@ -418,7 +418,17 @@ function ensureMarker(group, placement) {
 
 function addHeadquartersMarker() {
   const headquarters = mapConfig.headquarters;
-  if (!headquarters) return;
+  if (
+    !headquarters ||
+    typeof headquarters.latitude !== "number" ||
+    typeof headquarters.longitude !== "number" ||
+    !Number.isFinite(headquarters.latitude) ||
+    !Number.isFinite(headquarters.longitude) ||
+    headquarters.latitude < -90 ||
+    headquarters.latitude > 90 ||
+    headquarters.longitude < -180 ||
+    headquarters.longitude > 180
+  ) return;
   const marker = new google.maps.Marker({
     map: serviceMap,
     position: { lat: headquarters.latitude, lng: headquarters.longitude },
