@@ -39,7 +39,7 @@ try{
  await frame.locator('.system-grid .saved-item-attachment [data-image-preview]').first().click();
  await frame.waitForSelector('#imageAttachmentPreviewDialog[open]',{timeout:3000});
  await frame.locator('[data-image-preview-in]').click();
- assert.equal(await frame.locator('#imageAttachmentPreviewImage').evaluate(el=>el.style.transform),'scale(1.25)');
+ assert.equal(await frame.locator('#imageAttachmentPreviewImage').evaluate(el=>parseFloat(el.style.width)/el.naturalWidth),1.25);
  await frame.locator('[data-image-preview-close]').click();
  await frame.locator('.system-grid .expense-line-attachment-name').first().click();
  await frame.waitForSelector('#imageAttachmentPreviewDialog[open]',{timeout:3000});

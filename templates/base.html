@@ -265,6 +265,7 @@
     <script>document.querySelectorAll('thead th').forEach(cell => { cell.dataset.gridLabel = cell.textContent.trim(); });</script>
     <script src="{{ url_for('static', filename='ui-i18n.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='navigation.js', v=app_version) }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='attachment-preview.css', v=app_version) }}">
     <script src="{{ url_for('static', filename='attachment-preview.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='pending-attachments.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='history-replace-form.js', v=app_version) }}"></script>
