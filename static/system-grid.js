@@ -45,6 +45,7 @@
       if(source.classList.contains('ledger-table'))this.shell.classList.add('field-ledger-grid');
       this.tools = document.createElement('div'); this.tools.className = 'grid-tools no-print';
       this.host = document.createElement('div'); this.shell.append(this.tools, this.host); source.before(this.shell);
+      if(source.classList.contains('service-orders-table')) this.shell.classList.add('service-orders-grid');
       this.data = this.read();
       const columns = this.headers.map((title, index) => ({
         title, field:`c${index}`, minWidth:85, width: /备注|说明|附件|工作内容/.test(title) ? 240 : undefined,
@@ -66,7 +67,12 @@
           label.setAttribute('aria-expanded',String(group.isVisible()));
           return label;
         },
-        rowFormatter: row => row.getElement().classList.toggle('is-selected', this.rows.get(row.getData()._id)?.classList.contains('is-selected')),
+        rowFormatter: row => {
+          const sourceRow = this.rows.get(row.getData()._id);
+          const element = row.getElement();
+          element.classList.toggle('is-selected', sourceRow?.classList.contains('is-selected'));
+          ['closed-paid','closed-invoiced','open-invoiced'].forEach(className => element.classList.toggle(className, sourceRow?.classList.contains(className)));
+        },
       });
       this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); this.shell.classList.remove('grid-building'); settle(); });
       this.grid.on('renderComplete', () => { this.parentTotals(); this.updateCount(); });
