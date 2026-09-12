@@ -906,6 +906,10 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .service-orders-table tbody tr.open-invoiced:hover td {
   background: #ecfdf3;
 }
+.service-orders-table tbody tr:not(.closed-paid):not(.closed-invoiced):not(.open-invoiced) td,
+.service-orders-table tbody tr:not(.closed-paid):not(.closed-invoiced):not(.open-invoiced):hover td {
+  background: #fff;
+}
 .list-table tfoot td {
   background: #f2f4f7;
   font-weight: 800;
