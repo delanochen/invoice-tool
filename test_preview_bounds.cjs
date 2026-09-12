@@ -24,6 +24,12 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   await page.mouse.up();await page.waitForSelector('dialog[open]');
   await page.locator('[data-image-preview-close]').click();
   await page.locator('a').focus();await page.keyboard.press('Enter');await page.waitForSelector('dialog[open]');
+  await page.evaluate(()=>{
+    document.querySelector('[data-image-preview-close]').click();
+    document.querySelector('a').click();
+  });
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  assert.ok(await page.locator('img').getAttribute('src'),'queued close must not clear the next preview');
   assert.deepEqual(errors,[]);await page.close();
  }
  console.log('PASS: portrait/landscape, both viewers, all four corners reachable, fit and page scroll restored');

@@ -52,8 +52,8 @@ function setImageAttachmentPreviewZoom(nextZoom) {
 }
 
 function closeImageAttachmentPreview() {
-  imageAttachmentPreviewImage?.removeAttribute("src");
   imageAttachmentPreviewDialog?.close();
+  restoreImageAttachmentPreview();
 }
 
 function openImageAttachmentPreview(link, event) {
@@ -110,7 +110,7 @@ imageAttachmentPreviewImage?.addEventListener("click", () => {
   }
 });
 
-imageAttachmentPreviewDialog?.addEventListener("close", () => {
+function restoreImageAttachmentPreview() {
   imageAttachmentPreviewImage?.removeAttribute("src");
   if(imagePreviewReturn) {
     const saved=imagePreviewReturn;imagePreviewReturn=null;
@@ -118,6 +118,11 @@ imageAttachmentPreviewDialog?.addEventListener("close", () => {
     saved.containers.forEach(([node,x,y])=>node.scrollTo(x,y));
     window.scrollTo(saved.x,saved.y);
   }
+}
+imageAttachmentPreviewDialog?.addEventListener("close", () => {
+  // Native close events are queued. An old event must not clear a newly opened
+  // image or move the page while the next attachment is being activated.
+  if (!imageAttachmentPreviewDialog.open) restoreImageAttachmentPreview();
 });
 imageAttachmentPreviewImage?.addEventListener('load',applyImageAttachmentPreviewZoom);
 if(imageAttachmentViewport) new ResizeObserver(()=>{
