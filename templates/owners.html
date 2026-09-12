@@ -6,7 +6,6 @@
   {% set can_delete = has_action_permission("owners", "delete") %}
   <header class="page-header">
     <div><p class="eyebrow">Owners</p><h1>业主资料</h1></div>
-    {% if can_create %}<button class="primary" type="button" data-dialog-open="newOwnerDialog">新增业主</button>{% endif %}
   </header>
 
   <form class="panel filter-bar no-print" method="get">
@@ -18,7 +17,7 @@
   </form>
 
   <section class="panel">
-    <div class="panel-title"><h2>业主列表</h2><span class="muted-line">{{ owners|length }} 个业主</span></div>
+    <div class="panel-title"><span class="muted-line">{{ owners|length }} 个业主</span>{% if can_create %}<button class="small primary" type="button" data-dialog-open="newOwnerDialog">新增业主</button>{% endif %}</div>
     <table class="list-table">
       <thead>
         <tr>

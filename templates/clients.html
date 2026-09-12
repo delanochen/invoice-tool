@@ -3,9 +3,6 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Clients</p><h1>客户资料</h1></div>
-    {% if not is_external_manager() %}
-      <button class="primary" type="button" data-dialog-open="newClientDialog">新增客户</button>
-    {% endif %}
   </header>
 
   {% if not is_external_manager() %}
@@ -19,7 +16,7 @@
   {% endif %}
 
   <section class="panel">
-    <div class="panel-title"><h2>客户列表</h2><span class="muted-line">{{ clients|length }} 个客户</span></div>
+    <div class="panel-title"><span class="muted-line">{{ clients|length }} 个客户</span>{% if not is_external_manager() %}<button class="small primary" type="button" data-dialog-open="newClientDialog">新增客户</button>{% endif %}</div>
     <table class="list-table">
       <thead>
         <tr>

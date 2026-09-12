@@ -3,11 +3,10 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Work Order Types</p><h1>工单类型</h1></div>
-    <button class="primary" type="button" data-dialog-open="newWorkOrderTypeDialog">新增工单类型</button>
   </header>
 
   <section class="panel">
-    <div class="panel-title"><h2>类型列表</h2><span class="muted-line">{{ work_order_types|length }} 个类型</span></div>
+    <div class="panel-title"><span class="muted-line">{{ work_order_types|length }} 个类型</span><button class="small primary" type="button" data-dialog-open="newWorkOrderTypeDialog">新增工单类型</button></div>
     <table class="list-table">
       <thead><tr><th>编码</th><th>名称</th><th>说明</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>

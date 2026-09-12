@@ -3,15 +3,10 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Employee Grades</p><h1>员工等级</h1></div>
-    <div class="actions">
-      <button class="primary" type="button" data-dialog-open="newEmployeeGradeDialog">新增等级</button>
-      <button type="button" id="editSelectedGrade" disabled>编辑</button>
-      <button class="danger" type="button" id="deleteSelectedGrade" disabled>删除</button>
-    </div>
   </header>
 
   <section class="panel">
-    <div class="panel-title"><h2>等级列表</h2><span class="muted-line">{{ grades|length }} 个等级</span></div>
+    <div class="panel-title"><span class="muted-line">{{ grades|length }} 个等级</span><div class="toolbar-actions"><button class="small primary" type="button" data-dialog-open="newEmployeeGradeDialog">新增等级</button><button class="small" type="button" id="editSelectedGrade" disabled>编辑</button><button class="danger small" type="button" id="deleteSelectedGrade" disabled>删除</button></div></div>
     <table class="list-table selectable-list-table">
       <thead>
         <tr>

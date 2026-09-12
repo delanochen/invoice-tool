@@ -3,7 +3,6 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">Projects</p><h1>项目维护</h1></div>
-    <button class="primary" type="button" data-dialog-open="newProjectDialog">新增项目</button>
   </header>
 
   <form class="filter-bar service-filter no-print" method="get">
@@ -25,7 +24,7 @@
   </form>
 
   <section class="panel">
-    <div class="panel-title"><h2>项目列表</h2><span class="muted-line">{{ projects|length }} 个项目</span></div>
+    <div class="panel-title"><span class="muted-line">{{ projects|length }} 个项目</span><button class="small primary" type="button" data-dialog-open="newProjectDialog">新增项目</button></div>
     <table class="list-table">
       <thead><tr><th>项目名称</th><th>类型</th><th>单价</th><th>默认金额</th><th>税率</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
@@ -113,4 +112,3 @@
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v='20260616-basic-data-v1') }}"></script>
 {% endblock %}
-

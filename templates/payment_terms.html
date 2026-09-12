@@ -3,13 +3,10 @@
 {% block content %}
   <header class="page-header">
     <div><p class="eyebrow">SYSTEM CONFIGURATION</p><h1>账期管理</h1></div>
-    {% if has_action_permission("payment_terms", "create") %}
-      <button class="primary" type="button" data-dialog-open="newPaymentTermDialog">新增账期</button>
-    {% endif %}
   </header>
 
   <section class="panel">
-    <div class="panel-title"><h2>账期方案</h2><span class="muted-line">{{ payment_terms|length }} 个方案</span></div>
+    <div class="panel-title"><span class="muted-line">{{ payment_terms|length }} 个方案</span>{% if has_action_permission("payment_terms", "create") %}<button class="small primary" type="button" data-dialog-open="newPaymentTermDialog">新增账期</button>{% endif %}</div>
     <div class="table-scroll">
       <table class="list-table">
         <thead><tr><th>名称</th><th>类型</th><th>计算规则</th><th>客户数</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>

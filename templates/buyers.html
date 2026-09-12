@@ -6,10 +6,6 @@
   {% set can_delete = has_action_permission("buyers", "delete") %}
   <header class="page-header">
     <div><p class="eyebrow">Sites</p><h1>站点资料</h1></div>
-    {% if can_create %}<div class="row-actions">
-      <button type="button" data-dialog-open="importBuyerDialog">导入站点</button>
-      <button class="primary" type="button" data-dialog-open="newBuyerDialog">新增站点</button>
-    </div>{% endif %}
   </header>
 
   <form class="panel filter-bar no-print" method="get">
@@ -26,6 +22,7 @@
     <div class="panel-title">
       <h2>站点列表</h2>
       <div class="toolbar-actions" data-selection-toolbar>
+        {% if can_create %}<button class="small" type="button" data-dialog-open="importBuyerDialog">导入站点</button><button class="small primary" type="button" data-dialog-open="newBuyerDialog">新增站点</button>{% endif %}
         <span class="muted-line" data-selected-label>{{ buyers|length }} 个站点</span>
         {% if can_edit %}<button class="small" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
         {% if can_delete %}<form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">

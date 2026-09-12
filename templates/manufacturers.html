@@ -6,7 +6,6 @@
   {% set can_delete = has_action_permission("manufacturers", "delete") %}
   <header class="page-header">
     <div><p class="eyebrow">Manufacturers</p><h1>厂家资料</h1></div>
-    {% if can_create %}<button class="primary" type="button" data-dialog-open="newManufacturerDialog">新增厂家</button>{% endif %}
   </header>
 
   <form class="panel filter-bar no-print" method="get">
@@ -18,7 +17,7 @@
   </form>
 
   <section class="panel">
-    <div class="panel-title"><h2>厂家列表</h2><span class="muted-line">{{ manufacturers|length }} 个厂家</span></div>
+    <div class="panel-title"><span class="muted-line">{{ manufacturers|length }} 个厂家</span>{% if can_create %}<button class="small primary" type="button" data-dialog-open="newManufacturerDialog">新增厂家</button>{% endif %}</div>
     <table class="list-table">
       <thead>
         <tr>
