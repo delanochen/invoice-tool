@@ -2271,6 +2271,7 @@ body.service-order-map-page {
     max-height: 58vh;
   }
   .page-header, .panel-title, .actions { align-items: stretch; flex-direction: column; }
+  .page-header .actions { flex-direction: row; flex-wrap: wrap; gap: 8px; }
   .invoice-paper { padding: 24px; }
   .map-toolbar { flex-wrap: wrap; }
   .map-summary {

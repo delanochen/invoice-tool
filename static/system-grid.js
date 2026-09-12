@@ -41,6 +41,7 @@
       this.editable = !!source.querySelector('input:not([type=checkbox]):not([type=hidden]),textarea,select');
       this.key = `grid:${document.body.dataset.gridUser || ''}:${location.pathname}:${source.id || [...document.querySelectorAll('table')].indexOf(source)}`;
       this.shell = document.createElement('section'); this.shell.className = 'system-grid';
+      if(source.classList.contains('photo-query-table'))this.shell.classList.add('photo-ledger-grid');
       if(source.classList.contains('ledger-table'))this.shell.classList.add('field-ledger-grid');
       this.tools = document.createElement('div'); this.tools.className = 'grid-tools no-print';
       this.host = document.createElement('div'); this.shell.append(this.tools, this.host); source.before(this.shell);
@@ -59,13 +60,23 @@
         data:this.data, index:'_id', columns, layout:'fitDataStretch', renderVertical:'basic',
         movableColumns:true, columnCalcs:'both', groupClosedShowCalcs:true,
         groupToggleElement:'header', placeholder:t('没有符合条件的记录'),
-        groupHeader:(value,count) => { const label=document.createElement('span'); label.textContent=`${value || '—'} · ${count}`; return label; },
+        groupHeader:(value,count,data,group) => {
+          const label=button(`${value || '—'} · ${count}`,event => { event.stopPropagation(); group.toggle(); });
+          label.className='grid-group-toggle';
+          label.setAttribute('aria-expanded',String(group.isVisible()));
+          return label;
+        },
         rowFormatter: row => row.getElement().classList.toggle('is-selected', this.rows.get(row.getData()._id)?.classList.contains('is-selected')),
       });
       this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); });
-      this.grid.on('renderComplete', () => this.parentTotals());
+      this.grid.on('renderComplete', () => { this.parentTotals(); this.updateCount(); });
+      this.grid.on('dataFiltered', () => this.updateCount());
+      this.grid.on('dataProcessed', () => this.updateCount());
       this.grid.on('columnResized', () => this.parentTotals());
-      this.grid.on('groupVisibilityChanged', () => this.parentTotals());
+      this.grid.on('groupVisibilityChanged', (group,visible) => {
+        group.getElement()?.querySelector?.('.grid-group-toggle')?.setAttribute('aria-expanded',String(visible));
+        this.parentTotals();
+      });
       this.grid.on('columnVisibilityChanged', () => this.parentTotals());
       this.grid.on('rowClick', (event,row) => {
         if (event.target.closest('a,button,input,select,textarea,label')) return;
@@ -77,10 +88,13 @@
       source.addEventListener('change', () => this.schedule());
       source.addEventListener('invalid', event => {
         event.preventDefault();
+        if(this.validationPending) return;
+        this.validationPending=true;
         const row=this.grid.getRow(event.target.closest('tr')._gridId);
         const column=this.grid.getColumn(`c${event.target.closest('td').cellIndex}`);column?.show();
         let group=row?.getGroup();while(group){group.show();group=group.getParentGroup();}
         setTimeout(()=>{
+          this.validationPending=false;
           const mirror = [...this.host.querySelectorAll('input,select,textarea')].find(node => node._source === event.target);
           if (mirror) { mirror.focus(); mirror.setCustomValidity(event.target.validationMessage); mirror.reportValidity(); }
         },0);
@@ -162,7 +176,12 @@
       const data=this.read();
       const signature=JSON.stringify(data)+this.source.innerHTML+JSON.stringify([...this.source.querySelectorAll('input,select,textarea')].map(input=>[input.value,input.checked,input.disabled]));
       if(signature===this.signature) return;
-      this.signature=signature; this.grid.replaceData(data); this.count.textContent=`${data.length} ${t('条记录')}`;
+      this.signature=signature; this.grid.replaceData(data).then(()=>this.updateCount());
+    }
+    updateCount() {
+      if(!this.count) return;
+      const all=this.grid.getDataCount(); const active=this.grid.getDataCount('active');
+      this.count.textContent=`${active===all ? all : `${active} / ${all}`} ${t('条记录')}`;
     }
     controls() {
       this.count=document.createElement('span'); this.count.className='grid-count'; this.tools.append(this.count);

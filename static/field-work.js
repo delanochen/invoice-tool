@@ -696,9 +696,11 @@
       setFieldText('ledgerSummary', `${result.rows.length} 张照片${result.truncated ? '，结果较多，请缩小日期范围':''}`);
       const table = document.createElement('table'); table.className = 'ledger-table';
       const thead = document.createElement('thead'), headerRow = document.createElement('tr');
-      ['照片','工单 / 站点','设备信息','施工员 / 拍摄账号','拍摄时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
+      ['照片','工单','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
       thead.append(headerRow); const tbody = document.createElement('tbody'); table.append(thead,tbody); $('ledgerList').append(table);
       result.rows.forEach((photo, photoIndex) => {
+        const captureTime=window.formatPhotoTime(photo.captured_at,photo.timezone_name);
+        const receiveTime=window.formatPhotoTime(photo.received_at,photo.timezone_name);
         const card = textNode('article','','photo-card'), link = document.createElement('a'), image = document.createElement('img');
         link.href = photo.preview; image.src = photo.thumbnail; image.alt = fieldText('工单照片'); image.loading = 'lazy'; link.append(image);
         link.addEventListener('click',event=>{event.preventDefault();openLedgerPhoto(photoIndex);});
@@ -710,19 +712,19 @@
         if (photo.location_verified) { address.href=map.href; address.target='_blank'; address.rel='noopener'; }
         address.textContent=fieldText('现场地址：')+(photo.site_address||photo.site_name);
         const deviceDetail = ['铭牌号：'+(photo.equipment_number || '无'), photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', photo.pump_fuse_numbers ? '水泵保险：'+photo.pump_fuse_numbers : ''].filter(Boolean).join(' · ');
-        const watermarkDetail = photo.watermark_source === 'original' ? '水印：保留原图水印' : '水印：系统生成 · '+(photo.watermark_at||photo.captured_at);
-        detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+photo.captured_at+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+photo.received_at),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
+        const watermarkDetail = photo.watermark_source === 'original' ? '水印：保留原图水印' : '水印：系统生成 · '+window.formatPhotoTime(photo.watermark_at||photo.captured_at,photo.timezone_name);
+        detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+window.formatPhotoTime(photo.captured_at,photo.timezone_name)+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+receiveTime),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
         card.append(link,detail); $('ledgerList').append(card);
         const row = document.createElement('tr');
         const imageCell = document.createElement('td'), tableLink = link.cloneNode(false), tableImage = image.cloneNode(false);
         tableLink.append(tableImage); tableLink.addEventListener('click',event=>{event.preventDefault();openLedgerPhoto(photoIndex);}); imageCell.append(tableLink); row.append(imageCell);
-        const values = [photo.order_number+'\n'+photo.site_name, deviceDetail,
-          (photo.technician_name||photo.employee_name)+'\n拍摄账号：'+photo.employee_name,
-          photo.captured_at+'\n接收：'+photo.received_at, watermarkDetail,
+        const values = [photo.order_number, photo.site_name, photo.equipment_number||'—',photo.position_number||'—',photo.container_number||'—',
+          photo.technician_name||photo.employee_name,photo.employee_name,
+          captureTime,receiveTime, watermarkDetail,
           (photo.site_address||photo.site_name)+(photo.location_verified ? `\n${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}` : '\n未检查坐标'),
           photo.note || '', photo.source === 'camera' ? '现场相机':'系统相机 / 选图'];
         values.forEach((value,index) => { const cell=document.createElement('td'); cell.textContent=fieldText(value);
-          if(index===5 && photo.location_verified){const locationLink=document.createElement('a');locationLink.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`;locationLink.target='_blank';locationLink.rel='noopener';locationLink.textContent=cell.textContent;cell.replaceChildren(locationLink);} row.append(cell); });
+          if(index===10 && photo.location_verified){const locationLink=document.createElement('a');locationLink.href=`https://www.google.com/maps?q=${photo.latitude},${photo.longitude}`;locationLink.target='_blank';locationLink.rel='noopener';locationLink.textContent=cell.textContent;cell.replaceChildren(locationLink);} row.append(cell); });
         tbody.append(row);
       });
     } catch(error) { setFieldText('ledgerSummary', '台账需要联网查看。待上传照片请到“拍照”页面查看。'); }
@@ -732,9 +734,10 @@
     ledgerPhotoIndex = (index + ledgerPhotos.length) % ledgerPhotos.length;
     const photo = ledgerPhotos[ledgerPhotoIndex];
     $('ledgerPhotoImage').src = photo.preview;
+    setImageAttachmentPreviewFit();
     $('ledgerPhotoTitle').textContent = photo.order_number+' · '+photo.site_name;
     $('ledgerPhotoCounter').textContent = `${ledgerPhotoIndex + 1} / ${ledgerPhotos.length}`;
-    $('ledgerPhotoDetail').textContent = [photo.equipment_number ? '铭牌号：'+photo.equipment_number : '', photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', '拍摄：'+photo.captured_at, '施工员：'+(photo.technician_name||photo.employee_name), photo.note||''].filter(Boolean).map(fieldText).join(' · ');
+    $('ledgerPhotoDetail').textContent = [photo.equipment_number ? '铭牌号：'+photo.equipment_number : '', photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', '拍摄：'+window.formatPhotoTime(photo.captured_at,photo.timezone_name), '施工员：'+(photo.technician_name||photo.employee_name), photo.note||''].filter(Boolean).map(fieldText).join(' · ');
     $('previousLedgerPhoto').disabled = ledgerPhotos.length < 2; $('nextLedgerPhoto').disabled = ledgerPhotos.length < 2;
     if (!$('ledgerPhotoDialog').open) $('ledgerPhotoDialog').showModal();
   }
@@ -821,7 +824,7 @@
   $('previousLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex-1));
   $('nextLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex+1));
   $('ledgerPhotoStage').addEventListener('touchstart',event=>{ledgerTouchStart=event.changedTouches[0].clientX;},{passive:true});
-  $('ledgerPhotoStage').addEventListener('touchend',event=>{if(ledgerTouchStart===null)return;const distance=event.changedTouches[0].clientX-ledgerTouchStart;ledgerTouchStart=null;if(Math.abs(distance)>45)openLedgerPhoto(ledgerPhotoIndex+(distance<0?1:-1));},{passive:true});
+  $('ledgerPhotoStage').addEventListener('touchend',event=>{if(ledgerTouchStart===null)return;if(imageAttachmentPreviewMode!=='fit'){ledgerTouchStart=null;return;}const distance=event.changedTouches[0].clientX-ledgerTouchStart;ledgerTouchStart=null;if(Math.abs(distance)>45)openLedgerPhoto(ledgerPhotoIndex+(distance<0?1:-1));},{passive:true});
   document.addEventListener('keydown',event=>{if(!$('ledgerPhotoDialog').open)return;if(event.key==='ArrowLeft')openLedgerPhoto(ledgerPhotoIndex-1);if(event.key==='ArrowRight')openLedgerPhoto(ledgerPhotoIndex+1);});
   $('ledgerFilter').addEventListener('submit', event => { event.preventDefault(); loadLedger(); });
   document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => panel(button.dataset.tab)));

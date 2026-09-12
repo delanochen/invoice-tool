@@ -1,6 +1,6 @@
-const imageAttachmentPreviewDialog = document.querySelector("#imageAttachmentPreviewDialog");
-const imageAttachmentPreviewTitle = document.querySelector("#imageAttachmentPreviewTitle");
-const imageAttachmentPreviewImage = document.querySelector("#imageAttachmentPreviewImage");
+const imageAttachmentPreviewDialog = document.querySelector("#imageAttachmentPreviewDialog, #ledgerPhotoDialog");
+const imageAttachmentPreviewTitle = document.querySelector("#imageAttachmentPreviewTitle, #ledgerPhotoTitle");
+const imageAttachmentPreviewImage = document.querySelector("#imageAttachmentPreviewImage, #ledgerPhotoImage");
 const imageAttachmentPreviewFit = document.querySelector("[data-image-preview-fit]");
 const imageAttachmentPreviewOut = document.querySelector("[data-image-preview-out]");
 const imageAttachmentPreviewOriginal = document.querySelector("[data-image-preview-original]");
