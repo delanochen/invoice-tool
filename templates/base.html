@@ -70,9 +70,6 @@
           {% if has_menu_permission("expense_processing") and not is_external_manager() and not is_external_employee() %}
             {{ nav_link("expense_processing", "报销处理", expense_processing_endpoints) }}
           {% endif %}
-          {% if has_menu_permission("new_invoice") and can_create_invoice() %}
-            {{ nav_link("new_invoice", "新建发票", invoice_create_endpoints) }}
-          {% endif %}
           {% set show_reports_menu =
             (has_menu_permission("invoices") and can_view_invoices())
             or (has_menu_permission("invoice_query") and can_view_invoices())
