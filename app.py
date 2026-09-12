@@ -1845,9 +1845,28 @@ def init_db():
                 ("payroll_historical_paid_date_20260705_v1", now()),
             )
         seed_role_permissions(connection)
-        admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").strip().lower()
-        admin_password = os.environ.get("ADMIN_PASSWORD", "change-me-now")
-        if not connection.execute("select id from users where email = ?", (admin_email,)).fetchone():
+        if not connection.execute("select id from users where role = 'admin' limit 1").fetchone():
+            admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+            admin_password = os.environ.get("ADMIN_PASSWORD", "")
+            if not admin_email:
+                raise RuntimeError(
+                    "Refusing to initialize administrator: ADMIN_EMAIL is required."
+                )
+            if not admin_password:
+                raise RuntimeError(
+                    "Refusing to initialize administrator: ADMIN_PASSWORD is required."
+                )
+            if admin_password == "change-me-now":
+                raise RuntimeError(
+                    "Refusing to initialize administrator: a secure ADMIN_PASSWORD is required."
+                )
+            if connection.execute(
+                "select id from users where lower(email) = ? limit 1",
+                (admin_email,),
+            ).fetchone():
+                raise RuntimeError(
+                    "Refusing to initialize administrator: ADMIN_EMAIL already belongs to an existing user."
+                )
             connection.execute(
                 """
                 insert into users (name, email, password_hash, role, created_at)
