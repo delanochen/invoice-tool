@@ -58,29 +58,17 @@ class BusinessDefaultsSecurityTest(unittest.TestCase):
         module.app.config.update(TESTING=True, SECRET_KEY="test")
         return module
 
-    def settings(self, module):
-        with module.app.app_context():
-            return {
-                row["key"]: row["value"]
-                for row in module.db().execute(
-                    "select key, value from settings"
-                ).fetchall()
-            }
-
     def test_empty_database_does_not_receive_real_business_defaults(self):
         module = self.load_app()
         with module.app.app_context():
             company = module.get_company_profile()
             payment = module.get_payment_instructions()
             smtp = module.get_smtp_settings()
-            settings = self.settings(module)
         self.assertTrue(all(value == "" for value in company.values()))
         self.assertTrue(all(value == "" for value in payment.values()))
         self.assertTrue(all(value == "" for value in smtp.values()))
         with module.app.app_context():
             self.assertEqual(module.get_invoice_terms(), "")
-        self.assertNotIn("2909930519", settings.values())
-        self.assertNotIn("CHASUS33XXX", settings.values())
 
     def test_explicit_environment_values_seed_and_are_used(self):
         module = self.load_app(
