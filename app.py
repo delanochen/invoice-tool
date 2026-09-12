@@ -116,42 +116,37 @@ register_heif_opener()
 ALLOWED_ATTACHMENT_LABEL = "Word、Excel、PDF、PNG、JPG、JPEG、WEBP、GIF"
 
 DEFAULT_COMPANY_PROFILE = {
-    "name": "Prasinos Power LLC",
-    "address": "6131 Fenske Lane, Needville, TX 77461, US",
-    "email": "info@prasinospower.com",
-    "phone": "+1 910 910 9191",
-    "registration_number": "805498356",
-    "ein": "99-2440677",
-    "tax_note": (
-        "No Texas sales tax is charged on this invoice because the customer is located outside "
-        "the United States. Customer is responsible for any applicable local taxes, withholding, "
-        "foreign exchange costs, intermediary bank fees, or wire transfer fees unless otherwise agreed in writing."
-    ),
+    "name": os.environ.get("COMPANY_NAME", "").strip(),
+    "address": os.environ.get("COMPANY_ADDRESS", "").strip(),
+    "email": os.environ.get("COMPANY_EMAIL", "").strip(),
+    "phone": os.environ.get("COMPANY_PHONE", "").strip(),
+    "registration_number": os.environ.get("COMPANY_REGISTRATION_NUMBER", "").strip(),
+    "ein": os.environ.get("COMPANY_EIN", "").strip(),
+    "tax_note": os.environ.get("COMPANY_TAX_NOTE", "").strip(),
 }
 
 DEFAULT_PAYMENT_INSTRUCTIONS = {
-    "method": "International bank wire transfer",
-    "beneficiary": "Prasinos Power LLC",
-    "bank_name": "Chase Bank",
-    "account_number": "2909930519",
-    "routing_number": "111000614",
-    "swift_bic": "CHASUS33XXX",
+    "method": os.environ.get("PAYMENT_METHOD", "").strip(),
+    "beneficiary": os.environ.get("PAYMENT_BENEFICIARY", "").strip(),
+    "bank_name": os.environ.get("PAYMENT_BANK_NAME", "").strip(),
+    "account_number": os.environ.get("PAYMENT_ACCOUNT_NUMBER", "").strip(),
+    "routing_number": os.environ.get("PAYMENT_ROUTING_NUMBER", "").strip(),
+    "swift_bic": os.environ.get("PAYMENT_SWIFT_BIC", "").strip(),
 }
 
-DEFAULT_INVOICE_TERMS = (
-    "Payment is due by the due date stated on this invoice. Bank fees, intermediary fees, "
-    "and foreign exchange charges are the responsibility of the payer unless otherwise agreed in writing."
-)
+DEFAULT_INVOICE_TERMS = os.environ.get("INVOICE_TERMS", "").strip()
 
 DEFAULT_SMTP_SETTINGS = {
-    "host": "smtp.gmail.com",
-    "port": "587",
-    "user": "delanochen@gmail.com",
-    "password": "",
-    "from": "delanochen@gmail.com",
-    "tls": "true",
+    "host": os.environ.get("SMTP_HOST", "").strip(),
+    "port": os.environ.get("SMTP_PORT", "").strip(),
+    "user": os.environ.get("SMTP_USER", "").strip(),
+    "password": os.environ.get("SMTP_PASSWORD", ""),
+    "from": os.environ.get("SMTP_FROM", "").strip(),
+    "tls": os.environ.get("SMTP_TLS", "").strip(),
 }
 DEFAULT_TIMEZONE = "America/Chicago"
+HEADQUARTERS_LATITUDE = os.environ.get("HEADQUARTERS_LATITUDE", "").strip()
+HEADQUARTERS_LONGITUDE = os.environ.get("HEADQUARTERS_LONGITUDE", "").strip()
 NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
 CENSUS_GEOCODER_URL = os.environ.get(
     "CENSUS_GEOCODER_URL",
@@ -163,7 +158,7 @@ DEEPSEEK_API_KEY_ENV = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 GOOGLE_GEOCODING_URL = os.environ.get("GOOGLE_GEOCODING_URL", "https://maps.googleapis.com/maps/api/geocode/json")
 NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
-    "PrasinosPowerInvoiceTool/1.0 (info@prasinospower.com)",
+    "InvoiceTool/1.0",
 )
 NOMINATIM_COUNTRY_CODES = os.environ.get("NOMINATIM_COUNTRY_CODES", "us,ca").strip()
 GEOCODING_ENABLED = os.environ.get("GEOCODING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
@@ -12314,10 +12309,10 @@ def service_order_map():
         map_buyers=buyers_payload,
         show_invoice_amounts=can_view_invoices(),
         headquarters={
-            "name": "Prasinos Power LLC",
-            "address": "518 Anacacho Dr, Spring, TX 77386",
-            "latitude": 30.11295,
-            "longitude": -95.41663,
+            "name": company["name"],
+            "address": company["address"],
+            "latitude": HEADQUARTERS_LATITUDE,
+            "longitude": HEADQUARTERS_LONGITUDE,
         },
         company_address=company["address"],
         route_origin_address=route_origin_address,
@@ -15445,7 +15440,7 @@ def build_service_report_docx(report, order):
     for index in range(worker_rows):
         worker = workers[index] if index < len(workers) else None
         set_cell_text(worker_table.rows[index + 1].cells[0], worker["name"] if worker else "")
-        set_cell_text(worker_table.rows[index + 1].cells[1], "Prasinos Power LLC" if worker else "")
+        set_cell_text(worker_table.rows[index + 1].cells[1], get_company_profile()["name"] if worker else "")
     style_table(worker_table, header_rows=1, column_widths=[3.5, 3.5])
 
     summary = document.add_table(rows=2, cols=3)
@@ -15557,7 +15552,7 @@ def build_service_report_docx(report, order):
     set_cell_text(sign_table.rows[0].cells[0], "报告人签字：")
     set_cell_text(sign_table.rows[0].cells[1], "现场服务人员：")
     set_cell_text(sign_table.rows[1].cells[0], f"报告时间：{report['report_date'] or ''}")
-    set_cell_text(sign_table.rows[1].cells[1], "公司：Prasinos Power LLC")
+    set_cell_text(sign_table.rows[1].cells[1], f"公司：{get_company_profile()['name']}")
     style_table(sign_table, column_widths=[3.5, 3.5])
 
     buffer = BytesIO()
