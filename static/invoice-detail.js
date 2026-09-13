@@ -24,14 +24,14 @@ const existingAttachmentNames = new Set(
 document.querySelectorAll("[data-delete-invoice-attachment]").forEach((form) => {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!window.confirm("确定删除这个附件吗？")) return;
+    if (!window.uiConfirm("确定删除这个附件吗？")) return;
     const response = await fetch(form.action, {
       method: "POST",
       headers: { "X-Requested-With": "XMLHttpRequest" },
     });
     const result = response.headers.get("content-type")?.includes("application/json") ? await response.json() : null;
     if (!response.ok || !result?.ok) {
-      window.alert("附件删除失败，请重试。");
+      window.alert(window.uiTranslate("附件删除失败，请重试。"));
       return;
     }
     document.getElementById(form.dataset.rowId)?.remove();

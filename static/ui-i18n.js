@@ -1,5 +1,16 @@
 ﻿(() => {
   const en = {
+    "现场相机": "Field Camera",
+    "iOS 内部应用": "iOS Internal App",
+    "薪酬批次": "Payroll Batch",
+    "银行账号": "Account Number",
+    "路由号码": "Routing Number",
+    "SWIFT/BIC 代码": "SWIFT/BIC",
+    "SMTP 服务器": "SMTP Host",
+    "SMTP 端口": "SMTP Port",
+    "SMTP 用户名": "SMTP User",
+    "SMTP 密码": "SMTP Password",
+    "SMTP 发件人": "SMTP From",
     "现场工作": "Field work", "员工证书查询": "Employee certificates", "工单拍照": "Take job photos", "照片台账": "Photo register", "工单照片台账": "Job photo register",
     "请填写地址。": "Please enter an address.",
     "菜单": "Menu",

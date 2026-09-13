@@ -3,7 +3,7 @@
 {% block content %}
   <header class="page-header">
     <div>
-      <p class="eyebrow">Service Order</p>
+      <p class="eyebrow">工单</p>
       <h1>{{ order.order_number }}</h1>
       <p class="muted-line">{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</p>
     </div>
