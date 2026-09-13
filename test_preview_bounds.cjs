@@ -8,7 +8,10 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   await page.setContent(`<div style="height:1400px"></div><a href="${url}" data-image-preview>Receipt</a><div style="height:600px"></div><dialog id="imageAttachmentPreviewDialog"><h2 id="imageAttachmentPreviewTitle"></h2><button data-image-preview-in>+</button><button data-image-preview-out>-</button><button data-image-preview-fit>Fit</button><button data-image-preview-original>Original</button><button data-image-preview-close>Close</button><div class="${stage}" style="width:500px;height:350px;display:grid;place-items:center;overflow:auto"><img id="imageAttachmentPreviewImage"></div></dialog>`);
   await page.addStyleTag({content:fs.readFileSync('static/attachment-preview.css','utf8')});await page.addScriptTag({path:'static/attachment-preview.js'});
   await page.locator('a').scrollIntoViewIfNeeded();const before=await page.evaluate(()=>scrollY);assert.ok(before>500);
+  const backgroundTop=await page.locator('a').evaluate(e=>e.getBoundingClientRect().top);
   await page.locator('a').click();await page.waitForFunction(()=>document.querySelector('img').naturalWidth>0);
+  await page.evaluate(()=>window.scrollTo(0,0));
+  assert.ok(Math.abs(await page.locator('a').evaluate(e=>e.getBoundingClientRect().top)-backgroundTop)<1,'background stays fixed while preview is open');
   for(const action of ['[data-image-preview-in]','[data-image-preview-original]']) {
    await page.locator(action).click();
    const bounds=await page.locator('img').evaluate(img=>{const v=img.parentElement;v.scrollTo(0,0);const a=img.getBoundingClientRect(),b=v.getBoundingClientRect();const start={x:a.left-b.left,y:a.top-b.top};v.scrollTo(v.scrollWidth,v.scrollHeight);const end=img.getBoundingClientRect();return {start,right:end.right-b.right,bottom:end.bottom-b.bottom,width:a.width,scroll:v.scrollWidth};});
@@ -24,7 +27,7 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   await page.evaluate(()=>window.scrollBy(0,-120));
   await page.locator('a').evaluate(link=>link.replaceWith(link.cloneNode(true)));
   await page.mouse.up();await page.waitForSelector('dialog[open]');
-  assert.equal(await page.evaluate(()=>scrollY),before);
+  assert.ok(Math.abs(await page.locator('a').evaluate(e=>e.getBoundingClientRect().top)-backgroundTop)<1);
   await page.locator('[data-image-preview-close]').click();
   await page.locator('a').focus();await page.keyboard.press('Enter');await page.waitForSelector('dialog[open]');
   await page.evaluate(()=>{
