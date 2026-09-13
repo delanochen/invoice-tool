@@ -29,7 +29,7 @@ function reportTablePayload(table) {
 async function downloadVisibleReport(button) {
   const table = exportableReportTable();
   if (!table) {
-    window.alert("当前页面没有可导出的报表表格。");
+    window.alert(window.uiTranslate("当前页面没有可导出的报表表格。"));
     return;
   }
   const originalText = button.textContent;
@@ -55,7 +55,7 @@ async function downloadVisibleReport(button) {
     link.remove();
     URL.revokeObjectURL(objectUrl);
   } catch (error) {
-    window.alert("报表导出失败，请稍后重试。");
+    window.alert(window.uiTranslate("报表导出失败，请稍后重试。"));
   } finally {
     button.disabled = false;
     button.textContent = originalText;

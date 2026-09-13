@@ -29,7 +29,7 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.ok) throw new Error(result.error || '删除失败，请刷新后重试。');
-      if (result.cleanup_pending) window.alert('记录和照片已从台账移除，服务器临时文件清理失败，请联系管理员。');
+      if (result.cleanup_pending) window.alert(window.uiTranslate('记录和照片已从台账移除，服务器临时文件清理失败，请联系管理员。'));
       window.parent.postMessage({type:'workspace:saved'}, location.origin);
       location.reload();
     } catch (failure) {
