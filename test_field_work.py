@@ -237,7 +237,7 @@ class FieldWorkTest(unittest.TestCase):
         body = page.get_data(as_text=True)
         for value in ('10232502W0738', '4A1-4', 'LYGU0217133', '1/2/3/4/5/6', '3 张'):
             self.assertIn(value, body)
-        self.assertEqual(body.count('10232502W0738'), 1)
+        self.assertEqual(body.count('<td>10232502W0738</td>'), 1)
         export = self.http.get('/api/field/repairs.xlsx')
         self.assertEqual(export.status_code, 200)
         self.assertIn('spreadsheetml', export.content_type)

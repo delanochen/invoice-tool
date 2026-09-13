@@ -44,7 +44,7 @@
         {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "database_console", "menu_permissions"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
-          <a href="{{ url_for(endpoint) }}" class="{{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
+          <a href="{{ url_for(endpoint) }}" class="translatable-text {{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
         {%- endmacro %}
         <nav id="sidebar-navigation">
           {% if has_menu_permission("field_work") and has_action_permission("service_orders", "view") %}

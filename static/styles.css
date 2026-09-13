@@ -1541,6 +1541,13 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .attachment-panel { max-width: 900px; margin: 18px auto 0; }
 .attachment-upload { max-width: 520px; margin-top: 18px; }
 .modal {
+  /* Fixed, viewport-centered: showModal() must not scroll the page back to the
+     top when the dialog sits above the current scroll position. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  max-height: calc(100% - 32px);
   width: min(560px, calc(100% - 32px));
   border: 1px solid var(--line);
   border-radius: 8px;

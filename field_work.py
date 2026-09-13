@@ -441,10 +441,14 @@ def register_field_routes(app, api):
                 'received_at', 'latitude', 'longitude', 'accuracy', 'location_verified', 'note', 'location_note', 'source', 'relative_path']
         from openpyxl import Workbook
         from openpyxl.drawing.image import Image as ExcelImage
+        from openpyxl.drawing.spreadsheet_drawing import TwoCellAnchor, AnchorMarker
         workbook = Workbook()
         worksheet = workbook.active
         worksheet.title = '工单照片台账'
         worksheet.append(headers)
+        # Thumbnail column: keep the cell roughly square (60pt row height ~ 80px,
+        # width 11.5 ~ 80px) so the anchored image fills the cell without distortion.
+        worksheet.column_dimensions['A'].width = 11.5
         for row in rows:
             values = [str(row[key] or '') for key in keys]
             source_index = keys.index('watermark_source')
@@ -457,10 +461,16 @@ def register_field_routes(app, api):
             except NotFound:
                 image_path = photo_file(row)
             image = ExcelImage(str(image_path))
-            image.width = 76
-            image.height = 76
-            worksheet.add_image(image, f'A{worksheet.max_row}')
-            worksheet.row_dimensions[worksheet.max_row].height = 60
+            image_row = worksheet.max_row
+            # TwoCellAnchor with editAs='twoCell': the thumbnail is pinned to the
+            # cell and resizes together with the row/column ('move and size with cells').
+            marker_from = AnchorMarker(col=0, colOff=0, row=image_row - 1, rowOff=0)
+            marker_to = AnchorMarker(col=1, colOff=0, row=image_row, rowOff=0)
+            anchor = TwoCellAnchor(_from=marker_from, to=marker_to)
+            anchor.editAs = 'twoCell'
+            image.anchor = anchor
+            worksheet.add_image(image)
+            worksheet.row_dimensions[image_row].height = 60
         worksheet.freeze_panes = 'A2'
         worksheet.auto_filter.ref = worksheet.dimensions
         buffer = BytesIO()
