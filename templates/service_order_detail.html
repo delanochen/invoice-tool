@@ -75,7 +75,6 @@
     <div class="panel-title">
       <h2>工作日报</h2>
       <div class="toolbar-actions">
-        <span class="muted-line" data-selected-label>{{ reports|length }} 份日报</span>
         {% if can_create_service_report(order) %}
           <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
           <button class="small" type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>
@@ -91,7 +90,7 @@
       </div>
     </div>
     <table class="list-table selectable-list-table" data-selectable-table>
-      <thead><tr><th>报告日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th></tr></thead>
+      <thead><tr><th>报告日期</th><th>实际日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th></tr></thead>
       <tbody>
         {% for report in reports %}
           {% set can_open_report = is_external_manager() or (not is_external_employee() or report.created_by == g.user.id) %}
@@ -107,13 +106,14 @@
             data-delete-url="{% if can_delete_report %}{{ url_for('delete_service_report', report_id=report.id) }}{% endif %}"
           >
             <td>{{ report.report_date }}</td>
+            <td>{{ report.actual_work_date or report.report_date }}</td>
             <td>{{ report.creator_name or "-" }}</td>
             <td>{{ report.worker_names or "-" }}</td>
             <td>{{ report.total_service_hours }}</td>
             <td>{{ report.travel_hours }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="5" class="empty">还没有工作日报。</td></tr>
+          <tr><td colspan="6" class="empty">还没有工作日报。</td></tr>
         {% endfor %}
       </tbody>
     </table>
