@@ -2744,6 +2744,9 @@
   }
 
   for (const input of document.querySelectorAll("input[type='file']")) {
+    // These inputs already have a translated, clickable label and photo previews.
+    // Adding another file control inside the label breaks its compact layout.
+    if (input.closest('.photo-local-picker')) continue;
     input.classList.add("translated-file-input");
     const control = document.createElement("span");
     control.className = "translated-file-control";

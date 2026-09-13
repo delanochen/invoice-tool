@@ -2693,7 +2693,8 @@ body.service-order-map-page {
 
 .selected-photo-card .selected-photo-preview{display:block;padding:0;min-height:0;border:0;background:transparent;cursor:zoom-in;line-height:0}
 
-.photo-source-actions > .photo-local-picker,.photo-source-actions > button{width:132px;min-height:36px;margin:0;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:400}
+.photo-source-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.photo-source-actions > .photo-local-picker,.photo-source-actions > button{width:auto;min-width:148px;min-height:36px;margin:0;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;font-size:13px;font-weight:400}
 .photo-local-picker{position:relative;overflow:hidden;cursor:pointer}
 .photo-local-picker input[type=file]{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;opacity:0;cursor:pointer}
 .photo-local-picker:focus-within{outline:2px solid var(--accent);outline-offset:2px}
