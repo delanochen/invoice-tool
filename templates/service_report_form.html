@@ -78,8 +78,7 @@
           </select>
         </span>
       </label>
-      <label>机柜编号 <input name="cabinet_number" value="{{ report.cabinet_number or '' }}"></label>
-      <label>是否填写客户日报
+            <label>是否填写客户日报
         <select name="has_customer_report" id="hasCustomerReport">
           <option value="no" {% if not report.report_writer_id %}selected{% endif %}>否</option>
           <option value="yes" {% if report.report_writer_id %}selected{% endif %}>是</option>
@@ -93,7 +92,8 @@
           {% endfor %}
         </select>
       </label>
-      <label>出发地址 <input name="departure_address" value="{{ report.departure_address or '' }}"></label>
+      <label class="wide-field">机柜编号 <input name="cabinet_number" value="{{ report.cabinet_number or '' }}"></label>
+<label class="wide-field">出发地址 <input name="departure_address" value="{{ report.departure_address or '' }}"></label>
       <label class="full-span">场地地址 <input name="site_address" value="{{ report.site_address or order.site_address }}"></label>
     </div>
 
