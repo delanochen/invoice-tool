@@ -72,7 +72,23 @@ function openImageAttachmentPreview(link, event) {
   setImageAttachmentPreviewFit();
   if (!imageAttachmentPreviewDialog.open) imageAttachmentPreviewDialog.showModal();
   applyImageAttachmentPreviewZoom();
-  window.scrollTo(imagePreviewReturn.x,imagePreviewReturn.y);
+  // Chrome may scroll the dialog into view *after* the synchronous call above
+  // (a later rendering frame), which would yank the page back to the top when the
+  // dialog sits above the current scroll position. Re-apply the saved scroll
+  // position now and again over the next frames/timers to win that race.
+  const restoreScroll = () => {
+    const saved = imagePreviewReturn;
+    if (!saved) return;
+    if (window.scrollX !== saved.x || window.scrollY !== saved.y) window.scrollTo(saved.x, saved.y);
+    for (const [node, sx, sy] of saved.containers) {
+      if (node.scrollTop !== sy) node.scrollTop = sy;
+      if (node.scrollLeft !== sx) node.scrollLeft = sx;
+    }
+  };
+  restoreScroll();
+  requestAnimationFrame(restoreScroll);
+  setTimeout(restoreScroll, 50);
+  setTimeout(restoreScroll, 250);
 }
 
 // A grid can replace a cell between pointerdown and click. Handle the release
