@@ -97,16 +97,19 @@ let imagePreviewPointer = null;
 document.addEventListener('pointerdown', event => {
   const link = event.target.closest?.('[data-image-preview]');
   imagePreviewPointer = event.isPrimary && event.button === 0 && link
-    ? {id:event.pointerId, href:link.href, x:event.clientX, y:event.clientY} : null;
+    ? {id:event.pointerId, href:link.href, name:link.dataset.previewName || link.textContent.trim() || '', x:event.clientX, y:event.clientY} : null;
 }, true);
 document.addEventListener('pointercancel', () => { imagePreviewPointer = null; }, true);
 document.addEventListener('pointerup', event => {
   const start = imagePreviewPointer; imagePreviewPointer = null;
+  if (!start || start.id !== event.pointerId || Math.hypot(event.clientX-start.x, event.clientY-start.y) >= 8) return;
+  // A grid can replace the row DOM while scrolling; if the released target no
+  // longer matches, open with the link captured at pointerdown instead.
   const link = event.target.closest?.('[data-image-preview]');
-  if (start && start.id === event.pointerId && link?.href === start.href
-      && Math.hypot(event.clientX-start.x, event.clientY-start.y) < 8) {
-    openImageAttachmentPreview(link, event);
-  }
+  const hit = link && link.href === start.href
+    ? link
+    : {href: start.href, dataset: {previewName: start.name}};
+  openImageAttachmentPreview(hit, event);
 }, true);
 document.addEventListener('click', event => {
   openImageAttachmentPreview(event.target.closest?.('[data-image-preview]'), event);
