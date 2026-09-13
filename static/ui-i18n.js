@@ -767,6 +767,15 @@
     "确定删除这份工单结算草稿吗？明细和附件也会一起删除。": "Delete this draft work order settlement? Details and attachments will also be deleted.",
     "只有保存未提交或已退回的工单结算草稿可以删除。": "Only draft or returned work order settlement drafts can be deleted.",
     "工单结算草稿已删除。": "Work order settlement draft deleted.",
+    '复制日报': 'Copy daily report',
+    '甲方里程计算方式': 'Client mileage calculation method',
+    '按人员计算': 'Per person',
+    '按车辆计算': 'Per vehicle',
+    '是否填写客户日报': 'Fill in client daily report',
+    '客户日报填写员工': "Client's daily report fill-in employee",
+    '请选择': 'Select',
+    '已复制': 'Copied',
+    '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': 'daily report content. Date defaults to today. Photos and attachments must be re-uploaded; saving creates a new daily report.',
     "确定删除这份合同吗？有关联工单的合同不能删除。": "Delete this contract? Contracts linked to work orders cannot be deleted."
   };
 
@@ -1365,6 +1374,15 @@
     "发票已审核完成": "Factuurbeoordeling voltooid",
     "发票已确认完成": "Factuur bevestigd als voltooid",
     "发票状态已调整": "Factuurstatus aangepast",
+    '复制日报': 'Dagrapport kopiëren',
+    '甲方里程计算方式': 'Methode kilometerberekening klant',
+    '按人员计算': 'Per persoon',
+    '按车辆计算': 'Per voertuig',
+    '是否填写客户日报': 'Klantdagrapport invullen',
+    '客户日报填写员工': 'Medewerker klantdagrapport invullen',
+    '请选择': 'Selecteer',
+    '已复制': 'Gekopieerd',
+    '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': "dagrapportinhoud. Datum staat standaard op vandaag. Foto's en bijlagen moeten opnieuw worden geüpload; opslaan maakt een nieuw dagrapport.",
     "已读": "Gelezen"
   };
 
@@ -1440,6 +1458,15 @@
     "确定删除这份工单结算草稿吗？明细和附件也会一起删除。": "Diesen Entwurf der Arbeitsauftragsabrechnung löschen? Details und Anhänge werden ebenfalls gelöscht.",
     "只有保存未提交或已退回的工单结算草稿可以删除。": "Nur Entwürfe oder zurückgesendete Arbeitsauftragsabrechnungen können gelöscht werden.",
     "工单结算草稿已删除。": "Entwurf der Arbeitsauftragsabrechnung wurde gelöscht.",
+    '复制日报': 'Tagesbericht kopieren',
+    '甲方里程计算方式': 'Kilometerberechnung Kunde',
+    '按人员计算': 'Pro Person',
+    '按车辆计算': 'Pro Fahrzeug',
+    '是否填写客户日报': 'Kundentagesbericht ausfüllen',
+    '客户日报填写员工': 'Mitarbeiter für Kundentagesbericht',
+    '请选择': 'Auswählen',
+    '已复制': 'Kopiert',
+    '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': 'Tagesberichtinhalt. Datum ist standardmäßig heute. Fotos und Anhänge müssen erneut hochgeladen werden; Speichern erstellt einen neuen Tagesbericht.',
     "确定删除这份合同吗？有关联工单的合同不能删除。": "Diesen Vertrag löschen? Verträge mit verknüpften Arbeitsaufträgen können nicht gelöscht werden."
   };
 
@@ -1515,6 +1542,15 @@
     "确定删除这份工单结算草稿吗？明细和附件也会一起删除。": "¿Eliminar este borrador de liquidación de orden? También se eliminarán los detalles y adjuntos.",
     "只有保存未提交或已退回的工单结算草稿可以删除。": "Solo se pueden eliminar borradores o liquidaciones devueltas.",
     "工单结算草稿已删除。": "Borrador de liquidación de orden eliminado.",
+    '复制日报': 'Copiar informe diario',
+    '甲方里程计算方式': 'Método de cálculo de kilometraje del cliente',
+    '按人员计算': 'Por persona',
+    '按车辆计算': 'Por vehículo',
+    '是否填写客户日报': 'Completar informe diario del cliente',
+    '客户日报填写员工': 'Empleado que completa el informe del cliente',
+    '请选择': 'Seleccionar',
+    '已复制': 'Copiado',
+    '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': 'contenido del informe diario. La fecha se establece por defecto en hoy. Las fotos y adjuntos deben volver a cargarse; guardar crea un nuevo informe diario.',
     "确定删除这份合同吗？有关联工单的合同不能删除。": "¿Eliminar este contrato? No se pueden eliminar contratos vinculados a órdenes de trabajo."
   };
 
