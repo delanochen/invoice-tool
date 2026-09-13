@@ -505,6 +505,10 @@ label {
   font-size: 13px;
 }
 .filter-actions { display: flex; gap: 8px; }
+.photo-filter-bar {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(110px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 140px 140px auto;
+}
+#photoBatchDownload { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
 .knowledge-filter-bar { grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) minmax(150px, 220px) auto; }
 .knowledge-description { min-width: 220px; max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
 .checkbox-row { display: flex; align-items: center; gap: 8px; align-self: end; min-height: 42px; }
