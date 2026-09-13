@@ -3,7 +3,7 @@
 {% block body_class %}payroll-calendar-page{% endblock %}
 {% block content %}
   <header class="page-header">
-    <div><p class="eyebrow">Payroll</p><h1>薪酬日历</h1></div>
+    <div><p class="eyebrow">薪酬管理</p><h1>薪酬日历</h1></div>
     <div class="toolbar-actions no-print">
       <button type="button" onclick="window.location.href='{{ url_for('payroll_calendar', year=previous_month.year, month=previous_month.month) }}'">上个月</button>
       <button type="button" onclick="window.location.href='{{ url_for('payroll_calendar') }}'">本月</button>
@@ -44,7 +44,7 @@
   <dialog class="payroll-batch-dialog" id="payrollBatchDialog">
     <div class="modal-header">
       <div>
-        <p class="eyebrow">Payroll Batch</p>
+        <p class="eyebrow">薪酬批次</p>
         <h2 id="payrollBatchTitle">工资批次</h2>
       </div>
       <button type="button" class="icon-button" data-close-payroll-batch aria-label="关闭">×</button>
