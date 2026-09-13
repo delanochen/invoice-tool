@@ -12,6 +12,7 @@ const imageAttachmentViewport = imageAttachmentPreviewImage?.closest('.ledger-ph
 imageAttachmentViewport?.classList.add('attachment-image-viewport');
 imageAttachmentPreviewImage?.classList.add('attachment-preview-image');
 let imagePreviewReturn = null;
+let scrollLockHandler = null;
 
 function applyImageAttachmentPreviewZoom() {
   if (!imageAttachmentPreviewImage) return;
@@ -90,19 +91,21 @@ function openImageAttachmentPreview(link, event) {
   setTimeout(restoreScroll, 50);
   setTimeout(restoreScroll, 600);
   setTimeout(restoreScroll, 1200);
-  // Guard window: Chrome/Edge may re-scroll the dialog into view on a later
-  // frame (e.g. after the image loads and the dialog grows). Force any
-  // window-scroll back to the saved position for the next second.
-  const stopAt = performance.now() + 1000;
-  const guardScroll = () => {
-    if (performance.now() > stopAt || !imageAttachmentPreviewDialog.open) {
-      window.removeEventListener("scroll", guardScroll);
-      return;
-    }
+  // Chrome/Edge may re-scroll the dialog into view on a later frame (image
+  // loads, dialog grows, etc). Lock the scroll position for the whole time the
+  // dialog is open: any window/container scroll is pulled straight back.
+  if (scrollLockHandler) window.removeEventListener("scroll", scrollLockHandler);
+  scrollLockHandler = () => {
+    if (!imageAttachmentPreviewDialog.open) return;
     const saved = imagePreviewReturn;
-    if (saved && (window.scrollX !== saved.x || window.scrollY !== saved.y)) window.scrollTo(saved.x, saved.y);
+    if (!saved) return;
+    if (window.scrollX !== saved.x || window.scrollY !== saved.y) window.scrollTo(saved.x, saved.y);
+    for (const [node, sx, sy] of saved.containers) {
+      if (node.scrollTop !== sy) node.scrollTop = sy;
+      if (node.scrollLeft !== sx) node.scrollLeft = sx;
+    }
   };
-  window.addEventListener("scroll", guardScroll);
+  window.addEventListener("scroll", scrollLockHandler);
 }
 
 // A grid can replace a cell between pointerdown and click. Handle the release
@@ -150,6 +153,7 @@ function restoreImageAttachmentPreview() {
     saved.link.isConnected && saved.link.focus({preventScroll:true});
     saved.containers.forEach(([node,x,y])=>node.scrollTo(x,y));
     window.scrollTo(saved.x,saved.y);
+    if (scrollLockHandler) { window.removeEventListener("scroll", scrollLockHandler); scrollLockHandler = null; }
   }
 }
 imageAttachmentPreviewDialog?.addEventListener("close", () => {
