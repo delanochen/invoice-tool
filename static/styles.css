@@ -149,8 +149,9 @@ button:disabled {
 .nav-group summary::-webkit-details-marker { display: none; }
 .nav-group summary::after {
   content: ">";
-  color: #9ca3af;
-  font-size: 12px;
+  color: #e5e7eb;
+  font-size: 16px;
+  font-weight: 700;
   line-height: 1;
 }
 .nav-group[open] summary::after {
@@ -185,8 +186,9 @@ button:disabled {
 .nav-subgroup summary::-webkit-details-marker { display: none; }
 .nav-subgroup summary::after {
   content: ">";
-  color: #9ca3af;
-  font-size: 12px;
+  color: #e5e7eb;
+  font-size: 15px;
+  font-weight: 700;
 }
 .nav-subgroup[open] summary::after {
   transform: rotate(90deg);
