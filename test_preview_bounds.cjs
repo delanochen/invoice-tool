@@ -20,8 +20,11 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   // dispatches click to that link, but a short release should still preview it.
   const box=await page.locator('a').boundingBox();
   await page.mouse.move(box.x+5,box.y+5);await page.mouse.down();
+  // A focus/layout change before release must not become the saved position.
+  await page.evaluate(()=>window.scrollBy(0,-120));
   await page.locator('a').evaluate(link=>link.replaceWith(link.cloneNode(true)));
   await page.mouse.up();await page.waitForSelector('dialog[open]');
+  assert.equal(await page.evaluate(()=>scrollY),before);
   await page.locator('[data-image-preview-close]').click();
   await page.locator('a').focus();await page.keyboard.press('Enter');await page.waitForSelector('dialog[open]');
   await page.evaluate(()=>{

@@ -57,17 +57,21 @@ function closeImageAttachmentPreview() {
   restoreImageAttachmentPreview();
 }
 
-function openImageAttachmentPreview(link, event) {
+function captureImagePreviewPosition(link) {
+  const containers=[];
+  for(let node=link.parentElement;node;node=node.parentElement) {
+    if(node.scrollHeight>node.clientHeight || node.scrollWidth>node.clientWidth) containers.push([node,node.scrollLeft,node.scrollTop]);
+  }
+  return {link,containers,x:window.scrollX,y:window.scrollY};
+}
+
+function openImageAttachmentPreview(link, event, position) {
   if (!link || !imageAttachmentPreviewDialog || !imageAttachmentPreviewImage) return;
   event.preventDefault();
   // Handle the visible thumbnail before grid adapters forward its click to a hidden source row.
   event.stopPropagation();
   if (imageAttachmentPreviewDialog.open && imageAttachmentPreviewImage.src === link.href) return;
-  const containers=[];
-  for(let node=link.parentElement;node;node=node.parentElement) {
-    if(node.scrollHeight>node.clientHeight || node.scrollWidth>node.clientWidth) containers.push([node,node.scrollLeft,node.scrollTop]);
-  }
-  imagePreviewReturn={link,containers,x:window.scrollX,y:window.scrollY};
+  imagePreviewReturn=position || captureImagePreviewPosition(link);
   imageAttachmentPreviewTitle.textContent = link.dataset.previewName || link.textContent.trim() || "附件预览";
   imageAttachmentPreviewImage.src = link.href;
   setImageAttachmentPreviewFit();
@@ -114,7 +118,15 @@ let imagePreviewPointer = null;
 document.addEventListener('pointerdown', event => {
   const link = event.target.closest?.('[data-image-preview]');
   imagePreviewPointer = event.isPrimary && event.button === 0 && link
-    ? {id:event.pointerId, href:link.href, name:link.dataset.previewName || link.textContent.trim() || '', x:event.clientX, y:event.clientY} : null;
+    ? {id:event.pointerId, href:link.href, name:link.dataset.previewName || link.textContent.trim() || '', x:event.clientX, y:event.clientY, position:captureImagePreviewPosition(link)} : null;
+}, true);
+// Mouse focus happens before pointerup/click. Keep it from scrolling a grid
+// thumbnail into view before the preview has captured the user's position.
+document.addEventListener('mousedown', event => {
+  if (event.button === 0 && event.target.closest?.('[data-image-preview]')) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
 }, true);
 document.addEventListener('pointercancel', () => { imagePreviewPointer = null; }, true);
 document.addEventListener('pointerup', event => {
@@ -126,7 +138,7 @@ document.addEventListener('pointerup', event => {
   const hit = link && link.href === start.href
     ? link
     : {href: start.href, dataset: {previewName: start.name}};
-  openImageAttachmentPreview(hit, event);
+  openImageAttachmentPreview(hit, event, start.position);
 }, true);
 document.addEventListener('click', event => {
   openImageAttachmentPreview(event.target.closest?.('[data-image-preview]'), event);
