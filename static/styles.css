@@ -1601,6 +1601,14 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
   box-shadow: 0 20px 60px rgba(16, 24, 40, 0.22);
 }
 .modal::backdrop { background: rgba(17, 24, 39, 0.42); }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.42);
+  z-index: 990;
+}
+.modal-backdrop[hidden] { display: none; }
+.image-attachment-preview-modal.is-open { z-index: 1000; }
 .modal-header {
   display: flex;
   align-items: center;
