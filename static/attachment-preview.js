@@ -1,4 +1,4 @@
-const imageAttachmentPreviewDialog = document.querySelector("#imageAttachmentPreviewDialog, #ledgerPhotoDialog");
+﻿const imageAttachmentPreviewDialog = document.querySelector("#imageAttachmentPreviewDialog, #ledgerPhotoDialog");
 const imageAttachmentPreviewTitle = document.querySelector("#imageAttachmentPreviewTitle, #ledgerPhotoTitle");
 const imageAttachmentPreviewImage = document.querySelector("#imageAttachmentPreviewImage, #ledgerPhotoImage");
 const imageAttachmentPreviewFit = document.querySelector("[data-image-preview-fit]");
@@ -12,6 +12,7 @@ const imageAttachmentViewport = imageAttachmentPreviewImage?.closest('.ledger-ph
 imageAttachmentViewport?.classList.add('attachment-image-viewport');
 imageAttachmentPreviewImage?.classList.add('attachment-preview-image');
 let imagePreviewReturn = null;
+let scrollLockHandler = null;
 
 function applyImageAttachmentPreviewZoom() {
   if (!imageAttachmentPreviewImage) return;
@@ -72,7 +73,39 @@ function openImageAttachmentPreview(link, event) {
   setImageAttachmentPreviewFit();
   if (!imageAttachmentPreviewDialog.open) imageAttachmentPreviewDialog.showModal();
   applyImageAttachmentPreviewZoom();
-  window.scrollTo(imagePreviewReturn.x,imagePreviewReturn.y);
+  // Chrome may scroll the dialog into view *after* the synchronous call above
+  // (a later rendering frame), which would yank the page back to the top when the
+  // dialog sits above the current scroll position. Re-apply the saved scroll
+  // position now and again over the next frames/timers to win that race.
+  const restoreScroll = () => {
+    const saved = imagePreviewReturn;
+    if (!saved) return;
+    if (window.scrollX !== saved.x || window.scrollY !== saved.y) window.scrollTo(saved.x, saved.y);
+    for (const [node, sx, sy] of saved.containers) {
+      if (node.scrollTop !== sy) node.scrollTop = sy;
+      if (node.scrollLeft !== sx) node.scrollLeft = sx;
+    }
+  };
+  restoreScroll();
+  requestAnimationFrame(restoreScroll);
+  setTimeout(restoreScroll, 50);
+  setTimeout(restoreScroll, 600);
+  setTimeout(restoreScroll, 1200);
+  // Chrome/Edge may re-scroll the dialog into view on a later frame (image
+  // loads, dialog grows, etc). Lock the scroll position for the whole time the
+  // dialog is open: any window/container scroll is pulled straight back.
+  if (scrollLockHandler) window.removeEventListener("scroll", scrollLockHandler);
+  scrollLockHandler = () => {
+    if (!imageAttachmentPreviewDialog.open) return;
+    const saved = imagePreviewReturn;
+    if (!saved) return;
+    if (window.scrollX !== saved.x || window.scrollY !== saved.y) window.scrollTo(saved.x, saved.y);
+    for (const [node, sx, sy] of saved.containers) {
+      if (node.scrollTop !== sy) node.scrollTop = sy;
+      if (node.scrollLeft !== sx) node.scrollLeft = sx;
+    }
+  };
+  window.addEventListener("scroll", scrollLockHandler);
 }
 
 // A grid can replace a cell between pointerdown and click. Handle the release
@@ -81,16 +114,19 @@ let imagePreviewPointer = null;
 document.addEventListener('pointerdown', event => {
   const link = event.target.closest?.('[data-image-preview]');
   imagePreviewPointer = event.isPrimary && event.button === 0 && link
-    ? {id:event.pointerId, href:link.href, x:event.clientX, y:event.clientY} : null;
+    ? {id:event.pointerId, href:link.href, name:link.dataset.previewName || link.textContent.trim() || '', x:event.clientX, y:event.clientY} : null;
 }, true);
 document.addEventListener('pointercancel', () => { imagePreviewPointer = null; }, true);
 document.addEventListener('pointerup', event => {
   const start = imagePreviewPointer; imagePreviewPointer = null;
+  if (!start || start.id !== event.pointerId || Math.hypot(event.clientX-start.x, event.clientY-start.y) >= 8) return;
+  // A grid can replace the row DOM while scrolling; if the released target no
+  // longer matches, open with the link captured at pointerdown instead.
   const link = event.target.closest?.('[data-image-preview]');
-  if (start && start.id === event.pointerId && link?.href === start.href
-      && Math.hypot(event.clientX-start.x, event.clientY-start.y) < 8) {
-    openImageAttachmentPreview(link, event);
-  }
+  const hit = link && link.href === start.href
+    ? link
+    : {href: start.href, dataset: {previewName: start.name}};
+  openImageAttachmentPreview(hit, event);
 }, true);
 document.addEventListener('click', event => {
   openImageAttachmentPreview(event.target.closest?.('[data-image-preview]'), event);
@@ -117,6 +153,7 @@ function restoreImageAttachmentPreview() {
     saved.link.isConnected && saved.link.focus({preventScroll:true});
     saved.containers.forEach(([node,x,y])=>node.scrollTo(x,y));
     window.scrollTo(saved.x,saved.y);
+    if (scrollLockHandler) { window.removeEventListener("scroll", scrollLockHandler); scrollLockHandler = null; }
   }
 }
 imageAttachmentPreviewDialog?.addEventListener("close", () => {
@@ -124,7 +161,18 @@ imageAttachmentPreviewDialog?.addEventListener("close", () => {
   // image or move the page while the next attachment is being activated.
   if (!imageAttachmentPreviewDialog.open) restoreImageAttachmentPreview();
 });
-imageAttachmentPreviewImage?.addEventListener('load',applyImageAttachmentPreviewZoom);
+imageAttachmentPreviewImage?.addEventListener('load',() => {
+  applyImageAttachmentPreviewZoom();
+  // The image growing can make the browser re-scroll the dialog on a late frame.
+  if (imageAttachmentPreviewDialog.open && imagePreviewReturn) {
+    const saved = imagePreviewReturn;
+    if (window.scrollX !== saved.x || window.scrollY !== saved.y) window.scrollTo(saved.x, saved.y);
+    for (const [node, sx, sy] of saved.containers) {
+      if (node.scrollTop !== sy) node.scrollTop = sy;
+      if (node.scrollLeft !== sx) node.scrollLeft = sx;
+    }
+  }
+});
 if(imageAttachmentViewport) new ResizeObserver(()=>{
   if(imageAttachmentPreviewDialog.open) applyImageAttachmentPreviewZoom();
 }).observe(imageAttachmentViewport);

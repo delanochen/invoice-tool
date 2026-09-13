@@ -695,7 +695,7 @@
       $('photoBatchDownload').hidden = !result.rows.length || result.truncated;
       const table = document.createElement('table'); table.className = 'ledger-table';
       const thead = document.createElement('thead'), headerRow = document.createElement('tr');
-      ['照片','工单','客户','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',label)));
+      ['照片','工单','客户','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',fieldText(label))));
       thead.append(headerRow); const tbody = document.createElement('tbody'); table.append(thead,tbody); $('ledgerList').append(table);
       result.rows.forEach((photo, photoIndex) => {
         const captureTime=window.formatPhotoTime(photo.captured_at,photo.timezone_name);

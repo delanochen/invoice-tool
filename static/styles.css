@@ -79,17 +79,51 @@ button:disabled {
   background: #111827;
   color: #fff;
 }
+.sidebar-head {
+  position: sticky;
+  top: -24px;
+  z-index: 5;
+  margin: -24px -24px 12px;
+  padding: 24px 24px 10px;
+  background: #111827;
+}
+.sidebar-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+  font-size: 13px;
+}
+.sidebar-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-logout {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+.sidebar-logout:hover {
+  background: #1f2937;
+  color: #fff;
+}
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 32px;
-  font-size: 22px;
+  margin-bottom: 8px;
+  font-size: 18px;
   font-weight: 800;
 }
-.brand img { width: 36px; height: 36px; border-radius: 6px; }
-.sidebar nav { display: grid; flex: 0 0 auto; gap: 8px; padding-bottom: 20px; }
-.sidebar a { border-radius: 6px; padding: 10px 12px; color: #d1d5db; }
+.brand img { width: 30px; height: 30px; border-radius: 6px; }
+.sidebar nav { display: grid; flex: 0 0 auto; gap: 4px; padding-bottom: 12px; }
+.sidebar a { border-radius: 6px; padding: 6px 10px; color: #d1d5db; font-size: 13px; }
 .sidebar a:hover { background: #1f2937; color: #fff; }
 .sidebar a.active,
 .sidebar a[aria-current="page"] {
@@ -115,8 +149,9 @@ button:disabled {
 .nav-group summary::-webkit-details-marker { display: none; }
 .nav-group summary::after {
   content: ">";
-  color: #9ca3af;
-  font-size: 12px;
+  color: #e5e7eb;
+  font-size: 16px;
+  font-weight: 700;
   line-height: 1;
 }
 .nav-group[open] summary::after {
@@ -151,8 +186,9 @@ button:disabled {
 .nav-subgroup summary::-webkit-details-marker { display: none; }
 .nav-subgroup summary::after {
   content: ">";
-  color: #9ca3af;
-  font-size: 12px;
+  color: #e5e7eb;
+  font-size: 15px;
+  font-weight: 700;
 }
 .nav-subgroup[open] summary::after {
   transform: rotate(90deg);
@@ -168,7 +204,7 @@ button:disabled {
   flex: 0 0 auto;
   gap: 8px;
   margin-top: auto;
-  padding-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   color: #d1d5db;
 }
@@ -460,7 +496,19 @@ label {
   gap: 8px;
   margin-bottom: 12px;
 }
+.filter-bar label {
+  font-size: 13px;
+  font-weight: normal;
+}
+.filter-bar input,
+.filter-bar select {
+  font-size: 13px;
+}
 .filter-actions { display: flex; gap: 8px; }
+.photo-filter-bar {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(110px, 1fr) minmax(110px, 1fr) minmax(120px, 1fr) 140px 140px auto;
+}
+#photoBatchDownload { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
 .knowledge-filter-bar { grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) minmax(150px, 220px) auto; }
 .knowledge-description { min-width: 220px; max-width: 420px; white-space: normal; overflow-wrap: anywhere; }
 .checkbox-row { display: flex; align-items: center; gap: 8px; align-self: end; min-height: 42px; }
@@ -1541,6 +1589,13 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .attachment-panel { max-width: 900px; margin: 18px auto 0; }
 .attachment-upload { max-width: 520px; margin-top: 18px; }
 .modal {
+  /* Fixed, viewport-centered: showModal() must not scroll the page back to the
+     top when the dialog sits above the current scroll position. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  max-height: calc(100% - 32px);
   width: min(560px, calc(100% - 32px));
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1620,7 +1675,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .stacked-segment { width: 100%; min-height: 1px; }
 .project-switches { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .report-total td { font-weight: 800; background: #f8fafc; }
-.service-filter { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.service-filter { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2696,7 +2751,8 @@ body.service-order-map-page {
 .photo-source-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .photo-source-actions > .photo-local-picker,.photo-source-actions > button{width:auto;min-width:148px;min-height:36px;margin:0;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;font-size:13px;font-weight:400}
 .photo-local-picker{position:relative;overflow:hidden;cursor:pointer}
-.photo-local-picker input[type=file]{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;opacity:0;cursor:pointer}
+.photo-local-picker input[type=file]{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;opacity:0;cursor:pointer;font-size:0;color:transparent}
+.photo-local-picker input[type=file]::-webkit-file-upload-button{display:none}
 .photo-local-picker:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 
 .expense-source-popover { position: relative; }
