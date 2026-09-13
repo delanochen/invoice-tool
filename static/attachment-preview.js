@@ -88,7 +88,21 @@ function openImageAttachmentPreview(link, event) {
   restoreScroll();
   requestAnimationFrame(restoreScroll);
   setTimeout(restoreScroll, 50);
-  setTimeout(restoreScroll, 250);
+  setTimeout(restoreScroll, 600);
+  setTimeout(restoreScroll, 1200);
+  // Guard window: Chrome/Edge may re-scroll the dialog into view on a later
+  // frame (e.g. after the image loads and the dialog grows). Force any
+  // window-scroll back to the saved position for the next second.
+  const stopAt = performance.now() + 1000;
+  const guardScroll = () => {
+    if (performance.now() > stopAt || !imageAttachmentPreviewDialog.open) {
+      window.removeEventListener("scroll", guardScroll);
+      return;
+    }
+    const saved = imagePreviewReturn;
+    if (saved && (window.scrollX !== saved.x || window.scrollY !== saved.y)) window.scrollTo(saved.x, saved.y);
+  };
+  window.addEventListener("scroll", guardScroll);
 }
 
 // A grid can replace a cell between pointerdown and click. Handle the release
@@ -143,7 +157,18 @@ imageAttachmentPreviewDialog?.addEventListener("close", () => {
   // image or move the page while the next attachment is being activated.
   if (!imageAttachmentPreviewDialog.open) restoreImageAttachmentPreview();
 });
-imageAttachmentPreviewImage?.addEventListener('load',applyImageAttachmentPreviewZoom);
+imageAttachmentPreviewImage?.addEventListener('load',() => {
+  applyImageAttachmentPreviewZoom();
+  // The image growing can make the browser re-scroll the dialog on a late frame.
+  if (imageAttachmentPreviewDialog.open && imagePreviewReturn) {
+    const saved = imagePreviewReturn;
+    if (window.scrollX !== saved.x || window.scrollY !== saved.y) window.scrollTo(saved.x, saved.y);
+    for (const [node, sx, sy] of saved.containers) {
+      if (node.scrollTop !== sy) node.scrollTop = sy;
+      if (node.scrollLeft !== sx) node.scrollLeft = sx;
+    }
+  }
+});
 if(imageAttachmentViewport) new ResizeObserver(()=>{
   if(imageAttachmentPreviewDialog.open) applyImageAttachmentPreviewZoom();
 }).observe(imageAttachmentViewport);
