@@ -24,10 +24,16 @@
     {% set active_endpoint = request.endpoint or "" %}
     {% if g.user %}
       <aside class="sidebar no-print">
-        <div class="brand">
-          <img src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
-          <span>Prasinos Power</span>
-          <button type="button" class="mobile-menu-toggle" aria-expanded="false" aria-controls="sidebar-navigation sidebar-account"><span aria-hidden="true">☰</span> <span>菜单</span></button>
+        <div class="sidebar-head">
+          <div class="brand">
+            <img src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
+            <span>Prasinos Power</span>
+            <button type="button" class="mobile-menu-toggle" aria-expanded="false" aria-controls="sidebar-navigation sidebar-account"><span aria-hidden="true">☰</span> <span>菜单</span></button>
+          </div>
+          <div class="sidebar-identity">
+            <span class="sidebar-user-name">{{ g.user.name }}</span>
+            <a class="sidebar-logout" href="{{ url_for('logout') }}">退出</a>
+          </div>
         </div>
         {% set contract_endpoints = ["contracts", "new_contract", "contract_detail", "edit_contract"] %}
         {% set order_endpoints = ["service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report"] %}
@@ -221,7 +227,6 @@
           {% endif %}
         </nav>
         <div class="user-box" id="sidebar-account">
-          <span>{{ g.user.name }}</span>
           <form method="post" action="{{ url_for('switch_language') }}" class="sidebar-language-form">
             <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
             <select class="sidebar-language" name="language" aria-label="语言" onchange="this.form.submit()">
@@ -230,7 +235,6 @@
               {% endfor %}
             </select>
           </form>
-          <a href="{{ url_for('logout') }}">退出</a>
         </div>
       </aside>
     {% endif %}

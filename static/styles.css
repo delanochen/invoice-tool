@@ -79,17 +79,51 @@ button:disabled {
   background: #111827;
   color: #fff;
 }
+.sidebar-head {
+  position: sticky;
+  top: -24px;
+  z-index: 5;
+  margin: -24px -24px 12px;
+  padding: 24px 24px 10px;
+  background: #111827;
+}
+.sidebar-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+  font-size: 13px;
+}
+.sidebar-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-logout {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+.sidebar-logout:hover {
+  background: #1f2937;
+  color: #fff;
+}
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 32px;
-  font-size: 22px;
+  margin-bottom: 8px;
+  font-size: 18px;
   font-weight: 800;
 }
-.brand img { width: 36px; height: 36px; border-radius: 6px; }
-.sidebar nav { display: grid; flex: 0 0 auto; gap: 8px; padding-bottom: 20px; }
-.sidebar a { border-radius: 6px; padding: 10px 12px; color: #d1d5db; }
+.brand img { width: 30px; height: 30px; border-radius: 6px; }
+.sidebar nav { display: grid; flex: 0 0 auto; gap: 4px; padding-bottom: 12px; }
+.sidebar a { border-radius: 6px; padding: 6px 10px; color: #d1d5db; font-size: 13px; }
 .sidebar a:hover { background: #1f2937; color: #fff; }
 .sidebar a.active,
 .sidebar a[aria-current="page"] {
@@ -168,7 +202,7 @@ button:disabled {
   flex: 0 0 auto;
   gap: 8px;
   margin-top: auto;
-  padding-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   color: #d1d5db;
 }
@@ -459,6 +493,14 @@ label {
   align-items: end;
   gap: 8px;
   margin-bottom: 12px;
+}
+.filter-bar label {
+  font-size: 13px;
+  font-weight: normal;
+}
+.filter-bar input,
+.filter-bar select {
+  font-size: 13px;
 }
 .filter-actions { display: flex; gap: 8px; }
 .knowledge-filter-bar { grid-template-columns: minmax(240px, 1fr) minmax(150px, 220px) minmax(150px, 220px) auto; }
@@ -1627,7 +1669,7 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .stacked-segment { width: 100%; min-height: 1px; }
 .project-switches { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .report-total td { font-weight: 800; background: #f8fafc; }
-.service-filter { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.service-filter { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
