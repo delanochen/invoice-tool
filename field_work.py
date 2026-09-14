@@ -306,6 +306,11 @@ def register_field_routes(app, api):
             return jsonify(error='无法读取照片，请重新拍摄。'), 422
         db = api['db']()
         capture_date_source = 'camera'
+        if source == 'camera':
+            # The displayed watermark determines the archive day; retain actual capture time for audit.
+            local = watermark.astimezone(ZoneInfo(tz_name))
+            if watermark != captured:
+                capture_date_source = 'watermark'
         if source == 'file':
             previous = db.execute('select * from field_photos where user_id = ? and client_id = ?', (g.user['id'], key)).fetchone()
             if previous:

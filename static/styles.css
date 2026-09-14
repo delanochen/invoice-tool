@@ -2782,3 +2782,7 @@ body.service-order-map-page {
   .page-header .actions > *, .filter-actions > * { min-width: 0; }
   .modal-dialog { max-width: calc(100vw - 24px); padding: 12px; }
 }
+
+.checkbox-line { display:flex; align-items:center; gap:8px; }
+.checkbox-line input[type=checkbox] { flex:0 0 auto; width:18px; height:18px; margin:0; }
+.schema-details summary { overflow-wrap:anywhere; }
