@@ -11,8 +11,6 @@
   {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
   <div class="filter-actions"><button type="submit">查询</button><a class="button" href="{{ url_for('payroll_detail_report') }}">重置</a></div>
 </form>
-<p class="muted-line">按实际工作日期统计。餐补每天仅计一次，归入当天首个工单；基本工资单列，按工单或站点筛选时不包含基本工资。</p>
-<section class="panel"><strong>合计工资 {{ total|money }}</strong></section>
 <section class="panel">
 <table class="list-table">
   <thead><tr><th>员工</th><th>日期</th><th>工单</th><th>站点</th><th>基本工资</th>
