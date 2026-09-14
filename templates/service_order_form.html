@@ -2,7 +2,7 @@
 {% block title %}{{ form_title }} - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header">
-    <div><p class="eyebrow">Service Order</p><h1>{{ form_title }}</h1></div>
+    <div><p class="eyebrow">工单</p><h1>{{ form_title }}</h1></div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) if order else url_for('service_orders') }}'">返回</button>
       <button class="primary" type="submit" form="serviceOrderForm">保存</button>

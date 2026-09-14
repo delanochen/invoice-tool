@@ -72,7 +72,7 @@ function bindExpenseRows() {
       if (rows.length > 1) {
         if (
           button.closest(".expense-item-row")?.querySelector(".saved-item-attachment")
-          && !window.confirm("删除这条明细也会删除其已保存附件，确定继续吗？")
+          && !window.uiConfirm("删除这条明细也会删除其已保存附件，确定继续吗？")
         ) return;
         button.closest(".expense-item-row").remove();
         updateExpenseTotal();

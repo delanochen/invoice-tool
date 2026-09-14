@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}工单结算 - {{ order.order_number }}{% endblock %}
 {% block content %}
   {% macro expense_amount_cell(item, field_name) %}
@@ -18,7 +18,7 @@
   {% endmacro %}
   <header class="page-header">
     <div>
-      <p class="eyebrow">Customer Reimbursement</p>
+      <p class="eyebrow">工单结算</p>
       <h1>工单结算 <span class="status {{ reimbursement.status }}">{{ customer_reimbursement_labels[reimbursement.status] }}</span></h1>
       <p class="muted-line">{{ order.order_number }} · {{ order.client_order_number }}</p>
     </div>

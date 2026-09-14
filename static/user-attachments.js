@@ -1,6 +1,6 @@
 document.querySelectorAll("[data-delete-user-attachment]").forEach((button) => {
   button.addEventListener("click", async () => {
-    if (!window.confirm("确定删除这个附件吗？")) return;
+    if (!window.uiConfirm("确定删除这个附件吗？")) return;
 
     button.disabled = true;
     try {
@@ -23,7 +23,7 @@ document.querySelectorAll("[data-delete-user-attachment]").forEach((button) => {
       }
     } catch (error) {
       button.disabled = false;
-      window.alert("附件删除失败，请重试。");
+      window.alert(window.uiTranslate("附件删除失败，请重试。"));
     }
   });
 });

@@ -1,9 +1,9 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}{{ order.order_number }} - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header">
     <div>
-      <p class="eyebrow">Service Order</p>
+      <p class="eyebrow">工单</p>
       <h1>{{ order.order_number }}</h1>
       <p class="muted-line">{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</p>
     </div>
@@ -75,7 +75,6 @@
     <div class="panel-title">
       <h2>工作日报</h2>
       <div class="toolbar-actions">
-        <span class="muted-line" data-selected-label>{{ reports|length }} 份日报</span>
         {% if can_create_service_report(order) %}
           <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
           <button class="small" type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>

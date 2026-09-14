@@ -34,7 +34,7 @@
       if (match) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     });
   }
-  const allowDiscard = tab => !tab.dirty || confirm('“' + tab.title + '”有未保存的修改或已选文件，是否放弃这些内容？');
+  const allowDiscard = tab => !tab.dirty || window.uiConfirm('"' + tab.title + '"有未保存的修改或已选文件，是否放弃这些内容？');
   function close(tab) {
     if (!allowDiscard(tab)) return;
     const index = tabs.indexOf(tab);
@@ -67,7 +67,7 @@
     doc.addEventListener('input', dirty); doc.addEventListener('change', dirty);
     doc.addEventListener('submit', event => {
       if (event.target.method.toLowerCase() !== 'post') return;
-      if (tab.stale && !confirm('其他页面可能已更新数据。建议取消并刷新核对；仍要提交当前内容吗？')) {
+      if (tab.stale && !window.uiConfirm('其他页面可能已更新数据。建议取消并刷新核对；仍要提交当前内容吗？')) {
         event.preventDefault(); event.stopImmediatePropagation(); return;
       }
       tab.submitted = true;
@@ -124,7 +124,7 @@
   document.getElementById('workspaceNoticeRefresh').addEventListener('click', refresh);
   document.getElementById('workspaceCloseOthers').addEventListener('click', () => {
     const others = tabs.filter(tab => tab !== active);
-    if (others.some(tab => tab.dirty) && !confirm('其他标签中有未保存内容，确认全部放弃并关闭？')) return;
+    if (others.some(tab => tab.dirty) && !window.uiConfirm('其他标签中有未保存内容，确认全部放弃并关闭？')) return;
     others.forEach(tab => { tab.dirty = false; close(tab); });
   });
   window.addEventListener('beforeunload', event => {
