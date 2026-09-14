@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}薪酬明细报表 - 发票工具{% endblock %}
+{% block content %}
+<header class="page-header"><h1>薪酬明细报表</h1></header>
+<form class="filter-bar service-filter no-print" method="get">
+  {% from "report_multiselect.html" import multi_filter %}
+  <label>开始日期<input type="date" name="date_from" value="{{ date_from }}" required></label>
+  <label>结束日期<input type="date" name="date_to" value="{{ date_to }}" required></label>
+  {% if can_filter_workers %}{{ multi_filter('人员', 'worker_id', workers, worker_ids, 'id', 'name') }}{% endif %}
+  {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
+  {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
+  <div class="filter-actions"><button type="submit">查询</button><a class="button" href="{{ url_for('payroll_detail_report') }}">重置</a></div>
+</form>
+<p class="muted-line">按实际工作日期统计。餐补每天仅计一次，归入当天首个工单；基本工资单列，按工单或站点筛选时不包含基本工资。</p>
+<section class="panel"><strong>合计工资 {{ total|money }}</strong></section>
+<section class="panel">
+<table class="list-table">
+  <thead><tr><th>员工</th><th>日期</th><th>工单</th><th>站点</th><th>基本工资</th>
+  <th>标准工时</th><th>标准工资</th><th>交通工时</th><th>交通工资</th><th>加班工时</th><th>加班工资</th><th>假期工时</th><th>假期工资</th>
+  <th>自驾车补</th><th>随行车补</th><th>租车驾驶补贴</th><th>餐补</th><th>报告撰写费</th><th>合计工资</th><th>来源日报</th></tr></thead>
+  <tbody>{% for row in rows %}<tr>
+    <td>{{ row.worker_name }}</td><td>{{ row.attendance_date or '期间基本工资' }}</td>
+    <td>{% if row.service_order_id %}<a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a>{% endif %}</td><td>{{ row.client_name }}</td>
+    <td>{{ row.base_salary|money }}</td>
+    {% for prefix in ['standard', 'transport', 'overtime', 'holiday'] %}<td>{{ '%.2f'|format(row[prefix ~ '_hours']) }}</td><td>{{ row[prefix ~ '_pay']|money }}</td>{% endfor %}
+    {% for field in ['self_drive_allowance', 'following_allowance', 'rental_driving_allowance', 'meal_allowance', 'report_writing_fee', 'total_pay'] %}<td>{{ row[field]|money }}</td>{% endfor %}
+    <td>{% for report_id in row.report_ids|sort %}<a href="{{ url_for('edit_service_report', report_id=report_id) }}">#{{ report_id }}</a> {% endfor %}</td>
+  </tr>{% else %}<tr><td class="empty" colspan="20">没有符合条件的记录</td></tr>{% endfor %}</tbody>
+</table>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">{% endblock %}

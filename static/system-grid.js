@@ -5,7 +5,7 @@
   const instances = new Map();
   const text = node => (node?.textContent || '').trim();
   const t = value => window.uiTranslate ? window.uiTranslate(value) : value;
-  const monetary = /^(金额|明细金额|合同金额|税额|合计|总额|报销金额|报销总额|工时费|差旅费|里程费|基本工资|标准工资|交通工资|加班工资|假期工资|自驾车补|随行车补|租车驾驶补贴|补贴|合计工资|住宿费|机票费|行李费|租车费|燃油费|停车费|出租车费|住宿|机票|行李|租车|燃油|停车|出租车|其他|Amount|Tax|Line Total)$/;
+  const monetary = /^(金额|明细金额|合同金额|税额|合计|总额|报销金额|报销总额|工时费|差旅费|里程费|基本工资|标准工资|交通工资|加班工资|假期工资|自驾车补|随行车补|租车驾驶补贴|补贴|餐补|报告撰写费|合计工资|住宿费|机票费|行李费|租车费|燃油费|停车费|出租车费|住宿|机票|行李|租车|燃油|停车|出租车|其他|Amount|Tax|Line Total)$/;
   const dimension = /姓名|工单|站点|客户|员工|人员|施工员|创建人|提交人|开票人|项目|日期|时间|状态|国家|业主|报销编号|发票编号|Description/;
   const valueOf = cell => {
     const control = cell?.querySelector('input:not([type=hidden]),select,textarea');

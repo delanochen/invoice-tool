@@ -2815,6 +2815,7 @@ def required_action_for_request():
         "delete_customer_reimbursement_attachment": ("customer_reimbursements", "edit"),
         "labor_hours_report": ("labor_hours_report", "view"),
         "payroll_report": ("payroll_report", "view"),
+        "payroll_detail_report": ("payroll_report", "view"),
         "payroll_calendar": ("payroll_calendar", "view"),
         "payroll_calendar_batch": ("payroll_calendar", "view"),
         "payroll_calendar_export": ("payroll_calendar", "export"),
@@ -10974,13 +10975,16 @@ def effective_payroll_worker_id():
     return "" if normalized_role() in {"admin", "manager", "finance"} else str(g.user["id"])
 
 
-def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", date_mode="attendance"):
+def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", date_mode="attendance", detail=False):
     subsidy_settings = payroll_subsidy_settings()
     rows = labor_report_entries(period_start.isoformat(), period_end.isoformat(), worker_id, date_mode=date_mode)
     payroll = {}
 
     def ensure_worker(row):
-        return payroll.setdefault(row["worker_id"], {
+        key = (row["worker_id"], row["attendance_date"], row["service_order_id"]) if detail else row["worker_id"]
+        return payroll.setdefault(key, {
+            **({"attendance_date": row["attendance_date"], "service_order_id": row["service_order_id"],
+                "order_number": row["order_number"], "client_name": row["client_name"], "report_ids": set()} if detail else {}),
             "worker_id": row["worker_id"], "worker_name": row["worker_name"],
             "grade_name": row["grade_name"] or "未指定",
             "base_salary": float(row["base_salary"] or 0),
@@ -11004,6 +11008,8 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
 
     for row in rows:
         worker = ensure_worker(row)
+        if detail:
+            worker["report_ids"].add(row["report_id"])
         for key in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours"):
             worker[key] += row[key]
         if row["attendance_date"]:
@@ -11033,14 +11039,21 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
                employee_grades.rental_driving_hourly_rate,
                employee_grades.transport_hourly_rate, employee_grades.overtime_hourly_rate,
                employee_grades.holiday_hourly_rate, count(service_reports.id) as report_writing_count
+               {f', {date_expr} as attendance_date, service_reports.service_order_id, service_orders.order_number, service_orders.client_name, service_reports.id as report_id' if detail else ''}
         from service_reports join users on users.id = service_reports.report_writer_id
+        join service_orders on service_orders.id = service_reports.service_order_id
         left join employee_grades on employee_grades.id = users.employee_grade_id
         where {" and ".join(clauses)}
-        group by users.id
+        group by users.id {', service_reports.id' if detail else ''}
         """, params,
     ).fetchall()
     for row in writer_rows:
-        ensure_worker(row)["report_writing_count"] = int(row["report_writing_count"] or 0)
+        if detail:
+            worker = ensure_worker(row)
+            worker["report_writing_count"] += int(row["report_writing_count"] or 0)
+            worker["report_ids"].add(row["report_id"])
+        else:
+            ensure_worker(row)["report_writing_count"] = int(row["report_writing_count"] or 0)
 
     payroll_rows = []
     for worker in payroll.values():
@@ -11067,6 +11080,28 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             "meal_allowance": meal_allowance,
             "report_writing_fee": report_writing_fee, "subsidy_total": subsidy_total, "total_pay": total_pay})
     payroll_rows.sort(key=lambda row: row["worker_name"])
+    if detail:
+        payroll_rows.sort(key=lambda row: (row["worker_name"], row["attendance_date"], row["order_number"]))
+        meal_days, base_rows = set(), {}
+        for row in payroll_rows:
+            base_rows.setdefault(row["worker_id"], row.copy())
+            row["total_pay"] -= row["base_salary"]
+            row["base_salary"] = 0
+            key = (row["worker_id"], row["attendance_date"])
+            if row["attendance_days"]:
+                if key in meal_days:
+                    for field in ("subsidy_total", "total_pay"):
+                        row[field] -= row["meal_allowance"]
+                    row["meal_allowance"] = 0
+                meal_days.add(key)
+        for original in base_rows.values():
+            if not original["base_salary"]:
+                continue
+            base = {key: 0 if isinstance(value, (int, float)) else value for key, value in original.items()}
+            base.update(worker_id=original["worker_id"], worker_name=original["worker_name"],
+                base_salary=original["base_salary"], total_pay=original["base_salary"],
+                attendance_date="", service_order_id=None, order_number="", client_name="", report_ids=set())
+            payroll_rows.append(base)
     totals = {key: sum(row[key] for row in payroll_rows) for key in (
         "base_salary", "standard_pay", "transport_pay", "overtime_pay", "holiday_pay",
         "self_drive_allowance", "following_allowance", "rental_driving_allowance", "car_allowance",
@@ -11598,6 +11633,37 @@ def payroll_report():
         pay_date=payroll_batch["pay_date"].isoformat(),
         subsidy_settings=payroll_batch["subsidy_settings"],
     )
+
+
+@app.route("/reports/payroll-details")
+@login_required
+def payroll_detail_report():
+    if not has_action_permission("payroll_report", "view"):
+        abort(403)
+    try:
+        start = date.fromisoformat(request.args.get("date_from") or current_payroll_period_start().isoformat())
+        end = date.fromisoformat(request.args.get("date_to") or payroll_period_dates(start)[0].isoformat())
+        if end < start:
+            raise ValueError()
+    except (ValueError, OverflowError):
+        abort(400, description="请选择有效的开始日期和结束日期。")
+    can_filter_workers = normalized_role() in {"admin", "manager", "finance"}
+    worker_ids = request.args.getlist("worker_id") if can_filter_workers else [str(g.user["id"])]
+    order_ids, sites = request.args.getlist("order_id"), request.args.getlist("site")
+    if any(not value.isdigit() for value in worker_ids + order_ids):
+        abort(400)
+    batch = payroll_rows_for_range(start, end, end, "" if can_filter_workers else str(g.user["id"]), detail=True)
+    rows = [row for row in batch["rows"] if (not worker_ids or str(row["worker_id"]) in worker_ids)]
+    order_options = {row["service_order_id"]: row for row in rows if row["service_order_id"]}
+    site_options = [{"client_name": value} for value in sorted({row["client_name"] for row in rows if row["client_name"]})]
+    rows = [row for row in rows if (not order_ids or str(row["service_order_id"]) in order_ids)
+            and (not sites or row["client_name"] in sites)]
+    workers = db().execute("select id, name from users order by name").fetchall() if can_filter_workers else []
+    return render_template("payroll_detail_report.html", rows=rows,
+        date_from=start.isoformat(), date_to=end.isoformat(), workers=workers, worker_ids=worker_ids,
+        order_options=[{"id": key, "order_number": value["order_number"]} for key, value in order_options.items()],
+        order_ids=order_ids, site_options=site_options, sites=sites, can_filter_workers=can_filter_workers,
+        total=sum(row["total_pay"] for row in rows))
 
 
 @app.route("/payroll/calendar")

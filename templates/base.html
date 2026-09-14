@@ -44,7 +44,7 @@
         {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report", "user_certificate_query"] %}
-        {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
+        {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
         {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "database_console", "menu_permissions"] %}
@@ -132,6 +132,7 @@
                 {% if show_payroll_reports %}
                   {% if has_menu_permission("labor_hours_report") and can_view_labor_payroll_reports() %}{{ nav_link("labor_hours_report", "工时统计") }}{% endif %}
                   {% if has_menu_permission("payroll_report") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_report", "薪酬统计") }}{% endif %}
+                  {% if has_menu_permission("payroll_report") and has_action_permission("payroll_report", "view") %}{{ nav_link("payroll_detail_report", "薪酬明细报表") }}{% endif %}
                   {% if has_menu_permission("payroll_calendar") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_calendar", "薪酬日历") }}{% endif %}
                 {% endif %}
                 {% if show_payroll_parameters %}
@@ -277,6 +278,7 @@
       or active_endpoint == "audit_log_report"
       or active_endpoint == "labor_hours_report"
       or active_endpoint == "payroll_report"
+      or active_endpoint == "payroll_detail_report"
       or active_endpoint == "payroll_calendar"
       or (active_endpoint.endswith("_query") and active_endpoint != "field_photo_query")
     %}
