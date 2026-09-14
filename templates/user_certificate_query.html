@@ -8,7 +8,9 @@
   <label>员工<select name="user_id"><option value="">全部人员</option>{% for person in people %}<option value="{{ person.id }}" {% if request.args.get('user_id') == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}</select></label>
   <label>附件情况<select name="presence">{% for value,label in [('yes','有附件'),('no','没有附件'),('','全部')] %}<option value="{{ value }}" {% if request.args.get('presence','yes') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
   <label>账号状态<select name="active">{% for value,label in [('','全部'),('1','启用'),('0','停用')] %}<option value="{{ value }}" {% if request.args.get('active','') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <div class="filter-actions">
   <button type="submit">查询</button><a class="button" href="{{ url_for('user_certificate_query') }}">重置</a>
+  </div>
 </form>
 <p class="muted-line">清单来自员工资料中的现有附件，按文件名展示，一份附件一行。附件尚未区分证书类型和有效期；“没有附件”不等同于没有证书。</p>
 <section class="panel" style="overflow-x:auto"><table class="list-table"><thead><tr><th>员工编号</th><th>员工</th><th>邮箱</th><th>角色</th><th>国家</th><th>账号状态</th><th>证书 / 附件名称</th><th>上传日期</th><th>上传人</th><th>操作</th></tr></thead><tbody>

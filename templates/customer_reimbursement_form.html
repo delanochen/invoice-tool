@@ -3,16 +3,58 @@
 {% block content %}
   {% macro expense_amount_cell(item, field_name) %}
     {% set auto_amount = item['auto_' ~ field_name] or 0 %}
-    <td>
-      <input name="{{ field_name }}" type="number" step="0.01" min="0" value="{{ item[field_name] }}" data-auto-amount="{{ auto_amount }}">
-      {% if auto_amount > 0 %}<details class="expense-source-popover"><summary class="auto-expense-amount">自动转入 +{{ auto_amount|money }}</summary>
-        <div class="expense-source-content">
-          {% for source in item.expense_sources.get(field_name, []) %}
-          <div><strong>{{ source.expense_number }} · 第 {{ source.line_number }} 项</strong><br>
-          {{ source.worker_name }} · {{ source.date }}<br>{{ source.project_name }} · {{ source.amount|money }}
-          {% if source.description %}<br>{{ source.description }}{% endif %}</div>
-          {% else %}<div>历史结算未保存来源快照。</div>{% endfor %}
-        </div></details>{% endif %}
+    {% set sources = item.expense_sources.get(field_name, []) %}
+    {% set current_amount = item[field_name] or 0 %}
+    {% set is_adjusted = auto_amount > 0 and current_amount != auto_amount %}
+    <td class="expense-amount-cell">
+      <div class="expense-amount-input-group">
+        <input name="{{ field_name }}" type="number" step="0.01" min="0" value="{{ item[field_name] }}"
+               data-auto-amount="{{ auto_amount }}" data-field-name="{{ field_name }}"
+               class="{% if is_adjusted %}is-adjusted{% endif %}">
+        {% if auto_amount > 0 %}
+        <button type="button" class="expense-source-icon" title="查看来源明细" aria-label="查看来源明细">ⓘ</button>
+        {% endif %}
+        {% if is_adjusted %}<span class="adjusted-badge">已调整</span>{% endif %}
+      </div>
+      {% if auto_amount > 0 %}
+      <div class="expense-source-popup" hidden>
+        <div class="expense-source-popup-header">
+          <strong>来源明细</strong>
+          <button type="button" class="expense-source-popup-close" aria-label="关闭">×</button>
+        </div>
+        <div class="expense-source-list">
+          {% for source in sources %}
+          <div class="expense-source-item">
+            <div class="expense-source-row">
+              {% if source.expense_url %}
+              <a href="{{ source.expense_url }}" target="_blank" rel="noopener" class="expense-source-link">{{ source.expense_number }} · 第{{ source.line_number }}项</a>
+              {% else %}
+              <span>{{ source.expense_number }} · 第{{ source.line_number }}项</span>
+              {% endif %}
+              <span class="expense-source-amount">{{ source.amount|money }}</span>
+            </div>
+            <div class="expense-source-meta">{{ source.worker_name }} · {{ source.date }} · {{ source.project_name }}</div>
+            {% if source.description %}<div class="expense-source-desc">{{ source.description }}</div>{% endif %}
+            {% if source.attachments %}
+            <div class="expense-source-attachments">
+              {% for att in source.attachments %}<span class="expense-source-attachment" title="{{ att.original_filename }}">📎 {{ att.original_filename }}</span>{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="expense-source-item muted">历史结算未保存来源快照。</div>
+          {% endfor %}
+        </div>
+        <div class="expense-source-summary">
+          <div class="summary-row"><span>来源合计</span><strong class="source-total">{{ auto_amount|money }}</strong></div>
+          <div class="summary-row"><span>当前结算金额</span><strong class="current-amount-display">{{ current_amount|money }}</strong></div>
+          <div class="summary-row"><span>差额</span><strong class="diff-amount">{{ (current_amount - auto_amount)|money }}</strong></div>
+          {% if is_adjusted %}
+          <button type="button" class="restore-auto-amount">恢复来源金额</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
       {% if field_name == "lodging" %}<small class="lodging-limit-warning" hidden></small>{% endif %}
     </td>
   {% endmacro %}

@@ -13018,6 +13018,35 @@ def customer_reimbursement_form(order_id):
             item["expense_sources"] = json.loads(item.get("auto_expense_sources") or '{}')
         except (ValueError, TypeError):
             item["expense_sources"] = {}
+    # 为每个来源补充附件信息和报销单链接
+    all_source_keys = []
+    for item in items:
+        for field_sources in item["expense_sources"].values():
+            for source in field_sources:
+                if source.get("expense_id") and source.get("line_key"):
+                    all_source_keys.append((source["expense_id"], source["line_key"]))
+    source_attachments = {}
+    if all_source_keys:
+        placeholders = ",".join("(?,?)" for _ in all_source_keys)
+        params = [val for pair in all_source_keys for val in pair]
+        attachment_rows = db().execute(
+            f"select id, expense_id, expense_item_key, original_filename, content_type from expense_attachments "
+            f"where (expense_id, expense_item_key) in ({placeholders})",
+            params,
+        ).fetchall()
+        for att in attachment_rows:
+            key = (att["expense_id"], att["expense_item_key"])
+            source_attachments.setdefault(key, []).append({
+                "id": att["id"],
+                "original_filename": att["original_filename"],
+                "content_type": att["content_type"],
+            })
+    for item in items:
+        for field_sources in item["expense_sources"].values():
+            for source in field_sources:
+                source["expense_url"] = url_for("expense_detail", expense_id=source["expense_id"]) if source.get("expense_id") else None
+                key = (source.get("expense_id"), source.get("line_key"))
+                source["attachments"] = source_attachments.get(key, [])
 
     linked_invoice = customer_reimbursement_linked_invoice(reimbursement, order_id)
     if linked_invoice and reimbursement["invoice_id"] != linked_invoice["id"]:

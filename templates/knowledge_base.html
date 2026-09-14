@@ -78,7 +78,7 @@
               <td class="knowledge-description">{{ document.description or "-" }}</td>
               <td>
                 <strong>v{{ document.current_version }}</strong>
-                <div class="muted-line">{{ (document.file_size / 1048576)|round(2) }} MB</div>
+                <div class="muted-line">{{ ((document.file_size or 0) / 1048576)|round(2) }} MB</div>
                 {% if document.expires_on %}
                   {% if document.expires_on < today_date %}
                     <span class="knowledge-expiry expired">已过期 {{ document.expires_on }}</span>

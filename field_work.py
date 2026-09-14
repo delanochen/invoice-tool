@@ -424,8 +424,20 @@ def register_field_routes(app, api):
     @access
     def field_photo_query():
         rows = photo_rows()
-        return render_template('field_photo_query.html', rows=rows[:2000], truncated=len(rows) > 2000,
-                               photo_orders=photo_order_rows())
+        can_delete = api['has_action_permission']('service_reports', 'delete')
+        allowed_orders = set()
+        if can_delete:
+            clauses, params = api['service_order_access_filters']()
+            allowed_orders = {row['id'] for row in api['db']().execute(
+                'select service_orders.id from service_orders where ' + (' and '.join(clauses) or '1=1'), params)}
+        signer = URLSafeTimedSerializer(app.secret_key, salt='delete-ledger-photos')
+        limited_rows = [dict(row) for row in rows[:2000]]
+        for row in limited_rows:
+            row['can_delete'] = can_delete and row['order_id'] in allowed_orders
+            if row['can_delete']:
+                row['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': [row['id']]})
+        return render_template('field_photo_query.html', rows=limited_rows, truncated=len(rows) > 2000,
+                               photo_orders=photo_order_rows(), can_delete_photos=can_delete, field_csrf=token())
 
     @app.get('/api/field/photos.xlsx')
     @access
@@ -631,6 +643,80 @@ def register_field_routes(app, api):
             except OSError:
                 cleanup_pending = True
                 app.logger.exception('Repair photo deleted from register; staged file cleanup failed: %s', staged)
+        if staging is not None and not cleanup_pending:
+            staging.rmdir()
+        return jsonify(ok=True, deleted=len(rows), cleanup_pending=cleanup_pending)
+
+    @app.post('/api/field/photos/delete')
+    @access
+    def delete_field_photos():
+        check_write()
+        if not api['has_action_permission']('service_reports', 'delete'):
+            abort(403)
+        signer = URLSafeTimedSerializer(app.secret_key, salt='delete-ledger-photos')
+        try:
+            selection = signer.loads((request.get_json(silent=True) or {}).get('token', ''), max_age=7200)
+        except (BadSignature, SignatureExpired, TypeError):
+            return jsonify(error='删除确认已失效，请刷新后重试。'), 409
+        if selection.get('user') != g.user['id']:
+            abort(403)
+        ids = selection.get('ids', [])
+        if not ids or len(ids) > 2001 or any(type(value) is not int for value in ids):
+            abort(400)
+        db = api['db']()
+        moved = []
+        staging = None
+        try:
+            db.execute('begin immediate')
+            rows = db.execute('select * from field_photos where id in (' + ','.join('?' for _ in ids) + ')', ids).fetchall()
+            if not rows:
+                db.rollback()
+                return jsonify(ok=True, deleted=0)
+            if len(rows) != len(ids):
+                db.rollback()
+                return jsonify(error='记录已变化，请刷新后重新确认。'), 409
+            for order_id in {row['order_id'] for row in rows}:
+                api['require_service_order'](order_id)
+            root = api['shared_photos_root']().resolve()
+            paths = []
+            for row in rows:
+                relative = Path(row['relative_path'])
+                if relative.is_absolute() or len(relative.parts) != 4 or relative.parts[1] != 'pictures' or '..' in relative.parts:
+                    abort(409, description='照片路径异常，未执行删除。')
+                for relative_file in (relative, Path(relative.parts[0], 'thumbnails', *relative.parts[2:])):
+                    path = root / relative_file
+                    resolved = path.resolve()
+                    if not resolved.is_relative_to(root) or any(parent.is_symlink() for parent in [path, *path.parents] if parent != root and parent.is_relative_to(root)):
+                        abort(409, description='照片路径异常，未执行删除。')
+                    if path.exists():
+                        if not path.is_file():
+                            abort(409, description='照片路径异常，未执行删除。')
+                        paths.append(path)
+            if paths:
+                staging = Path(tempfile.mkdtemp(prefix='.ledger-delete-', dir=root))
+                for index, path in enumerate(dict.fromkeys(paths)):
+                    staged = staging / str(index)
+                    os.replace(path, staged)
+                    moved.append((path, staged))
+            db.execute('delete from field_photos where id in (' + ','.join('?' for _ in ids) + ')', ids)
+            api['log_action']('delete', 'field_photo', ids[0], '照片台账',
+                              '删除照片，照片 ID：' + ','.join(map(str, ids)))
+            db.commit()
+        except Exception:
+            db.rollback()
+            for path, staged in reversed(moved):
+                if staged.exists():
+                    os.replace(staged, path)
+            if staging is not None:
+                staging.rmdir()
+            raise
+        cleanup_pending = False
+        for _, staged in moved:
+            try:
+                staged.unlink(missing_ok=True)
+            except OSError:
+                cleanup_pending = True
+                app.logger.exception('Ledger photo deleted; staged file cleanup failed: %s', staged)
         if staging is not None and not cleanup_pending:
             staging.rmdir()
         return jsonify(ok=True, deleted=len(rows), cleanup_pending=cleanup_pending)
