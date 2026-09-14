@@ -2302,7 +2302,8 @@ body.service-order-map-page {
   .permission-menu-tree {
     max-height: none;
   }
-  .filter-bar, .detail-grid, .service-report-form .form-grid, .expense-header-fields { grid-template-columns: 1fr; }
+  .filter-bar, .detail-grid, .service-report-form .form-grid, .expense-header-fields { grid-template-columns: minmax(0, 1fr); }
+  .service-report-form .wide-field { grid-column: 1 / -1; }
   .expense-items-footer { align-items: stretch; flex-direction: column; }
   .list-table {
     min-width: 720px;
@@ -2761,3 +2762,23 @@ body.service-order-map-page {
 .expense-source-content { display: none; position: fixed; z-index: 30; top: 100%; left: 0; min-width: 280px; max-width: 400px; max-height: 300px; overflow: auto; padding: 12px; border: 1px solid #ccd6df; border-radius: 8px; background: white; color: #152c3d; box-shadow: 0 6px 20px #0002; white-space: normal; text-align: left; }
 .expense-source-content > div + div { margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd; }
 .expense-source-popover[open] .expense-source-content, .expense-source-popover:hover .expense-source-content, .expense-source-popover:focus-within .expense-source-content { display: block; }
+
+/* Mobile forms must not inherit desktop spans or intrinsic field widths. */
+@media screen and (max-width: 640px) {
+  .sidebar-head { position: static; margin: 0; padding: 0; }
+  .sidebar-identity { padding-top: 4px; }
+  .sidebar { gap: 4px; }
+  .main { min-width: 0; }
+  .form-grid, .form-stack, .plain-fieldset, .detail-grid > *, .filter-bar > * { min-width: 0; }
+  .form-stack { grid-template-columns: minmax(0, 1fr); }
+  .form-stack > * { min-width: 0; }
+  .form-grid > label, .form-stack > label { min-width: 0; align-content: start; }
+  input:not([type=checkbox]):not([type=radio]), select, textarea { min-width: 0; max-width: 100%; font-size: 16px; }
+  input:not([type=checkbox]):not([type=radio]):not([type=file]), select { min-height: 40px; }
+  .service-report-form .form-grid { gap: 12px; }
+  .service-report-form .time-select { width: 100%; min-width: 0; }
+  .page-header { gap: 10px; margin-bottom: 12px; }
+  .page-header .actions, .row-actions, .filter-actions { flex-wrap: wrap; gap: 8px; }
+  .page-header .actions > *, .filter-actions > * { min-width: 0; }
+  .modal-dialog { max-width: calc(100vw - 24px); padding: 12px; }
+}
