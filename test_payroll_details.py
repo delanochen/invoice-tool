@@ -34,6 +34,44 @@ class PayrollDetailsTest(unittest.TestCase):
         self.assertEqual(sum(r['base_salary'] for r in rows), 100)
         self.assertEqual(len([r for r in rows if r['service_order_id']]), 2)
 
+    def test_transport_is_paid_once_and_self_drive_is_mileage(self):
+        with self.m.app.app_context():
+            db = self.m.db()
+            db.execute("update employee_grades set car_allowance_method='hourly',car_mileage_rate=0.5,rental_driving_hourly_rate=15")
+            db.execute("update service_report_workers set travel_mode='following',travel_hours=3 where user_id=? and report_id=?", (self.f.people['Submitter'],self.fixture.reports[0]))
+            db.execute("update service_report_workers set travel_mode='rental_drive',travel_hours=4 where user_id=?", (self.f.people['Beneficiary'],))
+            db.commit()
+            rows = self.m.payroll_rows_for_range(date(2026,9,1),date(2026,9,30),date(2026,10,14))['rows']
+            worker = next(r for r in rows if r['worker_id']==self.f.people['Submitter'])
+            self.assertEqual(worker['transport_hours'],3)
+            self.assertEqual(worker['transport_pay'],30)
+            self.assertEqual(worker['self_drive_allowance'],10)
+            rental = next(r for r in rows if r['worker_id']==self.f.people['Beneficiary'])
+            self.assertEqual(rental['transport_pay'],60)
+            for row in rows:
+                slip = self.m.payroll_payslip_payload(row)
+                self.assertAlmostEqual(sum(line['amount'] for line in slip['lines']),row['total_pay'],places=2)
+                self.assertEqual(row['transport_pay'],row['following_allowance']+row['rental_driving_allowance'])
+                self.assertEqual(row['subsidy_total'],row['self_drive_allowance']+row['meal_allowance']+row['report_writing_fee'])
+            exported = self.m.payroll_row_export(worker)
+            self.assertEqual(exported['随行时长'],3)
+            self.assertNotIn('交通工资',exported)
+        response=self.f.http.get('/payroll/calendar/batch?period_start=2026-09-01')
+        self.assertEqual(response.status_code,200)
+        batch=response.get_json()
+        self.assertAlmostEqual(batch['totals']['total_pay'],sum(slip['total_pay'] for slip in batch['payslips']))
+        self.assertTrue(all('随行时长' in row and '交通工资' not in row for row in batch['rows']))
+        self.assertEqual(self.f.http.get('/payroll/calendar/export.xlsx?period_start=2026-09-01').status_code,200)
+
+
+    def test_settlement_excel_name(self):
+        from urllib.parse import unquote
+        order={'order_number':'SO2607003','client_order_number':'SHPG202608018942'}
+        with patch.object(self.m,'require_customer_reimbursement',return_value=({},order)), patch.object(self.m,'customer_reimbursement_items',return_value=[]):
+            response=self.f.http.get('/customer-reimbursements/1/download.xlsx')
+        self.assertEqual(response.status_code,200)
+        self.assertIn('SO2607003_SHPG202608018942_工单结算.xlsx',unquote(response.headers['Content-Disposition']))
+
     def test_filters_scope_and_render(self):
         query = {'date_from':'2026-09-01','date_to':'2026-09-30'}
         page = self.f.http.get('/reports/payroll-details', query_string=query)

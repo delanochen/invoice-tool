@@ -5,7 +5,7 @@
   const instances = new Map();
   const text = node => (node?.textContent || '').trim();
   const t = value => window.uiTranslate ? window.uiTranslate(value) : value;
-  const monetary = /^(金额|明细金额|合同金额|税额|合计|总额|报销金额|报销总额|工时费|差旅费|里程费|基本工资|标准工资|交通工资|加班工资|假期工资|自驾车补|随行车补|租车驾驶补贴|补贴|餐补|报告撰写费|合计工资|住宿费|机票费|行李费|租车费|燃油费|停车费|出租车费|住宿|机票|行李|租车|燃油|停车|出租车|其他|Amount|Tax|Line Total)$/;
+  const monetary = /^(金额|明细金额|合同金额|税额|合计|总额|报销金额|报销总额|工时费|差旅费|里程费|基本工资|标准工资|交通工资|加班工资|假期工资|自驾车补|随行车补|随行补贴|租车驾驶补贴|补贴|餐补|报告撰写费|合计工资|住宿费|机票费|行李费|租车费|燃油费|停车费|出租车费|住宿|机票|行李|租车|燃油|停车|出租车|其他|Amount|Tax|Line Total)$/;
   const dimension = /姓名|工单|站点|客户|员工|人员|施工员|创建人|提交人|开票人|项目|日期|时间|状态|国家|业主|报销编号|发票编号|Description/;
   const valueOf = cell => {
     const control = cell?.querySelector('input:not([type=hidden]),select,textarea');
@@ -57,8 +57,17 @@
         ...(this.money[index] ? {bottomCalc:(values, data) => total(data.map(row => row[`m${index}`])), bottomCalcFormatter:'textarea'} : {}),
       }));
       if (this.money.some(Boolean) && !this.money[0]) columns[0].bottomCalc = () => t('小计 / 合计');
+      const groupedColumns = [];
+      columns.forEach((column, index) => {
+        const group = source.tHead.rows[0].cells[index].dataset.columnGroup;
+        if (!group) { groupedColumns.push(column); return; }
+        const previous = groupedColumns.at(-1);
+        if (previous?._group === group) previous.columns.push(column);
+        else groupedColumns.push({_group:group, title:t(group), columns:[column]});
+      });
+      groupedColumns.forEach(column => delete column._group);
       this.grid = new Tabulator(this.host, {
-        data:this.data, index:'_id', columns, layout:'fitDataStretch', renderVertical:'basic',
+        data:this.data, index:'_id', columns:groupedColumns, columnHeaderVertAlign:'middle', layout:'fitDataStretch', renderVertical:'basic',
         movableColumns:true, columnCalcs:'both', groupClosedShowCalcs:true,
         groupToggleElement:'header', placeholder:t('没有符合条件的记录'),
         groupHeader:(value,count,data,group) => {
@@ -120,7 +129,7 @@
         const header=group.getElement();if(!header?.parentElement)continue;
         const data=gather(group);const summary=document.createElement('div');summary.className='tabulator-row tabulator-calcs grid-parent-calc';summary.setAttribute('role','row');
         let labeled=false;
-        this.grid.getColumns().filter(column=>column.isVisible()).forEach(column=>{
+        this.leafColumns().filter(column=>column.isVisible()).forEach(column=>{
           const cell=document.createElement('div');cell.className='tabulator-cell';cell.setAttribute('role','cell');cell.style.width=`${column.getWidth()}px`;cell.style.whiteSpace='pre-wrap';
           const index=Number(column.getField().slice(1));
           if(this.money[index]){cell.textContent=total(data.map(row=>row[`m${index}`]));cell.style.textAlign='right';}
@@ -189,6 +198,10 @@
       const all=this.grid.getDataCount(); const active=this.grid.getDataCount('active');
       this.count.textContent=`${active===all ? all : `${active} / ${all}`} ${t('条记录')}`;
     }
+    leafColumns() {
+      const flatten = columns => columns.flatMap(column => column.getSubColumns().length ? flatten(column.getSubColumns()) : [column]);
+      return flatten(this.grid.getColumns());
+    }
     controls() {
       this.count=document.createElement('span'); this.count.className='grid-count'; this.tools.append(this.count);
       if(!this.editable) {
@@ -210,13 +223,13 @@
       const settings=document.createElement('details'); settings.className='grid-columns';
       const summary=document.createElement('summary'); summary.textContent=t('列设置');settings.append(summary);
       const menu=document.createElement('div');
-      this.grid.getColumns().forEach(column=>{const label=document.createElement('label');const check=document.createElement('input');check.type='checkbox';check.checked=true;check.addEventListener('change',()=>check.checked?column.show():column.hide());label.append(check,document.createTextNode(column.getDefinition().title));menu.append(label);});
-      menu.append(button('恢复默认',()=>{this.grid.getColumns().forEach(column=>column.show());menu.querySelectorAll('input').forEach(input=>input.checked=true);}));settings.append(menu);this.tools.append(settings);
+      this.leafColumns().forEach(column=>{const label=document.createElement('label');const check=document.createElement('input');check.type='checkbox';check.checked=true;check.addEventListener('change',()=>check.checked?column.show():column.hide());label.append(check,document.createTextNode(column.getDefinition().title));menu.append(label);});
+      menu.append(button('恢复默认',()=>{this.leafColumns().forEach(column=>column.show());menu.querySelectorAll('input').forEach(input=>input.checked=true);}));settings.append(menu);this.tools.append(settings);
       document.addEventListener('click',event=>{if(!settings.contains(event.target))settings.open=false;},{signal:this.listeners.signal});
       settings.addEventListener('focusout',()=>setTimeout(()=>{if(!settings.contains(document.activeElement))settings.open=false;},0));
     }
     export() {
-      const columns=this.grid.getColumns().filter(column=>column.isVisible() && !/^(操作|选择)$/.test(column.getDefinition().title));
+      const columns=this.leafColumns().filter(column=>column.isVisible() && !/^(操作|选择)$/.test(column.getDefinition().title));
       const active=this.grid.getData('active');
       const fields=this.groupFields || [];
       const summary=(data,label)=>columns.map((column,index)=>{

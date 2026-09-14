@@ -10989,7 +10989,7 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             "grade_name": row["grade_name"] or "未指定",
             "base_salary": float(row["base_salary"] or 0),
             "meal_daily_amount": float(row["meal_daily_amount"] or 0),
-            "car_allowance_method": row["car_allowance_method"] or "mileage",
+            "car_allowance_method": "mileage",
             "car_mileage_rate": float(row["car_mileage_rate"] or 0),
             "rental_driving_hourly_rate": float(
                 row["rental_driving_hourly_rate"]
@@ -11059,16 +11059,14 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
     for worker in payroll.values():
         attendance_days = len(worker["attendance_dates"])
         standard_pay = worker["standard_hours"] * worker["standard_rate"]
-        transport_pay = worker["transport_hours"] * worker["transport_rate"]
         overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
         holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
-        if worker["car_allowance_method"] == "hourly":
-            self_drive_allowance = worker["self_drive_travel_hours"] * worker["transport_rate"]
-        else:
-            self_drive_allowance = worker["driving_miles"] * worker["car_mileage_rate"]
+        self_drive_allowance = worker["driving_miles"] * worker["car_mileage_rate"]
         following_allowance = worker["following_travel_hours"] * worker["transport_rate"]
         rental_driving_allowance = worker["rental_driving_hours"] * worker["rental_driving_hourly_rate"]
-        car_allowance = self_drive_allowance + following_allowance + rental_driving_allowance
+        worker["transport_hours"] = worker["following_travel_hours"] + worker["rental_driving_hours"]
+        transport_pay = following_allowance + rental_driving_allowance
+        car_allowance = self_drive_allowance
         meal_allowance = attendance_days * worker["meal_daily_amount"]
         report_writing_fee = worker["report_writing_count"] * subsidy_settings["report_writing_fee"]
         subsidy_total = car_allowance + meal_allowance + report_writing_fee
@@ -11125,10 +11123,10 @@ def payroll_row_export(row):
         "租车里程": round(row["rental_driving_miles"], 1),
         "标准工时": round(row["standard_hours"], 2),
         "标准工资": round(row["standard_pay"], 2),
-        "交通工时": round(row["transport_hours"], 2),
-        "交通工资": round(row["transport_pay"], 2),
+        "随行时长": round(row["following_travel_hours"], 2),
+        "租车驾驶时长": round(row["rental_driving_hours"], 2),
         "自驾车补": round(row["self_drive_allowance"], 2),
-        "随行车补": round(row["following_allowance"], 2),
+        "随行补贴": round(row["following_allowance"], 2),
         "租车驾驶补贴": round(row["rental_driving_allowance"], 2),
         "加班工时": round(row["overtime_hours"], 2),
         "加班工资": round(row["overtime_pay"], 2),
@@ -11144,7 +11142,6 @@ def payroll_payslip_payload(row):
     lines = [
         {"label": "基本工资", "amount": round(row["base_salary"], 2)},
         {"label": "标准工资", "hours": round(row["standard_hours"], 2), "rate": round(row["standard_rate"], 2), "amount": round(row["standard_pay"], 2)},
-        {"label": "交通工资", "hours": round(row["transport_hours"], 2), "rate": round(row["transport_rate"], 2), "amount": round(row["transport_pay"], 2)},
         {"label": "加班工资", "hours": round(row["overtime_hours"], 2), "rate": round(row["overtime_rate"], 2), "amount": round(row["overtime_pay"], 2)},
         {"label": "假期工资", "hours": round(row["holiday_hours"], 2), "rate": round(row["holiday_rate"], 2), "amount": round(row["holiday_pay"], 2)},
     ]
@@ -11153,11 +11150,11 @@ def payroll_payslip_payload(row):
             "label": "自驾车补",
             "miles": round(row["driving_miles"], 1),
             "hours": round(row["self_drive_travel_hours"], 2),
-            "rate": round(row["transport_rate"] if row["car_allowance_method"] == "hourly" else row["car_mileage_rate"], 2),
+            "rate": round(row["car_mileage_rate"], 2),
             "amount": round(row["self_drive_allowance"], 2),
         })
     if row["following_allowance"] > 0:
-        lines.append({"label": "随行车补", "hours": round(row["following_travel_hours"], 2),
+        lines.append({"label": "随行补贴", "hours": round(row["following_travel_hours"], 2),
             "rate": round(row["transport_rate"], 2), "amount": round(row["following_allowance"], 2)})
     if row["rental_driving_allowance"] > 0:
         lines.append({"label": "租车驾驶补贴", "miles": round(row["rental_driving_miles"], 1),
@@ -11714,8 +11711,8 @@ def payroll_calendar_export():
     payload = payroll_batch_payload(period_start, request.args.get("batch_type", "regular"))
     headers = list(payload["rows"][0].keys()) if payload["rows"] else [
         "员工", "员工等级", "基本工资", "出勤天数", "里程", "标准工时", "标准工资",
-        "交通工时", "交通工资", "加班工时", "加班工资", "假期工时", "假期工资",
-        "补贴", "合计工资",
+        "随行时长", "租车驾驶时长", "随行补贴", "租车驾驶补贴", "自驾车补",
+        "加班工时", "加班工资", "假期工时", "假期工资", "补贴", "合计工资",
     ]
     rows = [[row.get(header, "") for header in headers] for row in payload["rows"]]
     rows.append([])
@@ -13147,7 +13144,7 @@ def download_customer_reimbursement_excel(reimbursement_id):
                      item["labor_total"], *expenses, item["mileage_total"],
                      customer_reimbursement_item_expense_amount(item, "other"), item["total"]])
     workbook = build_simple_xlsx(headers, rows, sheet_name="工单结算")
-    return send_file(workbook, as_attachment=True, download_name=f"{order['order_number']}-工单结算.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    return send_file(workbook, as_attachment=True, download_name="_".join(re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value)).strip(" .") for value in (order["order_number"], order["client_order_number"], "工单结算.xlsx") if value), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.get("/customer-reimbursements/<int:reimbursement_id>/preview")
