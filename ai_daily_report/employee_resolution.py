@@ -27,8 +27,13 @@ logger = logging.getLogger(__name__)
 
 SELF_REFERENCES = {"我", "我自己", "本人", "自己", "me", "myself", "self"}
 
-# Roles eligible to be daily report workers
-WORKER_ELIGIBLE_ROLES = {"admin", "manager", "user"}
+# Roles eligible to be daily report workers.
+# Must match real ROLE_OPTIONS keys in app.py (there is no role named "user").
+# Internal field staff use role "employee"; without it, almost all name
+# resolution (including self-reference "我") fails silently.
+# external_manager / external_employee are intentionally excluded: the AI
+# Daily Report menu is only available to internal roles.
+WORKER_ELIGIBLE_ROLES = {"admin", "manager", "finance", "employee"}
 
 # FUTURE: employee_aliases table will map alias -> user_id
 # Phase 2 does not implement aliases; this constant documents the extension point.

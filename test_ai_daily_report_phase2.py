@@ -70,12 +70,12 @@ class AIDailyReportPhase2Test(unittest.TestCase):
             self.admin_name = admin["name"]
             # Create test employees
             conn.execute(
-                "insert into users (name, email, password_hash, role, address, created_at) values ('张三', 'p2test-zhangsan@test.com', 'x', 'user', '518 Anacacho Dr, Spring, TX 77386', '2026-09-14T00:00:00')"
+                "insert into users (name, email, password_hash, role, address, created_at) values ('张三', 'p2test-zhangsan@test.com', 'x', 'employee', '518 Anacacho Dr, Spring, TX 77386', '2026-09-14T00:00:00')"
             )
             self.zhangsan = conn.execute("select id, name, address from users where email='p2test-zhangsan@test.com'").fetchone()
             # Create second 张三 for ambiguous test
             conn.execute(
-                "insert into users (name, email, password_hash, role, address, created_at) values ('张三', 'p2test-zhangsan2@test.com', 'x', 'user', 'Hobbs, NM 88240', '2026-09-14T00:00:00')"
+                "insert into users (name, email, password_hash, role, address, created_at) values ('张三', 'p2test-zhangsan2@test.com', 'x', 'employee', 'Hobbs, NM 88240', '2026-09-14T00:00:00')"
             )
             self.zhangsan2 = conn.execute("select id, name, address from users where email='p2test-zhangsan2@test.com'").fetchone()
             # Create test order with site address
@@ -129,7 +129,7 @@ class AIDailyReportPhase2Test(unittest.TestCase):
             self.assertEqual(result.user_id, self.zhangsan["id"])
             # Restore
             self.module.db().execute(
-                "insert into users (id, name, email, password_hash, role, address, created_at) values (?, '张三', 'p2test-zhangsan2@test.com', 'x', 'user', 'Hobbs, NM 88240', '2026-09-14T00:00:00')",
+                "insert into users (id, name, email, password_hash, role, address, created_at) values (?, '张三', 'p2test-zhangsan2@test.com', 'x', 'employee', 'Hobbs, NM 88240', '2026-09-14T00:00:00')",
                 (self.zhangsan2["id"],),
             )
             self.module.db().commit()

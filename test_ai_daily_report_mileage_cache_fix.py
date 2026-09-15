@@ -302,6 +302,69 @@ class MileageCacheFixTest(unittest.TestCase):
         self.assertNotIn("response_format", seen_payloads[1])
 
 
+    # ─── Fix 3: worker role allowlist (employee/finance, not "user") ───
+
+    def _seed_user(self, name, role):
+        with self.module.app.app_context():
+            cur = self.module.db().execute(
+                "insert into users (name, email, password_hash, role, address, created_at) values (?, ?, ?, ?, 'Spring, TX', '2026-09-14T00:00:00')",
+                (name, f"role-{role}-{abs(hash(name))}@example.com", "x", role),
+            )
+            self.module.db().commit()
+            return cur.lastrowid
+
+    def test_employee_role_self_reference_resolves(self):
+        """Self-reference '我' resolves when current user has role=employee."""
+        with self.module.app.app_context():
+            from ai_daily_report import EmployeeResolutionService
+            uid = self._seed_user("现场员工", "employee")
+            emp = EmployeeResolutionService(self.module.db(), uid, "现场员工")
+            result = emp.resolve("我")
+            self.assertTrue(result.resolved)
+            self.assertEqual(result.user_id, uid)
+
+    def test_employee_role_exact_match_resolves(self):
+        """Exact name match with role=employee resolves (previously 'user' role didn't exist)."""
+        with self.module.app.app_context():
+            from ai_daily_report import EmployeeResolutionService
+            uid = self._seed_user("高阳", "employee")
+            emp = EmployeeResolutionService(self.module.db(), self.admin_id, "Test Admin")
+            result = emp.resolve("高阳")
+            self.assertTrue(result.resolved)
+            self.assertEqual(result.user_id, uid)
+
+    def test_finance_role_self_reference_resolves(self):
+        """Finance role is also eligible (per approved allowlist)."""
+        with self.module.app.app_context():
+            from ai_daily_report import EmployeeResolutionService
+            uid = self._seed_user("财务人员", "finance")
+            emp = EmployeeResolutionService(self.module.db(), uid, "财务人员")
+            result = emp.resolve("我")
+            self.assertTrue(result.resolved)
+            self.assertEqual(result.user_id, uid)
+
+    def test_external_roles_not_eligible(self):
+        """external_employee must NOT resolve as a daily-report worker."""
+        with self.module.app.app_context():
+            from ai_daily_report import EmployeeResolutionService
+            self._seed_user("外部人员", "external_employee")
+            emp = EmployeeResolutionService(self.module.db(), self.admin_id, "Test Admin")
+            result = emp.resolve("外部人员")
+            self.assertFalse(result.resolved)
+            self.assertEqual(result.error, "employee_not_found")
+
+    def test_partial_name_still_requires_clarification(self):
+        """Partial name match must not auto-resolve; returns candidates only."""
+        with self.module.app.app_context():
+            from ai_daily_report import EmployeeResolutionService
+            self._seed_user("Antonio Chen", "employee")
+            emp = EmployeeResolutionService(self.module.db(), self.admin_id, "Test Admin")
+            result = emp.resolve("Antonio")
+            self.assertFalse(result.resolved)
+            self.assertTrue(result.clarification_required)
+            self.assertTrue(result.candidates)
+
+
 import json  # noqa: E402  (used in intent retry tests)
 
 
