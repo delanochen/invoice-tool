@@ -364,6 +364,60 @@ class MileageCacheFixTest(unittest.TestCase):
             self.assertTrue(result.clarification_required)
             self.assertTrue(result.candidates)
 
+    # ─── Fix 4: create_daily_report must apply workers ──────────────────
+
+    def test_create_daily_report_applies_resolved_workers(self):
+        """create_daily_report with resolved workers must populate the draft.
+
+        Regression: the intent previously fell through to the "not implemented"
+        tail, silently dropping workers/work_items and leaving the draft empty.
+        """
+        with self.module.app.app_context():
+            from ai_daily_report import AIAction
+            from ai_daily_report.schemas import WorkerInput, WorkItemInput
+            svc = self._make_svc()
+            draft = self._make_draft()
+            draft.workers = []  # fresh create
+
+            action = AIAction(
+                action_version=1,
+                intent="create_daily_report",
+                workers=[
+                    WorkerInput(name="我", transportation="self_drive"),
+                    WorkerInput(name="高阳", transportation="self_drive"),
+                    WorkerInput(name="Antonio", transportation="self_drive"),
+                ],
+                work_items=[WorkItemInput(equipment="A313", action="replace_fuse", fuse_number=2)],
+                overnight_stay=False,
+            )
+            resolved = [
+                {"user_id": self.admin_id, "name": "Test Admin", "transportation": "self_drive", "origin": None},
+                {"user_id": 9001, "name": "高阳", "transportation": "self_drive", "origin": None},
+                {"user_id": 9002, "name": "Antonio", "transportation": "self_drive", "origin": None},
+            ]
+            draft, msg = svc.execute_action(draft, action, resolved_workers=resolved)
+            self.assertIn("日报已创建", msg)
+            self.assertEqual(len(draft.workers), 3)
+            self.assertEqual(draft.workers[0].user_id, self.admin_id)
+            self.assertEqual(draft.workers[1].user_id, 9001)
+            self.assertEqual(draft.workers[2].user_id, 9002)
+            for w in draft.workers:
+                self.assertFalse(w.overnight_stay)
+            self.assertEqual(len(draft.work_items), 1)
+            self.assertEqual(draft.work_items[0].equipment, "A313")
+
+    def test_create_daily_report_without_workers_stays_empty(self):
+        """create_daily_report without workers must not fabricate anyone."""
+        with self.module.app.app_context():
+            from ai_daily_report import AIAction
+            svc = self._make_svc()
+            draft = self._make_draft()
+            draft.workers = []
+            action = AIAction(action_version=1, intent="create_daily_report")
+            draft, msg = svc.execute_action(draft, action, resolved_workers=[])
+            self.assertIn("日报已创建", msg)
+            self.assertEqual(len(draft.workers), 0)
+
 
 import json  # noqa: E402  (used in intent retry tests)
 

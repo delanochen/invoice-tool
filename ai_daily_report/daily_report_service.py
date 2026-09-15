@@ -766,16 +766,37 @@ class DailyReportService:
         """
         intent = action.intent
 
-        if intent == "update_daily_report":
-            if action.service_description is not None if hasattr(action, 'service_description') else False:
-                pass  # AIAction doesn't have service_description directly
-            # update_daily_report can carry work_items to replace all
+        if intent in ("create_daily_report", "update_daily_report"):
+            # create_daily_report: the caller creates an empty draft first, then
+            # this branch applies everything the model returned. Previously this
+            # intent fell through to the "not implemented" tail, silently
+            # dropping workers/work_items (draft stayed empty).
             if action.work_items is not None:
                 draft.work_items = [
-                    WorkItem(**wi.model_dump() if hasattr(wi, 'model_dump') else wi)
+                    WorkItem(
+                        equipment=wi.equipment,
+                        action=wi.action,
+                        fuse_number=wi.fuse_number,
+                        description=wi.description or "",
+                    )
                     for wi in action.work_items
                 ]
-            return draft, "日报已更新"
+            if action.workers:
+                draft, _ = self._apply_update_worker(draft, action, resolved_workers=resolved_workers)
+            if action.overnight_stay is not None:
+                for w in draft.workers:
+                    w.overnight_stay = action.overnight_stay
+            if action.arrival_time:
+                draft.arrival_time = action.arrival_time
+                draft.arrival_time_source = "manual"
+            if action.departure_time:
+                draft.departure_time = action.departure_time
+                draft.departure_time_source = "manual"
+            if action.waiting_hours is not None:
+                draft.waiting_hours = action.waiting_hours
+            if action.waiting_reason:
+                draft.waiting_reason = action.waiting_reason
+            return draft, "日报已创建" if intent == "create_daily_report" else "日报已更新"
 
         if intent == "update_worker":
             return self._apply_update_worker(draft, action, resolved_workers=resolved_workers)
