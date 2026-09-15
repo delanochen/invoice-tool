@@ -79,6 +79,12 @@
       const verificationBadge = d.has_verification_required
         ? `<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px; font-size:0.8rem;">需确认</span>`
         : "";
+      // Soft-delete (cancel) is offered only for editable temporary reports.
+      // cancelled/saved drafts are read-only and keep their audit trail.
+      const canDelete = d.status === "draft" || d.status === "confirmed";
+      const deleteBtn = canDelete
+        ? `<button type="button" class="secondary" style="margin-top:0.5rem; display:block;" data-delete-draft="${d.id}" data-delete-label="${(d.order_number || "")}">删除</button>`
+        : "";
       return `
         <div class="draft-card" style="border:1px solid #e5e7eb; border-radius:8px; padding:1rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">
           <div style="flex:1;">
@@ -99,6 +105,7 @@
           </div>
           <div>
             <a href="/ai-daily-report/drafts/${d.id}" class="button primary" style="text-decoration:none;">查看详情</a>
+            ${deleteBtn}
           </div>
         </div>
       `;
@@ -106,6 +113,32 @@
 
     draftsContainer.innerHTML = html;
   }
+
+  // Soft-delete a temporary draft from the Review Center list (cancel API).
+  async function handleDeleteDraft(id, label) {
+    if (!confirm(`确定删除「${label}」的临时日报吗？删除后标记为已取消并保留审计记录，不可再编辑。`)) return;
+    const headers = { "Content-Type": "application/json" };
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+    try {
+      const resp = await fetch(`${apiBase}/draft/${id}/cancel`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      fetchDrafts(currentPage);
+    } catch (err) {
+      draftsError.textContent = `删除失败: ${err.message}`;
+      draftsError.style.display = "block";
+    }
+  }
+
+  draftsContainer.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-delete-draft]");
+    if (!btn) return;
+    handleDeleteDraft(btn.getAttribute("data-delete-draft"), btn.getAttribute("data-delete-label") || "");
+  });
 
   function renderPagination(data) {
     if (!data.total || data.total <= perPage) {
