@@ -247,7 +247,10 @@
         {% if messages %}
           <div class="flash-stack no-print">
             {% for category, message in messages %}
-              <div class="flash {{ category }}">{{ message }}</div>
+              <div class="flash {{ category }}" role="alert">
+                <span class="flash-message">{{ message }}</span>
+                <button type="button" class="flash-close" aria-label="关闭提示" onclick="this.closest('.flash').remove()">×</button>
+              </div>
             {% endfor %}
           </div>
         {% endif %}

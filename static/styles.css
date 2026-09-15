@@ -1324,8 +1324,11 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .status.pending { background: #fff7e6; color: #9a6700; }
 .status.paid { background: #ecfdf3; color: var(--ok); }
 .status.void { background: #fff4ed; color: var(--warn); }
-.flash-stack { position: fixed; top: 16px; right: 16px; z-index: 10; display: grid; gap: 8px; }
-.flash { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; background: #fff; }
+.flash-stack { position: fixed; top: 16px; right: 16px; z-index: 10; display: grid; gap: 8px; max-width: 420px; }
+.flash { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #fff; display: flex; align-items: flex-start; gap: 10px; }
+.flash-message { flex: 1; line-height: 1.4; }
+.flash-close { background: none; border: none; font-size: 18px; line-height: 1; cursor: pointer; color: inherit; opacity: 0.6; padding: 0 2px; flex-shrink: 0; }
+.flash-close:hover { opacity: 1; }
 .flash.success { border-color: #abefc6; color: var(--ok); }
 .flash.error { border-color: #fecdca; color: var(--danger); }
 
