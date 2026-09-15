@@ -87,6 +87,7 @@
     renderWorkItems();
     renderVerification();
     renderValidation();
+    renderAttachmentPreparation();
     renderProvenance();
     renderAudit();
     renderActions();
@@ -685,6 +686,104 @@
       window.open(src, "_blank");
     }
   };
+
+  // ─── Phase 8: Attachment Preparation ───────────────────────────────────
+
+  function renderAttachmentPreparation() {
+    const ap = currentPreview.attachment_preparation;
+    const el = document.getElementById("attachmentPrepSection");
+    if (!el) return;
+    if (!ap) {
+      el.innerHTML = '<p class="muted-line">无附件准备信息。</p>';
+      return;
+    }
+    const m = ap.current;
+    const status = currentPreview.status;
+    const canMutate = status === "confirmed";
+    let html = "";
+
+    if (!m) {
+      html += '<p class="muted-line">尚未生成附件清单。确认 Draft 后可准备附件。</p>';
+    } else {
+      const st = m.status;
+      const styleMap = {
+        ready: "background:#d1fae5; color:#065f46;",
+        preparing: "background:#dbeafe; color:#1e40af;",
+        verification_required: "background:#fef3c7; color:#92400e;",
+        failed: "background:#fee2e2; color:#991b1b;",
+        stale: "background:#f3f4f6; color:#6b7280;",
+        cancelled: "background:#f3f4f6; color:#6b7280;",
+      };
+      const labelMap = {
+        ready: "已就绪", preparing: "准备中", verification_required: "需核验",
+        failed: "失败", stale: "已过期", cancelled: "已取消",
+      };
+      html += `<p><strong>Manifest:</strong> <span style="${styleMap[st] || ""} padding:2px 8px; border-radius:4px; font-size:0.8rem;">${labelMap[st] || st}</span>`;
+      html += ` <span class="muted-line" style="font-size:0.8rem;">版本 ${m.draft_version} | 指纹 ${(m.manifest_fingerprint || "").substring(0, 12)}...</span></p>`;
+      html += `<p class="muted-line" style="font-size:0.9rem;">物理文件 ${m.asset_count} | 来源 ${m.source_count} | 逻辑角色 ${m.role_count}</p>`;
+      if (m.has_compliance_block) {
+        html += `<p style="color:#92400e;">⚠ 合规审查待办（${m.compliance_summary.length} 项，均需人工 review，Phase 8 不会自动批准）</p>`;
+      }
+      if (m.assets && m.assets.length && st === "ready") {
+        html += '<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:0.5rem;">';
+        m.assets.forEach((a) => {
+          html += `<div style="border:1px solid #e5e7eb; border-radius:4px; overflow:hidden;">
+            <img src="/api/ai/daily-report/draft/${draftId}/manifest/${m.manifest_id}/asset/${a.asset_id}" alt="Prepared Asset" style="width:100%; height:100px; object-fit:cover; cursor:pointer;" onclick="window.openImagePreview(this.src)">
+            <div style="padding:4px; font-size:0.7rem;" class="muted-line">${(a.prepared_sha256 || "").substring(0, 12)}... | ${a.file_size} B</div>
+          </div>`;
+        });
+        html += "</div>";
+      }
+    }
+
+    if (canMutate) {
+      html += `<div style="margin-top:0.75rem;">`;
+      html += `<button type="button" class="primary" id="prepareAttachmentsBtn">${m ? "重新准备附件" : "准备附件"}</button>`;
+      if (m && m.status !== "ready") {
+        html += `<button type="button" class="secondary" id="cancelManifestBtn" style="margin-left:0.5rem;">取消准备</button>`;
+      }
+      html += `</div>`;
+      html += `<p class="muted-line" style="font-size:0.75rem; margin-top:0.4rem;">点击准备将执行服务端 Phase 7 校验并生成确定性指纹；重复准备相同内容会复用已有清单。</p>`;
+    }
+
+    el.innerHTML = html;
+
+    document.getElementById("prepareAttachmentsBtn")?.addEventListener("click", handlePrepareAttachments);
+    document.getElementById("cancelManifestBtn")?.addEventListener("click", handleCancelManifest);
+  }
+
+  async function handlePrepareAttachments() {
+    try {
+      const result = await apiPost(`/draft/${draftId}/prepare-attachments`, { draft_version: currentDraftVersion });
+      showStatus("附件清单已准备完成", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`准备失败: ${err.message}`, "error");
+      }
+    }
+  }
+
+  async function handleCancelManifest() {
+    const m = currentPreview.attachment_preparation && currentPreview.attachment_preparation.current;
+    if (!m) return;
+    if (!confirm("确定取消此附件清单？仅删除 Phase 8 staging 文件，原始照片与佐证不受影响。")) return;
+    try {
+      const resp = await fetch(`${apiBase}/draft/${draftId}/manifest/${m.manifest_id}`, {
+        method: "DELETE",
+        headers: { "X-CSRF-Token": csrfToken },
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.status === 409) { showConflict(data); throw new Error("version_conflict"); }
+      if (!resp.ok) { throw new Error(data.error || `HTTP ${resp.status}`); }
+      showStatus("附件清单已取消", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`取消失败: ${err.message}`, "error");
+      }
+    }
+  }
 
   // Initial load
   loadPreview();

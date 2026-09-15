@@ -72,6 +72,14 @@ from ai_daily_report import (
     DraftVersionConflict,
     DraftStateError,
 )
+from ai_daily_report.attachment_manifest import (
+    AttachmentManifestService,
+    ManifestError,
+    ManifestIntegrityError,
+    ManifestNotFoundError,
+    ManifestStaleError,
+    ManifestValidationBlockedError,
+)
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
@@ -1504,6 +1512,102 @@ def init_db():
             """
         )
         # service_reports audit fields for AI-generated arrivals/departures
+        # ─── Phase 8: Attachment Manifest (frozen preparation layer) ──────
+        # Four-layer model (sealed design):
+        #   Manifest -> ManifestSource (provenance) -> PreparedAsset (physical)
+        #            -> ManifestRole (business role)
+        # Phase 8 never writes service_reports / service_report_workers /
+        # service_report_attachments; Phase 9 consumes a ready manifest only.
+        connection.execute(
+            """
+            create table if not exists ai_daily_report_attachment_manifests (
+                id integer primary key autoincrement,
+                manifest_id text not null unique,
+                draft_id integer not null,
+                draft_version integer not null,
+                service_order_id integer not null,
+                report_date text not null,
+                manifest_version integer not null,
+                validation_fingerprint text not null,
+                draft_data_hash text not null,
+                photo_set_fingerprint text,
+                status text not null default 'preparing',
+                manifest_fingerprint text not null,
+                expected_plan text not null,
+                created_by integer not null,
+                created_at text not null,
+                updated_at text not null,
+                unique(draft_id, draft_version, validation_fingerprint, manifest_fingerprint),
+                foreign key(draft_id) references ai_daily_report_drafts(id) on delete cascade
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists ai_daily_report_prepared_assets (
+                id integer primary key autoincrement,
+                asset_id text not null unique,
+                manifest_id text not null,
+                prepared_relative_path text not null,
+                prepared_sha256 text not null,
+                content_type text not null,
+                file_size integer not null,
+                integrity_status text not null default 'verified',
+                prepared_at text not null,
+                unique(manifest_id, prepared_sha256),
+                foreign key(manifest_id) references ai_daily_report_attachment_manifests(manifest_id) on delete cascade
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists ai_daily_report_manifest_sources (
+                id integer primary key autoincrement,
+                source_id text not null unique,
+                manifest_id text not null,
+                source_type text not null,
+                source_identity text not null,
+                source_photo_id text,
+                source_evidence_id text,
+                source_relative_path text not null,
+                source_sha256 text not null,
+                asset_id text,
+                provider text,
+                provider_content text,
+                compliance_review_required integer not null default 0,
+                compliance_status text not null default 'na',
+                unique(manifest_id, source_identity),
+                foreign key(manifest_id) references ai_daily_report_attachment_manifests(manifest_id) on delete cascade
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists ai_daily_report_manifest_roles (
+                id integer primary key autoincrement,
+                manifest_id text not null,
+                source_id text not null,
+                role_type text not null,
+                category text not null,
+                visibility text not null,
+                purpose text not null,
+                materialization_required integer not null default 1,
+                sort_order integer not null default 0,
+                unique(manifest_id, role_type, source_id),
+                foreign key(manifest_id) references ai_daily_report_attachment_manifests(manifest_id) on delete cascade,
+                foreign key(source_id) references ai_daily_report_manifest_sources(source_id) on delete cascade
+            )
+            """
+        )
+        connection.execute(
+            "create index if not exists idx_ai_manifest_draft on ai_daily_report_attachment_manifests(draft_id, status)"
+        )
+        connection.execute(
+            "create index if not exists idx_ai_manifest_source on ai_daily_report_manifest_sources(manifest_id)"
+        )
+        connection.execute(
+            "create index if not exists idx_ai_manifest_asset on ai_daily_report_prepared_assets(manifest_id)"
+        )
         ensure_column(connection, "service_reports", "ai_generated", "integer not null default 0")
         ensure_column(connection, "service_reports", "arrival_time_source", "text")
         ensure_column(connection, "service_reports", "departure_time_source", "text")
@@ -2698,6 +2802,32 @@ def can_edit_ai_daily_report_draft(user, draft_row):
         return can_view_ai_daily_report_draft(user, draft_row)
 
     return False
+
+
+def can_prepare_attachment_manifest(user, draft_row):
+    """Phase 8-specific authorization for Prepare Attachments (mutation).
+
+    Does NOT reuse can_edit_ai_daily_report_draft (confirmed drafts are not
+    editable there). Rules:
+    - must satisfy can_view_ai_daily_report_draft (participant/admin/manager/
+      external-admin client scope inherited from Phase 6)
+    - finance is read-only: never allowed to prepare
+    - draft must be status == 'confirmed' (chain B state machine)
+    """
+    if not user or not draft_row:
+        return False
+    if hasattr(user, "keys"):
+        user = dict(user)
+    if hasattr(draft_row, "keys"):
+        draft_row = dict(draft_row)
+    role = user.get("role", "")
+    if role == "finance":
+        return False
+    if not can_view_ai_daily_report_draft(user, draft_row):
+        return False
+    if draft_row.get("status") != "confirmed":
+        return False
+    return True
 
 
 def ai_daily_report_draft_list_filters(user):
@@ -10936,6 +11066,15 @@ def ai_daily_report_draft_preview(draft_id):
     preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
     preview = preview_svc.build_preview(draft_row)
 
+    from ai_daily_report import PreviewAggregationService
+    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
+    preview = preview_svc.build_preview(draft_row)
+
+    # Phase 8: Attachment Preparation summary (READ-ONLY; never materializes)
+    validation = _run_phase7_validation(draft_row)
+    manifest_svc = _attachment_manifest_service()
+    preview["attachment_preparation"] = manifest_svc.summary_for_preview(draft_row, validation)
+
     return jsonify({"ok": True, "preview": preview})
 
 
@@ -11247,6 +11386,198 @@ def ai_daily_report_draft_evidence_preview(draft_id, evidence_id):
         abort(400)
 
     return send_file(str(full_path), as_attachment=False, conditional=True)
+
+
+# ─── Phase 8: Attachment Preparation / Manifest ─────────────────────────────
+
+def _attachment_manifest_service():
+    return AttachmentManifestService(db(), SHARED_PHOTOS_DIR, DATA_DIR, int(g.user["id"]))
+
+
+def _run_phase7_validation(draft_row):
+    """Server-side Phase 7 Validation rerun (read-only).
+
+    Phase 8 MUST NOT trust any frontend can_proceed flag; this is the only
+    gate for manifest preparation.
+    """
+    draft_data = {}
+    try:
+        draft_data = json.loads(draft_row["draft_data"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        draft_data = {"verification_required": True, "verification_fields": ["draft_data_corrupted"]}
+    from ai_daily_report.validation_engine import ValidationEngine, ValidationContextBuilder
+    context = ValidationContextBuilder(db()).build(draft_data)
+    return ValidationEngine().validate(
+        draft_data=draft_data,
+        context=context,
+        draft_version=draft_row.get("draft_version", 1),
+    )
+
+
+def _manifest_error_response(exc, default_status=422):
+    if isinstance(exc, ManifestValidationBlockedError):
+        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 422
+    if isinstance(exc, ManifestIntegrityError):
+        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 422
+    if isinstance(exc, ManifestStaleError):
+        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 409
+    if isinstance(exc, ManifestNotFoundError):
+        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 404
+    if isinstance(exc, ManifestError):
+        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), default_status
+    return jsonify({"ok": False, "error": "附件准备失败"}), 500
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/prepare-attachments")
+@login_required
+def ai_daily_report_draft_prepare_attachments(draft_id):
+    """Prepare (or reuse) a ready Attachment Manifest for a confirmed Draft.
+
+    Phase 8 state machine: Draft -> Validation -> Confirm -> Prepare -> Phase 9.
+    - Only status == 'confirmed' (can_prepare_attachment_manifest)
+    - CSRF required
+    - Server-side Phase 7 validation gate (can_proceed == False -> 422)
+    - draft_version optimistic locking (stale -> 409)
+    - Idempotent: identical fingerprint reuses the existing ready manifest.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_prepare_attachment_manifest(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权准备附件（需 confirmed 状态且非只读权限）"}), 403
+
+    try:
+        data = request.get_json(silent=True) or {}
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    if expected_version is not None and expected_version != int(draft_row.get("draft_version", 1)):
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试。", "code": "version_conflict"}), 409
+
+    validation = _run_phase7_validation(draft_row)
+    if not validation.can_proceed:
+        return jsonify({
+            "ok": False,
+            "error": "Phase 7 校验未通过（存在未解决的 ERROR），无法准备附件清单。",
+            "code": "validation_cannot_proceed",
+            "validation": validation.to_dict(),
+        }), 422
+
+    try:
+        manifest_svc = _attachment_manifest_service()
+        manifest = manifest_svc.prepare(draft_row, validation)
+    except ManifestError as exc:
+        return _manifest_error_response(exc)
+
+    return jsonify({"ok": True, "draft_id": draft_id, "manifest": manifest})
+
+
+@app.get("/api/ai/daily-report/draft/<int:draft_id>/manifest")
+@login_required
+def ai_daily_report_draft_manifest(draft_id):
+    """GET Attachment Manifest state (read-only).
+
+    Returns current_applicable_manifest: the ready manifest matching the
+    current draft_version + validation_fingerprint. Old stale/cancelled/failed
+    manifests are returned only in history (include_history=1) and are never
+    presented as current.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
+
+    include_history = request.args.get("include_history") == "1"
+    validation = _run_phase7_validation(draft_row)
+    manifest_svc = _attachment_manifest_service()
+    current = manifest_svc.get_current_manifest(draft_row, validation)
+    history = manifest_svc.get_manifest_history(draft_id) if include_history else []
+
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "draft_version": draft_row.get("draft_version", 1),
+        "status": draft_row.get("status"),
+        "validation_fingerprint": validation.validation_fingerprint,
+        "current": current,
+        "history": history,
+    })
+
+
+@app.get("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>/asset/<asset_id>")
+@login_required
+def ai_daily_report_manifest_asset_preview(draft_id, manifest_id, asset_id):
+    """Secure prepared asset preview (Phase 8).
+
+    Accepts ONLY draft_id + manifest_id + asset_id (no ?path=). Server resolves
+    via DB, then enforces DATA_DIR confinement.
+    """
+    if not is_internal_user():
+        abort(403)
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        abort(404)
+
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        abort(403)
+
+    try:
+        manifest_svc = _attachment_manifest_service()
+        full_path, content_type = manifest_svc.get_asset(draft_id, manifest_id, asset_id)
+    except ManifestNotFoundError:
+        abort(404)
+    except ManifestError:
+        abort(400)
+
+    return send_file(str(full_path), mimetype=content_type, as_attachment=False, conditional=True)
+
+
+@app.delete("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>")
+@login_required
+def ai_daily_report_manifest_cancel(draft_id, manifest_id):
+    """Cancel a (non-ready) Manifest: mark cancelled + delete its staging only.
+
+    Original Work Order photos / Phase 3B evidence / formal attachments are
+    never touched. Requires CSRF + can_prepare (confirmed, non-read-only).
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_prepare_attachment_manifest(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权操作附件清单"}), 403
+
+    try:
+        manifest_svc = _attachment_manifest_service()
+        manifest = manifest_svc.cancel(draft_id, manifest_id)
+    except ManifestError as exc:
+        return _manifest_error_response(exc, default_status=400)
+
+    return jsonify({"ok": True, "manifest": manifest})
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/update-worker")
