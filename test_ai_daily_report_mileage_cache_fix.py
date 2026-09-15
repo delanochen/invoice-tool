@@ -209,7 +209,7 @@ class MileageCacheFixTest(unittest.TestCase):
         svc = AIIntentService({"enabled": True, "api_key": "k", "model": "test-model"})
         calls = {"n": 0}
         valid_json = json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "overnight_stay": None, "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
-        with patch.object(svc, "_call_deepseek_json", side_effect=lambda messages: (calls.update(n=calls["n"] + 1), "" if calls["n"] < 2 else valid_json)[1]):
+        with patch.object(svc, "_call_deepseek_json", side_effect=lambda messages, json_mode=True: (calls.update(n=calls["n"] + 1), "" if calls["n"] < 2 else valid_json)[1]):
             result = svc.parse_intent(
                 user_message="创建日报", current_business_date="2026-09-14",
                 current_timezone="America/Chicago", service_order_id=1,
@@ -218,6 +218,25 @@ class MileageCacheFixTest(unittest.TestCase):
             )
         self.assertTrue(result.ok)
         self.assertEqual(calls["n"], 2)
+
+    def test_json_empty_falls_back_without_response_format(self):
+        """JSON-mode empty response triggers a fallback call with json_mode=False."""
+        from ai_daily_report.intent_service import AIIntentService
+        svc = AIIntentService({"enabled": True, "api_key": "k", "model": "test-model"})
+        valid_json = json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "overnight_stay": None, "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
+        modes = []
+        def fake_call(messages, json_mode=True):
+            modes.append(json_mode)
+            return "" if json_mode else valid_json
+        with patch.object(svc, "_call_deepseek_json", side_effect=fake_call):
+            result = svc.parse_intent(
+                user_message="创建日报", current_business_date="2026-09-14",
+                current_timezone="America/Chicago", service_order_id=1,
+                service_order_number="SO-1", site_address="123 St",
+                current_user_name="Test",
+            )
+        self.assertTrue(result.ok)
+        self.assertEqual(modes, [True, False])
 
     def test_persistent_empty_response_fails_with_empty_code(self):
         """All retries empty -> still fails with empty_response (not api_error)."""
@@ -232,6 +251,55 @@ class MileageCacheFixTest(unittest.TestCase):
             )
         self.assertFalse(result.ok)
         self.assertEqual(result.error_code, "empty_response")
+        self.assertIn("已尝试 JSON 模式与降级模式", result.error)
+
+    def test_default_model_is_deepseek_chat(self):
+        """Unconfigured model defaults to deepseek-chat."""
+        from ai_daily_report.intent_service import AIIntentService
+        svc = AIIntentService({"enabled": True, "api_key": "k"})
+        self.assertEqual(svc.model, "deepseek-chat")
+
+    def test_fallback_call_receives_no_response_format(self):
+        """The fallback request must omit response_format from the payload."""
+        from ai_daily_report.intent_service import AIIntentService
+        import json as _json
+        svc = AIIntentService({"enabled": True, "api_key": "k", "model": "test-model"})
+        valid_json = _json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "overnight_stay": None, "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
+        seen_payloads = []
+        orig = svc._call_deepseek_json
+
+        def spy(messages, json_mode=True):
+            return orig(messages, json_mode=json_mode)
+        # Patch the urlopen reference inside intent_service's module namespace.
+        import ai_daily_report.intent_service as intent_mod
+        real_urlopen = intent_mod.urlopen
+
+        def fake_urlopen(request, timeout=None):
+            seen_payloads.append(_json.loads(request.data.decode("utf-8")))
+            if "response_format" not in _json.loads(request.data.decode("utf-8")):
+                body = _json.dumps({"choices": [{"message": {"content": valid_json}}]})
+            else:
+                body = _json.dumps({"choices": [{"message": {"content": ""}}]})
+            class FakeResp:
+                def read(self):
+                    return body.encode("utf-8")
+                def __exit__(self, *a):
+                    return False
+                def __enter__(self):
+                    return self
+            return FakeResp()
+
+        with patch.object(intent_mod, "urlopen", side_effect=fake_urlopen):
+            result = svc.parse_intent(
+                user_message="创建日报", current_business_date="2026-09-14",
+                current_timezone="America/Chicago", service_order_id=1,
+                service_order_number="SO-1", site_address="123 St",
+                current_user_name="Test",
+            )
+        self.assertTrue(result.ok)
+        self.assertEqual(len(seen_payloads), 2)
+        self.assertIn("response_format", seen_payloads[0])
+        self.assertNotIn("response_format", seen_payloads[1])
 
 
 import json  # noqa: E402  (used in intent retry tests)

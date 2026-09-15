@@ -61,6 +61,7 @@
       </label>
       <label>模型
         <select name="deepseek_model">
+          <option value="deepseek-chat" {% if deepseek_model == 'deepseek-chat' %}selected{% endif %}>DeepSeek Chat（推荐，结构化输出更稳定）</option>
           <option value="deepseek-v4-flash" {% if deepseek_model == 'deepseek-v4-flash' %}selected{% endif %}>DeepSeek V4 Flash（日常查询）</option>
           <option value="deepseek-v4-pro" {% if deepseek_model == 'deepseek-v4-pro' %}selected{% endif %}>DeepSeek V4 Pro（复杂分析）</option>
         </select>

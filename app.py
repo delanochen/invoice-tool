@@ -2346,7 +2346,7 @@ def seed_settings(connection):
     defaults["google_static_maps_api_key"] = GOOGLE_STATIC_MAPS_API_KEY_ENV
     defaults["deepseek_enabled"] = "false"
     defaults["deepseek_api_key"] = DEEPSEEK_API_KEY_ENV
-    defaults["deepseek_model"] = "deepseek-v4-flash"
+    defaults["deepseek_model"] = "deepseek-chat"
     defaults["deepseek_vision_model"] = DEEPSEEK_VISION_MODEL_ENV
     defaults["vision_external_api_enabled"] = "true" if VISION_EXTERNAL_API_ENABLED_ENV else "false"
     defaults["vision_max_image_bytes"] = str(VISION_MAX_IMAGE_BYTES_ENV)
@@ -9801,9 +9801,9 @@ def system_settings():
         deepseek_api_key = request.form.get("deepseek_api_key", "").strip()
         if deepseek_api_key:
             set_setting("deepseek_api_key", deepseek_api_key)
-        model = request.form.get("deepseek_model", "deepseek-v4-flash").strip()
-        if model not in {"deepseek-v4-flash", "deepseek-v4-pro"}:
-            model = "deepseek-v4-flash"
+        model = request.form.get("deepseek_model", "deepseek-chat").strip()
+        if model not in {"deepseek-chat", "deepseek-v4-flash", "deepseek-v4-pro"}:
+            model = "deepseek-chat"
         set_setting("deepseek_model", model)
         set_setting("inspection_warning_days", str(warning_days))
         set_setting("inspection_cycle_days", str(cycle_days))
@@ -9821,7 +9821,7 @@ def system_settings():
         google_geocoding_api_key=get_google_geocoding_api_key(),
         deepseek_enabled=get_setting("deepseek_enabled", "false") == "true",
         deepseek_api_key_configured=bool(get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip()),
-        deepseek_model=get_setting("deepseek_model", "deepseek-v4-flash"),
+        deepseek_model=get_setting("deepseek_model", "deepseek-chat"),
         inspection_warning_days=inspection_warning_days(),
         inspection_cycle_days=inspection_cycle_days(),
         field_watermark_time_password=get_setting("field_watermark_time_password", ""),
@@ -9838,7 +9838,7 @@ def deepseek_assistant_settings():
     return {
         "enabled": get_setting("deepseek_enabled", "false") == "true",
         "api_key": get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip(),
-        "model": get_setting("deepseek_model", "deepseek-v4-flash").strip() or "deepseek-v4-flash",
+        "model": get_setting("deepseek_model", "deepseek-chat").strip() or "deepseek-chat",
     }
 
 
@@ -12225,7 +12225,6 @@ def ai_daily_report_recalculate_mileage(draft_id):
         # Explicitly invalidate cached routes first: this endpoint is a manual
         # "recalculate" request, so the MileageService cache guard must not
         # short-circuit with stale origin/overnight data.
-        from ai_daily_report.travel_service import TravelService
         for w in draft.workers:
             if w.transportation == "self_drive":
                 TravelService.invalidate_worker_route(w)

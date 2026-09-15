@@ -77,7 +77,11 @@ def parse_and_validate(raw_text: str) -> ValidationResult:
     4. Allowlist check (redundant with Pydantic enum, but explicit).
     """
     if not raw_text or not raw_text.strip():
-        return ValidationResult(False, error="AI 返回为空", error_code="empty_response")
+        return ValidationResult(
+            False,
+            error="AI 返回为空（模型未生成有效内容，已尝试 JSON 模式与降级模式）",
+            error_code="empty_response",
+        )
 
     text = raw_text.strip()
     # Defensive: strip ```json ... ``` fences
