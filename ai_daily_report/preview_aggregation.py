@@ -94,7 +94,7 @@ class PreviewAggregationService:
             "order_number": service_order.get("order_number") if service_order else None,
             "site_name": service_order.get("site_name") if service_order else None,
             "site_address": draft_data.get("destination") or (service_order.get("site_address") if service_order else None),
-            "site_address_source": "service_order" if draft_data.get("destination") else None,
+            "site_address_source": ("draft" if draft_data.get("destination") else ("service_order" if service_order else None)),
             "created_by": self._get_user_name(draft_row.get("created_by")),
             "created_by_id": draft_row.get("created_by"),
             "created_at": draft_row.get("created_at"),
@@ -402,10 +402,17 @@ class PreviewAggregationService:
             return None
         try:
             row = self.db.execute(
-                "select id, order_number, client_name, site_address, site_name from service_orders where id = ?",
+                "select id, order_number, client_name, site_address from service_orders where id = ?",
                 (order_id,),
             ).fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            out = dict(row)
+            # service_orders has no site_name column; the business "site" for a
+            # service order is its client. Keep the key so the preview shape is
+            # unchanged for the frontend.
+            out["site_name"] = row["client_name"] or ""
+            return out
         except Exception:
             return None
 

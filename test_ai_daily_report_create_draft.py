@@ -138,6 +138,24 @@ class NewDraftEntryTest(unittest.TestCase):
         self.assertEqual(row["report_date"], "2026-09-15")
         self.assertEqual(row["status"], "draft")
 
+    def test_preview_basic_info_shows_order(self):
+        # Regression: _get_service_order used to select a non-existent
+        # site_name column, which raised and made order_number/site_name
+        # always None ("-" in the UI).
+        self._login()
+        created = self.client.post(
+            "/api/ai/daily-report/draft",
+            json={"service_order_id": 700, "report_date": "2026-09-17"},
+            headers=self._csrf_headers(),
+        ).get_json()
+        resp = self.client.get(f"/api/ai/daily-report/draft/{created['draft_id']}/preview")
+        self.assertEqual(resp.status_code, 200)
+        bi = resp.get_json()["preview"]["basic_info"]
+        self.assertEqual(bi["order_number"], "SO-TEST-001")
+        self.assertEqual(bi["site_name"], "Test Client A")
+        self.assertEqual(bi["site_address"], "123 Test St")
+        self.assertEqual(bi["site_address_source"], "service_order")
+
     def test_create_draft_reuses_existing_active(self):
         self._login()
         h = self._csrf_headers()
