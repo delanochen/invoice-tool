@@ -217,7 +217,15 @@ class AttachmentManifestService:
 
     def get_current_manifest(self, draft_row: Dict[str, Any], validation_result) -> Optional[Dict[str, Any]]:
         """Return current_applicable_manifest matching draft_version +
-        validation_fingerprint. Stale/cancelled/failed never returned here."""
+        validation_fingerprint. Stale/cancelled/failed never returned here.
+
+        Phase 8 sealed semantics (unchanged): a ready manifest matching the
+        current draft_version + validation_fingerprint is returned regardless
+        of Draft status, so saved/reopened Drafts can still audit / preview /
+        history the manifest. The confirmed-only requirement is enforced by the
+        Phase 9 Formal Save gate itself (FormalSaveService + formal-save route),
+        never by this Phase 8 accessor.
+        """
         row = self.db.execute(
             """
             select * from ai_daily_report_attachment_manifests

@@ -88,6 +88,7 @@
     renderVerification();
     renderValidation();
     renderAttachmentPreparation();
+    renderFormalSave();
     renderProvenance();
     renderAudit();
     renderActions();
@@ -760,6 +761,77 @@
     } catch (err) {
       if (err.message !== "version_conflict") {
         showStatus(`准备失败: ${err.message}`, "error");
+      }
+    }
+  }
+
+
+
+  // ─── Phase 9: Formal Save ────────────────────────────────────────────────
+
+  function renderFormalSave() {
+    const fs = currentPreview.formal_save;
+    const el = document.getElementById("formalSaveSection");
+    if (!el) return;
+    if (!fs) {
+      el.innerHTML = '<p class="muted-line">无正式保存信息。</p>';
+      return;
+    }
+    const status = currentPreview.status;
+    const m = currentPreview.attachment_preparation && currentPreview.attachment_preparation.current;
+    const canMutate = fs.allowed && status === "confirmed" && m && m.status === "ready";
+    let html = "";
+
+    if (fs.status === "saved" && fs.service_report_id) {
+      html += `<p style="color:#065f46;"><strong>Formal Report Created</strong></p>`;
+      html += `<p>Report ID: <strong>${fs.service_report_id}</strong></p>`;
+      html += `<p><a href="/edit_service_report/${fs.service_report_id}" target="_blank" class="primary" style="display:inline-block; padding:0.4rem 0.9rem; text-decoration:none;">查看正式日报</a></p>`;
+      if (fs.commit_status) {
+        html += `<p class="muted-line" style="font-size:0.75rem;">commit status: ${fs.commit_status}${fs.committed_at ? " | " + fs.committed_at : ""}</p>`;
+      }
+    } else if (fs.status === "commit_committing") {
+      html += '<p style="color:#1e40af;">正式保存正在进行中，请稍候刷新。</p>';
+    } else if (fs.status === "commit_failed") {
+      html += '<p style="color:#991b1b;">上次正式保存失败（已恢复清理），可重试。</p>';
+    } else if (fs.status === "not_saved") {
+      if (!m) {
+        html += '<p class="muted-line">请先准备附件清单（Phase 8）后再正式保存。</p>';
+      } else if (m.status === "verification_required" || m.status === "failed") {
+        html += '<p class="muted-line">附件清单存在完整性/合规问题，需先处理后再正式保存。</p>';
+      } else if (m.status === "ready") {
+        html += '<p class="muted-line">附件清单已就绪，可执行正式保存。</p>';
+      } else {
+        html += '<p class="muted-line">附件清单未就绪，无法正式保存。</p>';
+      }
+    } else {
+      html += '<p class="muted-line">当前状态不可正式保存。</p>';
+    }
+
+    if (canMutate) {
+      html += `<div style="margin-top:0.75rem;">`;
+      html += `<button type="button" class="primary" id="formalSaveBtn">正式保存</button>`;
+      html += `</div>`;
+      html += `<p class="muted-line" style="font-size:0.75rem; margin-top:0.4rem;">正式保存是确定性事务：仅消费冻结的 Draft + 已就绪清单，不会重新调用 AI/路线/照片识别，也不会重复生成正式日报。</p>`;
+    }
+
+    el.innerHTML = html;
+    document.getElementById("formalSaveBtn")?.addEventListener("click", handleFormalSave);
+  }
+
+  async function handleFormalSave() {
+    const m = currentPreview.attachment_preparation && currentPreview.attachment_preparation.current;
+    if (!m) return;
+    if (!confirm("确认正式保存为正式日报？此操作不可撤销，且不会生成两份正式日报。")) return;
+    try {
+      const result = await apiPost(`/draft/${draftId}/formal-save`, {
+        draft_version: currentDraftVersion,
+        manifest_id: m.manifest_id,
+      });
+      showStatus("正式日报已创建", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`正式保存失败: ${err.message}`, "error");
       }
     }
   }

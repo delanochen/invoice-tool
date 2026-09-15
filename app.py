@@ -80,6 +80,16 @@ from ai_daily_report.attachment_manifest import (
     ManifestStaleError,
     ManifestValidationBlockedError,
 )
+from ai_daily_report.formal_save import (
+    FormalSaveService,
+    FormalSaveError,
+    FormalSaveIntegrityError,
+    FormalSaveComplianceError,
+    FormalSaveStaleError,
+    FormalSaveStateError,
+    FormalSaveCommitConflictError,
+    FormalSaveValidationBlockedError,
+)
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
@@ -1581,6 +1591,11 @@ def init_db():
             )
             """
         )
+        # Compliance review audit trail (Phase 9 Final Release Gate 6): who /
+        # when reviewed each compliance-required source. Idempotent for the
+        # already-deployed Phase 8 production schema.
+        ensure_column(connection, "ai_daily_report_manifest_sources", "compliance_reviewed_by", "integer")
+        ensure_column(connection, "ai_daily_report_manifest_sources", "compliance_reviewed_at", "text")
         connection.execute(
             """
             create table if not exists ai_daily_report_manifest_roles (
@@ -1607,6 +1622,37 @@ def init_db():
         )
         connection.execute(
             "create index if not exists idx_ai_manifest_asset on ai_daily_report_prepared_assets(manifest_id)"
+        )
+        connection.execute(
+            """
+            create table if not exists ai_daily_report_formal_commits (
+                id integer primary key autoincrement,
+                commit_id text not null unique,
+                draft_id integer not null unique,
+                manifest_id text not null,
+                draft_version integer not null,
+                validation_fingerprint text not null,
+                manifest_fingerprint text not null,
+                manifest_snapshot text not null,
+                fields_provenance text not null,
+                service_report_id integer,
+                status text not null default 'committing',
+                failure_code text,
+                formal_files text not null default '{}',
+                created_by integer not null,
+                started_at text not null,
+                committed_at text,
+                updated_at text,
+                unique(draft_id, manifest_fingerprint),
+                foreign key(draft_id) references ai_daily_report_drafts(id) on delete cascade
+            )
+            """
+        )
+        connection.execute(
+            "create index if not exists idx_ai_formal_commit_draft on ai_daily_report_formal_commits(draft_id, status)"
+        )
+        connection.execute(
+            "create index if not exists idx_ai_formal_commit_report on ai_daily_report_formal_commits(service_report_id)"
         )
         ensure_column(connection, "service_reports", "ai_generated", "integer not null default 0")
         ensure_column(connection, "service_reports", "arrival_time_source", "text")
@@ -2813,6 +2859,31 @@ def can_prepare_attachment_manifest(user, draft_row):
       external-admin client scope inherited from Phase 6)
     - finance is read-only: never allowed to prepare
     - draft must be status == 'confirmed' (chain B state machine)
+    """
+    if not user or not draft_row:
+        return False
+    if hasattr(user, "keys"):
+        user = dict(user)
+    if hasattr(draft_row, "keys"):
+        draft_row = dict(draft_row)
+    role = user.get("role", "")
+    if role == "finance":
+        return False
+    if not can_view_ai_daily_report_draft(user, draft_row):
+        return False
+    if draft_row.get("status") != "confirmed":
+        return False
+    return True
+
+
+def can_formal_save_draft(user, draft_row):
+    """Phase 9-specific authorization for Formal Save (mutation).
+
+    Rules (sealed design):
+    - must satisfy can_view_ai_daily_report_draft (Phase 6 client scope)
+    - finance read-only: never allowed to formal save
+    - external_manager / external_employee: keep current Phase 6-8 boundary
+    - draft must be status == 'confirmed'
     """
     if not user or not draft_row:
         return False
@@ -11075,7 +11146,42 @@ def ai_daily_report_draft_preview(draft_id):
     manifest_svc = _attachment_manifest_service()
     preview["attachment_preparation"] = manifest_svc.summary_for_preview(draft_row, validation)
 
+    # Phase 9: Formal Save status (READ-ONLY)
+    preview["formal_save"] = _formal_save_preview_summary(draft_row)
+
     return jsonify({"ok": True, "preview": preview})
+
+
+def _formal_save_preview_summary(draft_row):
+    """Read-only Phase 9 status aggregation for the Review Center preview."""
+    draft_id = int(draft_row["id"])
+    commit = db().execute(
+        """
+        select status, service_report_id, draft_version, committed_at, failure_code
+        from ai_daily_report_formal_commits
+        where draft_id = ? order by id desc limit 1
+        """,
+        (draft_id,),
+    ).fetchone()
+    saved_report_id = draft_row.get("saved_report_id")
+    summary = {
+        "allowed": can_formal_save_draft(g.user, draft_row),
+        "status": "not_saved",
+        "service_report_id": saved_report_id,
+    }
+    if saved_report_id:
+        summary["status"] = "saved"
+    if commit:
+        summary["commit_status"] = commit["status"]
+        summary["commit_report_id"] = commit["service_report_id"]
+        summary["committed_at"] = commit["committed_at"]
+        summary["failure_code"] = commit["failure_code"]
+        if commit["status"] == "committed" and not saved_report_id:
+            summary["status"] = "saved"
+            summary["service_report_id"] = commit["service_report_id"]
+        elif commit["status"] in ("committing", "failed"):
+            summary["status"] = "saved" if saved_report_id else "commit_" + commit["status"]
+    return summary
 
 
 @app.get("/api/ai/daily-report/draft/<int:draft_id>/validation")
@@ -11480,6 +11586,170 @@ def ai_daily_report_draft_prepare_attachments(draft_id):
         return _manifest_error_response(exc)
 
     return jsonify({"ok": True, "draft_id": draft_id, "manifest": manifest})
+
+
+# ─── Phase 9: Formal Save / Transactional Commit ────────────────────────────
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/formal-save")
+def ai_daily_report_draft_formal_save(draft_id):
+    """Formal Save: deterministically commit a confirmed Draft + ready Manifest.
+
+    Phase 9 state machine: Draft -> Validation -> Confirm -> Prepare -> Formal Save.
+    - Only status == 'confirmed' (can_formal_save_draft)
+    - CSRF required
+    - Server-side Phase 7 validation gate (can_proceed == False -> 422)
+    - Exactly-once: a Draft maps to at most one formal service_report
+      (200 returns the existing report; 201 first creation)
+    - Client may only submit draft_version + manifest_id (optimistic lock).
+    """
+    if not g.user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
+
+    # State machine: only confirmed (or already-saved) drafts may hit this.
+    if draft_row.get("status") not in {"confirmed", "saved"}:
+        return jsonify({
+            "ok": False,
+            "error": "Draft 状态不允许正式保存。",
+            "code": "draft_state_error",
+        }), 409
+
+    # Exactly-once: an already-saved Draft returns its existing formal report
+    # (200), even if the client retries after a lost response.
+    if draft_row.get("saved_report_id"):
+        report_id = int(draft_row["saved_report_id"])
+        return jsonify({
+            "ok": True,
+            "status": "already_committed",
+            "service_report_id": report_id,
+            "report_url": url_for("edit_service_report", report_id=report_id),
+        }), 200
+
+    if not can_formal_save_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权正式保存（需 confirmed 状态且非只读权限）"}), 403
+
+    try:
+        data = request.get_json(silent=True) or {}
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+        client_manifest_id = data.get("manifest_id")
+        if client_manifest_id is not None:
+            client_manifest_id = str(client_manifest_id)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    validation = _run_phase7_validation(draft_row)
+    manifest_svc = _attachment_manifest_service()
+    try:
+        formal_svc = FormalSaveService(
+            db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, int(g.user["id"])
+        )
+        result = formal_svc.run(
+            draft_row, expected_version, client_manifest_id, validation, manifest_svc
+        )
+    except (FormalSaveStaleError, FormalSaveStateError, FormalSaveCommitConflictError) as exc:
+        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 409
+    except (FormalSaveIntegrityError, FormalSaveValidationBlockedError, FormalSaveComplianceError) as exc:
+        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 422
+    except ManifestError as exc:
+        return _manifest_error_response(exc)
+
+    status_code = 201 if result["status"] == "created" else 200
+    return jsonify({
+        "ok": True,
+        "status": result["status"],
+        "service_report_id": result["service_report_id"],
+        "report_url": url_for("edit_service_report", report_id=result["service_report_id"]),
+    }), status_code
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>/compliance-review")
+def ai_daily_report_manifest_compliance_review(draft_id, manifest_id):
+    """Human compliance review of a Google mileage evidence source (Phase 8 extension).
+
+    Minimal design (sealed Phase 9 STEP 5): only admin/manager may mark a
+    compliance_review_required source as reviewed. Phase 8/9 flows never mark
+    reviewed automatically. External roles / finance keep current boundaries.
+    """
+    if not g.user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    if hasattr(g.user, "keys"):
+        g.user = dict(g.user)
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    role = g.user.get("role", "")
+    if role not in {"admin", "manager"}:
+        return jsonify({"ok": False, "error": "仅管理员/经理可执行合规审查"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
+
+    # Compliance review only makes sense on a confirmed Draft: a reopened or
+    # already-saved Draft must not let an old manifest review be misapplied
+    # (GATE 6 / Ready->Reopen invariant).
+    if draft_row.get("status") != "confirmed":
+        return jsonify({"ok": False, "error": "Draft 状态不允许合规审查。", "code": "draft_state_error"}), 409
+
+    manifest_svc = _attachment_manifest_service()
+    dbc = db()
+    manifest = dbc.execute(
+        "select * from ai_daily_report_attachment_manifests where manifest_id = ? and draft_id = ?",
+        (manifest_id, draft_id),
+    ).fetchone()
+    if not manifest:
+        return jsonify({"ok": False, "error": "Manifest 不存在或不属于该 Draft"}), 404
+
+    sources = dbc.execute(
+        """
+        select source_id, compliance_status as old_status, provider
+        from ai_daily_report_manifest_sources
+        where manifest_id = ? and compliance_review_required = 1 and compliance_status != 'reviewed'
+        """,
+        (manifest_id,),
+    ).fetchall()
+    if not sources:
+        return jsonify({"ok": False, "error": "没有待审查的合规项"}), 400
+    reviewed_at = now()
+    for src in sources:
+        dbc.execute(
+            """
+            update ai_daily_report_manifest_sources
+            set compliance_status = 'reviewed',
+                compliance_reviewed_by = ?,
+                compliance_reviewed_at = ?
+            where source_id = ?
+            """,
+            (g.user.get("id"), reviewed_at, src["source_id"]),
+        )
+    dbc.execute(
+        "update ai_daily_report_attachment_manifests set updated_at = ? where manifest_id = ?",
+        (reviewed_at, manifest_id),
+    )
+    dbc.commit()
+    log_action(
+        "update", "ai_daily_report_manifest", manifest_id, "",
+        f"合规审查通过 {len(sources)} 项（{sources[0]['provider']}），旧状态 {sources[0]['old_status']} -> reviewed，"
+        f"draft_version={manifest['draft_version']} validation_fingerprint={manifest['validation_fingerprint']}",
+    )
+    return jsonify({"ok": True, "reviewed": len(sources), "reviewed_at": reviewed_at})
 
 
 @app.get("/api/ai/daily-report/draft/<int:draft_id>/manifest")
