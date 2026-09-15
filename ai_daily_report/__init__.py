@@ -52,6 +52,26 @@ from .vision_provider import (
 from .photo_classification import PhotoClassificationService
 from .perceptual_hash import PerceptualHashService, compute_dhash, is_near_duplicate
 from .preview_aggregation import PreviewAggregationService
+from .validation_engine import (
+    ValidationEngine,
+    ValidationContext,
+    ValidationContextBuilder,
+    ValidationResult,
+    ValidationIssue,
+    ENGINE_VERSION as VALIDATION_ENGINE_VERSION,
+    SEVERITY_ERROR,
+    SEVERITY_WARNING,
+    SEVERITY_INFO,
+    compute_draft_data_hash,
+    compute_context_hash,
+    compute_issue_fingerprint,
+    make_issue_key,
+    get_acknowledgements,
+    add_acknowledgement,
+    is_acknowledgement_valid,
+    normalize_address,
+    addresses_equal,
+)
 from .prompts import SYSTEM_PROMPT, build_user_prompt
 
 __all__ = [
@@ -101,6 +121,24 @@ __all__ = [
     "compute_dhash",
     "is_near_duplicate",
     "PreviewAggregationService",
+    "ValidationEngine",
+    "ValidationContext",
+    "ValidationContextBuilder",
+    "ValidationResult",
+    "ValidationIssue",
+    "VALIDATION_ENGINE_VERSION",
+    "SEVERITY_ERROR",
+    "SEVERITY_WARNING",
+    "SEVERITY_INFO",
+    "compute_draft_data_hash",
+    "compute_context_hash",
+    "compute_issue_fingerprint",
+    "make_issue_key",
+    "get_acknowledgements",
+    "add_acknowledgement",
+    "is_acknowledgement_valid",
+    "normalize_address",
+    "addresses_equal",
     "SYSTEM_PROMPT",
     "build_user_prompt",
 ]

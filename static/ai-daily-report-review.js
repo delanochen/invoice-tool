@@ -86,6 +86,7 @@
     renderServicePhotos();
     renderWorkItems();
     renderVerification();
+    renderValidation();
     renderProvenance();
     renderAudit();
     renderActions();
@@ -370,6 +371,104 @@
     html += "</ul>";
 
     document.getElementById("verificationSection").innerHTML = html;
+  }
+
+  // ─── Phase 7: Validation Result ────────────────────────────────────────
+
+  function renderValidation() {
+    const v = currentPreview.validation_result;
+    const el = document.getElementById("validationSection");
+    if (!v) {
+      el.innerHTML = '<p class="muted-line">无校验结果。</p>';
+      return;
+    }
+
+    const canEdit = currentPreview.status === "draft";
+    const sevBadge = {
+      error: '<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">ERROR</span>',
+      warning: '<span style="background:#fffbeb;color:#d97706;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">WARNING</span>',
+      info: '<span style="background:#eff6ff;color:#2563eb;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:bold;">INFO</span>',
+    };
+
+    const validBadge = v.is_valid
+      ? '<span style="background:#ecfdf5;color:#059669;padding:4px 12px;border-radius:4px;font-weight:bold;">✓ 有效</span>'
+      : '<span style="background:#fef2f2;color:#dc2626;padding:4px 12px;border-radius:4px;font-weight:bold;">✗ 无效</span>';
+    const proceedBadge = v.can_proceed
+      ? '<span style="background:#ecfdf5;color:#059669;padding:4px 12px;border-radius:4px;font-weight:bold;">可继续</span>'
+      : '<span style="background:#fef2f2;color:#dc2626;padding:4px 12px;border-radius:4px;font-weight:bold;">需修复</span>';
+
+    let html = `
+      <div style="margin-bottom:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+        ${validBadge} ${proceedBadge}
+        <span class="muted-line" style="font-size:0.8rem;">
+          ERROR: ${v.error_count} | WARNING: ${v.warning_count} | INFO: ${v.info_count}
+          | Engine v${v.engine_version || "?"} | 指纹: ${(v.validation_fingerprint || "").substring(0, 12)}...
+        </span>
+      </div>
+    `;
+
+    const issues = v.issues || [];
+    if (!issues.length) {
+      html += '<p style="color:#059669;">✓ 未发现任何问题。</p>';
+    } else {
+      html += '<ul style="list-style:none; padding:0;">';
+      issues.forEach((issue) => {
+        const badge = sevBadge[issue.severity] || issue.severity;
+        const ackStyle = issue.acknowledged
+          ? 'background:#ecfdf5;color:#059669;padding:2px 6px;border-radius:3px;font-size:0.7rem;'
+          : '';
+        const ackLabel = issue.acknowledged ? ' ✓ 已确认' : '';
+        const ackBtn = (issue.severity === "warning" && issue.acknowledgement_required && !issue.acknowledged && canEdit)
+          ? `<button type="button" class="secondary" style="font-size:0.75rem;padding:2px 8px;margin-left:8px;" data-ack-issue="${escapeHtml(issue.issue_key)}">确认</button>`
+          : '';
+        html += `<li style="padding:6px 0; border-bottom:1px solid #f3f4f6;">
+          ${badge}
+          <strong>${escapeHtml(issue.rule_id)}</strong>
+          <span class="muted-line" style="font-size:0.75rem;">[${escapeHtml(issue.category)}]</span>
+          ${ackLabel ? `<span style="${ackStyle}">${ackLabel}</span>` : ''}
+          <br>
+          <span style="font-size:0.9rem;">${escapeHtml(issue.message)}</span>
+          <span class="muted-line" style="font-size:0.7rem; display:block; margin-top:2px;">
+            key: ${escapeHtml(issue.issue_key)} | subject: ${escapeHtml(issue.subject_type)}/${escapeHtml(issue.subject_id)}
+          </span>
+          ${ackBtn}
+        </li>`;
+      });
+      html += '</ul>';
+    }
+
+    el.innerHTML = html;
+
+    // Bind acknowledge buttons
+    if (canEdit) {
+      document.querySelectorAll("[data-ack-issue]").forEach((btn) => {
+        btn.addEventListener("click", () => acknowledgeWarning(btn.dataset.ackIssue));
+      });
+    }
+  }
+
+  function acknowledgeWarning(issueKey) {
+    const draftId = window.aiDailyReportDraftId;
+    const draftVersion = currentPreview.draft_version;
+    fetch(`/api/ai/daily-report/draft/${draftId}/acknowledge`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": window.csrfToken || "",
+      },
+      body: JSON.stringify({ issue_key: issueKey, draft_version: draftVersion }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok) {
+          currentPreview.validation_result = data.validation;
+          currentPreview.draft_version = data.draft_version;
+          renderValidation();
+        } else {
+          alert("确认失败: " + (data.error || "未知错误"));
+        }
+      })
+      .catch((err) => alert("请求失败: " + err));
   }
 
   function renderProvenance() {

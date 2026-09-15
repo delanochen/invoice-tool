@@ -210,6 +210,8 @@ class DailyReportDraft(BaseModel):
     reopened_at: Optional[str] = None
     cancelled_by: Optional[int] = None
     cancelled_at: Optional[str] = None
+    # Phase 7: Warning acknowledgement records (persisted in draft_data)
+    warning_acknowledgements: List[Dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("report_date")
     @classmethod

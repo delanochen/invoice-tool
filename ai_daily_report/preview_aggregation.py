@@ -66,6 +66,9 @@ class PreviewAggregationService:
         # Audit
         audit = self._build_audit(draft_data)
 
+        # Phase 7: Validation Result (read-only, pure computation)
+        validation_result = self._build_validation_result(draft_row, draft_data)
+
         return {
             "draft_id": draft_row.get("id"),
             "status": draft_row.get("status"),
@@ -77,6 +80,7 @@ class PreviewAggregationService:
             "service_photos": service_photos,
             "work_items": work_items,
             "verification_checklist": verification,
+            "validation_result": validation_result,
             "ai_metadata": ai_metadata,
             "audit": audit,
         }
@@ -331,6 +335,56 @@ class PreviewAggregationService:
             "cancelled_by": draft_data.get("cancelled_by"),
             "cancelled_at": draft_data.get("cancelled_at"),
         }
+
+    # ─── Phase 7: Validation Result ───────────────────────────────────────
+
+    def _build_validation_result(self, draft_row: Dict[str, Any], draft_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build ValidationResult for the Review Center.
+
+        READ-ONLY: ValidationEngine is pure (no DB, no filesystem, no network).
+        ValidationContextBuilder only does SELECT queries for authoritative data.
+        No writes, no external calls, no photo scanning.
+        """
+        try:
+            from .validation_engine import ValidationEngine, ValidationContextBuilder
+            context_builder = ValidationContextBuilder(self.db)
+            context = context_builder.build(draft_data)
+            engine = ValidationEngine()
+            result = engine.validate(
+                draft_data=draft_data,
+                context=context,
+                draft_version=draft_row.get("draft_version", 1),
+            )
+            return result.to_dict()
+        except Exception as exc:
+            logger.warning("Preview validation failed for draft %s: %s", draft_row.get("id"), exc)
+            return {
+                "engine_version": "7.0.0",
+                "is_valid": False,
+                "can_proceed": False,
+                "error_count": 1,
+                "warning_count": 0,
+                "info_count": 0,
+                "total_count": 1,
+                "draft_version": draft_row.get("draft_version", 1),
+                "validation_fingerprint": "",
+                "issues": [{
+                    "rule_id": "DRFT-001",
+                    "severity": "error",
+                    "category": "DRFT",
+                    "message": f"Validation engine error: {exc}",
+                    "subject_type": "draft",
+                    "subject_id": "validation_error",
+                    "issue_key": "DRFT-001:draft:validation_error",
+                    "issue_fingerprint": "",
+                    "blocking": True,
+                    "acknowledgement_required": False,
+                    "acknowledged": False,
+                }],
+                "errors": [],
+                "warnings": [],
+                "infos": [],
+            }
 
     # ─── Helpers ───────────────────────────────────────────────────────────
 
