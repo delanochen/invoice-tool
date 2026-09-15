@@ -266,6 +266,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
             {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "ai_daily_report", "label": "AI 日报", "roles": {"admin", "manager", "finance", "employee"}},
         ],
     },
     {
@@ -497,6 +498,12 @@ def project_name_key(value):
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+# Persistent login session for mobile PWA: without session.permanent the
+# cookie is a browser-session cookie and iOS Safari discards it every time
+# the PWA is closed, forcing a re-login.
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 
 def now():
@@ -3506,6 +3513,7 @@ app.jinja_env.globals["can_view_customer_reimbursement"] = can_view_customer_rei
 app.jinja_env.globals["can_create_service_report"] = can_create_service_report
 app.jinja_env.globals["is_external_manager"] = is_external_manager
 app.jinja_env.globals["is_external_employee"] = is_external_employee
+app.jinja_env.globals["is_internal_user"] = is_internal_user
 app.jinja_env.globals["can_assign_external_employees"] = can_assign_external_employees
 app.jinja_env.globals["can_approve_users"] = can_approve_users
 app.jinja_env.globals["can_view_audit_logs"] = can_view_audit_logs
@@ -7505,6 +7513,7 @@ def login():
             user_language = user["default_language"] if "default_language" in user.keys() else DEFAULT_LANGUAGE
             session["language"] = user_language if user_language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
             session["user_id"] = user["id"]
+            session.permanent = True
             log_login_action(user)
             db().commit()
             next_target = request.args.get("next")
