@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}工单结算 - {{ order.order_number }}{% endblock %}
 {% block content %}
   {% macro expense_amount_cell(item, field_name) %}
@@ -67,7 +67,7 @@
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
       <button type="button" onclick="window.open('{{ url_for('preview_customer_reimbursement', reimbursement_id=reimbursement.id) }}', '_blank')">预览 PDF</button>
-      <a class="button" href="{{ url_for('download_customer_reimbursement_excel', reimbursement_id=reimbursement.id) }}">下载 Excel</a>
+      <a class="button" href="{{ url_for('download_customer_reimbursement_excel', reimbursement_id=reimbursement.id) }}">导出 Excel</a>
       {% if can_manage_customer_reimbursement() %}
         <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
       {% endif %}

@@ -167,6 +167,21 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(row['watermark_at'], adjusted)
         self.assertTrue(row['batch_id'])
 
+    def test_adjusted_watermark_controls_archive_day_in_local_timezone(self):
+        for stamp, day, clock in [('2026-09-11T22:00:00+00:00','2026-09-11','170000'),
+                                  ('2026-09-12T02:00:00+00:00','2026-09-11','210000')]:
+            with self.subTest(stamp=stamp):
+                response=self.upload(watermark_at=stamp,timezone_name='America/Chicago')
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertEqual(response.json['capture_date'],day)
+                with self.module.app.app_context():
+                    row=self.module.db().execute('select * from field_photos where id=?',(response.json['id'],)).fetchone()
+                self.assertEqual(row['captured_at'],self.capture_time.isoformat())
+                self.assertEqual(row['capture_date_source'],'watermark')
+                self.assertEqual(Path(row['relative_path']).parent.name,day)
+                self.assertTrue(Path(row['relative_path']).name.startswith('20260911_'+clock))
+                self.assertTrue((self.root / row['relative_path']).exists())
+
     def test_selected_photo_can_keep_its_original_watermark(self):
         response = self.upload(source='file', watermark_source='original', location_verified='false')
         self.assertEqual(response.status_code, 200, response.text)

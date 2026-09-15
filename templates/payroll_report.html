@@ -34,10 +34,10 @@
           <th>员工</th><th>员工等级</th><th>基本工资</th>
           <th>出勤天数</th><th>里程</th>
           <th>标准工时</th><th>标准工资</th>
-          <th>交通工时</th><th>交通工资</th>
+          <th data-column-group="交通工时">随行时长</th><th data-column-group="交通工时">租车驾驶时长</th><th data-column-group="交通工资">随行补贴</th><th data-column-group="交通工资">租车驾驶补贴</th>
           <th>加班工时</th><th>加班工资</th>
           <th>假期工时</th><th>假期工资</th>
-          <th>自驾车补</th><th>随行车补</th><th>租车驾驶补贴</th><th>补贴</th>
+          <th>自驾车补</th><th>补贴</th>
           <th>合计工资</th>
         </tr>
       </thead>
@@ -51,15 +51,12 @@
             <td>{{ "%.1f"|format(row.driving_miles) }}</td>
             <td>{{ "%.2f"|format(row.standard_hours) }}</td>
             <td>{{ row.standard_pay|money }}</td>
-            <td>{{ "%.2f"|format(row.transport_hours) }}</td>
-            <td>{{ row.transport_pay|money }}</td>
+            <td>{{ "%.2f"|format(row.following_travel_hours) }}</td><td>{{ "%.2f"|format(row.rental_driving_hours) }}</td><td>{{ row.following_allowance|money }}</td><td>{{ row.rental_driving_allowance|money }}</td>
             <td>{{ "%.2f"|format(row.overtime_hours) }}</td>
             <td>{{ row.overtime_pay|money }}</td>
             <td>{{ "%.2f"|format(row.holiday_hours) }}</td>
             <td>{{ row.holiday_pay|money }}</td>
             <td>{{ row.self_drive_allowance|money }}</td>
-            <td>{{ row.following_allowance|money }}</td>
-            <td>{{ row.rental_driving_allowance|money }}</td>
             <td>{{ row.subsidy_total|money }}</td>
             <td>{{ row.total_pay|money }}</td>
           </tr>
