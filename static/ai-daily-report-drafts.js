@@ -149,6 +149,137 @@
     conflictDialog.style.display = "flex";
   }
 
+  // ─── New AI Daily Report ─────────────────────────────────────────────
+  const newDraftDialog = document.getElementById("newDraftDialog");
+  const newDraftOrderSearch = document.getElementById("newDraftOrderSearch");
+  const newDraftOrderOptions = document.getElementById("newDraftOrderOptions");
+  const newDraftDate = document.getElementById("newDraftDate");
+  const newDraftMessage = document.getElementById("newDraftMessage");
+  const newDraftError = document.getElementById("newDraftError");
+
+  let selectedOrderId = null;
+  let orderSearchTimer = null;
+
+  function openNewDraftDialog() {
+    selectedOrderId = null;
+    newDraftOrderSearch.value = "";
+    newDraftDate.value = new Date().toISOString().slice(0, 10);
+    newDraftMessage.value = "";
+    newDraftError.style.display = "none";
+    newDraftOrderOptions.innerHTML = "";
+    newDraftDialog.style.display = "flex";
+    newDraftOrderSearch.focus();
+    searchOrders("");
+  }
+
+  function closeNewDraftDialog() {
+    newDraftDialog.style.display = "none";
+  }
+
+  function renderOrderOptions(orders) {
+    if (!orders.length) {
+      newDraftOrderOptions.innerHTML = '<p class="muted-line" style="padding:0.5rem;">没有找到工单。</p>';
+      return;
+    }
+    newDraftOrderOptions.innerHTML = orders.map((o) => {
+      const sel = selectedOrderId === o.id ? "border:2px solid #1d4ed8; background:#eff6ff;" : "";
+      return `<button type="button" class="order-option" data-id="${o.id}"
+        style="display:block; width:100%; text-align:left; padding:0.6rem; border:1px solid #e5e7eb; border-radius:6px; margin-bottom:0.4rem; cursor:pointer; ${sel}">
+        <strong>${o.order_number}</strong>
+        <div class="muted-line" style="font-size:0.85rem;">${o.client_name || ""}${o.site_address ? " — " + o.site_address : ""}</div>
+      </button>`;
+    }).join("");
+    newDraftOrderOptions.querySelectorAll(".order-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        selectedOrderId = parseInt(btn.dataset.id, 10);
+        newDraftOrderSearch.value = btn.querySelector("strong").textContent;
+        renderOrderOptions(orders);
+      });
+    });
+  }
+
+  async function searchOrders(q) {
+    try {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      params.set("limit", "20");
+      const resp = await fetch(`${apiBase}/service-orders?${params.toString()}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      renderOrderOptions(data.orders || []);
+    } catch (err) {
+      newDraftOrderOptions.innerHTML = `<p class="muted-line" style="padding:0.5rem;">加载失败: ${err.message}</p>`;
+    }
+  }
+
+  newDraftOrderSearch.addEventListener("input", () => {
+    clearTimeout(orderSearchTimer);
+    const q = newDraftOrderSearch.value.trim();
+    orderSearchTimer = setTimeout(() => searchOrders(q), 300);
+  });
+
+  async function submitNewDraft() {
+    newDraftError.style.display = "none";
+    if (!selectedOrderId) {
+      newDraftError.textContent = "请选择一个工单。";
+      newDraftError.style.display = "block";
+      return;
+    }
+    const date = newDraftDate.value;
+    const message = newDraftMessage.value.trim();
+    const headers = { "Content-Type": "application/json" };
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+
+    const btn = document.getElementById("newDraftSubmit");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "创建中…";
+    try {
+      let draftId = null;
+      if (message) {
+        const resp = await fetch(`${apiBase}/chat`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ message, service_order_id: selectedOrderId, report_date: date }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          throw new Error(data.error || `HTTP ${resp.status}`);
+        }
+        draftId = data.draft_id;
+      } else {
+        const resp = await fetch(`${apiBase}/draft`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ service_order_id: selectedOrderId, report_date: date }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          throw new Error(data.error || `HTTP ${resp.status}`);
+        }
+        draftId = data.draft_id;
+      }
+      if (!draftId) throw new Error("创建失败：未返回 draft_id");
+      window.location.href = `/ai-daily-report/drafts/${draftId}`;
+    } catch (err) {
+      newDraftError.textContent = `创建失败: ${err.message}`;
+      newDraftError.style.display = "block";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  document.getElementById("newDraftBtn")?.addEventListener("click", openNewDraftDialog);
+  document.getElementById("newDraftCancel")?.addEventListener("click", closeNewDraftDialog);
+  document.getElementById("newDraftSubmit")?.addEventListener("click", submitNewDraft);
+  newDraftDialog?.addEventListener("click", (e) => {
+    if (e.target === newDraftDialog) closeNewDraftDialog();
+  });
+
   // Event listeners
   document.getElementById("refreshDrafts")?.addEventListener("click", () => fetchDrafts(currentPage));
 
