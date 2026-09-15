@@ -1,4 +1,4 @@
-﻿import os
+import os
 import hashlib
 import html
 import csv
@@ -11563,16 +11563,24 @@ def ai_daily_report_draft_evidence_preview(draft_id, evidence_id):
     if not relative_path:
         abort(404)
 
-    # Evidence path should be under Draft evidence directory
+    # Evidence path should be under Draft evidence directory.
+    # Persisted records may store either a bare filename (relative to the
+    # draft mileage dir) or a full DATA_DIR-relative path; normalize both.
     expected_prefix = f"ai-daily-report-drafts/{draft_id}/mileage/"
-    if not relative_path.startswith(expected_prefix):
-        abort(400)
+    if relative_path.startswith("ai-daily-report-drafts/"):
+        if not relative_path.startswith(expected_prefix):
+            abort(400)
+        resolved_rel = relative_path
+    else:
+        if "/" in relative_path or "\\" in relative_path or ".." in Path(relative_path).parts:
+            abort(400)
+        resolved_rel = expected_prefix + relative_path
 
-    if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+    if Path(resolved_rel).is_absolute() or ".." in Path(resolved_rel).parts:
         abort(400)
 
     try:
-        full_path = (Path(DATA_DIR) / relative_path).resolve()
+        full_path = (Path(DATA_DIR) / resolved_rel).resolve()
         if not str(full_path).startswith(str(Path(DATA_DIR).resolve())):
             abort(400)
         if not full_path.exists():
@@ -12003,6 +12011,141 @@ def ai_daily_report_update_worker(draft_id):
         # Get updated draft_version from database
         updated_row = svc.get_draft(draft_id)
         return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "message": "工作人员信息已更新，里程已失效需重新计算"})
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/recalculate-mileage")
+@login_required
+def ai_daily_report_recalculate_mileage(draft_id):
+    """Recalculate mileage for self_drive workers and (re)generate evidence.
+
+    Reuses the same server-side Phase 2/3A/3B logic as the chat action:
+    - Phase 2: destination from service_order.site_address + travel field verification
+    - Phase 3A: Google Routes mileage via MileageService
+    - Phase 3B: Static Maps evidence via MileageEvidenceService (persisted to Draft evidence_records)
+
+    Requires CSRF + optimistic locking. Does NOT touch formal reports.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft（需 draft 状态且有编辑权限）"}), 403
+
+    expected_version = None
+    try:
+        data = request.get_json(silent=True) or {}
+        if data.get("draft_version") is not None:
+            expected_version = int(data["draft_version"])
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    try:
+        draft = svc.parse_draft_data(draft_row)
+
+        # Phase 2: destination from service_order site_address
+        try:
+            order = require_service_order(draft.service_order_id)
+        except Exception:
+            return jsonify({"ok": False, "error": "工单不存在"}), 404
+        site_address = (order["site_address"] or "") if order else ""
+        emp_resolver = EmployeeResolutionService(db(), g.user["id"], g.user["name"])
+        travel_svc = TravelService(db(), emp_resolver)
+        travel_svc.set_destination_for_all(draft.workers, site_address)
+
+        # Verify travel fields first (same gate as chat Phase 2)
+        missing, travel_messages = travel_svc.verify_travel_fields(
+            draft.workers, bool(site_address.strip())
+        )
+        if missing:
+            draft.verification_required = True
+            draft.verification_fields = list(set(draft.verification_fields) | set(missing))
+            svc.save_draft(draft_id, draft, expected_version=expected_version)
+            db().commit()
+            updated_row = svc.get_draft(draft_id)
+            return jsonify({
+                "ok": False,
+                "error": "缺少必要出行信息，无法计算里程",
+                "missing": sorted(set(missing)),
+                "draft_version": updated_row["draft_version"],
+            }), 422
+
+        routes_api_key = get_google_routes_api_key()
+        if not routes_api_key:
+            for w in draft.workers:
+                if w.transportation == "self_drive" and w.route_status != "success":
+                    w.route_status = "verification_required"
+                    w.route_error = "Google Routes API key not configured"
+            svc.save_draft(draft_id, draft, expected_version=expected_version)
+            db().commit()
+            updated_row = svc.get_draft(draft_id)
+            return jsonify({
+                "ok": False,
+                "error": "服务器未配置 Google Routes API key，无法计算里程",
+                "draft_version": updated_row["draft_version"],
+            }), 422
+
+        from ai_daily_report import GoogleStaticMapsService, MileageEvidenceService
+
+        # Phase 3A: mileage via Google Routes
+        routes_svc = GoogleRoutesService(routes_api_key)
+        mileage_svc = MileageService(routes_svc)
+        mileage_svc.calculate_for_all(draft.workers)
+
+        # Phase 3B: evidence via Static Maps (persist to Draft evidence_records)
+        static_maps_key = get_google_static_maps_api_key()
+        if static_maps_key:
+            evidence_svc = MileageEvidenceService(
+                GoogleStaticMapsService(static_maps_key),
+                os.path.join(DATA_DIR, "ai-daily-report-drafts"),
+            )
+            for w in draft.workers:
+                if w.transportation == "self_drive" and w.route_status == "success":
+                    record = evidence_svc.generate_evidence(
+                        w,
+                        draft_id=draft_id,
+                        service_order_id=draft.service_order_id,
+                        report_date=draft.report_date,
+                        generated_by=g.user["id"],
+                        draft_evidence_records=draft.evidence_records,
+                    )
+                    draft.evidence_records = MileageEvidenceService.upsert_evidence_record(
+                        draft.evidence_records, record
+                    )
+                    w.mileage_evidence_id = record.evidence_id
+                    w.mileage_evidence_path = record.file_relative_path
+                    w.mileage_verification_required = record.evidence_status == "verification_required"
+
+        svc.save_draft(draft_id, draft, expected_version=expected_version)
+        db().commit()
+        updated_row = svc.get_draft(draft_id)
+
+        workers_out = []
+        for w in draft.workers:
+            if w.transportation == "self_drive":
+                workers_out.append({
+                    "user_id": w.user_id,
+                    "name": w.name,
+                    "route_status": w.route_status,
+                    "one_way_miles": w.one_way_miles,
+                    "reported_miles": w.reported_miles,
+                    "mileage_evidence_id": w.mileage_evidence_id,
+                    "route_error": w.route_error,
+                })
+        return jsonify({
+            "ok": True,
+            "draft_version": updated_row["draft_version"],
+            "message": "里程计算完成",
+            "workers": workers_out,
+        })
     except DraftVersionConflict:
         return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
 

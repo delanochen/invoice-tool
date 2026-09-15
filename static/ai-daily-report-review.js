@@ -11,6 +11,7 @@
   let currentPreview = null;
   let currentDraftVersion = null;
   let isLoading = false;
+  let isMutating = false;
 
   // DOM
   const statusBanner = document.getElementById("statusBanner");
@@ -205,7 +206,11 @@
     const evidenceWorkers = workers.filter((w) => w.transportation === "self_drive");
 
     if (!evidenceWorkers.length) {
-      document.getElementById("mileageEvidenceSection").innerHTML = '<p class="muted-line">无自驾人员。</p>';
+      const canEdit0 = currentPreview.status === "draft";
+      document.getElementById("mileageEvidenceSection").innerHTML =
+        '<p class="muted-line">无自驾人员。</p>' +
+        (canEdit0 ? '<button type="button" class="secondary" style="margin-top:0.5rem;" id="recalcMileageBtn">重新计算里程</button>' : "");
+      document.getElementById("recalcMileageBtn")?.addEventListener("click", recalcMileage);
       return;
     }
 
@@ -225,7 +230,10 @@
       `;
     }).join("");
 
+    const canEdit = currentPreview.status === "draft";
+    html += canEdit ? '<div style="margin-top:0.75rem;"><button type="button" class="secondary" id="recalcMileageBtn">重新计算里程</button></div>' : "";
     document.getElementById("mileageEvidenceSection").innerHTML = html;
+    document.getElementById("recalcMileageBtn")?.addEventListener("click", recalcMileage);
   }
 
   function renderTimeline() {
@@ -245,10 +253,16 @@
         <tr><td style="padding:4px 8px; font-weight:bold;">时间线状态</td><td>${getTimelineStatusBadge(t.photo_timeline_status)}</td></tr>
         <tr><td style="padding:4px 8px; font-weight:bold;">照片总数</td><td>${t.total_photos || 0}</td></tr>
       </table>
-      ${canEdit ? `<button type="button" class="secondary" style="margin-top:0.5rem;" id="saveTimelineBtn">保存时间修改</button>` : ""}
+      ${canEdit ? `<div style="margin-top:0.5rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="button" class="secondary" id="discoverPhotosBtn">发现照片</button>
+        ${t.total_photos > 0 ? `<button type="button" class="secondary" id="confirmTimelineBtn">确认时间线</button>` : ""}
+        <button type="button" class="secondary" id="saveTimelineBtn">保存时间修改</button>
+      </div>` : ""}
     `;
 
     if (canEdit) {
+      document.getElementById("discoverPhotosBtn")?.addEventListener("click", discoverPhotos);
+      document.getElementById("confirmTimelineBtn")?.addEventListener("click", () => confirmTimeline(false));
       document.getElementById("saveTimelineBtn")?.addEventListener("click", saveTimeline);
     }
   }
@@ -268,6 +282,88 @@
       if (err.message !== "version_conflict") {
         showStatus(`保存失败: ${err.message}`, "error");
       }
+    }
+  }
+
+  // ─── Phase 4/5/3 Actions: Discover / Confirm / Classify / Recalc ──────
+
+  async function discoverPhotos() {
+    if (isMutating) return;
+    isMutating = true;
+    const btn = document.getElementById("discoverPhotosBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "扫描中..."; }
+    try {
+      const result = await apiPost(`/draft/${draftId}/discover-photos`, { draft_version: currentDraftVersion });
+      currentDraftVersion = result.draft_version;
+      showStatus("照片扫描完成，已生成时间线候选", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`发现照片失败: ${err.message}`, "error");
+      }
+    } finally {
+      isMutating = false;
+    }
+  }
+
+  async function confirmTimeline(force) {
+    if (isMutating) return;
+    isMutating = true;
+    try {
+      const result = await apiPost(`/draft/${draftId}/confirm-photo-timeline`, { draft_version: currentDraftVersion, force: force || false });
+      currentDraftVersion = result.draft_version;
+      showStatus("时间线已确认，到达/离场时间已应用", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        const msg = String(err.message || "");
+        if (!force && (msg.includes("force") || msg.includes("确认") || msg.includes("时间线"))) {
+          if (window.confirm("时间线状态需要强制确认（照片时间可能不完整）。是否继续？")) {
+            return confirmTimeline(true);
+          }
+        }
+        showStatus(`确认时间线失败: ${msg}`, "error");
+      }
+    } finally {
+      isMutating = false;
+    }
+  }
+
+  async function classifyPhotos() {
+    if (isMutating) return;
+    isMutating = true;
+    const btn = document.getElementById("classifyPhotosBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "分类中..."; }
+    try {
+      const result = await apiPost(`/draft/${draftId}/classify-photos`, { draft_version: currentDraftVersion });
+      currentDraftVersion = result.draft_version;
+      showStatus("照片分类完成", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`分类失败: ${err.message}`, "error");
+      }
+    } finally {
+      isMutating = false;
+    }
+  }
+
+  async function recalcMileage() {
+    if (isMutating) return;
+    isMutating = true;
+    const btn = document.getElementById("recalcMileageBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "计算中..."; }
+    try {
+      const result = await apiPost(`/draft/${draftId}/recalculate-mileage`, { draft_version: currentDraftVersion });
+      currentDraftVersion = result.draft_version;
+      showStatus(result.message || "里程计算完成", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`里程计算失败: ${err.message}`, "error");
+      }
+    } finally {
+      isMutating = false;
     }
   }
 
@@ -304,7 +400,9 @@
       document.getElementById("servicePhotosSection").innerHTML = `
         <p class="muted-line">未选择施工照片。</p>
         ${s.candidates_count ? `<p class="muted-line">候选照片: ${s.candidates_count} 张</p>` : ""}
+        ${canEdit ? `<button type="button" class="secondary" style="margin-top:0.5rem;" id="classifyPhotosBtn">AI 分类照片</button>` : ""}
       `;
+      document.getElementById("classifyPhotosBtn")?.addEventListener("click", classifyPhotos);
       return;
     }
 
@@ -323,7 +421,9 @@
     });
     html += "</div>";
 
+    html += canEdit ? '<div style="margin-top:0.75rem;"><button type="button" class="secondary" id="classifyPhotosBtn">AI 分类照片</button></div>' : "";
     document.getElementById("servicePhotosSection").innerHTML = html;
+    document.getElementById("classifyPhotosBtn")?.addEventListener("click", classifyPhotos);
   }
 
   function renderWorkItems() {

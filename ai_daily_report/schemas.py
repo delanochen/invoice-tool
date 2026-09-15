@@ -118,6 +118,7 @@ class WorkerTravel(BaseModel):
     route_query_time: Optional[str] = None  # UTC ISO8601 with Z suffix
     route_status: Optional[Literal["not_calculated", "success", "verification_required", "failed"]] = None
     route_error: Optional[str] = None
+    mileage_evidence_id: Optional[str] = None  # evidence_id from Draft evidence_records (Phase 3B)
     mileage_evidence_path: Optional[str] = None
     mileage_verification_required: bool = False
 
