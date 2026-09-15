@@ -12222,6 +12222,13 @@ def ai_daily_report_recalculate_mileage(draft_id):
         # Phase 3A: mileage via Google Routes
         routes_svc = GoogleRoutesService(routes_api_key)
         mileage_svc = MileageService(routes_svc)
+        # Explicitly invalidate cached routes first: this endpoint is a manual
+        # "recalculate" request, so the MileageService cache guard must not
+        # short-circuit with stale origin/overnight data.
+        from ai_daily_report.travel_service import TravelService
+        for w in draft.workers:
+            if w.transportation == "self_drive":
+                TravelService.invalidate_worker_route(w)
         mileage_svc.calculate_for_all(draft.workers)
 
         # Phase 3B: evidence via Static Maps (persist to Draft evidence_records)

@@ -28,6 +28,7 @@ from .schemas import (
     PhotoRef,
 )
 from .action_validator import generate_action_id
+from .travel_service import TravelService
 
 logger = logging.getLogger(__name__)
 
@@ -816,7 +817,7 @@ class DailyReportService:
         if intent == "recalculate_mileage":
             # Invalidate all existing routes so MileageService will re-fetch
             for w in draft.workers:
-                self.invalidate_worker_route(w) if hasattr(self, 'invalidate_worker_route') else None
+                TravelService.invalidate_worker_route(w)
             # Actual Google Routes call happens in app.py via MileageService
             return draft, "正在重新计算里程..."
 
@@ -852,10 +853,13 @@ class DailyReportService:
                         existing.origin = rw["origin"]
                         existing.origin_source = "user_input"
                         existing.origin_confirmed = True
+                        TravelService.invalidate_worker_route(existing)
                     if rw.get("transportation") and rw["transportation"] != "self_drive":
                         existing.transportation = rw["transportation"]
+                        TravelService.invalidate_worker_route(existing)
                     if rw.get("overnight_stay") is not None:
                         existing.overnight_stay = rw["overnight_stay"]
+                        TravelService.invalidate_worker_route(existing)
                     messages.append(f"已更新 {rw.get('name', user_id)} 的信息")
                 else:
                     draft.workers.append(WorkerTravel(
@@ -881,8 +885,10 @@ class DailyReportService:
                         existing.origin = wi.origin
                         existing.origin_source = "user_input"
                         existing.origin_confirmed = True
+                        TravelService.invalidate_worker_route(existing)
                     if wi.transportation != "self_drive":
                         existing.transportation = wi.transportation
+                        TravelService.invalidate_worker_route(existing)
                     messages.append(f"已更新 {wi.name} 的信息")
                 else:
                     draft.workers.append(WorkerTravel(
@@ -897,6 +903,7 @@ class DailyReportService:
         if action.overnight_stay is not None:
             for w in draft.workers:
                 w.overnight_stay = action.overnight_stay
+                TravelService.invalidate_worker_route(w)
             messages.append(
                 f"所有人员已设置为{'住宿' if action.overnight_stay else '不住宿'}"
             )

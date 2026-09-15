@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -22,6 +23,10 @@ DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MAX_TOKENS = 1200
 DEFAULT_TEMPERATURE = 0.1
 REQUEST_TIMEOUT = 60
+# DeepSeek can occasionally return HTTP 200 with an empty content field.
+# Retry before surfacing "AI 返回为空" to the user.
+EMPTY_RESPONSE_RETRIES = 2
+EMPTY_RESPONSE_RETRY_DELAY = 1.5
 
 
 class IntentServiceError(Exception):
@@ -85,10 +90,28 @@ class AIIntentService:
             messages.extend(conversation_history[-6:])
         messages.append({"role": "user", "content": user_content})
 
-        raw_text = self._call_deepseek_json(messages)
+        raw_text = None
+        last_code = "api_error"
+        for attempt in range(EMPTY_RESPONSE_RETRIES + 1):
+            raw_text = self._call_deepseek_json(messages)
+            if raw_text is not None and raw_text.strip():
+                break
+            if raw_text is None:
+                last_code = "api_error"
+                logger.warning("DeepSeek call returned None (attempt %d/%d)", attempt + 1, EMPTY_RESPONSE_RETRIES + 1)
+            else:
+                last_code = "empty_response"
+                logger.warning("DeepSeek returned empty content (attempt %d/%d)", attempt + 1, EMPTY_RESPONSE_RETRIES + 1)
+            if attempt < EMPTY_RESPONSE_RETRIES:
+                time.sleep(EMPTY_RESPONSE_RETRY_DELAY)
+
         if raw_text is None:
             return ValidationResult(
                 False, error="DeepSeek API 调用失败", error_code="api_error"
+            )
+        if not raw_text.strip():
+            return ValidationResult(
+                False, error="AI 返回为空，请重试", error_code=last_code
             )
 
         return parse_and_validate(raw_text)
@@ -130,7 +153,17 @@ class AIIntentService:
             return None
         choices = result.get("choices") or []
         if not choices:
+            logger.error("DeepSeek returned empty choices: %s", str(result)[:300])
             return None
         message = choices[0].get("message") or {}
         content = message.get("content")
-        return content.strip() if isinstance(content, str) else None
+        if not isinstance(content, str) or not content.strip():
+            # Log diagnostics so empty responses are traceable (finish_reason/usage).
+            finish_reason = choices[0].get("finish_reason")
+            usage = result.get("usage")
+            logger.warning(
+                "DeepSeek returned empty content (finish_reason=%s, usage=%s, model=%s)",
+                finish_reason, usage, self.model,
+            )
+            return ""
+        return content.strip()
