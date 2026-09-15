@@ -28,6 +28,22 @@
   </div>
 </div>
 
+<!-- Add Worker Dialog -->
+<div id="addWorkerDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1100; align-items:center; justify-content:center;">
+  <div class="panel" style="max-width:520px; margin:1rem; width:100%;">
+    <h3>添加工作人员</h3>
+    <p class="muted-line" style="font-size:0.85rem;">搜索内部员工（姓名或邮箱），点击结果即可加入本日报。</p>
+    <div style="display:flex; gap:0.5rem; margin:0.75rem 0;">
+      <input type="text" id="staffSearchInput" placeholder="输入姓名或邮箱关键词" style="flex:1; padding:0.5rem;">
+      <button type="button" id="staffSearchBtn" class="primary">搜索</button>
+    </div>
+    <div id="staffSearchResults" class="muted-line" style="max-height:320px; overflow-y:auto;">输入关键词后点搜索。</div>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+      <button type="button" id="addWorkerClose" class="secondary">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- Verification Override Dialog -->
 <div id="overrideDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center;">
   <div class="panel" style="max-width:500px; margin:1rem;">
@@ -52,7 +68,10 @@
 
   <!-- Workers & Travel -->
   <section class="panel">
-    <h2>工作人员与出行</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="margin:0;">工作人员与出行</h2>
+      <button type="button" id="addWorkerBtn" class="secondary" style="display:none;">添加工作人员</button>
+    </div>
     <div id="workersSection">加载中...</div>
   </section>
 

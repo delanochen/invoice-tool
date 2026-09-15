@@ -72,6 +72,7 @@ from ai_daily_report import (
     DraftVersionConflict,
     DraftStateError,
 )
+from ai_daily_report.schemas import WorkerTravel
 from ai_daily_report.attachment_manifest import (
     AttachmentManifestService,
     ManifestError,
@@ -12011,6 +12012,129 @@ def ai_daily_report_update_worker(draft_id):
         # Get updated draft_version from database
         updated_row = svc.get_draft(draft_id)
         return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "message": "工作人员信息已更新，里程已失效需重新计算"})
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+
+@app.get("/api/ai/daily-report/staff")
+@login_required
+def ai_daily_report_staff_search():
+    """Search active internal staff to add as Draft workers.
+
+    Read-only. Only admin/manager/employee are field staff candidates.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    q = (request.args.get("q") or "").strip()
+    like = f"%{q}%"
+    rows = db().execute(
+        "SELECT id, name, email, role FROM users "
+        "WHERE is_active = 1 AND role IN ('admin', 'manager', 'employee') "
+        "AND (name LIKE ? OR email LIKE ?) ORDER BY name LIMIT 20",
+        (like, like),
+    ).fetchall()
+    return jsonify({
+        "ok": True,
+        "staff": [{"id": r["id"], "name": r["name"], "email": r["email"], "role": r["role"]} for r in rows],
+    })
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/add-worker")
+@login_required
+def ai_daily_report_add_worker(draft_id):
+    """Add an internal staff member as a Draft worker.
+
+    Requires CSRF + optimistic locking. Only allowed on draft status.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft（需 draft 状态且有编辑权限）"}), 403
+
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = int(data.get("user_id"))
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    user = db().execute(
+        "SELECT id, name, email, role FROM users WHERE id = ? AND is_active = 1", (user_id,)
+    ).fetchone()
+    if not user:
+        return jsonify({"ok": False, "error": "用户不存在"}), 404
+    if user["role"] not in {"admin", "manager", "employee"}:
+        return jsonify({"ok": False, "error": "该用户不是可添加的内部员工"}), 400
+
+    try:
+        draft = svc.parse_draft_data(draft_row)
+        if any(w.user_id == user_id for w in draft.workers):
+            return jsonify({"ok": False, "error": "该工作人员已在 Draft 中"}), 400
+        draft.workers.append(
+            WorkerTravel(user_id=user_id, name=user["name"], transportation="self_drive")
+        )
+        svc.save_draft(draft_id, draft, expected_version=expected_version)
+        db().commit()
+        updated_row = svc.get_draft(draft_id)
+        return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "message": f"已添加 {user['name']}"})
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/remove-worker")
+@login_required
+def ai_daily_report_remove_worker(draft_id):
+    """Remove a worker from the Draft.
+
+    Requires CSRF + optimistic locking. Only allowed on draft status.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft（需 draft 状态且有编辑权限）"}), 403
+
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = int(data.get("user_id"))
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    try:
+        draft = svc.parse_draft_data(draft_row)
+        removed = False
+        for i, w in enumerate(draft.workers):
+            if w.user_id == user_id:
+                draft.workers.pop(i)
+                removed = True
+                break
+        if not removed:
+            return jsonify({"ok": False, "error": "工作人员不在此 Draft 中"}), 404
+        svc.save_draft(draft_id, draft, expected_version=expected_version)
+        db().commit()
+        updated_row = svc.get_draft(draft_id)
+        return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "message": "已移除工作人员"})
     except DraftVersionConflict:
         return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
 

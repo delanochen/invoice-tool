@@ -119,12 +119,14 @@
 
   function renderWorkers() {
     const workers = currentPreview.workers || [];
+    const canEdit = currentPreview.status === "draft";
+    document.getElementById("addWorkerBtn").style.display = canEdit ? "" : "none";
     if (!workers.length) {
-      document.getElementById("workersSection").innerHTML = '<p class="muted-line">未添加工作人员。</p>';
+      document.getElementById("workersSection").innerHTML = canEdit
+        ? '<p class="muted-line">未添加工作人员。点击右上角"添加工作人员"按钮加入。</p>'
+        : '<p class="muted-line">未添加工作人员。</p>';
       return;
     }
-
-    const canEdit = currentPreview.status === "draft";
     let html = workers.map((w, idx) => {
       const routeStatusBadge = getRouteStatusBadge(w.route_status);
       return `
@@ -160,18 +162,127 @@
             <tr><td style="padding:2px 8px; color:#6b7280;">路线提供商</td><td>${w.route_provider || "-"}</td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">查询时间</td><td>${formatDate(w.route_query_time)}</td></tr>
           </table>
-          ${canEdit ? `<button type="button" class="secondary" style="margin-top:0.5rem;" data-save-worker="${idx}">保存修改</button>` : ""}
+          ${canEdit ? `<button type="button" class="secondary" style="margin-top:0.5rem;" data-save-worker="${idx}">保存修改</button>
+          <button type="button" class="secondary" style="margin-top:0.5rem; margin-left:0.5rem; color:#b91c1c;" data-remove-worker="${w.user_id}">移除</button>` : ""}
         </div>
       `;
     }).join("");
 
     document.getElementById("workersSection").innerHTML = html;
 
-    // Bind save buttons
+    // Bind save / remove buttons
     if (canEdit) {
       document.querySelectorAll("[data-save-worker]").forEach((btn) => {
         btn.addEventListener("click", () => saveWorker(parseInt(btn.dataset.saveWorker, 10)));
       });
+      document.querySelectorAll("[data-remove-worker]").forEach((btn) => {
+        btn.addEventListener("click", () => removeWorker(parseInt(btn.dataset.removeWorker, 10)));
+      });
+    }
+  }
+
+  function openAddWorkerDialog() {
+    const dialog = document.getElementById("addWorkerDialog");
+    document.getElementById("staffSearchInput").value = "";
+    document.getElementById("staffSearchResults").textContent = "输入关键词后点搜索。";
+    dialog.style.display = "flex";
+    document.getElementById("staffSearchInput").focus();
+  }
+
+  function closeAddWorkerDialog() {
+    document.getElementById("addWorkerDialog").style.display = "none";
+  }
+
+  async function searchStaff() {
+    const q = document.getElementById("staffSearchInput").value.trim();
+    if (!q) {
+      document.getElementById("staffSearchResults").innerHTML = '<span class="muted-line">请输入关键词。</span>';
+      return;
+    }
+    const resultsEl = document.getElementById("staffSearchResults");
+    resultsEl.textContent = "搜索中...";
+    try {
+      const resp = await fetch(`/api/ai/daily-report/staff?q=${encodeURIComponent(q)}`);
+      const data = await resp.json();
+      if (!data.ok) {
+        resultsEl.textContent = data.error || "搜索失败。";
+        return;
+      }
+      if (!data.staff.length) {
+        resultsEl.innerHTML = '<span class="muted-line">未找到匹配的员工。</span>';
+        return;
+      }
+      resultsEl.innerHTML = data.staff
+        .map(
+          (p) =>
+            `<div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0.4rem; border-bottom:1px solid #f3f4f6; cursor:pointer;" data-staff-add="${p.id}">
+              <div>
+                <strong>${escapeHtml(p.name)}</strong>
+                <span class="muted-line" style="font-size:0.75rem; margin-left:0.5rem;">${escapeHtml(p.email)}</span>
+              </div>
+              <span class="muted-line" style="font-size:0.75rem;">${p.role === "admin" ? "管理员" : p.role === "manager" ? "经理" : "员工"}</span>
+            </div>`
+        )
+        .join("");
+      resultsEl.querySelectorAll("[data-staff-add]").forEach((row) => {
+        row.addEventListener("click", () => addWorker(parseInt(row.dataset.staffAdd, 10)));
+      });
+    } catch (err) {
+      resultsEl.textContent = "请求失败: " + err;
+    }
+  }
+
+  async function addWorker(userId) {
+    const draftVersion = currentPreview.draft_version;
+    try {
+      const resp = await fetch(`/api/ai/daily-report/draft/${draftId}/add-worker`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken || "",
+        },
+        body: JSON.stringify({ user_id: userId, draft_version: draftVersion }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        closeAddWorkerDialog();
+        currentPreview.draft_version = data.draft_version;
+        loadPreview();
+      } else if (resp.status === 409) {
+        showConflict(data);
+      } else {
+        alert("添加失败: " + (data.error || "未知错误"));
+      }
+    } catch (err) {
+      alert("请求失败: " + err);
+    }
+  }
+
+  async function removeWorker(userId) {
+    const w = currentPreview.workers.find((x) => x.user_id === userId);
+    if (!w) return;
+    if (!window.confirm(`确定从本日报移除 ${w.name || "该员工"}？`)) return;
+    const draftVersion = currentPreview.draft_version;
+    try {
+      const resp = await fetch(`/api/ai/daily-report/draft/${draftId}/remove-worker`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken || "",
+        },
+        body: JSON.stringify({ user_id: userId, draft_version: draftVersion }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        currentPreview.draft_version = data.draft_version;
+        loadPreview();
+      } else if (resp.status === 409) {
+        showConflict(data);
+      } else {
+        alert("移除失败: " + (data.error || "未知错误"));
+      }
+    } catch (err) {
+      alert("请求失败: " + err);
     }
   }
 
@@ -695,6 +806,15 @@
 
   document.getElementById("conflictClose")?.addEventListener("click", () => {
     conflictDialog.style.display = "none";
+  });
+
+  // ─── Add Worker Dialog ─────────────────────────────────────────────────
+
+  document.getElementById("addWorkerBtn")?.addEventListener("click", openAddWorkerDialog);
+  document.getElementById("staffSearchBtn")?.addEventListener("click", searchStaff);
+  document.getElementById("addWorkerClose")?.addEventListener("click", closeAddWorkerDialog);
+  document.getElementById("staffSearchInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") searchStaff();
   });
 
   // ─── Override Dialog ────────────────────────────────────────────────────
