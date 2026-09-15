@@ -1,0 +1,187 @@
+/* AI Daily Report - Draft List (Review Center)
+ * Phase 6: List, filter, pagination, 409 handling
+ */
+(function () {
+  "use strict";
+
+  const apiBase = window.aiDailyReportApiBase || "/api/ai/daily-report";
+  const csrfToken = window.csrfToken || "";
+
+  let currentPage = 1;
+  const perPage = 20;
+  let currentFilters = {};
+
+  // DOM elements
+  const draftsLoading = document.getElementById("draftsLoading");
+  const draftsError = document.getElementById("draftsError");
+  const draftsContainer = document.getElementById("draftsContainer");
+  const pagination = document.getElementById("pagination");
+  const conflictDialog = document.getElementById("conflictDialog");
+
+  // Status badge styles
+  const statusStyles = {
+    draft: "background:#fef3c7; color:#92400e;",
+    confirmed: "background:#d1fae5; color:#065f46;",
+    cancelled: "background:#fee2e2; color:#991b1b;",
+    saved: "background:#dbeafe; color:#1e40af;",
+  };
+
+  const statusLabels = {
+    draft: "编辑中",
+    confirmed: "已确认",
+    cancelled: "已取消",
+    saved: "已保存",
+  };
+
+  async function fetchDrafts(page) {
+    draftsLoading.style.display = "block";
+    draftsError.style.display = "none";
+    draftsContainer.innerHTML = "";
+
+    const params = new URLSearchParams();
+    params.set("page", page);
+    params.set("per_page", perPage);
+    if (currentFilters.status) params.set("status", currentFilters.status);
+    if (currentFilters.date_from) params.set("date_from", currentFilters.date_from);
+    if (currentFilters.date_to) params.set("date_to", currentFilters.date_to);
+    if (currentFilters.service_order_id) params.set("service_order_id", currentFilters.service_order_id);
+
+    try {
+      const resp = await fetch(`${apiBase}/drafts?${params.toString()}`);
+      if (resp.status === 409) {
+        showConflict(await resp.json());
+        return;
+      }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      renderDrafts(data.drafts || []);
+      renderPagination(data);
+    } catch (err) {
+      draftsError.textContent = `加载失败: ${err.message}`;
+      draftsError.style.display = "block";
+    } finally {
+      draftsLoading.style.display = "none";
+    }
+  }
+
+  function renderDrafts(drafts) {
+    if (!drafts.length) {
+      draftsContainer.innerHTML = '<p class="muted-line" style="padding:1rem;">没有找到 Draft。</p>';
+      return;
+    }
+
+    const html = drafts.map((d) => {
+      const statusStyle = statusStyles[d.status] || "";
+      const statusLabel = statusLabels[d.status] || d.status;
+      const verificationBadge = d.has_verification_required
+        ? `<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px; font-size:0.8rem;">需确认</span>`
+        : "";
+      return `
+        <div class="draft-card" style="border:1px solid #e5e7eb; border-radius:8px; padding:1rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">
+          <div style="flex:1;">
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+              <strong>${d.order_number || "未知工单"}</strong>
+              <span style="${statusStyle} padding:2px 8px; border-radius:4px; font-size:0.8rem;">${statusLabel}</span>
+              ${verificationBadge}
+            </div>
+            <div class="muted-line" style="font-size:0.9rem; margin-bottom:0.25rem;">
+              日期: ${d.report_date || "未知"} | ${d.client_name || ""}
+            </div>
+            <div class="muted-line" style="font-size:0.85rem;">
+              工作人员: ${d.worker_count} 人 | 照片: ${d.photo_count} 张 | 更新于: ${formatDate(d.updated_at)}
+            </div>
+            ${d.verification_fields && d.verification_fields.length
+              ? `<div class="muted-line" style="font-size:0.8rem; color:#92400e; margin-top:0.25rem;">待确认: ${d.verification_fields.join(", ")}</div>`
+              : ""}
+          </div>
+          <div>
+            <a href="/ai-daily-report/drafts/${d.id}" class="button primary" style="text-decoration:none;">查看详情</a>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    draftsContainer.innerHTML = html;
+  }
+
+  function renderPagination(data) {
+    if (!data.total || data.total <= perPage) {
+      pagination.innerHTML = "";
+      return;
+    }
+
+    const totalPages = data.total_pages || 1;
+    let html = `<span class="muted-line">共 ${data.total} 条，第 ${data.page}/${totalPages} 页</span>`;
+
+    if (data.page > 1) {
+      html += `<button type="button" class="secondary" data-page="${data.page - 1}">上一页</button>`;
+    }
+    if (data.page < totalPages) {
+      html += `<button type="button" class="secondary" data-page="${data.page + 1}">下一页</button>`;
+    }
+
+    pagination.innerHTML = html;
+
+    pagination.querySelectorAll("button[data-page]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentPage = parseInt(btn.dataset.page, 10);
+        fetchDrafts(currentPage);
+      });
+    });
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "未知";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return iso;
+    }
+  }
+
+  function showConflict(data) {
+    const details = document.getElementById("conflictDetails");
+    details.textContent = data.error || "Draft 版本冲突。";
+    conflictDialog.style.display = "flex";
+  }
+
+  // Event listeners
+  document.getElementById("refreshDrafts")?.addEventListener("click", () => fetchDrafts(currentPage));
+
+  document.getElementById("applyFilters")?.addEventListener("click", () => {
+    currentFilters = {
+      status: document.getElementById("filterStatus").value,
+      date_from: document.getElementById("filterDateFrom").value,
+      date_to: document.getElementById("filterDateTo").value,
+      service_order_id: document.getElementById("filterOrder").value,
+    };
+    currentPage = 1;
+    fetchDrafts(1);
+  });
+
+  document.getElementById("clearFilters")?.addEventListener("click", () => {
+    document.getElementById("filterStatus").value = "";
+    document.getElementById("filterDateFrom").value = "";
+    document.getElementById("filterDateTo").value = "";
+    document.getElementById("filterOrder").value = "";
+    currentFilters = {};
+    currentPage = 1;
+    fetchDrafts(1);
+  });
+
+  document.getElementById("conflictReload")?.addEventListener("click", () => {
+    conflictDialog.style.display = "none";
+    fetchDrafts(currentPage);
+  });
+
+  document.getElementById("conflictClose")?.addEventListener("click", () => {
+    conflictDialog.style.display = "none";
+  });
+
+  // Initial load
+  fetchDrafts(1);
+})();

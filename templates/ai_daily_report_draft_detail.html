@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}AI 日报 Draft 详情 - 发票工具{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">AI Daily Report</p>
+    <h1 id="draftTitle">Draft 详情</h1>
+    <p class="muted-line" id="draftSubtitle">加载中...</p>
+  </div>
+  <div class="actions" id="draftActions">
+    <!-- Actions populated by JS -->
+  </div>
+</header>
+
+<!-- Status Banner -->
+<div id="statusBanner" class="flash" style="display:none; margin-bottom:1rem;"></div>
+
+<!-- 409 Conflict Dialog -->
+<div id="conflictDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center;">
+  <div class="panel" style="max-width:500px; margin:1rem;">
+    <h3>Draft 已被更新</h3>
+    <p>此 Draft 已在其他页面或操作中被修改。你的当前修改尚未保存。</p>
+    <p id="conflictDetails" class="muted-line"></p>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+      <button type="button" id="conflictReload" class="primary">加载最新版本</button>
+      <button type="button" id="conflictClose" class="secondary">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Verification Override Dialog -->
+<div id="overrideDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center;">
+  <div class="panel" style="max-width:500px; margin:1rem;">
+    <h3>确认覆盖验证警告</h3>
+    <p>以下字段仍需要确认：</p>
+    <ul id="overrideFieldsList"></ul>
+    <p class="muted-line">确认覆盖后，这些字段将被标记为已人工确认。</p>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+      <button type="button" id="overrideConfirm" class="primary">确认并覆盖</button>
+      <button type="button" id="overrideCancel" class="secondary">取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="review-grid" style="display:grid; grid-template-columns: 1fr; gap:1rem;">
+
+  <!-- Basic Info -->
+  <section class="panel">
+    <h2>基本信息</h2>
+    <div id="basicInfo" class="muted-line">加载中...</div>
+  </section>
+
+  <!-- Workers & Travel -->
+  <section class="panel">
+    <h2>工作人员与出行</h2>
+    <div id="workersSection">加载中...</div>
+  </section>
+
+  <!-- Mileage Evidence -->
+  <section class="panel">
+    <h2>里程佐证</h2>
+    <div id="mileageEvidenceSection">加载中...</div>
+  </section>
+
+  <!-- Arrival / Departure Timeline -->
+  <section class="panel">
+    <h2>到达 / 离场时间</h2>
+    <div id="timelineSection">加载中...</div>
+  </section>
+
+  <!-- Safety Photo -->
+  <section class="panel">
+    <h2>安全自检照片</h2>
+    <div id="safetyPhotoSection">加载中...</div>
+  </section>
+
+  <!-- Service Photos -->
+  <section class="panel">
+    <h2>施工照片</h2>
+    <div id="servicePhotosSection">加载中...</div>
+  </section>
+
+  <!-- Work Items -->
+  <section class="panel">
+    <h2>施工内容</h2>
+    <div id="workItemsSection">加载中...</div>
+  </section>
+
+  <!-- Verification Checklist -->
+  <section class="panel">
+    <h2>验证清单</h2>
+    <div id="verificationSection">加载中...</div>
+  </section>
+
+  <!-- AI Provenance -->
+  <section class="panel">
+    <h2>AI / 用户来源</h2>
+    <div id="provenanceSection">加载中...</div>
+  </section>
+
+  <!-- Audit -->
+  <section class="panel">
+    <h2>审计记录</h2>
+    <div id="auditSection">加载中...</div>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.aiDailyReportDraftId = {{ draft_id|tojson }};
+  window.aiDailyReportApiBase = "/api/ai/daily-report";
+  window.csrfToken = {{ csrf_token|tojson }};
+</script>
+<script src="{{ url_for('static', filename='attachment-preview.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='ai-daily-report-review.js', v=app_version) }}"></script>
+{% endblock %}

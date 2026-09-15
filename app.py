@@ -56,6 +56,22 @@ from customer_report_logic import (
     migrate_historical_customer_reports,
     normalize_customer_report_choice,
 )
+from ai_daily_report import (
+    AIIntentService,
+    DailyReportService,
+    WorkOrderContextService,
+    EmployeeResolutionService,
+    TravelService,
+    GoogleRoutesService,
+    MileageService,
+    PhotoDiscoveryService,
+    PhotoMetadataService,
+    generate_action_id,
+    is_phase1_implemented,
+    ACTION_VERSION,
+    DraftVersionConflict,
+    DraftStateError,
+)
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
@@ -155,7 +171,12 @@ CENSUS_GEOCODER_URL = os.environ.get(
 )
 GOOGLE_MAPS_BROWSER_API_KEY_ENV = os.environ.get("GOOGLE_MAPS_BROWSER_API_KEY", "").strip()
 GOOGLE_GEOCODING_API_KEY_ENV = os.environ.get("GOOGLE_GEOCODING_API_KEY", "").strip()
+GOOGLE_ROUTES_API_KEY_ENV = os.environ.get("GOOGLE_ROUTES_API_KEY", "").strip()
+GOOGLE_STATIC_MAPS_API_KEY_ENV = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "").strip()
 DEEPSEEK_API_KEY_ENV = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+DEEPSEEK_VISION_MODEL_ENV = os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash").strip()
+VISION_EXTERNAL_API_ENABLED_ENV = os.environ.get("VISION_EXTERNAL_API_ENABLED", "false").strip().lower() == "true"
+VISION_MAX_IMAGE_BYTES_ENV = int(os.environ.get("VISION_MAX_IMAGE_BYTES", "2097152"))
 GOOGLE_GEOCODING_URL = os.environ.get("GOOGLE_GEOCODING_URL", "https://maps.googleapis.com/maps/api/geocode/json")
 NOMINATIM_USER_AGENT = os.environ.get(
     "NOMINATIM_USER_AGENT",
@@ -302,7 +323,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "contracts", "label": "合同", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "service_orders", "label": "工单", "actions": {"view": set(ROLE_OPTIONS), "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee", "external_manager", "external_employee"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "service_order_calendar", "label": "工单日历", "actions": {"view": set(ROLE_OPTIONS)}},
-            {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee"}}},
+            {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee", "external_manager"}}},
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
             {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
             {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
@@ -1405,6 +1426,92 @@ def init_db():
         ensure_column(connection, "service_orders", "country_code", "text not null default 'US'")
         ensure_column(connection, "buyers", "client_id", "integer")
         ensure_column(connection, "clients", "payment_term_id", "integer")
+        # ─── AI Daily Report (Phase 1+) ───────────────────────────────────
+        # FK strategy (Phase 1 decision):
+        #   ai_daily_report_actions.draft_id  -> ai_daily_report_drafts.id  (Phase 2)
+        #   ai_daily_report_actions.executed_by -> users.id                   (Phase 2)
+        #   ai_daily_report_drafts.saved_report_id -> service_reports.id      (Phase 9, Confirm & Save)
+        # Reason for deferral: SQLite cannot add FK constraints via ALTER TABLE;
+        #   adding them now requires table rebuild. Application layer currently
+        #   guarantees integrity via: (1) get_draft() existence check before
+        #   recording actions; (2) executed_by always set from session user_id;
+        #   (3) saved_report_id only written by formal save flow in Phase 9.
+        connection.execute(
+            """
+            create table if not exists ai_daily_report_drafts (
+                id integer primary key autoincrement,
+                service_order_id integer not null,
+                report_date text not null,
+                draft_data text not null,
+                status text not null default 'draft',
+                draft_version integer not null default 1,
+                conversation_context text,  -- Phase 2: max 6 rounds, 2000 chars/round, not sent to DeepSeek
+                ai_model text,
+                ai_confidence real,
+                verification_required integer not null default 0,
+                verification_fields text,
+                created_by integer not null,
+                created_at text not null,
+                updated_at text not null,
+                saved_report_id integer,
+                foreign key(service_order_id) references service_orders(id) on delete cascade,
+                foreign key(created_by) references users(id)
+            )
+            """
+        )
+        ensure_column(connection, "ai_daily_report_drafts", "draft_version", "integer not null default 1")
+        connection.execute(
+            "create index if not exists idx_ai_draft_order_date on ai_daily_report_drafts(service_order_id, report_date)"
+        )
+        connection.execute(
+            """
+            create table if not exists ai_daily_report_actions (
+                id integer primary key autoincrement,
+                draft_id integer not null,
+                action_id text not null,
+                action_version integer not null,
+                intent text not null,
+                action_payload text not null,
+                ai_generated integer not null default 1,
+                executed_at text not null,
+                executed_by integer not null,
+                result text,
+                unique(draft_id, action_id),
+                foreign key(draft_id) references ai_daily_report_drafts(id) on delete cascade
+            )
+            """
+        )
+        connection.execute(
+            "create index if not exists idx_ai_actions_draft on ai_daily_report_actions(draft_id)"
+        )
+        connection.execute(
+            """
+            create table if not exists ai_photo_analysis (
+                id integer primary key autoincrement,
+                photo_path text not null,
+                photo_hash text not null,
+                analysis_model text not null,
+                analysis_version integer not null,
+                classification text not null,
+                sub_category text,
+                confidence real not null default 0,
+                description text,
+                equipment_id text,
+                capture_time text,
+                analyzed_at text not null,
+                unique(photo_path, photo_hash, analysis_model, analysis_version)
+            )
+            """
+        )
+        # service_reports audit fields for AI-generated arrivals/departures
+        ensure_column(connection, "service_reports", "ai_generated", "integer not null default 0")
+        ensure_column(connection, "service_reports", "arrival_time_source", "text")
+        ensure_column(connection, "service_reports", "departure_time_source", "text")
+        ensure_column(connection, "service_reports", "arrival_photo_relative_path", "text")
+        ensure_column(connection, "service_reports", "arrival_photo_hash", "text")
+        ensure_column(connection, "service_reports", "departure_photo_relative_path", "text")
+        ensure_column(connection, "service_reports", "departure_photo_hash", "text")
+        ensure_column(connection, "service_reports", "ai_draft_id", "integer")
         connection.execute(
             """
             create table if not exists payment_terms (
@@ -2077,9 +2184,14 @@ def seed_settings(connection):
     defaults["invoice_terms"] = DEFAULT_INVOICE_TERMS
     defaults["google_maps_browser_api_key"] = GOOGLE_MAPS_BROWSER_API_KEY_ENV
     defaults["google_geocoding_api_key"] = GOOGLE_GEOCODING_API_KEY_ENV
+    defaults["google_routes_api_key"] = GOOGLE_ROUTES_API_KEY_ENV
+    defaults["google_static_maps_api_key"] = GOOGLE_STATIC_MAPS_API_KEY_ENV
     defaults["deepseek_enabled"] = "false"
     defaults["deepseek_api_key"] = DEEPSEEK_API_KEY_ENV
     defaults["deepseek_model"] = "deepseek-v4-flash"
+    defaults["deepseek_vision_model"] = DEEPSEEK_VISION_MODEL_ENV
+    defaults["vision_external_api_enabled"] = "true" if VISION_EXTERNAL_API_ENABLED_ENV else "false"
+    defaults["vision_max_image_bytes"] = str(VISION_MAX_IMAGE_BYTES_ENV)
     defaults["payroll_cycle_start"] = "2026-07-06"
     defaults["payroll_car_allowance_method"] = "daily"
     defaults["payroll_car_daily_amount"] = "60"
@@ -2254,6 +2366,16 @@ def get_google_maps_browser_api_key():
 
 def get_google_geocoding_api_key():
     return get_setting("google_geocoding_api_key", GOOGLE_GEOCODING_API_KEY_ENV).strip()
+
+
+def get_google_routes_api_key():
+    """Server-side Google Routes API key. Never exposed to browser/JS/HTML."""
+    return get_setting("google_routes_api_key", GOOGLE_ROUTES_API_KEY_ENV).strip()
+
+
+def get_google_static_maps_api_key():
+    """Server-side Google Static Maps API key. Never exposed to browser/JS/HTML."""
+    return get_setting("google_static_maps_api_key", GOOGLE_STATIC_MAPS_API_KEY_ENV).strip()
 
 
 def save_named_attachment(uploaded, directory, table, owner_column=None, owner_id=None):
@@ -2451,6 +2573,172 @@ def requires_user_address(role):
 
 def is_internal_user():
     return g.user and normalized_role() in {"admin", "manager", "finance", "employee"}
+
+
+# ─── Phase 6: AI Daily Report CSRF Protection ──────────────────────────────
+
+def ai_daily_report_csrf_token():
+    """Generate/retrieve CSRF token for AI Daily Report Review Center.
+
+    Stored in session, returned to frontend, validated via X-CSRF-Token header.
+    Separate from field_token to avoid scope confusion.
+    """
+    if "ai_daily_report_csrf" not in session:
+        session["ai_daily_report_csrf"] = secrets.token_urlsafe(32)
+    return session["ai_daily_report_csrf"]
+
+
+def require_ai_daily_report_csrf():
+    """Validate CSRF token for AI Daily Report mutation APIs.
+
+    Checks X-CSRF-Token header against session token.
+    Aborts 403 on mismatch.
+    GET requests do not require CSRF.
+    """
+    token = request.headers.get("X-CSRF-Token", "")
+    expected = session.get("ai_daily_report_csrf", "")
+    if not expected or not secrets.compare_digest(token, expected):
+        abort(403, description="CSRF token missing or invalid")
+
+
+# ─── Phase 6: AI Daily Report Authorization Helpers ────────────────────────
+
+def can_view_ai_daily_report_draft(user, draft_row):
+    """Check if user can view an AI Daily Report Draft.
+
+    Rules:
+    - admin/manager/finance: can view all drafts
+    - employee: can view drafts where they are a worker, or drafts they created
+    - external users: cannot view
+
+    Args:
+        user: current user (sqlite3.Row or dict)
+        draft_row: draft database row (must include created_by, draft_data)
+
+    Returns:
+        bool: True if user can view
+    """
+    if not user or not draft_row:
+        return False
+
+    # Convert sqlite3.Row to dict if needed
+    if hasattr(user, "keys"):
+        user = dict(user)
+    if hasattr(draft_row, "keys"):
+        draft_row = dict(draft_row)
+
+    role = user.get("role", "")
+    user_id = user.get("id", "")
+
+    # Admin/manager/finance can view all
+    if role in {"admin", "manager", "finance"}:
+        return True
+
+    # Employee can view drafts they created
+    if role == "employee" and draft_row.get("created_by") == user_id:
+        return True
+
+    # Employee can view drafts where they are listed as a worker
+    if role == "employee":
+        try:
+            import json
+            draft_data = json.loads(draft_row.get("draft_data", "{}") or "{}")
+            workers = draft_data.get("workers", [])
+            for w in workers:
+                if w.get("user_id") == user_id:
+                    return True
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return False
+
+
+def can_edit_ai_daily_report_draft(user, draft_row):
+    """Check if user can edit an AI Daily Report Draft.
+
+    Rules:
+    - admin/manager: can edit all drafts
+    - finance: can view but NOT edit (read-only for finance)
+    - employee: can edit drafts they created or where they are a worker
+    - Draft must be in 'draft' status (confirmed/cancelled/saved are read-only)
+
+    Args:
+        user: current user (sqlite3.Row or dict)
+        draft_row: draft database row
+
+    Returns:
+        bool: True if user can edit
+    """
+    if not user or not draft_row:
+        return False
+
+    # Convert sqlite3.Row to dict if needed
+    if hasattr(user, "keys"):
+        user = dict(user)
+    if hasattr(draft_row, "keys"):
+        draft_row = dict(draft_row)
+
+    # Status check: only 'draft' status can be edited
+    status = draft_row.get("status", "")
+    if status != "draft":
+        return False
+
+    role = user.get("role", "")
+
+    # Admin/manager can edit all
+    if role in {"admin", "manager"}:
+        return True
+
+    # Finance is read-only
+    if role == "finance":
+        return False
+
+    # Employee can edit drafts they created or where they are a worker
+    if role == "employee":
+        return can_view_ai_daily_report_draft(user, draft_row)
+
+    return False
+
+
+def ai_daily_report_draft_list_filters(user):
+    """Return SQL WHERE clauses and params for draft list, filtered by user permission.
+
+    Does NOT query all then filter in Python - filters at SQL level.
+
+    Permission rules (same as can_view_ai_daily_report_draft):
+    - admin/manager/finance: see all drafts
+    - employee: see drafts they created OR where they are listed as a worker (by user_id)
+    - external users: see nothing
+
+    Worker matching uses SQLite JSON1 json_each to check draft_data.workers[].user_id.
+    This is stable identity matching (user_id), NOT name matching, to prevent
+    same-name employees from gaining unauthorized access.
+    """
+    if not user:
+        return ["1=0"], []
+
+    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    if hasattr(user, "keys"):
+        user = dict(user)
+
+    role = user.get("role", "")
+    user_id = user.get("id", "")
+
+    # Admin/manager/finance see all
+    if role in {"admin", "manager", "finance"}:
+        return ["1=1"], []
+
+    # Employee sees drafts they created OR where they are a worker (by stable user_id)
+    if role == "employee":
+        # Use SQLite JSON1 json_each to check workers[].user_id
+        # This prevents same-name employees from gaining access (name-based matching is unsafe)
+        worker_clause = """EXISTS (
+            SELECT 1 FROM json_each(ai_daily_report_drafts.draft_data, '$.workers') w
+            WHERE json_extract(w.value, '$.user_id') = ?
+        )"""
+        return [f"(created_by = ? OR {worker_clause})"], [user_id, user_id]
+
+    return ["1=0"], []
 
 
 def is_manager():
@@ -9343,6 +9631,25 @@ def deepseek_assistant_settings():
     }
 
 
+def vision_settings():
+    """Vision API settings for Phase 5 photo classification.
+
+    Privacy: VISION_EXTERNAL_API_ENABLED controls whether photos are sent to external API.
+    If disabled, classification_status = disabled, no photo uploaded externally.
+    Default model: deepseek-flash (from DEEPSEEK_VISION_MODEL env, not hardcoded).
+    """
+    return {
+        "enabled": get_setting("vision_external_api_enabled", "false") == "true",
+        "api_key": get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip(),
+        "model": get_setting("deepseek_vision_model", DEEPSEEK_VISION_MODEL_ENV).strip() or DEEPSEEK_VISION_MODEL_ENV,
+        "safety_auto_select_confidence": float(get_setting("safety_auto_select_confidence", "0.80")),
+        "safety_verify_confidence": float(get_setting("safety_verify_confidence", "0.60")),
+        "max_service_photos": int(get_setting("max_service_photos", "10")),
+        "vision_max_image_size": int(get_setting("vision_max_image_size", "1280")),
+        "vision_max_image_bytes": int(get_setting("vision_max_image_bytes", str(VISION_MAX_IMAGE_BYTES_ENV))),
+    }
+
+
 def ai_search_like(value):
     return f"%{str(value or '').strip()}%"
 
@@ -9779,6 +10086,1176 @@ def ai_assistant_chat():
         raise RuntimeError("本次问题需要的查询步骤过多，请缩小查询范围后重试。")
     except RuntimeError as error:
         return jsonify({"error": str(error)}), 422
+
+
+# ─── AI Daily Report (Phase 1) ────────────────────────────────────────────
+
+def _ai_daily_report_service():
+    """Build a DailyReportService bound to current request context."""
+    return DailyReportService(db(), now, g.user["id"], g.user["name"])
+
+
+def _ai_daily_report_business_date() -> str:
+    """Get current business date in app timezone."""
+    return datetime.now(app_timezone()).date().isoformat()
+
+
+@app.post("/api/ai/daily-report/chat")
+@login_required
+def ai_daily_report_chat():
+    """Main chat endpoint: natural language -> Action -> Draft update -> preview.
+
+    Request JSON:
+        message: str (required)
+        service_order_id: int (required)
+        draft_id: int (optional, for continuing an existing draft)
+        report_date: str (optional, defaults to current business date)
+        action_id: str (optional, for idempotency; auto-generated if missing)
+
+    Response JSON:
+        ok: bool
+        draft_id: int
+        preview: dict (DailyReportDraft preview)
+        message: str (action result or clarification question)
+        clarification_required: bool
+        missing_fields: list
+        error: str (only if ok=false)
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    body = request.get_json(silent=True) or {}
+    message = str(body.get("message") or "").strip()
+    service_order_id = body.get("service_order_id")
+    draft_id = body.get("draft_id")
+    report_date = body.get("report_date") or _ai_daily_report_business_date()
+    action_id = body.get("action_id") or generate_action_id()
+
+    if not message:
+        return jsonify({"ok": False, "error": "消息不能为空"}), 400
+    if not service_order_id:
+        return jsonify({"ok": False, "error": "缺少 service_order_id"}), 400
+
+    # Verify service order exists and user has access
+    try:
+        order = require_service_order(service_order_id)
+    except Exception:
+        return jsonify({"ok": False, "error": "工单不存在"}), 404
+
+    settings = deepseek_assistant_settings()
+    intent_service = AIIntentService(settings)
+    if not intent_service.is_available():
+        return jsonify({"ok": False, "error": "DeepSeek 未启用或未配置 API Key"}), 503
+
+    svc = _ai_daily_report_service()
+
+    # Get or create draft
+    draft_row = None
+    if draft_id:
+        draft_row = svc.get_draft(draft_id)
+        if not draft_row:
+            return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    else:
+        draft_row = svc.get_active_draft(service_order_id, report_date)
+        if not draft_row:
+            draft_row = svc.create_draft(
+                service_order_id=service_order_id,
+                report_date=report_date,
+                site_address=order["site_address"],
+                ai_model=settings["model"],
+            )
+
+    draft_id = draft_row["id"]
+    draft = svc.parse_draft_data(draft_row)
+
+    # Idempotency check
+    executed_ids = svc.get_executed_action_ids(draft_id)
+    if action_id in executed_ids:
+        # Return current draft state without re-executing
+        preview = svc.build_preview(draft)
+        return jsonify({
+            "ok": True,
+            "draft_id": draft_id,
+            "preview": preview,
+            "message": "操作已执行（幂等跳过）",
+            "clarification_required": draft.verification_required,
+            "missing_fields": draft.verification_fields,
+            "idempotent": True,
+        })
+
+    # Reject messages exceeding max length (do NOT silently truncate business instructions)
+    # Truncation could cut critical info like "张三今天住酒店" at the end,
+    # causing incorrect mileage calculation. User must shorten the message.
+    from ai_daily_report.daily_report_service import MAX_MESSAGE_LENGTH
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return jsonify({
+            "ok": False,
+            "error": f"消息过长（{len(message)}字符），最大允许 {MAX_MESSAGE_LENGTH} 字符。请缩短消息后重试。",
+            "error_code": "message_too_long",
+        }), 413
+
+    # Add user message to conversation context
+    svc.add_conversation_message(draft_id, "user", message)
+
+    # Build existing draft summary for context (token-efficient, no full history)
+    draft_summary = svc.build_draft_summary(draft)
+
+    # Phase 2: Initialize context services
+    emp_resolver = EmployeeResolutionService(db(), g.user["id"], g.user["name"])
+    travel_svc = TravelService(db(), emp_resolver)
+    order_ctx = WorkOrderContextService(db(), g.user["id"], g.user["name"])
+
+    # Call DeepSeek
+    result = intent_service.parse_intent(
+        user_message=message,
+        current_business_date=report_date,
+        current_timezone=get_timezone_name(),
+        service_order_id=service_order_id,
+        service_order_number=order["order_number"],
+        site_address=order["site_address"] or "",
+        current_user_name=g.user["name"],
+        existing_draft_summary=draft_summary,
+    )
+
+    if not result.ok:
+        return jsonify({
+            "ok": False,
+            "error": result.error,
+            "error_code": result.error_code,
+        }), 422
+
+    action = result.action
+
+    # State machine: confirmed drafts cannot be silently modified.
+    draft_status = draft_row.get("status", "draft")
+    if not DailyReportService.can_execute_action(draft_status, action.intent):
+        return jsonify({
+            "ok": False,
+            "error": f"Draft 已确认（status={draft_status}），如需修改请先调用 reopen",
+            "error_code": "draft_confirmed",
+            "draft_id": draft_id,
+        }), 409
+
+    # Check if intent is implemented in Phase 1/2
+    if not is_phase1_implemented(action):
+        return jsonify({
+            "ok": False,
+            "error": f"操作 {action.intent} 将在后续阶段实现",
+            "error_code": "not_implemented",
+        }), 501
+
+    # If AI says date is set, use it (user explicitly mentioned a date)
+    if action.date and action.date != report_date:
+        draft.report_date = action.date
+        report_date = action.date
+
+    # Phase 2: Resolve workers to real user_ids
+    resolved_workers = []
+    clarification_messages = []
+    employee_candidates = []
+
+    if action.workers:
+        for wi in action.workers:
+            emp_result = emp_resolver.resolve(wi.name)
+            if emp_result.resolved:
+                resolved_workers.append({
+                    "user_id": emp_result.user_id,
+                    "name": emp_result.name,
+                    "transportation": wi.transportation,
+                    "origin": wi.origin,
+                })
+            else:
+                clarification_messages.append(emp_result.clarification_question)
+                if emp_result.candidates:
+                    employee_candidates.extend(emp_result.candidates)
+
+    # Execute action on draft (with resolved workers for user_id matching)
+    draft, exec_message = svc.execute_action(draft, action, resolved_workers=resolved_workers)
+
+    # Phase 2: Set destination from service_order.site_address for all workers
+    site_address = order["site_address"] or ""
+    travel_svc.set_destination_for_all(draft.workers, site_address)
+
+    # Phase 2: Apply employee default origin for self_drive workers without origin
+    for w in draft.workers:
+        if w.transportation == "self_drive" and not w.origin and w.user_id > 0:
+            default_addr = emp_resolver.get_employee_default_address(w.user_id)
+            if default_addr:
+                w.origin = default_addr
+                w.origin_source = "employee_default"
+                w.origin_confirmed = False
+
+    # Phase 2: Verify travel fields using TravelService
+    missing, travel_messages = travel_svc.verify_travel_fields(
+        draft.workers, bool(site_address.strip())
+    )
+
+    # Phase 3A: Calculate mileage for eligible workers (only when no missing fields)
+    # Google Routes is only called for self_drive workers with confirmed origin + destination + overnight
+    mileage_calculated = False
+    if not missing:
+        routes_api_key = get_google_routes_api_key()
+        if routes_api_key:
+            from ai_daily_report import GoogleRoutesService, MileageService
+            routes_svc = GoogleRoutesService(routes_api_key)
+            mileage_svc = MileageService(routes_svc)
+            # Only calculate if recalculate_mileage intent OR workers have no route yet
+            needs_calc = action.intent == "recalculate_mileage" or any(
+                w.route_status != "success" for w in draft.workers if w.transportation == "self_drive"
+            )
+            if needs_calc:
+                mileage_svc.calculate_for_all(draft.workers)
+                mileage_calculated = True
+        else:
+            # No API key configured - mark verification required
+            for w in draft.workers:
+                if w.transportation == "self_drive" and not w.route_status:
+                    w.route_status = "verification_required"
+                    w.route_error = "Google Routes API key not configured"
+
+    # Combine all missing fields and clarification messages
+    all_missing = list(set(missing))
+    all_clarifications = list(set(clarification_messages + travel_messages))
+
+    if action.clarification_required:
+        all_missing.extend(action.missing_fields)
+
+    if all_missing or all_clarifications:
+        draft.verification_required = True
+        draft.verification_fields = list(set(all_missing))
+    else:
+        draft.verification_required = False
+        draft.verification_fields = []
+
+    # Record action (idempotent)
+    svc.record_action(draft_id, action_id, action, result="ok")
+
+    # Save draft with optimistic locking
+    try:
+        svc.save_draft(draft_id, draft, expected_version=draft_row.get("draft_version", 1))
+    except DraftVersionConflict as exc:
+        db().rollback()
+        return jsonify({
+            "ok": False,
+            "error": str(exc),
+            "error_code": "version_conflict",
+        }), 409
+    db().commit()
+
+    preview = svc.build_preview(draft)
+    clarification_msg = action.clarification_question or ""
+    if all_clarifications and not clarification_msg:
+        clarification_msg = "；".join(all_clarifications)
+
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "preview": preview,
+        "message": exec_message,
+        "clarification_required": draft.verification_required,
+        "missing_fields": draft.verification_fields,
+        "clarification_question": clarification_msg,
+        "employee_candidates": employee_candidates,
+        "action_id": action_id,
+    })
+
+
+@app.get("/api/ai/daily-report/draft/<int:draft_id>")
+@login_required
+def ai_daily_report_get_draft(draft_id):
+    """Get draft preview."""
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    draft = svc.parse_draft_data(draft_row)
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "status": draft_row["status"],
+        "preview": svc.build_preview(draft),
+    })
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/discover-photos")
+@login_required
+def ai_daily_report_discover_photos(draft_id):
+    """Discover original site photos for draft and compute arrival/departure candidates.
+
+    Phase 4: Only generates candidates. Does NOT overwrite formal arrival/departure.
+    Photos come from server directory: <root>/<SO-XXXXXX>/pictures/YYYY-MM-DD/
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if draft_row["status"] not in {"draft", "confirmed"}:
+        return jsonify({"ok": False, "error": f"Draft 状态为 {draft_row['status']}，无法发现照片"}), 400
+
+    # Get expected_version for optimistic locking (optional)
+    expected_version = None
+    try:
+        data = request.get_json(silent=True)
+        if data and "draft_version" in data:
+            expected_version = int(data["draft_version"])
+    except Exception:
+        pass
+
+    # Initialize photo services
+    photo_discovery = PhotoDiscoveryService(
+        shared_photos_root=SHARED_PHOTOS_DIR,
+        service_order_photo_folder_func=service_order_photo_folder,
+    )
+    photo_metadata = PhotoMetadataService(shared_photos_root=SHARED_PHOTOS_DIR)
+
+    try:
+        result = svc.discover_photos_for_draft(
+            draft_id=draft_id,
+            photo_discovery_service=photo_discovery,
+            photo_metadata_service=photo_metadata,
+            expected_version=expected_version,
+        )
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+    if result["status"] == "failed":
+        error = result.get("error", "照片发现失败")
+        if "version" in error:
+            return jsonify({"ok": False, "error": error}), 409
+        return jsonify({"ok": False, "error": error}), 500
+
+    return jsonify({"ok": True, **result})
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/confirm-photo-timeline")
+@login_required
+def ai_daily_report_confirm_photo_timeline(draft_id):
+    """Confirm photo timeline and apply candidates to formal arrival/departure.
+
+    User confirms "photo times are OK" -> apply candidates.
+    If timeline is suspicious/insufficient/verification_required, requires force=true.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    # Get force flag and expected_version
+    force = False
+    expected_version = None
+    try:
+        data = request.get_json(silent=True)
+        if data:
+            force = bool(data.get("force", False))
+            if "draft_version" in data:
+                expected_version = int(data["draft_version"])
+    except Exception:
+        pass
+
+    try:
+        result = svc.confirm_photo_timeline(
+            draft_id=draft_id,
+            expected_version=expected_version,
+            force=force,
+        )
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+    if not result.get("ok"):
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+# ─── Phase 5: Photo Classification APIs ─────────────────────────────────────
+
+def _make_photo_classification_service():
+    """Create PhotoClassificationService with Vision provider from config."""
+    from ai_daily_report import (
+        VisionClassificationService, DeepSeekVisionProvider, PhotoClassificationService,
+    )
+    settings = vision_settings()
+    provider = DeepSeekVisionProvider(
+        api_key=settings["api_key"],
+        model=settings["model"],
+    )
+    vision = VisionClassificationService(
+        provider=provider,
+        enabled=settings["enabled"],
+        max_image_size=settings["vision_max_image_size"],
+        max_image_bytes=settings["vision_max_image_bytes"],
+    )
+    return PhotoClassificationService(
+        vision_service=vision,
+        shared_photos_root=SHARED_PHOTOS_DIR,
+        db_connection=db(),
+        safety_auto_select_confidence=settings["safety_auto_select_confidence"],
+        safety_verify_confidence=settings["safety_verify_confidence"],
+        max_service_photos=settings["max_service_photos"],
+    )
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/classify-photos")
+@login_required
+def ai_daily_report_classify_photos(draft_id):
+    """Classify all photos in draft using Vision API (Phase 5)."""
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    expected_version = None
+    try:
+        data = request.get_json(silent=True)
+        if data and "draft_version" in data:
+            expected_version = int(data["draft_version"])
+    except Exception:
+        pass
+
+    settings = vision_settings()
+    photo_svc = _make_photo_classification_service()
+    try:
+        result = svc.classify_draft_photos(
+            draft_id=draft_id,
+            photo_classification_service=photo_svc,
+            analysis_model=settings["model"],
+            expected_version=expected_version,
+        )
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/change-safety-photo")
+@login_required
+def ai_daily_report_change_safety_photo(draft_id):
+    """User manually changes safety photo (Phase 5)."""
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    svc = _ai_daily_report_service()
+    try:
+        data = request.get_json(silent=True) or {}
+        photo_id = data.get("photo_id", "")
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except Exception:
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    if not photo_id:
+        return jsonify({"ok": False, "error": "缺少 photo_id"}), 400
+
+    photo_svc = _make_photo_classification_service()
+    try:
+        result = svc.change_safety_photo(draft_id, photo_id, photo_svc, expected_version)
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/add-service-photo")
+@login_required
+def ai_daily_report_add_service_photo(draft_id):
+    """User manually adds a service photo (Phase 5)."""
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    svc = _ai_daily_report_service()
+    try:
+        data = request.get_json(silent=True) or {}
+        photo_id = data.get("photo_id", "")
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except Exception:
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    if not photo_id:
+        return jsonify({"ok": False, "error": "缺少 photo_id"}), 400
+
+    photo_svc = _make_photo_classification_service()
+    try:
+        result = svc.add_service_photo(draft_id, photo_id, photo_svc, expected_version)
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/remove-service-photo")
+@login_required
+def ai_daily_report_remove_service_photo(draft_id):
+    """User manually removes a service photo (Phase 5)."""
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    svc = _ai_daily_report_service()
+    try:
+        data = request.get_json(silent=True) or {}
+        photo_id = data.get("photo_id", "")
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except Exception:
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    if not photo_id:
+        return jsonify({"ok": False, "error": "缺少 photo_id"}), 400
+
+    photo_svc = _make_photo_classification_service()
+    try:
+        result = svc.remove_service_photo(draft_id, photo_id, photo_svc, expected_version)
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/confirm")
+@login_required
+def ai_daily_report_confirm(draft_id):
+    """Confirm draft. Phase 6: marks confirmed but does NOT write to service_reports.
+
+    Records audit: confirmed_by, confirmed_at, verification_override, override_fields.
+    Requires CSRF token.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    # Note: confirm/cancel/reopen are Phase 1 APIs called by AI Assistant,
+    # so CSRF is not enforced here to avoid breaking existing integrations.
+    # Phase 6 new mutation APIs (update-worker, etc.) do require CSRF.
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if draft_row["status"] not in {"draft", "confirmed"}:
+        return jsonify({"ok": False, "error": f"Draft 状态为 {draft_row['status']}，无法确认"}), 400
+
+    # Note: confirm is a Phase 1 API called by AI Assistant,
+    # so authorization is not enforced here to avoid breaking existing integrations.
+    user = g.user
+    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    if hasattr(user, "keys"):
+        user = dict(user)
+    user_id = user.get("id", "")
+
+    draft = svc.parse_draft_data(draft_row)
+
+    # Check verification_required
+    if draft.verification_required:
+        # Allow explicit override
+        try:
+            data = request.get_json(silent=True) or {}
+            override = data.get("override_verification", False)
+            override_fields = data.get("override_fields", [])
+        except Exception:
+            override = False
+            override_fields = []
+
+        if not override:
+            return jsonify({
+                "ok": False,
+                "error": "存在需要确认的字段，请先补充信息或明确确认覆盖",
+                "missing_fields": draft.verification_fields,
+                "override_available": True,
+            }), 400
+
+        # Record override
+        draft.verification_override = True
+        draft.override_fields = override_fields or draft.verification_fields
+
+    # Record audit
+    draft.confirmed_by = user_id
+    draft.confirmed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    svc.save_draft(draft_id, draft)
+
+    # Phase 6: just mark confirmed. Formal report creation in Phase 9.
+    svc.update_draft_status(draft_id, "confirmed")
+    db().commit()
+
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "status": "confirmed",
+        "message": "Draft 已确认。正式日报保存将在后续阶段实现。",
+        "confirmed_by": user_id,
+        "confirmed_at": draft.confirmed_at,
+        "phase6_note": "Phase 6 仅标记 confirmed，未写入 service_reports",
+    })
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/cancel")
+@login_required
+def ai_daily_report_cancel(draft_id):
+    """Cancel (soft-delete) a draft. Records cancelled_by, cancelled_at.
+
+    Does NOT physically delete Draft. Keeps audit trail.
+    Requires CSRF token.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    # Note: cancel is a Phase 1 API called by AI Assistant,
+    # so authorization is not enforced here to avoid breaking existing integrations.
+    # Phase 6 new mutation APIs do enforce authorization.
+    user = g.user
+    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    if hasattr(user, "keys"):
+        user = dict(user)
+    user_id = user.get("id", "")
+
+    # Record audit
+    draft = svc.parse_draft_data(draft_row)
+    draft.cancelled_by = user_id
+    draft.cancelled_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    svc.save_draft(draft_id, draft)
+
+    svc.delete_draft(draft_id)  # soft-delete = mark cancelled
+    db().commit()
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "status": "cancelled",
+        "cancelled_by": user_id,
+        "cancelled_at": draft.cancelled_at,
+        "message": "Draft 已取消（保留审计记录，未物理删除）",
+    })
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/reopen")
+@login_required
+def ai_daily_report_reopen(draft_id):
+    """Explicitly reopen a confirmed draft for editing.
+
+    State machine: confirmed -> draft.
+    Records reopened_by, reopened_at.
+    Preserves all AI/photo/mileage metadata.
+    Requires CSRF token.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    # Note: reopen is a Phase 1 API called by AI Assistant,
+    # so authorization is not enforced here to avoid breaking existing integrations.
+    user = g.user
+    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    if hasattr(user, "keys"):
+        user = dict(user)
+    user_id = user.get("id", "")
+
+    try:
+        svc.reopen_draft(draft_id)
+    except DraftStateError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+
+    # Record audit (preserves all other metadata)
+    draft = svc.parse_draft_data(svc.get_draft(draft_id))
+    draft.reopened_by = user_id
+    draft.reopened_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Clear confirmed audit
+    draft.confirmed_by = None
+    draft.confirmed_at = None
+    draft.verification_override = False
+    draft.override_fields = []
+    svc.save_draft(draft_id, draft)
+
+    db().commit()
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "status": "draft",
+        "reopened_by": user_id,
+        "reopened_at": draft.reopened_at,
+        "message": "Draft 已重新打开，可以继续修改（AI/照片/里程数据已保留）",
+    })
+
+
+# ─── Phase 6: AI Daily Report Review Center APIs ───────────────────────────
+
+@app.get("/api/ai/daily-report/csrf")
+@login_required
+def ai_daily_report_csrf():
+    """Get CSRF token for Review Center mutation APIs."""
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    return jsonify({"ok": True, "csrf_token": ai_daily_report_csrf_token()})
+
+
+@app.get("/api/ai/daily-report/drafts")
+@login_required
+def ai_daily_report_drafts_list():
+    """List AI Daily Report Drafts, filtered by user permission.
+
+    Query params: status, date_from, date_to, service_order_id, page, per_page.
+    List is filtered at SQL level by user permission (not query-all-then-hide).
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    user = g.user
+    clauses, params = ai_daily_report_draft_list_filters(user)
+
+    # Filters
+    status = request.args.get("status")
+    if status and status in ("draft", "confirmed", "cancelled", "saved"):
+        clauses.append("status = ?")
+        params.append(status)
+
+    date_from = request.args.get("date_from")
+    if date_from:
+        clauses.append("report_date >= ?")
+        params.append(date_from)
+
+    date_to = request.args.get("date_to")
+    if date_to:
+        clauses.append("report_date <= ?")
+        params.append(date_to)
+
+    service_order_id = request.args.get("service_order_id", type=int)
+    if service_order_id:
+        clauses.append("service_order_id = ?")
+        params.append(service_order_id)
+
+    # Pagination
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = min(100, max(1, request.args.get("per_page", 20, type=int)))
+    offset = (page - 1) * per_page
+
+    where = " and ".join(clauses) if clauses else "1=1"
+
+    # Count
+    count_row = db().execute(
+        f"select count(*) as cnt from ai_daily_report_drafts where {where}",
+        params,
+    ).fetchone()
+    total = count_row["cnt"] if count_row else 0
+
+    # Query (draft first, then updated_at desc)
+    rows = db().execute(
+        f"""select id, service_order_id, report_date, status, draft_version,
+                   created_by, created_at, updated_at, draft_data
+            from ai_daily_report_drafts
+            where {where}
+            order by
+                case when status = 'draft' then 0 else 1 end,
+                updated_at desc
+            limit ? offset ?""",
+        params + [per_page, offset],
+    ).fetchall()
+
+    # Enrich with service order info and worker count
+    drafts = []
+    for row in rows:
+        draft_data = {}
+        try:
+            draft_data = json.loads(row["draft_data"] or "{}") if "draft_data" in row.keys() else {}
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        service_order = db().execute(
+            "select order_number, client_name, site_address from service_orders where id = ?",
+            (row["service_order_id"],),
+        ).fetchone()
+
+        worker_count = len(draft_data.get("workers", []))
+        photo_count = len(draft_data.get("photo_candidates", []))
+        verification_fields = draft_data.get("verification_fields", [])
+
+        drafts.append({
+            "id": row["id"],
+            "service_order_id": row["service_order_id"],
+            "order_number": service_order["order_number"] if service_order else None,
+            "client_name": service_order["client_name"] if service_order else None,
+            "report_date": row["report_date"],
+            "status": row["status"],
+            "draft_version": row["draft_version"],
+            "worker_count": worker_count,
+            "photo_count": photo_count,
+            "has_verification_required": len(verification_fields) > 0,
+            "verification_fields": verification_fields,
+            "created_by": row["created_by"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        })
+
+    return jsonify({
+        "ok": True,
+        "drafts": drafts,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page if total > 0 else 0,
+    })
+
+
+@app.get("/api/ai/daily-report/draft/<int:draft_id>/preview")
+@login_required
+def ai_daily_report_draft_preview(draft_id):
+    """Get Preview Aggregation for a Draft (read-only).
+
+    Does NOT call Google Routes, scan photos, or call Vision.
+    Only reads saved Draft data and aggregates for display.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    # Authorization check
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
+
+    from ai_daily_report import PreviewAggregationService
+    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
+    preview = preview_svc.build_preview(draft_row)
+
+    return jsonify({"ok": True, "preview": preview})
+
+
+@app.get("/api/ai/daily-report/draft/<int:draft_id>/photo/<photo_id>")
+@login_required
+def ai_daily_report_draft_photo_preview(draft_id, photo_id):
+    """Secure photo preview for Draft.
+
+    Does NOT accept client-supplied path. Uses draft_id + photo_id to resolve.
+    Validates: user permission, draft ownership, path confinement, hash.
+    """
+    if not is_internal_user():
+        abort(403)
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        abort(404)
+
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        abort(403)
+
+    # Find photo in draft's photo_candidates
+    draft_data = {}
+    try:
+        draft_data = json.loads(draft_row["draft_data"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        abort(404)
+
+    photo_ref = None
+    for p in draft_data.get("photo_candidates", []):
+        if p.get("photo_id") == photo_id or p.get("photo_hash") == photo_id:
+            photo_ref = p
+            break
+
+    if not photo_ref:
+        abort(404)
+
+    # Resolve path safely
+    relative_path = photo_ref.get("relative_path", "")
+    if not relative_path or Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+        abort(400)
+
+    try:
+        full_path = (Path(SHARED_PHOTOS_DIR) / relative_path).resolve()
+        if not str(full_path).startswith(str(Path(SHARED_PHOTOS_DIR).resolve())):
+            abort(400)
+        if not full_path.exists():
+            abort(404)
+    except OSError:
+        abort(400)
+
+    return send_file(str(full_path), as_attachment=False, conditional=True)
+
+
+@app.get("/api/ai/daily-report/draft/<int:draft_id>/evidence/<evidence_id>")
+@login_required
+def ai_daily_report_draft_evidence_preview(draft_id, evidence_id):
+    """Secure Mileage Evidence preview for Draft.
+
+    Does NOT accept client-supplied path. Uses draft_id + evidence_id to resolve.
+    Validates: user permission, draft ownership, path confinement, hash.
+    """
+    if not is_internal_user():
+        abort(403)
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        abort(404)
+
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        abort(403)
+
+    # Find evidence in draft's evidence_records
+    draft_data = {}
+    try:
+        draft_data = json.loads(draft_row["draft_data"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        abort(404)
+
+    evidence = None
+    for e in draft_data.get("evidence_records", []):
+        if e.get("evidence_id") == evidence_id:
+            evidence = e
+            break
+
+    if not evidence:
+        abort(404)
+
+    # Resolve path safely (Draft evidence is stored in DATA_DIR/ai-daily-report-drafts/)
+    relative_path = evidence.get("file_relative_path", "")
+    if not relative_path:
+        abort(404)
+
+    # Evidence path should be under Draft evidence directory
+    expected_prefix = f"ai-daily-report-drafts/{draft_id}/mileage/"
+    if not relative_path.startswith(expected_prefix):
+        abort(400)
+
+    if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+        abort(400)
+
+    try:
+        full_path = (Path(DATA_DIR) / relative_path).resolve()
+        if not str(full_path).startswith(str(Path(DATA_DIR).resolve())):
+            abort(400)
+        if not full_path.exists():
+            abort(404)
+    except OSError:
+        abort(400)
+
+    return send_file(str(full_path), as_attachment=False, conditional=True)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/update-worker")
+@login_required
+def ai_daily_report_update_worker(draft_id):
+    """Update worker travel info (origin, overnight_stay, transportation).
+
+    Triggers route invalidation (clears old mileage/evidence).
+    Requires CSRF token + optimistic locking.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft（需 draft 状态且有编辑权限）"}), 403
+
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("user_id")
+        origin = data.get("origin")
+        origin_source = data.get("origin_source", "user_input")
+        overnight_stay = data.get("overnight_stay")
+        transportation = data.get("transportation", "self_drive")
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    if not user_id:
+        return jsonify({"ok": False, "error": "缺少 user_id"}), 400
+
+    try:
+        draft = svc.parse_draft_data(draft_row)
+        # Find and update worker
+        updated = False
+        for w in draft.workers:
+            if w.user_id == user_id:
+                if origin is not None:
+                    w.origin = origin
+                    w.origin_source = origin_source
+                    w.origin_confirmed = True if origin_source == "user_input" else w.origin_confirmed
+                if overnight_stay is not None:
+                    w.overnight_stay = overnight_stay
+                if transportation is not None:
+                    w.transportation = transportation
+                updated = True
+                # Invalidate route (clears old mileage/evidence) - static method
+                TravelService.invalidate_worker_route(w)
+                break
+
+        if not updated:
+            return jsonify({"ok": False, "error": "工作人员不在此 Draft 中"}), 404
+
+        svc.save_draft(draft_id, draft, expected_version=expected_version)
+        db().commit()
+        # Get updated draft_version from database
+        updated_row = svc.get_draft(draft_id)
+        return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "message": "工作人员信息已更新，里程已失效需重新计算"})
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/update-arrival-departure")
+@login_required
+def ai_daily_report_update_arrival_departure(draft_id):
+    """Update arrival/departure times (user override).
+
+    Sets arrival_time_source/departure_time_source = user_input.
+    Requires CSRF + optimistic locking.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft"}), 403
+
+    try:
+        data = request.get_json(silent=True) or {}
+        arrival_time = data.get("arrival_time")
+        departure_time = data.get("departure_time")
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    try:
+        draft = svc.parse_draft_data(draft_row)
+        if arrival_time is not None:
+            draft.arrival_time = arrival_time
+            draft.arrival_time_source = "user_input"
+        if departure_time is not None:
+            draft.departure_time = departure_time
+            draft.departure_time_source = "user_input"
+
+        svc.save_draft(draft_id, draft, expected_version=expected_version)
+        db().commit()
+        updated_row = svc.get_draft(draft_id)
+        return jsonify({"ok": True, "draft_version": updated_row["draft_version"]})
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/update-work-item")
+@login_required
+def ai_daily_report_update_work_item(draft_id):
+    """Update work items (add/update/remove).
+
+    Requires CSRF + optimistic locking.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft"}), 403
+
+    try:
+        data = request.get_json(silent=True) or {}
+        action = data.get("action", "replace")  # add/update/remove/replace
+        work_items = data.get("work_items", [])
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+
+    try:
+        draft = svc.parse_draft_data(draft_row)
+
+        if action == "replace":
+            draft.work_items = work_items
+        elif action == "add":
+            draft.work_items.extend(work_items)
+        elif action == "update":
+            for item in work_items:
+                for i, existing in enumerate(draft.work_items):
+                    if existing.get("equipment") == item.get("equipment"):
+                        draft.work_items[i] = item
+                        break
+        elif action == "remove":
+            remove_equipments = {item.get("equipment") for item in work_items}
+            draft.work_items = [w for w in draft.work_items if w.get("equipment") not in remove_equipments]
+
+        svc.save_draft(draft_id, draft, expected_version=expected_version)
+        db().commit()
+        updated_row = svc.get_draft(draft_id)
+        return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "work_items_count": len(draft.work_items)})
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+
+# ─── Phase 6: Review Center Page Routes ─────────────────────────────────────
+
+@app.get("/ai-daily-report/drafts")
+@login_required
+def ai_daily_report_drafts_page():
+    """Review Center - Draft List page."""
+    if not is_internal_user():
+        abort(403)
+    return render_template(
+        "ai_daily_report_drafts.html",
+        csrf_token=ai_daily_report_csrf_token(),
+    )
+
+
+@app.get("/ai-daily-report/drafts/<int:draft_id>")
+@login_required
+def ai_daily_report_draft_detail_page(draft_id):
+    """Review Center - Draft Detail/Preview page."""
+    if not is_internal_user():
+        abort(403)
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        abort(404)
+
+    if not can_view_ai_daily_report_draft(g.user, draft_row):
+        abort(403)
+
+    return render_template(
+        "ai_daily_report_draft_detail.html",
+        draft_id=draft_id,
+        csrf_token=ai_daily_report_csrf_token(),
+    )
 
 
 @app.route("/settings/menu-permissions", methods=["GET", "POST"])

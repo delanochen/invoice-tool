@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}AI 日报审查中心 - 发票工具{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">AI Daily Report</p>
+    <h1>日报审查中心</h1>
+    <p class="muted-line">审查和确认 AI 自动生成的日报 Draft。确认后才会进入正式日报流程。</p>
+  </div>
+  <div class="actions">
+    <button type="button" id="refreshDrafts" class="secondary">刷新列表</button>
+  </div>
+</header>
+
+<!-- Filters -->
+<section class="panel">
+  <div class="filter-bar" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:end;">
+    <div>
+      <label for="filterStatus">状态</label>
+      <select id="filterStatus">
+        <option value="">全部</option>
+        <option value="draft">Draft（编辑中）</option>
+        <option value="confirmed">Confirmed（已确认）</option>
+        <option value="cancelled">Cancelled（已取消）</option>
+        <option value="saved">Saved（已保存）</option>
+      </select>
+    </div>
+    <div>
+      <label for="filterDateFrom">日期从</label>
+      <input type="date" id="filterDateFrom">
+    </div>
+    <div>
+      <label for="filterDateTo">日期至</label>
+      <input type="date" id="filterDateTo">
+    </div>
+    <div>
+      <label for="filterOrder">工单号</label>
+      <input type="text" id="filterOrder" placeholder="SO-XXXXXX">
+    </div>
+    <button type="button" id="applyFilters" class="primary">应用筛选</button>
+    <button type="button" id="clearFilters" class="secondary">清除</button>
+  </div>
+</section>
+
+<!-- Draft List -->
+<section class="panel">
+  <div id="draftsLoading" class="muted-line" style="padding:1rem;">加载中...</div>
+  <div id="draftsError" class="flash error" style="display:none;"></div>
+  <div id="draftsContainer"></div>
+  <div id="pagination" style="margin-top:1rem; display:flex; gap:0.5rem; align-items:center;"></div>
+</section>
+
+<!-- 409 Conflict Dialog -->
+<div id="conflictDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center;">
+  <div class="panel" style="max-width:500px; margin:1rem;">
+    <h3>Draft 已被更新</h3>
+    <p>此 Draft 已在其他页面或操作中被修改。你的当前修改尚未保存。</p>
+    <p id="conflictDetails" class="muted-line"></p>
+    <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+      <button type="button" id="conflictReload" class="primary">加载最新版本</button>
+      <button type="button" id="conflictClose" class="secondary">关闭</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.aiDailyReportApiBase = "/api/ai/daily-report";
+  window.csrfToken = {{ csrf_token|tojson }};
+</script>
+<script src="{{ url_for('static', filename='ai-daily-report-drafts.js', v=app_version) }}"></script>
+{% endblock %}
