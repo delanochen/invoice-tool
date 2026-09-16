@@ -506,6 +506,7 @@
   function renderServicePhotos() {
     const s = currentPreview.service_photos || {};
     const selected = s.selected || [];
+    const canEdit = currentPreview.status === "draft";
 
     if (!selected.length) {
       document.getElementById("servicePhotosSection").innerHTML = `
