@@ -408,7 +408,11 @@
     try {
       const result = await apiPost(`/draft/${draftId}/discover-photos`, { draft_version: currentDraftVersion });
       currentDraftVersion = result.draft_version;
-      showStatus("照片扫描完成，已生成时间线候选", "success");
+      if (result.photo_count > 0) {
+        showStatus(`照片扫描完成，发现 ${result.photo_count} 张照片，已生成时间线候选`, "success");
+      } else {
+        showStatus("未发现照片：请确认工单号与日报日期对应的照片目录存在（shared-photos/<工单号>/pictures/<日期>/）", "error");
+      }
       await loadPreview();
     } catch (err) {
       if (err.message !== "version_conflict") {

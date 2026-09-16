@@ -343,15 +343,28 @@ class MileageCacheFixTest(unittest.TestCase):
             self.assertTrue(result.resolved)
             self.assertEqual(result.user_id, uid)
 
-    def test_external_roles_not_eligible(self):
-        """external_employee must NOT resolve as a daily-report worker."""
+    def test_external_roles_are_eligible(self):
+        """external_employee/external_manager resolve as workers (user decision 2026-09-16).
+
+        Being resolvable as a daily-report worker is separate from Review
+        Center UI permissions, which remain unchanged for external roles.
+        """
         with self.module.app.app_context():
             from ai_daily_report import EmployeeResolutionService
-            self._seed_user("外部人员", "external_employee")
+            uid = self._seed_user("外部人员", "external_employee")
             emp = EmployeeResolutionService(self.module.db(), self.admin_id, "Test Admin")
             result = emp.resolve("外部人员")
-            self.assertFalse(result.resolved)
-            self.assertEqual(result.error, "employee_not_found")
+            self.assertTrue(result.resolved)
+            self.assertEqual(result.user_id, uid)
+
+    def test_external_manager_exact_match_resolves(self):
+        with self.module.app.app_context():
+            from ai_daily_report import EmployeeResolutionService
+            uid = self._seed_user("Antonio", "external_employee")
+            emp = EmployeeResolutionService(self.module.db(), self.admin_id, "Test Admin")
+            result = emp.resolve("Antonio")
+            self.assertTrue(result.resolved)
+            self.assertEqual(result.user_id, uid)
 
     def test_partial_name_still_requires_clarification(self):
         """Partial name match must not auto-resolve; returns candidates only."""

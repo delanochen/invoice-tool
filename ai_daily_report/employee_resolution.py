@@ -31,9 +31,14 @@ SELF_REFERENCES = {"我", "我自己", "本人", "自己", "me", "myself", "self
 # Must match real ROLE_OPTIONS keys in app.py (there is no role named "user").
 # Internal field staff use role "employee"; without it, almost all name
 # resolution (including self-reference "我") fails silently.
-# external_manager / external_employee are intentionally excluded: the AI
-# Daily Report menu is only available to internal roles.
-WORKER_ELIGIBLE_ROLES = {"admin", "manager", "finance", "employee"}
+# external_manager / external_employee are included too: a daily report often
+# records work performed by external staff (user decision 2026-09-16).
+# Being resolvable as a worker is separate from UI/Review-Center permissions,
+# which remain unchanged for external roles.
+WORKER_ELIGIBLE_ROLES = {
+    "admin", "manager", "finance", "employee",
+    "external_manager", "external_employee",
+}
 
 # FUTURE: employee_aliases table will map alias -> user_id
 # Phase 2 does not implement aliases; this constant documents the extension point.
