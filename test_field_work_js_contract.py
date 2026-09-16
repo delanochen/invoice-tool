@@ -159,6 +159,18 @@ class FieldWorkJsContractTest(unittest.TestCase):
         self.assertIn("watermarkModeText').textContent='使用当前系统时间'", self.code.replace(" ", ""))
         self.assertIn("watermarkStart').value=''", self.code.replace(" ", ""))
 
+    def test_20_watermark_confirm_does_not_submit_form(self):
+        # confirm is type=button and the dialog form never natively submits:
+        # a page reload after closing the dialog would reset the batch flow and
+        # hide the just-set watermark time (reported v0.1.219 bug).
+        html = (Path(__file__).with_name('templates') / 'field_work.html').read_text(encoding='utf-8')
+        self.assertIn('<button id="confirmWatermarkTime" class="primary" type="button">确认使用此时间</button>', html)
+        self.assertIn("watermarkTimeForm').addEventListener('submit',event=>{event.preventDefault();})", self.code)
+
+    def test_21_watermark_mode_text_updates_after_confirm(self):
+        # after confirming, the page shows the set time inside #timeSettings.
+        self.assertIn("watermarkModeText').textContent = '水印时间：' + start.replace('T',' ')", self.code)
+
 
 if __name__ == "__main__":
     unittest.main()

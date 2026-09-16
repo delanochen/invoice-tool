@@ -918,6 +918,7 @@
   $('adjustWatermarkTime').addEventListener('click',openWatermarkDialog);
   $('verifyTimePassword').addEventListener('click',verifyTimePassword);
   $('confirmWatermarkTime').addEventListener('click',confirmWatermarkTime);
+  $('watermarkTimeForm').addEventListener('submit',event=>{event.preventDefault();});
   $('cancelWatermarkTime').addEventListener('click',cancelWatermarkTime);
   $('watermarkTimeDialog').addEventListener('cancel',event=>{event.preventDefault();cancelWatermarkTime();});
   $('completeBatch').addEventListener('click',completeBatch);
