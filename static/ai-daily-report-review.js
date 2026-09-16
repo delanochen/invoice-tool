@@ -370,6 +370,13 @@
     document.getElementById("recalcMileageBtn")?.addEventListener("click", recalcMileage);
   }
 
+  function timeInputValue(v) {
+    if (!v) return "";
+    const s = String(v);
+    const m = s.match(/T(\d{2}:\d{2})/);
+    return m ? m[1] : s;
+  }
+
   function renderTimeline() {
     const t = currentPreview.timeline || {};
     const canEdit = currentPreview.status === "draft";
@@ -377,11 +384,11 @@
     document.getElementById("timelineSection").innerHTML = `
       <table style="width:100%;">
         <tr><td style="padding:4px 8px; font-weight:bold;">到达时间</td><td>
-          ${canEdit ? `<input type="time" id="arrivalTimeInput" value="${escapeHtml(t.arrival_time || "")}">` : (t.arrival_time || "-")}
+          ${canEdit ? `<input type="time" id="arrivalTimeInput" value="${escapeHtml(timeInputValue(t.arrival_time))}">` : (t.arrival_time || "-")}
           <span class="muted-line" style="font-size:0.75rem;">来源: ${t.arrival_time_source || "unknown"}</span>
         </td></tr>
         <tr><td style="padding:4px 8px; font-weight:bold;">离场时间</td><td>
-          ${canEdit ? `<input type="time" id="departureTimeInput" value="${escapeHtml(t.departure_time || "")}">` : (t.departure_time || "-")}
+          ${canEdit ? `<input type="time" id="departureTimeInput" value="${escapeHtml(timeInputValue(t.departure_time))}">` : (t.departure_time || "-")}
           <span class="muted-line" style="font-size:0.75rem;">来源: ${t.departure_time_source || "unknown"}</span>
         </td></tr>
         <tr><td style="padding:4px 8px; font-weight:bold;">时间线状态</td><td>${getTimelineStatusBadge(t.photo_timeline_status)}</td></tr>
