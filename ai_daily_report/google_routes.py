@@ -62,13 +62,14 @@ RETRY_BASE_DELAY = 1.0  # seconds, exponential backoff
 ROUTING_PREFERENCE = "TRAFFIC_UNAWARE"
 
 # Field mask: only request what we need to reduce payload
-# legs.startAddress / legs.endAddress are native computeRoutes fields
+# NOTE: routes.legs.startAddress / routes.legs.endAddress are NOT valid
+# computeRoutes field paths (Google returns 400 INVALID_ARGUMENT for them).
+# Normalized addresses are therefore not requested; downstream code falls
+# back to the original user/service-order addresses when *_normalized is None.
 FIELD_MASK = (
     "routes.distanceMeters,"
     "routes.duration,"
-    "routes.polyline.encodedPolyline,"
-    "routes.legs.startAddress,"
-    "routes.legs.endAddress"
+    "routes.polyline.encodedPolyline"
 )
 
 
@@ -204,9 +205,8 @@ class GoogleRoutesService:
     def _parse_response(self, data: Dict[str, Any]) -> RouteResult:
         """Parse Google Routes API response.
 
-        origin_normalized / destination_normalized come from
-        routes[0].legs[0].startAddress / endAddress - these are native
-        computeRoutes response fields, NOT from separate geocoding.
+        origin_normalized / destination_normalized are best-effort only: field mask
+        no longer requests legs.startAddress/endAddress (invalid paths).
         """
         routes = data.get("routes")
         if not routes or not isinstance(routes, list) or len(routes) == 0:
