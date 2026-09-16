@@ -49,8 +49,10 @@
       throw new Error("version_conflict");
     }
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${resp.status}`);
+      const data = await resp.json().catch(() => ({}));
+      const err = new Error(data.error || `HTTP ${resp.status}`);
+      err.data = data;
+      throw err;
     }
     return resp.json();
   }
@@ -471,7 +473,12 @@
       await loadPreview();
     } catch (err) {
       if (err.message !== "version_conflict") {
-        showStatus(`里程计算失败: ${err.message}`, "error");
+        const missing = (err.data && err.data.missing) || [];
+        let msg = `里程计算失败: ${err.message}`;
+        if (missing.length) {
+          msg += " — 缺少: " + missing.join(", ");
+        }
+        showStatus(msg, "error");
       }
     } finally {
       isMutating = false;
