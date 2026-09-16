@@ -154,6 +154,11 @@ class PreviewAggregationService:
             "photo_set_fingerprint": draft_data.get("photo_set_fingerprint"),
             "photo_timeline_generated_at": draft_data.get("photo_timeline_generated_at"),
             "total_photos": len(draft_data.get("photo_candidates", [])),
+            "photo_candidates": [
+                {"photo_id": p.get("photo_id"), "relative_path": p.get("relative_path")}
+                for p in draft_data.get("photo_candidates", [])
+                if isinstance(p, dict) and p.get("photo_id")
+            ],
             "provenance": "photo_timeline" if draft_data.get("arrival_time_source") == "photo_timeline_confirmed" else (draft_data.get("arrival_time_source") or "unknown"),
         }
 

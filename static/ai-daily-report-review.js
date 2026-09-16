@@ -518,6 +518,35 @@
     }
   }
 
+  function togglePhotoGrid(gridId, mode) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+    if (grid.dataset.open === "1") { grid.innerHTML = ""; grid.dataset.open = "0"; return; }
+    const photos = (currentPreview.timeline && currentPreview.timeline.photo_candidates) || [];
+    if (!photos.length) { grid.innerHTML = '<p class="muted-line">暂无照片，请先点「发现照片」。</p>'; grid.dataset.open = "1"; return; }
+    grid.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;margin-top:0.5rem;">' +
+      photos.map(p => '<img src="/api/ai/daily-report/draft/' + draftId + '/photo/' + p.photo_id + '" data-photo-id="' + p.photo_id + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;cursor:pointer;border:2px solid #ddd;" onclick="pickPhoto(\'' + mode + '\',\'' + p.photo_id + '\')">').join("") +
+      '</div>';
+    grid.dataset.open = "1";
+  }
+
+  async function pickPhoto(mode, photoId) {
+    try {
+      if (mode === "safety") {
+        const result = await apiPost(`/draft/${draftId}/change-safety-photo`, { photo_id: photoId, draft_version: currentDraftVersion });
+        currentDraftVersion = result.draft_version || currentDraftVersion;
+        showStatus("安全照片已更新", "success");
+      } else if (mode === "service") {
+        const result = await apiPost(`/draft/${draftId}/add-service-photo`, { photo_id: photoId, draft_version: currentDraftVersion });
+        currentDraftVersion = result.draft_version || currentDraftVersion;
+        showStatus("已添加施工照片", "success");
+      }
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") showStatus(`操作失败: ${err.message}`, "error");
+    }
+  }
+
   function renderSafetyPhoto() {
     const s = currentPreview.safety_photo || {};
     const canEdit = currentPreview.status === "draft";
@@ -525,8 +554,10 @@
     if (!s.selected_photo_id) {
       document.getElementById("safetyPhotoSection").innerHTML = `
         <p class="muted-line">未选择安全自检照片。</p>
-        ${s.candidates_count ? `<p class="muted-line">候选照片: ${s.candidates_count} 张</p>` : ""}
+        ${s.candidates_count ? `<p class="muted-line">候选照片 ${s.candidates_count} 张</p>` : ""}
+        ${canEdit ? `<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="pickSafetyBtn">手动选择安全照片</button></div><div id="safetyPhotoGrid"></div>` : ""}
       `;
+      document.getElementById("pickSafetyBtn")?.addEventListener("click", () => togglePhotoGrid("safetyPhotoGrid", "safety"));
       return;
     }
 
@@ -540,8 +571,11 @@
           <p><strong>候选数:</strong> ${s.candidates_count}</p>
         </div>
       </div>
+      ${canEdit ? `<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="changeSafetyBtn">更换安全照片</button></div><div id="safetyPhotoGrid"></div>` : ""}
     `;
+    document.getElementById("changeSafetyBtn")?.addEventListener("click", () => togglePhotoGrid("safetyPhotoGrid", "safety"));
   }
+
 
   function renderServicePhotos() {
     const s = currentPreview.service_photos || {};
@@ -575,8 +609,12 @@
 
     html += canEdit ? '<div style="margin-top:0.75rem;"><button type="button" class="secondary" id="classifyPhotosBtn">AI 分类照片</button></div>' : "";
     document.getElementById("servicePhotosSection").innerHTML = html;
+        html += canEdit ? '<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="pickServiceBtn">手动添加施工照片</button></div><div id="servicePhotoGrid"></div>' : "";
+    document.getElementById("servicePhotosSection").innerHTML = html;
     document.getElementById("classifyPhotosBtn")?.addEventListener("click", classifyPhotos);
+    document.getElementById("pickServiceBtn")?.addEventListener("click", () => togglePhotoGrid("servicePhotoGrid", "service"));
   }
+
 
   function renderWorkItems() {
     const items = currentPreview.work_items || [];
