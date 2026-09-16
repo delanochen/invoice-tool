@@ -84,7 +84,12 @@
     setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}。后续照片沿用；换设备请点“下一台设备”。`);
     return true;
   }
+  const KIND_LABEL = {equipment:'设备',arrival:'进场',departure:'离场',safety:'自检',general:'非设备',legacy:'历史'};
+  function photoTypeLabel(t){return KIND_LABEL[t]||t||'-';}
   function chooseKind(type) {
+    // 非设备照片按钮：先展开 进场/离场/自检 三选一，不直接开始本组。
+    if (type === 'general') { $('generalKindChoices').hidden = false; return; }
+    $('generalKindChoices').hidden = true;
     if (batch?.type && batch.type !== type) {
       queued(batch.id).then(items => { if (items.length) notice('当前组已有照片，请先完成上传或删除后再更换类型。',true); else startKind(type); });
     } else startKind(type);
@@ -96,9 +101,10 @@
     $(type === 'equipment' ? 'deviceNoteSlot' : 'generalNoteSlot').append($('captureNote'));
     $('deviceSession').hidden = type !== 'equipment';
     $('timeSettings').hidden = false;
-    setFieldText('kindStatus', type === 'equipment' ? '设备照片：需确认 Machine Number。' : '非设备照片：不显示铭牌号、位置号和集装箱号。');
-    $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type==='general');
-    if (type === 'general') deviceSession = {id:batch.id,equipment_number:'',position_number:'',container_number:'',no_equipment_number:true};
+    const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：不显示铭牌号、位置号和集装箱号。'};
+    setFieldText('kindStatus', KIND_TEXT[type] || KIND_TEXT.general);
+    $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type!=='equipment');
+    if (type !== 'equipment') deviceSession = {id:batch.id,equipment_number:'',position_number:'',container_number:'',no_equipment_number:true};
     else if (previousType !== 'equipment') resetDevice();
     renderQueue();
   }
@@ -676,7 +682,7 @@
     const id=batch.id; await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('systemTime').checked=true; $('adjustedTimeFields').hidden=true; $('watermarkPassword').value='';
-    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
+    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
   async function loadLedger() {
@@ -695,7 +701,7 @@
       $('photoBatchDownload').hidden = !result.rows.length || result.truncated;
       const table = document.createElement('table'); table.className = 'ledger-table';
       const thead = document.createElement('thead'), headerRow = document.createElement('tr');
-      ['照片','工单','客户','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',fieldText(label))));
+      ['照片','照片类型','工单','客户','站点','铭牌号','位置号','集装箱号','施工员','实际拍摄账号','拍摄时间','接收时间','水印','现场位置','备注','来源'].forEach(label => headerRow.append(textNode('th',fieldText(label))));
       thead.append(headerRow); const tbody = document.createElement('tbody'); table.append(thead,tbody); $('ledgerList').append(table);
       result.rows.forEach((photo, photoIndex) => {
         const captureTime=window.formatPhotoTime(photo.captured_at,photo.timezone_name);
@@ -712,12 +718,12 @@
         address.textContent=fieldText('现场地址：')+(photo.site_address||photo.site_name);
         const deviceDetail = ['铭牌号：'+(photo.equipment_number || '无'), photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', photo.pump_fuse_numbers ? '水泵保险：'+photo.pump_fuse_numbers : ''].filter(Boolean).join(' · ');
         const watermarkDetail = photo.watermark_source === 'original' ? '水印：保留原图水印' : '水印：系统生成 · '+window.formatPhotoTime(photo.watermark_at||photo.captured_at,photo.timezone_name);
-        detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p',deviceDetail),textNode('p','拍摄：'+window.formatPhotoTime(photo.captured_at,photo.timezone_name)+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+receiveTime),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
+        detail.append(textNode('strong',photo.order_number+' · '+photo.site_name),textNode('p','照片类型：'+photoTypeLabel(photo.photo_type)),textNode('p',deviceDetail),textNode('p','拍摄：'+window.formatPhotoTime(photo.captured_at,photo.timezone_name)+' · '+watermarkDetail),textNode('p','施工员：'+(photo.technician_name||photo.employee_name)+' · 实际拍摄：'+photo.employee_name+' · 接收：'+receiveTime),textNode('p',photo.note),address,textNode('br',''),map,textNode('p',photo.source === 'camera' ? '现场相机':'系统相机 / 选图'));
         card.append(link,detail); $('ledgerList').append(card);
         const row = document.createElement('tr');
         const imageCell = document.createElement('td'), tableLink = link.cloneNode(false), tableImage = image.cloneNode(false);
         tableLink.append(tableImage); tableLink.addEventListener('click',event=>{event.preventDefault();openLedgerPhoto(photoIndex);}); imageCell.append(tableLink); row.append(imageCell);
-        const values = [photo.order_number, photo.customer_name||'—', photo.site_name, photo.equipment_number||'—',photo.position_number||'—',photo.container_number||'—',
+        const values = [photoTypeLabel(photo.photo_type), photo.order_number, photo.customer_name||'—', photo.site_name, photo.equipment_number||'—',photo.position_number||'—',photo.container_number||'—',
           photo.technician_name||photo.employee_name,photo.employee_name,
           captureTime,receiveTime, watermarkDetail,
           (photo.site_address||photo.site_name)+(photo.location_verified ? `\n${Number(photo.latitude).toFixed(5)}, ${Number(photo.longitude).toFixed(5)}` : '\n未检查坐标'),
@@ -813,6 +819,7 @@
   });
   $('retryUpload').addEventListener('click',()=>syncQueue()); $('reloadOrders').addEventListener('click',bootstrap);
   $('equipmentKind').addEventListener('click',()=>chooseKind('equipment')); $('generalKind').addEventListener('click',()=>chooseKind('general'));
+  $('arrivalKind').addEventListener('click',()=>chooseKind('arrival')); $('departureKind').addEventListener('click',()=>chooseKind('departure')); $('safetyKind').addEventListener('click',()=>chooseKind('safety'));
   $('systemTime').addEventListener('change',()=>{ const adjusted=!$('systemTime').checked; $('adjustedTimeFields').hidden=!adjusted; timeAuthorized=!adjusted; $('watermarkStart').disabled=adjusted; if(adjusted&&!$('watermarkStart').value){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());$('watermarkStart').value=d.toISOString().slice(0,16);} setFieldText('timeStatus',adjusted?'请输入密码并设置水印开始时间。':'使用当前系统时间。'); });
   $('verifyTimePassword').addEventListener('click',verifyTimePassword);
   $('completeBatch').addEventListener('click',completeBatch);

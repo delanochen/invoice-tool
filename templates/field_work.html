@@ -25,7 +25,7 @@
         <fieldset id="captureSource" class="capture-kind" hidden><legend>拍照或上传</legend><div class="kind-actions"><button id="cameraMode" class="primary" type="button" aria-pressed="true">拍照</button><button id="uploadMode" type="button" aria-pressed="false">上传</button></div></fieldset>
         <div id="captureDetails">
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
-        <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
+        <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><div id="generalKindChoices" hidden style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;"><button id="arrivalKind" type="button">进场照片</button><button id="departureKind" type="button">离场照片</button><button id="safetyKind" type="button">自检照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
           <label class="check-label"><input id="systemTime" type="checkbox" checked> 使用当前系统时间</label>
           <div id="adjustedTimeFields" hidden><label>调整密码<input id="watermarkPassword" type="password" autocomplete="off"></label><button id="verifyTimePassword" type="button">验证密码</button><label>水印开始时间<input id="watermarkStart" type="datetime-local"></label></div>

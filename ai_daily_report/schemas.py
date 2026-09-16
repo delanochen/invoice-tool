@@ -149,6 +149,9 @@ class PhotoRef(BaseModel):
     timeline_eligible: bool = False  # only eligible photos can be auto arrival/departure
     timeline_exclusion_reason: Optional[str] = None  # date_mismatch / mtime_only / invalid_timestamp / future_timestamp / missing_timestamp / metadata_unsupported
     metadata_unsupported: bool = False  # format cannot be parsed (e.g. HEIC without plugin)
+    # 拍照功能 (photo management): user-set photo time and manual classification
+    user_modified_time: Optional[str] = None  # user-set photo time, ISO8601; takes priority over capture_time
+    manual_classification: Optional[str] = None  # arrival / departure / safety (manual tag for non-equipment photos)
 
 
 class DailyReportDraft(BaseModel):

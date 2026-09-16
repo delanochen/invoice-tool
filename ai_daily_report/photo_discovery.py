@@ -21,7 +21,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from .schemas import PhotoRef
 
@@ -62,12 +62,17 @@ class PhotoDiscoveryService:
         self,
         order_number: str,
         report_date: str,
+        photo_type_lookup: Optional[Callable[[str], Optional[str]]] = None,
     ) -> Tuple[List[PhotoRef], str, Optional[str]]:
         """Discover all original photos for a service order on a specific date.
 
         Args:
             order_number: Service order number (e.g. "SO-123456").
             report_date: Date string YYYY-MM-DD.
+            photo_type_lookup: Optional callable(relative_path) -> photo_type
+                (equipment / arrival / departure / safety / general / legacy / None).
+                When present, discovered PhotoRefs inherit the field-work manual
+                classification instead of "unknown".
 
         Returns:
             Tuple of (photo_refs, status, error_message).
@@ -168,11 +173,20 @@ class PhotoDiscoveryService:
 
             # Create PhotoRef (capture_time will be filled by PhotoMetadataService)
             # photo_id = full SHA256 (backend identity, UI may truncate)
+            # Field-work manual classification is authoritative when present.
+            manual_type = None
+            if photo_type_lookup is not None:
+                try:
+                    manual_type = photo_type_lookup(rel_path)
+                except Exception:
+                    manual_type = None
+            inherited_classification = manual_type if manual_type in ("equipment", "arrival", "departure", "safety") else "unknown"
             photo_ref = PhotoRef(
                 photo_id=photo_hash,
                 photo_hash=photo_hash,
                 relative_path=rel_path,
-                classification="unknown",
+                classification=inherited_classification,
+                manual_classification=inherited_classification if inherited_classification != "unknown" else None,
                 confidence=0.0,
                 capture_time=None,
                 capture_time_source=None,

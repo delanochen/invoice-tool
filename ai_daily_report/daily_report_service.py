@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .schemas import (
     AIAction,
@@ -266,6 +267,7 @@ class DailyReportService:
         photo_discovery_service,
         photo_metadata_service,
         expected_version: Optional[int] = None,
+        photo_type_lookup: Optional[Callable[[str], Optional[str]]] = None,
     ) -> Dict[str, Any]:
         """Discover original site photos for a draft and compute arrival/departure candidates.
 
@@ -314,10 +316,11 @@ class DailyReportService:
 
         order_number = order_row["order_number"]
 
-        # Discover photos
+        # Discover photos (inherit field-work photo_type when lookup provided)
         photos, status, error = photo_discovery_service.discover_photos(
             order_number=order_number,
             report_date=draft.report_date,
+            photo_type_lookup=photo_type_lookup,
         )
 
         if status == "failed":
@@ -470,6 +473,240 @@ class DailyReportService:
         }
 
     # ─── Photo Classification (Phase 5) ──────────────────────────────────
+
+    _PHOTO_ID_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+    _PHOTO_TIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+
+    def _validate_photo_id(self, photo_id: str) -> bool:
+        return bool(self._PHOTO_ID_RE.fullmatch(photo_id or ""))
+
+    def auto_select_service_photos(
+        self,
+        draft_id: int,
+        max_photos: int = 10,
+        expected_version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Auto-select service photos ONLY from photos already classified as equipment.
+
+        Time window [arrival_time, departure_time] is used ONLY to filter/sort,
+        never to classify. unknown / general / legacy photos are never promoted
+        to equipment by time. Never overwrites an existing manual classification.
+        No Vision calls.
+        """
+        draft_row = self.get_draft(draft_id)
+        if not draft_row:
+            return {"ok": False, "error": "draft_not_found"}
+        draft = self.parse_draft_data(draft_row)
+        photos = draft.photo_candidates
+        if not photos:
+            return {"ok": False, "error": "no_photo_candidates_run_phase4_first"}
+
+        # Only photos already explicitly classified as equipment qualify.
+        eligible = [p for p in photos if p.classification == "equipment"]
+        if not eligible:
+            return {"ok": False, "error": "no_equipment_photos_please_mark_equipment_first"}
+
+        def eff_time(p):
+            return p.user_modified_time or p.capture_time or ""
+
+        arrival = draft.arrival_time or ""
+        departure = draft.departure_time or ""
+
+        def in_window(t):
+            if not t:
+                return False
+            if arrival and t < arrival:
+                return False
+            if departure and t > departure:
+                return False
+            return True
+
+        windowed = [p for p in eligible if in_window(eff_time(p))]
+        pool = windowed if windowed else eligible
+        pool.sort(key=eff_time)
+        selected = pool[:max_photos]
+
+        from .schemas import PhotoAnalysis
+        analyses = []
+        for p in selected:
+            analyses.append(PhotoAnalysis(
+                photo_id=p.photo_id,
+                photo_path=p.relative_path,
+                photo_hash=p.photo_hash,
+                classification="equipment",
+                confidence=1.0,
+                sub_category=None,
+                capture_time=p.capture_time,
+                capture_time_source=p.capture_time_source,
+                selected_source="auto_selected",
+            ))
+        # Merge without overwriting existing user-selected service photos.
+        existing_ids = {a.photo_id for a in draft.selected_service_photos}
+        for a in analyses:
+            if a.photo_id not in existing_ids:
+                draft.selected_service_photos.append(a)
+        draft.photo_classification_status = "classified"
+        draft.photo_classification_generated_at = self.now()
+        self.save_draft(draft_id, draft, expected_version=expected_version)
+        updated = self.get_draft(draft_id)
+        return {
+            "ok": True,
+            "selected_count": len(analyses),
+            "selected_photo_ids": [a.photo_id for a in analyses],
+            "draft_version": updated["draft_version"],
+        }
+
+    def mark_photo_classification(
+        self,
+        draft_id: int,
+        photo_id: str,
+        classification: str,
+        expected_version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Set a photo's single business role: equipment / arrival / departure / safety.
+
+        Roles are mutually exclusive. Switching roles removes the photo from its
+        previous role collection/refs (selected_service_photos, arrival_photo_ref,
+        departure_photo_ref, selected_safety_photo). Already-confirmed formal times
+        are preserved; only photo refs are cleaned. No Vision calls.
+        """
+        if classification not in {"arrival", "departure", "safety", "equipment"}:
+            return {"ok": False, "error": "invalid_classification"}
+        if not self._validate_photo_id(photo_id):
+            return {"ok": False, "error": "invalid_photo_id"}
+        draft_row = self.get_draft(draft_id)
+        if not draft_row:
+            return {"ok": False, "error": "draft_not_found"}
+        draft = self.parse_draft_data(draft_row)
+        photo = next((p for p in draft.photo_candidates if p.photo_id == photo_id), None)
+        if not photo:
+            return {"ok": False, "error": "photo_not_found"}
+
+        old_role = photo.manual_classification
+        if old_role not in ("equipment", "arrival", "departure", "safety"):
+            old_role = photo.classification if photo.classification in ("equipment", "arrival", "departure", "safety") else None
+
+        # ---- clean up previous role ----
+        if old_role == "equipment":
+            draft.selected_service_photos = [a for a in draft.selected_service_photos if a.photo_id != photo_id]
+        if old_role == "arrival" and draft.arrival_photo_ref == photo_id:
+            draft.arrival_photo_ref = None
+            draft.arrival_photo = None
+            # Preserve the user-confirmed time value; a photo-sourced marker is no
+            # longer valid without its photo ref, so demote to the existing
+            # manual source (never leave photo_marked dangling without a ref).
+            if draft.arrival_time and draft.arrival_time_source in ("photo", "photo_timeline_confirmed", "photo_marked"):
+                draft.arrival_time_source = "manual"
+        if old_role == "departure" and draft.departure_photo_ref == photo_id:
+            draft.departure_photo_ref = None
+            draft.departure_photo = None
+            if draft.departure_time and draft.departure_time_source in ("photo", "photo_timeline_confirmed", "photo_marked"):
+                draft.departure_time_source = "manual"
+        if old_role == "safety":
+            if draft.selected_safety_photo is not None and draft.selected_safety_photo.photo_id == photo_id:
+                draft.selected_safety_photo = None
+                draft.safety_photo = None
+
+        # ---- apply new role ----
+        photo.manual_classification = classification
+        photo.classification = classification
+        eff = photo.user_modified_time or photo.capture_time
+
+        if classification == "equipment":
+            from .schemas import PhotoAnalysis
+            existing = {a.photo_id for a in draft.selected_service_photos}
+            if photo.photo_id not in existing:
+                draft.selected_service_photos.append(PhotoAnalysis(
+                    photo_id=photo.photo_id,
+                    photo_path=photo.relative_path,
+                    photo_hash=photo.photo_hash,
+                    classification="equipment",
+                    confidence=1.0,
+                    sub_category=None,
+                    capture_time=photo.capture_time,
+                    capture_time_source=photo.capture_time_source,
+                    selected_source="user_selected",
+                ))
+            draft.photo_classification_status = "classified"
+        elif classification == "arrival":
+            draft.arrival_time = eff
+            draft.arrival_time_source = "photo_marked"
+            draft.arrival_photo_ref = photo.photo_id
+            draft.arrival_photo = photo
+        elif classification == "departure":
+            draft.departure_time = eff
+            draft.departure_time_source = "photo_marked"
+            draft.departure_photo_ref = photo.photo_id
+            draft.departure_photo = photo
+        elif classification == "safety":
+            from .schemas import PhotoAnalysis
+            draft.selected_safety_photo = PhotoAnalysis(
+                photo_id=photo.photo_id,
+                photo_path=photo.relative_path,
+                photo_hash=photo.photo_hash,
+                classification="safety_person",
+                confidence=1.0,
+                sub_category=None,
+                capture_time=photo.capture_time,
+                capture_time_source=photo.capture_time_source,
+                selected_source="user_selected",
+            )
+            draft.selected_safety_photo_source = "user_selected"
+            draft.safety_photo = photo
+
+        self.save_draft(draft_id, draft, expected_version=expected_version)
+        updated = self.get_draft(draft_id)
+        return {
+            "ok": True,
+            "photo_id": photo_id,
+            "classification": classification,
+            "draft_version": updated["draft_version"],
+        }
+
+    def update_photo_time(
+        self,
+        draft_id: int,
+        photo_id: str,
+        time_str: str,
+        expected_version: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Set a user-modified time on a photo (server-validated).
+
+        Original capture_time is never overwritten; user time is stored as
+        user_modified_time. If the photo is currently marked as arrival/departure,
+        the formal arrival_time / departure_time is updated immediately.
+        Invalid format / non-report-date times are rejected (422).
+        """
+        if not self._validate_photo_id(photo_id):
+            return {"ok": False, "error": "invalid_photo_id"}
+        draft_row = self.get_draft(draft_id)
+        if not draft_row:
+            return {"ok": False, "error": "draft_not_found"}
+        draft = self.parse_draft_data(draft_row)
+        photo = next((p for p in draft.photo_candidates if p.photo_id == photo_id), None)
+        if not photo:
+            return {"ok": False, "error": "photo_not_found"}
+
+        if time_str:
+            if not self._PHOTO_TIME_RE.fullmatch(time_str):
+                return {"ok": False, "error": "invalid_time_format"}
+            if not time_str.startswith(draft.report_date + "T"):
+                return {"ok": False, "error": "time_must_match_report_date"}
+            try:
+                datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                return {"ok": False, "error": "invalid_time_value"}
+
+        photo.user_modified_time = time_str or None
+        if photo.manual_classification == "arrival":
+            draft.arrival_time = photo.user_modified_time or photo.capture_time
+            draft.arrival_time_source = "photo_marked"
+        elif photo.manual_classification == "departure":
+            draft.departure_time = photo.user_modified_time or photo.capture_time
+            draft.departure_time_source = "photo_marked"
+        self.save_draft(draft_id, draft, expected_version=expected_version)
+        updated = self.get_draft(draft_id)
+        return {"ok": True, "draft_version": updated["draft_version"]}
 
     def classify_draft_photos(
         self,

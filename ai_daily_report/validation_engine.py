@@ -947,7 +947,7 @@ class ValidationEngine:
         departure = d.get("departure_time")
         arrival_src = d.get("arrival_time_source")
         departure_src = d.get("departure_time_source")
-        valid_sources = {"photo", "manual", "user_input", "photo_timeline_confirmed", None, ""}
+        valid_sources = {"photo", "manual", "user_input", "photo_timeline_confirmed", "photo_marked", None, ""}
 
         # TIME-001: arrival missing
         if not arrival:
@@ -995,14 +995,14 @@ class ValidationEngine:
                 relevant_values={"departure_time_source": departure_src},
             ))
         # TIME-006: photo-sourced time but no photo ref
-        if arrival and arrival_src in ("photo", "photo_timeline_confirmed") and not d.get("arrival_photo_ref") and not d.get("arrival_photo"):
+        if arrival and arrival_src in ("photo", "photo_timeline_confirmed", "photo_marked") and not d.get("arrival_photo_ref") and not d.get("arrival_photo"):
             issues.append(ValidationIssue(
                 "TIME-006", SEVERITY_WARNING,
                 "到达时间来自照片但缺少关联照片引用",
                 subject_type=SUBJECT_DRAFT, subject_id="arrival_photo",
                 relevant_values={"arrival_time_source": arrival_src},
             ))
-        if departure and departure_src in ("photo", "photo_timeline_confirmed") and not d.get("departure_photo_ref") and not d.get("departure_photo"):
+        if departure and departure_src in ("photo", "photo_timeline_confirmed", "photo_marked") and not d.get("departure_photo_ref") and not d.get("departure_photo"):
             issues.append(ValidationIssue(
                 "TIME-006", SEVERITY_WARNING,
                 "离场时间来自照片但缺少关联照片引用",
@@ -1051,14 +1051,14 @@ class ValidationEngine:
         # PTML-005: no photos but arrival/departure from photo
         candidates = d.get("photo_candidates", [])
         if not candidates:
-            if d.get("arrival_time_source") in ("photo", "photo_timeline_confirmed"):
+            if d.get("arrival_time_source") in ("photo", "photo_timeline_confirmed", "photo_marked"):
                 issues.append(ValidationIssue(
                     "PTML-005", SEVERITY_ERROR,
                     "到达时间来自照片但 Draft 中无照片候选",
                     subject_type=SUBJECT_DRAFT, subject_id="arrival_no_photo",
                     relevant_values={"arrival_time_source": d.get("arrival_time_source")},
                 ))
-            if d.get("departure_time_source") in ("photo", "photo_timeline_confirmed"):
+            if d.get("departure_time_source") in ("photo", "photo_timeline_confirmed", "photo_marked"):
                 issues.append(ValidationIssue(
                     "PTML-005", SEVERITY_ERROR,
                     "离场时间来自照片但 Draft 中无照片候选",

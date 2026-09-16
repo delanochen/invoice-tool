@@ -518,6 +518,14 @@
     }
   }
 
+  function photoBadge(p) {
+    const cls = p.manual_classification || (p.classification === "equipment" ? "equipment" : "");
+    if (!cls) return "";
+    const map = {equipment: ["设备", "#16a34a"], arrival: ["进场", "#2563eb"], departure: ["离场", "#ea580c"], safety: ["自检", "#9333ea"]};
+    const hit = map[cls] || [cls, "#6b7280"];
+    return '<span style="position:absolute;left:2px;top:2px;background:' + hit[1] + ';color:#fff;font-size:10px;padding:1px 5px;border-radius:8px;line-height:1.4;">' + hit[0] + '</span>';
+  }
+
   function togglePhotoGrid(gridId, mode) {
     const grid = document.getElementById(gridId);
     if (!grid) return;
@@ -525,25 +533,106 @@
     const photos = (currentPreview.timeline && currentPreview.timeline.photo_candidates) || [];
     if (!photos.length) { grid.innerHTML = '<p class="muted-line">暂无照片，请先点「发现照片」。</p>'; grid.dataset.open = "1"; return; }
     grid.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;margin-top:0.5rem;">' +
-      photos.map(p => '<img src="/api/ai/daily-report/draft/' + draftId + '/photo/' + p.photo_id + '" data-photo-id="' + p.photo_id + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;cursor:pointer;border:2px solid #ddd;" onclick="pickPhoto(\'' + mode + '\',\'' + p.photo_id + '\')">').join("") +
-      '</div>';
+      photos.map(p => {
+        const url = '/api/ai/daily-report/draft/' + draftId + '/photo/' + encodeURIComponent(p.photo_id);
+        return '<div style="position:relative;">' + photoBadge(p) +
+          '<img src="' + url + '" data-photo-id="' + p.photo_id + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;cursor:pointer;border:2px solid #ddd;" onclick="openPhotoDialog(\'' + mode + '\',\'' + encodeURIComponent(p.photo_id) + '\')">' +
+          '</div>';
+      }).join("") + '</div>';
     grid.dataset.open = "1";
   }
 
-  async function pickPhoto(mode, photoId) {
+  function openPhotoDialog(mode, photoIdEnc) {
+    const photoId = decodeURIComponent(photoIdEnc);
+    const photos = (currentPreview.timeline && currentPreview.timeline.photo_candidates) || [];
+    const p = photos.find(x => x.photo_id === photoId);
+    if (!p) { showStatus("照片不存在", "error"); return; }
+    const url = '/api/ai/daily-report/draft/' + draftId + '/photo/' + encodeURIComponent(photoId);
+    const clsLabel = {arrival: "进场", departure: "离场", safety: "自检", equipment: "设备"};
+    const cur = p.manual_classification || (p.classification === "equipment" ? "equipment" : "");
+    const curLabel = cur ? clsLabel[cur] : "未标记";
+    const eff = (p.user_modified_time || p.capture_time || "");
+    const baseTime = eff ? eff.slice(11, 16) : "";
+    const srcTime = eff ? eff.slice(0, 19) : "";
+
+    const overlay = document.createElement("div");
+    overlay.id = "photoDialogOverlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:8px;max-width:480px;width:92%;max-height:90vh;overflow:auto;padding:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <strong>照片管理</strong>
+          <button type="button" style="border:none;background:none;font-size:1.2rem;cursor:pointer;" onclick="document.getElementById('photoDialogOverlay').remove()">×</button>
+        </div>
+        <img src="${url}" style="width:100%;border-radius:4px;">
+        <p class="muted-line" style="margin:0.5rem 0;">当前标记: <strong>${curLabel}</strong> | 拍照时间: ${srcTime || "-"}</p>
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.75rem;">
+          <input type="time" id="photoTimeInput" value="${baseTime}" style="flex:1;padding:6px;border:1px solid #d1d5db;border-radius:4px;">
+          <button type="button" class="secondary" id="savePhotoTimeBtn" style="white-space:nowrap;">保存时间</button>
+        </div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button type="button" class="secondary" id="markEquipmentBtn">设备照片</button>
+          <button type="button" class="secondary" id="markNonEquipmentBtn">非设备照片</button>
+        </div>
+        <div id="nonEquipmentChoices" hidden style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;border-top:1px dashed #e5e7eb;padding-top:0.5rem;">
+          <button type="button" class="secondary" id="markArrivalBtn" style="background:#eff6ff;border-color:#2563eb;color:#2563eb;">进场照片</button>
+          <button type="button" class="secondary" id="markDepartureBtn" style="background:#fff7ed;border-color:#ea580c;color:#ea580c;">离场照片</button>
+          <button type="button" class="secondary" id="markSafetyBtn" style="background:#faf5ff;border-color:#9333ea;color:#9333ea;">自检照片</button>
+        </div>
+        <p class="muted-line" style="margin-top:0.5rem;">提示: 进场/离场照片的时间优先用「保存时间」，没有则用拍照时间。</p>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    document.getElementById("savePhotoTimeBtn").addEventListener("click", () => {
+      const t = document.getElementById("photoTimeInput").value;
+      const day = (p.capture_time || "").slice(0, 10);
+      const full = (t && day) ? day + "T" + t + ":00" : "";
+      savePhotoTime(photoId, full);
+    });
+    document.getElementById("markEquipmentBtn").addEventListener("click", () => markPhoto(photoId, "equipment"));
+    document.getElementById("markNonEquipmentBtn").addEventListener("click", () => {
+      document.getElementById("nonEquipmentChoices").hidden = false;
+    });
+    document.getElementById("markArrivalBtn").addEventListener("click", () => markPhoto(photoId, "arrival"));
+    document.getElementById("markDepartureBtn").addEventListener("click", () => markPhoto(photoId, "departure"));
+    document.getElementById("markSafetyBtn").addEventListener("click", () => markPhoto(photoId, "safety"));
+  }
+
+  // Export for inline onclick in generated photo grid HTML (IIFE scope).
+  window.openPhotoDialog = openPhotoDialog;
+
+  async function markPhoto(photoId, classification) {
     try {
-      if (mode === "safety") {
-        const result = await apiPost(`/draft/${draftId}/change-safety-photo`, { photo_id: photoId, draft_version: currentDraftVersion });
-        currentDraftVersion = result.draft_version || currentDraftVersion;
-        showStatus("安全照片已更新", "success");
-      } else if (mode === "service") {
-        const result = await apiPost(`/draft/${draftId}/add-service-photo`, { photo_id: photoId, draft_version: currentDraftVersion });
-        currentDraftVersion = result.draft_version || currentDraftVersion;
-        showStatus("已添加施工照片", "success");
-      }
+      const result = await apiPost(`/draft/${draftId}/photo/${encodeURIComponent(photoId)}/mark`, { classification, draft_version: currentDraftVersion });
+      currentDraftVersion = result.draft_version || currentDraftVersion;
+      document.getElementById("photoDialogOverlay")?.remove();
+      showStatus("照片已标记", "success");
       await loadPreview();
     } catch (err) {
       if (err.message !== "version_conflict") showStatus(`操作失败: ${err.message}`, "error");
+    }
+  }
+
+  async function savePhotoTime(photoId, timeStr) {
+    try {
+      const result = await apiPost(`/draft/${draftId}/photo/${encodeURIComponent(photoId)}/time`, { time: timeStr, draft_version: currentDraftVersion });
+      currentDraftVersion = result.draft_version || currentDraftVersion;
+      document.getElementById("photoDialogOverlay")?.remove();
+      showStatus("照片时间已保存", "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") showStatus(`操作失败: ${err.message}`, "error");
+    }
+  }
+
+  async function autoSelectPhotos() {
+    try {
+      const result = await apiPost(`/draft/${draftId}/photos/auto-select`, { draft_version: currentDraftVersion });
+      currentDraftVersion = result.draft_version || currentDraftVersion;
+      showStatus(`已自动筛选 ${result.selected_count || 0} 张施工照片`, "success");
+      await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") showStatus(`自动筛选失败: ${err.message}`, "error");
     }
   }
 
@@ -586,9 +675,9 @@
       document.getElementById("servicePhotosSection").innerHTML = `
         <p class="muted-line">未选择施工照片。</p>
         ${s.candidates_count ? `<p class="muted-line">候选照片: ${s.candidates_count} 张</p>` : ""}
-        ${canEdit ? `<button type="button" class="secondary" style="margin-top:0.5rem;" id="classifyPhotosBtn">AI 分类照片</button>` : ""}
+        ${canEdit ? `<div style="margin-top:0.5rem; display:flex; gap:0.5rem; flex-wrap:wrap;"><button type="button" class="primary" id="autoSelectPhotosBtn">自动筛选施工照片</button></div>` : ""}
       `;
-      document.getElementById("classifyPhotosBtn")?.addEventListener("click", classifyPhotos);
+      document.getElementById("autoSelectPhotosBtn")?.addEventListener("click", autoSelectPhotos);
       return;
     }
 
@@ -607,11 +696,11 @@
     });
     html += "</div>";
 
-    html += canEdit ? '<div style="margin-top:0.75rem;"><button type="button" class="secondary" id="classifyPhotosBtn">AI 分类照片</button></div>' : "";
+    html += canEdit ? '<div style="margin-top:0.75rem; display:flex; gap:0.5rem; flex-wrap:wrap;"><button type="button" class="primary" id="autoSelectPhotosBtn2">自动筛选施工照片</button></div>' : "";
     document.getElementById("servicePhotosSection").innerHTML = html;
         html += canEdit ? '<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="pickServiceBtn">手动添加施工照片</button></div><div id="servicePhotoGrid"></div>' : "";
     document.getElementById("servicePhotosSection").innerHTML = html;
-    document.getElementById("classifyPhotosBtn")?.addEventListener("click", classifyPhotos);
+    document.getElementById("autoSelectPhotosBtn2")?.addEventListener("click", autoSelectPhotos);
     document.getElementById("pickServiceBtn")?.addEventListener("click", () => togglePhotoGrid("servicePhotoGrid", "service"));
   }
 

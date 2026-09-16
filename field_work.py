@@ -265,7 +265,7 @@ def register_field_routes(app, api):
         photo_type = request.form.get('photo_type', 'legacy').strip()
         watermark_at = watermark.isoformat()
         batch_id = request.form.get('batch_id', '').strip()[:64]
-        if photo_type not in {'equipment', 'general', 'legacy'}:
+        if photo_type not in {'equipment', 'general', 'legacy', 'arrival', 'departure', 'safety'}:
             return jsonify(error='照片类型无效。'), 422
         no_equipment_number = request.form.get('no_equipment_number') == 'true'
         if has_device_metadata and ((not equipment_number and not no_equipment_number) or not equipment_session):
@@ -439,6 +439,7 @@ def register_field_routes(app, api):
         limited_rows = [dict(row) for row in rows[:2000]]
         for row in limited_rows:
             row['can_delete'] = can_delete and row['order_id'] in allowed_orders
+            row['photo_type_label'] = {'equipment': '设备', 'arrival': '进场', 'departure': '离场', 'safety': '自检', 'general': '非设备', 'legacy': '历史'}.get(row.get('photo_type'), row.get('photo_type') or '-')
             if row['can_delete']:
                 row['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': [row['id']]})
         return render_template('field_photo_query.html', rows=limited_rows, truncated=len(rows) > 2000,
@@ -450,10 +451,10 @@ def register_field_routes(app, api):
         rows = photo_rows()
         if len(rows) > 2000:
             return jsonify(error='结果超过 2000 条，请缩小日期或工单范围后导出。'), 422
-        headers = ['照片', '工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '已更换水泵保险编号', '施工员', '实际拍摄账号', '拍摄日期',
+        headers = ['照片', '照片类型', '工单', '客户', '站点', '铭牌号', '位置号', '集装箱号', '已更换水泵保险编号', '施工员', '实际拍摄账号', '拍摄日期',
                    '设备拍摄时间（UTC）', '水印时间', '水印来源', '归档时区', '上传时间', '纬度', '经度', '精度（米）',
                    '位置状态', '备注', '位置确认说明', '来源', '文件路径']
-        keys = ['order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
+        keys = ['photo_type', 'order_number', 'customer_name', 'site_name', 'equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
                 'technician_name', 'employee_name', 'capture_date', 'captured_at', 'watermark_at', 'watermark_source', 'timezone_name',
                 'received_at', 'latitude', 'longitude', 'accuracy', 'location_verified', 'note', 'location_note', 'source', 'relative_path']
         from openpyxl import Workbook
@@ -468,6 +469,8 @@ def register_field_routes(app, api):
         worksheet.column_dimensions['A'].width = 11.5
         for row in rows:
             values = [str(row[key] or '') for key in keys]
+            type_index = keys.index('photo_type')
+            values[type_index] = {'equipment': '设备', 'arrival': '进场', 'departure': '离场', 'safety': '自检', 'general': '非设备', 'legacy': '历史'}.get(values[type_index], values[type_index])
             source_index = keys.index('watermark_source')
             values[source_index] = '保留原图水印' if row['watermark_source'] == 'original' else '系统生成水印'
             location_index = keys.index('location_verified')

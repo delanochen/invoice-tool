@@ -155,7 +155,14 @@ class PreviewAggregationService:
             "photo_timeline_generated_at": draft_data.get("photo_timeline_generated_at"),
             "total_photos": len(draft_data.get("photo_candidates", [])),
             "photo_candidates": [
-                {"photo_id": p.get("photo_id"), "relative_path": p.get("relative_path")}
+                {
+                    "photo_id": p.get("photo_id"),
+                    "relative_path": p.get("relative_path"),
+                    "classification": p.get("classification"),
+                    "manual_classification": p.get("manual_classification"),
+                    "capture_time": p.get("capture_time"),
+                    "user_modified_time": p.get("user_modified_time"),
+                }
                 for p in draft_data.get("photo_candidates", [])
                 if isinstance(p, dict) and p.get("photo_id")
             ],

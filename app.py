@@ -10623,12 +10623,25 @@ def ai_daily_report_discover_photos(draft_id):
     )
     photo_metadata = PhotoMetadataService(shared_photos_root=SHARED_PHOTOS_DIR)
 
+    # Field-work manual photo_type is authoritative when present (equipment /
+    # arrival / departure / safety). Inherit it into discovered photo candidates.
+    try:
+        _fp_rows = db().execute("select relative_path, photo_type from field_photos").fetchall()
+        _fp_map = {r["relative_path"]: (r["photo_type"] or "") for r in _fp_rows}
+    except Exception:
+        _fp_map = {}
+
+    def _photo_type_lookup(relative_path: str):
+        value = _fp_map.get(relative_path)
+        return value or None
+
     try:
         result = svc.discover_photos_for_draft(
             draft_id=draft_id,
             photo_discovery_service=photo_discovery,
             photo_metadata_service=photo_metadata,
             expected_version=expected_version,
+            photo_type_lookup=_photo_type_lookup,
         )
     except DraftVersionConflict:
         return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
@@ -10838,6 +10851,115 @@ def ai_daily_report_remove_service_photo(draft_id):
     if not result.get("ok"):
         return jsonify(result), 400
         db().commit()
+    return jsonify(result)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/photos/auto-select")
+@login_required
+def ai_daily_report_auto_select_photos(draft_id):
+    """Auto-select up to 10 service (equipment) photos from candidates.
+
+    拍照功能: 自动筛选施工照片（设备照片），不到 10 张全选。
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权访问"}), 403
+    require_ai_daily_report_csrf()
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft"}), 403
+    try:
+        data = request.get_json(silent=True) or {}
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+    try:
+        result = svc.auto_select_service_photos(draft_id, expected_version=expected_version)
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+    if not result.get("ok"):
+        return jsonify(result), 400
+    db().commit()
+    return jsonify(result)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/photo/<string:photo_id>/mark")
+@login_required
+def ai_daily_report_mark_photo(draft_id, photo_id):
+    """Mark a non-equipment photo as arrival / departure / safety.
+
+    拍照功能: 非设备照片三选一标记。
+    进场/离场照片的时间 = 用户修改时间优先，拍照时间次之。
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权访问"}), 403
+    require_ai_daily_report_csrf()
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft"}), 403
+    try:
+        data = request.get_json(silent=True) or {}
+        classification = data.get("classification", "")
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+    try:
+        result = svc.mark_photo_classification(
+            draft_id, photo_id, classification, expected_version=expected_version
+        )
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+    if not result.get("ok"):
+        status = 422 if result.get("error") in ("invalid_photo_id", "invalid_classification") else 400
+        return jsonify(result), status
+    db().commit()
+    return jsonify(result)
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/photo/<string:photo_id>/time")
+@login_required
+def ai_daily_report_update_photo_time(draft_id, photo_id):
+    """Set a user-modified time on a photo.
+
+    拍照功能: 用户修改照片时间；若照片已标记为进场/离场，
+    则到达/离场时间立即用修改后的时间。
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权访问"}), 403
+    require_ai_daily_report_csrf()
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if not can_edit_ai_daily_report_draft(g.user, draft_row):
+        return jsonify({"ok": False, "error": "无权修改此 Draft"}), 403
+    try:
+        data = request.get_json(silent=True) or {}
+        time_str = data.get("time", "")
+        expected_version = data.get("draft_version")
+        if expected_version is not None:
+            expected_version = int(expected_version)
+    except (ValueError, TypeError):
+        return jsonify({"ok": False, "error": "无效请求"}), 400
+    try:
+        result = svc.update_photo_time(
+            draft_id, photo_id, time_str, expected_version=expected_version
+        )
+    except DraftVersionConflict:
+        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+    if not result.get("ok"):
+        status = 422 if result.get("error") in ("invalid_photo_id", "invalid_time_format", "time_must_match_report_date", "invalid_time_value") else 400
+        return jsonify(result), status
+    db().commit()
     return jsonify(result)
 
 
