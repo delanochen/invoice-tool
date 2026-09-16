@@ -34,7 +34,7 @@ class FieldWorkJsContractTest(unittest.TestCase):
     def test_02_non_equipment_hides_device_session(self):
         # The single rule above covers arrival/departure/safety; assert the hidden
         # toggle is the only visibility rule and non-equipment always hides.
-        self.assertEqual(self.code.count("$('deviceSession').hidden"), 2)  # startKind + completeBatch only
+        self.assertEqual(self.code.count("$('deviceSession').hidden"), 3)  # startKind + completeBatch + general menu
         self.assertIn("$('deviceSession').hidden = type !== 'equipment'", self.code)
 
     # 6-9. state cleanup on kind switch
@@ -111,6 +111,15 @@ class FieldWorkJsContractTest(unittest.TestCase):
     def test_13_non_equipment_button_highlight(self):
         self.assertIn("$('generalKind').classList.add('primary');", self.code)
         self.assertIn("$('equipmentKind').classList.remove('primary');", self.code)
+
+    # 15c. opening the non-equipment menu immediately hides the device area,
+    #      even before a second-level type is chosen (switch back from equipment).
+    def test_14_general_menu_immediately_hides_device_session(self):
+        general_branch = self.code.split("if (type === 'general') {")[1].split("return;")[0]
+        self.assertIn("$('generalKindChoices').hidden = false;", general_branch)
+        self.assertIn("$('generalKind').classList.add('primary');", general_branch)
+        self.assertIn("$('equipmentKind').classList.remove('primary');", general_branch)
+        self.assertIn("$('deviceSession').hidden = true;", general_branch)
 
 
 if __name__ == "__main__":

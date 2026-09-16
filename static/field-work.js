@@ -99,6 +99,7 @@
       $('generalKindChoices').hidden = false;
       $('generalKind').classList.add('primary');
       $('equipmentKind').classList.remove('primary');
+      $('deviceSession').hidden = true;  // 展开非设备菜单：立即隐藏设备区域（避免从设备照片切回时残留显示）
       return;
     }
     $('generalKindChoices').hidden = true;
