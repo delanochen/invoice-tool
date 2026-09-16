@@ -761,6 +761,23 @@
     $('ledgerPhotoTitle').textContent = photo.order_number+' · '+photo.site_name;
     $('ledgerPhotoCounter').textContent = `${ledgerPhotoIndex + 1} / ${ledgerPhotos.length}`;
     $('ledgerPhotoDetail').textContent = [photo.equipment_number ? '铭牌号：'+photo.equipment_number : '', photo.position_number ? '位置号：'+photo.position_number : '', photo.container_number ? '集装箱号：'+photo.container_number : '', '拍摄：'+window.formatPhotoTime(photo.captured_at,photo.timezone_name), '施工员：'+(photo.technician_name||photo.employee_name), photo.note||''].filter(Boolean).map(fieldText).join(' · ');
+    const typeSelect = $('ledgerPhotoTypeSelect');
+    typeSelect.replaceChildren();
+    const currentType = photo.photo_type;
+    if (!['equipment','arrival','departure','safety'].includes(currentType)) {
+      const placeholder = document.createElement('option');
+      placeholder.value = ''; placeholder.disabled = true; placeholder.selected = true;
+      placeholder.textContent = fieldText(photoTypeLabel(currentType) || '未分类');
+      typeSelect.append(placeholder);
+    }
+    ['equipment','arrival','departure','safety'].forEach(t => {
+      const option = document.createElement('option');
+      option.value = t; option.textContent = fieldText(photoTypeLabel(t));
+      if (t === currentType) option.selected = true;
+      typeSelect.append(option);
+    });
+    $('ledgerPhotoTypeEdit').hidden = false;
+    $('saveLedgerPhotoType').disabled = false;
     $('previousLedgerPhoto').disabled = ledgerPhotos.length < 2; $('nextLedgerPhoto').disabled = ledgerPhotos.length < 2;
     if (!$('ledgerPhotoDialog').open) $('ledgerPhotoDialog').showModal();
   }
@@ -785,6 +802,26 @@
   });
   $('retryRecognition').addEventListener('click', async () => { $('recognitionDialog').close(); await openCamera(true); if (stream) notice('请将13位铭牌号对准取景框，系统将自动识别。'); });
   $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('equipmentNumber').focus(); });
+  $('saveLedgerPhotoType').addEventListener('click', async () => {
+    const photo = ledgerPhotos[ledgerPhotoIndex];
+    const select = $('ledgerPhotoTypeSelect');
+    const value = select.value;
+    if (!photo || !photo.id || !value) return;
+    const button = $('saveLedgerPhotoType'); button.disabled = true;
+    try {
+      const payload = {};
+      payload.photo_type = value;
+      const response = await requestAPI('/api/field/photos/' + photo.id + '/type', {method:'POST', headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf}, body:JSON.stringify(payload)});
+      if (response.status === 401 || response.status === 403) { notice('没有权限修改照片类型。', true); return; }
+      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '保存失败，请稍后重试。'); }
+      const data = await response.json();
+      photo.photo_type = data.photo_type;
+      notice('照片类型已更新为「' + (data.photo_type_label || photoTypeLabel(data.photo_type)) + '」。');
+      openLedgerPhoto(ledgerPhotoIndex);
+      loadLedger();
+    } catch (error) { notice(error.message || '保存失败，请稍后重试。', true); }
+    finally { button.disabled = false; }
+  });
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; $('equipmentNumber').required = !$('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请点击“打开相机”确认。'); });
