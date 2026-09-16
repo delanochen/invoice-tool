@@ -30,8 +30,6 @@ PHOTO_TYPE_LABELS = {
 }
 EDITABLE_PHOTO_TYPES = ('equipment', 'arrival', 'departure', 'safety')
 
-# 水印时间调整密码（硬编码，方便频繁修改；改这里后重新部署即生效）
-WATERMARK_TIME_PASSWORD = '889966'
 
 
 def init_field_schema(connection):
@@ -200,8 +198,11 @@ def register_field_routes(app, api):
     @access
     def verify_watermark_password():
         check_write()
+        # Verify against the password configured in 系统设置 (company settings),
+        # never a hardcoded constant. An empty configured value is always invalid.
+        configured = api['get_setting']('field_watermark_time_password', '')
         supplied = request.get_json(silent=True) or {}
-        valid = api['secrets'].compare_digest(str(supplied.get('password', '')), WATERMARK_TIME_PASSWORD)
+        valid = bool(configured) and api['secrets'].compare_digest(str(supplied.get('password', '')), configured)
         return jsonify(ok=valid), (200 if valid else 403)
 
     @app.post('/api/field/photos')
