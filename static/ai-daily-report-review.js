@@ -56,6 +56,10 @@
     if (resp.status === 409) {
       const data = await resp.json().catch(() => ({}));
       showConflict(data);
+      // Re-sync with the server's latest draft version so the next attempt
+      // succeeds instead of looping on silent 409s.
+      try { await loadPreview(); } catch (_e) { /* ignore */ }
+      showStatus("数据已被其他操作更新，页面已刷新，请重试", "error");
       throw new Error("version_conflict");
     }
     if (!resp.ok) {
@@ -64,7 +68,14 @@
       err.data = data;
       throw err;
     }
-    return resp.json();
+    const data = await resp.json();
+    // Unify the draft-version variables: every mutation response that carries
+    // draft_version must update both, or later calls 409 (stale version).
+    if (data && typeof data.draft_version === "number") {
+      currentDraftVersion = data.draft_version;
+      if (currentPreview) currentPreview.draft_version = data.draft_version;
+    }
+    return data;
   }
 
   // ─── Load Preview ───────────────────────────────────────────────────────
@@ -245,7 +256,7 @@
   }
 
   async function addWorker(userId) {
-    const draftVersion = currentPreview.draft_version;
+    const draftVersion = currentDraftVersion;
     try {
       const resp = await fetch(`/api/ai/daily-report/draft/${draftId}/add-worker`, {
         method: "POST",
@@ -274,7 +285,7 @@
     const w = currentPreview.workers.find((x) => x.user_id === userId);
     if (!w) return;
     if (!window.confirm(`确定从本日报移除 ${w.name || "该员工"}？`)) return;
-    const draftVersion = currentPreview.draft_version;
+    const draftVersion = currentDraftVersion;
     try {
       const resp = await fetch(`/api/ai/daily-report/draft/${draftId}/remove-worker`, {
         method: "POST",
@@ -683,28 +694,26 @@
     }
   }
 
-  function acknowledgeWarning(issueKey) {
-    const draftId = window.aiDailyReportDraftId;
-    const draftVersion = currentPreview.draft_version;
-    fetch(`/api/ai/daily-report/draft/${draftId}/acknowledge`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": window.csrfToken || "",
-      },
-      body: JSON.stringify({ issue_key: issueKey, draft_version: draftVersion }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.ok) {
-          currentPreview.validation_result = data.validation;
-          currentPreview.draft_version = data.draft_version;
-          renderValidation();
-        } else {
-          alert("确认失败: " + (data.error || "未知错误"));
-        }
-      })
-      .catch((err) => alert("请求失败: " + err));
+  async function acknowledgeWarning(issueKey) {
+    const draftVersion = currentDraftVersion;
+    try {
+      const data = await apiPost(`/draft/${draftId}/acknowledge`, {
+        issue_key: issueKey,
+        draft_version: draftVersion,
+      });
+      if (data.ok) {
+        currentPreview.validation_result = data.validation;
+        currentDraftVersion = data.draft_version;
+        currentPreview.draft_version = data.draft_version;
+        renderValidation();
+      } else {
+        showStatus("确认失败: " + (data.error || "未知错误"), "error");
+      }
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus("确认失败: " + err.message, "error");
+      }
+    }
   }
 
   function renderProvenance() {
