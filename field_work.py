@@ -20,9 +20,6 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
 
-# Business photo types stored in field_photos.photo_type and their UI labels.
-# New photos may only be equipment / arrival / departure / safety; general and
-# legacy remain read-compatible for historical data (never written by new code).
 PHOTO_TYPE_LABELS = {
     'equipment': '设备',
     'arrival': '进场',
@@ -32,6 +29,9 @@ PHOTO_TYPE_LABELS = {
     'legacy': '历史',
 }
 EDITABLE_PHOTO_TYPES = ('equipment', 'arrival', 'departure', 'safety')
+
+# 水印时间调整密码（硬编码，方便频繁修改；改这里后重新部署即生效）
+WATERMARK_TIME_PASSWORD = '889966'
 
 
 def init_field_schema(connection):
@@ -62,7 +62,6 @@ def init_field_schema(connection):
         connection.execute('alter table field_photos add column technician_user_id integer')
     if 'location_verified' not in columns:
         connection.execute('alter table field_photos add column location_verified integer not null default 1')
-    # Normalize historical metadata as well as newly uploaded device identifiers.
     for row in connection.execute('select id, position_number, container_number from field_photos').fetchall():
         position = (row[1] or '').strip().upper()
         container = (row[2] or '').strip().upper()
@@ -110,7 +109,6 @@ def register_field_routes(app, api):
             where ''' + ' and '.join(clauses) + ' order by service_orders.id desc', params).fetchall()
 
     def photo_clauses():
-        # The photo register is shared among all authenticated Field Work users.
         return [], []
 
     def photo_rows():
@@ -167,7 +165,6 @@ def register_field_routes(app, api):
 
     @app.get('/field/')
     def field_work():
-        # Public, data-free shell. Employee data is fetched only after authentication.
         return render_template('field_work.html')
 
     @app.get('/field/manifest.webmanifest')
@@ -203,9 +200,8 @@ def register_field_routes(app, api):
     @access
     def verify_watermark_password():
         check_write()
-        configured = api['get_setting']('field_watermark_time_password', '')
         supplied = request.get_json(silent=True) or {}
-        valid = bool(configured) and api['secrets'].compare_digest(str(supplied.get('password', '')), configured)
+        valid = api['secrets'].compare_digest(str(supplied.get('password', '')), WATERMARK_TIME_PASSWORD)
         return jsonify(ok=valid), (200 if valid else 403)
 
     @app.post('/api/field/photos')
@@ -214,11 +210,7 @@ def register_field_routes(app, api):
         check_write()
         if not api['has_action_permission']('service_reports', 'create'):
             abort(403)
-        # The authenticated server session is authoritative. A stale PWA draft
-        # may carry an old local user id after iOS restores or refreshes the app.
-        # Never attribute an upload to that client-supplied value.
         if not request.form or 'photo' not in request.files:
-            # Log transport shape only, never photo bytes, names, tokens or notes.
             app.logger.warning(
                 'field_upload_parse_failed mime=%s length=%s transfer=%s terminated=%s fields=%d files=%d',
                 request.mimetype, request.content_length,
@@ -304,9 +296,6 @@ def register_field_routes(app, api):
         if re.fullmatch(r'[0-9a-f]{32}', raw_key):
             key = raw_key
         else:
-            # Repair legacy or partially restored PWA identifiers deterministically.
-            # Including the content hash keeps different selected files distinct,
-            # while the same retry resolves to the same id and remains idempotent.
             identity = '|'.join((str(g.user['id']), raw_key, str(order_id), captured.isoformat(),
                                  batch_id, photo.filename or '', digest))
             key = hashlib.sha256(identity.encode('utf-8')).hexdigest()[:32]
@@ -320,7 +309,6 @@ def register_field_routes(app, api):
         db = api['db']()
         capture_date_source = 'camera'
         if source == 'camera':
-            # The displayed watermark determines the archive day; retain actual capture time for audit.
             local = watermark.astimezone(ZoneInfo(tz_name))
             if watermark != captured:
                 capture_date_source = 'watermark'
@@ -340,7 +328,6 @@ def register_field_routes(app, api):
                 return jsonify(error='请选择照片的拍摄日期。', needs_capture_date=True, date_candidates=candidates), 422
             captured = local
             watermark_at = local.isoformat()
-        # Serialize retries before writing files: timeout/lost responses never duplicate a photo.
         db.execute('begin immediate')
         try:
             previous = db.execute('select * from field_photos where user_id = ? and client_id = ?', (g.user['id'], key)).fetchone()
@@ -479,8 +466,6 @@ def register_field_routes(app, api):
         worksheet = workbook.active
         worksheet.title = '工单照片台账'
         worksheet.append(headers)
-        # Thumbnail column: keep the cell roughly square (60pt row height ~ 80px,
-        # width 11.5 ~ 80px) so the anchored image fills the cell without distortion.
         worksheet.column_dimensions['A'].width = 11.5
         for row in rows:
             values = [str(row[key] or '') for key in keys]
@@ -497,8 +482,6 @@ def register_field_routes(app, api):
                 image_path = photo_file(row)
             image = ExcelImage(str(image_path))
             image_row = worksheet.max_row
-            # TwoCellAnchor with editAs='twoCell': the thumbnail is pinned to the
-            # cell and resizes together with the row/column ('move and size with cells').
             marker_from = AnchorMarker(col=0, colOff=0, row=image_row - 1, rowOff=0)
             marker_to = AnchorMarker(col=1, colOff=0, row=image_row, rowOff=0)
             anchor = TwoCellAnchor(_from=marker_from, to=marker_to)
@@ -521,7 +504,6 @@ def register_field_routes(app, api):
             return jsonify(error='结果超过 2000 张，请缩小日期或工单范围后下载。'), 422
         if not rows:
             return jsonify(error='没有符合条件的照片。'), 422
-        # Validate every path before returning a ZIP; never silently omit a photo.
         paths = [(row, photo_file(row)) for row in rows]
         buffer = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode='w+b')
         try:
@@ -747,13 +729,6 @@ def register_field_routes(app, api):
     @app.post('/api/field/photos/<int:photo_id>/type')
     @access
     def update_field_photo_type(photo_id):
-        """Update the business photo type of a ledger photo.
-
-        Same permission level as photo upload: anyone who can upload field
-        photos may correct the business type in the ledger. Only the four
-        current types are accepted; general/legacy stay read-compatible but
-        are never written back.
-        """
         check_write()
         if not api['has_action_permission']('service_reports', 'create'):
             abort(403)
