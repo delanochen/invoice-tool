@@ -7,6 +7,27 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 ACTION_VERSION = 1
 
+
+def collect_safety_photos(draft_data):
+    """Return selected safety PhotoAnalysis entries (multi or legacy single).
+
+    Accepts either a parsed JSON dict (as stored in draft_data) or a
+    DraftData pydantic model. Prefers the new selected_safety_photos list and
+    falls back to the legacy singular selected_safety_photo for historical drafts.
+    """
+    if isinstance(draft_data, dict):
+        lst = draft_data.get("selected_safety_photos") or []
+        if not lst:
+            single = draft_data.get("selected_safety_photo")
+            lst = [single] if single else []
+    else:
+        lst = list(getattr(draft_data, "selected_safety_photos", None) or [])
+        if not lst:
+            single = getattr(draft_data, "selected_safety_photo", None)
+            lst = [single] if single else []
+    return [p for p in lst if p and (p.get("photo_id") if isinstance(p, dict) else getattr(p, "photo_id", None))]
+
+
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_PATTERN = re.compile(r"^\d{2}:\d{2}$")
 
@@ -195,6 +216,9 @@ class DailyReportDraft(BaseModel):
     # Phase 5: Vision classification results
     photo_analysis_results: List[PhotoAnalysis] = Field(default_factory=list)
     safety_photo_candidates: List[PhotoAnalysis] = Field(default_factory=list)
+    # Multi-photo safety self-check selection (new flow). selected_safety_photo
+    # (singular) remains for backward-compatible reads of historical drafts.
+    selected_safety_photos: List[PhotoAnalysis] = Field(default_factory=list)
     selected_safety_photo: Optional[PhotoAnalysis] = None
     selected_safety_photo_source: Optional[str] = None  # ai_selected / user_selected
     service_photo_candidates: List[PhotoAnalysis] = Field(default_factory=list)

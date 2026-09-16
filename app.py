@@ -11040,43 +11040,52 @@ def ai_daily_report_confirm(draft_id):
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/cancel")
 @login_required
 def ai_daily_report_cancel(draft_id):
-    """Cancel (soft-delete) a draft. Records cancelled_by, cancelled_at.
+    """Physically delete a draft (hard delete, not soft cancel).
 
-    Does NOT physically delete Draft. Keeps audit trail.
+    Removes the draft plus cascaded actions / manifests (with their
+    sources, assets, roles) and formal commits. Cleans manifest staging
+    directories first. Saved (formally committed) drafts cannot be deleted.
     Requires CSRF token.
     """
     if not is_internal_user():
         return jsonify({"ok": False, "error": "无权限"}), 403
+    require_ai_daily_report_csrf()
 
     svc = _ai_daily_report_service()
     draft_row = svc.get_draft(draft_id)
     if not draft_row:
         return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if draft_row["status"] == "saved":
+        return jsonify({"ok": False, "error": "已正式保存的日报不能删除"}), 409
 
-    # Note: cancel is a Phase 1 API called by AI Assistant,
-    # so authorization is not enforced here to avoid breaking existing integrations.
-    # Phase 6 new mutation APIs do enforce authorization.
     user = g.user
     # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
     if hasattr(user, "keys"):
         user = dict(user)
     user_id = user.get("id", "")
 
-    # Record audit
-    draft = svc.parse_draft_data(draft_row)
-    draft.cancelled_by = user_id
-    draft.cancelled_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    svc.save_draft(draft_id, draft)
+    # Clean manifest staging directories before the rows disappear.
+    manifest_rows = db().execute(
+        "select manifest_id from ai_daily_report_attachment_manifests where draft_id = ?",
+        (draft_id,),
+    ).fetchall()
+    if manifest_rows:
+        try:
+            msvc = _attachment_manifest_service()
+            for row in manifest_rows:
+                msvc._delete_staging_dir(draft_id, row[0])
+        except Exception:
+            pass
 
-    svc.delete_draft(draft_id)  # soft-delete = mark cancelled
+    svc.delete_draft(draft_id)  # physical delete (cascades child rows)
     db().commit()
     return jsonify({
         "ok": True,
         "draft_id": draft_id,
-        "status": "cancelled",
-        "cancelled_by": user_id,
-        "cancelled_at": draft.cancelled_at,
-        "message": "Draft 已取消（保留审计记录，未物理删除）",
+        "status": "deleted",
+        "deleted_by": user_id,
+        "deleted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "message": "Draft 已删除",
     })
 
 

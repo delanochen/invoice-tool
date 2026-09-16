@@ -114,9 +114,9 @@
     draftsContainer.innerHTML = html;
   }
 
-  // Soft-delete a temporary draft from the Review Center list (cancel API).
+  // Hard-delete a temporary draft from the Review Center list (cancel API).
   async function handleDeleteDraft(id, label) {
-    if (!confirm(`确定删除「${label}」的临时日报吗？删除后标记为已取消并保留审计记录，不可再编辑。`)) return;
+    if (!confirm(`确定删除「${label}」的临时日报吗？删除后不可恢复。`)) return;
     const headers = { "Content-Type": "application/json" };
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
     try {

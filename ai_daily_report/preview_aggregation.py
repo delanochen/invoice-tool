@@ -16,6 +16,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from .schemas import collect_safety_photos
 
 logger = logging.getLogger(__name__)
 
@@ -179,13 +180,23 @@ class PreviewAggregationService:
     # ─── Safety Photo ──────────────────────────────────────────────────────
 
     def _build_safety_photo(self, draft_data) -> Dict[str, Any]:
-        selected = draft_data.get("selected_safety_photo")
+        selected = collect_safety_photos(draft_data)
         candidates = draft_data.get("safety_photo_candidates", [])
         return {
-            "selected_photo_id": selected.get("photo_id") if isinstance(selected, dict) else None,
-            "selected_source": draft_data.get("selected_safety_photo_source") or (selected.get("selected_source") if isinstance(selected, dict) else None),
-            "confidence": selected.get("confidence") if isinstance(selected, dict) else None,
-            "sub_category": selected.get("sub_category") if isinstance(selected, dict) else None,
+            "selected_count": len(selected),
+            "selected_photo_ids": [s.get("photo_id") for s in selected if isinstance(s, dict)],
+            "selected_photos": [
+                {
+                    "photo_id": s.get("photo_id"),
+                    "confidence": s.get("confidence"),
+                    "sub_category": s.get("sub_category"),
+                    "selected_source": s.get("selected_source"),
+                } for s in selected if isinstance(s, dict)
+            ],
+            "selected_photo_id": selected[0].get("photo_id") if selected else None,
+            "selected_source": draft_data.get("selected_safety_photo_source") or (selected[0].get("selected_source") if selected else None),
+            "confidence": selected[0].get("confidence") if selected else None,
+            "sub_category": selected[0].get("sub_category") if selected else None,
             "candidates_count": len(candidates),
             "candidates": [{"photo_id": c.get("photo_id"), "confidence": c.get("confidence")} for c in candidates if isinstance(c, dict)],
             "provenance": "ai_selected" if draft_data.get("selected_safety_photo_source") == "ai_selected" else "user_selected" if selected else "none",

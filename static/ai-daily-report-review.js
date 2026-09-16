@@ -606,7 +606,7 @@
       const result = await apiPost(`/draft/${draftId}/photo/${encodeURIComponent(photoId)}/mark`, { classification, draft_version: currentDraftVersion });
       currentDraftVersion = result.draft_version || currentDraftVersion;
       document.getElementById("photoDialogOverlay")?.remove();
-      showStatus("照片已标记", "success");
+      showStatus(result.removed ? "已取消自检标记" : "照片已标记", "success");
       await loadPreview();
     } catch (err) {
       if (err.message !== "version_conflict") showStatus(`操作失败: ${err.message}`, "error");
@@ -638,9 +638,13 @@
 
   function renderSafetyPhoto() {
     const s = currentPreview.safety_photo || {};
+    let selected = s.selected_photos || [];
+    if (!selected.length && s.selected_photo_id) {
+      selected = [{photo_id: s.selected_photo_id, confidence: s.confidence, sub_category: s.sub_category, selected_source: s.selected_source}];
+    }
     const canEdit = currentPreview.status === "draft";
 
-    if (!s.selected_photo_id) {
+    if (!selected.length) {
       document.getElementById("safetyPhotoSection").innerHTML = `
         <p class="muted-line">未选择安全自检照片。</p>
         ${s.candidates_count ? `<p class="muted-line">候选照片 ${s.candidates_count} 张</p>` : ""}
@@ -651,18 +655,24 @@
     }
 
     document.getElementById("safetyPhotoSection").innerHTML = `
-      <div style="display:flex; gap:1rem; align-items:flex-start;">
-        <img src="/api/ai/daily-report/draft/${draftId}/photo/${s.selected_photo_id}" alt="Safety Photo" style="max-width:300px; border-radius:4px; cursor:pointer;" onclick="window.openImagePreview(this.src)">
-        <div>
-          <p><strong>来源:</strong> ${s.selected_source || "unknown"}</p>
-          <p><strong>置信度:</strong> ${s.confidence != null ? (s.confidence * 100).toFixed(1) + "%" : "-"}</p>
-          <p><strong>分类:</strong> ${s.sub_category || "-"}</p>
-          <p><strong>候选数:</strong> ${s.candidates_count}</p>
-        </div>
+      <div style="display:flex; flex-direction:column; gap:0.75rem;">
+        ${selected.map((sp, i) => `
+          <div style="display:flex; gap:1rem; align-items:flex-start; border:1px solid #e5e7eb; border-radius:6px; padding:0.5rem;">
+            <img src="/api/ai/daily-report/draft/${draftId}/photo/${encodeURIComponent(sp.photo_id)}" alt="Safety Photo" style="max-width:180px; border-radius:4px; cursor:pointer;" onclick="window.openImagePreview(this.src)">
+            <div style="flex:1;">
+              <p><strong>自检照片 ${i + 1} / ${selected.length}</strong></p>
+              <p><strong>来源:</strong> ${sp.selected_source || s.selected_source || "unknown"}</p>
+              <p><strong>置信度:</strong> ${sp.confidence != null ? (sp.confidence * 100).toFixed(1) + "%" : "-"}</p>
+              ${canEdit ? `<button type="button" class="secondary" style="margin-top:0.25rem;" data-remove-safety="${encodeURIComponent(sp.photo_id)}">取消自检</button>` : ""}
+            </div>
+          </div>`).join("")}
       </div>
-      ${canEdit ? `<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="changeSafetyBtn">更换安全照片</button></div><div id="safetyPhotoGrid"></div>` : ""}
+      ${canEdit ? `<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="addSafetyBtn">添加自检照片</button></div><div id="safetyPhotoGrid"></div>` : ""}
     `;
-    document.getElementById("changeSafetyBtn")?.addEventListener("click", () => togglePhotoGrid("safetyPhotoGrid", "safety"));
+    document.getElementById("addSafetyBtn")?.addEventListener("click", () => togglePhotoGrid("safetyPhotoGrid", "safety"));
+    document.querySelectorAll("[data-remove-safety]").forEach(btn => {
+      btn.addEventListener("click", () => markPhoto(decodeURIComponent(btn.getAttribute("data-remove-safety")), "safety"));
+    });
   }
 
 
@@ -889,10 +899,10 @@
 
     if (status === "draft") {
       html += `<button type="button" class="primary" id="confirmBtn">确认 Draft</button>`;
-      html += `<button type="button" class="secondary" id="cancelBtn">取消 Draft</button>`;
+      html += `<button type="button" class="secondary" id="cancelBtn">删除 Draft</button>`;
     } else if (status === "confirmed") {
       html += `<button type="button" class="secondary" id="reopenBtn">重新打开</button>`;
-      html += `<button type="button" class="secondary" id="cancelBtn">取消 Draft</button>`;
+      html += `<button type="button" class="secondary" id="cancelBtn">删除 Draft</button>`;
     }
 
     actionsEl.innerHTML = html;
@@ -933,14 +943,14 @@
   }
 
   async function handleCancel() {
-    if (!confirm("确定要取消此 Draft 吗？取消后保留审计记录，但 Draft 将变为只读。")) return;
+    if (!confirm("确定要删除此 Draft 吗？删除后不可恢复。")) return;
     try {
       await apiPost(`/draft/${draftId}/cancel`, { draft_version: currentDraftVersion });
-      showStatus("Draft 已取消", "success");
+      showStatus("Draft 已删除", "success");
       await loadPreview();
     } catch (err) {
       if (err.message !== "version_conflict") {
-        showStatus(`取消失败: ${err.message}`, "error");
+        showStatus(`删除失败: ${err.message}`, "error");
       }
     }
   }

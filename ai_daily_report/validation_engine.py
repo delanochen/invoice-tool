@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from .schemas import collect_safety_photos
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1071,7 +1072,7 @@ class ValidationEngine:
 
     def _check_safety_photo(self, d: Dict[str, Any]) -> List[ValidationIssue]:
         issues = []
-        selected = d.get("selected_safety_photo")
+        selected = collect_safety_photos(d)
         # SAFE-001: no safety photo
         if not selected:
             issues.append(ValidationIssue(
@@ -1080,35 +1081,44 @@ class ValidationEngine:
                 subject_type=SUBJECT_DRAFT, subject_id="safety_photo",
                 relevant_values={"has_selected_safety_photo": False},
             ))
-        else:
-            if isinstance(selected, dict):
-                pid = selected.get("photo_id", "unknown")
-                # SAFE-002: verification required (per photo)
-                if selected.get("verification_required") or d.get("safety_photo_verification_required"):
-                    issues.append(ValidationIssue(
-                        "SAFE-002", SEVERITY_WARNING,
-                        "安全自检照片需要人工确认",
-                        subject_type=SUBJECT_PHOTO, subject_id=pid,
-                        relevant_values={"photo_id": pid, "verification_required": True},
-                    ))
-                # SAFE-003: low confidence
-                conf = selected.get("confidence", 0)
-                if conf and conf < 0.5:
-                    issues.append(ValidationIssue(
-                        "SAFE-003", SEVERITY_WARNING,
-                        f"安全自检照片置信度较低: {conf}",
-                        subject_type=SUBJECT_PHOTO, subject_id=pid,
-                        relevant_values={"photo_id": pid, "confidence": conf},
-                    ))
-                # SAFE-004: not in candidates
-                candidate_ids = {p.get("photo_id") for p in d.get("photo_candidates", []) if isinstance(p, dict)}
-                if pid and pid not in candidate_ids:
-                    issues.append(ValidationIssue(
-                        "SAFE-004", SEVERITY_WARNING,
-                        "安全自检照片不在当前照片候选列表中",
-                        subject_type=SUBJECT_PHOTO, subject_id=pid,
-                        relevant_values={"photo_id": pid},
-                    ))
+            return issues
+        if d.get("safety_photo_verification_required"):
+            issues.append(ValidationIssue(
+                "SAFE-002", SEVERITY_WARNING,
+                "安全自检照片需要人工确认",
+                subject_type=SUBJECT_DRAFT, subject_id="safety_photos",
+                relevant_values={"verification_required": True},
+            ))
+        candidate_ids = {p.get("photo_id") for p in d.get("photo_candidates", []) if isinstance(p, dict)}
+        for one in selected:
+            if not isinstance(one, dict):
+                continue
+            pid = one.get("photo_id", "unknown")
+            # SAFE-002: verification required (per photo)
+            if one.get("verification_required"):
+                issues.append(ValidationIssue(
+                    "SAFE-002", SEVERITY_WARNING,
+                    "安全自检照片需要人工确认",
+                    subject_type=SUBJECT_PHOTO, subject_id=pid,
+                    relevant_values={"photo_id": pid, "verification_required": True},
+                ))
+            # SAFE-003: low confidence
+            conf = one.get("confidence", 0)
+            if conf and conf < 0.5:
+                issues.append(ValidationIssue(
+                    "SAFE-003", SEVERITY_WARNING,
+                    f"安全自检照片置信度较低: {conf}",
+                    subject_type=SUBJECT_PHOTO, subject_id=pid,
+                    relevant_values={"photo_id": pid, "confidence": conf},
+                ))
+            # SAFE-004: not in candidates
+            if pid and pid not in candidate_ids:
+                issues.append(ValidationIssue(
+                    "SAFE-004", SEVERITY_WARNING,
+                    "安全自检照片不在当前照片候选列表中",
+                    subject_type=SUBJECT_PHOTO, subject_id=pid,
+                    relevant_values={"photo_id": pid},
+                ))
         return issues
 
     # ─── 13. Service Photos (SVCF) ───────────────────────────────────────
@@ -1403,13 +1413,12 @@ class ValidationEngine:
             if pa.get("verification_required"):
                 pid = pa.get("photo_id", "unknown")
                 # Check if this photo is selected as safety or service (those have their own rules)
-                selected_safety = d.get("selected_safety_photo")
-                safety_pid = selected_safety.get("photo_id") if isinstance(selected_safety, dict) else None
+                safety_pids = {s.get("photo_id") for s in collect_safety_photos(d)}
                 service_pids = {
                     sp.get("photo_id") for sp in d.get("selected_service_photos", [])
                     if isinstance(sp, dict)
                 }
-                if pid != safety_pid and pid not in service_pids:
+                if pid not in safety_pids and pid not in service_pids:
                     issues.append(ValidationIssue(
                         "VISN-004", SEVERITY_WARNING,
                         f"照片 {pid} 的 AI 分析结果需要确认",

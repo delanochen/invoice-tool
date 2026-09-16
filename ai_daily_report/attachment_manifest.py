@@ -41,6 +41,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from .schemas import collect_safety_photos
 
 logger = logging.getLogger(__name__)
 
@@ -349,9 +350,8 @@ class AttachmentManifestService:
                     primary = sources[identity]
             return primary
 
-        # Safety photo (role: safety_photo, category self_check)
-        safety = draft_data.get("selected_safety_photo")
-        if isinstance(safety, dict) and safety.get("photo_id"):
+        # Safety photos (role: safety_photo, category self_check, multi allowed)
+        for idx, safety in enumerate(collect_safety_photos(draft_data)):
             src = _ensure_photo_source(safety["photo_id"], materialize=True)
             src["roles"].append({
                 "source_identity": src["source_identity"],
@@ -360,7 +360,7 @@ class AttachmentManifestService:
                 "visibility": "client",
                 "purpose": "client_report",
                 "materialization_required": 1,
-                "sort_order": 0,
+                "sort_order": idx,
             })
 
         # Service photos (role: service_photo, category site, max 10)

@@ -23,6 +23,8 @@
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
     try {
       if (options.body instanceof FormData) {
+        // Materialize multipart bytes once, including their matching boundary.
+        // This avoids relying on a restored iOS File during fetch serialization.
         const encoded = new Response(options.body);
         const headers = new Headers(options.headers);
         headers.set('Content-Type', encoded.headers.get('Content-Type'));
@@ -84,21 +86,31 @@
   }
 
   function clearDeviceInputs() {
+    // 新一组/换类型：清空设备输入框，避免残留上一张照片的设备信息。
     $('equipmentNumber').value = ''; $('positionNumber').value = ''; $('containerNumber').value = '';
     $('noEquipmentNumber').checked = false; $('equipmentNumber').disabled = false; $('equipmentNumber').required = true;
   }
 
   const KIND_LABEL = {equipment:'设备',arrival:'进场',departure:'离场',safety:'自检',general:'非设备',legacy:'历史'};
   function photoTypeLabel(t){return KIND_LABEL[t]||t||'-';}
+  function setKindChoiceActive(type) {
+    $('arrivalKind').classList.toggle('primary',type==='arrival');
+    $('departureKind').classList.toggle('primary',type==='departure');
+    $('safetyKind').classList.toggle('primary',type==='safety');
+  }
   function chooseKind(type) {
+    // 非设备照片按钮：先展开 进场/离场/自检 三选一，不直接开始本组。
     if (type === 'general') {
       $('generalKindChoices').hidden = false;
+      setKindChoiceActive(null);
       $('generalKind').classList.add('primary');
       $('equipmentKind').classList.remove('primary');
-      $('deviceSession').hidden = true;
+      $('deviceSession').hidden = true;  // 展开非设备菜单：立即隐藏设备区域（避免从设备照片切回时残留显示）
       return;
     }
-    $('generalKindChoices').hidden = true;
+    // 选中 进场/离场/自检 后保留二级菜单，便于查看/切换；切回设备照片时才收起。
+    $('generalKindChoices').hidden = type === 'equipment';
+    setKindChoiceActive(type);
     if (batch?.type && batch.type !== type) {
       queued(batch.id).then(items => { if (items.length) notice('当前组已有照片，请先完成上传或删除后再更换类型。',true); else startKind(type); });
     } else startKind(type);
@@ -108,50 +120,49 @@
     batch ||= {id:key(), type, actual_start:Date.now(), watermark_start:null};
     const typeChanged = previousType && previousType !== type;
     batch.type = type;
-    if (typeChanged) clearDeviceInputs();
+    if (typeChanged) clearDeviceInputs();  // 换组：不残留上一组的设备信息
     $(type === 'equipment' ? 'deviceNoteSlot' : 'generalNoteSlot').append($('captureNote'));
-    $('deviceSession').hidden = type !== 'equipment';
+    $('deviceSession').hidden = type !== 'equipment';  // 非设备照片（进场/离场/自检）不填写设备信息，隐藏设备区域
+    $('generalKindChoices').hidden = type === 'equipment';
+    setKindChoiceActive(type);
     $('timeSettings').hidden = false;
     const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：不填写设备信息。'};
     setFieldText('kindStatus', KIND_TEXT[type] || KIND_TEXT.general);
     $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type!=='equipment');
-    if (type !== 'equipment') deviceSession = null;
+    if (type !== 'equipment') deviceSession = null;  // 非设备照片不建立设备 session
     else if (previousType !== 'equipment') resetDevice();
     renderQueue();
   }
   async function verifyTimePassword() {
     const response = await requestAPI('/api/field/verify-watermark-password',{method:'POST',headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf},body:JSON.stringify({password:$('watermarkPassword').value})});
     timeAuthorized = response.ok;
-    if (timeAuthorized) {
-      $('watermarkDialogStatus').textContent = '';
-      $('watermarkPasswordStep').hidden = true;
-      $('watermarkTimeStep').hidden = false;
-      if (!$('watermarkStart').value) { const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());$('watermarkStart').value=d.toISOString().slice(0,16); }
-    } else {
-      $('watermarkDialogStatus').textContent = '密码错误，请重试。';
-      notice('水印时间调整密码错误。',true);
-    }
+    $('watermarkStart').disabled = !timeAuthorized;
+    setFieldText('timeStatus', timeAuthorized ? '密码正确，可以调整本组水印时间。' : '密码错误。');
+    if (!timeAuthorized) notice('水印时间调整密码错误。',true);
   }
   function openWatermarkDialog() {
+    if (!batch?.type) { notice('请先选择本组照片类型。',true); return; }
+    if (!$('watermarkStart').value) {
+      const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      $('watermarkStart').value = d.toISOString().slice(0,16);
+    }
     $('watermarkPassword').value = '';
-    $('watermarkDialogStatus').textContent = '';
-    $('watermarkPasswordStep').hidden = false;
-    $('watermarkTimeStep').hidden = true;
+    $('watermarkStart').disabled = !timeAuthorized;
+    setFieldText('timeStatus', useSystemTime ? '请输入密码并验证，然后设置水印开始时间。' : (timeAuthorized ? '密码已通过，可修改本组水印时间。' : '请重新输入密码验证。'));
     $('watermarkTimeDialog').showModal();
   }
   function confirmWatermarkTime() {
-    const val = $('watermarkStart').value;
-    if (!val || Number.isNaN(new Date(val).getTime())) { notice('请选择有效的水印开始时间。',true); return; }
+    const start = $('watermarkStart').value;
+    if (!timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
+    if (!start || Number.isNaN(new Date(start).getTime())) { notice('请选择有效的水印开始时间。',true); $('watermarkStart').focus(); return; }
     useSystemTime = false;
-    setFieldText('timeStatus', '水印时间已调整为：' + new Date(val).toLocaleString());
+    batch.watermark_anchor_ms = new Date(start).getTime();
+    batch.first_adjusted_shot_at = null;
+    $('watermarkModeText').textContent = '水印时间：' + start.replace('T',' ');
+    setFieldText('timeStatus','水印时间已设置为 ' + start.replace('T',' ') + '，本组照片使用该时间。');
     $('watermarkTimeDialog').close();
   }
-  function resetWatermarkTime() {
-    useSystemTime = true;
-    timeAuthorized = false;
-    setFieldText('timeStatus', '使用当前系统时间。');
-    $('watermarkTimeDialog').close();
-  }
+  function cancelWatermarkTime() { $('watermarkTimeDialog').close(); }
   async function scanDevice() {
     if (!stream || deviceSession || !('BarcodeDetector' in window)) return;
     try {
@@ -201,6 +212,8 @@
     return database;
   }
   async function storePhoto(photo, remove = false) {
+    // ArrayBuffer is structured-cloned into IDB instead of retaining an iOS File handle.
+    // On failure keep the original draft intact, including its error message.
     let saved = photo;
     if (!remove && photo.blob instanceof Blob) {
       try { saved = {...photo, blob:await photo.blob.arrayBuffer(), blob_type:photo.blob.type}; }
@@ -301,13 +314,17 @@
     }
   }
   function renderSelect() {
+    // iOS native pickers may still be committing their input when visibility resumes.
+    // Never reset the control underneath an open picker or an active camera session.
     if (document.activeElement === $('orderSelect') || cameraSelection || captureContext || taking) return;
     const selected = currentOrder?.id || initialOrder || localStorage.getItem(orderStorageKey());
+    // A launch link is only an initial selection, never a permanent override on reload.
     initialOrder = null;
     const url = new URL(location.href);
     if (url.searchParams.has('order_id')) { url.searchParams.delete('order_id'); history.replaceState(history.state, '', url); }
     const options = [['', fieldText('请选择工单')], ...profile.orders.map(order => [String(order.id), order.order_number + ' · ' + order.client_name])];
     const existing = Array.from($('orderSelect').options, option => [option.value, option.text]);
+    // Foreground refresh must not rebuild a native phone picker while it is open.
     if (JSON.stringify(existing) !== JSON.stringify(options)) {
       $('orderSelect').replaceChildren(...options.map(([value, label]) => new Option(label, value)));
     }
@@ -414,7 +431,6 @@
     $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
     $('cameraStage').hidden = true;
     $('cameraView').hidden = captureMode !== 'camera';
-    if (batch?.type && batch.type !== 'equipment') $('generalKindChoices').hidden = false;
   }
   async function openCamera(recognitionOnly = false) {
     if (!identityReady || !profile?.can_capture) return;
@@ -460,6 +476,7 @@
     if (batch.type === 'equipment' && !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
+    // Current phone location does not prove where an imported photo was taken.
     if (!keepsOriginalWatermark) {
       await locate();
       if (!(await checkLocation(true, selected))) return null;
@@ -469,7 +486,14 @@
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);
     const actual = new Date();
-    const watermark = useSystemTime ? actual : new Date($('watermarkStart').value);
+    let watermark;
+    if (useSystemTime) {
+      watermark = actual;
+    } else {
+      if (batch.first_adjusted_shot_at == null) batch.first_adjusted_shot_at = actual.getTime();
+      const anchorMs = batch.watermark_anchor_ms ?? new Date($('watermarkStart').value).getTime();
+      watermark = new Date(anchorMs + (actual.getTime() - batch.first_adjusted_shot_at));
+    }
     if (Number.isNaN(watermark.getTime())) throw new Error('请选择有效的水印开始时间。');
     const technician = profile.technicians.find(person => String(person.id) === $('technicianSelect').value);
     if (!technician) throw new Error('请选择施工员。');
@@ -495,6 +519,7 @@
   async function keepCapture(source, context) {
     if (!context || context.user_id !== profile?.user.id || !identityReady) throw new Error('账号已改变，请重新拍照。');
     const photo = {...context,blob:await processedPhoto(source,context)};
+    // Do not report success or clear the capture until the IDB transaction commits.
     await storePhoto(photo);
     notice('照片已保存为本机草稿：'+photo.order_number+'。完成本组后再统一上传。');
     await renderQueue();
@@ -517,8 +542,11 @@
     const reject = message => { event.preventDefault(); captureContext = null; notice(message,true); };
     if (captureMode !== 'upload') { event.preventDefault(); return; }
     if (taking || !identityReady || !profile?.can_capture) { reject('照片功能尚未准备好，请稍后重试。'); return; }
+
     const selected = chosenOrder();
     if (!selected) { reject('请先在上方选择工单。'); $('orderSelect').focus(); return; }
+    // This handler runs on the native file input itself. iPhone/PWA therefore
+    // receives a direct trusted user gesture instead of a scripted input click.
     batch ||= {id:key(),type:null,actual_start:Date.now(),watermark_start:null};
     captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:'original'};
   });
@@ -665,6 +693,7 @@
             photo.source = 'file'; await storePhoto(photo);
           }
           await renderQueue();
+          // Rebuild legacy IDB File/Blob records from readable bytes before multipart encoding.
           let uploadBytes;
           try {
             uploadBytes = await photo.blob.arrayBuffer();
@@ -709,8 +738,8 @@
     if (!batch) return;
     const id=batch.id; await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
-    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; setFieldText('timeStatus','使用当前系统时间。');
-    clearDeviceInputs();
+    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close();
+    clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
     $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
@@ -889,9 +918,8 @@
   $('adjustWatermarkTime').addEventListener('click',openWatermarkDialog);
   $('verifyTimePassword').addEventListener('click',verifyTimePassword);
   $('confirmWatermarkTime').addEventListener('click',confirmWatermarkTime);
-  $('resetWatermarkTime').addEventListener('click',resetWatermarkTime);
-  $('cancelWatermarkTime').addEventListener('click',()=>$('watermarkTimeDialog').close());
-  $('watermarkTimeDialog').addEventListener('cancel',()=>{});
+  $('cancelWatermarkTime').addEventListener('click',cancelWatermarkTime);
+  $('watermarkTimeDialog').addEventListener('cancel',event=>{event.preventDefault();cancelWatermarkTime();});
   $('completeBatch').addEventListener('click',completeBatch);
   $('closeDraft').addEventListener('click',()=>$('draftDialog').close());
   $('deleteDraft').addEventListener('click',async()=>{if(!draftSelection)return;await storePhoto(draftSelection,true);draftSelection=null;$('draftDialog').close();await renderQueue();notice('已删除本机草稿照片。');});

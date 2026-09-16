@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -27,6 +28,7 @@ from .schemas import (
     WorkerTravel,
     WorkItem,
     PhotoRef,
+    collect_safety_photos,
 )
 from .action_validator import generate_action_id
 from .travel_service import TravelService
@@ -600,6 +602,18 @@ class DailyReportService:
         if old_role not in ("equipment", "arrival", "departure", "safety"):
             old_role = photo.classification if photo.classification in ("equipment", "arrival", "departure", "safety") else None
 
+        # Toggle-off: marking an already-safety photo as safety removes it.
+        if classification == "safety" and old_role == "safety":
+            draft.selected_safety_photos = [a for a in draft.selected_safety_photos if a.photo_id != photo_id]
+            if draft.selected_safety_photos:
+                draft.selected_safety_photo = draft.selected_safety_photos[0]
+            else:
+                draft.selected_safety_photo = None
+                draft.safety_photo = None
+            photo.manual_classification = None
+            self.save_draft(draft_id, draft, expected_version=expected_version)
+            return {"ok": True, "removed": True, "photo_id": photo_id, "selected_count": len(draft.selected_safety_photos)}
+
         # ---- clean up previous role ----
         if old_role == "equipment":
             draft.selected_service_photos = [a for a in draft.selected_service_photos if a.photo_id != photo_id]
@@ -617,7 +631,10 @@ class DailyReportService:
             if draft.departure_time and draft.departure_time_source in ("photo", "photo_timeline_confirmed", "photo_marked"):
                 draft.departure_time_source = "manual"
         if old_role == "safety":
-            if draft.selected_safety_photo is not None and draft.selected_safety_photo.photo_id == photo_id:
+            draft.selected_safety_photos = [a for a in draft.selected_safety_photos if a.photo_id != photo_id]
+            if draft.selected_safety_photos:
+                draft.selected_safety_photo = draft.selected_safety_photos[0]
+            else:
                 draft.selected_safety_photo = None
                 draft.safety_photo = None
 
@@ -654,17 +671,19 @@ class DailyReportService:
             draft.departure_photo = photo
         elif classification == "safety":
             from .schemas import PhotoAnalysis
-            draft.selected_safety_photo = PhotoAnalysis(
-                photo_id=photo.photo_id,
-                photo_path=photo.relative_path,
-                photo_hash=photo.photo_hash,
-                classification="safety_person",
-                confidence=1.0,
-                sub_category=None,
-                capture_time=photo.capture_time,
-                capture_time_source=photo.capture_time_source,
-                selected_source="user_selected",
-            )
+            if not any(a.photo_id == photo.photo_id for a in draft.selected_safety_photos):
+                draft.selected_safety_photos.append(PhotoAnalysis(
+                    photo_id=photo.photo_id,
+                    photo_path=photo.relative_path,
+                    photo_hash=photo.photo_hash,
+                    classification="safety_person",
+                    confidence=1.0,
+                    sub_category=None,
+                    capture_time=photo.capture_time,
+                    capture_time_source=photo.capture_time_source,
+                    selected_source="user_selected",
+                ))
+            draft.selected_safety_photo = draft.selected_safety_photos[0]
             draft.selected_safety_photo_source = "user_selected"
             draft.safety_photo = photo
 
@@ -800,6 +819,7 @@ class DailyReportService:
         draft.photo_analysis_results = analysis_results
         draft.safety_photo_candidates = safety_candidates
         draft.selected_safety_photo = selected_safety
+        draft.selected_safety_photos = [selected_safety] if selected_safety else []
         draft.selected_safety_photo_source = selected_safety.selected_source if selected_safety else None
         draft.service_photo_candidates = [a for a in analysis_results if a.classification == "equipment"]
         draft.selected_service_photos = selected_service
@@ -855,6 +875,7 @@ class DailyReportService:
             return {"ok": False, "error": error}
 
         draft.selected_safety_photo = selected
+        draft.selected_safety_photos = [selected] if selected else []
         draft.selected_safety_photo_source = "user_selected"
         self.save_draft(draft_id, draft, expected_version=expected_version)
         return {"ok": True, "selected_safety": photo_id}
@@ -944,8 +965,29 @@ class DailyReportService:
         self.update_draft_status(draft_id, "draft")
 
     def delete_draft(self, draft_id: int) -> None:
-        """Soft-delete by marking cancelled. Also keeps audit trail."""
-        self.update_draft_status(draft_id, "cancelled")
+        """Physically delete a draft and all its cascaded records.
+
+        Explicitly removes child rows (actions, manifests + their sources/
+        assets/roles, formal commits) before the parent row, so the delete
+        is complete even if the active connection has foreign_keys disabled.
+        """
+        try:
+            manifest_ids = [r[0] for r in self.db.execute(
+                "select manifest_id from ai_daily_report_attachment_manifests where draft_id = ?",
+                (draft_id,)).fetchall()]
+            for manifest_id in manifest_ids:
+                self.db.execute("delete from ai_daily_report_manifest_roles where manifest_id = ?", (manifest_id,))
+                self.db.execute("delete from ai_daily_report_manifest_sources where manifest_id = ?", (manifest_id,))
+                self.db.execute("delete from ai_daily_report_prepared_assets where manifest_id = ?", (manifest_id,))
+            self.db.execute("delete from ai_daily_report_attachment_manifests where draft_id = ?", (draft_id,))
+        except sqlite3.OperationalError:
+            pass  # child tables absent (minimal in-memory DB)
+        try:
+            self.db.execute("delete from ai_daily_report_actions where draft_id = ?", (draft_id,))
+            self.db.execute("delete from ai_daily_report_formal_commits where draft_id = ?", (draft_id,))
+        except sqlite3.OperationalError:
+            pass
+        self.db.execute("delete from ai_daily_report_drafts where id = ?", (draft_id,))
 
     # ─── Action Audit / Idempotency ───────────────────────────────────────
 

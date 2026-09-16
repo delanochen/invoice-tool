@@ -121,6 +121,44 @@ class FieldWorkJsContractTest(unittest.TestCase):
         self.assertIn("$('equipmentKind').classList.remove('primary');", general_branch)
         self.assertIn("$('deviceSession').hidden = true;", general_branch)
 
+    # 17. watermark time: adjust button + password dialog (replaces the old
+    #     "use system time" checkbox).
+    def test_15_watermark_adjust_button_and_dialog(self):
+        self.assertNotIn("systemTime", self.code)  # checkbox removed
+        self.assertNotIn("adjustedTimeFields", self.code)
+        self.assertIn("addEventListener('click',openWatermarkDialog)", self.code)
+        self.assertIn("watermarkTimeDialog", self.code)
+        self.assertIn("confirmWatermarkTime", self.code)
+        self.assertIn("cancelWatermarkTime", self.code)
+        self.assertIn("verifyTimePassword", self.code)  # password check kept
+        self.assertIn("/api/field/verify-watermark-password", self.code)
+
+    def test_16_watermark_increments_from_first_adjusted_shot(self):
+        # Backfill + increment semantics: the first adjusted shot uses exactly the
+        # set time (anchor), later shots add the real elapsed time since the first
+        # adjusted shot. The old bug (adding elapsed since batch.actual_start)
+        # must be gone.
+        self.assertIn("if (batch.first_adjusted_shot_at == null) batch.first_adjusted_shot_at = actual.getTime();", self.code)
+        self.assertIn("batch.watermark_anchor_ms = new Date(start).getTime();", self.code)
+        self.assertIn("watermark = new Date(anchorMs + (actual.getTime() - batch.first_adjusted_shot_at));", self.code)
+        self.assertNotIn("actual.getTime() - batch.actual_start", self.code)
+
+    def test_17_open_camera_gate_uses_use_system_time(self):
+        self.assertIn("if (!useSystemTime && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }", self.code)
+
+    def test_18_second_level_menu_stays_visible_after_picking_type(self):
+        # Choosing arrival/departure/safety must NOT hide the second-level menu.
+        self.assertIn("$('generalKindChoices').hidden = type === 'equipment';", self.code)
+        self.assertIn("function setKindChoiceActive(type) {", self.code)
+        self.assertIn("classList.toggle('primary',type==='arrival')", self.code)
+        self.assertIn("classList.toggle('primary',type==='departure')", self.code)
+        self.assertIn("classList.toggle('primary',type==='safety')", self.code)
+
+    def test_19_complete_batch_resets_watermark_state(self):
+        self.assertIn("useSystemTime=true;", self.code.replace(" ", ""))
+        self.assertIn("watermarkModeText').textContent='使用当前系统时间'", self.code.replace(" ", ""))
+        self.assertIn("watermarkStart').value=''", self.code.replace(" ", ""))
+
 
 if __name__ == "__main__":
     unittest.main()
