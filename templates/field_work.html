@@ -21,15 +21,13 @@
       <div class="card">
         <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
         <p id="orderContext" class="muted"></p>
-
         <fieldset id="captureSource" class="capture-kind" hidden><legend>拍照或上传</legend><div class="kind-actions"><button id="cameraMode" class="primary" type="button" aria-pressed="true">拍照</button><button id="uploadMode" type="button" aria-pressed="false">上传</button></div></fieldset>
         <div id="captureDetails">
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
         <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><div id="generalKindChoices" hidden style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;"><button id="arrivalKind" type="button">进场照片</button><button id="departureKind" type="button">离场照片</button><button id="safetyKind" type="button">自检照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
-          <label class="check-label"><input id="systemTime" type="checkbox" checked> 使用当前系统时间</label>
-          <div id="adjustedTimeFields" hidden><label>调整密码<input id="watermarkPassword" type="password" autocomplete="off"></label><button id="verifyTimePassword" type="button">验证密码</button><label>水印开始时间<input id="watermarkStart" type="datetime-local"></label></div>
           <p id="timeStatus" class="muted">使用当前系统时间。</p>
+          <button id="adjustWatermarkTime" type="button">调整水印时间</button>
         </fieldset>
         <fieldset id="deviceSession" class="device-session" hidden><legend>当前设备</legend>
           <label>铭牌号（Machine Number，必填）<span class="machine-number-row"><input id="equipmentNumber" required maxlength="200" autocomplete="off" placeholder="识别或输入一次"><button id="recognizeDevice" class="ocr-button" type="button" title="识别铭牌" aria-label="识别铭牌">T</button></span></label>
@@ -62,7 +60,6 @@
     <section data-panel="ledger" hidden><div class="section-heading"><h1>照片台账</h1></div>
       <form id="ledgerFilter" class="card">
         <label>工单<select id="ledgerOrder" name="order_id"><option value="">全部工单</option></select></label>
-        
         <label>铭牌号<input name="equipment_number"></label><label>位置号<input name="position_number"></label><label>集装箱号<input name="container_number"></label>
         <div class="two-columns"><label>开始日期<input name="date_from" type="date"></label><label>结束日期<input name="date_to" type="date"></label></div>
         <div class="ledger-filter-actions">
@@ -83,6 +80,18 @@
 <dialog id="draftDialog"><h2>照片预览</h2><img id="draftLarge" alt="草稿照片"><p id="draftDetail"></p><div class="dialog-actions"><button id="deleteDraft" type="button">删除这张</button><button id="closeDraft" class="primary" type="button">关闭</button></div></dialog>
 <dialog aria-labelledby="ledgerPhotoTitle" id="ledgerPhotoDialog" class="ledger-photo-dialog"><div class="ledger-photo-head"><div><strong id="ledgerPhotoTitle"></strong><span id="ledgerPhotoCounter"></span></div><div class="ledger-preview-tools"><button type="button" data-image-preview-fit>自适应</button><button type="button" data-image-preview-out>缩小</button><button type="button" data-image-preview-original>原图</button><button type="button" data-image-preview-in>放大</button></div><button id="closeLedgerPhoto" type="button" aria-label="关闭">关闭</button></div><div id="ledgerPhotoStage" class="ledger-photo-stage"><button id="previousLedgerPhoto" class="ledger-photo-arrow previous" type="button" aria-label="上一张">‹</button><img id="ledgerPhotoImage" alt="工单照片"><button id="nextLedgerPhoto" class="ledger-photo-arrow next" type="button" aria-label="下一张">›</button></div><p id="ledgerPhotoDetail" class="ledger-photo-detail"></p><div class="ledger-photo-type-edit" id="ledgerPhotoTypeEdit" hidden><label for="ledgerPhotoTypeSelect">照片类型</label><select id="ledgerPhotoTypeSelect"></select><button type="button" id="saveLedgerPhotoType" class="primary">保存类型</button></div></dialog>
 <dialog id="recognitionDialog" class="recognition-dialog"><h2>请确认铭牌号</h2><div id="recognizedNumber" class="recognized-number"></div><p class="muted">请与设备铭牌逐位核对，确认后才会用于后续照片。</p><div class="dialog-actions"><button id="confirmRecognizedNumber" class="primary" type="button">确认使用</button><button id="retryRecognition" type="button">重新识别</button><button id="manualRecognition" type="button">手工输入</button></div></dialog>
+<dialog id="watermarkTimeDialog"><h2>调整水印时间</h2>
+  <div id="watermarkPasswordStep">
+    <label>验证密码<input id="watermarkPassword" type="password" autocomplete="off"></label>
+    <p id="watermarkDialogStatus" class="muted"></p>
+    <div class="dialog-actions"><button id="cancelWatermarkTime" type="button">取消</button><button id="verifyTimePassword" type="button" class="primary">验证密码</button></div>
+  </div>
+  <div id="watermarkTimeStep" hidden>
+    <label>水印开始时间<input id="watermarkStart" type="datetime-local"></label>
+    <p class="muted">本组照片将使用此时间作为水印时间。</p>
+    <div class="dialog-actions"><button id="resetWatermarkTime" type="button">恢复系统时间</button><button id="confirmWatermarkTime" type="button" class="primary">确认</button></div>
+  </div>
+</dialog>
 <script src="/static/field-i18n.js?v={{ app_version }}" defer></script>
 <script src="/static/field-watermark.js?v={{ app_version }}" defer></script>
 <script src="/static/photo-time.js?v={{ app_version }}" defer></script>
