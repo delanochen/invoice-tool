@@ -411,9 +411,22 @@ def register_field_routes(app, api):
     @access
     def field_photo_list():
         rows = photo_rows()
-        return jsonify(rows=[dict(row) | dict(preview=url_for('field_photo_preview', photo_id=row['id']),
-                                             thumbnail=url_for('field_photo_preview', photo_id=row['id'], thumb=1)) for row in rows[:2000]],
-                       truncated=len(rows) > 2000)
+        can_delete = api['has_action_permission']('service_reports', 'delete')
+        allowed_orders = set()
+        if can_delete:
+            clauses, params = api['service_order_access_filters']()
+            allowed_orders = {row['id'] for row in api['db']().execute(
+                'select service_orders.id from service_orders where ' + (' and '.join(clauses) or '1=1'), params)}
+        signer = URLSafeTimedSerializer(app.secret_key, salt='delete-ledger-photos')
+        result = []
+        for row in rows[:2000]:
+            entry = dict(row) | dict(preview=url_for('field_photo_preview', photo_id=row['id']),
+                                     thumbnail=url_for('field_photo_preview', photo_id=row['id'], thumb=1))
+            entry['can_delete'] = can_delete and row['order_id'] in allowed_orders
+            if entry['can_delete']:
+                entry['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': [row['id']]})
+            result.append(entry)
+        return jsonify(rows=result, truncated=len(rows) > 2000)
 
     @app.get('/field/photos/<int:photo_id>')
     @access

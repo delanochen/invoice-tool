@@ -818,6 +818,8 @@
     });
     $('ledgerPhotoTypeEdit').hidden = false;
     $('saveLedgerPhotoType').disabled = false;
+    $('deleteLedgerPhoto').hidden = !photo.can_delete;
+    $('deleteLedgerPhoto').disabled = false;
     $('previousLedgerPhoto').disabled = ledgerPhotos.length < 2; $('nextLedgerPhoto').disabled = ledgerPhotos.length < 2;
     if (!$('ledgerPhotoDialog').open) $('ledgerPhotoDialog').showModal();
   }
@@ -860,6 +862,25 @@
       openLedgerPhoto(ledgerPhotoIndex);
       loadLedger();
     } catch (error) { notice(error.message || '保存失败，请稍后重试。', true); }
+    finally { button.disabled = false; }
+  });
+  $('deleteLedgerPhoto').addEventListener('click', async () => {
+    const photo = ledgerPhotos[ledgerPhotoIndex];
+    if (!photo || !photo.can_delete || !photo.delete_token) return;
+    if (!window.confirm('确定删除这张照片吗？删除后不可恢复。')) return;
+    const button = $('deleteLedgerPhoto'); button.disabled = true;
+    try {
+      const payload = {};
+      payload.token = photo.delete_token;
+      const response = await requestAPI('/api/field/photos/delete', {method:'POST', headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf}, body:JSON.stringify(payload)});
+      if (response.status === 401 || response.status === 403) { notice('没有权限删除照片。', true); return; }
+      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '删除失败，请稍后重试。'); }
+      ledgerPhotos.splice(ledgerPhotoIndex, 1);
+      notice('照片已删除。');
+      if (!ledgerPhotos.length) { $('ledgerPhotoDialog').close(); }
+      else { openLedgerPhoto(ledgerPhotoIndex); }
+      loadLedger();
+    } catch (error) { notice(error.message || '删除失败，请稍后重试。', true); }
     finally { button.disabled = false; }
   });
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });

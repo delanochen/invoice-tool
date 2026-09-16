@@ -171,6 +171,24 @@ class FieldWorkJsContractTest(unittest.TestCase):
         # after confirming, the page shows the set time inside #timeSettings.
         self.assertIn("watermarkModeText').textContent = '水印时间：' + start.replace('T',' ')", self.code)
 
+    # 22. ledger photo dialog delete button (mobile PWA)
+    def test_22_ledger_photo_delete(self):
+        # visible only when the server granted a signed delete token
+        self.assertIn("deleteLedgerPhoto').hidden = !photo.can_delete;", self.code)
+        self.assertIn("deleteLedgerPhoto').disabled = false;", self.code)
+        # confirmation before any destructive call
+        self.assertIn("window.confirm('确定删除这张照片吗？删除后不可恢复。')", self.code)
+        # token payload built in the project's const-payload style (no object literal)
+        self.assertIn("const payload = {};", self.code)
+        self.assertIn("payload.token = photo.delete_token;", self.code)
+        self.assertIn("/api/field/photos/delete", self.code)
+        # row removed locally, dialog closes when the ledger becomes empty
+        self.assertIn("ledgerPhotos.splice(ledgerPhotoIndex, 1);", self.code)
+        # HTML exposes the delete button inside the type-edit area
+        html = (Path(__file__).with_name('templates') / 'field_work.html').read_text(encoding='utf-8')
+        self.assertIn('<button type="button" id="deleteLedgerPhoto" class="danger" hidden>删除照片</button>', html)
+
+
 
 if __name__ == "__main__":
     unittest.main()

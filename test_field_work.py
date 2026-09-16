@@ -150,6 +150,47 @@ class FieldWorkTest(unittest.TestCase):
                                       headers={'X-Field-Token':self.csrf})
         self.assertEqual(response.json['candidates'], [])
 
+    def test_ledger_json_delete_token_and_photo_delete(self):
+        upload = self.upload()
+        self.assertEqual(upload.status_code, 200, upload.text)
+        photo_id = upload.json['id']
+        with self.module.app.app_context():
+            row = self.module.db().execute('select * from field_photos where id = ?', (photo_id,)).fetchone()
+        relative = Path(row['relative_path'])
+        original_path = self.root / relative
+        thumb_path = self.root / relative.parts[0] / 'thumbnails' / relative.parts[2] / relative.parts[3]
+        self.assertTrue(original_path.exists())
+
+        # employee (Submitter): list ok, but can_delete False and no token
+        listing = self.http.get('/api/field/photos').json
+        mine = next(r for r in listing['rows'] if r['id'] == photo_id)
+        self.assertFalse(mine['can_delete'])
+        self.assertNotIn('delete_token', mine)
+
+        # manager: can_delete True with a signed token
+        self.fixture.login('Manager')
+        listing = self.http.get('/api/field/photos').json
+        mine = next(r for r in listing['rows'] if r['id'] == photo_id)
+        self.assertTrue(mine['can_delete'])
+        token = mine['delete_token']
+        self.assertGreater(len(token), 20)
+
+        # bogus token -> 409
+        response = self.http.post('/api/field/photos/delete', json={'token': 'bogus'},
+                                  headers={'X-Field-Token': self.csrf})
+        self.assertEqual(response.status_code, 409)
+
+        # valid token -> row gone, files gone
+        response = self.http.post('/api/field/photos/delete', json={'token': token},
+                                  headers={'X-Field-Token': self.csrf})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json['ok'])
+        self.assertEqual(response.json['deleted'], 1)
+        with self.module.app.app_context():
+            self.assertIsNone(self.module.db().execute('select id from field_photos where id = ?', (photo_id,)).fetchone())
+        self.assertFalse(original_path.exists())
+        self.assertFalse(thumb_path.exists())
+
     def test_watermark_password_and_adjusted_time_metadata(self):
         with self.module.app.app_context():
             self.module.set_setting('field_watermark_time_password', 'plain-test-password')
