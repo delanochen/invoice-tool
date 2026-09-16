@@ -84,11 +84,23 @@
     setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}。后续照片沿用；换设备请点“下一台设备”。`);
     return true;
   }
+
+  function clearDeviceInputs() {
+    // 新一组/换类型：清空设备输入框，避免残留上一张照片的设备信息。
+    $('equipmentNumber').value = ''; $('positionNumber').value = ''; $('containerNumber').value = '';
+    $('noEquipmentNumber').checked = false; $('equipmentNumber').disabled = false; $('equipmentNumber').required = true;
+  }
+
   const KIND_LABEL = {equipment:'设备',arrival:'进场',departure:'离场',safety:'自检',general:'非设备',legacy:'历史'};
   function photoTypeLabel(t){return KIND_LABEL[t]||t||'-';}
   function chooseKind(type) {
     // 非设备照片按钮：先展开 进场/离场/自检 三选一，不直接开始本组。
-    if (type === 'general') { $('generalKindChoices').hidden = false; return; }
+    if (type === 'general') {
+      $('generalKindChoices').hidden = false;
+      $('generalKind').classList.add('primary');
+      $('equipmentKind').classList.remove('primary');
+      return;
+    }
     $('generalKindChoices').hidden = true;
     if (batch?.type && batch.type !== type) {
       queued(batch.id).then(items => { if (items.length) notice('当前组已有照片，请先完成上传或删除后再更换类型。',true); else startKind(type); });
@@ -97,14 +109,16 @@
   function startKind(type) {
     const previousType = batch?.type;
     batch ||= {id:key(), type, actual_start:Date.now(), watermark_start:null};
+    const typeChanged = previousType && previousType !== type;
     batch.type = type;
+    if (typeChanged) clearDeviceInputs();  // 换组：不残留上一组的设备信息
     $(type === 'equipment' ? 'deviceNoteSlot' : 'generalNoteSlot').append($('captureNote'));
-    $('deviceSession').hidden = type !== 'equipment';
+    $('deviceSession').hidden = type !== 'equipment';  // 非设备照片（进场/离场/自检）不填写设备信息，隐藏设备区域
     $('timeSettings').hidden = false;
-    const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：不显示铭牌号、位置号和集装箱号。'};
+    const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：不填写设备信息。'};
     setFieldText('kindStatus', KIND_TEXT[type] || KIND_TEXT.general);
     $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type!=='equipment');
-    if (type !== 'equipment') deviceSession = {id:batch.id,equipment_number:'',position_number:'',container_number:'',no_equipment_number:true};
+    if (type !== 'equipment') deviceSession = null;  // 非设备照片不建立设备 session
     else if (previousType !== 'equipment') resetDevice();
     renderQueue();
   }
@@ -424,7 +438,8 @@
         latitude:0,longitude:0,accuracy:100000,location_verified:false,note:'',
         location_note:'原图已有水印，未检查拍摄位置。',source,error:''};
     }
-    if (!batch || !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');
+    if (!batch) throw new Error('请先确认本组照片类型。');
+    if (batch.type === 'equipment' && !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
     // Current phone location does not prove where an imported photo was taken.
@@ -445,9 +460,10 @@
       order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
       captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:batch.id,photo_type:batch.type,timezone_name:timezoneName,
       latitude:keepsOriginalWatermark ? 0 : position.latitude,longitude:keepsOriginalWatermark ? 0 : position.longitude,accuracy:keepsOriginalWatermark ? 100000 : position.accuracy,
-      location_verified:!keepsOriginalWatermark,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : locationNote,source,error:'',equipment_number:deviceSession.equipment_number,
+      location_verified:!keepsOriginalWatermark,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : locationNote,source,error:'',
+      ...(batch.type === 'equipment' ? {equipment_number:deviceSession.equipment_number,
       position_number:deviceSession.position_number,container_number:deviceSession.container_number,
-      equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number};
+      equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number} : {})};
   }
   async function processedPhoto(source, context) {
     const width = source.videoWidth || source.naturalWidth || source.width;
@@ -682,6 +698,7 @@
     const id=batch.id; await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('systemTime').checked=true; $('adjustedTimeFields').hidden=true; $('watermarkPassword').value='';
+    clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
     $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
