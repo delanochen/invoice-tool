@@ -356,8 +356,22 @@ class DailyReportService:
         if (draft.photo_set_fingerprint == new_fingerprint
                 and draft.photo_candidates
                 and all(p.capture_time for p in draft.photo_candidates)):
-            # Reuse existing enriched photos, just recompute candidates
+            # Reuse existing enriched photos, just recompute candidates.
+            # The ledger photo_type is authoritative: a field-work re-classification
+            # (equipment <-> arrival/departure/safety) must be reflected even when
+            # the file-set fingerprint is unchanged, so re-apply the lookup to every
+            # candidate. Already-confirmed business roles (arrival_photo_ref,
+            # selected_service_photos, selected_safety_photo) live in separate draft
+            # fields and are intentionally untouched here.
             photos = draft.photo_candidates
+            if photo_type_lookup is not None:
+                for p in photos:
+                    if not p.relative_path:
+                        continue
+                    manual_type = photo_type_lookup(p.relative_path)
+                    if manual_type in ('equipment', 'arrival', 'departure', 'safety'):
+                        p.classification = manual_type
+                        p.manual_classification = manual_type
             arrival, departure, timeline_status, verification_fields = (
                 photo_metadata_service.compute_arrival_departure_candidates(photos)
             )

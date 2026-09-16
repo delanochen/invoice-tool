@@ -20,6 +20,19 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
 
+# Business photo types stored in field_photos.photo_type and their UI labels.
+# New photos may only be equipment / arrival / departure / safety; general and
+# legacy remain read-compatible for historical data (never written by new code).
+PHOTO_TYPE_LABELS = {
+    'equipment': '设备',
+    'arrival': '进场',
+    'departure': '离场',
+    'safety': '自检',
+    'general': '非设备',
+    'legacy': '历史',
+}
+EDITABLE_PHOTO_TYPES = ('equipment', 'arrival', 'departure', 'safety')
+
 
 def init_field_schema(connection):
     connection.executescript('''
@@ -439,11 +452,13 @@ def register_field_routes(app, api):
         limited_rows = [dict(row) for row in rows[:2000]]
         for row in limited_rows:
             row['can_delete'] = can_delete and row['order_id'] in allowed_orders
-            row['photo_type_label'] = {'equipment': '设备', 'arrival': '进场', 'departure': '离场', 'safety': '自检', 'general': '非设备', 'legacy': '历史'}.get(row.get('photo_type'), row.get('photo_type') or '-')
+            row['photo_type_label'] = PHOTO_TYPE_LABELS.get(row.get('photo_type'), row.get('photo_type') or '-')
             if row['can_delete']:
                 row['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': [row['id']]})
         return render_template('field_photo_query.html', rows=limited_rows, truncated=len(rows) > 2000,
-                               photo_orders=photo_order_rows(), can_delete_photos=can_delete, field_csrf=token())
+                               photo_orders=photo_order_rows(), can_delete_photos=can_delete,
+                               can_edit_photo_type=api['has_action_permission']('service_reports', 'create'),
+                               field_csrf=token())
 
     @app.get('/api/field/photos.xlsx')
     @access
@@ -470,7 +485,7 @@ def register_field_routes(app, api):
         for row in rows:
             values = [str(row[key] or '') for key in keys]
             type_index = keys.index('photo_type')
-            values[type_index] = {'equipment': '设备', 'arrival': '进场', 'departure': '离场', 'safety': '自检', 'general': '非设备', 'legacy': '历史'}.get(values[type_index], values[type_index])
+            values[type_index] = PHOTO_TYPE_LABELS.get(values[type_index], values[type_index])
             source_index = keys.index('watermark_source')
             values[source_index] = '保留原图水印' if row['watermark_source'] == 'original' else '系统生成水印'
             location_index = keys.index('location_verified')
@@ -728,6 +743,44 @@ def register_field_routes(app, api):
         if staging is not None and not cleanup_pending:
             staging.rmdir()
         return jsonify(ok=True, deleted=len(rows), cleanup_pending=cleanup_pending)
+
+    @app.post('/api/field/photos/<int:photo_id>/type')
+    @access
+    def update_field_photo_type(photo_id):
+        """Update the business photo type of a ledger photo.
+
+        Same permission level as photo upload: anyone who can upload field
+        photos may correct the business type in the ledger. Only the four
+        current types are accepted; general/legacy stay read-compatible but
+        are never written back.
+        """
+        check_write()
+        if not api['has_action_permission']('service_reports', 'create'):
+            abort(403)
+        data = request.get_json(silent=True) or {}
+        photo_type = str(data.get('photo_type', '')).strip()
+        if photo_type not in EDITABLE_PHOTO_TYPES:
+            return jsonify(error='照片类型无效，只能为 设备 / 进场 / 离场 / 自检。'), 422
+        db = api['db']()
+        row = db.execute(
+            'select f.id, f.order_id, s.order_number, f.photo_type'
+            ' from field_photos f join service_orders s on s.id = f.order_id'
+            ' where f.id = ?',
+            (photo_id,),
+        ).fetchone()
+        if not row:
+            return jsonify(error='照片不存在。'), 404
+        api['require_service_order'](row['order_id'])
+        label = PHOTO_TYPE_LABELS[photo_type]
+        if row['photo_type'] == photo_type:
+            return jsonify(ok=True, photo_id=photo_id, photo_type=photo_type,
+                           photo_type_label=label, unchanged=True)
+        db.execute('update field_photos set photo_type = ? where id = ?', (photo_type, photo_id))
+        api['log_action']('update', 'field_photo', photo_id, row['order_number'],
+                          '照片类型改为：' + label)
+        db.commit()
+        return jsonify(ok=True, photo_id=photo_id, photo_type=photo_type,
+                       photo_type_label=label)
 
     @app.get('/api/field/repairs.xlsx')
     @access
