@@ -10652,7 +10652,7 @@ def ai_daily_report_discover_photos(draft_id):
             return jsonify({"ok": False, "error": error}), 409
         return jsonify({"ok": False, "error": error}), 500
 
-        db().commit()
+    db().commit()
     return jsonify({"ok": True, **result})
 
 
@@ -10695,7 +10695,7 @@ def ai_daily_report_confirm_photo_timeline(draft_id):
     if not result.get("ok"):
         return jsonify(result), 400
 
-        db().commit()
+    db().commit()
     return jsonify(result)
 
 
@@ -10760,7 +10760,8 @@ def ai_daily_report_classify_photos(draft_id):
 
     if not result.get("ok"):
         return jsonify(result), 400
-        db().commit()
+
+    db().commit()
     return jsonify(result)
 
 
@@ -10790,7 +10791,8 @@ def ai_daily_report_change_safety_photo(draft_id):
         return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
     if not result.get("ok"):
         return jsonify(result), 400
-        db().commit()
+
+    db().commit()
     return jsonify(result)
 
 
@@ -10820,7 +10822,8 @@ def ai_daily_report_add_service_photo(draft_id):
         return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
     if not result.get("ok"):
         return jsonify(result), 400
-        db().commit()
+
+    db().commit()
     return jsonify(result)
 
 
@@ -10850,7 +10853,8 @@ def ai_daily_report_remove_service_photo(draft_id):
         return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
     if not result.get("ok"):
         return jsonify(result), 400
-        db().commit()
+
+    db().commit()
     return jsonify(result)
 
 
@@ -11820,7 +11824,7 @@ def ai_daily_report_draft_prepare_attachments(draft_id):
     except ManifestError as exc:
         return _manifest_error_response(exc)
 
-        db().commit()
+    db().commit()
     return jsonify({"ok": True, "draft_id": draft_id, "manifest": manifest})
 
 
@@ -12083,7 +12087,7 @@ def ai_daily_report_manifest_cancel(draft_id, manifest_id):
     except ManifestError as exc:
         return _manifest_error_response(exc, default_status=400)
 
-        db().commit()
+    db().commit()
     return jsonify({"ok": True, "manifest": manifest})
 
 
