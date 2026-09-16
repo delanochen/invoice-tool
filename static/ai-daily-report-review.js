@@ -18,6 +18,16 @@
   const conflictDialog = document.getElementById("conflictDialog");
   const overrideDialog = document.getElementById("overrideDialog");
 
+  // ─── Delegated mutation buttons ─────────────────────────────────────────
+  // Buttons are re-rendered by innerHTML on every preview load; a delegated
+  // document-level listener survives re-renders and never loses its binding
+  // (fixes "发现照片 does nothing" when the per-render binding is lost).
+  document.addEventListener("click", function (evt) {
+    const el = evt.target;
+    if (!el || !el.id) return;
+    if (el.id === "discoverPhotosBtn") discoverPhotos();
+  });
+
   // ─── API Helpers ────────────────────────────────────────────────────────
 
   async function apiGet(path) {
@@ -374,7 +384,8 @@
     `;
 
     if (canEdit) {
-      document.getElementById("discoverPhotosBtn")?.addEventListener("click", discoverPhotos);
+      // discoverPhotosBtn is handled by the delegated listener at the top of
+      // this script (it survives re-renders). Other buttons bind directly.
       document.getElementById("confirmTimelineBtn")?.addEventListener("click", () => confirmTimeline(false));
       document.getElementById("saveTimelineBtn")?.addEventListener("click", saveTimeline);
     }
