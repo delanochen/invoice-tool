@@ -77,6 +77,7 @@ class ServiceReportExternalViewTest(unittest.TestCase):
             )
             conn.commit()
             self.report_id = report_id
+            self.order_id = order_a
             self.ext_same_id = ext_same
             self.ext_other_id = ext_other
         self.client = self.module.app.test_client()
@@ -168,6 +169,21 @@ class ServiceReportExternalViewTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         resp = self.client.get("/reports/service-reports")
         self.assertEqual(resp.status_code, 200)
+
+    def test_06_internal_admin_sees_view_button_on_order_page(self):
+        """内部管理员工单页日报行同时有「查看」（只读页）和「编辑」按钮。"""
+        with self.module.app.app_context():
+            conn = self.module.db()
+            admin_id = conn.execute("select id from users where role='admin' limit 1").fetchone()["id"]
+        self._login(admin_id)
+        resp = self.client.get(f"/service-orders/{self.order_id}")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+        self.assertIn(f'data-view-url="/service-reports/{self.report_id}/view"', html)
+        self.assertIn('data-row-action="viewUrl"', html)
+        self.assertIn(">查看</button>", html)
+        self.assertIn(f'data-edit-url="/service-reports/{self.report_id}/edit"', html)
+        self.assertNotIn("data-edit-url-label", html)
 
 
 if __name__ == "__main__":
