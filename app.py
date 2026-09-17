@@ -38,6 +38,7 @@ from flask import (
     session,
     url_for,
 )
+from markupsafe import Markup, escape
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from docx import Document
@@ -2616,6 +2617,20 @@ def save_user_service_order_assignments(user_id, role):
                 """,
                 (user_id, order_id, g.user["id"], now()),
             )
+
+
+@app.template_filter("nl2br")
+def nl2br_filter(value):
+    """Escape untrusted text, then render newlines as <br>.
+
+    Address fields are free-text form input, so they must be escaped *before*
+    being marked safe. A bare ``|safe`` let a crafted address inject markup
+    (stored XSS) into the invoice detail / export pages.
+    """
+    text = "" if value is None else str(value)
+    # str() is required: Markup.replace() escapes its replacement argument,
+    # which would turn the intended "<br>" into literal "&lt;br&gt;".
+    return Markup(str(escape(text)).replace("\n", "<br>"))
 
 
 def current_user():
