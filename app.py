@@ -38,6 +38,7 @@ from flask import (
     session,
     url_for,
 )
+from markupsafe import Markup, escape
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from docx import Document
@@ -2616,6 +2617,20 @@ def save_user_service_order_assignments(user_id, role):
                 """,
                 (user_id, order_id, g.user["id"], now()),
             )
+
+
+@app.template_filter("nl2br")
+def nl2br_filter(value):
+    """Escape untrusted text, then render newlines as <br>.
+
+    Address fields are free-text form input, so they must be escaped *before*
+    being marked safe. A bare ``|safe`` let a crafted address inject markup
+    (stored XSS) into the invoice detail / export pages.
+    """
+    text = "" if value is None else str(value)
+    # str() is required: Markup.replace() escapes its replacement argument,
+    # which would turn the intended "<br>" into literal "&lt;br&gt;".
+    return Markup(str(escape(text)).replace("\n", "<br>"))
 
 
 def current_user():
@@ -18569,6 +18584,23 @@ def send_email(to, subject, html, attachments=None):
 def runtime_error(error):
     flash(str(error), "error")
     return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.errorhandler(403)
+def forbidden(error):
+    if is_external_user():
+        message = "你的外部账号只能查看与自己所属客户相关的工单和工作日报，这张工单不在你的可见范围内。如需访问，请联系内部管理员开通权限。"
+    else:
+        message = "你没有权限访问这个页面或记录。如需访问，请联系管理员。"
+    return (
+        render_template(
+            "error.html",
+            status_code="403",
+            title="没有访问权限",
+            message=message,
+        ),
+        403,
+    )
 
 
 @app.errorhandler(404)
