@@ -5100,12 +5100,21 @@ def report_worker_rows_from_form():
         miles = to_float(row["worker_driving_miles"])
         travel_hours = to_float(row["worker_travel_hours"])
         public_hours = to_float(row["worker_public_transport_hours"])
-        if mode in {"self_drive", "following", "rental_drive"} and miles <= 0:
-            raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
-        if mode in {"self_drive", "following", "rental_drive"} and travel_hours <= 0:
-            raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
-        if mode == "flight" and public_hours <= 0:
-            raise ValueError("飞机出行必须填写公共交通时长。")
+        # 0 英里 / 0 小时是合法值（随行、短途、顺路等）；只有留空或负数才非法。
+        if mode in {"self_drive", "following", "rental_drive"}:
+            if not row["worker_driving_miles"]:
+                raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
+            if miles < 0:
+                raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
+            if not row["worker_travel_hours"]:
+                raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
+            if travel_hours < 0:
+                raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
+        if mode == "flight":
+            if not row["worker_public_transport_hours"]:
+                raise ValueError("飞机出行必须填写公共交通时长。")
+            if public_hours < 0:
+                raise ValueError("飞机出行必须填写公共交通时长。")
         row.update(
             driving_miles=miles if mode != "flight" else 0,
             travel_hours=travel_hours if mode != "flight" else 0,

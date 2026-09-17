@@ -549,7 +549,7 @@ serviceReportForm?.addEventListener("submit", (event) => {
   const invalidWorker = workerRows.find((row) => {
     const worker = serviceWorkerRowValues(row);
     return !worker.userId
-      || ((worker.mode === "self_drive" || worker.mode === "following" || worker.mode === "rental_drive") && (worker.miles <= 0 || worker.travelHours <= 0))
+      || ((worker.mode === "self_drive" || worker.mode === "following" || worker.mode === "rental_drive") && (worker.miles < 0 || worker.travelHours < 0))
       || (worker.mode === "flight" && worker.publicHours <= 0);
   });
   if (!workerRows.length || invalidWorker || new Set(workerIds).size !== workerIds.length) {
