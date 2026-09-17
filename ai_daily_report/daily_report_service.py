@@ -408,6 +408,11 @@ class DailyReportService:
         if timeline_status in ("suspicious", "verification_required", "insufficient_photos"):
             draft.verification_required = True
 
+        # Field-marked safety photos (worker chose 自检照片 during capture) must
+        # land in the draft's safety selection automatically — same spirit as
+        # the auto-select button for service photos.
+        self._sync_safety_selections_from_candidates(draft)
+
         self.save_draft(draft_id, draft, expected_version=expected_version)
 
         return {
@@ -695,6 +700,51 @@ class DailyReportService:
             "classification": classification,
             "draft_version": updated["draft_version"],
         }
+
+    @staticmethod
+    def _sync_safety_selections_from_candidates(draft):
+        """Auto-add field-marked safety photos to the draft's safety selection.
+
+        Photos inherited with manual_classification/classification == "safety"
+        (the worker's 自检照片 ledger choice during field capture) are appended
+        to selected_safety_photos with source "user_selected", so the draft
+        never shows 安全自检照片 empty when the worker already marked photos.
+        Additive only: existing selections (in-draft manual marks, vision
+        picks, user changes) are never removed or reordered here.
+        """
+        safety_refs = [
+            p for p in draft.photo_candidates
+            if (p.manual_classification or p.classification) == "safety"
+        ]
+        if not safety_refs:
+            return
+        from .schemas import PhotoAnalysis
+        existing_ids = {a.photo_id for a in draft.selected_safety_photos}
+        added = False
+        for p in safety_refs:
+            if p.photo_id in existing_ids:
+                continue
+            draft.selected_safety_photos.append(PhotoAnalysis(
+                photo_id=p.photo_id,
+                photo_path=p.relative_path,
+                photo_hash=p.photo_hash,
+                classification="safety_person",
+                confidence=1.0,
+                sub_category=None,
+                capture_time=p.capture_time,
+                capture_time_source=p.capture_time_source,
+                selected_source="user_selected",
+            ))
+            added = True
+        if added:
+            draft.selected_safety_photo = draft.selected_safety_photos[0]
+            draft.selected_safety_photo_source = "user_selected"
+            first_ref = next(
+                (p for p in safety_refs if p.photo_id == draft.selected_safety_photo.photo_id),
+                None,
+            )
+            if first_ref is not None:
+                draft.safety_photo = first_ref
 
     def update_photo_time(
         self,

@@ -277,6 +277,40 @@ class DiscoverPhotoTypeRefreshTest(unittest.TestCase):
             self.assertEqual(updated.photo_candidates[0].classification, "arrival")
             self.assertEqual(updated.photo_candidates[0].manual_classification, "arrival")
 
+    def test_safety_marked_photo_auto_selected(self):
+        """现场标记「自检照片」的照片发现后自动进入安全自检选择，且幂等不重复。"""
+        from ai_daily_report import DailyReportService
+
+        with self.module.app.app_context():
+            svc = DailyReportService(
+                self.module.db(), lambda: "2026-09-14T12:00:00Z", self.admin_id, "Admin"
+            )
+            draft_row = svc.create_draft(self.order["id"], "2026-09-14", site_address="123 St")
+            draft_id = draft_row["id"]
+            rel1 = "SO-PTYP/pictures/2026-09-14/p1.jpg"
+            rel2 = "SO-PTYP/pictures/2026-09-14/p2.jpg"
+            self._make_jpeg(rel1, color=(1, 2, 3), capture_time=datetime(2026, 9, 14, 8, 0))
+            self._make_jpeg(rel2, color=(9, 9, 9), capture_time=datetime(2026, 9, 14, 12, 0))
+            lookup = {rel1: "safety", rel2: "equipment"}
+            pd, pm, lookup_fn = self._services(lookup)
+            r = svc.discover_photos_for_draft(draft_id, pd, pm, photo_type_lookup=lookup_fn)
+            self.assertEqual(r["status"], "discovered")
+            draft = svc.parse_draft_data(svc.get_draft(draft_id))
+            safety_ids = [a.photo_id for a in draft.selected_safety_photos]
+            expected = [p.photo_id for p in draft.photo_candidates if p.classification == "safety"]
+            self.assertEqual(safety_ids, expected)
+            self.assertEqual(len(safety_ids), 1)
+            self.assertIsNotNone(draft.selected_safety_photo)
+            self.assertEqual(draft.selected_safety_photo.photo_id, safety_ids[0])
+            self.assertEqual(draft.selected_safety_photo_source, "user_selected")
+            self.assertIsNotNone(draft.safety_photo)
+            self.assertEqual(draft.safety_photo.photo_id, safety_ids[0])
+            # Idempotent: re-scan (unchanged fingerprint) must not duplicate.
+            svc.discover_photos_for_draft(draft_id, pd, pm, photo_type_lookup=lookup_fn)
+            again = svc.parse_draft_data(svc.get_draft(draft_id))
+            self.assertEqual(len(again.selected_safety_photos), 1)
+            self.assertEqual(again.selected_safety_photos[0].photo_id, safety_ids[0])
+
     def test_refresh_keeps_confirmed_business_roles(self):
         from ai_daily_report import DailyReportService
 
