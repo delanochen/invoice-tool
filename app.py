@@ -18586,6 +18586,23 @@ def runtime_error(error):
     return redirect(request.referrer or url_for("dashboard"))
 
 
+@app.errorhandler(403)
+def forbidden(error):
+    if is_external_user():
+        message = "你的外部账号只能查看与自己所属客户相关的工单和工作日报，这张工单不在你的可见范围内。如需访问，请联系内部管理员开通权限。"
+    else:
+        message = "你没有权限访问这个页面或记录。如需访问，请联系管理员。"
+    return (
+        render_template(
+            "error.html",
+            status_code="403",
+            title="没有访问权限",
+            message=message,
+        ),
+        403,
+    )
+
+
 @app.errorhandler(404)
 def not_found(error):
     return (
