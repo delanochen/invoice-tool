@@ -29,14 +29,14 @@
       <div class="invoice-top">
         <div>
           <h2>{{ company.name }}</h2>
-          <p>{{ company.address|replace('\n', '<br>')|safe }}</p>
+          <p>{{ company.address|nl2br }}</p>
         </div>
         <div class="invoice-heading"><strong>INVOICE</strong></div>
       </div>
       <div class="invoice-info">
         <section>
           <h3>Bill To</h3>
-          <p><strong>{{ client.name }}</strong><br>{{ client.address|replace('\n', '<br>')|safe }}<br>{{ client.country }}</p>
+          <p><strong>{{ client.name }}</strong><br>{{ client.address|nl2br }}<br>{{ client.country }}</p>
         </section>
         <section class="meta-list">
           <p><span>Invoice No.</span><strong>{{ invoice.invoice_number }}</strong></p>
