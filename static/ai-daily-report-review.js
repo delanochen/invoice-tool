@@ -1253,6 +1253,62 @@
     }
   }
 
+  // ─── One-sentence chat update ──────────────────────────────────────────
+  // Reuses the same /chat endpoint as creation, but with draft_id so the
+  // sentence is applied to THIS draft (e.g. change origin / transportation).
+  async function submitChatMessage() {
+    const input = document.getElementById("chatInput");
+    const errEl = document.getElementById("chatError");
+    const btn = document.getElementById("chatSubmit");
+    const message = (input && input.value || "").trim();
+    errEl.style.display = "none";
+    if (!message) {
+      errEl.textContent = "请输入修改内容。";
+      errEl.style.display = "block";
+      return;
+    }
+    if (!currentPreview || !currentPreview.service_order_id) {
+      errEl.textContent = "日报尚未加载完成，请稍后再试。";
+      errEl.style.display = "block";
+      return;
+    }
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "处理中…";
+    try {
+      const resp = await fetch(`${apiBase}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        body: JSON.stringify({
+          message,
+          draft_id: draftId,
+          service_order_id: currentPreview.service_order_id,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      // Reload so the whole page (preview, verification banner, photos)
+      // re-renders from the updated draft — the chat endpoint may have
+      // touched mileage/routes beyond what the preview diff can show.
+      window.location.reload();
+    } catch (err) {
+      errEl.textContent = `修改失败: ${err.message}`;
+      errEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  document.getElementById("chatSubmit")?.addEventListener("click", submitChatMessage);
+  document.getElementById("chatInput")?.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      submitChatMessage();
+    }
+  });
+
   // Initial load
   loadPreview();
 })();

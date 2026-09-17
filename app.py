@@ -10429,8 +10429,10 @@ def ai_daily_report_chat():
             "error_code": "message_too_long",
         }), 413
 
-    # Add user message to conversation context
-    svc.add_conversation_message(draft_id, "user", message)
+    # Add user message to conversation context. The returned list includes the
+    # just-added user message; pass history WITHOUT it to DeepSeek because
+    # build_user_prompt already appends the current message as the final turn.
+    conversation_history = svc.add_conversation_message(draft_id, "user", message)[:-1]
 
     # Build existing draft summary for context (token-efficient, no full history)
     draft_summary = svc.build_draft_summary(draft)
@@ -10450,6 +10452,7 @@ def ai_daily_report_chat():
         site_address=order["site_address"] or "",
         current_user_name=g.user["name"],
         existing_draft_summary=draft_summary,
+        conversation_history=conversation_history,
     )
 
     if not result.ok:

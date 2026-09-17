@@ -12,6 +12,17 @@
   </div>
 </header>
 
+<!-- One-sentence chat update -->
+<div id="chatPanel" class="panel" style="margin-bottom:1rem;">
+  <h3 style="margin-top:0;">一句话修改日报</h3>
+  <p class="muted-line" style="font-size:0.85rem;">直接用自然语言修改本日报，例如：「把张三的出发地点改成 Hobbs, NM」「张三改成乘车」「我们今天不住宿」「增加更换 A313 的 2 号保险丝」。</p>
+  <div style="display:flex; gap:0.5rem; align-items:flex-start;">
+    <textarea id="chatInput" rows="2" placeholder="输入修改内容，例如：把张三的出发地点改成…" style="flex:1; padding:0.5rem; resize:vertical;"></textarea>
+    <button type="button" id="chatSubmit" class="primary" style="white-space:nowrap;">发送</button>
+  </div>
+  <p id="chatError" class="muted-line" style="display:none; color:#c0392b; margin-bottom:0;"></p>
+</div>
+
 <!-- Status Banner -->
 <div id="statusBanner" class="flash" style="display:none; margin-bottom:1rem;"></div>
 

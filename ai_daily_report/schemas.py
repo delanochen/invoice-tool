@@ -36,10 +36,27 @@ TIME_PATTERN = re.compile(r"^\d{2}:\d{2}$")
 
 class WorkerInput(BaseModel):
     name: str
-    transportation: Literal[
-        "self_drive", "carpool", "passenger", "flight", "rental_car", "other"
-    ] = "self_drive"
+    transportation: Optional[
+        Literal["self_drive", "carpool", "passenger", "flight", "rental_car", "other"]
+    ] = None
     origin: Optional[str] = None  # None = unknown, must ask; never guess
+
+    @field_validator("transportation")
+    @classmethod
+    def validate_transportation(
+        cls, v: Optional[str]
+    ) -> Optional[str]:
+        # None = user did not mention the mode (keep existing value on update,
+        # default self_drive on create). Explicit values must be valid so a
+        # typo from the model can never silently corrupt a worker row.
+        if v is None:
+            return None
+        allowed = {"self_drive", "carpool", "passenger", "flight", "rental_car", "other"}
+        if v not in allowed:
+            raise ValueError(
+                f"transportation must be one of {sorted(allowed)} or null, got {v!r}"
+            )
+        return v
 
 
 class WorkItemInput(BaseModel):

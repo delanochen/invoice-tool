@@ -232,7 +232,10 @@ class EmployeeResolutionService:
                 resolved.append({
                     "user_id": result.user_id,
                     "name": result.name,
-                    "transportation": wi.get("transportation", "self_drive"),
+                    # None = "not mentioned": pass through so update_worker
+                    # keeps the existing mode (and create defaults to
+                    # self_drive later in _apply_update_worker).
+                    "transportation": wi.get("transportation"),
                     "origin": wi.get("origin"),
                 })
             else:

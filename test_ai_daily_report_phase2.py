@@ -330,6 +330,72 @@ class AIDailyReportPhase2Test(unittest.TestCase):
             self.assertEqual(draft.workers[0].origin, "New Address")
             self.assertTrue(draft.workers[0].origin_confirmed)
 
+    def test_update_worker_switch_back_to_self_drive(self):
+        """一句话改回自驾: explicit transportation='self_drive' must apply.
+
+        Regression: the old code skipped any transportation equal to
+        'self_drive' because it could not tell "user said self_drive" from
+        the old schema default, so switching back was impossible.
+        """
+        with self.module.app.app_context():
+            from ai_daily_report import AIAction, DailyReportDraft, WorkerTravel
+            _, _, _, svc = self._make_services()
+            draft = DailyReportDraft(service_order_id=self.order["id"], report_date="2026-09-14")
+            draft.workers.append(WorkerTravel(
+                user_id=self.zhangsan["id"], name="张三",
+                transportation="passenger", origin="Old",
+                route_status="success", one_way_miles=12.0,
+            ))
+            action = AIAction(action_version=1, intent="update_worker")
+            resolved = [{"user_id": self.zhangsan["id"], "name": "张三",
+                         "transportation": "self_drive"}]
+            draft, msg = svc.execute_action(draft, action, resolved_workers=resolved)
+            self.assertEqual(draft.workers[0].transportation, "self_drive")
+            # route data must be invalidated after the mode change
+            self.assertNotEqual(draft.workers[0].route_status, "success")
+
+    def test_update_worker_null_transportation_keeps_existing(self):
+        """transportation=None (未提及) must keep the existing mode."""
+        with self.module.app.app_context():
+            from ai_daily_report import AIAction, DailyReportDraft, WorkerTravel
+            _, _, _, svc = self._make_services()
+            draft = DailyReportDraft(service_order_id=self.order["id"], report_date="2026-09-14")
+            draft.workers.append(WorkerTravel(
+                user_id=self.zhangsan["id"], name="张三",
+                transportation="passenger", origin="Old",
+            ))
+            action = AIAction(action_version=1, intent="update_worker")
+            resolved = [{"user_id": self.zhangsan["id"], "name": "张三",
+                         "transportation": None, "origin": "New Origin"}]
+            draft, msg = svc.execute_action(draft, action, resolved_workers=resolved)
+            self.assertEqual(draft.workers[0].transportation, "passenger")
+            self.assertEqual(draft.workers[0].origin, "New Origin")
+
+    def test_worker_input_transportation_validation(self):
+        """WorkerInput.transportation: None ok, valid ok, junk rejected."""
+        from ai_daily_report.schemas import WorkerInput
+        from pydantic import ValidationError
+        self.assertIsNone(WorkerInput(name="A").transportation)
+        self.assertEqual(
+            WorkerInput(name="A", transportation="passenger").transportation,
+            "passenger",
+        )
+        with self.assertRaises(ValidationError):
+            WorkerInput(name="A", transportation="teleportation")
+
+    def test_update_worker_add_new_worker_defaults_self_drive(self):
+        """New worker with transportation=None defaults to self_drive."""
+        with self.module.app.app_context():
+            from ai_daily_report import AIAction, DailyReportDraft, WorkerTravel
+            _, _, _, svc = self._make_services()
+            draft = DailyReportDraft(service_order_id=self.order["id"], report_date="2026-09-14")
+            action = AIAction(action_version=1, intent="update_worker")
+            resolved = [{"user_id": self.zhangsan["id"], "name": "张三",
+                         "transportation": None}]
+            draft, msg = svc.execute_action(draft, action, resolved_workers=resolved)
+            self.assertEqual(len(draft.workers), 1)
+            self.assertEqual(draft.workers[0].transportation, "self_drive")
+
     def test_two_workers_no_cross_contamination(self):
         """Simultaneously updating two workers should not mix up data."""
         with self.module.app.app_context():

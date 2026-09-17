@@ -1168,7 +1168,10 @@ class DailyReportService:
                         existing.origin_source = "user_input"
                         existing.origin_confirmed = True
                         TravelService.invalidate_worker_route(existing)
-                    if rw.get("transportation") and rw["transportation"] != "self_drive":
+                    # transportation=None means "not mentioned, keep as is".
+                    # An explicit value (including self_drive) always wins so
+                    # users can switch back to self-driving via one sentence.
+                    if rw.get("transportation"):
                         existing.transportation = rw["transportation"]
                         TravelService.invalidate_worker_route(existing)
                     if rw.get("overnight_stay") is not None:
@@ -1179,7 +1182,7 @@ class DailyReportService:
                     draft.workers.append(WorkerTravel(
                         user_id=user_id,
                         name=rw.get("name", ""),
-                        transportation=rw.get("transportation", "self_drive"),
+                        transportation=rw.get("transportation") or "self_drive",
                         origin=rw.get("origin"),
                         origin_source="user_input" if rw.get("origin") else None,
                         origin_confirmed=bool(rw.get("origin")),
@@ -1200,7 +1203,7 @@ class DailyReportService:
                         existing.origin_source = "user_input"
                         existing.origin_confirmed = True
                         TravelService.invalidate_worker_route(existing)
-                    if wi.transportation != "self_drive":
+                    if wi.transportation:
                         existing.transportation = wi.transportation
                         TravelService.invalidate_worker_route(existing)
                     messages.append(f"已更新 {wi.name} 的信息")
@@ -1208,7 +1211,7 @@ class DailyReportService:
                     draft.workers.append(WorkerTravel(
                         user_id=0,  # unresolved - should not happen in Phase 2
                         name=wi.name,
-                        transportation=wi.transportation,
+                        transportation=wi.transportation or "self_drive",
                         origin=wi.origin,
                     ))
                     messages.append(f"已添加工作人员 {wi.name}")
