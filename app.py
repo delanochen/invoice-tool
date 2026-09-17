@@ -10487,14 +10487,23 @@ def ai_daily_report_chat():
     site_address = order["site_address"] or ""
     travel_svc.set_destination_for_all(draft.workers, site_address)
 
-    # Phase 2: Apply employee default origin for self_drive workers without origin
+    # Phase 2: Apply employee default origin for self_drive workers.
+    # If the user explicitly said they depart from home ("从家出发"), the
+    # employee default address (users.address) counts as an explicit
+    # confirmation: origin_confirmed=True (no ORIG-002), and mileage/route
+    # can be generated directly. Without such wording the address remains a
+    # suggestion that still needs confirmation (existing behaviour).
     for w in draft.workers:
-        if w.transportation == "self_drive" and not w.origin and w.user_id > 0:
-            default_addr = emp_resolver.get_employee_default_address(w.user_id)
-            if default_addr:
-                w.origin = default_addr
-                w.origin_source = "employee_default"
-                w.origin_confirmed = False
+        if w.transportation == "self_drive" and w.user_id > 0:
+            from_home = travel_svc.is_home_origin(w.origin)
+            if (not w.origin) or from_home:
+                default_addr = emp_resolver.get_employee_default_address(w.user_id)
+                if default_addr:
+                    w.origin = default_addr
+                    w.origin_source = "employee_default"
+                    w.origin_confirmed = from_home
+                    if from_home:
+                        travel_svc.invalidate_worker_route(w)
 
     # Phase 2: Verify travel fields using TravelService
     missing, travel_messages = travel_svc.verify_travel_fields(

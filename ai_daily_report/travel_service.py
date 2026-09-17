@@ -49,6 +49,30 @@ class TravelService:
         self.employee_resolution = employee_resolution_service
 
     @staticmethod
+    def is_home_origin(value: Optional[str]) -> bool:
+        """Detect whether an origin value means "from home" (从家出发).
+
+        When the user says they depart from home, the employee default address
+        (users.address) is treated as an explicit confirmation: the origin is
+        resolved to the default address and marked origin_confirmed=True so that
+        ORIG-002 never fires and mileage can be generated directly.
+        Only recognizable home wording is matched; real street addresses are
+        never treated as home.
+        """
+        if not value:
+            return False
+        v = value.strip().lower()
+        compact = v.replace(" ", "").replace("\u3000", "")
+        if compact in ("家", "家里", "从家", "从家里", "从家出发", "home", "fromhome", "fromhome出发"):
+            return True
+        # "从家里出发去现场" / "从家走" style phrases
+        if compact.startswith("从家") or compact.startswith("从家里"):
+            return True
+        if compact in ("家里出发", "家出发", "家里走", "家走"):
+            return True
+        return False
+
+    @staticmethod
     def invalidate_worker_route(worker: WorkerTravel) -> None:
         """Clear all computed route/mileage fields for a worker.
 
