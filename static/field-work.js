@@ -136,33 +136,47 @@
   async function verifyTimePassword() {
     const response = await requestAPI('/api/field/verify-watermark-password',{method:'POST',headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf},body:JSON.stringify({password:$('watermarkPassword').value})});
     timeAuthorized = response.ok;
-    $('watermarkStart').disabled = !timeAuthorized;
-    setFieldText('timeStatus', timeAuthorized ? '密码正确，可以调整本组水印时间。' : '密码错误。');
-    if (!timeAuthorized) notice('水印时间调整密码错误。',true);
+    if (!timeAuthorized) {
+      setFieldText('passwordStatus','密码错误，请重试。');
+      notice('水印时间调整密码错误。',true);
+      return;
+    }
+    $('watermarkPasswordDialog').close();
+    openWatermarkTimeDialog();
   }
   function openWatermarkDialog() {
     if (!batch?.type) { notice('请先选择本组照片类型。',true); return; }
+    if (timeAuthorized) { openWatermarkTimeDialog(); return; }  // 本组已验证过密码：直接进入时间设定
+    $('watermarkPassword').value = '';
+    setFieldText('passwordStatus','请输入水印时间调整密码。');
+    $('watermarkPasswordDialog').showModal();
+    $('watermarkPassword').focus();
+  }
+  function openWatermarkTimeDialog() {
     if (!$('watermarkStart').value) {
       const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-      $('watermarkStart').value = d.toISOString().slice(0,16);
+      $('watermarkStart').value = d.toISOString().slice(0,16);  // 分钟精度，秒数由确认时随机生成
     }
-    $('watermarkPassword').value = '';
-    $('watermarkStart').disabled = !timeAuthorized;
-    setFieldText('timeStatus', useSystemTime ? '请输入密码并验证，然后设置水印开始时间。' : (timeAuthorized ? '密码已通过，可修改本组水印时间。' : '请重新输入密码验证。'));
+    $('watermarkStart').disabled = false;
+    setFieldText('timeStatus', useSystemTime ? '设置后本组照片使用该时间；上传完成后自动恢复系统时间。' : '密码已通过，可修改本组水印时间。');
     $('watermarkTimeDialog').showModal();
   }
   function confirmWatermarkTime() {
     const start = $('watermarkStart').value;
     if (!timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
-    if (!start || Number.isNaN(new Date(start).getTime())) { notice('请选择有效的水印开始时间。',true); $('watermarkStart').focus(); return; }
+    const anchor = new Date(start);
+    if (!start || Number.isNaN(anchor.getTime())) { notice('请选择有效的水印开始时间。',true); $('watermarkStart').focus(); return; }
+    anchor.setSeconds(Math.floor(Math.random()*60), 0);  // 输入只到分钟，随机附加秒数避免每张都是 :00
     useSystemTime = false;
-    batch.watermark_anchor_ms = new Date(start).getTime();
+    batch.watermark_anchor_ms = anchor.getTime();
     batch.first_adjusted_shot_at = null;
-    $('watermarkModeText').textContent = '水印时间：' + start.replace('T',' ');
-    setFieldText('timeStatus','水印时间已设置为 ' + start.replace('T',' ') + '，本组照片使用该时间。');
+    const display = start.replace('T',' ');
+    $('watermarkModeText').textContent = '水印时间：' + display;
+    setFieldText('timeStatus','水印时间已设置为 ' + display + '（秒数已随机），本组照片使用该时间；上传完成后恢复系统时间。');
     $('watermarkTimeDialog').close();
   }
   function cancelWatermarkTime() { $('watermarkTimeDialog').close(); }
+  function cancelWatermarkPassword() { $('watermarkPasswordDialog').close(); }
   async function scanDevice() {
     if (!stream || deviceSession || !('BarcodeDetector' in window)) return;
     try {
@@ -738,7 +752,7 @@
     if (!batch) return;
     const id=batch.id; await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
-    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close();
+    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
     $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
@@ -939,6 +953,9 @@
   $('adjustWatermarkTime').addEventListener('click',openWatermarkDialog);
   $('verifyTimePassword').addEventListener('click',verifyTimePassword);
   $('confirmWatermarkTime').addEventListener('click',confirmWatermarkTime);
+  $('watermarkPasswordForm').addEventListener('submit',event=>{event.preventDefault();verifyTimePassword();});
+  $('cancelWatermarkPassword').addEventListener('click',cancelWatermarkPassword);
+  $('watermarkPasswordDialog').addEventListener('cancel',event=>{event.preventDefault();cancelWatermarkPassword();});
   $('watermarkTimeForm').addEventListener('submit',event=>{event.preventDefault();});
   $('cancelWatermarkTime').addEventListener('click',cancelWatermarkTime);
   $('watermarkTimeDialog').addEventListener('cancel',event=>{event.preventDefault();cancelWatermarkTime();});

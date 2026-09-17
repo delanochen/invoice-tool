@@ -121,17 +121,21 @@ class FieldWorkJsContractTest(unittest.TestCase):
         self.assertIn("$('equipmentKind').classList.remove('primary');", general_branch)
         self.assertIn("$('deviceSession').hidden = true;", general_branch)
 
-    # 17. watermark time: adjust button + password dialog (replaces the old
-    #     "use system time" checkbox).
+    # 17. watermark time: two-step flow — password dialog first, then the
+    #     time dialog (replaces the old "use system time" checkbox).
     def test_15_watermark_adjust_button_and_dialog(self):
         self.assertNotIn("systemTime", self.code)  # checkbox removed
         self.assertNotIn("adjustedTimeFields", self.code)
         self.assertIn("addEventListener('click',openWatermarkDialog)", self.code)
-        self.assertIn("watermarkTimeDialog", self.code)
+        self.assertIn("watermarkPasswordDialog", self.code)  # step 1: password only
+        self.assertIn("watermarkTimeDialog", self.code)      # step 2: time only
         self.assertIn("confirmWatermarkTime", self.code)
         self.assertIn("cancelWatermarkTime", self.code)
+        self.assertIn("cancelWatermarkPassword", self.code)
         self.assertIn("verifyTimePassword", self.code)  # password check kept
         self.assertIn("/api/field/verify-watermark-password", self.code)
+        # v0.1.228: random seconds are appended so the watermark is not always :00
+        self.assertIn("anchor.setSeconds(Math.floor(Math.random()*60), 0)", self.code)
 
     def test_16_watermark_increments_from_first_adjusted_shot(self):
         # Backfill + increment semantics: the first adjusted shot uses exactly the
@@ -139,7 +143,7 @@ class FieldWorkJsContractTest(unittest.TestCase):
         # adjusted shot. The old bug (adding elapsed since batch.actual_start)
         # must be gone.
         self.assertIn("if (batch.first_adjusted_shot_at == null) batch.first_adjusted_shot_at = actual.getTime();", self.code)
-        self.assertIn("batch.watermark_anchor_ms = new Date(start).getTime();", self.code)
+        self.assertIn("batch.watermark_anchor_ms = anchor.getTime();", self.code)
         self.assertIn("watermark = new Date(anchorMs + (actual.getTime() - batch.first_adjusted_shot_at));", self.code)
         self.assertNotIn("actual.getTime() - batch.actual_start", self.code)
 
@@ -169,7 +173,7 @@ class FieldWorkJsContractTest(unittest.TestCase):
 
     def test_21_watermark_mode_text_updates_after_confirm(self):
         # after confirming, the page shows the set time inside #timeSettings.
-        self.assertIn("watermarkModeText').textContent = '水印时间：' + start.replace('T',' ')", self.code)
+        self.assertIn("watermarkModeText').textContent = '水印时间：' + display", self.code)
 
     # 22. ledger photo dialog delete button (mobile PWA)
     def test_22_ledger_photo_delete(self):

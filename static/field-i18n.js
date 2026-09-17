@@ -2,6 +2,14 @@
   'use strict';
   const en = {
     "全部删除":"Delete all",
+    '第一步：请先验证水印时间调整密码，验证通过后进入时间设定。':'Step 1: verify the watermark-time password first, then set the time.',
+    '第二步：设置后本组照片的水印将使用您设置的时间（精确到分钟，系统会自动附加随机的秒数；上传完成后恢复系统时间）。':'Step 2: photos in this batch will use the time you set (minute precision; a random number of seconds is added automatically; system time resumes after upload).',
+    '验证并继续':'Verify and continue',
+    '请输入水印时间调整密码。':'Enter the watermark-time adjustment password.',
+    '密码错误，请重试。':'Incorrect password. Try again.',
+    '设置后本组照片使用该时间；上传完成后自动恢复系统时间。':'This batch will use the time you set; system time resumes after upload.',
+    '水印时间已设置为 ':'Watermark time set to ',
+    '（秒数已随机），本组照片使用该时间；上传完成后恢复系统时间。':' (seconds randomized). This batch uses this time; system time resumes after upload.',
     "确认删除全部待上传照片？":"Delete all pending photos?",
     "张照片将从当前账号的本机草稿中删除。":"photos will be deleted from this account’s local drafts.",
     "此操作无法撤销。不会删除手机相册或已上传到服务器的照片。":"This cannot be undone. Photos in your device gallery or already on the server will remain.",
@@ -49,6 +57,13 @@
     "来源":"Source"
   };
   const es = {
+    '第一步：请先验证水印时间调整密码，验证通过后进入时间设定。':'Paso 1: verifique la contraseña de ajuste de hora; después podrá fijar la hora.',
+    '第二步：设置后本组照片的水印将使用您设置的时间（精确到分钟，系统会自动附加随机的秒数；上传完成后恢复系统时间）。':'Paso 2: las fotos de este lote usarán la hora indicada (precisión de minutos; se añaden segundos aleatorios automáticamente; la hora del sistema se restaura tras subir).',
+    '验证并继续':'Verificar y continuar',
+    '请输入水印时间调整密码。':'Introduzca la contraseña de ajuste de hora.',
+    '密码错误，请重试。':'Contraseña incorrecta. Inténtelo de nuevo.',
+    '设置后本组照片使用该时间；上传完成后自动恢复系统时间。':'Este lote usará la hora indicada; la hora del sistema se restaura tras subir.',
+    '（秒数已随机），本组照片使用该时间；上传完成后恢复系统时间。':' (segundos aleatorios). Este lote usa esta hora; la hora del sistema se restaura tras subir.',
     '请将13位铭牌号对准取景框，系统将自动识别。':'Centre los 13 dígitos de la placa en el marco. El reconocimiento comenzará automáticamente.','自动识别中，请保持13位数字清晰并完整位于框内。':'Reconocimiento automático en curso. Mantenga los 13 dígitos nítidos y dentro del marco.',
     '将13位数字放入框内':'Coloque los 13 dígitos dentro del marco',
     '请确认铭牌号':'Confirme el número de placa','请与设备铭牌逐位核对，确认后才会用于后续照片。':'Compare cada carácter con la placa. Solo se usará en las fotos siguientes después de confirmarlo.','确认使用':'Confirmar y usar','重新识别':'Reconocer de nuevo','手工输入':'Introducir manualmente',
