@@ -99,7 +99,7 @@
             tabindex="0"
             data-row-id="{{ report.id }}"
             data-row-label="{{ report.report_date }} · {{ report.worker_names or '-' }}"
-            data-edit-url="{% if can_open_report %}{{ url_for('edit_service_report', report_id=report.id) }}{% endif %}"
+            data-edit-url="{% if can_open_report %}{% if is_external_manager() %}{{ url_for('view_service_report', report_id=report.id) }}{% else %}{{ url_for('edit_service_report', report_id=report.id) }}{% endif %}{% endif %}"
             data-copy-url="{% if can_open_report and can_create_service_report(order) %}{{ url_for('new_service_report', order_id=order.id, copy_from=report.id) }}{% endif %}"
             data-edit-url-label="{% if is_external_manager() %}查看{% else %}编辑{% endif %}"
             data-export-url="{{ url_for('export_service_report', report_id=report.id) }}"

@@ -3288,6 +3288,7 @@ def required_action_for_request():
         "service_order_map": ("service_orders", "view"),
         "service_order_calendar": ("service_order_calendar", "view"),
         "service_report_query": ("service_reports", "view"),
+        "view_service_report": ("service_reports", "view"),
         "new_service_report": ("service_reports", "create"),
         "edit_service_report": ("service_reports", "edit"),
         "delete_service_report": ("service_reports", "delete"),
@@ -13587,7 +13588,9 @@ def buyer_query():
 @app.route("/reports/service-reports")
 @login_required
 def service_report_query():
-    if not is_internal_user():
+    # View access is driven by the permission matrix (工作日报 > 查看) instead of
+    # an internal-only gate, so external accounts granted 查看 can use this page.
+    if not (is_internal_user() or has_action_permission("service_reports", "view")):
         abort(403)
     q = request.args.get("q", "").strip()
     date_from = request.args.get("date_from", "")
@@ -13598,8 +13601,9 @@ def service_report_query():
     order_ids = [value for value in order_ids if value]
     sites = [value for value in sites if value]
     worker_ids = [value for value in worker_ids if value]
-    clauses = ["1 = 1"]
-    params = []
+    clauses, params = service_order_access_filters("service_orders")
+    if not clauses:
+        clauses.append("1 = 1")
     for column, values in [("service_orders.id", order_ids), ("service_orders.client_name", sites)]:
         if values:
             clauses.append(f"{column} in ({','.join('?' for _ in values)})")
@@ -13641,6 +13645,34 @@ def service_report_query():
         """,
         [current_language(), *params],
     ).fetchall()
+    external_view = not is_internal_user()
+    if external_view:
+        # Scope the filter dropdowns to the external account's visible orders
+        # so the options themselves don't leak other clients' data.
+        opt_clauses, opt_params = service_order_access_filters("o")
+        option_where = " and ".join(opt_clauses) if opt_clauses else "1 = 1"
+        order_options = db().execute(
+            f"select distinct o.id, o.order_number from service_orders o join service_reports r on r.service_order_id=o.id where {option_where} order by o.order_number desc",
+            opt_params,
+        ).fetchall()
+        site_options = db().execute(
+            f"select distinct o.client_name from service_orders o join service_reports r on r.service_order_id=o.id where o.client_name != '' and {option_where} order by o.client_name",
+            opt_params,
+        ).fetchall()
+        worker_options = db().execute(
+            f"""
+            select distinct u.id, u.name from users u
+            join service_report_workers w on w.user_id=u.id
+            join service_reports r on r.id=w.report_id
+            join service_orders o on o.id = r.service_order_id
+            where {option_where} order by u.name, u.id
+            """,
+            opt_params,
+        ).fetchall()
+    else:
+        order_options = db().execute("select distinct o.id, o.order_number from service_orders o join service_reports r on r.service_order_id=o.id order by o.order_number desc").fetchall()
+        site_options = db().execute("select distinct o.client_name from service_orders o join service_reports r on r.service_order_id=o.id where o.client_name != '' order by o.client_name").fetchall()
+        worker_options = db().execute("select distinct u.id, u.name from users u join service_report_workers w on w.user_id=u.id join service_reports r on r.id=w.report_id order by u.name, u.id").fetchall()
     return render_template(
         "service_report_query.html",
         rows=rows,
@@ -13648,9 +13680,10 @@ def service_report_query():
         date_from=date_from,
         date_to=date_to,
         order_ids=order_ids, sites=sites, worker_ids=worker_ids,
-        order_options=db().execute("select distinct o.id, o.order_number from service_orders o join service_reports r on r.service_order_id=o.id order by o.order_number desc").fetchall(),
-        site_options=db().execute("select distinct o.client_name from service_orders o join service_reports r on r.service_order_id=o.id where o.client_name != '' order by o.client_name").fetchall(),
-        worker_options=db().execute("select distinct u.id, u.name from users u join service_report_workers w on w.user_id=u.id join service_reports r on r.id=w.report_id order by u.name, u.id").fetchall(),
+        order_options=order_options,
+        site_options=site_options,
+        worker_options=worker_options,
+        external_view=external_view,
     )
 
 
@@ -16768,6 +16801,56 @@ def delete_report_attachment(attachment_id):
     if not re.fullmatch(r"#[A-Za-z0-9_-]+", redirect_anchor):
         redirect_anchor = ""
     return redirect(url_for("edit_service_report", report_id=report["id"]) + redirect_anchor)
+
+
+@app.get("/service-reports/<int:report_id>/view")
+@login_required
+def view_service_report(report_id):
+    """Read-only, Word-export-style view of a service report.
+
+    This is the external-facing "查看" surface: with the service_reports view
+    action granted (权限管理 > 工作日报 > 查看), external managers/employees can
+    read the report in the same layout as the exported Word document, but they
+    never see the internal edit form. Internal users can use it too.
+    """
+    if not has_action_permission("service_reports", "view"):
+        abort(403)
+    report, order = require_service_report(report_id)
+    workers = service_report_workers(report_id)
+    worker_descriptions = [
+        f"{worker['name']}：{worker['work_description']}"
+        for worker in workers
+        if worker["work_description"]
+    ]
+    description_text = report["service_description"] or ""
+    if worker_descriptions:
+        description_text = "\n".join(
+            ([description_text] if description_text else []) + worker_descriptions
+        )
+    attachment_groups = get_report_attachments(report_id)
+    photo_labels = {
+        "arrival": "到达现场时间照片",
+        "departure": "离开现场时间照片",
+        "self_check": "自检照片",
+        "site": "现场服务照片",
+    }
+    photo_sections = [
+        {"title": title, "photos": attachment_groups.get(category, [])}
+        for category, title in photo_labels.items()
+        if attachment_groups.get(category)
+    ]
+    return render_template(
+        "service_report_view.html",
+        report=report,
+        order=order,
+        workers=workers,
+        description_text=description_text,
+        saved_parts=report_parts("service_report_saved_parts", report_id),
+        replaced_parts=report_parts("service_report_replaced_parts", report_id),
+        photo_sections=photo_sections,
+        company=get_company_profile(),
+        can_export=has_action_permission("service_reports", "export"),
+    )
 
 
 @app.post("/service-reports/<int:report_id>/export")

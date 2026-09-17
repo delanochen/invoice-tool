@@ -84,6 +84,7 @@
             or (has_menu_permission("buyer_query") and not is_external_manager())
             or (has_menu_permission("service_order_query") and not is_external_manager())
             or (has_menu_permission("service_report_query") and not is_external_manager())
+            or (is_external_manager() and has_action_permission("service_reports", "view"))
             or (has_menu_permission("expense_query") and not is_external_manager())
             or (has_menu_permission("user_certificate_query") and has_action_permission("users", "view"))
             or (has_menu_permission("audit_log_report") and can_view_audit_logs())
@@ -104,10 +105,10 @@
               {% if has_menu_permission("customer_reimbursement_query") and can_view_customer_reimbursement() %}
                 {{ nav_link("customer_reimbursement_query", "工单结算报表") }}
               {% endif %}
-              {% if not is_external_manager() %}
+              {% if has_menu_permission("service_report_query") or (is_external_manager() and has_action_permission("service_reports", "view")) %}{{ nav_link("service_report_query", "日报查询") }}{% endif %}
+                {% if not is_external_manager() %}
                 {% if has_menu_permission("buyer_query") %}{{ nav_link("buyer_query", "站点查询") }}{% endif %}
                 {% if has_menu_permission("service_order_query") %}{{ nav_link("service_order_query", "工单查询") }}{% endif %}
-                {% if has_menu_permission("service_report_query") %}{{ nav_link("service_report_query", "日报查询") }}{% endif %}
                 {% if has_menu_permission("expense_query") %}{{ nav_link("expense_query", "报销明细查询") }}{% endif %}
                 {% if has_menu_permission("audit_log_report") and can_view_audit_logs() %}
                   {{ nav_link("audit_log_report", "操作日志") }}

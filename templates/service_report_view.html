@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}工作日报查看 - 发票工具{% endblock %}
+{% block head %}
+<style>
+  /* Word-export-style read-only sheet: mirrors build_service_report_docx layout */
+  .report-paper {
+    max-width: 860px;
+    margin: 0 auto 2rem;
+    background: #fff;
+    color: #111;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    padding: 2.2rem 2.4rem;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+  .report-paper h1.report-title {
+    text-align: center;
+    font-size: 1.45rem;
+    margin: 0 0 1rem;
+    color: #111;
+  }
+  .report-paper .meta-line { margin: 0.15rem 0; }
+  .report-paper .meta-line strong { margin-right: 0.25rem; }
+  .report-paper h2.report-section {
+    font-size: 0.95rem;
+    color: #0f767e;
+    margin: 1.2rem 0 0.4rem;
+  }
+  .report-paper table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.3rem 0 0.6rem;
+    table-layout: fixed;
+  }
+  .report-paper th, .report-paper td {
+    border: 1px solid #333;
+    padding: 0.28rem 0.4rem;
+    vertical-align: middle;
+    word-break: break-word;
+  }
+  .report-paper th { background: #d9ead3; font-weight: 700; text-align: center; }
+  .report-paper td.center { text-align: center; }
+  .report-paper .parts-title th { background: #b6d7a8; }
+  .report-paper .desc-cell { white-space: pre-wrap; min-height: 4.5rem; }
+  .report-paper .photo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .report-paper .photo-grid img {
+    width: 100%;
+    max-height: 340px;
+    object-fit: contain;
+    border: 1px solid #333;
+    background: #fff;
+  }
+  .report-paper .sign-grid td { height: 2.2rem; }
+  @media print {
+    .no-print { display: none !important; }
+    .report-paper { border: none; max-width: none; padding: 0; }
+    body { background: #fff; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="no-print" style="max-width:860px;margin:0 auto 0.8rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+  {% if can_export %}
+  <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
+    <button type="submit">导出 Word</button>
+  </form>
+  {% endif %}
+  <button type="button" onclick="window.print()">打印</button>
+</div>
+
+<div class="report-paper">
+  <h1 class="report-title">现场服务日报</h1>
+
+  <p class="meta-line"><strong>站点名称：</strong>{{ order.client_name }}</p>
+  <p class="meta-line"><strong>业主：</strong>{{ order.buyer_owner or "" }}</p>
+  <p class="meta-line"><strong>服务现场地址：</strong>{{ order.site_address or "" }}</p>
+  <p class="meta-line"><strong>服务订单号码：</strong>{{ order.client_order_number or "" }}</p>
+
+  <h2 class="report-section">现场服务人员</h2>
+  <table>
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><th>姓名</th><th>公司</th></tr>
+    {% for worker in workers %}
+      <tr><td>{{ worker.name }}</td><td>{{ company.name }}</td></tr>
+    {% endfor %}
+    {% if workers | length < 2 %}
+      {% for _ in range(2 - workers | length) %}
+        <tr><td>&nbsp;</td><td></td></tr>
+      {% endfor %}
+    {% endif %}
+  </table>
+
+  <table>
+    <colgroup><col style="width:33.4%"><col style="width:33.3%"><col style="width:33.3%"></colgroup>
+    <tr><th>报告日期</th><th>总计服务工时（小时）</th><th>交通时长（小时）</th></tr>
+    <tr>
+      <td class="center">{{ report.report_date }}</td>
+      <td class="center">{{ report.total_service_hours }}</td>
+      <td class="center">{{ report.travel_hours }}</td>
+    </tr>
+  </table>
+
+  <h2 class="report-section">现场服务描述</h2>
+  <table>
+    <colgroup><col></colgroup>
+    <tr><td class="desc-cell">{{ description_text }}</td></tr>
+    <tr><td><strong>机柜编号：{{ report.cabinet_number or "" }}</strong></td></tr>
+  </table>
+
+  <h2 class="report-section">公共交通时长及自驾车里程细节</h2>
+  <table>
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><td colspan="2"><strong>公共交通时长：{{ report.public_transport_hours or 0 }} 小时&nbsp;&nbsp;&nbsp;&nbsp;自驾里程总计：{{ report.driving_miles or 0 }} 英里</strong></td></tr>
+    <tr><td>出发地址：{{ report.departure_address or "" }}</td><td>场地地址：{{ report.site_address or order.site_address or "" }}</td></tr>
+    <tr><td colspan="2">合计用时：{{ report.total_time or "" }}</td></tr>
+  </table>
+
+  {% macro parts_table(title, headers, rows) %}
+    <h2 class="report-section">{{ title }}</h2>
+    <table class="parts-title">
+      <colgroup>{% for _ in headers %}<col>{% endfor %}</colgroup>
+      <tr><th colspan="{{ headers | length }}">{{ title }}</th></tr>
+      <tr>{% for header in headers %}<th style="font-size:0.78rem;">{{ header }}</th>{% endfor %}</tr>
+      {% set padded = rows | list + [{}] * (4 - rows | length) if rows | length < 4 else rows %}
+      {% for part in padded %}
+        <tr class="parts-row">
+          {% if part %}
+            {% for cell in part.cells %}<td class="center">{{ cell }}</td>{% endfor %}
+          {% else %}
+            {% for _ in headers %}<td class="center">&nbsp;</td>{% endfor %}
+          {% endif %}
+        </tr>
+      {% endfor %}
+    </table>
+  {% endmacro %}
+
+  {% set saved_rows = [] %}
+  {% for part in saved_parts %}
+    {% set _ = saved_rows.append({"cells": [part.part_number, part.part_name, part.quantity, part.status]}) %}
+  {% endfor %}
+  {{ parts_table("保存的配件", ["零件号", "零件名称", "数量", "状态（新/报废）"], saved_rows) }}
+
+  {% set replaced_rows = [] %}
+  {% for part in replaced_parts %}
+    {% set _ = replaced_rows.append({"cells": [part.part_number, part.part_name, part.old_serial_number, part.new_serial_number, part.quantity]}) %}
+  {% endfor %}
+  {{ parts_table("现场更换的配件", ["零件号", "零件名称", "旧配件序列号", "新配件序列号", "数量"], replaced_rows) }}
+
+  <h2 class="report-section">现场时间</h2>
+  <table>
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><th>到达现场时间</th><th>离开现场时间</th></tr>
+    <tr><td class="center">{{ report.arrival_time or "" }}</td><td class="center">{{ report.departure_time or "" }}</td></tr>
+  </table>
+
+  {% for section in photo_sections %}
+    <h2 class="report-section">{{ section.title }}</h2>
+    <div class="photo-grid">
+      {% for attachment in section.photos %}
+        <img src="{{ url_for('preview_report_attachment', attachment_id=attachment.id) }}" alt="{{ section.title }} {{ loop.index }}">
+      {% endfor %}
+    </div>
+  {% endfor %}
+
+  <table class="sign-grid" style="margin-top:1rem;">
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><td>报告人签字：</td><td>现场服务人员：</td></tr>
+    <tr><td>报告时间：{{ report.report_date or "" }}</td><td>公司：{{ company.name }}</td></tr>
+  </table>
+</div>
+{% endblock %}
