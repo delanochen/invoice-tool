@@ -192,24 +192,30 @@ class SafetyPhotoSelectionTest(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
 
     def test_J_safety_medium_confidence_verification(self):
-        """J: confidence 0.60-0.79 -> verification_required, no auto select"""
+        """J: confidence 0.60-0.79 -> auto selected, flagged verification_required"""
         svc = self._make_service()
         results = [
             make_mock_analysis("p1", "safety_person", "front_standing_worker", 0.70),
         ]
         selected, candidates = svc.select_safety_photo(results)
-        self.assertIsNone(selected)
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected.photo_id, "p1")
+        self.assertEqual(selected.selected_source, "ai_selected")
+        self.assertTrue(selected.verification_required)
+        self.assertEqual(selected.verification_reason, "safety_confidence_below_auto_threshold")
         self.assertEqual(len(candidates), 1)
-        self.assertTrue(candidates[0].verification_required)
 
-    def test_K_safety_low_confidence_not_selected(self):
-        """K: confidence < 0.60 -> not auto selected"""
+    def test_K_safety_low_confidence_selected_with_review_flag(self):
+        """K: confidence < 0.60 -> still auto selected, flagged verification_required"""
         svc = self._make_service()
         results = [
             make_mock_analysis("p1", "safety_person", "front_standing_worker", 0.40),
         ]
         selected, candidates = svc.select_safety_photo(results)
-        self.assertIsNone(selected)
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected.photo_id, "p1")
+        self.assertTrue(selected.verification_required)
+        self.assertEqual(selected.verification_reason, "safety_confidence_below_auto_threshold")
 
     def test_L_no_safety_photos_returns_none(self):
         """L: no safety_person photos -> None"""

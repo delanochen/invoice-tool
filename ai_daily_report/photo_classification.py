@@ -199,6 +199,11 @@ class PhotoClassificationService:
         2. confidence (higher better)
         3. photo_id lexical (tie-break)
 
+        Always auto-selects the best candidate when one exists (no manual
+        step required). Confidence >= safety_auto_select_confidence is
+        selected cleanly; below that the photo is still selected but marked
+        verification_required so it surfaces as a review warning.
+
         Returns (selected_safety, all_safety_candidates).
         Does NOT overwrite user-selected photos.
         """
@@ -228,14 +233,12 @@ class PhotoClassificationService:
         if best.confidence >= self.safety_auto_select_confidence:
             best.selected_source = "ai_selected"
             return best, safety_candidates
-        elif best.confidence >= self.safety_verify_confidence:
-            # Verification required - return candidate but mark
-            best.verification_required = True
-            best.verification_reason = "safety_confidence_below_auto_threshold"
-            return None, safety_candidates
-        else:
-            # Too low confidence - don't auto select
-            return None, safety_candidates
+        # Below auto threshold: still auto-select the best candidate so the
+        # user does not have to pick manually, but flag it for review.
+        best.selected_source = "ai_selected"
+        best.verification_required = True
+        best.verification_reason = "safety_confidence_below_auto_threshold"
+        return best, safety_candidates
 
     # ─── Service Photo Selection ──────────────────────────────────────────
 
