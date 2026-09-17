@@ -928,12 +928,19 @@
 
   async function doConfirm(override, fields) {
     try {
-      await apiPost(`/draft/${draftId}/confirm`, {
+      const result = await apiPost(`/draft/${draftId}/confirm`, {
         override_verification: override,
         override_fields: fields,
         draft_version: currentDraftVersion,
       });
-      showStatus("Draft 已确认", "success");
+      const auto = result && result.auto_formal_save;
+      if (auto && auto.formal_saved && auto.report_url) {
+        showStatus(`已确认并自动生成工单日报（Report #${auto.service_report_id}）`, "success");
+      } else if (auto && !auto.formal_saved && auto.blocked_message) {
+        showStatus(`已确认，但自动生成工单日报未完成：${auto.blocked_message}`, "error");
+      } else {
+        showStatus("Draft 已确认", "success");
+      }
       await loadPreview();
     } catch (err) {
       if (err.message !== "version_conflict") {

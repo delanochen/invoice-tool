@@ -11007,9 +11007,14 @@ def ai_daily_report_update_photo_time(draft_id, photo_id):
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/confirm")
 @login_required
 def ai_daily_report_confirm(draft_id):
-    """Confirm draft. Phase 6: marks confirmed but does NOT write to service_reports.
+    """Confirm draft and auto-chain into the formal service report.
 
-    Records audit: confirmed_by, confirmed_at, verification_override, override_fields.
+    Confirms the draft (records audit: confirmed_by, confirmed_at,
+    verification_override, override_fields), then automatically prepares the
+    attachment manifest, auto-reviews mileage-evidence compliance (product
+    decision 2026-09-17), and runs the Phase 9 formal save so the draft lands
+    in service_reports. If any gate blocks, the draft stays 'confirmed' and
+    the response carries auto_formal_save.blocked_code/blocked_message.
     Requires CSRF token.
     """
     if not is_internal_user():
@@ -11022,6 +11027,24 @@ def ai_daily_report_confirm(draft_id):
     draft_row = svc.get_draft(draft_id)
     if not draft_row:
         return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    # Idempotent re-confirm of an already formally saved draft (AI Assistant
+    # retries): return the existing formal report instead of a 400 error.
+    if draft_row["status"] == "saved" and draft_row.get("saved_report_id"):
+        report_id = int(draft_row["saved_report_id"])
+        return jsonify({
+            "ok": True,
+            "draft_id": draft_id,
+            "status": "saved",
+            "message": f"该日报已确认并生成工单日报（Report #{report_id}）",
+            "auto_formal_save": {
+                "attempted": True,
+                "formal_saved": True,
+                "service_report_id": report_id,
+                "report_url": url_for("edit_service_report", report_id=report_id),
+                "blocked_code": None,
+                "blocked_message": None,
+            },
+        })
     if draft_row["status"] not in {"draft", "confirmed"}:
         return jsonify({"ok": False, "error": f"Draft 状态为 {draft_row['status']}，无法确认"}), 400
 
@@ -11063,18 +11086,99 @@ def ai_daily_report_confirm(draft_id):
     draft.confirmed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     svc.save_draft(draft_id, draft)
 
-    # Phase 6: just mark confirmed. Formal report creation in Phase 9.
+    # Phase 6: mark confirmed, then auto-chain into the formal service report.
     svc.update_draft_status(draft_id, "confirmed")
     db().commit()
+
+    # Auto-chain (v0.1.233): confirm -> prepare manifest -> formal save.
+    # Best effort: any gate that blocks formal save (Phase 7 ERROR, manifest
+    # integrity, compliance review, travel-mode mapping, concurrent commit)
+    # leaves the draft in 'confirmed' and reports the reason; the user can
+    # then resolve it and finish via the existing prepare / formal-save UI.
+    auto = {
+        "attempted": True,
+        "formal_saved": False,
+        "service_report_id": None,
+        "report_url": None,
+        "blocked_code": None,
+        "blocked_message": None,
+    }
+    try:
+        draft_row = svc.get_draft(draft_id)
+        validation = _run_phase7_validation(draft_row)
+        if not validation.can_proceed:
+            auto["blocked_code"] = "validation_cannot_proceed"
+            auto["blocked_message"] = "存在未解决的 ERROR，无法自动生成正式日报，请在校验面板处理后手动正式保存。"
+        else:
+            manifest_svc = _attachment_manifest_service()
+            manifest = manifest_svc.prepare(draft_row, validation)
+            db().commit()
+            # Auto-compliance review (user decision 2026-09-17): the confirm
+            # automation treats mileage-evidence compliance review as reviewed,
+            # mirroring the manual compliance-review endpoint's field writes.
+            reviewed_at = now()
+            dbc = db()
+            dbc.execute(
+                """
+                update ai_daily_report_manifest_sources
+                set compliance_status = 'reviewed',
+                    compliance_reviewed_by = ?,
+                    compliance_reviewed_at = ?
+                where manifest_id = ? and compliance_review_required = 1 and compliance_status != 'reviewed'
+                """,
+                (user_id, reviewed_at, manifest["manifest_id"]),
+            )
+            dbc.execute(
+                "update ai_daily_report_attachment_manifests set updated_at = ? where manifest_id = ?",
+                (reviewed_at, manifest["manifest_id"]),
+            )
+            db().commit()
+            formal_svc = FormalSaveService(
+                db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, user_id
+            )
+            result = formal_svc.run(draft_row, None, None, validation, manifest_svc)
+            db().commit()
+            auto["formal_saved"] = True
+            auto["service_report_id"] = result["service_report_id"]
+            auto["report_url"] = url_for(
+                "edit_service_report", report_id=result["service_report_id"]
+            )
+    except FormalSaveError as exc:
+        try:
+            db().rollback()
+        except Exception:
+            pass
+        auto["blocked_code"] = exc.code
+        auto["blocked_message"] = exc.message
+    except ManifestError as exc:
+        try:
+            db().rollback()
+        except Exception:
+            pass
+        auto["blocked_code"] = "manifest_error"
+        auto["blocked_message"] = str(exc)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        try:
+            db().rollback()
+        except Exception:
+            pass
+        auto["blocked_code"] = "internal_error"
+        auto["blocked_message"] = "自动生成正式日报时发生内部错误，可稍后在确认状态下手动正式保存。"
+        app.logger.warning("AI daily report auto formal-save failed for draft %s: %s", draft_id, exc)
+
+    if auto["formal_saved"]:
+        message = f"已确认并自动生成工单日报（Report #{auto['service_report_id']}）"
+    else:
+        message = "Draft 已确认，但自动生成工单日报未完成：" + (auto["blocked_message"] or "未知原因")
 
     return jsonify({
         "ok": True,
         "draft_id": draft_id,
-        "status": "confirmed",
-        "message": "Draft 已确认。正式日报保存将在后续阶段实现。",
+        "status": "saved" if auto["formal_saved"] else "confirmed",
+        "message": message,
         "confirmed_by": user_id,
         "confirmed_at": draft.confirmed_at,
-        "phase6_note": "Phase 6 仅标记 confirmed，未写入 service_reports",
+        "auto_formal_save": auto,
     })
 
 
