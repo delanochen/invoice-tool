@@ -69,6 +69,31 @@ class TestConfirmAutoFormalSave(Phase9TestBase):
         )
         self.assertEqual(self._count_rows("service_reports"), before + 1)
 
+    def test_confirm_with_bare_filename_evidence_path(self):
+        """Regression (v0.1.237): MileageEvidenceService stores a BARE filename
+        in evidence_records.file_relative_path; the manifest must normalize it
+        (same as the evidence download route) instead of rejecting with
+        '佐证路径不在 Draft 佐证目录中'."""
+        draft_id, _ = self._build_confirmed_draft(473)
+        row = self._get_draft_row(draft_id)
+        draft_data = json.loads(row["draft_data"])
+        ev = draft_data["evidence_records"][0]
+        self.assertIn("/", ev["file_relative_path"])  # fixture uses full path
+        # Rewrite to the bare-filename form the real generator persists.
+        ev["file_relative_path"] = ev["file_relative_path"].rsplit("/", 1)[-1]
+        db = self.app_module.db()
+        db.execute(
+            "update ai_daily_report_drafts set draft_data = ?, status = 'draft' where id = ?",
+            (json.dumps(draft_data), draft_id),
+        )
+        db.commit()
+
+        resp = self._confirm(draft_id)
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        auto = resp.get_json()["auto_formal_save"]
+        self.assertTrue(auto["formal_saved"], auto)
+        self.assertIsNotNone(auto["service_report_id"])
+
     def test_confirm_blocked_by_validation_stays_confirmed(self):
         draft_id, _ = self._build_confirmed_draft(
             471,

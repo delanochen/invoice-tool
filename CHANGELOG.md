@@ -4,6 +4,14 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.237] - 2026-09-17
+
+### 修复（AI 智能日报 · 里程佐证路径导致自动生成工单日报被挡）
+- **现象**：确认 Draft 后提示「已确认，但自动生成工单日报未完成：佐证路径不在 Draft 佐证目录中。」
+- **根因**：`MileageEvidenceService._save_evidence_image` 实际把**纯文件名**（如 `ev_xxx.png`）存进 `evidence_records[].file_relative_path`，而附件清单校验 `attachment_manifest._resolve_evidence_path` 死板要求完整前缀 `ai-daily-report-drafts/{draft_id}/mileage/`，真实记录 100% 被拒。佐证图片下载路由（app.py）早已兼容两种格式并归一化，但清单校验漏掉了同样处理；Phase 9 测试夹具自己用完整路径拼佐证文件，掩盖了该 bug。
+- **修复**：`_resolve_evidence_path` 与下载路由对齐——完整路径需匹配正确前缀；纯文件名（不含 `/`、`\`、`..`）自动补前缀后解析，路径围栏与哈希校验不变。
+- **测试**：新增回归用例 `test_confirm_with_bare_filename_evidence_path`（把夹具佐证路径改写为真实生成器的纯文件名形式，确认后必须成功生成工单日报）；auto_confirm 4/4，Phase 6/7/9 + auto_prepare + auto_confirm 回归 214 项全部通过。
+
 ## [0.1.236] - 2026-09-17
 
 ### 修正（AI 智能日报 · 施工内容按纯文本处理）

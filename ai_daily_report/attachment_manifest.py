@@ -778,10 +778,20 @@ class AttachmentManifestService:
         if not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
             raise ManifestIntegrityError(ERROR_PATH_UNSAFE, "佐证路径不安全。")
         expected_prefix = f"ai-daily-report-drafts/{draft_id}/mileage/"
-        if not rel.startswith(expected_prefix):
-            raise ManifestIntegrityError(ERROR_PATH_UNSAFE, "佐证路径不在 Draft 佐证目录中。")
+        # v0.1.237 fix: MileageEvidenceService._save_evidence_image stores a BARE
+        # filename in evidence_records.file_relative_path, while some older/other
+        # producers store the full DATA_DIR-relative path. Normalize both, mirroring
+        # the evidence download route in app.py (v0.1.233 comment there).
+        if rel.startswith("ai-daily-report-drafts/"):
+            if not rel.startswith(expected_prefix):
+                raise ManifestIntegrityError(ERROR_PATH_UNSAFE, "佐证路径不在 Draft 佐证目录中。")
+            resolved_rel = rel
+        else:
+            if "/" in rel or "\\" in rel:
+                raise ManifestIntegrityError(ERROR_PATH_UNSAFE, "佐证路径不在 Draft 佐证目录中。")
+            resolved_rel = expected_prefix + rel
         try:
-            full = (self.data_dir / rel).resolve()
+            full = (self.data_dir / resolved_rel).resolve()
             full.relative_to(self.data_dir)
         except (ValueError, OSError) as exc:
             raise ManifestIntegrityError(ERROR_PATH_UNSAFE, "佐证路径超出数据目录。") from exc
