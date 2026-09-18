@@ -335,6 +335,12 @@ class PreviewAggregationService:
         if isinstance(verification_fields, list):
             # v0.1.236: 施工内容是描述文字而非表格化字段（用户 2026-09-17 决策），
             # work_items.* 不再作为待确认字段展示/弹窗（含存量草稿已有的标记）。
+            # v0.1.241: 再同步清理已确认的出行字段（origin/overnight）存量标记，
+            # 避免「以下字段仍需要确认」弹窗反复出现。
+            from .travel_service import reconcile_travel_verification_fields
+            verification_fields = reconcile_travel_verification_fields(
+                draft_data.get("workers", []), verification_fields
+            )
             verification_fields = [
                 f for f in verification_fields
                 if not str(f).lower().startswith("work_items.")

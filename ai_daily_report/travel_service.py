@@ -282,3 +282,83 @@ class TravelService:
             and bool(worker.destination)
             and worker.overnight_stay is not None
         )
+
+
+# ─── Verification fields reconciliation (v0.1.241) ─────────────────────────
+
+import re as _re
+
+# Travel-owned verification entries, two spellings coexist in stored drafts:
+#   - "worker_<id>_origin" / "worker_<id>_origin_unconfirmed" /
+#     "worker_<id>_overnight_stay"  (TravelService.verify_travel_fields)
+#   - "<Name>.origin" / "<Name>.overnight_stay"      (LLM missing_fields)
+_TRAVEL_FIELD_RE = _re.compile(r"^worker_(\d+)_(origin|origin_unconfirmed|overnight_stay)$")
+_NAME_FIELD_RE = _re.compile(r"^(.+)\.(origin|origin_unconfirmed|overnight_stay)$")
+
+
+def reconcile_travel_verification_fields(
+    workers: List[Dict[str, Any]], verification_fields: Optional[List[str]]
+) -> List[str]:
+    """Drop stale travel verification entries that are already resolved.
+
+    verification_fields accumulates over the draft's life. When a worker's
+    origin/overnight is later confirmed (manual edit, auto timeline flow),
+    the stored entries used to stay behind, so every confirm attempt kept
+    showing the "以下字段仍需要确认" override dialog (v0.1.241 fix).
+
+    workers: iterable of dicts (WorkerTravel.model_dump() or raw draft_data
+    dicts) with user_id / name / transportation / origin / origin_confirmed /
+    overnight_stay.
+
+    Returns the filtered field list: travel-owned entries are kept only when
+    they are still genuinely pending; everything else (timeline, photos, ...)
+    is passed through untouched. Entries belonging to workers no longer in
+    the draft are dropped.
+    """
+    fields = [str(f) for f in (verification_fields or []) if f]
+    if not fields:
+        return fields
+
+    pending = set()          # travel entries that must stay
+    known_uids = set()
+    known_names = set()
+
+    for w in workers or []:
+        uid = w.get("user_id")
+        name = (w.get("name") or "").strip()
+        if uid is not None:
+            known_uids.add(str(uid))
+        if name:
+            known_names.add(name)
+        if w.get("transportation") != "self_drive":
+            continue  # travel rules don't apply -> drop its entries
+        if not w.get("origin"):
+            if uid is not None:
+                pending.add(f"worker_{uid}_origin")
+            if name:
+                pending.add(f"{name}.origin")
+        elif not w.get("origin_confirmed", False):
+            if uid is not None:
+                pending.add(f"worker_{uid}_origin_unconfirmed")
+            if name:
+                pending.add(f"{name}.origin")
+        if w.get("overnight_stay") is None:
+            if uid is not None:
+                pending.add(f"worker_{uid}_overnight_stay")
+            if name:
+                pending.add(f"{name}.overnight_stay")
+
+    filtered = []
+    for f in fields:
+        m = _TRAVEL_FIELD_RE.match(f)
+        if m:
+            if m.group(1) in known_uids and f in pending:
+                filtered.append(f)
+            continue
+        m = _NAME_FIELD_RE.match(f)
+        if m:
+            if m.group(1) in known_names and f in pending:
+                filtered.append(f)
+            continue
+        filtered.append(f)  # not a travel field -> keep as-is
+    return filtered

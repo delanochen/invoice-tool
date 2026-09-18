@@ -79,11 +79,15 @@
       const verificationBadge = d.has_verification_required
         ? `<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px; font-size:0.8rem;">需确认</span>`
         : "";
-      // Soft-delete (cancel) is offered only for editable temporary reports.
-      // cancelled/saved drafts are read-only and keep their audit trail.
-      const canDelete = d.status === "draft" || d.status === "confirmed";
+      // v0.1.241: 取消 = 保留记录（软取消）；删除 = 彻底删除不可恢复。
+      // cancelled 草稿保留「彻底删除」入口。
+      const canCancel = d.status === "draft" || d.status === "confirmed";
+      const canDelete = d.status !== "saved";
+      const cancelBtn = canCancel
+        ? `<button type="button" class="secondary" style="margin-top:0.5rem; display:block;" data-cancel-draft="${d.id}" data-cancel-label="${(d.order_number || "")}">取消</button>`
+        : "";
       const deleteBtn = canDelete
-        ? `<button type="button" class="secondary" style="margin-top:0.5rem; display:block;" data-delete-draft="${d.id}" data-delete-label="${(d.order_number || "")}">删除</button>`
+        ? `<button type="button" class="danger" style="margin-top:0.5rem; display:block;" data-delete-draft="${d.id}" data-delete-label="${(d.order_number || "")}">删除</button>`
         : "";
       return `
         <div class="draft-card" style="border:1px solid #e5e7eb; border-radius:8px; padding:1rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">
@@ -105,6 +109,7 @@
           </div>
           <div>
             <a href="/ai-daily-report/drafts/${d.id}" class="button primary" style="text-decoration:none;">查看详情</a>
+            ${cancelBtn}
             ${deleteBtn}
           </div>
         </div>
@@ -114,13 +119,33 @@
     draftsContainer.innerHTML = html;
   }
 
-  // Hard-delete a temporary draft from the Review Center list (cancel API).
-  async function handleDeleteDraft(id, label) {
-    if (!confirm(`确定删除「${label}」的临时日报吗？删除后不可恢复。`)) return;
+  // v0.1.241: 软取消（cancelled 状态，保留记录）。
+  async function handleCancelDraft(id, label) {
+    if (!confirm(`确定要取消「${label}」的临时日报吗？（记录会保留，可筛选「已取消」查看）`)) return;
     const headers = { "Content-Type": "application/json" };
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
     try {
       const resp = await fetch(`${apiBase}/draft/${id}/cancel`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      fetchDrafts(currentPage);
+    } catch (err) {
+      draftsError.textContent = `取消失败: ${err.message}`;
+      draftsError.style.display = "block";
+    }
+  }
+
+  // Hard-delete a temporary draft from the Review Center list (delete API).
+  async function handleDeleteDraft(id, label) {
+    if (!confirm(`确定彻底删除「${label}」的临时日报吗？所有关联记录将被移除，删除后不可恢复。`)) return;
+    const headers = { "Content-Type": "application/json" };
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+    try {
+      const resp = await fetch(`${apiBase}/draft/${id}/delete`, {
         method: "POST",
         headers,
         body: JSON.stringify({}),
@@ -135,6 +160,11 @@
   }
 
   draftsContainer.addEventListener("click", (e) => {
+    const cancelBtn = e.target.closest("[data-cancel-draft]");
+    if (cancelBtn) {
+      handleCancelDraft(cancelBtn.getAttribute("data-cancel-draft"), cancelBtn.getAttribute("data-cancel-label") || "");
+      return;
+    }
     const btn = e.target.closest("[data-delete-draft]");
     if (!btn) return;
     handleDeleteDraft(btn.getAttribute("data-delete-draft"), btn.getAttribute("data-delete-label") || "");

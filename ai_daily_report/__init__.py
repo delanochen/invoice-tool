@@ -37,7 +37,7 @@ from .intent_service import AIIntentService, IntentServiceError
 from .daily_report_service import DailyReportService, DraftVersionConflict, DraftStateError, ConversationTooLongError
 from .work_order_context import WorkOrderContextService
 from .employee_resolution import EmployeeResolutionService, EmployeeResolutionResult
-from .travel_service import TravelService
+from .travel_service import TravelService, reconcile_travel_verification_fields
 from .google_routes import GoogleRoutesService, RouteResult
 from .mileage_service import MileageService
 from .static_maps import GoogleStaticMapsService, StaticMapResult
@@ -101,6 +101,7 @@ __all__ = [
     "EmployeeResolutionService",
     "EmployeeResolutionResult",
     "TravelService",
+    "reconcile_travel_verification_fields",
     "GoogleRoutesService",
     "RouteResult",
     "MileageService",

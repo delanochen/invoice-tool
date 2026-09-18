@@ -983,16 +983,23 @@
 
     if (status === "draft") {
       html += `<button type="button" class="primary" id="confirmBtn">确认 Draft</button>`;
-      html += `<button type="button" class="secondary" id="cancelBtn">删除 Draft</button>`;
+      // v0.1.241: 取消 = 保留记录（cancelled 状态）；删除 = 彻底删除不可恢复。
+      html += `<button type="button" class="secondary" id="cancelBtn">取消</button>`;
+      html += `<button type="button" class="danger" id="deleteBtn">删除</button>`;
     } else if (status === "confirmed") {
       html += `<button type="button" class="secondary" id="reopenBtn">重新打开</button>`;
-      html += `<button type="button" class="secondary" id="cancelBtn">删除 Draft</button>`;
+      html += `<button type="button" class="secondary" id="cancelBtn">取消</button>`;
+      html += `<button type="button" class="danger" id="deleteBtn">删除</button>`;
+    } else if (status === "cancelled") {
+      // cancelled 草稿只保留彻底删除入口。
+      html += `<button type="button" class="danger" id="deleteBtn">删除</button>`;
     }
 
     actionsEl.innerHTML = html;
 
     document.getElementById("confirmBtn")?.addEventListener("click", handleConfirm);
     document.getElementById("cancelBtn")?.addEventListener("click", handleCancel);
+    document.getElementById("deleteBtn")?.addEventListener("click", handleDelete);
     document.getElementById("reopenBtn")?.addEventListener("click", handleReopen);
   }
 
@@ -1037,11 +1044,26 @@
   }
 
   async function handleCancel() {
-    if (!confirm("确定要删除此 Draft 吗？删除后不可恢复。")) return;
+    // v0.1.241: 取消 = 软取消，Draft 保留为 cancelled 状态（含取消人/时间审计）。
+    if (!confirm("确定要取消此 Draft 吗？（记录会保留，可在列表中筛选「已取消」查看）")) return;
     try {
       await apiPost(`/draft/${draftId}/cancel`, { draft_version: currentDraftVersion });
-      showStatus("Draft 已删除", "success");
+      showStatus("Draft 已取消（记录已保留）", "success");
       await loadPreview();
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`取消失败: ${err.message}`, "error");
+      }
+    }
+  }
+
+  async function handleDelete() {
+    // v0.1.241: 删除 = 彻底删除草稿及其附件清单等关联记录，不可恢复。
+    if (!confirm("确定要彻底删除此 Draft 吗？所有关联记录将被移除，删除后不可恢复。")) return;
+    try {
+      await apiPost(`/draft/${draftId}/delete`, {});
+      showStatus("Draft 已彻底删除，正在返回列表…", "success");
+      setTimeout(() => { window.location.href = "/ai-daily-report/drafts"; }, 800);
     } catch (err) {
       if (err.message !== "version_conflict") {
         showStatus(`删除失败: ${err.message}`, "error");

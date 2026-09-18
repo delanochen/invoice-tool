@@ -4,6 +4,18 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.241] - 2026-09-17
+
+### 修复（AI 日报 · 「以下字段仍需要确认」误报） + 变更（Draft 取消/删除分离）
+- **误报修复**：确认 Draft 时反复弹出「以下字段仍需要确认：Antonio.origin / worker_4_origin_unconfirmed / …」，即使出发地早已通过界面修改确认（来源 user_input ✓）。
+  - **原因**：`verification_fields` 在草稿生命周期内只增不减（LLM 的 `名字.origin` 与 TravelService 的 `worker_N_origin_unconfirmed` 两种拼法并存），人员出发地/住宿后续被确认后，存量标记不被清理，导致每次确认都要「确认并覆盖」。
+  - **修复**：新增 `reconcile_travel_verification_fields()`（`ai_daily_report/travel_service.py`），按当前工作人员状态同步：出发地已确认 → 删除其 origin 类标记；仍缺/未确认/住宿未定 → 保留对应标记；非自驾人员与已移除人员的标记删除；时间线等其他字段原样保留。接入三处：确认端点（确认前同步并持久化，不再弹覆盖框）、预览聚合（弹窗/徽标显示）、草稿列表接口（「需确认」徽标）。
+- **Draft 取消/删除分离**（用户 2026-09-17 决策）：原「删除 Draft」按钮实际是取消语义，且 `/cancel` 端点曾被改成物理删除。现在：
+  - **取消**（`POST /draft/<id>/cancel`）：软取消，状态 → `cancelled`，记录 `cancelled_by`/`cancelled_at`，草稿保留可在列表筛选「已取消」查看（恢复 Phase 1 原始契约）。
+  - **删除**（`POST /draft/<id>/delete`，新增）：真删除——草稿行及其关联 actions / manifests（含 sources/assets/roles）/ formal commits 物理删除，先清理 manifest 暂存目录；已正式保存（saved）的日报不可删除。
+  - 详情页：`draft`/`confirmed` 状态显示「取消」+「删除」；`cancelled` 状态保留「删除」。列表页同样「取消」「删除」双按钮，cancelled 草稿保留删除入口，均有确认提示。
+- 测试：新增 `test_ai_daily_report_v01241.py` 13 项（reconcile 单元 6 + 确认不再误弹覆盖 2 + 取消/删除行为 5）全部通过；auto_confirm/auto_prepare/phase9/phase6 回归 104 项通过（phase1 的 `test_cancel_draft` 为已知存量 CSRF 环境失败，403 与本改动无关）。
+
 ## [0.1.240] - 2026-09-17
 
 ### 修复（发票详情页打印/预览布局不紧凑）

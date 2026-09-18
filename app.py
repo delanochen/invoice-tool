@@ -63,6 +63,7 @@ from ai_daily_report import (
     WorkOrderContextService,
     EmployeeResolutionService,
     TravelService,
+    reconcile_travel_verification_fields,
     GoogleRoutesService,
     MileageService,
     PhotoDiscoveryService,
@@ -11296,6 +11297,17 @@ def ai_daily_report_confirm(draft_id):
 
     draft = svc.parse_draft_data(draft_row)
 
+    # v0.1.241: sync verification fields with current state BEFORE the check.
+    # verification_fields accumulates over the draft's life; once a worker's
+    # origin/overnight is confirmed (manual edit or auto flow), stale entries
+    # like "Antonio.origin" / "worker_4_origin_unconfirmed" used to keep the
+    # override dialog popping up forever even though nothing was left to confirm.
+    draft.verification_fields = reconcile_travel_verification_fields(
+        [w.model_dump() for w in draft.workers],
+        draft.verification_fields,
+    )
+    draft.verification_required = bool(draft.verification_fields)
+
     # Check verification_required
     if draft.verification_required:
         # Allow explicit override
@@ -11423,12 +11435,63 @@ def ai_daily_report_confirm(draft_id):
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/cancel")
 @login_required
 def ai_daily_report_cancel(draft_id):
-    """Physically delete a draft (hard delete, not soft cancel).
+    """Soft-cancel a draft (v0.1.241, per user decision 2026-09-17).
 
-    Removes the draft plus cascaded actions / manifests (with their
-    sources, assets, roles) and formal commits. Cleans manifest staging
-    directories first. Saved (formally committed) drafts cannot be deleted.
+    State machine: draft/confirmed -> cancelled. The draft row is KEPT with
+    its audit trail (cancelled_by / cancelled_at) — this is "取消", not a
+    physical delete. Use /delete for a hard delete.
     Requires CSRF token.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+    if draft_row["status"] == "saved":
+        return jsonify({"ok": False, "error": "已正式保存的日报不能取消"}), 409
+    if draft_row["status"] == "cancelled":
+        return jsonify({
+            "ok": True,
+            "draft_id": draft_id,
+            "status": "cancelled",
+            "message": "该 Draft 已是取消状态",
+        })
+
+    user = g.user
+    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    if hasattr(user, "keys"):
+        user = dict(user)
+    user_id = user.get("id", "")
+
+    draft = svc.parse_draft_data(draft_row)
+    draft.cancelled_by = user_id
+    draft.cancelled_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    svc.save_draft(draft_id, draft)
+    svc.update_draft_status(draft_id, "cancelled")
+    db().commit()
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "status": "cancelled",
+        "cancelled_by": user_id,
+        "cancelled_at": draft.cancelled_at,
+        "message": "Draft 已取消（保留记录，可在列表中筛选 Cancelled 查看）",
+    })
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/delete")
+@login_required
+def ai_daily_report_delete(draft_id):
+    """Physically delete a draft (hard delete, not a soft cancel).
+
+    v0.1.241: /cancel was turned back into a soft cancel; this endpoint now
+    owns the hard delete. Removes the draft plus cascaded actions / manifests
+    (with their sources, assets, roles) and formal commits. Cleans manifest
+    staging directories first. Saved (formally committed) drafts cannot be
+    deleted. Requires CSRF token.
     """
     if not is_internal_user():
         return jsonify({"ok": False, "error": "无权限"}), 403
@@ -11468,7 +11531,7 @@ def ai_daily_report_cancel(draft_id):
         "status": "deleted",
         "deleted_by": user_id,
         "deleted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "message": "Draft 已删除",
+        "message": "Draft 已彻底删除",
     })
 
 
@@ -11694,8 +11757,13 @@ def ai_daily_report_drafts_list():
 
         worker_count = len(draft_data.get("workers", []))
         photo_count = len(draft_data.get("photo_candidates", []))
+        # v0.1.241: 列表徽标同步清理已确认的出行字段与 work_items.* 存量标记
+        verification_fields = reconcile_travel_verification_fields(
+            draft_data.get("workers", []),
+            draft_data.get("verification_fields") or [],
+        )
         verification_fields = [
-            f for f in (draft_data.get("verification_fields") or [])
+            f for f in verification_fields
             if not str(f).lower().startswith("work_items.")
         ]
 
