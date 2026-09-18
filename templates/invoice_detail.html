@@ -34,9 +34,9 @@
       {% if invoice.status not in ["void", "completed"] %}
         <form method="post" action="{{ url_for('void_invoice', invoice_id=invoice.id) }}"><button class="danger" type="submit">作废</button></form>
       {% endif %}
-      {% if normalized_role() == "admin" or (invoice.status == "void" and normalized_role() == "manager") %}
-        <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张作废发票吗？');"><button class="danger" type="submit">删除</button></form>
-      {% elif invoice.status == "draft" and (invoice.created_by == g.user.id or normalized_role() == "manager") %}
+      {# v0.1.239: 删除按钮完全由菜单权限「发票-删除」决定（默认财务/经理/管理员），
+         不再按角色写死；无权限时后端也会拦截。 #}
+      {% if has_action_permission("invoices", "delete") %}
         <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张发票吗？');"><button class="danger" type="submit">删除</button></form>
       {% endif %}
     </div>

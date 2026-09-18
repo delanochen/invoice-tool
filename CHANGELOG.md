@@ -4,6 +4,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.239] - 2026-09-17
+
+### 变更（权限改为菜单配置驱动：发票删除 · 工单结算修改状态/删除）
+- **按用户要求：这些权限不再在代码里按角色写死，全部由「权限管理」页面的菜单权限配置决定，默认财务/经理/管理员都有权限。**
+- **发票删除**：
+  - 详情页删除按钮改为 `has_action_permission("invoices", "delete")`（此前写死 `normalized_role() == "admin"`，导致财务即使有权限也看不到按钮）。
+  - 后端 `delete_invoice` 去掉「按状态/发起人绕过」的硬编码分支，改为纯权限判断——此前该兜底实际被集中式路由闸门拦死（按钮可见但请求 403），现在口径一致。
+- **工单结算**：
+  - 新增专用动作 **「修改状态」(action key `reset`)**，权限目录默认 `{admin, manager, finance}`；路由映射 `reset_customer_reimbursement` 从 `edit` 改为 `reset`。
+  - `approve_customer_reimbursement` / `return_customer_reimbursement` 补上服务端 `approve` 权限校验（此前端点无校验，仅靠界面隐藏），模板中的「审核通过/退回」按钮由写死的 `normalized_role() in ["admin","manager"]` 改为 `has_action_permission("customer_reimbursements","approve")`。
+  - 「重置为可编辑」（修改状态）按钮改用 `reset` 权限，「删除工单结算」按钮改用 `delete` 权限（不再挂在 `can_manage_customer_reimbursement()` 大杂烩上）。
+- **AI 智能日报确认后进入工单日报**：确认成功后若已自动生成工单日报，前端直接跳转到该工单日报页面（此前只提示并停留在草稿页）；被关卡挡住时仍保持在草稿页并提示原因。
+- 存量数据库无需迁移：启动时 `insert or ignore` 自动为新动作 `reset` 写入默认授权行。
+- 测试：新增 `test_permission_menu_config.py` 9 个用例（默认权限、发票删除随菜单开关、工单结算审核/修改状态/删除随菜单开关、模板不再按角色写死）；权限/结算/发票相关 6 个套件回归 68 项通过（`test_payment_terms` 2 个失败为存量问题，已在未改动的 HEAD 沙盒中复现确认与本改动无关）。
+
 ## [0.1.238] - 2026-09-17
 
 ### 新增（AI 智能日报 · 进场照片 / 离场照片 独立展示模块）

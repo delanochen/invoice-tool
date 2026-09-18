@@ -331,6 +331,7 @@ ACTION_LABELS = {
     "edit": "编辑",
     "delete": "删除",
     "approve": "审核",
+    "reset": "修改状态",
     "export": "导出",
     "send": "发送",
     "pay": "核销",
@@ -347,7 +348,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee", "external_manager"}}},
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
             {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
-            {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
+            {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "reset": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
             {"key": "knowledge_base", "label": "知识库", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager"}}},
             {"key": "ai_assistant", "label": "智能助手", "actions": {"view": {"admin", "manager", "finance", "employee"}}},
         ],
@@ -3014,6 +3015,20 @@ def can_manage_customer_reimbursement():
     )
 
 
+# v0.1.239: 工单结算的「修改状态」「审核」「删除」改为完全由菜单权限配置决定
+# （权限管理页面可勾选），默认财务/经理/管理员均有权限。
+def can_approve_customer_reimbursement():
+    return g.user and has_action_permission("customer_reimbursements", "approve")
+
+
+def can_reset_customer_reimbursement():
+    return g.user and has_action_permission("customer_reimbursements", "reset")
+
+
+def can_delete_customer_reimbursement():
+    return g.user and has_action_permission("customer_reimbursements", "delete")
+
+
 def can_transfer_expense_attachment(expense):
     if not g.user:
         return False
@@ -3323,7 +3338,7 @@ def required_action_for_request():
         "preview_customer_reimbursement": ("customer_reimbursements", "export"),
         "approve_customer_reimbursement": ("customer_reimbursements", "approve"),
         "return_customer_reimbursement": ("customer_reimbursements", "approve"),
-        "reset_customer_reimbursement": ("customer_reimbursements", "edit"),
+        "reset_customer_reimbursement": ("customer_reimbursements", "reset"),
         "delete_customer_reimbursement": ("customer_reimbursements", "delete"),
         "delete_customer_reimbursement_attachment": ("customer_reimbursements", "edit"),
         "labor_hours_report": ("labor_hours_report", "view"),
@@ -16380,6 +16395,8 @@ def preview_customer_reimbursement(reimbursement_id):
 @login_required
 def approve_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    if not can_approve_customer_reimbursement():
+        abort(403)
     if reimbursement["status"] != "submitted":
         flash("只有待经理审核的工单结算可以审核通过。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
@@ -16417,6 +16434,8 @@ def approve_customer_reimbursement(reimbursement_id):
 @login_required
 def return_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    if not can_approve_customer_reimbursement():
+        abort(403)
     if reimbursement["status"] != "submitted":
         flash("只有待经理审核的工单结算可以退回。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
@@ -16454,7 +16473,7 @@ def return_customer_reimbursement(reimbursement_id):
 @login_required
 def reset_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not can_manage_customer_reimbursement():
+    if not can_reset_customer_reimbursement():
         abort(403)
     if reimbursement["status"] != "approved":
         flash("只有已审核通过的工单结算可以重置。", "error")
@@ -16489,7 +16508,7 @@ def reset_customer_reimbursement(reimbursement_id):
 @login_required
 def delete_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not can_manage_customer_reimbursement():
+    if not can_delete_customer_reimbursement():
         abort(403)
     if reimbursement["status"] not in {"draft", "returned"}:
         flash("只有保存未提交或已退回的工单结算草稿可以删除。", "error")
@@ -18281,13 +18300,10 @@ def void_invoice(invoice_id):
 @login_required
 def delete_invoice(invoice_id):
     invoice = require_invoice_access(invoice_id)
-    has_delete_permission = has_action_permission("invoices", "delete")
-    can_delete_returned = invoice["status"] in {"draft", "returned"} and (
-        has_delete_permission or invoice["created_by"] == g.user["id"]
-    )
-    can_delete_void = invoice["status"] == "void" and has_delete_permission
-    if not (has_delete_permission or can_delete_returned or can_delete_void):
-        flash("只有有删除权限，或草稿/退回状态下由发起人删除的发票可以删除。", "error")
+    # v0.1.239: 删除权限完全由菜单配置「发票-删除」决定（默认财务/经理/管理员），
+    # 不再按角色写死；无权限时集中式路由闸门会先行拦截（403）。
+    if not has_action_permission("invoices", "delete"):
+        flash("你没有删除发票的权限，请联系管理员在权限管理中开启。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     shutil.rmtree(invoice_attachment_path(invoice_id), ignore_errors=True)
     db().execute(

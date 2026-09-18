@@ -1019,7 +1019,10 @@
       });
       const auto = result && result.auto_formal_save;
       if (auto && auto.formal_saved && auto.report_url) {
-        showStatus(`已确认并自动生成工单日报（Report #${auto.service_report_id}）`, "success");
+        // v0.1.239: 确认成功后直接进入工单日报（自动生成的正式日报页面）。
+        showStatus(`已确认并自动生成工单日报（Report #${auto.service_report_id}），正在打开…`, "success");
+        setTimeout(() => { window.location.href = auto.report_url; }, 800);
+        return;
       } else if (auto && !auto.formal_saved && auto.blocked_message) {
         showStatus(`已确认，但自动生成工单日报未完成：${auto.blocked_message}`, "error");
       } else {
