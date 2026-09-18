@@ -2544,26 +2544,28 @@ body.service-order-map-page {
   body { background: #fff; }
   .no-print, .sidebar, .flash-stack { display: none !important; }
   .main { margin: 0; padding: 0; }
+  /* v0.1.240: 打印布局收紧，保证发票单页 A4 放得下。
+     去掉 min-height: 297mm（会撑满整页并把底部区块挤到第二页），
+     缩小区块间距与内边距，避免大片留白。 */
   .invoice-paper {
     width: 210mm;
-    min-height: 297mm;
-    padding: 12mm 13mm;
+    padding: 10mm 12mm;
     font-size: 11px;
-    line-height: 1.28;
+    line-height: 1.26;
     box-shadow: none;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
-  .invoice-paper h2 { font-size: 18px; margin-bottom: 5px; }
-  .invoice-paper h3 { font-size: 12px; margin-bottom: 4px; }
-  .invoice-paper p { margin-bottom: 5px; }
-  .invoice-top, .invoice-info, .invoice-bottom { grid-template-columns: 1fr 64mm; gap: 16mm; }
+  .invoice-paper h2 { font-size: 18px; margin-bottom: 4px; }
+  .invoice-paper h3 { font-size: 12px; margin-bottom: 3px; }
+  .invoice-paper p { margin-bottom: 4px; }
+  .invoice-top, .invoice-info, .invoice-bottom { grid-template-columns: 1fr 64mm; gap: 12mm; }
   .invoice-heading strong { font-size: 28px; }
-  .invoice-logo { width: 42px; height: 42px; margin-bottom: 6px; }
-  .invoice-info, .invoice-table, .invoice-bottom { margin-top: 12mm; }
-  .invoice-table th, .invoice-table td { padding: 5px 6px; }
-  .invoice-totals { padding-top: 8px; }
-  .invoice-totals .due { margin-top: 7px; padding-top: 7px; font-size: 15px; }
+  .invoice-logo { width: 42px; height: 42px; margin-bottom: 5px; }
+  .invoice-info, .invoice-table, .invoice-bottom { margin-top: 7mm; }
+  .invoice-table th, .invoice-table td { padding: 4px 6px; }
+  .invoice-totals { padding-top: 6px; }
+  .invoice-totals .due { margin-top: 5px; padding-top: 5px; font-size: 14px; }
   .tax-note { font-size: 10px; }
 }
 .sidebar-language {
