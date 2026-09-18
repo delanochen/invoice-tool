@@ -159,6 +159,17 @@ class WorkerTravel(BaseModel):
     mileage_evidence_id: Optional[str] = None  # evidence_id from Draft evidence_records (Phase 3B)
     mileage_evidence_path: Optional[str] = None
     mileage_verification_required: bool = False
+    # v0.1.243: per-worker traffic hours, auto-derived from the Google route
+    # duration (with uplift) when the route succeeds. user_input never overwritten.
+    travel_hours: Optional[float] = None
+    travel_hours_source: Optional[str] = None  # auto_route / user_input
+
+    @field_validator("travel_hours")
+    @classmethod
+    def validate_travel_hours(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v < 0:
+            raise ValueError("travel_hours cannot be negative")
+        return v
 
 
 class WorkItem(BaseModel):

@@ -1673,6 +1673,25 @@ def init_db():
         ensure_column(connection, "service_reports", "departure_photo_relative_path", "text")
         ensure_column(connection, "service_reports", "departure_photo_hash", "text")
         ensure_column(connection, "service_reports", "ai_draft_id", "integer")
+        # v0.1.243 backfill: early AI-generated reports stored ISO photo-timeline
+        # timestamps in arrival_time/departure_time; normalize them to 'HH:MM'
+        # so the report form/view/Word export bind correctly.
+        try:
+            from ai_daily_report.formal_save import normalize_report_time
+            for column in ("arrival_time", "departure_time"):
+                rows = connection.execute(
+                    f"select id, {column} as raw_time from service_reports "
+                    f"where {column} is not null and instr({column}, 'T') > 0"
+                ).fetchall()
+                for row in rows:
+                    normalized = normalize_report_time(row["raw_time"])
+                    if normalized:
+                        connection.execute(
+                            f"update service_reports set {column} = ? where id = ?",
+                            (normalized, row["id"]),
+                        )
+        except Exception:
+            pass
         connection.execute(
             """
             create table if not exists payment_terms (
@@ -6913,6 +6932,15 @@ def report_form_defaults(report=None, order=None):
     if report:
         data = dict(report)
         data["actual_work_date"] = data.get("actual_work_date") or data.get("report_date")
+        # v0.1.243: early AI-generated reports stored ISO photo-timeline
+        # timestamps (e.g. 2026-09-17T08:50:00) which broke the hour/minute
+        # dropdowns. Normalize legacy values for rendering.
+        try:
+            from ai_daily_report.formal_save import normalize_report_time
+            data["arrival_time"] = normalize_report_time(data.get("arrival_time")) or ""
+            data["departure_time"] = normalize_report_time(data.get("departure_time")) or ""
+        except Exception:
+            pass
         return data
     return {
         "report_date": date.today().isoformat(),

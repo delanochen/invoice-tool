@@ -256,6 +256,7 @@ def derive_mileage_billing_method(draft_data: Dict[str, Any]) -> Tuple[str, str]
 
 
 def parse_report_minutes(value: Any) -> Optional[int]:
+    value = normalize_report_time(value)
     if not value or ":" not in str(value):
         return None
     try:
@@ -263,6 +264,35 @@ def parse_report_minutes(value: Any) -> Optional[int]:
         return int(hour_text) * 60 + int(minute_text)
     except ValueError:
         return None
+
+
+def normalize_report_time(value: Any) -> Optional[str]:
+    """Normalize a draft time into the manual flow's 'HH:MM' format (v0.1.243).
+
+    Photo timeline candidates are ISO local timestamps
+    ('2026-09-17T08:50:00'); the manual report flow stores 'HH:MM' and the
+    service report form splits on ':' expecting hours at parts[0]. Storing
+    the raw ISO string broke the hour dropdown (parts[0] was the date+hour).
+    Accepts 'HH:MM', 'HH:MM:SS' and ISO datetimes; returns None otherwise.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "T" in text:
+        text = text.split("T", 1)[1]
+    elif " " in text:
+        text = text.split(" ", 1)[1]
+    parts = text.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f"{hour:02d}:{minute:02d}"
 
 
 def rounded_report_service_hours(arrival_time: Any, departure_time: Any) -> float:
@@ -730,8 +760,10 @@ class FormalSaveService:
         mileage_method, mileage_source = derive_mileage_billing_method(draft_data)
         departure_address = derive_departure_address(workers_raw)
         cabinet_number = derive_cabinet_number(draft_data.get("work_items"))
-        arrival_time = str(draft_data.get("arrival_time") or "").strip() or None
-        departure_time = str(draft_data.get("departure_time") or "").strip() or None
+        # v0.1.243: normalize ISO photo-timeline timestamps to 'HH:MM' so the
+        # service report form's hour/minute dropdowns bind correctly.
+        arrival_time = normalize_report_time(draft_data.get("arrival_time"))
+        departure_time = normalize_report_time(draft_data.get("departure_time"))
 
         total_service_hours = round(
             rounded_report_service_hours(arrival_time, departure_time) * len(formal_workers), 2

@@ -29,6 +29,7 @@ GoogleRoutesService + backend calculation.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Optional, Tuple
 
 from .schemas import WorkerTravel
@@ -38,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 METERS_PER_MILE = 1609.344
 MILEAGE_ROUND_DECIMALS = 2  # Preserve at least 2 decimal places (existing project uses REAL)
+
+# v0.1.243 (user decision): Google route durations are consistently optimistic
+# (too low). Apply an uplift factor and round UP to the nearest 15 minutes.
+TRAVEL_HOURS_UPLIFT = 1.15
 
 
 class MileageService:
@@ -75,6 +80,37 @@ class MileageService:
             return False, "overnight_stay is null"
         return True, None
 
+    @staticmethod
+    def duration_to_travel_hours(duration_seconds: Optional[int], overnight_stay: Optional[bool]) -> float:
+        """Convert one-way route duration into per-worker traffic hours.
+
+        Same round-trip semantics as reported_miles: overnight_stay == False
+        means same-day return -> double the one-way duration; overnight_stay
+        == True means one way only. Uplift factor compensates for Google's
+        optimistic estimates; result rounds UP to the nearest 0.25 h.
+        """
+        if not duration_seconds or duration_seconds <= 0:
+            return 0.0
+        trips = 1 if overnight_stay else 2
+        minutes = (duration_seconds / 60.0) * trips * TRAVEL_HOURS_UPLIFT
+        rounded_minutes = math.ceil(minutes / 15) * 15
+        return round(rounded_minutes / 60, 2)
+
+    def ensure_travel_hours(self, worker: WorkerTravel) -> None:
+        """Auto-fill travel_hours from the route duration (v0.1.243).
+
+        Never overwrites a manually entered value (travel_hours_source ==
+        'user_input'). Re-derives on route recalculation while the value is
+        still auto_route so changed origins/destinations stay in sync.
+        """
+        if worker.travel_hours_source == "user_input":
+            return
+        if worker.route_status == "success" and worker.route_duration_seconds:
+            worker.travel_hours = self.duration_to_travel_hours(
+                worker.route_duration_seconds, worker.overnight_stay
+            )
+            worker.travel_hours_source = "auto_route"
+
     def calculate_for_worker(self, worker: WorkerTravel) -> WorkerTravel:
         """Calculate mileage for a single worker.
 
@@ -89,6 +125,7 @@ class MileageService:
 
         # Already has successful route - don't re-fetch (cache by data)
         if worker.route_status == "success" and worker.route_distance_meters:
+            self.ensure_travel_hours(worker)
             return worker
 
         result = self.routes.get_driving_route(worker.origin, worker.destination)
@@ -100,6 +137,9 @@ class MileageService:
             worker.route_distance_meters = None
             worker.one_way_miles = None
             worker.reported_miles = None
+            if worker.travel_hours_source != "user_input":
+                worker.travel_hours = None
+                worker.travel_hours_source = None
             return worker
 
         # Save raw meters first (audit)
@@ -124,6 +164,7 @@ class MileageService:
             worker.reported_miles = self.round_miles(raw_one_way)
 
         worker.mileage_verification_required = False
+        self.ensure_travel_hours(worker)
         return worker
 
     def calculate_for_all(self, workers: list) -> list:
