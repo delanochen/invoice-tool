@@ -275,6 +275,25 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(self.http.get('/api/field/photos?order_id=999999').json['rows'], [])
         self.assertEqual(self.http.get('/api/field/photos.xlsx?q=Equipment').status_code,200)
 
+    def test_ledger_filters_by_site_and_photo_type(self):
+        # v0.1.242: 照片台账新增「站点」「照片类型」筛选字段
+        self.assertEqual(self.upload(photo_type='equipment').status_code, 200, )
+        self.assertEqual(self.upload(photo_type='arrival', equipment_number='BESB-9Z9-9').status_code, 200)
+        self.fixture.login('Manager')
+        rows = self.http.get('/api/field/photos', query_string={'photo_type': 'arrival'}).json['rows']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['photo_type'], 'arrival')
+        rows = self.http.get('/api/field/photos', query_string={'photo_type': 'equipment'}).json['rows']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['photo_type'], 'equipment')
+        rows = self.http.get('/api/field/photos', query_string={'site': 'Site'}).json['rows']
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(self.http.get('/api/field/photos', query_string={'site': '不存在的站点'}).json['rows'], [])
+        page = self.http.get('/reports/field-photos')
+        self.assertEqual(page.status_code, 200)
+        for name in ('name="site"', 'name="photo_type"', 'name="technician"'):
+            self.assertIn(name, page.text)
+
     def test_repair_register_groups_device_photos_and_exports_manual_fields(self):
         session_id = uuid.uuid4().hex
         for note in ('Before repair', 'After repair'):

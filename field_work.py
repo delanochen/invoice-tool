@@ -124,6 +124,15 @@ def register_field_routes(app, api):
             if value:
                 clauses.append(f'instr(lower(p.{key}), lower(?)) > 0')
                 params.append(value)
+        site = request.args.get('site', '').strip()
+        if site:
+            clauses.append('''(instr(lower(service_orders.client_name), lower(?)) > 0
+                               or instr(lower(coalesce(service_orders.site_address, '')), lower(?)) > 0)''')
+            params.extend([site, site])
+        photo_type = request.args.get('photo_type', '').strip()
+        if photo_type:
+            clauses.append('p.photo_type = ?')
+            params.append(photo_type)
         for key, column in [('order_id', 'p.order_id'), ('user_id', 'p.user_id'),
                             ('date_from', 'p.capture_date'), ('date_to', 'p.capture_date')]:
             value = request.args.get(key, '').strip()
