@@ -1297,7 +1297,7 @@
     if (fs.status === "saved" && fs.service_report_id) {
       html += `<p style="color:#065f46;"><strong>Formal Report Created</strong></p>`;
       html += `<p>Report ID: <strong>${fs.service_report_id}</strong></p>`;
-      html += `<p><a href="/edit_service_report/${fs.service_report_id}" target="_blank" class="primary" style="display:inline-block; padding:0.4rem 0.9rem; text-decoration:none;">查看正式日报</a></p>`;
+      html += `<p><a href="/service-reports/${fs.service_report_id}/edit" class="primary" style="display:inline-block; padding:0.4rem 0.9rem; text-decoration:none;">查看正式日报</a></p>`;
       if (fs.commit_status) {
         html += `<p class="muted-line" style="font-size:0.75rem;">commit status: ${fs.commit_status}${fs.committed_at ? " | " + fs.committed_at : ""}</p>`;
       }

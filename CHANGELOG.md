@@ -4,6 +4,11 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.246] - 2026-09-18
+
+### Fixed
+- AI 日报草稿详情页「查看正式日报」按钮 404：链接硬编码为不存在的 `/edit_service_report/<id>`，改为真实路由 `/service-reports/<id>/edit`；同时去掉 `target="_blank"`，在工作区内以标签页打开而非新开浏览器窗口。
+
 ## [0.1.245] - 2026-09-18
 
 ### Fixed
