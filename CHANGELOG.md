@@ -4,6 +4,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.238] - 2026-09-17
+
+### 新增（AI 智能日报 · 进场照片 / 离场照片 独立展示模块）
+- **草稿详情页新增「进场照片」「离场照片」两个模块**（`templates/ai_daily_report_draft_detail.html` + `static/ai-daily-report-review.js`），与安全自检照片、施工照片并列展示。
+- **自动添加**：自动链路（v0.1.234 的 `_auto_prepare_draft_media` → 时间线自动确认）本来就会把时间线认定的到达/离场候选照片自动写入 `arrival_photo_ref` / `departure_photo_ref` 并应用到到达/离场时间，此前只是没有独立模块展示。现在详情页直接显示：照片缩略图（点击放大）、应用的到达/离场时间、来源（自动（时间线确认）/ 手动标记 / 手动）。
+- **手动操作保留**：可编辑状态下提供「手动选择/更换」按钮（复用照片管理对话框的进场/离场标记）；手动标记的照片（`photo_marked` 来源）不会被自动流程覆盖，与既有保护规则一致。
+- **下游不受影响**：进场/离场佐证照片本来就会进入附件清单（attachment_manifest `arrival_reference` / `departure_reference` 角色）并随正式保存归档；校验规则（时间来源为照片类但缺对应照片时的 WARNING）保持不变。
+- 验证：`node --check` JS 语法通过；Phase 4/8/9 + auto_prepare + auto_confirm 回归 159 项全部通过。
+
 ## [0.1.237] - 2026-09-17
 
 ### 修复（AI 智能日报 · 里程佐证路径导致自动生成工单日报被挡）

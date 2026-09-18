@@ -146,6 +146,7 @@
     renderTimeline();
     renderSafetyPhoto();
     renderServicePhotos();
+    renderArrivalDeparturePhotos();
     renderWorkItems();
     renderVerification();
     renderValidation();
@@ -752,6 +753,51 @@
     document.getElementById("pickServiceBtn")?.addEventListener("click", () => togglePhotoGrid("servicePhotoGrid", "service"));
   }
 
+
+  function renderRolePhoto(role, sectionId, title, gridId) {
+    const tl = currentPreview.timeline || {};
+    const photoId = tl[role + "_photo_ref"];
+    const canEdit = currentPreview.status === "draft";
+    const sourceLabels = {
+      photo_timeline_confirmed: "自动（时间线确认）",
+      photo_marked: "手动标记",
+      user_input: "手动",
+      manual: "手动",
+    };
+    const src = sourceLabels[tl[role + "_time_source"]] || (photoId ? "自动" : "");
+
+    if (!photoId) {
+      document.getElementById(sectionId).innerHTML = `
+        <p class="muted-line">未选择${title}。</p>
+        ${canEdit ? `<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="pick${role}Btn">手动选择${title}</button></div><div id="${gridId}"></div>` : ""}
+      `;
+      document.getElementById("pick" + role + "Btn")?.addEventListener("click", () => togglePhotoGrid(gridId, role));
+      return;
+    }
+
+    const photos = tl.photo_candidates || [];
+    const cand = photos.find(x => x.photo_id === photoId) || {};
+    const appliedTime = tl[role + "_time"] || cand.capture_time || "-";
+    document.getElementById(sectionId).innerHTML = `
+      <div style="display:flex; gap:1rem; align-items:flex-start; border:1px solid #e5e7eb; border-radius:6px; padding:0.5rem; max-width:420px;">
+        <img src="/api/ai/daily-report/draft/${draftId}/photo/${encodeURIComponent(photoId)}" alt="${title}" style="max-width:180px; border-radius:4px; cursor:pointer;" onclick="window.openImagePreview(this.src)">
+        <div style="flex:1;">
+          <p><strong>${title}</strong></p>
+          <p><strong>时间:</strong> ${escapeHtml(appliedTime)}</p>
+          <p><strong>来源:</strong> ${escapeHtml(src || "unknown")}</p>
+          ${canEdit ? `<button type="button" class="secondary" style="margin-top:0.25rem;" id="pick${role}Btn2">更换${title}</button>` : ""}
+        </div>
+      </div>
+      ${canEdit ? `<div style="margin-top:0.5rem;"><button type="button" class="secondary" id="pick${role}Btn">手动选择${title}</button></div><div id="${gridId}"></div>` : ""}
+    `;
+    document.getElementById("pick" + role + "Btn")?.addEventListener("click", () => togglePhotoGrid(gridId, role));
+    document.getElementById("pick" + role + "Btn2")?.addEventListener("click", () => togglePhotoGrid(gridId, role));
+  }
+
+  function renderArrivalDeparturePhotos() {
+    renderRolePhoto("arrival", "arrivalPhotoSection", "进场照片", "arrivalPhotoGrid");
+    renderRolePhoto("departure", "departurePhotoSection", "离场照片", "departurePhotoGrid");
+  }
 
   function renderWorkItems() {
     const items = currentPreview.work_items || [];
