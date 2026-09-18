@@ -4,6 +4,21 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#0f766e">
+    {# v0.1.244: PWA — 手机"添加到主屏幕"后以独立 App 窗口打开，点图标恢复上次页面而不是新开标签 #}
+    <link rel="manifest" href="{{ url_for('app_manifest') }}">
+    <link rel="icon" href="{{ url_for('static', filename='field-icon-192.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='field-icon-192.png') }}">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Prasinos Power">
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('{{ url_for("app_service_worker") }}').catch(function () {});
+        });
+      }
+    </script>
     <title>{% block title %}发票工具{% endblock %}</title>
     {% if g.user %}
       <script>

@@ -4,6 +4,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.244] - 2026-09-18
+
+### 变更（主站 PWA：手机图标以独立 App 打开，不再堆积浏览器标签页）
+- **问题**：手机主屏图标（添加到主屏幕的网页快捷方式）每次点开都是普通网页，越积越多；多个页面里找不到未完成的工作。
+- **修复**：新增主站 PWA 支持——
+  - `GET /manifest.webmanifest`：`display=standalone`、`start_url=/`、使用现有品牌图标（192/512）。
+  - `GET /sw.js`（`Service-Worker-Allowed: /`）：极简透传 Service Worker，**不做任何缓存**（工具是动态页面，保持与普通网页一致的真实时性），仅用于满足可安装性。
+  - `base.html`：manifest 链接、`apple-mobile-web-app-capable` / `mobile-web-app-capable`、状态栏样式、App 标题、apple-touch-icon、SW 注册。
+- **效果**：用户重新"添加到主屏幕/安装应用"后，图标以独立 App 窗口打开（无浏览器地址栏），再次点击恢复上次浏览位置（配合既有的 workspace 重定向逻辑），不再产生新标签页。旧的网页快捷方式请删除后重新添加。
+- 测试：新增 `test_pwa_manifest.py`（manifest 字段、SW 头、模板接线、无缓存断言）；phase6/phase9/auto_confirm 回归 99 项通过。
+
 ## [0.1.243] - 2026-09-17
 
 ### 修复（AI 日报传递到工单日报的时间/交通时长未自动填充）
