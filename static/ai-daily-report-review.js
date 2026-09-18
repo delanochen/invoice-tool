@@ -88,12 +88,50 @@
       currentPreview = data.preview;
       currentDraftVersion = currentPreview.draft_version;
       renderAll();
+      maybeAutoPrepare();
     } catch (err) {
       if (err.message !== "version_conflict") {
         showStatus(`加载失败: ${err.message}`, "error");
       }
     } finally {
       isLoading = false;
+    }
+  }
+
+  // ─── Auto Prepare (v0.1.234): no manual clicks needed ──────────────────
+  // When a draft has no photo candidates yet, run the backend auto pipeline
+  // (discover photos -> confirm timeline -> classify & select construction
+  // photos -> recalculate mileage) once. Manual buttons stay available and
+  // user overrides are always preserved by the backend.
+  let autoPrepareDone = false;
+  async function maybeAutoPrepare() {
+    if (autoPrepareDone || !currentPreview) return;
+    const status = currentPreview.status || "";
+    if (!["draft", "confirmed"].includes(status)) { autoPrepareDone = true; return; }
+    const photos = (currentPreview.timeline && currentPreview.timeline.photo_candidates) || [];
+    const tlStatus = (currentPreview.timeline && currentPreview.timeline.photo_timeline_status) || "";
+    const needsPrepare = !photos.length ||
+      ["not_scanned", "suspicious", "verification_required", "insufficient_photos"].includes(tlStatus);
+    if (!needsPrepare) { autoPrepareDone = true; return; }
+    autoPrepareDone = true;
+    showStatus("正在自动发现照片、确认时间线、筛选施工照片、计算里程...", "");
+    try {
+      const result = await apiPost(`/draft/${draftId}/auto-prepare`, {});
+      if (result.preview) {
+        currentPreview = result.preview;
+        currentDraftVersion = currentPreview.draft_version;
+        renderAll();
+      }
+      const failed = (result.steps || []).filter(s => !s.ok);
+      if (failed.length) {
+        showStatus(`自动准备完成（部分步骤跳过: ${failed.map(s => s.step).join(", ")}），可手动重试对应按钮`, "");
+      } else {
+        showStatus("自动准备完成：照片、时间线、施工照片、里程已就绪", "success");
+      }
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`自动准备未完成: ${err.message}（可稍后手动点击对应按钮重试）`, "error");
+      }
     }
   }
 

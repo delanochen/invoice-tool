@@ -10336,6 +10336,178 @@ def _ai_daily_report_business_date() -> str:
     return datetime.now(app_timezone()).date().isoformat()
 
 
+def _auto_prepare_draft_media(draft_id: int) -> list:
+    """Best-effort auto pipeline for a draft — no manual clicks required.
+
+    Runs, in order (each step skipped when already done, degrades gracefully):
+      1. discover_photos: scan site photos and build timeline candidates
+         (only when the timeline has not been scanned yet).
+      2. confirm_timeline: apply arrival/departure photo candidates
+         (force-confirmed; SKIPPED when the user set times manually via
+         user_input/manual sources, so human edits are never overwritten).
+      3. classify_photos: Vision-classify photos and auto-select safety +
+         construction (service) photos (only when not classified yet and
+         Vision is enabled; user selections/removals are preserved).
+      4. recalculate_mileage: for self_drive workers lacking a successful
+         route — compute mileage via Google Routes and generate Static Maps
+         evidence records.
+
+    Returns a list of {"step", "ok", ...} summaries; never raises.
+    """
+    steps = []
+    svc = _ai_daily_report_service()
+
+    def _load_draft():
+        row = svc.get_draft(draft_id)
+        return svc.parse_draft_data(row) if row else None
+
+    def _run(step_name, fn):
+        try:
+            info = fn() or {}
+            db().commit()
+            steps.append({"step": step_name, "ok": True, **info})
+        except Exception as exc:  # auto pipeline must never break the caller
+            try:
+                db().rollback()
+            except Exception:
+                pass
+            steps.append({"step": step_name, "ok": False, "error": str(exc)})
+
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row or draft_row["status"] not in {"draft", "confirmed"}:
+        return steps
+    draft = _load_draft()
+
+    # 1) Discover photos (only if not scanned yet)
+    if draft.photo_timeline_status in (None, "", "not_scanned", "failed"):
+        def _discover():
+            photo_discovery = PhotoDiscoveryService(
+                shared_photos_root=SHARED_PHOTOS_DIR,
+                service_order_photo_folder_func=service_order_photo_folder,
+            )
+            photo_metadata = PhotoMetadataService(shared_photos_root=SHARED_PHOTOS_DIR)
+            try:
+                fp_rows = db().execute(
+                    "select relative_path, photo_type from field_photos"
+                ).fetchall()
+                fp_map = {r["relative_path"]: (r["photo_type"] or "") for r in fp_rows}
+            except Exception:
+                fp_map = {}
+            result = svc.discover_photos_for_draft(
+                draft_id=draft_id,
+                photo_discovery_service=photo_discovery,
+                photo_metadata_service=photo_metadata,
+                photo_type_lookup=lambda p: fp_map.get(p) or None,
+            )
+            return {"photo_count": result.get("photo_count")}
+        _run("discover_photos", _discover)
+        draft = _load_draft()
+
+    # 2) Confirm photo timeline (skip when user set times manually)
+    manual_times = draft.arrival_time_source in ("user_input", "manual") or (
+        draft.departure_time_source in ("user_input", "manual")
+    )
+    if (
+        not manual_times
+        and draft.arrival_time_source != "photo_timeline_confirmed"
+        and draft.photo_timeline_status
+        not in (None, "", "not_scanned", "no_photos", "failed")
+    ):
+        _run("confirm_timeline", lambda: svc.confirm_photo_timeline(draft_id, force=True))
+
+    # 3) Vision classify + auto-select safety/construction photos
+    draft_row = svc.get_draft(draft_id)
+    draft = _load_draft()
+    vision_cfg = vision_settings()
+    if (
+        draft_row["status"] == "draft"
+        and vision_cfg.get("enabled")
+        and draft.photo_candidates
+        and not draft.photo_analysis_results
+    ):
+        def _classify():
+            photo_svc = _make_photo_classification_service()
+            result = svc.classify_draft_photos(
+                draft_id=draft_id,
+                photo_classification_service=photo_svc,
+                analysis_model=vision_cfg.get("model", ""),
+            )
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "classification_failed"))
+            return {
+                "selected_service_count": result.get("selected_service_count"),
+                "selected_safety": result.get("selected_safety"),
+            }
+        _run("classify_photos", _classify)
+
+    # 4) Recalculate mileage for self_drive workers without a successful route
+    draft = _load_draft()
+    if any(
+        w.transportation == "self_drive" and w.route_status != "success"
+        for w in draft.workers
+    ):
+        def _mileage():
+            try:
+                order = require_service_order(draft.service_order_id)
+            except Exception:
+                return {"skipped": "order_not_found"}
+            site_address = (order["site_address"] or "") if order else ""
+            emp_resolver = EmployeeResolutionService(db(), g.user["id"], g.user["name"])
+            travel_svc = TravelService(db(), emp_resolver)
+            travel_svc.set_destination_for_all(draft.workers, site_address)
+            missing, _msgs = travel_svc.verify_travel_fields(
+                draft.workers, bool(site_address.strip())
+            )
+            routes_api_key = get_google_routes_api_key()
+            if missing:
+                return {"skipped": "missing_travel_fields"}
+            if not routes_api_key:
+                return {"skipped": "no_routes_api_key"}
+
+            from ai_daily_report import (
+                GoogleRoutesService,
+                MileageService,
+                GoogleStaticMapsService,
+                MileageEvidenceService,
+            )
+            routes_svc = GoogleRoutesService(routes_api_key)
+            mileage_svc = MileageService(routes_svc)
+            for w in draft.workers:
+                if w.transportation == "self_drive" and w.route_status != "success":
+                    TravelService.invalidate_worker_route(w)
+            mileage_svc.calculate_for_all(draft.workers)
+
+            static_maps_key = get_google_static_maps_api_key()
+            if static_maps_key:
+                evidence_svc = MileageEvidenceService(
+                    GoogleStaticMapsService(static_maps_key),
+                    os.path.join(DATA_DIR, "ai-daily-report-drafts"),
+                )
+                for w in draft.workers:
+                    if w.transportation == "self_drive" and w.route_status == "success":
+                        record = evidence_svc.generate_evidence(
+                            w,
+                            draft_id=draft_id,
+                            service_order_id=draft.service_order_id,
+                            report_date=draft.report_date,
+                            generated_by=g.user["id"],
+                            draft_evidence_records=draft.evidence_records,
+                        )
+                        draft.evidence_records = MileageEvidenceService.upsert_evidence_record(
+                            draft.evidence_records, record
+                        )
+                        w.mileage_evidence_id = record.evidence_id
+                        w.mileage_evidence_path = record.file_relative_path
+                        w.mileage_verification_required = (
+                            record.evidence_status == "verification_required"
+                        )
+            svc.save_draft(draft_id, draft)
+            return {"calculated": True}
+        _run("recalculate_mileage", _mileage)
+
+    return steps
+
+
 @app.post("/api/ai/daily-report/chat")
 @login_required
 def ai_daily_report_chat():
@@ -10590,6 +10762,15 @@ def ai_daily_report_chat():
         }), 409
     db().commit()
 
+    # Auto media pipeline (v0.1.234): discover photos, confirm timeline,
+    # auto-select safety/construction photos, recalculate mileage — all
+    # without manual clicks. Idempotent: finished steps are skipped and
+    # manual user overrides are never overwritten.
+    auto_steps = _auto_prepare_draft_media(draft_id)
+    if any(s.get("ok") for s in auto_steps):
+        draft_row = svc.get_draft(draft_id)
+        draft = svc.parse_draft_data(draft_row)
+
     preview = svc.build_preview(draft)
     clarification_msg = action.clarification_question or ""
     if all_clarifications and not clarification_msg:
@@ -10623,6 +10804,41 @@ def ai_daily_report_get_draft(draft_id):
         "ok": True,
         "draft_id": draft_id,
         "status": draft_row["status"],
+        "preview": svc.build_preview(draft),
+    })
+
+
+@app.post("/api/ai/daily-report/draft/<int:draft_id>/auto-prepare")
+@login_required
+def ai_daily_report_auto_prepare(draft_id):
+    """One-click auto pipeline: discover photos -> confirm timeline ->
+    classify photos (auto-select safety/construction photos) ->
+    recalculate mileage.
+
+    Idempotent and best-effort: already-finished steps are skipped, manual
+    user overrides (times, photo selections) are preserved, and failures
+    degrade gracefully so the caller can retry or fix data manually.
+    """
+    if not is_internal_user():
+        return jsonify({"ok": False, "error": "无权限"}), 403
+
+    require_ai_daily_report_csrf()
+
+    svc = _ai_daily_report_service()
+    draft_row = svc.get_draft(draft_id)
+    if not draft_row:
+        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
+
+    steps = _auto_prepare_draft_media(draft_id)
+    db().commit()
+
+    draft_row = svc.get_draft(draft_id)
+    draft = svc.parse_draft_data(draft_row)
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "steps": steps,
+        "draft_version": draft_row["draft_version"],
         "preview": svc.build_preview(draft),
     })
 
