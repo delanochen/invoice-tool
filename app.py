@@ -10740,6 +10740,13 @@ def ai_daily_report_chat():
     if action.clarification_required:
         all_missing.extend(action.missing_fields)
 
+    # v0.1.236: 施工内容是描述文字而非表格化字段（用户 2026-09-17 决策）。
+    # 模型可能仍把 work_items.* 标为待确认，这里统一过滤，避免触发确认弹窗。
+    all_missing = [
+        f for f in all_missing
+        if not str(f).lower().startswith("work_items.")
+    ]
+
     if all_missing or all_clarifications:
         draft.verification_required = True
         draft.verification_fields = list(set(all_missing))
@@ -11672,7 +11679,10 @@ def ai_daily_report_drafts_list():
 
         worker_count = len(draft_data.get("workers", []))
         photo_count = len(draft_data.get("photo_candidates", []))
-        verification_fields = draft_data.get("verification_fields", [])
+        verification_fields = [
+            f for f in (draft_data.get("verification_fields") or [])
+            if not str(f).lower().startswith("work_items.")
+        ]
 
         drafts.append({
             "id": row["id"],

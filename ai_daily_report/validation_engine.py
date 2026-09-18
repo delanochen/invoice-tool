@@ -1328,6 +1328,10 @@ class ValidationEngine:
         for field in fields:
             if field == "draft_data_corrupted":
                 continue  # handled by DRFT-001
+            # v0.1.236: 施工内容是描述文字而非表格化字段（用户 2026-09-17 决策）。
+            # work_items.* 不再作为待确认字段提示（含存量草稿里已有的标记）。
+            if str(field).lower().startswith("work_items."):
+                continue
             mapped_rule = VERIFICATION_FIELD_RULE_MAP.get(field)
             if mapped_rule and mapped_rule in existing_rule_ids:
                 continue  # already covered by specific rule — skip duplicate

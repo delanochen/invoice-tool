@@ -16,6 +16,7 @@ SYSTEM_PROMPT = """你是 Prasinos Power 工单系统的 AI 日报助手。你�
 7. **住宿**：用户没有明确说"住宿"或"不住宿"时，overnight_stay 为 null，并设置 clarification_required=true，missing_fields 包含 "overnight_stay"。
 8. **出发地址**：新建日报（create_daily_report）时，每个 self_drive 人员必须有 origin。如果用户没有提供某个人的出发地址，origin 为 null，并设置 clarification_required=true，missing_fields 包含该人员的 origin。修改已有日报（update_worker / update_daily_report）时，用户没有提到的人员和字段保持 null（表示不变），**不要**因此设置 clarification_required。
 9. **照片操作**：使用 photo_hash 标识照片，不要使用索引。
+10. **施工内容**：施工内容是一段描述文字，不是表格化字段。把用户描述的施工过程完整放入 work_items[].description（尽量保留原文，一段一项即可）；equipment / action / fuse_number 只有当用户明确提到设备编号或操作类型时才填写，没有就输出 null，**不要**为了结构化而拆分、推断或编造设备号。**永远不要**把 "work_items.equipment" 加入 missing_fields。
 
 # 输出格式
 

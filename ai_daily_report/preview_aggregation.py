@@ -332,6 +332,13 @@ class PreviewAggregationService:
             fields_ai.append("service_photos")
 
         verification_fields = draft_data.get("verification_fields", [])
+        if isinstance(verification_fields, list):
+            # v0.1.236: 施工内容是描述文字而非表格化字段（用户 2026-09-17 决策），
+            # work_items.* 不再作为待确认字段展示/弹窗（含存量草稿已有的标记）。
+            verification_fields = [
+                f for f in verification_fields
+                if not str(f).lower().startswith("work_items.")
+            ]
 
         return {
             "ai_generated": ai_generated,

@@ -4,6 +4,18 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.236] - 2026-09-17
+
+### 修正（AI 智能日报 · 施工内容按纯文本处理）
+- **背景**：用户明确施工内容就是一段描述文字，不是表格化字段。此前 AI（DeepSeek）会按 prompt 示例把施工内容拆出 `work_items.equipment`（设备编号）等结构化字段，并将其标入待确认清单，导致确认日报时弹出「work_items.equipment 仍需要确认」的人工确认对话框，不符合业务实际。
+- **改动**：
+  - `ai_daily_report/prompts.py`：新增规则 10——施工内容完整放入 `work_items[].description`（保留原文）；equipment/action/fuse_number 仅在用户明确提及时填写，不拆分/推断/编造设备号；**永远不要**把 `work_items.equipment` 加入 missing_fields。
+  - `app.py` chat 端点：合并 missing_fields 时防御性过滤所有 `work_items.*` 标记（防止模型仍输出）。
+  - `ai_daily_report/validation_engine.py`：`_check_ai_verification` 跳过 `work_items.*` 字段，存量草稿已有的标记也不再产生 AIVR-003 WARNING。
+  - `ai_daily_report/preview_aggregation.py` 与草稿列表端点：展示口径同步过滤，确认弹窗不再出现 `work_items.equipment`。
+- **不受影响**：`work_items` 数据结构保留（正式保存 `format_work_items` 仍兼容 equipment 为空时仅渲染 description）；`workers.transportation` 的待确认逻辑保持不变（出行方式影响里程计算，仍需人工把关）。
+- 验证：AI 日报相关 7 个套件回归 303 项通过（`test_cancel_draft` 为已知存量 CSRF 环境问题）。
+
 ## [0.1.235] - 2026-09-17
 
 ### 改进（里程佐证 · 精简图面信息）
