@@ -4,6 +4,13 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.235] - 2026-09-17
+
+### 改进（里程佐证 · 精简图面信息）
+- **里程佐证图去掉「Report Date」与「Route Calculated」两行**（按 2026-09-17 产品决策）：图面保留 Employee / Origin / Destination / One-way Distance / Mileage Rule / Reported Mileage / Overnight Stay / Route Provider。此前 UTC 存储的 `Route Calculated: 2026-09-18T01:08:53Z` 显示在 09-17 的单据上看起来像"未来日期"，造成困惑，直接移除显示。
+- 报表日期与路线计算时间**仍完整保留在证据记录（MileageEvidenceRecord）中**，参与指纹与审计，只是不再画在图上；面板高度同步收紧（280→244）。已生成的历史佐证图不回溯重绘，新生成的使用新版式（`ai_daily_report/mileage_evidence.py`）。
+- 验证：离线渲染探针确认新版式正确；Phase 3A/3B/9 与 auto_confirm/auto_prepare 回归 128 项通过（2 个 phase3b 失败为已知 Windows 存量环境问题，与本改动无关）。
+
 ## [0.1.234] - 2026-09-17
 
 ### 改进（AI 智能日报 · 发现照片/时间线/施工照片/里程 全自动）

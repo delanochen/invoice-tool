@@ -51,7 +51,7 @@ from .static_maps import GoogleStaticMapsService, StaticMapResult
 logger = logging.getLogger(__name__)
 
 # Info panel dimensions
-PANEL_HEIGHT = 280
+PANEL_HEIGHT = 244
 PANEL_BG_COLOR = (255, 255, 255)
 PANEL_TEXT_COLOR = (30, 30, 30)
 PANEL_TITLE_COLOR = (0, 80, 160)
@@ -486,7 +486,6 @@ class MileageEvidenceService:
 
         lines = [
             f"Employee: {worker.name}",
-            f"Report Date: {report_date}",
             f"Origin: {origin_display}",
             f"Destination: {dest_display}",
             f"One-way Distance: {worker.one_way_miles:.2f} mi",
@@ -494,8 +493,11 @@ class MileageEvidenceService:
             f"Reported Mileage: {worker.reported_miles:.2f} mi",
             f"Overnight Stay: {'Yes' if worker.overnight_stay else 'No'}",
             f"Route Provider: {worker.route_provider or 'Google Maps'}",
-            f"Route Calculated: {worker.route_query_time or 'N/A'}",
         ]
+        # v0.1.235: Report Date and Route Calculated lines were removed from
+        # the evidence panel per product decision (2026-09-17).
+        # report_date and worker.route_query_time stay in the evidence record
+        # (fingerprint & audit) — only the on-image display changed.
 
         for line in lines:
             draw.text((x, y), line, fill=PANEL_TEXT_COLOR, font=font_body)
