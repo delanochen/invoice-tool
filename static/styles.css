@@ -2923,6 +2923,10 @@ body.service-order-map-page {
     position: relative;
     height: auto;
     padding: 12px 16px;
+    /* v0.1.245: PWA standalone — clear the iPhone status bar/notch. The dark
+       sidebar background extends behind the status bar; env() is 0 in normal
+       browser mode so this is a no-op there. */
+    padding-top: calc(12px + env(safe-area-inset-top));
     overflow: visible;
   }
   .sidebar .brand { margin: 0; font-size: 18px; min-height: 44px; }
