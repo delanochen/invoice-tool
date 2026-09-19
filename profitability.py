@@ -126,10 +126,15 @@ def _employee_cost_rate_type(item_type, worker):
     return item_type
 
 
-def _line_status(settlement_status):
-    if settlement_status == "approved":
+def _line_status(order_status, has_settlement, has_invoice):
+    """按工单维度判定利润行状态（业务规则，2026-09-17 用户确认）：
+    - 工单已完成（closed）→ 客户已确认（甲方确认金额后我们才把工单改为已完成）
+    - 工单进行中但已生成工单结算单或发票 → 结算中（金额尚未获甲方确认，可能删除重开）
+    - 工单未生成工单结算单/发票 → 预计
+    """
+    if order_status == "closed":
         return "client_confirmed"
-    if settlement_status in {"draft", "returned", "submitted"}:
+    if has_settlement or has_invoice:
         return "settlement_in_progress"
     return "estimated"
 
@@ -144,9 +149,11 @@ def _labor_lines(api, start_date, end_date, order_id=None):
         f"""
         select service_reports.*, service_orders.order_number, service_orders.client_name,
                service_orders.contract_id,
-               (select status from customer_reimbursements cr
-                where cr.service_order_id = service_orders.id
-                order by cr.created_at desc, cr.id desc limit 1) as settlement_status
+               service_orders.status as order_status,
+               exists(select 1 from customer_reimbursements cr
+                      where cr.service_order_id = service_orders.id) as has_settlement,
+               exists(select 1 from invoices inv
+                      where inv.service_order_id = service_orders.id and inv.status != 'void') as has_invoice
         from service_reports
         join service_orders on service_orders.id = service_reports.service_order_id
         where {' and '.join(clauses)}
@@ -213,7 +220,7 @@ def _labor_lines(api, start_date, end_date, order_id=None):
                     "source_id": report["id"],
                     "source_line_id": worker["id"],
                     "allocation_method": "direct",
-                    "status": _line_status(report["settlement_status"]),
+                    "status": _line_status(report["order_status"], report["has_settlement"], report["has_invoice"]),
                     "incomplete": missing,
                 })
     return lines
@@ -301,7 +308,6 @@ def _selected_expense_map(api):
     rows = api["db"]().execute(
         """
         select links.expense_item_id, links.amount_snapshot, links.customer_reimbursement_id,
-               cr.status as settlement_status,
                coalesce(projects.name, expense_items.project) as project_name,
                expense_items.fuel_vehicle_type
         from customer_reimbursement_expense_links links
@@ -320,7 +326,6 @@ def _selected_expense_map(api):
             amount *= ratios.get(row["customer_reimbursement_id"], Decimal("1"))
         result[row["expense_item_id"]] = {
             "amount": amount,
-            "settlement_status": row["settlement_status"],
             "field": field,
         }
     return result
@@ -350,7 +355,12 @@ def _expense_lines(api, start_date, end_date, order_id=None):
                expenses.service_order_id,
                coalesce(expenses.beneficiary_id, expenses.created_by) as employee_id,
                users.name as employee_name,
-               service_orders.order_number, service_orders.client_name
+               service_orders.order_number, service_orders.client_name,
+               service_orders.status as order_status,
+               exists(select 1 from customer_reimbursements cr
+                      where cr.service_order_id = service_orders.id) as has_settlement,
+               exists(select 1 from invoices inv
+                      where inv.service_order_id = service_orders.id and inv.status != 'void') as has_invoice
         from expenses
         join expense_items on expense_items.expense_id = expenses.id
         join service_orders on service_orders.id = expenses.service_order_id
@@ -395,7 +405,7 @@ def _expense_lines(api, start_date, end_date, order_id=None):
             "source_id": row["expense_id"],
             "source_line_id": row["expense_item_id"],
             "allocation_method": allocation_method,
-            "status": _line_status(selection["settlement_status"] if selection else None),
+            "status": _line_status(row["order_status"], row["has_settlement"], row["has_invoice"]),
             "incomplete": False,
         })
 
