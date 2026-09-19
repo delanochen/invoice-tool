@@ -4,6 +4,11 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.248] - 2026-09-19
+
+### Fixed
+- 项目利润页筛选区布局松散：表单使用了不存在的 `filter-form filter-grid` 类（无任何 CSS 规则），字段全部竖向堆叠。改用全站统一的 `filter-bar service-filter`——桌面端筛选条件横向单行排列（开始日期/结束日期/工单/汇总方式/查询），窄屏自动换行。
+
 ## [0.1.247] - 2026-09-19
 
 ### Fixed
