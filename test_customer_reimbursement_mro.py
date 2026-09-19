@@ -113,7 +113,7 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             workbook = load_workbook(BytesIO(response.data))
             self.addCleanup(workbook.close)
             rows = list(workbook.active.values)
-            self.assertEqual(rows[1], (1, 'Worker', '2026-08-12', 1, 2, 0, 0, 70, 30, 0, 0, 0, 0, 0, 0, 0, 7, 107))
+            self.assertEqual(rows[1], (1, 'Worker', '2026-08-12', 1, 2, 0, 0, 0, 70, 30, 0, 0, 0, 0, 0, 0, 0, 7, 107))
             response.close()
 
     def test_auto_expense_source_snapshot_matches_amount(self):

@@ -58,7 +58,7 @@
         {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document"] %}
         {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
-        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "expense_query", "audit_log_report", "user_certificate_query"] %}
+        {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
@@ -96,6 +96,7 @@
             (has_menu_permission("invoices") and can_view_invoices())
             or (has_menu_permission("invoice_query") and can_view_invoices())
             or (has_menu_permission("customer_reimbursement_query") and can_view_customer_reimbursement())
+            or (has_menu_permission("profitability") and has_action_permission("profitability", "view"))
             or (has_menu_permission("buyer_query") and not is_external_manager())
             or (has_menu_permission("service_order_query") and not is_external_manager())
             or (has_menu_permission("service_report_query") and not is_external_manager())
@@ -119,6 +120,9 @@
               {% endif %}
               {% if has_menu_permission("customer_reimbursement_query") and can_view_customer_reimbursement() %}
                 {{ nav_link("customer_reimbursement_query", "工单结算报表") }}
+              {% endif %}
+              {% if has_menu_permission("profitability") and has_action_permission("profitability", "view") and not is_external_manager() %}
+                {{ nav_link("profitability_report", "项目利润") }}
               {% endif %}
               {% if has_menu_permission("service_report_query") or (is_external_manager() and has_action_permission("service_reports", "view")) %}{{ nav_link("service_report_query", "日报查询") }}{% endif %}
                 {% if not is_external_manager() %}

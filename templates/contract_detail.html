@@ -9,6 +9,7 @@
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('contracts') }}'">返回列表</button>
+      <button type="button" onclick="window.location.href='{{ url_for('contract_rate_versions', contract_id=contract.id) }}'">费率版本</button>
       {% if can_manage_contracts() %}
         <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_contract', contract_id=contract.id) }}'">编辑合同</button>
       {% endif %}

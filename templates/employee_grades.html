@@ -16,7 +16,7 @@
       <tbody>
         {% for grade in grades %}
           <tr data-grade-row="{{ grade.id }}" data-row-id="{{ grade.id }}" tabindex="0" aria-selected="false">
-            <td>{{ grade.grade_name }}</td>
+            <td><a href="{{ url_for('employee_rate_versions', grade_id=grade.id) }}">{{ grade.grade_name }}</a></td>
             <td>{{ grade.description or "-" }}</td>
             <td>{{ grade.base_salary|money }}</td>
             <td>{{ grade.meal_daily_amount|money }}</td>

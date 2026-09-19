@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}项目利润 - 发票工具{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Profitability</p>
+    <h1>项目利润</h1>
+    <p class="muted-line">按实际工作日期核算。客户收入使用合同有效期费率；员工成本使用员工等级有效期费率；已审核员工报销计入实际项目成本。</p>
+  </div>
+</header>
+
+<section class="panel">
+  <form method="get" class="filter-form filter-grid">
+    <label>开始日期 <input type="date" name="start_date" value="{{ start_date }}"></label>
+    <label>结束日期 <input type="date" name="end_date" value="{{ end_date }}"></label>
+    <label>工单
+      <select name="service_order_id">
+        <option value="">全部工单</option>
+        {% for order in orders %}<option value="{{ order.id }}" {% if selected_order_id == order.id %}selected{% endif %}>{{ order.order_number }} · {{ order.client_name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>汇总方式
+      <select name="group_by">
+        <option value="day" {% if group_by == 'day' %}selected{% endif %}>按日</option>
+        <option value="month" {% if group_by == 'month' %}selected{% endif %}>按月</option>
+        <option value="order" {% if group_by == 'order' %}selected{% endif %}>按工单</option>
+      </select>
+    </label>
+    <div class="form-actions"><button class="primary" type="submit">查询</button></div>
+  </form>
+</section>
+
+{% if summary.incomplete %}
+<section class="panel"><div class="flash error"><strong>{{ summary.incomplete }} 条利润明细缺少客户合同费率或员工结算费率。</strong> 系统没有把缺失费率悄悄当成完整利润；请先补齐费率版本后重新查询。</div></section>
+{% endif %}
+
+<section class="panel">
+  <div class="metric-grid">
+    <div class="metric"><span>Revenue / 收入</span><strong>{{ summary.revenue|money }}</strong></div>
+    <div class="metric"><span>Cost / 成本</span><strong>{{ summary.cost|money }}</strong></div>
+    <div class="metric"><span>Project Profit / 项目利润</span><strong>{{ summary.profit|money }}</strong></div>
+    <div class="metric"><span>Margin / 利润率</span><strong>{{ '%.2f%%'|format(summary.margin) }}</strong></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-title"><h2>利润来源</h2><span class="muted-line">费率差价型与实报实销/公司承担费用分开显示</span></div>
+  <div class="metric-grid">
+    <div class="metric"><span>工时</span><strong>{{ summary.by_category.labor.profit|money }}</strong><small>收入 {{ summary.by_category.labor.revenue|money }} · 成本 {{ summary.by_category.labor.cost|money }}</small></div>
+    <div class="metric"><span>交通 / 公交 / 里程</span><strong>{{ summary.by_category.allowance.profit|money }}</strong><small>收入 {{ summary.by_category.allowance.revenue|money }} · 成本 {{ summary.by_category.allowance.cost|money }}</small></div>
+    <div class="metric"><span>实际费用</span><strong>{{ summary.by_category.expense.profit|money }}</strong><small>客户结算 {{ summary.by_category.expense.revenue|money }} · 实际成本 {{ summary.by_category.expense.cost|money }}</small></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-title"><h2>{{ {'day':'按日','month':'按月','order':'按工单'}[group_by] }}汇总</h2><span class="muted-line">{{ rows|length }} 个汇总项</span></div>
+  <div class="table-scroll">
+    <table class="list-table">
+      <thead><tr><th>{{ {'day':'日期','month':'月份','order':'工单'}[group_by] }}</th><th>收入</th><th>成本</th><th>利润</th><th>利润率</th><th>明细数</th><th>完整性</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td>{{ row.revenue|money }}</td>
+          <td>{{ row.cost|money }}</td>
+          <td><strong>{{ row.profit|money }}</strong></td>
+          <td>{{ '%.2f%%'|format(row.margin) }}</td>
+          <td>{{ row.line_count }}</td>
+          <td>{% if row.incomplete %}<span class="status returned">缺 {{ row.incomplete }} 条费率</span>{% else %}<span class="status completed">完整</span>{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty">当前筛选范围还没有可核算的项目利润数据。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel">
+  <details>
+    <summary><strong>展开利润明细（{{ lines|length }} 条）</strong></summary>
+    <div class="table-scroll" style="margin-top:1rem">
+      <table class="list-table compact-table">
+        <thead><tr><th>日期</th><th>工单</th><th>员工</th><th>类别</th><th>项目</th><th>数量</th><th>客户单价</th><th>员工/实际成本单价</th><th>收入</th><th>成本</th><th>利润</th><th>分摊</th><th>状态</th></tr></thead>
+        <tbody>
+        {% for line in lines|sort(attribute='work_date', reverse=true) %}
+          <tr>
+            <td>{{ line.work_date }}</td>
+            <td><a href="{{ url_for('service_order_detail', order_id=line.service_order_id) }}">{{ line.order_number }}</a></td>
+            <td>{{ line.employee_name }}</td>
+            <td>{{ {'labor':'工时','allowance':'交通/补贴','expense':'费用'}.get(line.category, line.category) }}</td>
+            <td>{{ line.item_label }}</td>
+            <td>{{ '%g'|format(line.quantity) }} {{ line.unit }}</td>
+            <td>{{ line.client_rate|money }}</td>
+            <td>{{ line.employee_rate|money }}</td>
+            <td>{{ line.revenue|money }}</td>
+            <td>{{ line.cost|money }}</td>
+            <td>{{ line.profit|money }}</td>
+            <td>{{ '按工时分摊' if line.allocation_method == 'by_work_hours' else '直接归属' }}</td>
+            <td>{% if line.incomplete %}<span class="status returned">缺费率</span>{% elif line.status == 'client_confirmed' %}<span class="status completed">客户已确认</span>{% elif line.status == 'settlement_in_progress' %}<span class="status submitted">结算中</span>{% else %}<span class="status draft">预计</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+{% endblock %}
