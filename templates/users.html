@@ -276,7 +276,7 @@
   {% endfor %}
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='modal-forms.js', v='20260619-external-roles') }}"></script>
+  <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='user-address.js', v='20260706-user-address-v1') }}"></script>
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
   <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
