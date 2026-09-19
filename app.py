@@ -11612,8 +11612,31 @@ def ai_daily_report_confirm(draft_id):
         draft_row = svc.get_draft(draft_id)
         validation = _run_phase7_validation(draft_row)
         if not validation.can_proceed:
-            auto["blocked_code"] = "validation_cannot_proceed"
-            auto["blocked_message"] = "存在未解决的 ERROR，无法自动生成正式日报，请在校验面板处理后手动正式保存。"
+            # v0.1.252: an incomplete daily report may be force-passed to the
+            # order (product decision 2026-09-18) so the user can keep editing
+            # on the order report page. Requires an explicit request flag.
+            force_incomplete = False
+            try:
+                force_incomplete = bool(
+                    (request.get_json(silent=True) or {}).get("force_incomplete")
+                )
+            except Exception:
+                force_incomplete = False
+            if force_incomplete:
+                formal_svc = FormalSaveService(
+                    db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, user_id
+                )
+                result = formal_svc.run_incomplete(draft_row, None)
+                db().commit()
+                auto["formal_saved"] = True
+                auto["incomplete"] = True
+                auto["service_report_id"] = result["service_report_id"]
+                auto["report_url"] = url_for(
+                    "edit_service_report", report_id=result["service_report_id"]
+                )
+            else:
+                auto["blocked_code"] = "validation_cannot_proceed"
+                auto["blocked_message"] = "存在未解决的 ERROR，无法自动生成正式日报，请在校验面板处理后手动正式保存。"
         else:
             manifest_svc = _attachment_manifest_service()
             manifest = manifest_svc.prepare(draft_row, validation)
@@ -11673,6 +11696,8 @@ def ai_daily_report_confirm(draft_id):
 
     if auto["formal_saved"]:
         message = f"已确认并自动生成工单日报（Report #{auto['service_report_id']}）"
+        if auto.get("incomplete"):
+            message += "，日报不完整，可在工单日报中继续编辑"
     else:
         message = "Draft 已确认，但自动生成工单日报未完成：" + (auto["blocked_message"] or "未知原因")
 
@@ -12597,18 +12622,26 @@ def ai_daily_report_draft_formal_save(draft_id):
         client_manifest_id = data.get("manifest_id")
         if client_manifest_id is not None:
             client_manifest_id = str(client_manifest_id)
+        # v0.1.252: explicit flag to pass an INCOMPLETE report to the order.
+        force_incomplete = bool(data.get("force_incomplete"))
     except (ValueError, TypeError):
         return jsonify({"ok": False, "error": "无效请求"}), 400
 
     validation = _run_phase7_validation(draft_row)
     manifest_svc = _attachment_manifest_service()
+    # v0.1.252: force path only applies when validation is blocking — otherwise
+    # the full manifest chain (with attachments) is always preferred.
+    incomplete_pass = bool(force_incomplete and not validation.can_proceed)
     try:
         formal_svc = FormalSaveService(
             db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, int(g.user["id"])
         )
-        result = formal_svc.run(
-            draft_row, expected_version, client_manifest_id, validation, manifest_svc
-        )
+        if incomplete_pass:
+            result = formal_svc.run_incomplete(draft_row, expected_version)
+        else:
+            result = formal_svc.run(
+                draft_row, expected_version, client_manifest_id, validation, manifest_svc
+            )
     except (FormalSaveStaleError, FormalSaveStateError, FormalSaveCommitConflictError) as exc:
         return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 409
     except (FormalSaveIntegrityError, FormalSaveValidationBlockedError, FormalSaveComplianceError) as exc:
@@ -12617,12 +12650,15 @@ def ai_daily_report_draft_formal_save(draft_id):
         return _manifest_error_response(exc)
 
     status_code = 201 if result["status"] == "created" else 200
-    return jsonify({
+    payload = {
         "ok": True,
         "status": result["status"],
         "service_report_id": result["service_report_id"],
         "report_url": url_for("edit_service_report", report_id=result["service_report_id"]),
-    }), status_code
+    }
+    if incomplete_pass:
+        payload["incomplete"] = True
+    return jsonify(payload), status_code
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>/compliance-review")

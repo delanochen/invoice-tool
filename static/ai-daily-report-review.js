@@ -988,6 +988,11 @@
       html += `<button type="button" class="danger" id="deleteBtn">删除</button>`;
     } else if (status === "confirmed") {
       html += `<button type="button" class="secondary" id="reopenBtn">重新打开</button>`;
+      // v0.1.252: 校验未通过（不完整日报）时允许强制传递到工单。
+      const vr = currentPreview.validation_result;
+      if (vr && vr.can_proceed === false) {
+        html += `<button type="button" class="primary" data-force-incomplete>不完整也传到工单</button>`;
+      }
       html += `<button type="button" class="secondary" id="cancelBtn">取消</button>`;
       html += `<button type="button" class="danger" id="deleteBtn">删除</button>`;
     } else if (status === "cancelled") {
@@ -1001,6 +1006,11 @@
     document.getElementById("cancelBtn")?.addEventListener("click", handleCancel);
     document.getElementById("deleteBtn")?.addEventListener("click", handleDelete);
     document.getElementById("reopenBtn")?.addEventListener("click", handleReopen);
+    // v0.1.252: scoped binding — renderFormalSave renders its own button with
+    // the same data attribute, so query within this section only.
+    actionsEl.querySelectorAll("[data-force-incomplete]").forEach((btn) => {
+      btn.addEventListener("click", handleForceIncomplete);
+    });
   }
 
   // ─── Actions ────────────────────────────────────────────────────────────
@@ -1032,6 +1042,20 @@
         return;
       } else if (auto && !auto.formal_saved && auto.blocked_message) {
         showStatus(`已确认，但自动生成工单日报未完成：${auto.blocked_message}`, "error");
+        // v0.1.252: 不完整日报允许强制传递到工单（之后在工单日报中继续编辑）。
+        if (auto.blocked_code === "validation_cannot_proceed"
+            && confirm("日报不完整（存在未解决的 ERROR）。是否仍将其传递到工单？之后可在工单日报页面继续编辑完善。")) {
+          try {
+            const r = await forceIncompleteToOrder();
+            showStatus(`不完整日报已传递到工单（Report #${r.service_report_id}），正在打开…`, "success");
+            setTimeout(() => { window.location.href = r.report_url; }, 800);
+            return;
+          } catch (forceErr) {
+            if (forceErr.message !== "version_conflict") {
+              showStatus(`传递失败: ${forceErr.message}`, "error");
+            }
+          }
+        }
       } else {
         showStatus("Draft 已确认", "success");
       }
@@ -1039,6 +1063,28 @@
     } catch (err) {
       if (err.message !== "version_conflict") {
         showStatus(`确认失败: ${err.message}`, "error");
+      }
+    }
+  }
+
+  // ─── v0.1.252: 不完整日报强制传递到工单 ─────────────────────────────────
+
+  async function forceIncompleteToOrder() {
+    return await apiPost(`/draft/${draftId}/formal-save`, {
+      draft_version: currentDraftVersion,
+      force_incomplete: true,
+    });
+  }
+
+  async function handleForceIncomplete() {
+    if (!confirm("将把这份不完整的日报传递到工单（不生成附件）。之后可在工单日报页面继续编辑完善。确定继续吗？")) return;
+    try {
+      const result = await forceIncompleteToOrder();
+      showStatus(`不完整日报已传递到工单（Report #${result.service_report_id}），正在打开…`, "success");
+      setTimeout(() => { window.location.href = result.report_url; }, 800);
+    } catch (err) {
+      if (err.message !== "version_conflict") {
+        showStatus(`传递失败: ${err.message}`, "error");
       }
     }
   }
@@ -1326,8 +1372,20 @@
       html += `<p class="muted-line" style="font-size:0.75rem; margin-top:0.4rem;">正式保存是确定性事务：仅消费冻结的 Draft + 已就绪清单，不会重新调用 AI/路线/照片识别，也不会重复生成正式日报。</p>`;
     }
 
+    // v0.1.252: 校验未通过（不完整日报）+ confirmed 状态时提供强制传递入口。
+    const vrFs = currentPreview.validation_result;
+    if (fs.allowed && status === "confirmed" && vrFs && vrFs.can_proceed === false) {
+      html += `<div style="margin-top:0.75rem;">`;
+      html += `<button type="button" class="primary" data-force-incomplete>不完整也传到工单</button>`;
+      html += `</div>`;
+      html += `<p class="muted-line" style="font-size:0.75rem; margin-top:0.4rem;">校验未通过时可将不完整日报直接传递到工单（不生成附件），之后在工单日报页面继续编辑。</p>`;
+    }
+
     el.innerHTML = html;
     document.getElementById("formalSaveBtn")?.addEventListener("click", handleFormalSave);
+    el.querySelectorAll("[data-force-incomplete]").forEach((btn) => {
+      btn.addEventListener("click", handleForceIncomplete);
+    });
   }
 
   async function handleFormalSave() {
