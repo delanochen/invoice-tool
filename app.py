@@ -657,6 +657,67 @@ def ensure_column(connection, table, column, definition):
         connection.execute(f"alter table {table} add column {column} {definition}")
 
 
+def reset_ai_drafts_for_deleted_service_report(connection, report_id):
+    """Make AI drafts reusable after their generated formal report is deleted."""
+    rows = connection.execute(
+        """
+        select id from ai_daily_report_drafts where saved_report_id = ?
+        union
+        select draft_id from ai_daily_report_formal_commits where service_report_id = ?
+        """,
+        (report_id, report_id),
+    ).fetchall()
+    draft_ids = [int(row[0]) for row in rows]
+    if not draft_ids:
+        return 0
+    placeholders = ",".join("?" for _ in draft_ids)
+    connection.execute(
+        f"delete from ai_daily_report_formal_commits where draft_id in ({placeholders})",
+        draft_ids,
+    )
+    connection.execute(
+        f"""
+        update ai_daily_report_drafts
+        set status = 'draft', saved_report_id = null,
+            draft_version = draft_version + 1, updated_at = ?
+        where id in ({placeholders})
+        """,
+        [now(), *draft_ids],
+    )
+    return len(draft_ids)
+
+
+def repair_orphaned_ai_daily_report_drafts(connection):
+    """Repair historical saved drafts whose formal report no longer exists."""
+    rows = connection.execute(
+        """
+        select id from ai_daily_report_drafts
+        where status = 'saved'
+          and (saved_report_id is null or not exists (
+              select 1 from service_reports where id = ai_daily_report_drafts.saved_report_id
+          ))
+        """
+    ).fetchall()
+    draft_ids = [int(row[0]) for row in rows]
+    if not draft_ids:
+        return 0
+    placeholders = ",".join("?" for _ in draft_ids)
+    connection.execute(
+        f"delete from ai_daily_report_formal_commits where draft_id in ({placeholders})",
+        draft_ids,
+    )
+    connection.execute(
+        f"""
+        update ai_daily_report_drafts
+        set status = 'draft', saved_report_id = null,
+            draft_version = draft_version + 1, updated_at = ?
+        where id in ({placeholders})
+        """,
+        [now(), *draft_ids],
+    )
+    return len(draft_ids)
+
+
 def init_db():
     with app.app_context():
         connection = db()
@@ -1682,6 +1743,7 @@ def init_db():
         connection.execute(
             "create index if not exists idx_ai_formal_commit_report on ai_daily_report_formal_commits(service_report_id)"
         )
+        repair_orphaned_ai_daily_report_drafts(connection)
         ensure_column(connection, "service_reports", "ai_generated", "integer not null default 0")
         ensure_column(connection, "service_reports", "arrival_time_source", "text")
         ensure_column(connection, "service_reports", "departure_time_source", "text")
@@ -11906,7 +11968,7 @@ def ai_daily_report_drafts_list():
     # Query (draft first, then updated_at desc)
     rows = db().execute(
         f"""select id, service_order_id, report_date, status, draft_version,
-                   created_by, created_at, updated_at, draft_data
+                   created_by, created_at, updated_at, draft_data, saved_report_id
             from ai_daily_report_drafts
             where {where}
             order by
@@ -11957,6 +12019,11 @@ def ai_daily_report_drafts_list():
             "created_by": row["created_by"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            "saved_report_id": row["saved_report_id"],
+            "report_url": (
+                url_for("edit_service_report", report_id=row["saved_report_id"])
+                if row["saved_report_id"] else None
+            ),
         })
 
     return jsonify({
@@ -17042,6 +17109,7 @@ def delete_service_report(report_id):
         except FileNotFoundError:
             pass
     shutil.rmtree(os.path.join(REPORT_ATTACHMENTS_DIR, str(report_id)), ignore_errors=True)
+    reset_ai_drafts_for_deleted_service_report(db(), report_id)
     db().execute("delete from service_report_attachments where report_id = ?", (report_id,))
     db().execute("delete from service_report_workers where report_id = ?", (report_id,))
     db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))

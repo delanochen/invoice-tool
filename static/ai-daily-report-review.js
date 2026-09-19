@@ -982,7 +982,7 @@
     let html = "";
 
     if (status === "draft") {
-      html += `<button type="button" class="primary" id="confirmBtn">确认 Draft</button>`;
+      html += `<button type="button" class="primary" id="confirmBtn">生成日报</button>`;
       // v0.1.241: 取消 = 保留记录（cancelled 状态）；删除 = 彻底删除不可恢复。
       html += `<button type="button" class="secondary" id="cancelBtn">取消</button>`;
       html += `<button type="button" class="danger" id="deleteBtn">删除</button>`;
