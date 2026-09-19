@@ -97,7 +97,27 @@
         if (event.target.closest('a,button,input,select,textarea,label')) return;
         this.rows.get(row.getData()._id)?.click();
       });
-      this.observer = new MutationObserver(() => this.schedule());
+      this.observer = new MutationObserver(records => {
+        // Row selection only changes a CSS class. Replacing all Tabulator data
+        // for that visual-only change resets the grid's vertical scroll and
+        // makes selecting an employee look like a page refresh.
+        const selectionOnly = records.length && records.every(record =>
+          record.type === 'attributes' &&
+          record.attributeName === 'class' &&
+          record.target.matches('tbody tr[data-row-id]')
+        );
+        if (selectionOnly) {
+          this.grid.getRows().forEach(row => {
+            const sourceRow = this.rows.get(row.getData()._id);
+            row.getElement().classList.toggle(
+              'is-selected',
+              !!sourceRow?.classList.contains('is-selected')
+            );
+          });
+          return;
+        }
+        this.schedule();
+      });
       this.observer.observe(source, {subtree:true, childList:true, characterData:true, attributes:true});
       source.addEventListener('input', () => this.schedule());
       source.addEventListener('change', () => this.schedule());
