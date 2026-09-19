@@ -38,13 +38,19 @@ function reimbursementAutoValue(row, name) {
   return reimbursementNumber(row.querySelector(`[name="${name}"]`)?.dataset.autoAmount);
 }
 
+function reimbursementRowRate(row, dataKey, fallback) {
+  const rate = row?.dataset?.[dataKey];
+  return rate === undefined || rate === "" ? reimbursementNumber(fallback) : reimbursementNumber(rate);
+}
+
 function calculateReimbursementRow(row) {
   const labor =
-    reimbursementInputValue(row, "standard_hours") * reimbursementNumber(reimbursementRates.standard) +
-    reimbursementInputValue(row, "transport_hours") * reimbursementNumber(reimbursementRates.transport) +
-    reimbursementInputValue(row, "overtime_hours") * reimbursementNumber(reimbursementRates.overtime) +
-    reimbursementInputValue(row, "holiday_hours") * reimbursementNumber(reimbursementRates.holiday);
-  const mileage = reimbursementInputValue(row, "miles") * reimbursementNumber(reimbursementRates.mileage);
+    reimbursementInputValue(row, "standard_hours") * reimbursementRowRate(row, "standardRate", reimbursementRates.standard) +
+    reimbursementInputValue(row, "transport_hours") * reimbursementRowRate(row, "transportRate", reimbursementRates.transport) +
+    reimbursementInputValue(row, "public_transport_hours") * reimbursementRowRate(row, "publicTransportRate", reimbursementRates.publicTransport) +
+    reimbursementInputValue(row, "overtime_hours") * reimbursementRowRate(row, "overtimeRate", reimbursementRates.overtime) +
+    reimbursementInputValue(row, "holiday_hours") * reimbursementRowRate(row, "holidayRate", reimbursementRates.holiday);
+  const mileage = reimbursementInputValue(row, "miles") * reimbursementRowRate(row, "mileageRate", reimbursementRates.mileage);
   const travel = travelAmountFields.reduce((sum, name) => sum + reimbursementInputValue(row, name), 0);
   const other = reimbursementInputValue(row, "other");
   return { labor, travel, mileage, other, total: labor + travel + mileage + other };
@@ -75,14 +81,14 @@ function updateCustomerReimbursementTotals() {
     total: reimbursementRentalFuel,
   };
   const columnTotals = {
-    standard_hours: 0, transport_hours: 0, overtime_hours: 0, holiday_hours: 0,
+    standard_hours: 0, transport_hours: 0, public_transport_hours: 0, overtime_hours: 0, holiday_hours: 0,
     labor_total: 0, lodging: 0, airfare: 0, baggage: 0, rental_car: 0,
     fuel: 0, parking: 0, taxi: 0, miles: 0, mileage_total: 0, other: 0, total: 0,
   };
   table?.querySelectorAll("tbody tr").forEach((row) => {
     updateReimbursementLodgingWarning(row);
     const rowTotals = calculateReimbursementRow(row);
-    ["standard_hours", "transport_hours", "overtime_hours", "holiday_hours", "miles"].forEach((name) => {
+    ["standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours", "miles"].forEach((name) => {
       columnTotals[name] += reimbursementInputValue(row, name);
     });
     allExpenseAmountFields.forEach((name) => {
@@ -109,7 +115,7 @@ function updateCustomerReimbursementTotals() {
   Object.entries(columnTotals).forEach(([key, value]) => {
     const target = document.querySelector(`[data-column-total="${key}"]`);
     if (!target) return;
-    target.textContent = ["standard_hours", "transport_hours", "overtime_hours", "holiday_hours", "miles"].includes(key)
+    target.textContent = ["standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours", "miles"].includes(key)
       ? reimbursementQuantity(value)
       : reimbursementMoney(value);
   });

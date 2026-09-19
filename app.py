@@ -57,6 +57,16 @@ from customer_report_logic import (
     migrate_historical_customer_reports,
     normalize_customer_report_choice,
 )
+from rate_engine import contract_rate, init_rate_schema, register_rate_routes
+from settlement_review import (
+    init_settlement_review_schema,
+    linked_approved_expense_rows,
+    register_settlement_review_routes,
+    selected_expense_count,
+    selected_expense_item_ids,
+    selected_expense_total,
+)
+from profitability import init_profitability_schema, register_profitability_routes
 from ai_daily_report import (
     AIIntentService,
     DailyReportService,
@@ -278,6 +288,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "invoices", "label": "发票查询", "roles": {"admin", "manager", "finance", "external_manager"}},
             {"key": "invoice_query", "label": "发票明细查询", "roles": {"admin", "manager", "finance", "external_manager"}},
             {"key": "customer_reimbursement_query", "label": "工单结算报表", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "profitability", "label": "项目利润", "roles": {"admin", "manager", "finance"}},
             {"key": "buyer_query", "label": "站点查询", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "service_order_query", "label": "工单查询", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "service_report_query", "label": "日报查询", "roles": {"admin", "manager", "finance", "employee"}},
@@ -350,6 +361,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
             {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
             {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "reset": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
+            {"key": "profitability", "label": "项目利润", "actions": {"view": {"admin", "manager", "finance"}}},
             {"key": "knowledge_base", "label": "知识库", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager"}}},
             {"key": "ai_assistant", "label": "智能助手", "actions": {"view": {"admin", "manager", "finance", "employee"}}},
         ],
@@ -1285,6 +1297,9 @@ def init_db():
         )
         ensure_column(connection, "expenses", "beneficiary_id", "integer references users(id)")
         init_field_schema(connection)
+        init_rate_schema(connection)
+        init_settlement_review_schema(connection)
+        init_profitability_schema(connection)
         connection.execute("update expenses set beneficiary_id = created_by where beneficiary_id is null")
         connection.execute("create index if not exists idx_expenses_beneficiary on expenses(beneficiary_id)")
         ensure_column(connection, "invoices", "service_order_id", "integer")
@@ -1309,6 +1324,8 @@ def init_db():
         ensure_column(connection, "employee_grades", "car_mileage_rate", "real not null default 0.5")
         ensure_column(connection, "employee_grades", "car_hourly_rate", "real not null default 10")
         ensure_column(connection, "employee_grades", "rental_driving_hourly_rate", "real not null default 15")
+        ensure_column(connection, "customer_reimbursement_items", "public_transport_hours", "real not null default 0")
+        ensure_column(connection, "customer_reimbursement_items", "public_transport_rate", "real not null default 0")
         if "car_mileage_rate" not in existing_grade_columns:
             legacy_rate = connection.execute(
                 "select value from settings where key = 'payroll_car_mileage_rate'"
@@ -5363,34 +5380,33 @@ def split_report_labor_hours(report, worker_count=1):
             worker_travel_hours = 0
         worker_public_hours = report["worker_public_transport_hours"]
         if worker_travel_hours is not None or worker_public_hours is not None:
-            transport_hours = float(worker_travel_hours or 0) + float(worker_public_hours or 0)
+            travel_hours = float(worker_travel_hours or 0)
+            public_transport_hours = float(worker_public_hours or 0)
         else:
-            transport_hours = (
-                float(report["travel_hours"] or 0)
-                + float(report["public_transport_hours"] or 0)
-            ) / max(worker_count, 1)
+            travel_hours = float(report["travel_hours"] or 0) / max(worker_count, 1)
+            public_transport_hours = float(report["public_transport_hours"] or 0) / max(worker_count, 1)
     else:
-        transport_hours = (
-            float(report["travel_hours"] or 0)
-            + float(report["public_transport_hours"] or 0)
-        ) / max(worker_count, 1)
+        travel_hours = float(report["travel_hours"] or 0) / max(worker_count, 1)
+        public_transport_hours = float(report["public_transport_hours"] or 0) / max(worker_count, 1)
+    transport_hours = travel_hours + public_transport_hours
     try:
         work_day = date.fromisoformat(report_actual_date(report))
     except (TypeError, ValueError):
         work_day = None
-    if work_day and is_us_weekend_or_holiday(work_day):
-        return {
-            "standard_hours": 0,
-            "transport_hours": transport_hours,
-            "overtime_hours": 0,
-            "holiday_hours": work_hours,
-        }
-    return {
-        "standard_hours": min(work_hours, 8),
-        "transport_hours": transport_hours,
-        "overtime_hours": max(work_hours - 8, 0),
-        "holiday_hours": 0,
+    result = {
+        "transport_hours": transport_hours,  # backwards-compatible payroll total
+        "travel_hours": travel_hours,
+        "public_transport_hours": public_transport_hours,
     }
+    if work_day and is_us_weekend_or_holiday(work_day):
+        result.update({"standard_hours": 0, "overtime_hours": 0, "holiday_hours": work_hours})
+    else:
+        result.update({
+            "standard_hours": min(work_hours, 8),
+            "overtime_hours": max(work_hours - 8, 0),
+            "holiday_hours": 0,
+        })
+    return result
 
 
 def customer_reimbursement_seed_rows(order_id):
@@ -5428,6 +5444,19 @@ def customer_reimbursement_seed_rows(order_id):
             )
             worker_report["worker_public_transport_hours"] = worker["worker_public_transport_hours"]
             labor_hours = split_report_labor_hours(worker_report, len(workers))
+            work_date = report_actual_date(report)
+            standard_rate = contract_rate(db(), order_id, work_date, "regular_hours", legacy_rates=rates,
+                                          lodging_fallback=lodging_reimbursement_limit())
+            travel_rate = contract_rate(db(), order_id, work_date, "travel_hours", legacy_rates=rates,
+                                        lodging_fallback=lodging_reimbursement_limit())
+            public_rate = contract_rate(db(), order_id, work_date, "public_transport_hours", legacy_rates=rates,
+                                        lodging_fallback=lodging_reimbursement_limit())
+            overtime_rate = contract_rate(db(), order_id, work_date, "overtime_hours", legacy_rates=rates,
+                                          lodging_fallback=lodging_reimbursement_limit())
+            holiday_rate = contract_rate(db(), order_id, work_date, "holiday_hours", legacy_rates=rates,
+                                         lodging_fallback=lodging_reimbursement_limit())
+            mileage_rate = contract_rate(db(), order_id, work_date, "mileage", legacy_rates=rates,
+                                         lodging_fallback=lodging_reimbursement_limit())
             if mode == "rental_drive":
                 billing_miles = 0
             elif report["mileage_billing_method"] == "per_vehicle":
@@ -5438,15 +5467,17 @@ def customer_reimbursement_seed_rows(order_id):
                 "source_report_id": report["id"],
                 "source_worker_user_id": worker["worker_user_id"],
                 "worker_name": worker["name"],
-                "project_date": report_actual_date(report),
+                "project_date": work_date,
                 "standard_hours": labor_hours["standard_hours"],
-                "transport_hours": labor_hours["transport_hours"],
+                "transport_hours": labor_hours["travel_hours"],
+                "public_transport_hours": labor_hours["public_transport_hours"],
                 "overtime_hours": labor_hours["overtime_hours"],
                 "holiday_hours": labor_hours["holiday_hours"],
-                "standard_rate": rates["标准工时"],
-                "transport_rate": rates["交通工时"],
-                "overtime_rate": rates["加班工时"],
-                "holiday_rate": rates["节假日工时"],
+                "standard_rate": standard_rate["rate"],
+                "transport_rate": travel_rate["rate"],
+                "public_transport_rate": public_rate["rate"],
+                "overtime_rate": overtime_rate["rate"],
+                "holiday_rate": holiday_rate["rate"],
                 "lodging": 0,
                 "airfare": 0,
                 "baggage": 0,
@@ -5455,7 +5486,7 @@ def customer_reimbursement_seed_rows(order_id):
                 "parking": 0,
                 "taxi": 0,
                 "miles": billing_miles or 0,
-                "mileage_rate": rates["里程费"],
+                "mileage_rate": mileage_rate["rate"],
                 "other": 0,
             }
             rows.append(calculate_customer_reimbursement_item(row, len(rows)))
@@ -5531,6 +5562,7 @@ def calculate_customer_reimbursement_item(row, sort_order=0):
     labor_total = (
         decimal_value(row.get("standard_hours")) * money_decimal(row.get("standard_rate"))
         + decimal_value(row.get("transport_hours")) * money_decimal(row.get("transport_rate"))
+        + decimal_value(row.get("public_transport_hours")) * money_decimal(row.get("public_transport_rate"))
         + decimal_value(row.get("overtime_hours")) * money_decimal(row.get("overtime_rate"))
         + decimal_value(row.get("holiday_hours")) * money_decimal(row.get("holiday_rate"))
     )
@@ -5608,9 +5640,19 @@ def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
     ).fetchall()
 
 
-def merge_approved_expenses_into_customer_reimbursement(rows, order_id, cutoff_at=None):
+def merge_approved_expenses_into_customer_reimbursement(
+    rows, order_id, cutoff_at=None, reimbursement_id=None, selection_mode="legacy"
+):
     auto_fields = tuple(f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"))
     merged = [dict(row) for row in rows]
+    # Historical drafts keep the old auto-transfer behavior until someone opens
+    # the new review pool and explicitly saves a selection.  New/manual-review
+    # settlements are rebuilt only from the persisted selected expense lines.
+    if selection_mode == "manual_review":
+        expense_rows = linked_approved_expense_rows(globals(), reimbursement_id, order_id, cutoff_at)
+    else:
+        expense_rows = approved_customer_reimbursement_expense_rows(order_id, cutoff_at)
+
     for row in merged:
         row["auto_expense_sources"] = {}
         for field_name in auto_fields:
@@ -5621,7 +5663,7 @@ def merge_approved_expenses_into_customer_reimbursement(rows, order_id, cutoff_a
         (normalized_project_name(row.get("worker_name")).casefold(), str(row.get("project_date") or "")): row
         for row in merged
     }
-    for expense_item in approved_customer_reimbursement_expense_rows(order_id, cutoff_at):
+    for expense_item in expense_rows:
         field_name = customer_reimbursement_expense_field(
             expense_item["project_name"], expense_item["fuel_vehicle_type"]
         )
@@ -5760,7 +5802,7 @@ def customer_reimbursement_person_days(order_id):
 
 def customer_reimbursement_column_totals(items):
     totals = {}
-    for field in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours", "miles"):
+    for field in ("standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours", "miles"):
         totals[field] = sum(float(item[field] or 0) for item in items)
     for field in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"):
         totals[field] = money_float(sum(
@@ -5913,9 +5955,9 @@ def copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, service_orde
     return copied
 
 
-def customer_reimbursement_items_from_form():
+def customer_reimbursement_items_from_form(order_id=None):
     field_names = [
-        "worker_name", "project_date", "standard_hours", "transport_hours", "overtime_hours", "holiday_hours",
+        "worker_name", "project_date", "standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours",
         "lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "miles", "other",
     ]
     money_fields = {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}
@@ -5947,15 +5989,31 @@ def customer_reimbursement_items_from_form():
         for name in field_names[2:]:
             value = posted[name][index] if index < len(posted[name]) else 0
             row[name] = money_float(value) if name in money_fields else to_float(value)
-        row.update(
-            {
+        if order_id is None:
+            effective_rates = {
                 "standard_rate": rates["标准工时"],
                 "transport_rate": rates["交通工时"],
+                "public_transport_rate": rates["交通工时"],
                 "overtime_rate": rates["加班工时"],
                 "holiday_rate": rates["节假日工时"],
                 "mileage_rate": rates["里程费"],
             }
-        )
+        else:
+            effective_rates = {
+                "standard_rate": contract_rate(db(), order_id, project_date, "regular_hours", legacy_rates=rates,
+                                                lodging_fallback=lodging_reimbursement_limit())["rate"],
+                "transport_rate": contract_rate(db(), order_id, project_date, "travel_hours", legacy_rates=rates,
+                                                 lodging_fallback=lodging_reimbursement_limit())["rate"],
+                "public_transport_rate": contract_rate(db(), order_id, project_date, "public_transport_hours", legacy_rates=rates,
+                                                        lodging_fallback=lodging_reimbursement_limit())["rate"],
+                "overtime_rate": contract_rate(db(), order_id, project_date, "overtime_hours", legacy_rates=rates,
+                                                lodging_fallback=lodging_reimbursement_limit())["rate"],
+                "holiday_rate": contract_rate(db(), order_id, project_date, "holiday_hours", legacy_rates=rates,
+                                               lodging_fallback=lodging_reimbursement_limit())["rate"],
+                "mileage_rate": contract_rate(db(), order_id, project_date, "mileage", legacy_rates=rates,
+                                               lodging_fallback=lodging_reimbursement_limit())["rate"],
+            }
+        row.update(effective_rates)
         if not row["worker_name"] or not row["project_date"]:
             raise ValueError("工单结算每一行都必须有姓名和项目时间。")
         validate_fuel_reimbursement_allowed(row["fuel"], "工单结算油费")
@@ -5972,17 +6030,17 @@ def save_customer_reimbursement_items(reimbursement_id, rows):
             """
             insert into customer_reimbursement_items (
                 customer_reimbursement_id, source_report_id, source_worker_user_id,
-                worker_name, project_date, standard_hours, transport_hours,
-                overtime_hours, holiday_hours, standard_rate, transport_rate, overtime_rate, holiday_rate,
+                worker_name, project_date, standard_hours, transport_hours, public_transport_hours,
+                overtime_hours, holiday_hours, standard_rate, transport_rate, public_transport_rate, overtime_rate, holiday_rate,
                 labor_total, lodging, airfare, baggage, rental_car, fuel, parking, taxi, miles, mileage_rate,
                 mileage_total, other, auto_lodging, auto_airfare, auto_baggage, auto_rental_car,
                 auto_fuel, auto_parking, auto_taxi, auto_other, total, sort_order
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 reimbursement_id, row.get("source_report_id"), row.get("source_worker_user_id"),
-                row["worker_name"], row["project_date"], row["standard_hours"], row["transport_hours"],
-                row["overtime_hours"], row["holiday_hours"], row["standard_rate"], row["transport_rate"],
+                row["worker_name"], row["project_date"], row["standard_hours"], row["transport_hours"], row.get("public_transport_hours", 0),
+                row["overtime_hours"], row["holiday_hours"], row["standard_rate"], row["transport_rate"], row.get("public_transport_rate", 0),
                 row["overtime_rate"], row["holiday_rate"], row["labor_total"], row["lodging"], row["airfare"],
                 row["baggage"], row["rental_car"], row["fuel"], row["parking"], row["taxi"], row["miles"],
                 row["mileage_rate"], row["mileage_total"], row["other"],
@@ -6075,15 +6133,15 @@ def customer_reimbursement_invoice_items(reimbursement):
     return items
 
 
-def create_customer_reimbursement(order):
+def create_customer_reimbursement(order, expense_selection_mode="legacy"):
     file_name = f"费用报销单{order['client_order_number']}.pdf"
     cursor = db().execute(
         """
         insert into customer_reimbursements (
-            service_order_id, file_name, stored_filename, created_by, created_at
-        ) values (?, ?, ?, ?, ?)
+            service_order_id, file_name, stored_filename, expense_selection_mode, created_by, created_at
+        ) values (?, ?, ?, ?, ?, ?)
         """,
-        (order["id"], file_name, f"{secrets.token_hex(12)}.pdf", g.user["id"], now()),
+        (order["id"], file_name, f"{secrets.token_hex(12)}.pdf", expense_selection_mode, g.user["id"], now()),
     )
     reimbursement_id = cursor.lastrowid
     rows = customer_reimbursement_seed_rows(order["id"])
@@ -6099,8 +6157,39 @@ def sync_expense_attachments_to_settlement(order_id):
     reimbursement = latest_customer_reimbursement(order_id)
     if not reimbursement or reimbursement["status"] not in {"draft", "returned"}:
         return 0
+    manual_review = reimbursement["expense_selection_mode"] == "manual_review"
+    selected_ids = selected_expense_item_ids(db(), reimbursement["id"]) if manual_review else set()
+
+    # Remove previously copied source attachments when their expense line is no
+    # longer selected. Uploaded/manual settlement attachments are never touched.
+    if manual_review:
+        copied_sources = db().execute("""
+            select ca.id as settlement_attachment_id, ca.stored_filename, ea.expense_id, ea.expense_item_key,
+                   ei.id as expense_item_id
+            from customer_reimbursement_attachments ca
+            join expense_attachments ea on ea.id = ca.source_expense_attachment_id
+            left join expense_items ei on ei.expense_id = ea.expense_id and ei.line_key = ea.expense_item_key
+            where ca.customer_reimbursement_id = ? and ca.source_expense_attachment_id is not null
+        """, (reimbursement["id"],)).fetchall()
+        for copied in copied_sources:
+            keep = copied["expense_item_id"] in selected_ids if copied["expense_item_id"] else db().execute(
+                "select 1 from expense_items where expense_id = ? and id in ({}) limit 1".format(
+                    ",".join("?" for _ in selected_ids) or "null"
+                ),
+                [copied["expense_id"], *selected_ids],
+            ).fetchone() is not None
+            if keep:
+                continue
+            path = os.path.join(customer_reimbursement_attachment_dir(reimbursement["id"]), copied["stored_filename"])
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            db().execute("delete from customer_reimbursement_attachments where id = ?", (copied["settlement_attachment_id"],))
+
     attachments = db().execute("""
-        select ea.*, coalesce(p.name, ei.project, e.project) as project_name, ei.fuel_vehicle_type
+        select ea.*, e.id as source_expense_id, ei.id as expense_item_id,
+               coalesce(p.name, ei.project, e.project) as project_name, ei.fuel_vehicle_type
         from expense_attachments ea join expenses e on e.id = ea.expense_id
         left join expense_items ei on ei.expense_id = e.id and ei.line_key = ea.expense_item_key
         left join projects p on p.id = ei.project_id
@@ -6109,6 +6198,19 @@ def sync_expense_attachments_to_settlement(order_id):
         order by ea.id""", (order_id,)).fetchall()
     copied = 0
     for attachment in attachments:
+        if manual_review:
+            if attachment["expense_item_id"]:
+                if attachment["expense_item_id"] not in selected_ids:
+                    continue
+            else:
+                if not selected_ids:
+                    continue
+                placeholders = ",".join("?" for _ in selected_ids)
+                if not db().execute(
+                    f"select 1 from expense_items where expense_id = ? and id in ({placeholders}) limit 1",
+                    [attachment["source_expense_id"], *selected_ids],
+                ).fetchone():
+                    continue
         project_key = canonical_project_mapping_key(attachment["project_name"], CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS)
         if ((project_key == project_name_key("Fuel Expenses") and attachment["fuel_vehicle_type"] != "rental")
                 or normalized_project_name(attachment["project_name"]) == "个人自驾油费"):
@@ -6123,7 +6225,7 @@ def sync_expense_attachments_to_settlement(order_id):
 def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     rows = rows if rows is not None else customer_reimbursement_items(reimbursement_id)
     reimbursement = db().execute(
-        "select service_order_id, expense_transfer_cutoff_at from customer_reimbursements where id = ?",
+        "select service_order_id, expense_transfer_cutoff_at, expense_selection_mode from customer_reimbursements where id = ?",
         (reimbursement_id,),
     ).fetchone()
     if not reimbursement:
@@ -6133,16 +6235,19 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
         rows,
         reimbursement["service_order_id"],
         reimbursement["expense_transfer_cutoff_at"],
+        reimbursement_id,
+        reimbursement["expense_selection_mode"],
     )
     save_customer_reimbursement_items(reimbursement_id, rows)
     sync_expense_attachments_to_settlement(reimbursement["service_order_id"])
-    totals = customer_reimbursement_totals(
-        rows,
-        approved_mro_supplies_total(
-            reimbursement["service_order_id"],
-            reimbursement["expense_transfer_cutoff_at"],
-        ),
+    mro_total = (
+        selected_expense_total(globals(), reimbursement_id, "other")
+        if reimbursement["expense_selection_mode"] == "manual_review"
+        else approved_mro_supplies_total(
+            reimbursement["service_order_id"], reimbursement["expense_transfer_cutoff_at"]
+        )
     )
+    totals = customer_reimbursement_totals(rows, mro_total)
     db().execute(
         """
         update customer_reimbursements
@@ -6242,12 +6347,12 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
     )
 
     header_group = [
-        "姓名", "项目时间", "工时", "", "", "", "", "", "", "", "", "住宿",
+        "姓名", "项目时间", "工时", "", "", "", "", "", "", "", "", "", "", "住宿",
         "交通", "", "", "", "", "", "里程", "", "", "其他", "合计",
     ]
     header_detail = [
-        "", "", "标准\n工时", "交通\n工时", "加班\n工时", "节假日\n工时",
-        "标准工时费/小时", "交通工时费/小时", "加班工时费/小时", "节假日工时费/小时",
+        "", "", "标准\n工时", "交通\n工时", "公共交通\n工时", "加班\n工时", "节假日\n工时",
+        "标准工时费/小时", "交通工时费/小时", "公共交通费/小时", "加班工时费/小时", "节假日工时费/小时",
         "工时费\n合计", "", "机票", "行李", "租车", "加油", "停车", "打车",
         "英里数", "里程费/英里", "里程费", "", "",
     ]
@@ -6262,10 +6367,12 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
             item["project_date"],
             reimbursement_number(item["standard_hours"]),
             reimbursement_number(item["transport_hours"]),
+            reimbursement_number(item["public_transport_hours"]),
             reimbursement_number(item["overtime_hours"]),
             reimbursement_number(item["holiday_hours"]),
             reimbursement_number(item["standard_rate"]),
             reimbursement_number(item["transport_rate"]),
+            reimbursement_number(item["public_transport_rate"]),
             reimbursement_number(item["overtime_rate"]),
             reimbursement_number(item["holiday_rate"]),
             reimbursement_number(item["labor_total"]),
@@ -6285,12 +6392,12 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
         table_data.append([reimbursement_paragraph(value, cell_style) for value in values])
 
     sum_fields = {
-        2: "standard_hours", 3: "transport_hours", 4: "overtime_hours", 5: "holiday_hours",
-        10: "labor_total", 11: "lodging", 12: "airfare", 13: "baggage", 14: "rental_car",
-        15: "fuel", 16: "parking", 17: "taxi", 18: "miles", 20: "mileage_total",
-        21: "other", 22: "total",
+        2: "standard_hours", 3: "transport_hours", 4: "public_transport_hours", 5: "overtime_hours", 6: "holiday_hours",
+        12: "labor_total", 13: "lodging", 14: "airfare", 15: "baggage", 16: "rental_car",
+        17: "fuel", 18: "parking", 19: "taxi", 20: "miles", 22: "mileage_total",
+        23: "other", 24: "total",
     }
-    total_values = ["Total", ""] + [""] * 21
+    total_values = ["Total", ""] + [""] * 23
     for column_index, field_name in sum_fields.items():
         if field_name in {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}:
             field_total = sum((customer_reimbursement_item_expense_amount(item, field_name) for item in rows), Decimal("0"))
@@ -6302,8 +6409,8 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
     column_widths = [
         width * 0.8 * mm
         for width in (
-            22, 21, 12, 12, 12, 13, 18, 18, 18, 18, 18, 13,
-            13, 13, 13, 13, 13, 13, 13, 15, 13, 13, 16,
+            20, 19, 10, 10, 11, 10, 11, 15, 15, 15, 15, 15, 15, 12,
+            12, 12, 12, 12, 12, 12, 12, 14, 12, 12, 14,
         )
     ]
     table = LongTable(table_data, colWidths=column_widths, repeatRows=2, hAlign="CENTER")
@@ -6313,12 +6420,12 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
             [
                 ("SPAN", (0, 0), (0, 1)),
                 ("SPAN", (1, 0), (1, 1)),
-                ("SPAN", (2, 0), (10, 0)),
-                ("SPAN", (11, 0), (11, 1)),
-                ("SPAN", (12, 0), (17, 0)),
-                ("SPAN", (18, 0), (20, 0)),
-                ("SPAN", (21, 0), (21, 1)),
-                ("SPAN", (22, 0), (22, 1)),
+                ("SPAN", (2, 0), (12, 0)),
+                ("SPAN", (13, 0), (13, 1)),
+                ("SPAN", (14, 0), (19, 0)),
+                ("SPAN", (20, 0), (22, 0)),
+                ("SPAN", (23, 0), (23, 1)),
+                ("SPAN", (24, 0), (24, 1)),
                 ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#0F766E")),
                 ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#166F68")),
                 ("BACKGROUND", (0, last_row), (-1, last_row), colors.HexColor("#E7F6F2")),
@@ -16252,16 +16359,10 @@ def customer_reimbursement_form(order_id):
         if not can_manage_customer_reimbursement():
             flash("该工单还没有工单结算。", "error")
             return redirect(url_for("service_order_detail", order_id=order_id))
-        try:
-            reimbursement = create_customer_reimbursement(order)
-            build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
-            log_action("create", "customer_reimbursement", reimbursement["id"], reimbursement["file_name"], f"工单：{order['order_number']}")
-            db().commit()
-            flash("工单结算已根据工作日报生成，请补充费用和附件。", "success")
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("service_order_detail", order_id=order_id))
+        # v0.1.247: do not auto-transfer every approved employee expense.
+        # Review all expense lines (including pending ones) and explicitly select
+        # the approved lines that should enter the customer settlement first.
+        return redirect(url_for("customer_reimbursement_expense_review", order_id=order_id))
     else:
         reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
         if reimbursement["status"] in {"draft", "returned"}:
@@ -16311,7 +16412,7 @@ def customer_reimbursement_form(order_id):
                         )
                     )
                 raise ValueError("只有保存未提交或已退回的工单结算可以修改。")
-            rows = customer_reimbursement_items_from_form()
+            rows = customer_reimbursement_items_from_form(order_id)
             save_customer_reimbursement_items(reimbursement["id"], rows)
             totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
             save_customer_reimbursement_uploads(reimbursement["id"])
@@ -16493,14 +16594,14 @@ def download_customer_reimbursement(reimbursement_id):
 def download_customer_reimbursement_excel(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
     items = customer_reimbursement_items(reimbursement_id)
-    headers = ["序号", "姓名", "项目日期", "标准工时", "交通工时", "加班工时", "假期工时", "人工费", "住宿费", "机票费", "行李费", "租车费", "燃油费", "停车费", "出租车费", "里程费", "其他", "合计"]
+    headers = ["序号", "姓名", "项目日期", "标准工时", "交通工时", "公共交通工时", "加班工时", "假期工时", "人工费", "住宿费", "机票费", "行李费", "租车费", "燃油费", "停车费", "出租车费", "里程费", "其他", "合计"]
     rows = []
     for index, item in enumerate(items, 1):
         item = dict(item)
         expenses = [customer_reimbursement_item_expense_amount(item, key)
                     for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")]
         rows.append([index, item["worker_name"], item["project_date"], item["standard_hours"],
-                     item["transport_hours"], item["overtime_hours"], item["holiday_hours"],
+                     item["transport_hours"], item["public_transport_hours"], item["overtime_hours"], item["holiday_hours"],
                      item["labor_total"], *expenses, item["mileage_total"],
                      customer_reimbursement_item_expense_amount(item, "other"), item["total"]])
     workbook = build_simple_xlsx(headers, rows, sheet_name="工单结算")
@@ -19370,6 +19471,9 @@ def monthly_paid_chart():
 
 register_field_routes(app, globals())
 register_staff_reports(app, globals())
+register_rate_routes(app, globals())
+register_settlement_review_routes(app, globals())
+register_profitability_routes(app, globals())
 
 
 if __name__ == "__main__":

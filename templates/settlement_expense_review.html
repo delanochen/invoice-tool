@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}结算前审核 - {{ order.order_number }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">工单结算 · 结算前审核</p>
+    <h1>{{ order.order_number }}</h1>
+    <p class="muted-line">先选择本次需要传入客户结算的员工报销明细。未审核明细会显示，但不能进入最终结算。</p>
+  </div>
+  <div class="actions">
+    <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
+    {% if reimbursement %}<button type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">返回结算草稿</button>{% endif %}
+  </div>
+</header>
+
+<form method="post" id="settlementExpenseReviewForm" class="form-stack">
+  <section class="panel">
+    <div class="panel-title">
+      <div>
+        <h2>住宿额度</h2>
+        <span class="muted-line">合同规则：实报实销，上限按人晚计算。实际金额低于上限时，上限不是可直接结算金额。</span>
+      </div>
+    </div>
+    <div class="metric-grid">
+      <div class="metric">
+        <span>住宿人晚</span>
+        <strong><input id="lodgingPersonNights" name="lodging_person_nights" type="number" min="0" step="1" value="{{ person_nights }}" style="width:7rem"></strong>
+        <small>系统根据工作日期估算：{{ default_person_nights }} 人晚，可人工修正</small>
+      </div>
+      <div class="metric"><span>合同住宿上限</span><strong id="lodgingRate" data-value="{{ lodging_rate.rate }}">{{ lodging_rate.rate|money }} / 人晚</strong><small>{{ '合同费率版本 v' ~ lodging_rate.version_no if lodging_rate.version_no else '旧规则回退值' }}</small></div>
+      <div class="metric"><span>本次最高额度</span><strong id="lodgingCap">{{ summary.lodging_cap|money }}</strong></div>
+      <div class="metric"><span>当前勾选住宿</span><strong id="selectedLodging">{{ summary.selected_lodging|money }}</strong></div>
+      <div class="metric"><span>未使用额度</span><strong id="unusedLodgingCap">{{ summary.unused_lodging_cap|money }}</strong><small>仅提示，不会自动补齐</small></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <div>
+        <h2>报销候选池</h2>
+        <span class="muted-line">Approved 可选择；Pending / Submitted / Returned 仅用于提醒你是否还有真实费用尚未完成审核。</span>
+      </div>
+      <div class="toolbar-actions">
+        <button type="button" class="small" id="selectAllApproved">全选可结算</button>
+        <button type="button" class="small" id="clearSelections">全部取消</button>
+      </div>
+    </div>
+
+    {% for group in candidates|groupby('group_label') %}
+      {% set group_rows = group.list %}
+      <div class="settlement-expense-group" data-expense-group="{{ group.grouper }}">
+        <div class="panel-title compact-title">
+          <h3>{{ group.grouper }}</h3>
+          <span class="muted-line">
+            已审核 {{ (group_rows|selectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }} ·
+            未审核 {{ (group_rows|rejectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }} ·
+            已选 <strong data-group-selected-total>{{ (group_rows|selectattr('selected')|map(attribute='amount')|sum)|money }}</strong>
+          </span>
+        </div>
+        <div class="table-scroll">
+          <table class="list-table compact-table">
+            <thead>
+              <tr><th>选择</th><th>状态</th><th>报销编号</th><th>员工</th><th>日期</th><th>项目</th><th>说明</th><th>车辆类型</th><th>金额</th></tr>
+            </thead>
+            <tbody>
+            {% for row in group_rows %}
+              <tr class="{% if not row.eligible %}muted-row{% endif %}">
+                <td>
+                  {% if row.selectable %}
+                    <input class="settlement-expense-checkbox" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" data-amount="{{ row.amount }}" data-group="{{ row.group_label }}" data-lodging="{{ 'true' if row.settlement_field == 'lodging' else 'false' }}" {% if row.selected %}checked{% endif %}>
+                  {% else %}
+                    <input type="checkbox" disabled title="{{ '尚未审核通过' if row.eligible else '按当前合同规则不进入客户实报实销' }}">
+                  {% endif %}
+                </td>
+                <td><span class="status {{ row.status }}">{{ row.status }}</span></td>
+                <td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}" target="_blank">{{ row.expense_number }}</a></td>
+                <td>{{ row.worker_name or '-' }}</td>
+                <td>{{ row.expense_date }}</td>
+                <td>{{ row.project_name }}</td>
+                <td>{{ row.description or '-' }}</td>
+                <td>{{ row.fuel_vehicle_type or '-' }}</td>
+                <td>{{ row.amount|money }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <p class="empty">这个工单还没有员工报销明细。仍可继续生成仅包含工时/里程的工单结算。</p>
+    {% endfor %}
+  </section>
+
+  <section class="panel">
+    <div class="metric-grid">
+      <div class="metric"><span>本次选择报销合计</span><strong id="selectedExpenseTotal">$0.00</strong></div>
+      <div class="metric"><span>未审核候选</span><strong>{{ (candidates|rejectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }}</strong><small>这些不会进入本次结算</small></div>
+    </div>
+    <div class="form-actions">
+      <button type="submit" name="action" value="cancel">取消生成工单结算</button>
+      <button class="primary" type="submit" name="action" value="generate">{{ '更新结算草稿' if reimbursement else '生成工单结算草稿' }}</button>
+    </div>
+  </section>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const checkboxes = [...document.querySelectorAll('.settlement-expense-checkbox')];
+  const money = (value) => `$${Number(value || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+  const rate = Number(document.getElementById('lodgingRate')?.dataset.value || 0);
+  const nights = document.getElementById('lodgingPersonNights');
+  const refresh = () => {
+    let total = 0;
+    let lodging = 0;
+    const groups = new Map();
+    checkboxes.forEach((box) => {
+      if (!box.checked) return;
+      const amount = Number(box.dataset.amount || 0);
+      total += amount;
+      if (box.dataset.lodging === 'true') lodging += amount;
+      groups.set(box.dataset.group, (groups.get(box.dataset.group) || 0) + amount);
+    });
+    document.getElementById('selectedExpenseTotal').textContent = money(total);
+    document.getElementById('selectedLodging').textContent = money(lodging);
+    const cap = Math.max(Number(nights?.value || 0), 0) * rate;
+    document.getElementById('lodgingCap').textContent = money(cap);
+    document.getElementById('unusedLodgingCap').textContent = money(Math.max(cap - lodging, 0));
+    document.querySelectorAll('[data-expense-group]').forEach((section) => {
+      const value = groups.get(section.dataset.expenseGroup) || 0;
+      const target = section.querySelector('[data-group-selected-total]');
+      if (target) target.textContent = money(value);
+    });
+  };
+  checkboxes.forEach((box) => box.addEventListener('change', refresh));
+  nights?.addEventListener('input', refresh);
+  document.getElementById('selectAllApproved')?.addEventListener('click', () => { checkboxes.forEach((box) => box.checked = true); refresh(); });
+  document.getElementById('clearSelections')?.addEventListener('click', () => { checkboxes.forEach((box) => box.checked = false); refresh(); });
+  refresh();
+})();
+</script>
+{% endblock %}

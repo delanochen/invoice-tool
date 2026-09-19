@@ -72,6 +72,7 @@
         <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
       {% endif %}
       {% if can_edit %}
+        <button type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_expense_review', order_id=order.id) }}'">选择报销来源</button>
         <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
         <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit">提交经理审核</button>
       {% endif %}
@@ -178,6 +179,7 @@
             <th>姓名</th><th>项目时间</th>
             <th>标准（<span data-column-total="standard_hours">{{ "%g"|format(column_totals.standard_hours) }}</span>）</th>
             <th>交通（<span data-column-total="transport_hours">{{ "%g"|format(column_totals.transport_hours) }}</span>）</th>
+            <th>公共交通（<span data-column-total="public_transport_hours">{{ "%g"|format(column_totals.public_transport_hours) }}</span>）</th>
             <th>加班（<span data-column-total="overtime_hours">{{ "%g"|format(column_totals.overtime_hours) }}</span>）</th>
             <th>节假日（<span data-column-total="holiday_hours">{{ "%g"|format(column_totals.holiday_hours) }}</span>）</th>
             <th>工时费（<span data-column-total="labor_total">{{ column_totals.labor_total|money }}</span>）</th>
@@ -196,7 +198,7 @@
         </thead>
         <tbody>
           {% for item in items %}
-            <tr>
+            <tr data-standard-rate="{{ item.standard_rate }}" data-transport-rate="{{ item.transport_rate }}" data-public-transport-rate="{{ item.public_transport_rate }}" data-overtime-rate="{{ item.overtime_rate }}" data-holiday-rate="{{ item.holiday_rate }}" data-mileage-rate="{{ item.mileage_rate }}">
               <td>
                 <input type="hidden" name="source_report_id" value="{{ item.source_report_id or '' }}">
                 <input type="hidden" name="source_worker_user_id" value="{{ item.source_worker_user_id or '' }}">
@@ -205,6 +207,7 @@
               <td><input name="project_date" type="date" value="{{ item.project_date }}" required></td>
               <td><input name="standard_hours" type="number" step="0.01" min="0" value="{{ item.standard_hours }}"></td>
               <td><input name="transport_hours" type="number" step="0.01" min="0" value="{{ item.transport_hours }}"></td>
+              <td><input name="public_transport_hours" type="number" step="0.01" min="0" value="{{ item.public_transport_hours }}"></td>
               <td><input name="overtime_hours" type="number" step="0.01" min="0" value="{{ item.overtime_hours }}"></td>
               <td><input name="holiday_hours" type="number" step="0.01" min="0" value="{{ item.holiday_hours }}"></td>
               <td data-row-total="labor">{{ item.labor_total|money }}</td>
@@ -292,6 +295,7 @@
     window.customerReimbursementRates = {{ {
       "standard": rates["标准工时"],
       "transport": rates["交通工时"],
+      "publicTransport": rates["交通工时"],
       "overtime": rates["加班工时"],
       "holiday": rates["节假日工时"],
       "mileage": rates["里程费"]
