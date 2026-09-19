@@ -100,6 +100,13 @@
               {% endfor %}
             </select>
           </label>
+          <fieldset class="plain-fieldset" style="grid-column: 1 / -1"><legend>交流语言</legend>
+            <div class="language-checks">
+              <label class="language-check"><input type="checkbox" name="communication_language" value="zh-CN"> 中文</label>
+              <label class="language-check"><input type="checkbox" name="communication_language" value="en"> English</label>
+              <label class="language-check"><input type="checkbox" name="communication_language" value="es"> Español</label>
+            </div>
+          </fieldset>
           {% if can_manage %}
             <label>员工等级
               <select name="employee_grade_id">
@@ -195,6 +202,14 @@
               {% endfor %}
             </select>
           </label>
+          {% set user_langs = (user.communication_languages or '').split(',') %}
+          <fieldset class="plain-fieldset user-full-width"><legend>交流语言</legend>
+            <div class="language-checks">
+              <label class="language-check"><input type="checkbox" name="communication_language" value="zh-CN" {% if 'zh-CN' in user_langs %}checked{% endif %}> 中文</label>
+              <label class="language-check"><input type="checkbox" name="communication_language" value="en" {% if 'en' in user_langs %}checked{% endif %}> English</label>
+              <label class="language-check"><input type="checkbox" name="communication_language" value="es" {% if 'es' in user_langs %}checked{% endif %}> Español</label>
+            </div>
+          </fieldset>
           {% if can_manage %}
             <label>员工等级
               <select name="employee_grade_id">

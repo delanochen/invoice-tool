@@ -324,6 +324,22 @@ h1, h2, h3, p { margin-top: 0; }
 .metric { padding: 18px; }
 .metric span { display: block; margin-bottom: 8px; color: var(--muted); }
 .metric strong { font-size: 22px; }
+/* 概览页 8 个指标卡片：缩小字号与间距，保证常规电脑端一行放下 */
+.metric-grid.compact { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; }
+.metric-grid.compact .metric { padding: 12px 14px; }
+.metric-grid.compact .metric span { font-size: 12px; margin-bottom: 4px; }
+.metric-grid.compact .metric strong { font-size: 16px; }
+/* 语言多选（注册页/用户弹窗）：勾选框与文字并排、整体横向排列 */
+.language-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; }
+.language-checks .language-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: normal;
+  color: var(--text, inherit);
+  cursor: pointer;
+}
+.language-checks .language-check input { width: auto; margin: 0; }
 .import-result-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

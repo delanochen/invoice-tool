@@ -2327,12 +2327,20 @@ COMMUNICATION_LANGUAGES = {
 
 
 def communication_languages_from_form(default="zh-CN"):
-    preferred = request.form.get("preferred_communication_language", default or "zh-CN")
-    if preferred not in COMMUNICATION_LANGUAGES:
-        preferred = "zh-CN"
+    """解析交流语言勾选，结果写入用户主数据 users 表两列。
+
+    2026-09-19 起 UI 直接勾选语言（注册页/用户弹窗均无"首选"下拉）：
+    勾选列表的第一项视为首选语言；仍兼容旧表单提交的
+    preferred_communication_language 字段。一个都没勾时回退 default。
+    """
     selected = [code for code in request.form.getlist("communication_language")
                 if code in COMMUNICATION_LANGUAGES]
-    return preferred, ",".join(dict.fromkeys([preferred, *selected]))
+    preferred = request.form.get("preferred_communication_language", "").strip()
+    if preferred not in COMMUNICATION_LANGUAGES:
+        preferred = selected[0] if selected else (default if default in COMMUNICATION_LANGUAGES else "zh-CN")
+    if preferred not in selected:
+        selected.insert(0, preferred)
+    return preferred, ",".join(dict.fromkeys(selected))
 
 
 def normalize_phone(value, country_code="US"):
@@ -9652,6 +9660,7 @@ def users():
         role = request.form.get("role", "employee")
         country = country_from_form()
         default_language = language_from_form(current_language())
+        preferred_language, communication_languages = communication_languages_from_form(current_language())
         employee_grade_id = (
             int(request.form["employee_grade_id"])
             if can_manage_users() and request.form.get("employee_grade_id", "").isdigit()
@@ -9680,9 +9689,10 @@ def users():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, address, default_language, employee_grade_id, client_id, region_code, country_code, created_at
+                    name, email, password_hash, role, address, default_language, employee_grade_id, client_id, region_code, country_code, created_at,
+                    preferred_communication_language, communication_languages
                 )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -9696,6 +9706,8 @@ def users():
                     country["region_code"],
                     country["code"],
                     now(),
+                    preferred_language,
+                    communication_languages,
                 ),
             )
             user_id = cursor.lastrowid
@@ -9842,6 +9854,9 @@ def edit_user(user_id):
         role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
         address = request.form.get("address", "").strip()
         default_language = language_from_form(user["default_language"] or DEFAULT_LANGUAGE)
+        preferred_language, communication_languages = communication_languages_from_form(
+            user["preferred_communication_language"] or user["default_language"] or DEFAULT_LANGUAGE
+        )
         if role not in ROLE_OPTIONS and can_manage_users():
             role = "employee"
         client_id = (
@@ -9877,7 +9892,8 @@ def edit_user(user_id):
             db().execute(
                 """
                 update users
-                set name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?, phone = ?
+                set name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?, phone = ?,
+                    preferred_communication_language = ?, communication_languages = ?
                 where id = ?
                 """,
                 (
@@ -9891,6 +9907,8 @@ def edit_user(user_id):
                     country["region_code"],
                     country["code"],
                     phone,
+                    preferred_language,
+                    communication_languages,
                     user_id,
                 ),
             )

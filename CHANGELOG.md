@@ -4,6 +4,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.251] - 2026-09-19
+
+### Changed
+- 语言选择改版：注册页去掉「首选交流语言」下拉，改为直接勾选交流语言（勾选的第一项自动作为首选）；勾选框与文字并排、横向排列，修复此前勾选框错位。用户管理的「新增用户」「编辑用户」弹窗同步提供「交流语言」勾选（编辑时按用户主数据预勾选）。勾选结果统一保存进用户主数据 `users.preferred_communication_language` / `users.communication_languages`，新增/编辑/注册三条链路均落库。
+
+### Added
+- 概览页新增「待审核报销」指标卡片（已提交待审核 + 被退回的报销合计）。原「待报销金额」仅统计已审核通过且未发放的报销，两者不重复计算。指标行由 7 个增至 8 个：概览页改用紧凑样式（缩小字号与间距），常规电脑端一行显示全部指标，发票数量保留。
+
+### 测试
+- 新增 `test_language_selection_dashboard.py`（10 项）：AST 提取 `communication_languages_from_form` 真函数驱动 4 种表单场景（首个勾选为首选、全不勾回退、非法值过滤、旧首选字段兼容）+ 注册页/用户弹窗/概览页/样式/i18n 契约。`test_registration_address.py` 旧表单兼容 4 项 + 8 子测试通过。
+
 ## [0.1.250] - 2026-09-19
 
 ### Added

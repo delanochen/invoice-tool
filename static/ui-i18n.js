@@ -2603,7 +2603,7 @@
   };
 
   Object.assign(en, {
-    "手机号": "Phone number", "首选交流语言": "Preferred communication language", "其他可交流语言": "Other communication languages", "中文": "Chinese", "全部工单": "All work orders",
+    "手机号": "Phone number", "首选交流语言": "Preferred communication language", "其他可交流语言": "Other communication languages", "交流语言": "Communication languages", "中文": "Chinese", "全部工单": "All work orders", "待审核报销": "Expenses pending review",
     "系统配置": "System settings", "权限": "Permissions", "实际日期": "Actual date", "请选择客户": "Select a customer", "请选择工单": "Select a work order", "新建工单": "Create work order",
     "设备维修清单": "Equipment repair list", "施工员": "Technician", "实际拍摄账号": "Capture account", "照片": "Photos", "序号": "No.", "集装箱号": "Container number", "已更换水泵保险编号": "Replaced pump fuse numbers", "维修人员": "Technicians",
     "实际开始日期": "Actual start date",
@@ -2656,7 +2656,7 @@
     "新":"New"
   });
   Object.assign(nl, {
-    "手机号": "Telefoonnummer", "首选交流语言": "Voorkeurstaal voor communicatie", "其他可交流语言": "Andere communicatietalen", "中文": "Chinees", "全部工单": "Alle werkorders",
+    "手机号": "Telefoonnummer", "首选交流语言": "Voorkeurstaal voor communicatie", "其他可交流语言": "Andere communicatietalen", "交流语言": "Communicatietalen", "中文": "Chinees", "全部工单": "Alle werkorders", "待审核报销": "Kosten ter beoordeling",
     "系统配置": "Systeeminstellingen", "权限": "Rechten", "实际日期": "Werkelijke datum", "请选择客户": "Selecteer een klant", "请选择工单": "Selecteer een werkorder", "新建工单": "Werkorder aanmaken",
     "设备维修清单": "Reparatielijst apparatuur", "施工员": "Technicus", "实际拍摄账号": "Opnameaccount", "照片": "Foto's", "序号": "Nr.", "集装箱号": "Containernummer", "已更换水泵保险编号": "Vervangen pompzekeringen", "维修人员": "Technici",
     "实际开始日期":"Werkelijke startdatum",
@@ -2708,7 +2708,7 @@
     "新":"Nieuw"
   });
   Object.assign(de, {
-    "手机号": "Telefonnummer", "首选交流语言": "Bevorzugte Kommunikationssprache", "其他可交流语言": "Weitere Kommunikationssprachen", "中文": "Chinesisch", "全部工单": "Alle Arbeitsaufträge",
+    "手机号": "Telefonnummer", "首选交流语言": "Bevorzugte Kommunikationssprache", "其他可交流语言": "Weitere Kommunikationssprachen", "交流语言": "Kommunikationssprachen", "中文": "Chinesisch", "全部工单": "Alle Arbeitsaufträge", "待审核报销": "Kosten in Prüfung",
     "系统配置": "Systemeinstellungen", "权限": "Berechtigungen", "实际日期": "Tatsächliches Datum", "请选择客户": "Kunden auswählen", "请选择工单": "Arbeitsauftrag auswählen", "新建工单": "Arbeitsauftrag erstellen",
     "设备维修清单": "Gerätereparaturliste", "施工员": "Techniker", "实际拍摄账号": "Aufnahmekonto", "照片": "Fotos", "序号": "Nr.", "集装箱号": "Containernummer", "已更换水泵保险编号": "Ersetzte Pumpensicherungen", "维修人员": "Techniker",
     "实际开始日期":"Tatsächliches Startdatum",
@@ -2760,7 +2760,7 @@
     "新":"Neu"
   });
   Object.assign(es, {
-    "手机号": "Número de teléfono", "首选交流语言": "Idioma de comunicación preferido", "其他可交流语言": "Otros idiomas de comunicación", "中文": "Chino", "全部工单": "Todas las órdenes",
+    "手机号": "Número de teléfono", "首选交流语言": "Idioma de comunicación preferido", "其他可交流语言": "Otros idiomas de comunicación", "交流语言": "Idiomas de comunicación", "中文": "Chino", "全部工单": "Todas las órdenes", "待审核报销": "Gastos pendientes de revisión",
     "系统配置": "Configuración del sistema", "权限": "Permisos", "实际日期": "Fecha real", "请选择客户": "Seleccione un cliente", "请选择工单": "Seleccione una orden", "新建工单": "Crear orden",
     "设备维修清单": "Lista de reparaciones de equipos", "施工员": "Técnico", "实际拍摄账号": "Cuenta de captura", "照片": "Fotos", "序号": "N.º", "集装箱号": "Número de contenedor", "已更换水泵保险编号": "Fusibles de bomba reemplazados", "维修人员": "Técnicos",
     "实际开始日期":"Fecha de inicio real",
