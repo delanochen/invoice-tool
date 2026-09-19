@@ -139,7 +139,7 @@ def _line_status(order_status, has_settlement, has_invoice):
     return "estimated"
 
 
-def _labor_lines(api, start_date, end_date, order_id=None):
+def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
     clauses = ["date(coalesce(service_reports.actual_work_date, service_reports.report_date)) between ? and ?"]
     params = [start_date, end_date]
     if order_id:
@@ -177,6 +177,10 @@ def _labor_lines(api, start_date, end_date, order_id=None):
         worker_count = max(len(workers), 1)
         work_date = api["report_actual_date"](report)
         for worker in workers:
+            # 按人员筛选时只跳过行生成；worker_count 仍取全组人数，
+            # 保证选中员工的工时分摊与不筛选时完全一致。
+            if employee_id and worker["user_id"] != employee_id:
+                continue
             for item_type, quantity, unit in _labor_components(api, report, worker, worker_count):
                 if quantity <= 0:
                     continue
@@ -338,7 +342,7 @@ def _is_personal_fuel(api, row):
     return api["normalized_project_name"](name) == "个人自驾油费"
 
 
-def _expense_lines(api, start_date, end_date, order_id=None):
+def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
     # Pull all approved expenses for the selected orders, then date-filter after
     # allocation so order-level personal fuel can be distributed across work days.
     clauses = ["expenses.status = 'approved'"]
@@ -346,6 +350,9 @@ def _expense_lines(api, start_date, end_date, order_id=None):
     if order_id:
         clauses.append("expenses.service_order_id = ?")
         params.append(order_id)
+    if employee_id:
+        clauses.append("coalesce(expenses.beneficiary_id, expenses.created_by) = ?")
+        params.append(employee_id)
     rows = api["db"]().execute(
         f"""
         select expense_items.id as expense_item_id, expense_items.amount,
@@ -435,9 +442,9 @@ def _expense_lines(api, start_date, end_date, order_id=None):
     return lines
 
 
-def build_profit_lines(api, start_date, end_date, order_id=None):
-    labor = _labor_lines(api, start_date, end_date, order_id)
-    expenses = _expense_lines(api, start_date, end_date, order_id)
+def build_profit_lines(api, start_date, end_date, order_id=None, employee_id=None):
+    labor = _labor_lines(api, start_date, end_date, order_id, employee_id)
+    expenses = _expense_lines(api, start_date, end_date, order_id, employee_id)
     return labor + expenses
 
 
@@ -510,13 +517,18 @@ def register_profitability_routes(app, api):
         start_date, end_date = _requested_range()
         order_id_text = request.args.get("service_order_id", "").strip()
         order_id = int(order_id_text) if order_id_text.isdigit() else None
+        employee_id_text = request.args.get("employee_id", "").strip()
+        employee_id = int(employee_id_text) if employee_id_text.isdigit() else None
         mode = request.args.get("group_by", "day")
         if mode not in {"day", "month", "order"}:
             mode = "day"
-        lines = build_profit_lines(api, start_date, end_date, order_id)
+        lines = build_profit_lines(api, start_date, end_date, order_id, employee_id)
         rows = _group_lines(lines, mode)
         orders = api["db"]().execute(
             "select id, order_number, client_name from service_orders order by order_number desc"
+        ).fetchall()
+        employees = api["db"]().execute(
+            "select id, name from users order by name, id"
         ).fetchall()
         return render_template(
             "profitability.html",
@@ -526,6 +538,8 @@ def register_profitability_routes(app, api):
             start_date=start_date,
             end_date=end_date,
             selected_order_id=order_id,
+            selected_employee_id=employee_id,
             group_by=mode,
             orders=orders,
+            employees=employees,
         )

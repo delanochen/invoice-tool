@@ -222,3 +222,82 @@ def test_build_profit_lines_mixes_both_sources(seeded):
     lines = _labor_lines(api, "2026-09-01", "2026-09-30") + _expense_lines(api, "2026-09-01", "2026-09-30")
     order2 = [line["status"] for line in lines if line["service_order_id"] == 2]
     assert order2 and set(order2) == {"settlement_in_progress"}
+
+
+def test_labor_lines_filter_by_employee_keeps_allocation():
+    """按人员筛选工时行：只出该员工的行，且工时分摊仍按全组人数计算。"""
+    conn = make_db()
+    api = make_api(conn)
+    conn.execute(
+        "insert into service_orders (id, order_number, client_name, status) values (1, 'WO-100', '客户甲', 'open')"
+    )
+    conn.execute("insert into users (id, name) values (1, '张三')")
+    conn.execute("insert into users (id, name) values (2, '李四')")
+    # 一条日报两名工人：总工时 8 → 每人分摊 4
+    conn.execute(
+        "insert into service_reports (id, service_order_id, report_date, actual_work_date, total_service_hours)"
+        " values (1, 1, '2026-09-15', '2026-09-15', 8)"
+    )
+    conn.executemany(
+        "insert into service_report_workers (report_id, user_id, travel_mode, driving_miles) values (1, ?, 'following', 0)",
+        [(1,), (2,)],
+    )
+    conn.commit()
+
+    all_lines = _labor_lines(api, "2026-09-01", "2026-09-30")
+    assert {line["employee_id"] for line in all_lines} == {1, 2}
+    assert {line["quantity"] for line in all_lines} == {4.0}
+
+    zhang = _labor_lines(api, "2026-09-01", "2026-09-30", employee_id=1)
+    assert {line["employee_id"] for line in zhang} == {1}
+    assert {line["quantity"] for line in zhang} == {4.0}  # 分摊不因筛选改变
+
+    li = _labor_lines(api, "2026-09-01", "2026-09-30", employee_id=2)
+    assert {line["employee_id"] for line in li} == {2}
+
+    combo = _labor_lines(api, "2026-09-01", "2026-09-30", order_id=1, employee_id=2)
+    assert {line["employee_id"] for line in combo} == {2}
+    conn.close()
+
+
+def test_expense_lines_filter_by_employee():
+    """费用行按受益人（beneficiary/created_by）筛选，与工单筛选可组合。"""
+    conn = make_db()
+    api = make_api(conn)
+    conn.execute(
+        "insert into service_orders (id, order_number, client_name, status) values (1, 'WO-100', '客户甲', 'open')"
+    )
+    conn.execute("insert into users (id, name) values (1, '张三')")
+    conn.execute("insert into users (id, name) values (2, '李四')")
+    for beneficiary, amount in ((1, 80), (2, 60)):
+        cursor = conn.execute(
+            "insert into expenses (expense_date, service_order_id, beneficiary_id, status)"
+            " values ('2026-09-15', 1, ?, 'approved')",
+            (beneficiary,),
+        )
+        conn.execute(
+            "insert into expense_items (expense_id, amount, fuel_vehicle_type) values (?, ?, 'company')",
+            (cursor.lastrowid, amount),
+        )
+    conn.commit()
+
+    all_lines = _expense_lines(api, "2026-09-01", "2026-09-30")
+    assert {line["employee_id"] for line in all_lines} == {1, 2}
+
+    zhang = _expense_lines(api, "2026-09-01", "2026-09-30", employee_id=1)
+    assert {line["employee_id"] for line in zhang} == {1}
+    assert zhang[0]["cost"] == pytest.approx(80.0)
+
+    combo = _expense_lines(api, "2026-09-01", "2026-09-30", order_id=1, employee_id=1)
+    assert {line["employee_id"] for line in combo} == {1}
+    conn.close()
+
+
+def test_profitability_template_has_employee_filter():
+    from pathlib import Path
+
+    html = Path("templates/profitability.html").read_text(encoding="utf-8")
+    assert 'name="employee_id"' in html
+    assert "全部人员" in html
+    assert "selected_employee_id == employee.id" in html
+    assert "{% for employee in employees %}" in html

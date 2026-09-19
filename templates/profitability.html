@@ -19,6 +19,12 @@
         {% for order in orders %}<option value="{{ order.id }}" {% if selected_order_id == order.id %}selected{% endif %}>{{ order.order_number }} · {{ order.client_name }}</option>{% endfor %}
       </select>
     </label>
+    <label>人员
+      <select name="employee_id">
+        <option value="">全部人员</option>
+        {% for employee in employees %}<option value="{{ employee.id }}" {% if selected_employee_id == employee.id %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}
+      </select>
+    </label>
     <label>汇总方式
       <select name="group_by">
         <option value="day" {% if group_by == 'day' %}selected{% endif %}>按日</option>
