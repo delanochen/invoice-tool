@@ -103,7 +103,7 @@ def _migrate_historical_auto_sources(connection):
                     insert or ignore into customer_reimbursement_expense_links
                         (customer_reimbursement_id, expense_item_id, amount_snapshot, project_snapshot,
                          expense_status_snapshot, selected_by, selected_at)
-                    values (?, ?, ?, ?, ?, null, datetime('now'))
+                    values (?, ?, ?, ?, ?, null, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
                     """,
                     (
                         row["customer_reimbursement_id"],
@@ -114,7 +114,7 @@ def _migrate_historical_auto_sources(connection):
                     ),
                 )
     connection.execute(
-        "insert or replace into settings (key, value) values ('settlement_expense_links_migration_v1', datetime('now'))"
+        "insert or replace into settings (key, value) values ('settlement_expense_links_migration_v1', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"
     )
 
 
