@@ -89,6 +89,9 @@
       const deleteBtn = canDelete
         ? `<button type="button" class="danger" style="margin-top:0.5rem; display:block;" data-delete-draft="${d.id}" data-delete-label="${(d.order_number || "")}">删除</button>`
         : "";
+      const reportBtn = d.status === "saved" && d.report_url
+        ? `<a href="${d.report_url}" class="button primary" style="display:block; margin-top:0.5rem; text-decoration:none;">查看正式日报</a>`
+        : "";
       return `
         <div class="draft-card" style="border:1px solid #e5e7eb; border-radius:8px; padding:1rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">
           <div style="flex:1;">
@@ -109,6 +112,7 @@
           </div>
           <div>
             <a href="/ai-daily-report/drafts/${d.id}" class="button primary" style="text-decoration:none;">查看详情</a>
+            ${reportBtn}
             ${cancelBtn}
             ${deleteBtn}
           </div>
