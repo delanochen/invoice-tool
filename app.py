@@ -17897,8 +17897,16 @@ def new_expense(order_id):
             finish_expense_save_token(save_token, expense_id)
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
-            run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
-            sync_expense_attachments_to_settlement(order["id"])
+            # 查重与附件同步是保存主流程之外的辅助步骤，任何环境性异常
+            # （文件占用、磁盘、图片解码等）都不应让报销保存失败（与 edit_expense 一致）。
+            try:
+                run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
+            except Exception:
+                app.logger.exception("Expense duplicate checks failed for expense %s", expense_id)
+            try:
+                sync_expense_attachments_to_settlement(order["id"])
+            except Exception:
+                app.logger.exception("Expense attachment sync failed for expense %s", expense_id)
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("create", "expense", expense_id, expense_number, expense_summary)
             if submit_for_review:
@@ -17908,20 +17916,32 @@ def new_expense(order_id):
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("new_expense", order_id=order_id))
+        except Exception as error:
+            db().rollback()
+            app.logger.exception("Unexpected error saving expense for order %s", order_id)
+            flash(
+                f"保存报销时发生意外错误（{type(error).__name__}: {str(error)[:200]}），请重试；若反复出现请联系管理员。",
+                "error",
+            )
+            return redirect(url_for("new_expense", order_id=order_id))
         if submit_for_review:
-            if beneficiary["id"] != g.user["id"]:
-                create_message(
-                    beneficiary["id"], "报销已提交审核",
-                    f"{g.user['name']}为你提交了报销 {expense_number}，金额 {money(total_amount)}。",
+            try:
+                if beneficiary["id"] != g.user["id"]:
+                    create_message(
+                        beneficiary["id"], "报销已提交审核",
+                        f"{g.user['name']}为你提交了报销 {expense_number}，金额 {money(total_amount)}。",
+                        url_for("expense_detail", expense_id=expense_id),
+                    )
+                notify_role(
+                    ["admin", "manager"],
+                    "新报销待审核",
+                    f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense_number}，工单 {order['order_number']}，金额 {money(total_amount)}。",
                     url_for("expense_detail", expense_id=expense_id),
                 )
-            notify_role(
-                ["admin", "manager"],
-                "新报销待审核",
-                f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense_number}，工单 {order['order_number']}，金额 {money(total_amount)}。",
-                url_for("expense_detail", expense_id=expense_id),
-            )
-            db().commit()
+                db().commit()
+            except Exception:
+                # 报销数据已保存成功，仅通知失败时不阻塞用户。
+                app.logger.exception("Expense submit notification failed for expense %s", expense_id)
             flash("报销已提交经理审核。", "success")
             return redirect(url_for("expense_detail", expense_id=expense_id))
         flash("报销已保存。", "success")

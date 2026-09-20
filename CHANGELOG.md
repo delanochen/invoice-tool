@@ -8,6 +8,7 @@
 
 ### Fixed
 - 修复 AI 日报 Draft 详情页点击照片后弹出的「附件预览」布局错乱的问题（用户报告：标题被挤成竖排、缩放按钮换行堆在中间、照片偏在右侧，且弹窗无法正常关闭）。根因：`static/ai-daily-report-review.js` 的 `openImagePreview` 用 `dialog.style.display = "flex"` 直接显示共享弹窗，没有走 `showModal()`——`<dialog>` 没有 `open` 属性时 `close()` 会抛 `InvalidStateError`，关闭按钮失效；内联 `flex` 还让弹窗头部与图片舞台并排成一行。修复：`openImagePreview` 改走共享的标准开启入口 `window.openAttachmentImagePreview(src, name)`（`showModal()` + 居中模态 + 打开期间锁定页面滚动、关闭后恢复滚动位置），共享弹窗关闭逻辑对遗留内联显示方式容错。
+- 补漏（0.1.259 遗漏）：`new_expense`（新建报销保存）与 `edit_expense` 同样对辅助步骤兜底——查重、附件同步失败不再中断保存，提交后通知失败不阻塞，并增加 `except Exception` 路由级兜底（回滚 + 友好提示）。`test_expense_return_admin_and_robust_save.py` 增至 10 项（新建路径：查重崩溃/同步崩溃下仍 302 且数据落库）。
 
 ### Changed
 - 图片弹出预览全站统一为一套实现（用户要求「与日报中的图片预览统一」）：

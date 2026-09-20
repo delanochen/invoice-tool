@@ -382,5 +382,136 @@ class RobustExpenseSaveTest(ExpenseReturnAdminTestBase):
         self.assertEqual(status, "draft")
 
 
+class NewExpenseRobustSaveTest(ExpenseReturnAdminTestBase):
+    """v0.1.260 补漏：new_expense（新建报销保存）与 edit_expense 同样兜底。"""
+
+    def _make_order(self):
+        module = self.module
+        with module.app.app_context():
+            connection = module.db()
+            connection.execute("delete from customer_reimbursement_expense_links")
+            connection.execute("delete from customer_reimbursement_attachments")
+            connection.execute("delete from customer_reimbursement_items")
+            connection.execute("delete from customer_reimbursements")
+            connection.execute("delete from expense_attachments")
+            connection.execute("delete from expense_items")
+            connection.execute("delete from expenses")
+            connection.execute("delete from expense_save_tokens")
+            connection.execute("delete from service_orders where order_number = 'SO-NEW'")
+            connection.execute("delete from users where email = 'new-admin@example.com'")
+            connection.execute("delete from projects where project_type = 'expense' and name = 'Lodging'")
+            admin_id = connection.execute(
+                """
+                insert into users (name, email, password_hash, role, is_active, created_at)
+                values ('New Admin', 'new-admin@example.com', ?, 'admin', 1, '2026-09-19T08:00:00')
+                """,
+                (module.generate_password_hash("new-pass-123"),),
+            ).lastrowid
+            order_id = connection.execute(
+                """
+                insert into service_orders (
+                    order_number, client_name, site_address, client_order_number, start_date,
+                    created_by, created_at
+                ) values ('SO-NEW', 'New client', 'New address', 'NEW-CLIENT', '2026-09-01', ?, '2026-09-01T08:00:00')
+                """,
+                (admin_id,),
+            ).lastrowid
+            project_id = connection.execute(
+                """
+                insert into projects (name, name_key, project_type, tax_rate, is_active, created_at)
+                values ('Lodging', 'lodging', 'expense', 0, 1, '2026-09-01T08:00:00')
+                """
+            ).lastrowid
+            # expenses.create 默认组为 {manager, finance, employee}（admin 键为已知缺口，
+            # 约定用户报障后才调整默认值）；此处模拟运行时权限覆盖，聚焦保存链路健壮性。
+            connection.execute(
+                """
+                update role_action_permissions set is_enabled = 1
+                where role = 'admin' and resource_key = 'expenses' and action_key = 'create'
+                """
+            )
+            connection.commit()
+            return admin_id, order_id, project_id
+
+    def _login(self):
+        client = self.module.app.test_client()
+        response = client.post(
+            "/login",
+            data={"email": "new-admin@example.com", "password": "new-pass-123"},
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        return client
+
+    def _new_save_token(self, client, order_id):
+        page = client.get(f"/service-orders/{order_id}/expenses/new")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        marker = 'name="save_token" value="'
+        start = html.index(marker) + len(marker)
+        return html[start:html.index('"', start)]
+
+    def _post_new(self, client, order_id, project_id, admin_id):
+        return client.post(
+            f"/service-orders/{order_id}/expenses/new",
+            data={
+                "save_token": self._new_save_token(client, order_id),
+                "beneficiary_id": str(admin_id),
+                "expense_date": "2026-09-19",
+                "description": "created-robust",
+                "project_id": str(project_id),
+                "item_line_key": "line-new",
+                "item_amount": "80",
+                "item_description": "hotel",
+                "action": "save",
+            },
+            follow_redirects=False,
+        )
+
+    def test_new_save_survives_duplicate_check_crash(self):
+        module = self.module
+        admin_id, order_id, project_id = self._make_order()
+        client = self._login()
+        original = module.run_expense_duplicate_checks
+
+        def crash(*args, **kwargs):
+            raise RuntimeError("deepseek exploded")
+
+        module.run_expense_duplicate_checks = crash
+        try:
+            response = self._post_new(client, order_id, project_id, admin_id)
+        finally:
+            module.run_expense_duplicate_checks = original
+        self.assertEqual(response.status_code, 302)
+        with module.app.app_context():
+            row = module.db().execute(
+                "select description, status from expenses where service_order_id = ?", (order_id,)
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["description"], "created-robust")
+
+    def test_new_save_survives_sync_crash(self):
+        module = self.module
+        admin_id, order_id, project_id = self._make_order()
+        client = self._login()
+        original = module.sync_expense_attachments_to_settlement
+
+        def crash(*args, **kwargs):
+            raise OSError("attachment store unavailable")
+
+        module.sync_expense_attachments_to_settlement = crash
+        try:
+            response = self._post_new(client, order_id, project_id, admin_id)
+        finally:
+            module.sync_expense_attachments_to_settlement = original
+        self.assertEqual(response.status_code, 302)
+        with module.app.app_context():
+            row = module.db().execute(
+                "select status from expenses where service_order_id = ?", (order_id,)
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "draft")
+
+
 if __name__ == "__main__":
     unittest.main()
