@@ -10,9 +10,11 @@ BOUNDARY LOCK (Phase 9):
 - NEVER calls DeepSeek / Vision / Google Routes / Google Static Maps.
 - NEVER rescans photos, regenerates mileage evidence, re-infers times,
   re-calculates mileage, or re-selects photos.
-- NEVER writes arrival/departure formal attachment categories
-  (arrival/departure stay provenance-only).
-- Formal attachment categories are limited to: site / self_check / mileage_proof.
+- Formal attachment categories: self_check / site / mileage_proof, PLUS
+  arrival / departure (v0.1.257: arrival/departure photos are written BOTH as
+  provenance columns on service_reports AND as real formal attachments, so the
+  service-report page's 现场到达时间照片 / 离开现场时间照片 sections show them;
+  the page reads service_report_attachments, not the provenance columns).
 
 EXACTLY-ONCE:
 - ai_daily_report_drafts.saved_report_id (pre-existing, Phase 1 reserved) is the
@@ -61,11 +63,14 @@ CODE_TRAVEL_MODE = "travel_mode_unmappable"
 CODE_COMMIT_CONFLICT = "commit_in_progress"
 CODE_NOT_FOUND = "not_found"
 
-# Formal attachment categories allowed by Phase 9 (sealed Q4 ruling).
-FORMAL_CATEGORIES = ("self_check", "site", "mileage_proof")
+# Formal attachment categories (arrival/departure added in v0.1.257 so the
+# service-report page actually renders those two photo sections).
+FORMAL_CATEGORIES = ("arrival", "departure", "self_check", "site", "mileage_proof")
 
-# Role type -> formal attachment category (only materialization_required=1 roles).
+# Role type -> formal attachment category (materialization_required=1 roles).
 ROLE_TO_CATEGORY = {
+    "arrival_reference": "arrival",
+    "departure_reference": "departure",
     "safety_photo": "self_check",
     "service_photo": "site",
     "mileage_evidence": "mileage_proof",
@@ -557,6 +562,87 @@ class FormalSaveService:
 
         return {"status": "created", "service_report_id": int(report_id)}
 
+    def run_incomplete(
+        self,
+        draft_row: Dict[str, Any],
+        expected_draft_version: Optional[int],
+    ) -> Dict[str, Any]:
+        """v0.1.252: force-commit an INCOMPLETE confirmed Draft into a formal
+        service report so the user can keep editing on the order report page.
+
+        Product decision 2026-09-18: an AI daily report that cannot pass the
+        Phase 7 validation (e.g. a freshly created draft with no parsed
+        content / no workers) must still be passable to the order. This path:
+        - keeps exactly-once + state gate + optimistic version lock;
+        - SKIPS the Phase 7 validation gate and the whole attachment-manifest
+          chain (steps 4-7 of run()): no manifest, no formal attachments;
+        - records the commit row with the sentinel manifest_id
+          'force_incomplete' (snapshot {"incomplete": true}) for audit.
+
+        Returns:
+            {"status": "created"|"already_committed", "service_report_id": int}
+        """
+        draft_id = int(draft_row["id"])
+
+        # 0. Exactly-once pre-check (same as run()).
+        existing = self._existing_report(draft_id)
+        if existing is not None:
+            return {"status": "already_committed", "service_report_id": int(existing)}
+
+        # 1. State machine gate (same as run()).
+        if draft_row.get("status") != "confirmed":
+            raise FormalSaveStateError(
+                CODE_DRAFT_STATE,
+                f"Draft 状态为 {draft_row.get('status')}，仅 confirmed 状态可传递到工单。",
+            )
+        # 2. Optimistic locking on draft_version (same as run()).
+        current_version = int(draft_row.get("draft_version", 1))
+        if expected_draft_version is not None and int(expected_draft_version) != current_version:
+            raise FormalSaveStaleError(CODE_VERSION_CONFLICT, "Draft 版本冲突，请刷新后重试。")
+
+        # 3. Deterministic field mapping (empty workers allowed).
+        mapping = self._build_formal_mapping(draft_row, allow_empty_workers=True)
+
+        # 4. Claim the exactly-once commit row with sentinel manifest values.
+        commit_id = self._claim_commit(draft_row, None, None, incomplete=True)
+
+        # 5. Single DB transaction (no attachments in the incomplete path).
+        try:
+            report_id = self._insert_formal_report(draft_row, mapping, {"sources": []})
+            self._insert_formal_workers(draft_id, report_id, mapping["workers"])
+            self.db.execute(
+                """
+                update ai_daily_report_formal_commits
+                set service_report_id = ?, status = 'committed', committed_at = ?, failure_code = NULL
+                where id = ?
+                """,
+                (report_id, _now_iso(), commit_id),
+            )
+            cursor = self.db.execute(
+                """
+                update ai_daily_report_drafts
+                set status = 'saved', saved_report_id = ?, updated_at = ?
+                where id = ? and status = 'confirmed'
+                """,
+                (report_id, _now_iso(), draft_id),
+            )
+            if cursor.rowcount != 1:
+                raise FormalSaveStaleError(
+                    CODE_DRAFT_STATE,
+                    "Draft 状态在保存期间发生变化，未写入正式日报。",
+                )
+            self._log_action(
+                draft_id, report_id,
+                mapping["order_number"], mapping["report_date"],
+                "创建 AI 工作日报（不完整强制传递，可在工单日报中继续编辑）",
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+        return {"status": "created", "service_report_id": int(report_id)}
+
     # ─── Recovery ──────────────────────────────────────────────────────────
 
     def recover_pending(self, draft_id: int) -> None:
@@ -611,9 +697,28 @@ class FormalSaveService:
             return int(commit["service_report_id"])
         return None
 
-    def _claim_commit(self, draft_row: Dict[str, Any], current: Dict[str, Any], plan: Dict[str, Any]) -> int:
+    def _claim_commit(
+        self,
+        draft_row: Dict[str, Any],
+        current: Optional[Dict[str, Any]],
+        plan: Optional[Dict[str, Any]],
+        incomplete: bool = False,
+    ) -> int:
         draft_id = int(draft_row["id"])
         now = _now_iso()
+        if incomplete:
+            # v0.1.252: the incomplete path has no manifest — persist sentinel
+            # values so the commit row stays auditable without faking one.
+            manifest_id_val = "force_incomplete"
+            validation_fp_val = "force_incomplete"
+            manifest_fp_val = "force_incomplete"
+            snapshot_val = _canonical_json({"incomplete": True, "mode": "force_incomplete"})
+        else:
+            manifest_id_val = str(current["manifest_id"])
+            validation_fp_val = str(current["validation_fingerprint"])
+            manifest_fp_val = str(current["manifest_fingerprint"])
+            snapshot_val = _canonical_json(self._manifest_snapshot(current, plan))
+        fields_val = _canonical_json(self._fields_provenance_cache)
         existing = self.db.execute(
             "select id, status, service_report_id from ai_daily_report_formal_commits where draft_id = ?",
             (draft_id,),
@@ -646,12 +751,12 @@ class FormalSaveService:
                 where id = ?
                 """,
                 (
-                    str(current["manifest_id"]),
+                    manifest_id_val,
                     int(draft_row.get("draft_version", 1)),
-                    str(current["validation_fingerprint"]),
-                    str(current["manifest_fingerprint"]),
-                    _canonical_json(self._manifest_snapshot(current, plan)),
-                    _canonical_json(self._fields_provenance_cache),
+                    validation_fp_val,
+                    manifest_fp_val,
+                    snapshot_val,
+                    fields_val,
                     now,
                     int(existing["id"]),
                 ),
@@ -670,12 +775,12 @@ class FormalSaveService:
             (
                 "fc_" + uuid.uuid4().hex,
                 draft_id,
-                str(current["manifest_id"]),
+                manifest_id_val,
                 int(draft_row.get("draft_version", 1)),
-                str(current["validation_fingerprint"]),
-                str(current["manifest_fingerprint"]),
-                _canonical_json(self._manifest_snapshot(current, plan)),
-                _canonical_json(self._fields_provenance_cache),
+                validation_fp_val,
+                manifest_fp_val,
+                snapshot_val,
+                fields_val,
                 self.user_id,
                 now,
             ),
@@ -750,11 +855,15 @@ class FormalSaveService:
 
     # ─── Mapping ───────────────────────────────────────────────────────────
 
-    def _build_formal_mapping(self, draft_row: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_formal_mapping(
+        self, draft_row: Dict[str, Any], allow_empty_workers: bool = False
+    ) -> Dict[str, Any]:
         draft_data = json.loads(draft_row["draft_data"] or "{}")
         workers_raw = draft_data.get("workers", [])
         formal_workers = [to_formal_worker(w) for w in workers_raw if isinstance(w, dict)]
-        if not formal_workers:
+        # v0.1.252: allow_empty_workers=True lets an incomplete (e.g. empty)
+        # Draft land in the order so the user can keep editing there.
+        if not formal_workers and not allow_empty_workers:
             raise FormalSaveIntegrityError(CODE_INTEGRITY, "Draft 中没有可保存的服务人员。")
 
         mileage_method, mileage_source = derive_mileage_billing_method(draft_data)
@@ -849,8 +958,9 @@ class FormalSaveService:
         """Copy each materialize-required asset into formal attachment storage.
 
         One physical copy per asset (dedup by prepared_sha256); one DB row per
-        materialize role category (sealed Phase 9 design). arrival/departure
-        roles never materialize here.
+        materialize role category. v0.1.257: arrival/departure roles are
+        materialize-required too, so the service-report page renders those two
+        photo sections; their provenance columns stay populated as well.
 
         Returns (recorded_files, attachment_rows).
         """

@@ -360,7 +360,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "service_order_calendar", "label": "工单日历", "actions": {"view": set(ROLE_OPTIONS)}},
             {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee", "external_manager"}}},
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
-            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
+            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"admin", "manager", "finance"}}},
             {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "reset": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
             {"key": "profitability", "label": "项目利润", "actions": {"view": {"admin", "manager", "finance"}}},
             {"key": "knowledge_base", "label": "知识库", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager"}}},
@@ -2223,6 +2223,7 @@ def init_db():
                 ("payroll_historical_paid_date_20260705_v1", now()),
             )
         seed_role_permissions(connection)
+        migrate_admin_expense_approve(connection)
         if not connection.execute("select id from users where role = 'admin' limit 1").fetchone():
             admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
             admin_password = os.environ.get("ADMIN_PASSWORD", "")
@@ -2515,6 +2516,33 @@ def seed_role_permissions(connection):
                 """,
                 (role, resource_key, action_key, 1 if role in roles else 0, timestamp),
             )
+
+
+def migrate_admin_expense_approve(connection):
+    """一次性数据迁移：报销审核（通过/退回）默认对 admin 开放。
+
+    seed_role_permissions 只用 insert or ignore，老库中已固化的
+    (admin, expenses, approve, is_enabled=0) 行不会被默认值变化刷新，
+    导致管理员在报销详情页点「退回」被集中路由闸门拦下（403）。
+    用 settings 哨兵保证只跑一次：管理员之后手动关闭不会被重启覆盖。
+    """
+    sentinel = connection.execute(
+        "select value from settings where key = ?", ("expense_approve_admin_v1",)
+    ).fetchone()
+    if sentinel:
+        return
+    connection.execute(
+        """
+        update role_action_permissions
+        set is_enabled = 1, updated_at = ?
+        where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
+        """,
+        (now(),),
+    )
+    connection.execute(
+        "insert into settings (key, value) values (?, ?)",
+        ("expense_approve_admin_v1", now()),
+    )
 
 
 def get_setting(key, default=""):
@@ -5642,14 +5670,26 @@ def excessive_following_mileage_rows(order_id, threshold=500):
     ).fetchall()
 
 
-def customer_reimbursement_item_expense_amount(row, field_name):
-    def value(key):
-        try:
-            return row[key]
-        except (KeyError, TypeError, IndexError):
-            return 0
+def _row_field(row, key, default=0):
+    """读取结算明细行的字段，兼容 dict 与 sqlite3.Row（后者没有 .get）。"""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
 
-    return money_decimal(value(field_name)) + money_decimal(value(f"auto_{field_name}"))
+
+def customer_reimbursement_item_expense_amount(row, field_name):
+    """单元格实际生效金额。
+
+    结算单同时保存两列：
+      * ``field_name``  —— 人工调整值（0 表示未调整，沿用来源金额）
+      * ``auto_field_name`` —— 从员工报销自动转入的来源合计
+    用户看到、以及计入合计的就是二者中「手改优先」的那一个，不能相加，
+    否则会把来源金额重复计入。
+    """
+    manual = money_decimal(_row_field(row, field_name))
+    return manual if manual else money_decimal(_row_field(row, f"auto_{field_name}"))
 
 
 def calculate_customer_reimbursement_item(row, sort_order=0):
@@ -5739,6 +5779,22 @@ def merge_approved_expenses_into_customer_reimbursement(
 ):
     auto_fields = tuple(f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"))
     merged = [dict(row) for row in rows]
+    # The settlement form posts each expense cell as the value the user sees.
+    # Capture whether the user overrode the auto-transferred sources *before*
+    # the auto_* columns are rebuilt below, otherwise a figure the user
+    # deliberately edited would be silently reverted on every save.
+    manual_overrides = []
+    for row in merged:
+        override = {}
+        for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"):
+            if f"auto_{name}" not in row:
+                continue
+            manual = money_decimal(row.get(name))
+            auto = money_decimal(row.get(f"auto_{name}"))
+            # A cell equal to the source total means "untouched"; keep 0 so the
+            # figure keeps tracking the sources.  Anything else is a real edit.
+            override[name] = 0 if manual == auto else manual
+        manual_overrides.append(override)
     # Historical drafts keep the old auto-transfer behavior until someone opens
     # the new review pool and explicitly saves a selection.  New/manual-review
     # settlements are rebuilt only from the persisted selected expense lines.
@@ -5792,6 +5848,15 @@ def merge_approved_expenses_into_customer_reimbursement(
         })
         auto_field = f"auto_{field_name}"
         row[auto_field] = money_float(money_decimal(row.get(auto_field)) + money_decimal(expense_item["amount"]))
+
+    # Re-apply each row's manual override so an edited cell keeps the figure the
+    # user typed instead of snapping back to the raw expense sources.
+    for index, row in enumerate(merged):
+        if index >= len(manual_overrides):
+            continue
+        for name, manual in manual_overrides[index].items():
+            if manual:
+                row[name] = money_float(manual)
 
     return [calculate_customer_reimbursement_item(row, index) for index, row in enumerate(merged)]
 
@@ -5852,11 +5917,12 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
     mileage_total = sum((money_decimal(item["mileage_total"]) for item in items), Decimal("0"))
     mro_supplies_total = money_decimal(mro_supplies_total)
     rental_fuel_total = money_decimal(rental_fuel_total)
+    # 结算金额中来自员工报销的部分（人工调整后仍按来源金额展示，仅作参考）。
     employee_expense_total = sum(
-        customer_reimbursement_item_expense_amount(item, key) - money_decimal(item[key])
-        for item in items
-        for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
-    ) or Decimal("0")
+        (money_decimal(_row_field(item, f"auto_{key}")) for item in items
+         for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")),
+        Decimal("0"),
+    )
     travel_total = manual_travel_total + rental_fuel_total
     total_amount = (
         sum((money_decimal(item["total"]) for item in items), Decimal("0"))
@@ -5991,7 +6057,12 @@ def copy_file_to_customer_reimbursement_attachment(
     extension = os.path.splitext(original_filename)[1].lstrip(".").lower() or "dat"
     stored_filename = f"{secrets.token_hex(12)}.{extension}"
     destination_path = os.path.join(customer_reimbursement_attachment_dir(reimbursement_id), stored_filename)
-    shutil.copyfile(source_path, destination_path)
+    try:
+        shutil.copyfile(source_path, destination_path)
+    except OSError as error:
+        # 拷贝失败（文件被占用、磁盘异常等）不应打断报销保存主流程。
+        app.logger.warning("Unable to copy expense attachment %s to settlement %s: %s", source_path, reimbursement_id, error)
+        return False
     try:
         db().execute(
             """
@@ -6010,6 +6081,14 @@ def copy_file_to_customer_reimbursement_attachment(
                 now(),
             ),
         )
+    except sqlite3.IntegrityError:
+        # 唯一索引 idx_customer_reimbursement_attachment_expense_source：
+        # 并发同步已复制过同一来源附件，视为已处理而非错误。
+        try:
+            os.remove(destination_path)
+        except FileNotFoundError:
+            pass
+        return False
     except sqlite3.Error:
         try:
             os.remove(destination_path)
@@ -6054,9 +6133,14 @@ def customer_reimbursement_items_from_form(order_id=None):
         "worker_name", "project_date", "standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours",
         "lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "miles", "other",
     ]
+    # auto_* columns are the auto-transferred expense sources behind each cell.
+    # The cell itself posts the effective amount the user sees, so the form must
+    # echo auto_* back untouched for the merge step to recover the manual delta.
+    auto_field_names = [f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")]
     money_fields = {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}
     rates = customer_reimbursement_rates()
     posted = {name: request.form.getlist(name) for name in field_names}
+    posted_auto = {name: request.form.getlist(name) for name in auto_field_names}
     source_report_ids = request.form.getlist("source_report_id")
     source_worker_user_ids = request.form.getlist("source_worker_user_id")
     count = max((len(values) for values in posted.values()), default=0)
@@ -6083,6 +6167,9 @@ def customer_reimbursement_items_from_form(order_id=None):
         for name in field_names[2:]:
             value = posted[name][index] if index < len(posted[name]) else 0
             row[name] = money_float(value) if name in money_fields else to_float(value)
+        for name in auto_field_names:
+            values = posted_auto[name]
+            row[name] = money_float(values[index]) if index < len(values) else 0
         if order_id is None:
             effective_rates = {
                 "standard_rate": rates["标准工时"],
@@ -6772,7 +6859,10 @@ def expense_attachment_fingerprints(path):
             bits = [pixels[row * 9 + column] > pixels[row * 9 + column + 1]
                     for row in range(8) for column in range(8)]
             image_hash = f"{sum(1 << index for index, bit in enumerate(bits) if bit):016x}"
-    except (OSError, ValueError):
+    except Exception:
+        # 图片指纹是尽力而为的辅助数据：Pillow 对超大图会抛
+        # DecompressionBombError（不是 OSError/ValueError 的子类），
+        # 不能让它把整条保存链路打成 500。
         pass
     return digest.hexdigest(), image_hash
 
@@ -6796,7 +6886,10 @@ def save_expense_attachment(expense_id, uploaded, expense_item_key=None):
     original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
     stored_filename = f"{secrets.token_hex(12)}.{extension}"
     stored_path = os.path.join(expense_attachment_dir(expense_id), stored_filename)
-    uploaded.save(stored_path)
+    try:
+        uploaded.save(stored_path)
+    except OSError as error:
+        raise ValueError(f"附件保存失败，请重试或更换文件后重新上传。({error})")
     file_sha256, image_dhash = expense_attachment_fingerprints(stored_path)
     return db().execute(
         """
@@ -11135,13 +11228,16 @@ def ai_daily_report_auto_prepare(draft_id):
     db().commit()
 
     draft_row = svc.get_draft(draft_id)
-    draft = svc.parse_draft_data(draft_row)
     return jsonify({
         "ok": True,
         "draft_id": draft_id,
         "steps": steps,
         "draft_version": draft_row["draft_version"],
-        "preview": svc.build_preview(draft),
+        # v0.1.254: must be the aggregated Review-Center preview (same shape as
+        # GET /draft/<id>/preview). The flat DailyReportService.build_preview()
+        # carries no status/draft_version, so the review page wiped its action
+        # buttons right after this call re-rendered ("按钮一闪而过").
+        "preview": _build_review_center_preview(draft_row),
     })
 
 
@@ -11636,8 +11732,31 @@ def ai_daily_report_confirm(draft_id):
         draft_row = svc.get_draft(draft_id)
         validation = _run_phase7_validation(draft_row)
         if not validation.can_proceed:
-            auto["blocked_code"] = "validation_cannot_proceed"
-            auto["blocked_message"] = "存在未解决的 ERROR，无法自动生成正式日报，请在校验面板处理后手动正式保存。"
+            # v0.1.252: an incomplete daily report may be force-passed to the
+            # order (product decision 2026-09-18) so the user can keep editing
+            # on the order report page. Requires an explicit request flag.
+            force_incomplete = False
+            try:
+                force_incomplete = bool(
+                    (request.get_json(silent=True) or {}).get("force_incomplete")
+                )
+            except Exception:
+                force_incomplete = False
+            if force_incomplete:
+                formal_svc = FormalSaveService(
+                    db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, user_id
+                )
+                result = formal_svc.run_incomplete(draft_row, None)
+                db().commit()
+                auto["formal_saved"] = True
+                auto["incomplete"] = True
+                auto["service_report_id"] = result["service_report_id"]
+                auto["report_url"] = url_for(
+                    "edit_service_report", report_id=result["service_report_id"]
+                )
+            else:
+                auto["blocked_code"] = "validation_cannot_proceed"
+                auto["blocked_message"] = "存在未解决的 ERROR，无法自动生成正式日报，请在校验面板处理后手动正式保存。"
         else:
             manifest_svc = _attachment_manifest_service()
             manifest = manifest_svc.prepare(draft_row, validation)
@@ -11697,6 +11816,8 @@ def ai_daily_report_confirm(draft_id):
 
     if auto["formal_saved"]:
         message = f"已确认并自动生成工单日报（Report #{auto['service_report_id']}）"
+        if auto.get("incomplete"):
+            message += "，日报不完整，可在工单日报中继续编辑"
     else:
         message = "Draft 已确认，但自动生成工单日报未完成：" + (auto["blocked_message"] or "未知原因")
 
@@ -12078,6 +12199,29 @@ def ai_daily_report_drafts_list():
     })
 
 
+def _build_review_center_preview(draft_row):
+    """Aggregated read-only preview for the Review Center detail page.
+
+    Every response the review page assigns wholesale to ``currentPreview``
+    must use this same shape (status / draft_version / basic_info / timeline /
+    validation_result / ...). The flat DailyReportService.build_preview() is a
+    chat-flow payload and must NOT be used here (v0.1.254: auto-prepare used
+    to return it, which wiped the action buttons after re-render).
+    """
+    from ai_daily_report import PreviewAggregationService
+    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
+    preview = preview_svc.build_preview(draft_row)
+
+    # Phase 8: Attachment Preparation summary (READ-ONLY; never materializes)
+    validation = _run_phase7_validation(draft_row)
+    manifest_svc = _attachment_manifest_service()
+    preview["attachment_preparation"] = manifest_svc.summary_for_preview(draft_row, validation)
+
+    # Phase 9: Formal Save status (READ-ONLY)
+    preview["formal_save"] = _formal_save_preview_summary(draft_row)
+    return preview
+
+
 @app.get("/api/ai/daily-report/draft/<int:draft_id>/preview")
 @login_required
 def ai_daily_report_draft_preview(draft_id):
@@ -12098,21 +12242,7 @@ def ai_daily_report_draft_preview(draft_id):
     if not can_view_ai_daily_report_draft(g.user, draft_row):
         return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
 
-    from ai_daily_report import PreviewAggregationService
-    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
-    preview = preview_svc.build_preview(draft_row)
-
-    from ai_daily_report import PreviewAggregationService
-    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
-    preview = preview_svc.build_preview(draft_row)
-
-    # Phase 8: Attachment Preparation summary (READ-ONLY; never materializes)
-    validation = _run_phase7_validation(draft_row)
-    manifest_svc = _attachment_manifest_service()
-    preview["attachment_preparation"] = manifest_svc.summary_for_preview(draft_row, validation)
-
-    # Phase 9: Formal Save status (READ-ONLY)
-    preview["formal_save"] = _formal_save_preview_summary(draft_row)
+    preview = _build_review_center_preview(draft_row)
 
     return jsonify({"ok": True, "preview": preview})
 
@@ -12621,18 +12751,26 @@ def ai_daily_report_draft_formal_save(draft_id):
         client_manifest_id = data.get("manifest_id")
         if client_manifest_id is not None:
             client_manifest_id = str(client_manifest_id)
+        # v0.1.252: explicit flag to pass an INCOMPLETE report to the order.
+        force_incomplete = bool(data.get("force_incomplete"))
     except (ValueError, TypeError):
         return jsonify({"ok": False, "error": "无效请求"}), 400
 
     validation = _run_phase7_validation(draft_row)
     manifest_svc = _attachment_manifest_service()
+    # v0.1.252: force path only applies when validation is blocking — otherwise
+    # the full manifest chain (with attachments) is always preferred.
+    incomplete_pass = bool(force_incomplete and not validation.can_proceed)
     try:
         formal_svc = FormalSaveService(
             db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, int(g.user["id"])
         )
-        result = formal_svc.run(
-            draft_row, expected_version, client_manifest_id, validation, manifest_svc
-        )
+        if incomplete_pass:
+            result = formal_svc.run_incomplete(draft_row, expected_version)
+        else:
+            result = formal_svc.run(
+                draft_row, expected_version, client_manifest_id, validation, manifest_svc
+            )
     except (FormalSaveStaleError, FormalSaveStateError, FormalSaveCommitConflictError) as exc:
         return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 409
     except (FormalSaveIntegrityError, FormalSaveValidationBlockedError, FormalSaveComplianceError) as exc:
@@ -12641,12 +12779,15 @@ def ai_daily_report_draft_formal_save(draft_id):
         return _manifest_error_response(exc)
 
     status_code = 201 if result["status"] == "created" else 200
-    return jsonify({
+    payload = {
         "ok": True,
         "status": result["status"],
         "service_report_id": result["service_report_id"],
         "report_url": url_for("edit_service_report", report_id=result["service_report_id"]),
-    }), status_code
+    }
+    if incomplete_pass:
+        payload["incomplete"] = True
+    return jsonify(payload), status_code
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>/compliance-review")
@@ -12893,28 +13034,58 @@ def ai_daily_report_update_worker(draft_id):
         return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
 
 
+def _fold_staff_query(text: str) -> str:
+    """Casefold + strip diacritics for tolerant staff matching.
+
+    SQLite LIKE does no Unicode folding, so searching "Antonio" would never
+    match a stored "Ant\u00f3nio". Folding both sides fixes that (v0.1.255).
+    """
+    import unicodedata
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
 @app.get("/api/ai/daily-report/staff")
 @login_required
 def ai_daily_report_staff_search():
-    """Search active internal staff to add as Draft workers.
+    """Search active staff to add as Draft workers.
 
-    Read-only. Only admin/manager/employee are field staff candidates.
+    Read-only. Worker-eligible roles match WORKER_ELIGIBLE_ROLES
+    (v0.1.255: includes finance / external_manager / external_employee per
+    the 2026-09-16 product decision that daily reports often record work
+    performed by external staff). Matching folds case and diacritics.
     """
     if not is_internal_user():
         return jsonify({"ok": False, "error": "无权限"}), 403
 
     q = (request.args.get("q") or "").strip()
-    like = f"%{q}%"
+    if not q:
+        return jsonify({"ok": True, "staff": [], "hint": None})
+
+    needle = _fold_staff_query(q)
     rows = db().execute(
         "SELECT id, name, email, role FROM users "
-        "WHERE is_active = 1 AND role IN ('admin', 'manager', 'employee') "
-        "AND (name LIKE ? OR email LIKE ?) ORDER BY name LIMIT 20",
-        (like, like),
+        "WHERE is_active = 1 AND role IN ('admin', 'manager', 'finance', 'employee', 'external_manager', 'external_employee') "
+        "ORDER BY name",
     ).fetchall()
-    return jsonify({
-        "ok": True,
-        "staff": [{"id": r["id"], "name": r["name"], "email": r["email"], "role": r["role"]} for r in rows],
-    })
+    staff = [
+        {"id": r["id"], "name": r["name"], "email": r["email"], "role": r["role"]}
+        for r in rows
+        if needle in _fold_staff_query(r["name"]) or needle in _fold_staff_query(r["email"])
+    ][:20]
+
+    hint = None
+    if not staff:
+        near = db().execute(
+            "SELECT id FROM users WHERE name LIKE ? OR email LIKE ? LIMIT 1",
+            (f"%{q}%", f"%{q}%"),
+        ).fetchone()
+        if near:
+            hint = "找到相近的用户，但其账号已停用或角色不可加入日报。"
+        else:
+            hint = "系统中没有该人员的账号。外部人员请先在用户管理中创建账号后再添加。"
+
+    return jsonify({"ok": True, "staff": staff, "hint": hint})
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/add-worker")
@@ -12951,8 +13122,11 @@ def ai_daily_report_add_worker(draft_id):
     ).fetchone()
     if not user:
         return jsonify({"ok": False, "error": "用户不存在"}), 404
-    if user["role"] not in {"admin", "manager", "employee"}:
-        return jsonify({"ok": False, "error": "该用户不是可添加的内部员工"}), 400
+    # v0.1.255: align with WORKER_ELIGIBLE_ROLES — external staff may be
+    # added to daily reports (2026-09-16 product decision).
+    from ai_daily_report.employee_resolution import WORKER_ELIGIBLE_ROLES
+    if user["role"] not in WORKER_ELIGIBLE_ROLES:
+        return jsonify({"ok": False, "error": "该用户角色不可加入日报工作人员"}), 400
 
     try:
         draft = svc.parse_draft_data(draft_row)
@@ -17747,8 +17921,16 @@ def new_expense(order_id):
             finish_expense_save_token(save_token, expense_id)
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
-            run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
-            sync_expense_attachments_to_settlement(order["id"])
+            # 查重与附件同步是保存主流程之外的辅助步骤，任何环境性异常
+            # （文件占用、磁盘、图片解码等）都不应让报销保存失败（与 edit_expense 一致）。
+            try:
+                run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
+            except Exception:
+                app.logger.exception("Expense duplicate checks failed for expense %s", expense_id)
+            try:
+                sync_expense_attachments_to_settlement(order["id"])
+            except Exception:
+                app.logger.exception("Expense attachment sync failed for expense %s", expense_id)
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("create", "expense", expense_id, expense_number, expense_summary)
             if submit_for_review:
@@ -17758,20 +17940,32 @@ def new_expense(order_id):
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("new_expense", order_id=order_id))
+        except Exception as error:
+            db().rollback()
+            app.logger.exception("Unexpected error saving expense for order %s", order_id)
+            flash(
+                f"保存报销时发生意外错误（{type(error).__name__}: {str(error)[:200]}），请重试；若反复出现请联系管理员。",
+                "error",
+            )
+            return redirect(url_for("new_expense", order_id=order_id))
         if submit_for_review:
-            if beneficiary["id"] != g.user["id"]:
-                create_message(
-                    beneficiary["id"], "报销已提交审核",
-                    f"{g.user['name']}为你提交了报销 {expense_number}，金额 {money(total_amount)}。",
+            try:
+                if beneficiary["id"] != g.user["id"]:
+                    create_message(
+                        beneficiary["id"], "报销已提交审核",
+                        f"{g.user['name']}为你提交了报销 {expense_number}，金额 {money(total_amount)}。",
+                        url_for("expense_detail", expense_id=expense_id),
+                    )
+                notify_role(
+                    ["admin", "manager"],
+                    "新报销待审核",
+                    f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense_number}，工单 {order['order_number']}，金额 {money(total_amount)}。",
                     url_for("expense_detail", expense_id=expense_id),
                 )
-            notify_role(
-                ["admin", "manager"],
-                "新报销待审核",
-                f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense_number}，工单 {order['order_number']}，金额 {money(total_amount)}。",
-                url_for("expense_detail", expense_id=expense_id),
-            )
-            db().commit()
+                db().commit()
+            except Exception:
+                # 报销数据已保存成功，仅通知失败时不阻塞用户。
+                app.logger.exception("Expense submit notification failed for expense %s", expense_id)
             flash("报销已提交经理审核。", "success")
             return redirect(url_for("expense_detail", expense_id=expense_id))
         flash("报销已保存。", "success")
@@ -17846,8 +18040,16 @@ def edit_expense(expense_id):
             )
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
-            run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
-            sync_expense_attachments_to_settlement(order["id"])
+            # 查重与附件同步是保存主流程之外的辅助步骤，任何环境性异常
+            # （文件占用、磁盘、图片解码等）都不应让报销保存返回 500。
+            try:
+                run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
+            except Exception:
+                app.logger.exception("Expense duplicate checks failed for expense %s", expense_id)
+            try:
+                sync_expense_attachments_to_settlement(order["id"])
+            except Exception:
+                app.logger.exception("Expense attachment sync failed for expense %s", expense_id)
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("update", "expense", expense_id, expense["expense_number"], expense_summary)
             if submit_for_review:
@@ -17857,20 +18059,29 @@ def edit_expense(expense_id):
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("edit_expense", expense_id=expense_id))
+        except Exception:
+            db().rollback()
+            app.logger.exception("Unexpected error saving expense %s", expense_id)
+            flash("保存报销时发生意外错误，请重试；若反复出现请联系管理员。", "error")
+            return redirect(url_for("edit_expense", expense_id=expense_id))
         if submit_for_review:
-            if beneficiary["id"] != g.user["id"]:
-                create_message(
-                    beneficiary["id"], "报销已提交审核",
-                    f"{g.user['name']}为你提交了报销 {expense['expense_number']}，金额 {money(total_amount)}。",
+            try:
+                if beneficiary["id"] != g.user["id"]:
+                    create_message(
+                        beneficiary["id"], "报销已提交审核",
+                        f"{g.user['name']}为你提交了报销 {expense['expense_number']}，金额 {money(total_amount)}。",
+                        url_for("expense_detail", expense_id=expense_id),
+                    )
+                notify_role(
+                    ["admin", "manager"],
+                    "报销已提交审核",
+                    f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense['expense_number']}，工单 {order['order_number']}，金额 {money(total_amount)}。",
                     url_for("expense_detail", expense_id=expense_id),
                 )
-            notify_role(
-                ["admin", "manager"],
-                "报销已提交审核",
-                f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense['expense_number']}，工单 {order['order_number']}，金额 {money(total_amount)}。",
-                url_for("expense_detail", expense_id=expense_id),
-            )
-            db().commit()
+                db().commit()
+            except Exception:
+                # 报销数据已保存成功，仅通知失败时不阻塞用户。
+                app.logger.exception("Expense submit notification failed for expense %s", expense_id)
             flash("报销已提交经理审核。", "success")
             return redirect(url_for("expense_detail", expense_id=expense_id))
         flash("报销已保存。", "success")

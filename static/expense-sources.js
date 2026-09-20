@@ -19,6 +19,7 @@
   }
 
   // 更新单元格的调整状态
+  // 与后端模板保持一致：只有「来源金额 > 0 且用户填写的金额与来源不同」才算已调整。
   function updateAdjustedState(cell) {
     const input = cell.querySelector('input[data-auto-amount]');
     if (!input) return;

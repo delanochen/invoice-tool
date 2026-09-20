@@ -19,18 +19,12 @@ const nasCurrentPath = document.getElementById("nasCurrentPath");
 const nasSelectionCount = document.getElementById("nasSelectionCount");
 const nasProcessingStatus = document.getElementById("nasProcessingStatus");
 const nasPhotoFolders = document.getElementById("nasPhotoFolders");
-const nasPhotoPreviewDialog = document.getElementById("nasPhotoPreviewDialog");
-const nasPhotoPreviewImage = document.getElementById("nasPhotoPreviewImage");
-const nasPhotoPreviewTitle = document.getElementById("nasPhotoPreviewTitle");
-const nasPhotoZoomLevel = document.getElementById("nasPhotoZoomLevel");
 let activeNasCategory = "";
 let currentNasPath = "";
 let currentNasImages = [];
 let currentNasDay = "";
 let currentNasFolders = [];
 let nasRefreshTimer = null;
-let nasPhotoZoom = 1;
-let nasPhotoOriginalSize = false;
 const nasSelections = new Map();
 const pendingNasSelection = new Map();
 const localPhotoSelections = new Map();
@@ -134,52 +128,16 @@ function updateNasSelectionCount() {
   nasSelectionCount.textContent = reportText(`已选择 ${pendingNasSelection.size} 张`);
 }
 
-function applyNasPhotoZoom() {
-  if (!nasPhotoPreviewImage) return;
-  if (nasPhotoOriginalSize) {
-    nasPhotoPreviewImage.style.maxWidth = "none";
-    nasPhotoPreviewImage.style.maxHeight = "none";
-    nasPhotoPreviewImage.classList.add("is-original");
-    nasPhotoPreviewImage.classList.remove("is-zoomed");
-    if (nasPhotoZoomLevel) nasPhotoZoomLevel.textContent = reportText("原图");
+// 照片预览统一走全站共享的附件预览弹窗（base.html #imageAttachmentPreviewDialog，
+// 由 attachment-preview.js 提供），与 AI 日报、报销等页面的预览保持同一套外观与交互。
+function openNasPhotoPreview(image) {
+  const src = image.preview || image.thumbnail;
+  if (!src) return;
+  if (typeof window.openAttachmentImagePreview === "function") {
+    window.openAttachmentImagePreview(src, image.name || reportText("照片预览"));
     return;
   }
-  nasPhotoPreviewImage.style.maxWidth = `${nasPhotoZoom * 100}%`;
-  nasPhotoPreviewImage.style.maxHeight = `${nasPhotoZoom * 78}vh`;
-  nasPhotoPreviewImage.classList.toggle("is-zoomed", nasPhotoZoom !== 1);
-  nasPhotoPreviewImage.classList.remove("is-original");
-  if (nasPhotoZoomLevel) nasPhotoZoomLevel.textContent = `${Math.round(nasPhotoZoom * 100)}%`;
-}
-
-function setNasPhotoZoom(value) {
-  nasPhotoOriginalSize = false;
-  nasPhotoZoom = Math.min(5, Math.max(0.25, value));
-  applyNasPhotoZoom();
-}
-
-function resetNasPhotoZoom() {
-  nasPhotoOriginalSize = false;
-  setNasPhotoZoom(1);
-}
-
-function showNasPhotoOriginalSize() {
-  nasPhotoOriginalSize = true;
-  nasPhotoZoom = 1;
-  applyNasPhotoZoom();
-}
-
-function openNasPhotoPreview(image) {
-  if (!nasPhotoPreviewDialog || !nasPhotoPreviewImage) return;
-  resetNasPhotoZoom();
-  nasPhotoPreviewImage.src = image.preview || image.thumbnail;
-  nasPhotoPreviewImage.alt = image.name;
-  if (nasPhotoPreviewTitle) nasPhotoPreviewTitle.textContent = image.name || reportText("照片预览");
-  nasPhotoPreviewDialog.showModal();
-}
-
-function closeNasPhotoPreview() {
-  if (!nasPhotoPreviewDialog) return;
-  nasPhotoPreviewDialog.close();
+  window.open(src, "_blank");
 }
 
 function renderNasProcessingStatus(status = {}) {
@@ -610,36 +568,6 @@ document.addEventListener("click", (event) => {
 });
 
 document.getElementById("closeNasDialog")?.addEventListener("click", () => nasDialog.close());
-document.getElementById("closeNasPhotoPreview")?.addEventListener("click", closeNasPhotoPreview);
-nasPhotoPreviewDialog?.addEventListener("click", (event) => {
-  if (event.target === nasPhotoPreviewDialog) closeNasPhotoPreview();
-});
-nasPhotoPreviewDialog?.addEventListener("close", () => {
-  if (nasPhotoPreviewImage) {
-    nasPhotoPreviewImage.removeAttribute("src");
-    nasPhotoPreviewImage.removeAttribute("style");
-    nasPhotoPreviewImage.classList.remove("is-zoomed");
-    nasPhotoPreviewImage.classList.remove("is-original");
-  }
-  nasPhotoZoom = 1;
-  nasPhotoOriginalSize = false;
-  if (nasPhotoZoomLevel) nasPhotoZoomLevel.textContent = "100%";
-});
-document.getElementById("zoomInNasPhoto")?.addEventListener("click", () => setNasPhotoZoom(nasPhotoZoom + 0.25));
-document.getElementById("zoomOutNasPhoto")?.addEventListener("click", () => setNasPhotoZoom(nasPhotoZoom - 0.25));
-document.getElementById("fitNasPhoto")?.addEventListener("click", resetNasPhotoZoom);
-document.getElementById("originalNasPhoto")?.addEventListener("click", showNasPhotoOriginalSize);
-nasPhotoPreviewImage?.addEventListener("dblclick", () => {
-  if (nasPhotoOriginalSize || nasPhotoZoom !== 1) {
-    resetNasPhotoZoom();
-  } else {
-    showNasPhotoOriginalSize();
-  }
-});
-nasPhotoPreviewImage?.addEventListener("wheel", (event) => {
-  event.preventDefault();
-  setNasPhotoZoom(nasPhotoZoom + (event.deltaY < 0 ? 0.15 : -0.15));
-}, { passive: false });
 nasDialog?.addEventListener("close", () => {
   window.clearInterval(nasRefreshTimer);
   nasRefreshTimer = null;

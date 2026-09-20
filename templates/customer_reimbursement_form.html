@@ -1,14 +1,18 @@
 {% extends "base.html" %}
 {% block title %}工单结算 - {{ order.order_number }}{% endblock %}
 {% block content %}
+  {# 单元格展示「实际生效金额」：手动调整值优先，否则回落到报销来源金额。
+     隐藏域回传 auto_*，供后端还原「来源 + 人工调整量」，保存时不会冲掉手改值。 #}
   {% macro expense_amount_cell(item, field_name) %}
     {% set auto_amount = item['auto_' ~ field_name] or 0 %}
     {% set sources = item.expense_sources.get(field_name, []) %}
-    {% set current_amount = item[field_name] or 0 %}
-    {% set is_adjusted = auto_amount > 0 and current_amount != auto_amount %}
+    {% set manual_amount = item[field_name] or 0 %}
+    {% set effective_amount = manual_amount if manual_amount else auto_amount %}
+    {% set is_adjusted = manual_amount and manual_amount != auto_amount %}
     <td class="expense-amount-cell">
       <div class="expense-amount-input-group">
-        <input name="{{ field_name }}" type="number" step="0.01" min="0" value="{{ item[field_name] }}"
+        <input type="hidden" name="auto_{{ field_name }}" value="{{ auto_amount }}">
+        <input name="{{ field_name }}" type="number" step="0.01" min="0" value="{{ effective_amount }}"
                data-auto-amount="{{ auto_amount }}" data-field-name="{{ field_name }}"
                class="{% if is_adjusted %}is-adjusted{% endif %}">
         {% if auto_amount > 0 %}
@@ -47,8 +51,8 @@
         </div>
         <div class="expense-source-summary">
           <div class="summary-row"><span>来源合计</span><strong class="source-total">{{ auto_amount|money }}</strong></div>
-          <div class="summary-row"><span>当前结算金额</span><strong class="current-amount-display">{{ current_amount|money }}</strong></div>
-          <div class="summary-row"><span>差额</span><strong class="diff-amount">{{ (current_amount - auto_amount)|money }}</strong></div>
+          <div class="summary-row"><span>当前结算金额</span><strong class="current-amount-display">{{ effective_amount|money }}</strong></div>
+          <div class="summary-row"><span>差额</span><strong class="diff-amount">{{ (effective_amount - auto_amount)|money }}</strong></div>
           {% if is_adjusted %}
           <button type="button" class="restore-auto-amount">恢复来源金额</button>
           {% endif %}

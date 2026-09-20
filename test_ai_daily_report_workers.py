@@ -122,13 +122,17 @@ class WorkerManagementTest(unittest.TestCase):
         staff = resp.get_json()["staff"]
         self.assertTrue(any(p["id"] == 502 for p in staff))
 
-    def test_staff_search_excludes_finance_and_external(self):
+    def test_staff_search_includes_finance_and_external(self):
+        """v0.1.255: search aligns with WORKER_ELIGIBLE_ROLES (external staff
+        may be added to daily reports, 2026-09-16 product decision)."""
         self._login()
         resp = self.client.get("/api/ai/daily-report/staff?q=fin-wk")
         self.assertEqual(resp.status_code, 200)
-        self.assertFalse(resp.get_json()["staff"])
+        staff = resp.get_json()["staff"]
+        self.assertTrue(any(p["id"] == 503 for p in staff))
         resp = self.client.get("/api/ai/daily-report/staff?q=ext-wk")
-        self.assertFalse(resp.get_json()["staff"])
+        staff = resp.get_json()["staff"]
+        self.assertTrue(any(p["id"] == 504 for p in staff))
 
     def test_staff_search_empty_q_returns_list(self):
         self._login()
@@ -189,7 +193,8 @@ class WorkerManagementTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("已在 Draft 中", resp.get_json()["error"])
 
-    def test_add_worker_finance_role_rejected(self):
+    def test_add_worker_finance_and_external_accepted(self):
+        """v0.1.255: finance/external roles are addable (WORKER_ELIGIBLE_ROLES)."""
         self._login()
         draft_id, v = self._make_draft()
         resp = self.client.post(
@@ -197,7 +202,16 @@ class WorkerManagementTest(unittest.TestCase):
             json={"user_id": 503, "draft_version": v},
             headers=self._csrf_headers(),
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        v = resp.get_json()["draft_version"]
+        resp = self.client.post(
+            f"/api/ai/daily-report/draft/{draft_id}/add-worker",
+            json={"user_id": 504, "draft_version": v},
+            headers=self._csrf_headers(),
+        )
+        self.assertEqual(resp.status_code, 200, resp.get_data(as_text=True))
+        preview = self.client.get(f"/api/ai/daily-report/draft/{draft_id}/preview").get_json()["preview"]
+        self.assertEqual({w["user_id"] for w in preview["workers"]}, {503, 504})
 
     def test_add_worker_unknown_user_404(self):
         self._login()

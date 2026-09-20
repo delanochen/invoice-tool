@@ -11,6 +11,7 @@ let imageAttachmentPreviewZoom = 1;
 const imageAttachmentViewport = imageAttachmentPreviewImage?.closest('.ledger-photo-stage, .image-preview-wrap');
 imageAttachmentViewport?.classList.add('attachment-image-viewport');
 imageAttachmentPreviewImage?.classList.add('attachment-preview-image');
+const imageAttachmentZoomLevel = document.getElementById("imageAttachmentPreviewZoomLevel");
 let imagePreviewReturn = null;
 let previewPageStyles = null;
 
@@ -28,6 +29,11 @@ function applyImageAttachmentPreviewZoom() {
   imageAttachmentPreviewImage.classList.toggle("is-fit", imageAttachmentPreviewMode === "fit");
   imageAttachmentPreviewImage.classList.toggle("is-original", imageAttachmentPreviewMode === "original");
   imageAttachmentPreviewImage.classList.toggle("is-zoomed", imageAttachmentPreviewMode === "zoom");
+  if (imageAttachmentZoomLevel) {
+    imageAttachmentZoomLevel.textContent = imageAttachmentPreviewMode === "fit"
+      ? "自适应"
+      : imageAttachmentPreviewMode === "original" ? "原图" : `${Math.round(imageAttachmentPreviewZoom * 100)}%`;
+  }
   // Real dimensions participate in scrolling; transforms can put pixels outside the reachable area.
   const image=imageAttachmentPreviewImage, viewport=imageAttachmentViewport;
   if(viewport && image.naturalWidth && viewport.clientWidth && viewport.clientHeight) {
@@ -62,7 +68,13 @@ function setImageAttachmentPreviewZoom(nextZoom) {
 }
 
 function closeImageAttachmentPreview() {
-  imageAttachmentPreviewDialog?.close();
+  if (imageAttachmentPreviewDialog?.open) {
+    imageAttachmentPreviewDialog.close();
+  } else {
+    // Dialog was shown without showModal() (legacy inline-style hack);
+    // close() would throw InvalidStateError and leave the shell visible.
+    if (imageAttachmentPreviewDialog) imageAttachmentPreviewDialog.style.display = "";
+  }
   restoreImageAttachmentPreview();
 }
 
@@ -84,10 +96,26 @@ function openImageAttachmentPreview(link, event, position) {
   lockImagePreviewPage(imagePreviewReturn);
   imageAttachmentPreviewTitle.textContent = link.dataset.previewName || link.textContent.trim() || "附件预览";
   imageAttachmentPreviewImage.src = link.href;
+  // Clear any stale inline display set by legacy openers; visibility is
+  // controlled by the [open] attribute from here on.
+  imageAttachmentPreviewDialog.style.display = "";
   setImageAttachmentPreviewFit();
   if (!imageAttachmentPreviewDialog.open) imageAttachmentPreviewDialog.showModal();
   applyImageAttachmentPreviewZoom();
 }
+
+// Public entry point for scripts that only have an image URL (no anchor),
+// e.g. the AI daily report review page.
+window.openAttachmentImagePreview = function (src, name) {
+  const href = String(src || "");
+  if (!href || !imageAttachmentPreviewDialog || !imageAttachmentPreviewImage) return false;
+  if (typeof imageAttachmentPreviewDialog.showModal !== "function") return false;
+  openImageAttachmentPreview(
+    { href, dataset: { previewName: name || "附件预览" } },
+    { preventDefault() {}, stopPropagation() {} },
+  );
+  return true;
+};
 
 // A grid can replace a cell between pointerdown and click. Handle the release
 // against the visible link as well; retain click for keyboard activation.
@@ -152,6 +180,11 @@ imageAttachmentPreviewDialog?.addEventListener("close", () => {
   // Native close events are queued. An old event must not clear a newly opened
   // image or move the page while the next attachment is being activated.
   if (!imageAttachmentPreviewDialog.open) restoreImageAttachmentPreview();
+});
+// 点击遮罩/空白处关闭（与原工单日报照片预览行为一致）；图片与工具栏的点击会
+// 冒泡，但 target 不会等于 dialog 本身。
+imageAttachmentPreviewDialog?.addEventListener("click", (event) => {
+  if (event.target === imageAttachmentPreviewDialog) closeImageAttachmentPreview();
 });
 imageAttachmentPreviewImage?.addEventListener('load',() => {
   applyImageAttachmentPreviewZoom();

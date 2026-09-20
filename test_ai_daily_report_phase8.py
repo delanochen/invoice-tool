@@ -680,7 +680,10 @@ class TestManifestServiceUnit(Phase8TestBase):
         ).fetchone()
         self.assertEqual(row["status"], "ready")
 
-    def test_52_provenance_only_arrival_zero_copy(self):
+    def test_52_arrival_photo_materialized_copy(self):
+        """v0.1.257: an arrival ref photo (distinct from safety/service) is now
+        materialized (its own prepared asset), so the service-report page can
+        render it. Supersedes the old 'provenance-only, zero copy' contract."""
         did, data = self._build_confirmed_draft(335)
         # arrival ref is a photo NOT selected as safety/service
         photos = self._photo_files()
@@ -696,9 +699,9 @@ class TestManifestServiceUnit(Phase8TestBase):
             (m["manifest_id"], "photo:" + photos[arrival_rel] + ":%"),
         ).fetchone()
         self.assertIsNotNone(src)
-        self.assertIsNone(src["asset_id"])  # provenance-only, no physical copy
-        # asset count unchanged (only safety+service+evidence)
-        self.assertEqual(m["asset_count"], 3)  # safety + service + evidence
+        self.assertIsNotNone(src["asset_id"])  # materialized (own physical copy)
+        # asset count: safety + service + evidence + arrival-distinct-photo
+        self.assertEqual(m["asset_count"], 4)
 
     def test_53_arrival_already_service_reuse_asset(self):
         did, data = self._build_confirmed_draft(336)

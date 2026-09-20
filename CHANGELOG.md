@@ -4,6 +4,112 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.260] - 2026-09-20
+
+### Fixed
+- 修复 AI 日报 Draft 详情页点击照片后弹出的「附件预览」布局错乱的问题（用户报告：标题被挤成竖排、缩放按钮换行堆在中间、照片偏在右侧，且弹窗无法正常关闭）。根因：`static/ai-daily-report-review.js` 的 `openImagePreview` 用 `dialog.style.display = "flex"` 直接显示共享弹窗，没有走 `showModal()`——`<dialog>` 没有 `open` 属性时 `close()` 会抛 `InvalidStateError`，关闭按钮失效；内联 `flex` 还让弹窗头部与图片舞台并排成一行。修复：`openImagePreview` 改走共享的标准开启入口 `window.openAttachmentImagePreview(src, name)`（`showModal()` + 居中模态 + 打开期间锁定页面滚动、关闭后恢复滚动位置），共享弹窗关闭逻辑对遗留内联显示方式容错。
+- 补漏（0.1.259 遗漏）：`new_expense`（新建报销保存）与 `edit_expense` 同样对辅助步骤兜底——查重、附件同步失败不再中断保存，提交后通知失败不阻塞，并增加 `except Exception` 路由级兜底（回滚 + 友好提示）。`test_expense_return_admin_and_robust_save.py` 增至 10 项（新建路径：查重崩溃/同步崩溃下仍 302 且数据落库）。
+
+### Changed
+- 图片弹出预览全站统一为一套实现（用户要求「与日报中的图片预览统一」）：
+  - 共享弹窗（base.html `#imageAttachmentPreviewDialog` + `static/attachment-preview.js/.css`）外观与交互对齐原工单日报照片预览：1180px 居中模态、顶部标题 + 缩放工具栏（缩小 / 放大 / 自适应 / 原图 / 缩放百分比 / 关闭，顺序一致）、下方深色图片舞台；新增缩放百分比标签与「点击遮罩空白处关闭」。
+  - 工单日报表单的 NAS 照片预览（`#nasPhotoPreviewDialog` 及其私有缩放逻辑约 90 行）删除，`openNasPhotoPreview` 改为委托共享弹窗；工单日报表单里的日报照片缩略图本就通过 `data-image-preview` 走同一弹窗。AI 日报 Draft 详情、AI 日报审查中心、工单日报、报销等页面的图片预览自此为同一外观、同一交互、同一份代码。
+
+### 测试
+- 新增 `test_image_preview_unified.py`（16 项静态契约）：AI 日报 JS 必须经 `openAttachmentImagePreview` 开启预览且不再出现内联 `display` 打开方式；共享弹窗公开入口/容错关闭/缩放标签/遮罩关闭；base.html 工具栏顺序与缩放标签；CSS 统一外观（1180px + 深色舞台）；service-report.js 委托调用且重复的对话框标记、私有缩放函数与 CSS 全部移除、两个调用点保留。
+- 相关套件回归：test_review_js_contract、test_field_work_js_contract、test_report_copy、test_service_report_external_view、test_service_report_zero_mileage、test_customer_report_payroll 全部通过（53 passed + 5 subtests）。
+- Chrome headless 渲染验证：统一后的弹窗为居中模态，标题/工具栏在顶部、竖版照片在深色舞台内自适应居中。
+
+## [0.1.259] - 2026-09-20
+
+### Fixed
+- 修复报销单详情页明细表底部黄色「小计 / 合计」行持续闪烁的问题（用户报告，EX2609032）。`static/system-grid.js` 存在两类可自我维持的重渲染循环：① `ResizeObserver` 观察网格容器，任何高度抖动（如合计行重建）都会再次触发 `redraw()`，`redraw()` 又改变高度，形成反馈循环；② 源表格被外部（如浏览器翻译插件、脚本）以每秒数次频率改写时，`sync()` 会跟着无限 `replaceData`，每次重建都会让合计行肉眼可见地闪一下。修复：ResizeObserver 只在宽度真正变化时才 `redraw`（列布局只取决于宽度）；4 秒内 redraw 超过 8 次、replaceData 超过 12 次进入熔断窗口期，直接跳过直至振荡源停止；`renderComplete` 中的分组小计重算合并到下一帧只跑一次。`performance.now()` 熔断窗口滚动恢复，正常缩放窗口、真实数据变化不受影响。
+- 修复管理员在报销详情页点「退回」/「审核通过」提示「没有访问权限」（403）的问题（用户报告）。根因：集中路由闸门把 `return_expense`/`approve_expense` 映射到 `expenses.approve` 权限，而默认角色组 `{manager, finance}` 漏了 admin；详情页模板却按 `normalized_role() in ["admin","manager"]` 硬编码显示按钮，管理员"看得到点不动"。修复：默认组补入 admin；`seed_role_permissions` 用 `insert or ignore` 只能补缺失行、不会刷新老库中已固化的 `is_enabled=0` 行，故新增一次性数据迁移（settings 哨兵 `expense_approve_admin_v1`，管理员事后手动关闭不会被重启覆盖）；模板按钮改用 `has_action_permission("expenses", "approve")` 门控，与权限体系约定一致。
+
+### Changed
+- 报销编辑/提交保存链路对环境性异常兜底，不再因辅助步骤崩溃返回 500（用户报告"经理修改报销单点提交""提交人编辑保存"均出现 Internal Server Error）：
+  - `run_expense_duplicate_checks`（查重）与 `sync_expense_attachments_to_settlement`（报销附件同步到结算）改为尽力而为：失败记录 `app.logger.exception` 后继续保存主流程；`edit_expense` 增加 `except Exception` 兜底（回滚 + 友好提示），提交后的站内通知失败也不再阻塞（报销数据已保存）。
+  - `copy_file_to_customer_reimbursement_attachment`：`shutil.copyfile` 遇文件占用/磁盘错误（OSError）返回跳过而非抛错；命中唯一索引 `idx_customer_reimbursement_attachment_expense_source` 的并发竞争（两个请求同时同步同一附件）按"已处理"处理而非 IntegrityError 500。
+  - `expense_attachment_fingerprints` 的图片指纹部分捕获所有异常（Pillow 对超大图抛的 `DecompressionBombError` 不是 OSError/ValueError 子类，此前会逃逸成 500）；`save_expense_attachment` 的 `uploaded.save` 失败转为 ValueError 提示而非 500。
+
+### 测试
+- 新增 `test_expense_return_admin_and_robust_save.py`（8 项）：init 后 admin 的 expenses.approve 为启用、管理员 POST 退回报销返回 302 且状态变为 returned、迁移哨兵只跑一次且尊重管理员事后手动关闭、附件拷贝吞掉 PermissionError 与唯一索引并发冲突、指纹函数在 Pillow DecompressionBomb 风格异常下仍返回 SHA、编辑保存分别在查重崩溃与同步崩溃下仍返回 302 且数据落库。
+- 相关套件回归：test_reimbursement_expense_display（9）、test_customer_reimbursement_mro、test_expense_attachment_transfer、test_expense_on_behalf、test_grid_grouping_labels、test_basic_data_permissions 全部通过。
+- 闪烁熔断另以 Chrome headless + jsdom 探针验证：仅高度振荡 20 次触发 0 次 redraw；宽度振荡风暴被截断在 8 次；每 100ms 一次的持续源表格改写（30 次）仅产生 12 次 replaceData（窗口上限），合计行 DOM 数保持 1。
+
+## [0.1.258] - 2026-09-19
+
+### Fixed
+- 修复工单结算单「从报销传递过来的数字在单元格里全部显示 0、后面还挂着『已调整』」的问题（用户报告）。根因是同一个金额存了两列却三处口径不一致：明细行的 `lodging/fuel/...` 是**人工调整值**（未调整时为 0），`auto_lodging/auto_fuel/...` 才是**从员工报销自动转入的来源合计**。而页面单元格 `input` 的 value 直接取人工列（必然为 0），徽章判定又是 `auto > 0 and 人工 != auto`（0 ≠ 来源金额，必然判定为「已调整」），于是未调整过的行也会显示 0 + 已调整。
+- 修复已调整过的金额在点击保存后被刷掉的问题。`merge_approved_expenses_into_customer_reimbursement` 每次保存都会把 `auto_*` 清零并按报销来源重新累加，但表单不回传 `auto_*`、也不保留人工列语义，用户手改的数字在重算后无处落地即被覆盖。
+
+### Changed
+- 金额口径统一为**「手改优先」**：单元格展示与合计取值均为「有人工调整值则用人工值，否则用报销来源金额」。
+  - `customer_reimbursement_item_expense_amount()` 由 `实际 + auto` 改为手改优先，避免来源金额在合计/Excel/PDF 中被重复计入。
+  - `merge_approved_expenses_into_customer_reimbursement()` 在重建 `auto_*` 前先捕获人工调整值，重算后回填，保存不再冲掉手改数字；单元格值等于来源合计时视为「未曾调整」，继续保持跟随来源。
+  - `customer_reimbursement_items_from_form()` 增读并回传 `auto_*`；模板补隐藏域。
+  - 模板 `is_adjusted` 判定改为 `人工值非 0 且不等于来源金额`，另有来源的行不再误显示「已调整」。
+  - `static/system-grid.js` 去掉 `input.value + data-auto-amount` 的重复累加（value 已是生效金额）。
+  - 新增 `_row_field()` 兼容 `sqlite3.Row`（无 `.get`）。
+- 不改动任何里程、工时、随行计费逻辑。
+
+### 测试
+- 新增 `test_reimbursement_expense_display.py`（9 项）：未调整时生效金额等于来源金额而非 0、未调整不渲染「已调整」徽章、手改后徽章出现、手改值经保存与 totals 重算后保持不变、表单回传 `auto_*` 后 round-trip 仍保留手改值、合计不重复累加来源、页面渲染的 input 值与隐藏域断言、manual_review 选择来源路径同样保留手改值。已用变异测试确认用例能捕获旧缺陷。
+- 更新 `test_customer_reimbursement_mro.py` 的 Excel 导出断言以匹配「手改优先」口径（住宿 10 与来源 20 不再相加）。
+- 结算/报销相关套件（mro、settlement_excel、profitability_status、expense_attachment_transfer、expense_on_behalf、customer_report_payroll、grid_grouping_labels）共 69 项通过。
+
+## [0.1.257] - 2026-09-19
+
+### Fixed
+- 修复 AI 智能日报传递到工单日报后，「现场到达时间照片」和「离开现场时间照片」两张照片没有同步过去的问题（用户报告）。根因是字段级不一致：正式保存只把到达/离开照片写进了工单日报的取证列（`service_reports.arrival_photo_relative_path` 等），而工单日报页面（编辑表单与只读查看页）都是从附件表 `service_report_attachments` 按 `category IN ('arrival','departure')` 读图的——写的地方和读的地方不是同一个，所以那两个照片区必然为空。该行为源自早期「到达/离开仅作取证、不生成正式附件」的设计边界，但该边界从未与页面实际渲染方式对齐。
+
+### Changed
+- 到达/离开照片改为**双重写入**：既保留取证列（仍指向 AI 日报原始照片，供审计），又真正物化为工单日报附件（分类 `arrival` / `departure`），与手动填写的工单日报完全一致。附件清单（manifest）中这两个角色由 `materialization_required=0` 改为 `1`，`FORMAL_CATEGORIES` 与 `ROLE_TO_CATEGORY` 补入 arrival/departure。存储路径沿用 `工单号/日期/现场到达时间照片`、`离开现场时间照片` 目录命名，与手动填写的日报一致；工单附件打包下载（attachments.zip）自动一并包含这两类照片。
+
+### 测试
+- 新增 `test_arrival_departure_sync.py`（8 项）：从工单日报页面自身的读取函数 `get_report_attachments` 验证 arrival/departure 非空、文件可通过 `report_attachment_path` 解析且哈希命中 prepared asset、目录命名与手动日报一致、取证列仍写入、无 ref 时不虚构附件行、仅 departure 不产生 arrival、无里程佐证草稿仍同步两张照片、编辑页与只读查看页均渲染出照片 `<img>` 且图片端点可访问。
+- 更新旧契约用例：`test_ai_daily_report_phase9.py` 的 test_10/21/22/63/64/65 与 `test_ai_daily_report_phase8.py` 的 test_52 由「到达/离开不产生附件」改为「物化为真实附件且保留取证」，并按新分类数调整断言。phase9（51）/phase8（59）/phase7（110）/phase6（44）/incomplete_pass（11）回归通过。
+
+## [0.1.256] - 2026-09-19
+
+### Fixed
+- 修复 AI 一句话解析找不到人员的问题（用户报告："我和高阳和antonio自驾从家出发……还是没有找到Antonio"，高阳能解析、Antonio 不能）。根因是解析服务的精确匹配用 SQLite `name = ?`，而 `=` **区分大小写**——输入小写 "antonio" 无法命中库中存储为 "Antonio" 的账号；SQLite 的 `=` 和 `LIKE` 也都不做 Unicode 变音折叠，"António" 同样漏配；此外角色资格判断用的是数据库原始存储值，早期录入的旧角色名（`user`、`external`）一律被拒。`resolve()` 重写为一次全表加载 + Python 侧折叠匹配（NFKD 去变音 + casefold），大小写、变音差异均容错，旧角色名经别名映射（`user→employee`、`external→external_manager`）后参与资格判断；精确折叠命中直接自动解析，多个折叠同名才转人工确认候选。
+
+### 测试
+- 新增 `test_ai_daily_report_employee_resolution.py`（10 项）：小写命中大写存储名（用户原始场景）、大小写折叠、双向变音折叠、partial 候选（停用排除）、旧角色名 user/external 可解析、停用不可解析、批量 resolve_workers、"我"自引用对旧角色名用户生效。phase2（44）/home_origin（7）/workers（17）/staff_search（11）/employee_resolution（10）共 89 项回归通过。
+
+## [0.1.255] - 2026-09-19
+
+### Fixed
+- 修复智能日报详情页「添加工作人员」搜索不到外部员工的问题（用户报告：搜"Antonio"提示未找到）。搜索接口与手动添加接口此前把角色硬编码为内部三类（管理员/经理/员工），而 AI 一句话解析自 2026-09-16 起已允许外部人员作为日报工作人员，两条入口不一致。现两处白名单统一对齐 `WORKER_ELIGIBLE_ROLES`（含财务、外部经理、外部员工），对话框说明文案同步去掉"内部"限定。
+
+### Changed
+- 员工搜索匹配增强：匹配时忽略大小写与变音符号差异（如"Antonio"可搜到录入为"António"的人员，此前 SQLite LIKE 对非 ASCII 字符不做折叠导致漏配）。搜索无结果时给出区分性提示：存在相近但已停用/角色不符的账号时提示账号不可用，否则提示先到用户管理创建账号。前端角色标签补充「财务」「外部经理」「外部员工」。
+
+### 测试
+- 新增 `test_ai_daily_report_staff_search.py`（11 项）：外部经理/外部员工/财务可被搜到、变音与大小写折叠、邮箱匹配、停用账号排除并提示、无账号提示、空关键词、外部员工可经 add-worker 加入草稿、停用用户被拒、20 条上限、外部用户调用搜索仍 403。`test_ai_daily_report_workers.py` 两个旧契约用例按新决策更新（原断言财务/外部被排除，现断言可搜索可加入）。workers/home_origin/phase2/staff_search 共 79 项、auto_prepare 5 项、auto_prepare_preview 4 项回归通过。
+
+## [0.1.254] - 2026-09-19
+
+### Fixed
+- 修复智能日报详情页三个操作按钮（生成日报/取消/删除）「一闪而过」的问题：`POST /draft/<id>/auto-prepare` 此前返回的是聊天流程用的扁平 preview（不含 `status` 与 `draft_version`，字段结构也与详情页期望完全不同）。详情页在自动准备完成后用该响应整体替换页面数据并二次渲染，`status` 变为 undefined 导致按钮区被清空，同时 `draft_version` 丢失会影响后续确认/取消等操作的版本校验。该端点现改用与 `GET /draft/<id>/preview` 相同的聚合版 preview（新增共享构造函数 `_build_review_center_preview`），并顺带清理了 preview 端点中的重复构造块。凡 0 照片或时间线待确认的草稿打开详情页即触发自动准备，因此必现。
+
+### 测试
+- 新增 `test_ai_daily_report_auto_prepare_preview.py`（4 项）：auto-prepare 响应携带 status/draft_version 与全部聚合字段、顶层 draft_version 与 preview 一致、与 GET preview 形状完全一致、draft/confirmed/saved 三种状态各自正确保留（saved 时按钮为空属预期）。另以 HTTP 级 E2E（`verify_flicker_fix.py`，15 项断言）模拟详情页两次渲染输入，确认两次均为 `status='draft'`、按钮均渲染。`test_ai_daily_report_auto_prepare.py` 5 项、`test_ai_daily_report_phase6.py` 44 项、`test_ai_daily_report_phase9.py` 51 项、`test_ai_daily_report_incomplete_pass.py` 11 项回归通过。
+
+## [0.1.253] - 2026-09-18
+
+### Added
+- 智能日报允许不完整传递到工单（产品决策 2026-09-18）：此前新建智能日报若没有可解析内容（如仅选了工单和日期），确认后自动生成被 Phase 7 校验 ERROR 挡住，正式保存又因没有附件清单而不可用，用户既无法传递到工单也无从编辑。现在存在未解决的 ERROR 时，界面提供「不完整也传到工单」按钮（确认被挡后的提示弹窗、操作区与正式保存区各一个入口），把不完整的日报直接生成工单日报（不生成附件），用户随后在工单日报页面继续编辑完善。
+
+### Changed
+- `FormalSaveService` 新增 `run_incomplete` 旁路：保留 exactly-once、状态闸门与版本锁，跳过 Phase 7 校验闸门与附件清单全链路；commit 记录使用哨兵 `manifest_id='force_incomplete'`（快照 `{"incomplete": true}`）保证可审计；`_build_formal_mapping` 新增 `allow_empty_workers` 参数，允许 0 名服务人员。confirm 与 formal-save 端点均支持请求体 `force_incomplete: true`（仅在校验未通过时生效，校验通过仍走完整附件链路）。
+
+### 测试
+- 新增 `test_ai_daily_report_incomplete_pass.py`（11 项）：空草稿校验阻断（DRFT-004/WRKR-001）、run_incomplete 生成工单日报（0 工人 0 附件、草稿转 saved、commit 哨兵值、审计含「不完整」）、exactly-once 幂等、状态/版本闸门拒绝、映射层空工人开关、端点级 422 不变性与 force 201、confirm 一键强制传递、被挡后重试路径。`test_ai_daily_report_phase9.py` 51 项、`test_ai_daily_report_phase7.py` 110 项回归通过。
+
+> 注：本版本功能代码实际随 v0.1.252 提交（859145f）进入仓库；因与同日另一条 v0.1.252（数据库修复）版本号撞车，此修正提交恢复该条目并为本功能分配独立版本号 0.1.253。
+
 ## [0.1.252] - 2026-09-19
 
 ### Fixed

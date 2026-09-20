@@ -1,2 +1,17 @@
 .attachment-image-viewport{display:block!important;overflow:auto!important;direction:ltr;scroll-behavior:auto;touch-action:pan-x pan-y}
 .attachment-image-viewport .attachment-preview-image{display:block;width:auto;height:auto;max-width:none!important;max-height:none!important;margin:0 auto;transform:none!important;transition:none;object-fit:contain}
+
+/* 全站统一图片预览弹窗（v0.1.260 起工单日报、AI 日报、报销等共用本弹窗），
+   外观对齐原工单日报照片预览：顶部标题+缩放工具栏，下方深色图片舞台。 */
+.modal.image-attachment-preview-modal{width:min(1180px,calc(100% - 20px));padding:18px}
+.image-attachment-preview-modal .modal-header{align-items:start}
+.image-attachment-preview-modal .modal-header h2{min-width:0;margin:0;overflow-wrap:anywhere}
+.image-attachment-preview-modal .preview-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
+.image-attachment-preview-modal .preview-zoom-level{min-width:54px;color:var(--muted);text-align:center;font-size:13px}
+.image-attachment-preview-modal .image-preview-wrap{
+  display:grid;place-items:center;
+  width:100%;height:min(78vh,760px);
+  overflow:auto;
+  border:1px solid var(--line);border-radius:8px;
+  background:#0f172a;
+}
