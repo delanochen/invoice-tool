@@ -27,6 +27,31 @@ logger = logging.getLogger(__name__)
 
 SELF_REFERENCES = {"我", "我自己", "本人", "自己", "me", "myself", "self"}
 
+# Legacy role names stored in old rows, mapped like app.normalized_role()
+# so historical accounts are not silently unresolvable (v0.1.256).
+_WORKER_ROLE_ALIASES = {
+    "user": "employee",
+    "external": "external_manager",
+}
+
+
+def _fold_name(text: str) -> str:
+    """Casefold + strip diacritics for tolerant name matching.
+
+    SQLite's `=` and LIKE do no Unicode folding, so the exact match
+    `name = 'antonio'` missed a stored "Antonio" and LIKE missed
+    "Ant\u00f3nio" (v0.1.256 user report). Folding both sides fixes it.
+    """
+    import unicodedata
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
+def _worker_role_ok(role: Optional[str]) -> bool:
+    """True when the stored role is worker-eligible (alias-aware)."""
+    normalized = _WORKER_ROLE_ALIASES.get(role or "", role or "")
+    return normalized in WORKER_ELIGIBLE_ROLES
+
 # Roles eligible to be daily report workers.
 # Must match real ROLE_OPTIONS keys in app.py (there is no role named "user").
 # Internal field staff use role "employee"; without it, almost all name
@@ -97,14 +122,17 @@ class EmployeeResolutionService:
         if name.lower() in SELF_REFERENCES:
             return self._resolve_self()
 
-        # 2. Exact name match
-        rows = self.db.execute(
-            "select id, name, email, role, is_active from users where name = ?",
-            (name,),
+        # 2. Exact name match (folded: case- and diacritics-insensitive).
+        #    One small-table scan; the old `name = ?` missed "Antonio" when
+        #    the user typed "antonio", and LIKE missed accented variants.
+        all_rows = self.db.execute(
+            "select id, name, email, role, is_active from users"
         ).fetchall()
+        target = _fold_name(name)
+        exact_rows = [r for r in all_rows if _fold_name(r["name"]) == target]
 
         # Filter to active, worker-eligible users
-        eligible = [r for r in rows if r["is_active"] == 1 and r["role"] in WORKER_ELIGIBLE_ROLES]
+        eligible = [r for r in exact_rows if r["is_active"] == 1 and _worker_role_ok(r["role"])]
 
         if len(eligible) == 1:
             return EmployeeResolutionResult(
@@ -116,12 +144,14 @@ class EmployeeResolutionService:
         if len(eligible) > 1:
             return self._ambiguous_result(name, eligible)
 
-        # 3. Partial match -> candidates only, NEVER auto-resolve
-        partial = self.db.execute(
-            "select id, name, email, role, is_active from users where name like ?",
-            (f"%{name}%",),
-        ).fetchall()
-        partial_eligible = [r for r in partial if r["is_active"] == 1 and r["role"] in WORKER_ELIGIBLE_ROLES]
+        # 3. Partial match (folded) -> candidates only, NEVER auto-resolve
+        partial_eligible = [
+            r for r in all_rows
+            if _fold_name(r["name"]) != target
+            and target in _fold_name(r["name"])
+            and r["is_active"] == 1
+            and _worker_role_ok(r["role"])
+        ]
 
         if partial_eligible:
             return EmployeeResolutionResult(
@@ -168,7 +198,7 @@ class EmployeeResolutionService:
                 error="current_user_inactive",
             )
 
-        if row["role"] not in WORKER_ELIGIBLE_ROLES:
+        if not _worker_role_ok(row["role"]):
             return EmployeeResolutionResult(
                 resolved=False,
                 clarification_required=True,

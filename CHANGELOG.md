@@ -4,6 +4,14 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.256] - 2026-09-19
+
+### Fixed
+- 修复 AI 一句话解析找不到人员的问题（用户报告："我和高阳和antonio自驾从家出发……还是没有找到Antonio"，高阳能解析、Antonio 不能）。根因是解析服务的精确匹配用 SQLite `name = ?`，而 `=` **区分大小写**——输入小写 "antonio" 无法命中库中存储为 "Antonio" 的账号；SQLite 的 `=` 和 `LIKE` 也都不做 Unicode 变音折叠，"António" 同样漏配；此外角色资格判断用的是数据库原始存储值，早期录入的旧角色名（`user`、`external`）一律被拒。`resolve()` 重写为一次全表加载 + Python 侧折叠匹配（NFKD 去变音 + casefold），大小写、变音差异均容错，旧角色名经别名映射（`user→employee`、`external→external_manager`）后参与资格判断；精确折叠命中直接自动解析，多个折叠同名才转人工确认候选。
+
+### 测试
+- 新增 `test_ai_daily_report_employee_resolution.py`（10 项）：小写命中大写存储名（用户原始场景）、大小写折叠、双向变音折叠、partial 候选（停用排除）、旧角色名 user/external 可解析、停用不可解析、批量 resolve_workers、"我"自引用对旧角色名用户生效。phase2（44）/home_origin（7）/workers（17）/staff_search（11）/employee_resolution（10）共 89 项回归通过。
+
 ## [0.1.255] - 2026-09-19
 
 ### Fixed
