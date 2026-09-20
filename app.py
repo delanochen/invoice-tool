@@ -11111,13 +11111,16 @@ def ai_daily_report_auto_prepare(draft_id):
     db().commit()
 
     draft_row = svc.get_draft(draft_id)
-    draft = svc.parse_draft_data(draft_row)
     return jsonify({
         "ok": True,
         "draft_id": draft_id,
         "steps": steps,
         "draft_version": draft_row["draft_version"],
-        "preview": svc.build_preview(draft),
+        # v0.1.254: must be the aggregated Review-Center preview (same shape as
+        # GET /draft/<id>/preview). The flat DailyReportService.build_preview()
+        # carries no status/draft_version, so the review page wiped its action
+        # buttons right after this call re-rendered ("按钮一闪而过").
+        "preview": _build_review_center_preview(draft_row),
     })
 
 
@@ -12079,6 +12082,29 @@ def ai_daily_report_drafts_list():
     })
 
 
+def _build_review_center_preview(draft_row):
+    """Aggregated read-only preview for the Review Center detail page.
+
+    Every response the review page assigns wholesale to ``currentPreview``
+    must use this same shape (status / draft_version / basic_info / timeline /
+    validation_result / ...). The flat DailyReportService.build_preview() is a
+    chat-flow payload and must NOT be used here (v0.1.254: auto-prepare used
+    to return it, which wiped the action buttons after re-render).
+    """
+    from ai_daily_report import PreviewAggregationService
+    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
+    preview = preview_svc.build_preview(draft_row)
+
+    # Phase 8: Attachment Preparation summary (READ-ONLY; never materializes)
+    validation = _run_phase7_validation(draft_row)
+    manifest_svc = _attachment_manifest_service()
+    preview["attachment_preparation"] = manifest_svc.summary_for_preview(draft_row, validation)
+
+    # Phase 9: Formal Save status (READ-ONLY)
+    preview["formal_save"] = _formal_save_preview_summary(draft_row)
+    return preview
+
+
 @app.get("/api/ai/daily-report/draft/<int:draft_id>/preview")
 @login_required
 def ai_daily_report_draft_preview(draft_id):
@@ -12099,21 +12125,7 @@ def ai_daily_report_draft_preview(draft_id):
     if not can_view_ai_daily_report_draft(g.user, draft_row):
         return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
 
-    from ai_daily_report import PreviewAggregationService
-    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
-    preview = preview_svc.build_preview(draft_row)
-
-    from ai_daily_report import PreviewAggregationService
-    preview_svc = PreviewAggregationService(db(), SHARED_PHOTOS_DIR)
-    preview = preview_svc.build_preview(draft_row)
-
-    # Phase 8: Attachment Preparation summary (READ-ONLY; never materializes)
-    validation = _run_phase7_validation(draft_row)
-    manifest_svc = _attachment_manifest_service()
-    preview["attachment_preparation"] = manifest_svc.summary_for_preview(draft_row, validation)
-
-    # Phase 9: Formal Save status (READ-ONLY)
-    preview["formal_save"] = _formal_save_preview_summary(draft_row)
+    preview = _build_review_center_preview(draft_row)
 
     return jsonify({"ok": True, "preview": preview})
 

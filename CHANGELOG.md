@@ -4,6 +4,14 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.254] - 2026-09-19
+
+### Fixed
+- 修复智能日报详情页三个操作按钮（生成日报/取消/删除）「一闪而过」的问题：`POST /draft/<id>/auto-prepare` 此前返回的是聊天流程用的扁平 preview（不含 `status` 与 `draft_version`，字段结构也与详情页期望完全不同）。详情页在自动准备完成后用该响应整体替换页面数据并二次渲染，`status` 变为 undefined 导致按钮区被清空，同时 `draft_version` 丢失会影响后续确认/取消等操作的版本校验。该端点现改用与 `GET /draft/<id>/preview` 相同的聚合版 preview（新增共享构造函数 `_build_review_center_preview`），并顺带清理了 preview 端点中的重复构造块。凡 0 照片或时间线待确认的草稿打开详情页即触发自动准备，因此必现。
+
+### 测试
+- 新增 `test_ai_daily_report_auto_prepare_preview.py`（4 项）：auto-prepare 响应携带 status/draft_version 与全部聚合字段、顶层 draft_version 与 preview 一致、与 GET preview 形状完全一致、draft/confirmed/saved 三种状态各自正确保留（saved 时按钮为空属预期）。另以 HTTP 级 E2E（`verify_flicker_fix.py`，15 项断言）模拟详情页两次渲染输入，确认两次均为 `status='draft'`、按钮均渲染。`test_ai_daily_report_auto_prepare.py` 5 项、`test_ai_daily_report_phase6.py` 44 项、`test_ai_daily_report_phase9.py` 51 项、`test_ai_daily_report_incomplete_pass.py` 11 项回归通过。
+
 ## [0.1.253] - 2026-09-18
 
 ### Added
