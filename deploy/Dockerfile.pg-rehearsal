@@ -1,0 +1,7 @@
+# Build separately from the live application image; never tag invoice-tool:latest.
+ARG BASE_IMAGE=invoice-tool:latest
+FROM ${BASE_IMAGE}
+RUN pip install --no-cache-dir "psycopg[binary]==3.2.10" "pytest==8.4.2"
+WORKDIR /work
+ENV PYTHONPATH=/work
+CMD ["python", "--version"]

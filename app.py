@@ -9,6 +9,7 @@ import secrets
 import shutil
 import smtplib
 import sqlite3
+from database import PostgreSQLConnection, postgres_enabled, verify_postgres_schema, lock_number_allocation
 import tempfile
 import threading
 import time
@@ -115,7 +116,7 @@ from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, 
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.environ.get("INVOICE_DATA_DIR", os.path.join(BASE_DIR, "data"))
 DB_PATH = os.path.join(DATA_DIR, "invoices.db")
 ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
 CONTRACT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "contract-attachments")
@@ -536,6 +537,9 @@ def db():
         os.makedirs(CUSTOMER_REIMBURSEMENT_DIR, exist_ok=True)
         os.makedirs(COMPANY_ATTACHMENT_DIR, exist_ok=True)
         os.makedirs(USER_ATTACHMENT_DIR, exist_ok=True)
+        if postgres_enabled():
+            g.db = PostgreSQLConnection()
+            return g.db
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
         # SQLite does not enforce declared foreign keys unless every connection
@@ -562,6 +566,15 @@ def verify_data_directory_identity():
         raise RuntimeError(
             "Refusing to start: the mounted data directory identity does not match."
         )
+    if postgres_enabled():
+        identity_db = PostgreSQLConnection()
+        try:
+            identity_row = identity_db.execute("select value from settings where key = 'production_database_identity'").fetchone()
+        finally:
+            identity_db.close()
+        if not identity_row or identity_row[0] != DATA_DIRECTORY_IDENTITY:
+            raise RuntimeError("Protected PostgreSQL database identity mismatch.")
+        return
     if not os.path.isfile(DB_PATH) or os.path.getsize(DB_PATH) < 4096:
         raise RuntimeError("Refusing to start: the protected production database is missing or empty.")
     try:
@@ -719,6 +732,9 @@ def repair_orphaned_ai_daily_report_drafts(connection):
 
 
 def init_db():
+    if postgres_enabled():
+        verify_postgres_schema()
+        return
     with app.app_context():
         connection = db()
         connection.executescript(
@@ -3675,6 +3691,7 @@ app.jinja_env.globals["contract_status_labels"] = CONTRACT_STATUS_LABELS
 
 
 def next_client_number():
+    lock_number_allocation(db())
     row = db().execute(
         """
         select client_number from clients
@@ -3686,6 +3703,7 @@ def next_client_number():
 
 
 def next_buyer_number():
+    lock_number_allocation(db())
     row = db().execute(
         """
         select buyer_number from buyers
@@ -3697,6 +3715,7 @@ def next_buyer_number():
 
 
 def next_owner_number():
+    lock_number_allocation(db())
     row = db().execute(
         """
         select owner_number from owners
@@ -3708,6 +3727,7 @@ def next_owner_number():
 
 
 def next_manufacturer_number():
+    lock_number_allocation(db())
     row = db().execute(
         """
         select manufacturer_number from manufacturers
@@ -3948,6 +3968,7 @@ def import_buyers_from_file(uploaded_file, client_id=None):
 
 
 def next_invoice_number():
+    lock_number_allocation(db())
     prefix = f"PP-{date.today():%y%m}"
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     for _ in range(30):
@@ -3959,6 +3980,7 @@ def next_invoice_number():
 
 
 def next_contract_number():
+    lock_number_allocation(db())
     prefix = f"CT{date.today():%y}"
     row = db().execute(
         """
@@ -4085,6 +4107,7 @@ def contract_form_values(contract=None):
 
 
 def next_service_order_number():
+    lock_number_allocation(db())
     prefix = f"SO{date.today():%y%m}"
     rows = db().execute(
         """
@@ -4106,6 +4129,7 @@ def next_service_order_number():
 
 
 def next_expense_number():
+    lock_number_allocation(db())
     prefix = f"EX{date.today():%y%m}"
     row = db().execute(
         """
@@ -8056,7 +8080,7 @@ def contracts():
         join clients on clients.id = contracts.client_id
         left join service_orders on service_orders.contract_id = contracts.id
         where {" and ".join(clauses)}
-        group by contracts.id
+        group by contracts.id, clients.id
         order by
           case contracts.status when 'active' then 0 when 'signed' then 1 when 'review' then 2 else 3 end,
           coalesce(contracts.end_date, '9999-12-31'), contracts.id desc
@@ -10312,7 +10336,7 @@ def ai_search_business_records(arguments):
             from invoices join clients on clients.id = invoices.client_id
             left join service_orders on service_orders.id = invoices.service_order_id
             left join invoice_items on invoice_items.invoice_id = invoices.id
-            where {where} group by invoices.id
+            where {where} group by invoices.id, clients.id, service_orders.id
             order by invoices.issue_date desc, invoices.id desc limit 25
             """,
             params,
@@ -14205,7 +14229,7 @@ def service_order_query():
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         left join expenses on expenses.service_order_id = service_orders.id
         where {" and ".join(clauses)}
-        group by service_orders.id
+        group by service_orders.id, work_order_types.id, owners.id, buyers.id, order_manufacturers.id, country_local.name, country_zh.name, country_local.region_name, country_zh.region_name
         order by service_orders.created_at desc, service_orders.id desc
         """,
         [current_language(), *params],
@@ -14313,7 +14337,7 @@ def service_report_query():
         left join service_report_workers on service_report_workers.report_id = service_reports.id
         left join users on users.id = service_report_workers.user_id
         where {" and ".join(clauses)}
-        group by service_reports.id
+        group by service_reports.id, service_orders.id, buyers.id, owners.id, country_local.name, country_zh.name, country_local.region_name, country_zh.region_name
         order by coalesce(service_reports.actual_work_date, service_reports.report_date) desc, service_reports.id desc
         """,
         [current_language(), *params],
@@ -14567,7 +14591,7 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         join service_orders on service_orders.id = service_reports.service_order_id
         left join employee_grades on employee_grades.id = users.employee_grade_id
         where {" and ".join(clauses)}
-        group by users.id {', service_reports.id' if detail else ''}
+        group by users.id, employee_grades.id {', service_reports.id, service_orders.id' if detail else ''}
         """, params,
     ).fetchall()
     for row in writer_rows:
@@ -15761,7 +15785,7 @@ def service_orders():
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         where {" and ".join(clauses)}
-        group by service_orders.id
+        group by service_orders.id, clients.id, work_order_types.id, owners.id, buyers.id, order_manufacturers.id, contracts.id
         order by service_orders.created_at desc, service_orders.id desc
         """,
         params,
@@ -16320,7 +16344,7 @@ def service_order_detail(order_id):
         left join users as worker_users on worker_users.id = service_report_workers.user_id
         left join users as creator_users on creator_users.id = service_reports.created_by
         where service_reports.service_order_id = ?
-        group by service_reports.id
+        group by service_reports.id, creator_users.id
         order by service_reports.report_date desc, service_reports.id desc
         """,
         (order_id,),

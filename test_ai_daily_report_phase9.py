@@ -1022,10 +1022,14 @@ class TestFormalSaveApi(Phase9TestBase):
             try:
                 import sqlite3 as _s
                 from ai_daily_report.formal_save import FormalSaveService
-                conn = _s.connect(self.app_module.DB_PATH, timeout=30)
-                conn.row_factory = _s.Row
-                conn.execute("PRAGMA busy_timeout = 30000")
-                conn.execute("PRAGMA foreign_keys = ON")
+                from database import postgres_enabled, PostgreSQLConnection
+                if postgres_enabled():
+                    conn = PostgreSQLConnection()
+                else:
+                    conn = _s.connect(self.app_module.DB_PATH, timeout=30)
+                    conn.row_factory = _s.Row
+                    conn.execute("PRAGMA busy_timeout = 30000")
+                    conn.execute("PRAGMA foreign_keys = ON")
                 from ai_daily_report.attachment_manifest import AttachmentManifestService
                 manifest_svc = AttachmentManifestService(
                     conn, self.shared_dir, self.temp_dir, 400,

@@ -94,7 +94,7 @@ class IntegrityRepairTest(unittest.TestCase):
         func = next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='db')
         with tempfile.TemporaryDirectory() as root:
             import os
-            scope = {'os':os,'sqlite3':sqlite3,'g':{}}
+            scope = {'os':os,'sqlite3':sqlite3,'g':{},'postgres_enabled':lambda:False}
             class State(dict):
                 def __getattr__(self,k): return self[k]
                 def __setattr__(self,k,v): self[k]=v
