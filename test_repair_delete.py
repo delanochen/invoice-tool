@@ -3,12 +3,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from test_field_work import FieldWorkTest
+import test_field_work as field_fixture
 
 
 class RepairDeleteTest(unittest.TestCase):
     def setUp(self):
-        self.f = FieldWorkTest()
+        self.f = field_fixture.FieldWorkTest()
         self.f.setUp()
         self.addCleanup(self.f.doCleanups)
         self.http = self.f.http

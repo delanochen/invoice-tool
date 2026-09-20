@@ -1,12 +1,12 @@
 import unittest
 from io import BytesIO
 from zipfile import ZipFile
-from test_field_work import FieldWorkTest
+import test_field_work as field_fixture
 
 
 class LedgerDownloadTest(unittest.TestCase):
     def setUp(self):
-        self.f = FieldWorkTest()
+        self.f = field_fixture.FieldWorkTest()
         self.f.setUp()
         self.addCleanup(self.f.doCleanups)
         self.assertEqual(self.f.upload(equipment_number='M-101', position_number='P-7', container_number='C-8').status_code, 200)
@@ -38,8 +38,10 @@ class LedgerDownloadTest(unittest.TestCase):
         workbook = load_workbook(BytesIO(response.data))
         sheet = workbook.active
         self.assertEqual(sheet.cell(1, 1).value, '照片')
-        self.assertEqual(sheet.cell(1, 3).value, '客户')
-        self.assertEqual(sheet.cell(1, 4).value, '站点')
+        headers = [cell.value for cell in sheet[1]]
+        self.assertEqual(headers.count('客户'), 1)
+        self.assertEqual(headers.count('站点'), 1)
+        self.assertLess(headers.index('客户'), headers.index('站点'))
         self.assertEqual(len(sheet._images), 2)
         workbook.close()
 

@@ -7,6 +7,12 @@ Branch: `codex/postgresql-compatibility`, based on production v0.1.252
 This is a tested compatibility candidate, **not authorization or readiness to switch production**.
 No production schema, attachment, application image or database configuration was changed.
 
+**2026-09-20 update:** the historical 16 failing cases have been reconciled with
+the approved business rules. The corrected SQLite suite passed (1,053 tests;
+10 PostgreSQL-specific skips). Two additional PostgreSQL HTTP business chains
+also passed in a new disposable acceptance clone. See the follow-up below;
+the earlier results are retained as the original rehearsal evidence.
+
 SQLite remains the default when DATABASE_URL is absent. PostgreSQL requires a
 separately provisioned database with schema version `0252-compat-v2`. Startup
 verifies the version and refuses mismatches; it does not migrate or seed PostgreSQL.
@@ -133,3 +139,58 @@ References: [psycopg cursors](https://www.psycopg.org/psycopg3/docs/advanced/cur
 [transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html),
 [PostgreSQL advisory locks](https://www.postgresql.org/docs/17/functions-admin.html),
 [COPY](https://www.postgresql.org/docs/17/sql-copy.html).
+
+## 2026-09-20 regression and business acceptance follow-up
+
+No production business logic was changed in this follow-up. The 16 old failures
+represented eight distinct cases, four collected three times through imported
+TestCase classes. Corrections:
+
+- Cancel draft: acquire the CSRF token through its actual endpoint, assert
+  missing-token rejection, successful cancellation and retained draft row.
+- Original-image upload: metadata-free synthetic JPEGs must first return 422
+  with `needs_capture_date`, without a database insert. Successful upload and
+  legacy-ID retry explicitly supply the user's selected date.
+- Original watermark and picker tests: update stale source assertions for
+  upload mode retaining original watermarks and empty queue hiding completion.
+  These are source-level checks, not real-browser validation.
+- Ledger Excel: assert separate customer/site headers by name instead of
+  column indexes invalidated by additional columns.
+- Payroll: following and rental-driver hourly pay belongs to transport pay;
+  mileage car allowance is zero for these cases. Preserve hourly/rate checks.
+- Import field-work fixtures as modules, preventing pytest from recollecting
+  44 unrelated imported cases. No distinct test coverage was removed.
+
+Results: relevant modules **98 passed**; full corrected SQLite collection
+**1,053 passed, 10 skipped**, 6 dependency deprecation warnings, 237.97 seconds.
+The full collection ran before the new two-case acceptance module was added;
+that module is PostgreSQL-only and was tested separately. No tests were disabled
+to conceal baseline failures, and no business permission/date/pay rules were relaxed.
+
+`test_postgresql_acceptance.py` runs only when the parsed database name is
+`invoice_acceptance_rehearsal` and the application's file root is under `/scratch`.
+The clone was restored from the reviewed v2 dump, with a non-superuser application
+role, protected metadata tables and the same internal network. Test fixtures use
+unique names and remain only in the disposable clone for inspection.
+
+Two passing HTTP chains (final run 1.43 seconds):
+
+1. Create an employee expense with a JPEG line attachment; repeat the submission
+   token and assert one expense; read the actual image endpoint; deny employee
+   approval; approve as manager; create the prerequisite work report; select the
+   approved expense line into settlement; save and reopen a manual lodging field;
+   retain the source link; export Excel; verify copied evidence files exist.
+2. Two clients synchronized with a barrier submit the same work-report token;
+   both requests complete and exactly one report remains. Check rental-driver
+   mileage does not become reimbursable self-drive mileage; payroll yields
+   3 hours × 15 = 45 transport pay and zero mileage car allowance.
+
+During development, acceptance fixtures were corrected to use the existing
+`expenses.amount` field, actual attachment route, and required report/travel
+inputs. These were test setup errors, not PostgreSQL business defects.
+
+Remaining gates: real desktop/mobile browser interactions (JavaScript image
+modal, tab navigation, file picker), sustained representative multi-user load,
+final runtime operations and a written freeze/cutover/reconciliation/rollback
+procedure. HTTP test-client assertions do not establish those browser or load
+results. Production still uses SQLite; no main merge or production deployment.

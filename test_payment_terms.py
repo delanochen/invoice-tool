@@ -249,7 +249,8 @@ class PaymentTermsTest(unittest.TestCase):
             self.assertEqual(payroll["rows"][0]["self_drive_allowance"], 0)
             self.assertEqual(payroll["rows"][0]["following_allowance"], 80)
             self.assertEqual(payroll["rows"][0]["rental_driving_allowance"], 0)
-            self.assertEqual(payroll["rows"][0]["car_allowance"], 80)
+            # Following transport is hourly transport pay, not mileage allowance.
+            self.assertEqual(payroll["rows"][0]["car_allowance"], 0)
 
     def test_rental_driver_uses_hourly_allowance_and_never_bills_mileage(self):
         with self.module.app.app_context():
@@ -321,7 +322,8 @@ class PaymentTermsTest(unittest.TestCase):
             self.assertEqual(row["self_drive_allowance"], 0)
             self.assertEqual(row["following_allowance"], 0)
             self.assertEqual(row["rental_driving_allowance"], 45)
-            self.assertEqual(row["car_allowance"], 45)
+            self.assertEqual(row["car_allowance"], 0)
+            self.assertEqual(row["transport_pay"], 45)
             payslip = self.module.payroll_payslip_payload(row)
             rental_line = next(line for line in payslip["lines"] if line["label"] == "租车驾驶补贴")
             self.assertEqual(rental_line["hours"], 3)

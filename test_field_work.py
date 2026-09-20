@@ -66,8 +66,8 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(self.upload(client_id=key).status_code,409)
 
     def test_legacy_invalid_photo_id_is_repaired_idempotently(self):
-        first = self.upload(client_id='undefined', source='file', watermark_source='original', location_verified='false')
-        retry = self.upload(client_id='undefined', source='file', watermark_source='original', location_verified='false')
+        first = self.upload(client_id='undefined', source='file', watermark_source='original', location_verified='false', manual_capture_date='2026-09-11')
+        retry = self.upload(client_id='undefined', source='file', watermark_source='original', location_verified='false', manual_capture_date='2026-09-11')
         self.assertEqual(first.status_code, 200, first.text)
         self.assertEqual(retry.status_code, 200, retry.text)
         self.assertTrue(retry.json['duplicate'])
@@ -225,6 +225,11 @@ class FieldWorkTest(unittest.TestCase):
 
     def test_selected_photo_can_keep_its_original_watermark(self):
         response = self.upload(source='file', watermark_source='original', location_verified='false')
+        self.assertEqual(response.status_code, 422)
+        self.assertTrue(response.json['needs_capture_date'])
+        with self.module.app.app_context():
+            self.assertEqual(self.module.db().execute('select count(*) from field_photos').fetchone()[0], 0)
+        response = self.upload(source='file', watermark_source='original', location_verified='false', manual_capture_date='2026-09-11')
         self.assertEqual(response.status_code, 200, response.text)
         with self.module.app.app_context():
             row = self.module.db().execute('select source, watermark_source, location_verified from field_photos').fetchone()
@@ -234,10 +239,10 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(self.upload(source='camera', watermark_source='original').status_code, 422)
         self.assertEqual(self.upload(source='file', watermark_source='system', location_verified='false').status_code, 422)
         repaired = self.upload(client_id='old-draft', source='file', watermark_source='original',
-                               location_verified='false', captured_at='invalid', timezone_name='Old/Phone', latitude='nan')
+                               location_verified='false', captured_at='invalid', timezone_name='Old/Phone', latitude='nan', manual_capture_date='2026-09-11')
         self.assertEqual(repaired.status_code, 200, repaired.text)
         repaired_source = self.upload(client_id='old-source', source='undefined', watermark_source='original',
-                                      location_verified='false')
+                                      location_verified='false', manual_capture_date='2026-09-11')
         self.assertEqual(repaired_source.status_code, 200, repaired_source.text)
         self.assertEqual(self.upload(source='undefined', watermark_source='system').status_code, 422)
 
@@ -385,7 +390,7 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn("navigator.share({files:[file]", script)
         self.assertIn('保存到手机相册', script)
         self.assertIn('正在处理第 ${processingDone + 1}/${processingTotal} 张', script)
-        self.assertIn("$('completeBatch').hidden = !batch", script)
+        self.assertIn("$('completeBatch').hidden = batchCount === 0 && !processingFiles", script)
 
     def test_watermark_omits_blank_optional_equipment_fields(self):
         script = (fixture.ROOT / 'static' / 'field-watermark.js').read_text(encoding='utf-8')
@@ -395,7 +400,7 @@ class FieldWorkTest(unittest.TestCase):
     def test_original_watermark_option_skips_system_overlay(self):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
         self.assertIn("context.watermark_source !== 'original'", script)
-        self.assertIn("watermarkSource:$('existingWatermark').checked ? 'original' : 'system'", script)
+        self.assertIn("watermarkSource:'original'", script)
         self.assertIn("if (!keepsOriginalWatermark) {", script)
         self.assertIn("location_verified:!keepsOriginalWatermark", script)
         self.assertIn("if (selection.watermarkSource === 'original') await keepOriginalFile(file,context)", script)

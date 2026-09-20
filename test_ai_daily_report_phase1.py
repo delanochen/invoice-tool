@@ -472,11 +472,18 @@ class AIDailyReportPhase1Test(unittest.TestCase):
             created = svc.create_draft(self.order["id"], "2026-09-14")
             draft_id = created["id"]
             self.module.db().commit()
-        resp = self.client.post(f"/api/ai/daily-report/draft/{draft_id}/cancel")
+        url = f"/api/ai/daily-report/draft/{draft_id}/cancel"
+        self.assertEqual(self.client.post(url).status_code, 403)
+        token = self.client.get('/api/ai/daily-report/csrf').get_json()['csrf_token']
+        resp = self.client.post(url, headers={'X-CSRF-Token': token})
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertTrue(data["ok"])
         self.assertEqual(data["status"], "cancelled")
+        with self.module.app.app_context():
+            row = self._make_service().get_draft(draft_id)
+            self.assertIsNotNone(row)
+            self.assertEqual(row['status'], 'cancelled')
 
     def test_reopen_draft_api(self):
         with self.module.app.app_context():
