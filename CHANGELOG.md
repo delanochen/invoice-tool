@@ -4,6 +4,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.260] - 2026-09-20
+
+### Fixed
+- 修复 AI 日报 Draft 详情页点击照片后弹出的「附件预览」布局错乱的问题（用户报告：标题被挤成竖排、缩放按钮换行堆在中间、照片偏在右侧，且弹窗无法正常关闭）。根因：`static/ai-daily-report-review.js` 的 `openImagePreview` 用 `dialog.style.display = "flex"` 直接显示共享弹窗，没有走 `showModal()`——`<dialog>` 没有 `open` 属性时 `close()` 会抛 `InvalidStateError`，关闭按钮失效；内联 `flex` 还让弹窗头部与图片舞台并排成一行。修复：`openImagePreview` 改走共享的标准开启入口 `window.openAttachmentImagePreview(src, name)`（`showModal()` + 居中模态 + 打开期间锁定页面滚动、关闭后恢复滚动位置），共享弹窗关闭逻辑对遗留内联显示方式容错。
+
+### Changed
+- 图片弹出预览全站统一为一套实现（用户要求「与日报中的图片预览统一」）：
+  - 共享弹窗（base.html `#imageAttachmentPreviewDialog` + `static/attachment-preview.js/.css`）外观与交互对齐原工单日报照片预览：1180px 居中模态、顶部标题 + 缩放工具栏（缩小 / 放大 / 自适应 / 原图 / 缩放百分比 / 关闭，顺序一致）、下方深色图片舞台；新增缩放百分比标签与「点击遮罩空白处关闭」。
+  - 工单日报表单的 NAS 照片预览（`#nasPhotoPreviewDialog` 及其私有缩放逻辑约 90 行）删除，`openNasPhotoPreview` 改为委托共享弹窗；工单日报表单里的日报照片缩略图本就通过 `data-image-preview` 走同一弹窗。AI 日报 Draft 详情、AI 日报审查中心、工单日报、报销等页面的图片预览自此为同一外观、同一交互、同一份代码。
+
+### 测试
+- 新增 `test_image_preview_unified.py`（16 项静态契约）：AI 日报 JS 必须经 `openAttachmentImagePreview` 开启预览且不再出现内联 `display` 打开方式；共享弹窗公开入口/容错关闭/缩放标签/遮罩关闭；base.html 工具栏顺序与缩放标签；CSS 统一外观（1180px + 深色舞台）；service-report.js 委托调用且重复的对话框标记、私有缩放函数与 CSS 全部移除、两个调用点保留。
+- 相关套件回归：test_review_js_contract、test_field_work_js_contract、test_report_copy、test_service_report_external_view、test_service_report_zero_mileage、test_customer_report_payroll 全部通过（53 passed + 5 subtests）。
+- Chrome headless 渲染验证：统一后的弹窗为居中模态，标题/工具栏在顶部、竖版照片在深色舞台内自适应居中。
+
 ## [0.1.259] - 2026-09-20
 
 ### Fixed

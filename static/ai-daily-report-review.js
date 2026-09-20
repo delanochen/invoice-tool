@@ -1233,19 +1233,13 @@
     return div.innerHTML;
   }
 
-  // Image preview helper (uses attachment-preview.js if available)
+  // Image preview helper (uses attachment-preview.js if available).
+  // Must go through the standard opener (showModal + zoom state); showing the
+  // dialog via an inline display style breaks the modal layout and leaves it
+  // impossible to close (dialog.close() throws when [open] is missing).
   window.openImagePreview = function (src) {
-    // Try to use existing attachment preview lightbox
-    const dialog = document.getElementById("imageAttachmentPreviewDialog");
-    if (dialog) {
-      const img = dialog.querySelector("img");
-      if (img) {
-        img.src = src;
-        dialog.style.display = "flex";
-      }
-    } else {
-      window.open(src, "_blank");
-    }
+    if (typeof window.openAttachmentImagePreview === "function" && window.openAttachmentImagePreview(src)) return;
+    window.open(src, "_blank");
   };
 
   // ─── Phase 8: Attachment Preparation ───────────────────────────────────
