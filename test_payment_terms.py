@@ -730,9 +730,11 @@ class PaymentTermsTest(unittest.TestCase):
             self.assertEqual(row["other"], 5)
             self.assertEqual(totals["employee_expense_total"], 360)
             self.assertEqual(totals["travel_total"], 280)
-            self.assertEqual(totals["other_total"], 85)
+            # A nonzero manual cell overrides the source; auto_other retains
+            # the original 80 for traceability without adding it a second time.
+            self.assertEqual(totals["other_total"], 5)
             self.assertEqual(totals["mro_supplies_total"], 80)
-            self.assertEqual(totals["total_amount"], 365)
+            self.assertEqual(totals["total_amount"], 285)
 
             connection.execute(
                 "update customer_reimbursements set expense_transfer_cutoff_at = '2026-08-15T00:00:00' where id = ?",
@@ -764,7 +766,7 @@ class PaymentTermsTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(row["auto_other"], 80)
             self.assertEqual(totals["mro_supplies_total"], 80)
-            self.assertEqual(totals["total_amount"], 365)
+            self.assertEqual(totals["total_amount"], 285)
 
     def test_employee_lodging_over_limit_is_warning_not_validation_error(self):
         with self.module.app.app_context():

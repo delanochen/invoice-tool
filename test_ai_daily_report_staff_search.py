@@ -84,7 +84,8 @@ class StaffSearchTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.app_module.db = None
+        # The shared database factory must remain callable for subsequent tests.
+        pass
 
     @classmethod
     def _insert_draft(cls, draft_id, status="draft", draft_version=1):

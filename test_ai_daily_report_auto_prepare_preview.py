@@ -102,7 +102,9 @@ class AutoPreparePreviewTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.app_module.db = None
+        # db is the shared connection factory, not a connection to dispose.
+        # Request/app contexts already close their own database connections.
+        pass
 
     @classmethod
     def _insert_draft(cls, draft_id, status="draft", draft_version=1):

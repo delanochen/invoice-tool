@@ -194,3 +194,57 @@ modal, tab navigation, file picker), sustained representative multi-user load,
 final runtime operations and a written freeze/cutover/reconciliation/rollback
 procedure. HTTP test-client assertions do not establish those browser or load
 results. Production still uses SQLite; no main merge or production deployment.
+
+## 2026-09-20 browser, bounded load and baseline drift
+
+On the original v0.1.252-based rehearsal code, Chrome login, work-order search,
+workspace navigation and expense image opening/zooming/closing were exercised.
+Closing the image preserved the scrolled expense-detail position. At 390 × 844,
+the daily-report form displayed one column without overlapping labels/inputs.
+Browser form saving is not yet verified. Browser upload was blocked by the
+extension's local-file access setting; no upload success is claimed.
+
+The final employee-role real-HTTP load run used four clients for 60.6 seconds:
+1,176 successful measured requests, p50 28.9 ms, p95 70.7 ms, maximum 157.5 ms,
+zero reported errors. Retried tokens produced exactly 197 expenses; all amounts
+were 12.34. These are bounded mixed-read/write results, not a capacity forecast.
+The earlier admin-role attempt received 403 on expense creation and is excluded
+from the passing result; application permissions were not weakened.
+
+Production was subsequently found at 588ee36 (following v0.1.260), with changes
+to expense saving, daily reports and image handling. It was merged into the
+compatibility branch as 6c37c76. The results above do NOT certify that new code.
+Its committed-code archive has been uploaded to the isolated directory. After
+explicit user authorization, a fresh read-only SQLite backup was imported into
+invoice_current_rehearsal. Snapshot SHA-256:
+07ac9003e041383c2a9256c9e041ff1c74380315aede4c9492791c2d1e42a547.
+All 60 tables / 7,869 rows passed content-hash comparison, with 84 validated
+foreign keys and 51 sequences. The exact reviewed schema still matches.
+The latest-code differential run passed: 155 routes returned 200, 25 sampled
+attachments returned 200, 22 settlement Excel exports were checked, with zero
+business/status differences and no failures on either backend. Attachment
+checks use existing independent rehearsal file copies, not a fresh complete
+production-file snapshot. They do not establish coverage of all current files.
+Four local SQL translation/row tests also passed. Latest-baseline full
+regression, browser saves/uploads and load acceptance remain separate gates.
+
+On a disposable clone of the current snapshot, all 14 PostgreSQL compatibility
+tests and 51 Phase 9 formal-save tests passed. Three newly merged test classes
+assigned `app.db = None` during class teardown, breaking later classes; their
+teardown no longer destroys the shared connection factory. An initial full-suite
+launcher also forced INVOICE_DATA_DIR across tests that expect independent
+temporary roots, causing fixture collisions. Those failed runs are not passing
+evidence. The corrected launcher copies code into a disposable, network-disabled
+container and leaves data-root selection to the tests.
+
+Correctly isolated full SQLite run: 1,131 passed, 12 skipped and one stale
+settlement expectation failed (239.37 seconds). Current upstream explicitly
+treats a nonzero manual amount as an override: source 80/manual 5 yields 5,
+while retaining auto_other=80 for provenance. The legacy test expected 85.
+Its assertions now expect other_total=5 and total_amount=285, including after
+the cutoff check. The entire payment-terms module then passed (19 tests).
+The full suite was not rerun after that assertion-only correction; no remaining
+observed failure is being concealed by skips or relaxed business code.
+
+See [cutover and rollback runbook](postgresql-cutover-runbook.md) for the planned
+freeze, reconciliation and rollback gates. Production remains SQLite.

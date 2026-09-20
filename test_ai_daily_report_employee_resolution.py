@@ -77,7 +77,8 @@ class EmployeeResolutionFoldTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.app_module.db = None
+        # The shared database factory must remain callable for subsequent tests.
+        pass
 
     def setUp(self):
         self._ctx = self.app.app_context()
