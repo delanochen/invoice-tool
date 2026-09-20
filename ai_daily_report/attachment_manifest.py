@@ -383,8 +383,13 @@ class AttachmentManifestService:
                 "sort_order": 1 + idx,
             })
 
-        # Arrival / Departure references (provenance-only roles; never
-        # materialize independently, never auto-create formal attachments).
+        # Arrival / Departure references. These carry BOTH responsibilities:
+        # they stay provenance (service_reports.arrival_photo_relative_path /
+        # departure_photo_relative_path point at the original AI-draft photo)
+        # AND materialize as real formal attachments (category arrival /
+        # departure) so the service-report page can display them. Without
+        # materialization the report page's arrival/departure photo sections
+        # render empty, because the page reads service_report_attachments.
         for key, role_type, category, sort_order in (
             ("arrival_photo_ref", "arrival_reference", "arrival", 100),
             ("departure_photo_ref", "departure_reference", "departure", 101),
@@ -392,14 +397,14 @@ class AttachmentManifestService:
             pid = draft_data.get(key)
             if not pid:
                 continue
-            src = _ensure_photo_source(pid, materialize=False)
+            src = _ensure_photo_source(pid, materialize=True)
             src["roles"].append({
                 "source_identity": src["source_identity"],
                 "role_type": role_type,
                 "category": category,
                 "visibility": "client",
                 "purpose": "timeline_evidence",
-                "materialization_required": 0,
+                "materialization_required": 1,
                 "sort_order": sort_order,
             })
 

@@ -445,12 +445,17 @@ class TestFormalSaveService(Phase9TestBase):
         self.assertIn("site", categories)
         self.assertIn("self_check", categories)
         self.assertIn("mileage_proof", categories)
-        self.assertNotIn("arrival", categories)
-        self.assertNotIn("departure", categories)
+        # v0.1.257: arrival/departure photos are materialized as real formal
+        # attachments so the service-report page renders them.
+        self.assertIn("arrival", categories)
+        self.assertIn("departure", categories)
         # files exist and hash-match prepared assets
         for att in attachments:
             stored = (Path(self.temp_dir) / "service-report-attachments" / att["stored_filename"]).resolve()
             self.assertTrue(stored.is_file(), stored)
+        # arrival/departure provenance columns still point at the AI-draft photo
+        self.assertTrue(report["arrival_photo_relative_path"])
+        self.assertTrue(report["departure_photo_relative_path"])
         # formal commit row + draft saved
         commit = db.execute("select * from ai_daily_report_formal_commits where draft_id = ?", (did,)).fetchone()
         self.assertEqual(commit["status"], "committed")
@@ -605,7 +610,10 @@ class TestFormalSaveService(Phase9TestBase):
             self._formal_service().run(draft_row, 1, manifest["manifest_id"], validation, self._manifest_service())
         self.assertEqual(ctx.exception.code, "travel_mode_unmappable")
 
-    def test_21_provenance_only_arrival_no_duplicate_attachment(self):
+    def test_21_arrival_photo_materialized_and_provenance_kept(self):
+        """v0.1.257: arrival/departure are BOTH materialized as formal
+        attachments and kept as provenance. (Supersedes the old
+        'provenance-only, never materialized' contract.)"""
         did, _ = self._build_confirmed_draft(421)
         manifest = self._prepare_ready(did)
         draft_row = self._get_draft_row(did)
@@ -615,9 +623,19 @@ class TestFormalSaveService(Phase9TestBase):
         attachments = db.execute(
             "select * from service_report_attachments where report_id = ?", (result["service_report_id"],),
         ).fetchall()
-        self.assertFalse([a for a in attachments if a["category"] in ("arrival", "departure")])
-        # arrival photo is provenance-only; it was NOT materialized unless
-        # it doubles as safety/service photo.
+        arrival_rows = [a for a in attachments if a["category"] == "arrival"]
+        self.assertEqual(len(arrival_rows), 1)
+        # the materialized file exists on disk
+        stored = (Path(self.temp_dir) / "service-report-attachments" / arrival_rows[0]["stored_filename"]).resolve()
+        self.assertTrue(stored.is_file(), stored)
+        # provenance column still points at the original AI-draft photo
+        report = db.execute(
+            "select arrival_photo_relative_path, arrival_photo_hash from service_reports where id = ?",
+            (result["service_report_id"],),
+        ).fetchone()
+        self.assertIn("arrival.jpg", report["arrival_photo_relative_path"])
+        self.assertTrue(report["arrival_photo_hash"])
+        # source provenance row still exists in the manifest
         src = db.execute(
             """
             select source_relative_path from ai_daily_report_manifest_sources
@@ -627,7 +645,7 @@ class TestFormalSaveService(Phase9TestBase):
         ).fetchone()
         self.assertIsNotNone(src)
 
-    def test_22_same_photo_service_and_arrival_single_attachment(self):
+    def test_22_same_photo_service_and_arrival_distinct_categories(self):
         did, _ = self._build_confirmed_draft(422)
         # make the service photo also the arrival reference
         db = self.app_module.db()
@@ -642,11 +660,17 @@ class TestFormalSaveService(Phase9TestBase):
         validation = self._validation_result(draft_row)
         result = self._formal_service().run(draft_row, 1, manifest["manifest_id"], validation, self._manifest_service())
         db = self.app_module.db()
-        site_rows = db.execute(
-            "select * from service_report_attachments where report_id = ? and category = 'site'",
+        rows = db.execute(
+            "select category from service_report_attachments where report_id = ? order by category",
             (result["service_report_id"],),
         ).fetchall()
-        self.assertEqual(len(site_rows), 1)  # no duplicate from arrival role
+        cats = [r["category"] for r in rows]
+        # one row per category — the shared physical photo is copied once per
+        # category (no duplicate site rows), and arrival/departure now each get
+        # their own row pointing at the same source photo.
+        self.assertEqual(cats.count("site"), 1)
+        self.assertEqual(cats.count("arrival"), 1)
+        self.assertEqual(cats.count("departure"), 1)
 
     def test_23_multi_worker_different_origins_departure_null(self):
         did, _ = self._build_confirmed_draft(423)
@@ -923,15 +947,15 @@ class TestFormalSaveApi(Phase9TestBase):
         self.assertEqual(ctx.exception.code, "integrity_failed")
         self.assertEqual(self._count_rows("service_reports where ai_draft_id = %d" % did), 0)
 
-    def test_63_safety_arrival_no_duplicate_attachment(self):
-        """Requirement #32: safety + arrival shared photo -> single self_check
-        formal attachment; arrival stays provenance-only."""
+    def test_63_safety_arrival_shared_photo(self):
+        """Requirement #32 (updated v0.1.257): safety + arrival shared photo
+        yields one self_check row (safety) plus one arrival row, since
+        arrival is now materialized as a formal attachment."""
         did, data = self._build_confirmed_draft(463)
         photos = self._photo_files()
         safety_rel = f"{self.ORDER_NUMBER}/pictures/2026-09-14/safety.jpg"
         service_rel = f"{self.ORDER_NUMBER}/pictures/2026-09-14/service1.jpg"
-        # arrival provenance points at the SAME photo already selected as the
-        # safety photo -> single self_check formal attachment; no second copy.
+        # arrival points at the SAME photo already selected as the safety photo
         data["arrival_photo_ref"] = photos[safety_rel]
         data["departure_photo_ref"] = None
         data["evidence_records"] = []
@@ -950,15 +974,17 @@ class TestFormalSaveApi(Phase9TestBase):
         cats = sorted(r["category"] for r in db.execute(
             "select category from service_report_attachments where report_id = ?", (rid,)
         ).fetchall())
-        # site (service photo) + self_check (safety photo); arrival never adds
-        # a second attachment even though arrival_photo_ref == safety photo.
-        self.assertEqual(cats, ["self_check", "site"])
-        self.assertEqual(self._count_rows("service_report_attachments where report_id = %d" % rid), 2)
+        # site (service photo) + self_check (safety photo) + arrival (the shared
+        # photo materialized under its own category). No departure (None).
+        self.assertEqual(cats, ["arrival", "self_check", "site"])
+        self.assertEqual(self._count_rows("service_report_attachments where report_id = %d" % rid), 3)
 
     def test_64_service_safety_shared_asset_gate4(self):
         """GATE 4: same physical prepared asset carrying service_photo +
         safety_photo -> site + self_check rows, both files exist, content SHA
-        equals prepared source, provenance points to the same source."""
+        equals prepared source, provenance points to the same source.
+        (Default draft also carries arrival/departure refs -> those add their
+        own rows under their own categories, each hashing to the same source.)"""
         did, data = self._build_confirmed_draft(464)
         photos = self._photo_files()
         service_rel = f"{self.ORDER_NUMBER}/pictures/2026-09-14/service1.jpg"
@@ -979,19 +1005,26 @@ class TestFormalSaveApi(Phase9TestBase):
             "select category, stored_filename from service_report_attachments where report_id = ? order by category",
             (rid,),
         ).fetchall()
-        self.assertEqual([r["category"] for r in rows], ["self_check", "site"])
-        # Both formal files exist on disk and hash to the prepared source SHA.
+        cats = [r["category"] for r in rows]
+        # arrival + departure come from the default draft's photo refs;
+        # self_check + site come from the shared safety/service photo.
+        self.assertEqual(sorted(cats), ["arrival", "departure", "self_check", "site"])
+        # No duplicate row for any category.
+        self.assertEqual(len(cats), len(set(cats)))
+        # Every formal file exists on disk and hash-matches the SAME prepared source.
         report_dir = Path(self.temp_dir) / "service-report-attachments"
-        prepared_sha = db.execute(
-            "select prepared_sha256 from ai_daily_report_prepared_assets where manifest_id = ?",
-            (manifest["manifest_id"],),
-        ).fetchone()["prepared_sha256"]
+        prepared_shas = {
+            r["prepared_sha256"] for r in db.execute(
+                "select prepared_sha256 from ai_daily_report_prepared_assets where manifest_id = ?",
+                (manifest["manifest_id"],),
+            ).fetchall()
+        }
         for r in rows:
             path = report_dir / r["stored_filename"]
             self.assertTrue(path.is_file(), r["stored_filename"])
             import hashlib as _h
             h = _h.sha256(path.read_bytes()).hexdigest()
-            self.assertEqual(h, prepared_sha)
+            self.assertIn(h, prepared_shas)
         # Provenance: both roles point to the same prepared asset/source.
         role_rows = db.execute(
             """
@@ -1072,9 +1105,15 @@ class TestFormalSaveApi(Phase9TestBase):
         ).fetchone()["saved_report_id"]
         self.assertEqual(self._count_rows("service_report_workers where report_id = %d" % rid), 1)
         # Default confirmed draft: safety (self_check) + service (site) +
-        # mileage evidence (mileage_proof) = 3 formal attachment rows, no
-        # duplicates from the race.
-        self.assertEqual(self._count_rows("service_report_attachments where report_id = %d" % rid), 3)
+        # mileage evidence (mileage_proof) + arrival + departure = 5 formal
+        # attachment rows, no duplicates from the race.
+        self.assertEqual(self._count_rows("service_report_attachments where report_id = %d" % rid), 5)
+        self.assertEqual(
+            self._count_rows(
+                "service_report_attachments where report_id = %d and category in ('arrival','departure')" % rid
+            ),
+            2,
+        )
         # Second request after completion -> 200 same report (via API, serial).
         resp = self._form_save(did, user_id=400, body={"draft_version": 1, "manifest_id": manifest["manifest_id"]})
         self.assertEqual(resp.status_code, 200, resp.get_json())

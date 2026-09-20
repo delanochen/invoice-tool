@@ -4,6 +4,18 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.257] - 2026-09-19
+
+### Fixed
+- 修复 AI 智能日报传递到工单日报后，「现场到达时间照片」和「离开现场时间照片」两张照片没有同步过去的问题（用户报告）。根因是字段级不一致：正式保存只把到达/离开照片写进了工单日报的取证列（`service_reports.arrival_photo_relative_path` 等），而工单日报页面（编辑表单与只读查看页）都是从附件表 `service_report_attachments` 按 `category IN ('arrival','departure')` 读图的——写的地方和读的地方不是同一个，所以那两个照片区必然为空。该行为源自早期「到达/离开仅作取证、不生成正式附件」的设计边界，但该边界从未与页面实际渲染方式对齐。
+
+### Changed
+- 到达/离开照片改为**双重写入**：既保留取证列（仍指向 AI 日报原始照片，供审计），又真正物化为工单日报附件（分类 `arrival` / `departure`），与手动填写的工单日报完全一致。附件清单（manifest）中这两个角色由 `materialization_required=0` 改为 `1`，`FORMAL_CATEGORIES` 与 `ROLE_TO_CATEGORY` 补入 arrival/departure。存储路径沿用 `工单号/日期/现场到达时间照片`、`离开现场时间照片` 目录命名，与手动填写的日报一致；工单附件打包下载（attachments.zip）自动一并包含这两类照片。
+
+### 测试
+- 新增 `test_arrival_departure_sync.py`（8 项）：从工单日报页面自身的读取函数 `get_report_attachments` 验证 arrival/departure 非空、文件可通过 `report_attachment_path` 解析且哈希命中 prepared asset、目录命名与手动日报一致、取证列仍写入、无 ref 时不虚构附件行、仅 departure 不产生 arrival、无里程佐证草稿仍同步两张照片、编辑页与只读查看页均渲染出照片 `<img>` 且图片端点可访问。
+- 更新旧契约用例：`test_ai_daily_report_phase9.py` 的 test_10/21/22/63/64/65 与 `test_ai_daily_report_phase8.py` 的 test_52 由「到达/离开不产生附件」改为「物化为真实附件且保留取证」，并按新分类数调整断言。phase9（51）/phase8（59）/phase7（110）/phase6（44）/incomplete_pass（11）回归通过。
+
 ## [0.1.256] - 2026-09-19
 
 ### Fixed

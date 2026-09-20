@@ -10,9 +10,11 @@ BOUNDARY LOCK (Phase 9):
 - NEVER calls DeepSeek / Vision / Google Routes / Google Static Maps.
 - NEVER rescans photos, regenerates mileage evidence, re-infers times,
   re-calculates mileage, or re-selects photos.
-- NEVER writes arrival/departure formal attachment categories
-  (arrival/departure stay provenance-only).
-- Formal attachment categories are limited to: site / self_check / mileage_proof.
+- Formal attachment categories: self_check / site / mileage_proof, PLUS
+  arrival / departure (v0.1.257: arrival/departure photos are written BOTH as
+  provenance columns on service_reports AND as real formal attachments, so the
+  service-report page's 现场到达时间照片 / 离开现场时间照片 sections show them;
+  the page reads service_report_attachments, not the provenance columns).
 
 EXACTLY-ONCE:
 - ai_daily_report_drafts.saved_report_id (pre-existing, Phase 1 reserved) is the
@@ -61,11 +63,14 @@ CODE_TRAVEL_MODE = "travel_mode_unmappable"
 CODE_COMMIT_CONFLICT = "commit_in_progress"
 CODE_NOT_FOUND = "not_found"
 
-# Formal attachment categories allowed by Phase 9 (sealed Q4 ruling).
-FORMAL_CATEGORIES = ("self_check", "site", "mileage_proof")
+# Formal attachment categories (arrival/departure added in v0.1.257 so the
+# service-report page actually renders those two photo sections).
+FORMAL_CATEGORIES = ("arrival", "departure", "self_check", "site", "mileage_proof")
 
-# Role type -> formal attachment category (only materialization_required=1 roles).
+# Role type -> formal attachment category (materialization_required=1 roles).
 ROLE_TO_CATEGORY = {
+    "arrival_reference": "arrival",
+    "departure_reference": "departure",
     "safety_photo": "self_check",
     "service_photo": "site",
     "mileage_evidence": "mileage_proof",
@@ -953,8 +958,9 @@ class FormalSaveService:
         """Copy each materialize-required asset into formal attachment storage.
 
         One physical copy per asset (dedup by prepared_sha256); one DB row per
-        materialize role category (sealed Phase 9 design). arrival/departure
-        roles never materialize here.
+        materialize role category. v0.1.257: arrival/departure roles are
+        materialize-required too, so the service-report page renders those two
+        photo sections; their provenance columns stay populated as well.
 
         Returns (recorded_files, attachment_rows).
         """
