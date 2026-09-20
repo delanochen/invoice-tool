@@ -271,7 +271,9 @@
         return;
       }
       if (!data.staff.length) {
-        resultsEl.innerHTML = '<span class="muted-line">未找到匹配的员工。</span>';
+        resultsEl.innerHTML = data.hint
+          ? `<span class="muted-line">${escapeHtml(data.hint)}</span>`
+          : '<span class="muted-line">未找到匹配的员工。</span>';
         return;
       }
       resultsEl.innerHTML = data.staff
@@ -282,7 +284,7 @@
                 <strong>${escapeHtml(p.name)}</strong>
                 <span class="muted-line" style="font-size:0.75rem; margin-left:0.5rem;">${escapeHtml(p.email)}</span>
               </div>
-              <span class="muted-line" style="font-size:0.75rem;">${p.role === "admin" ? "管理员" : p.role === "manager" ? "经理" : "员工"}</span>
+              <span class="muted-line" style="font-size:0.75rem;">${({admin:"管理员", manager:"经理", finance:"财务", employee:"员工", external_manager:"外部经理", external_employee:"外部员工"}[p.role] || p.role)}</span>
             </div>`
         )
         .join("");

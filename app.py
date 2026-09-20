@@ -12917,28 +12917,58 @@ def ai_daily_report_update_worker(draft_id):
         return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
 
 
+def _fold_staff_query(text: str) -> str:
+    """Casefold + strip diacritics for tolerant staff matching.
+
+    SQLite LIKE does no Unicode folding, so searching "Antonio" would never
+    match a stored "Ant\u00f3nio". Folding both sides fixes that (v0.1.255).
+    """
+    import unicodedata
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
 @app.get("/api/ai/daily-report/staff")
 @login_required
 def ai_daily_report_staff_search():
-    """Search active internal staff to add as Draft workers.
+    """Search active staff to add as Draft workers.
 
-    Read-only. Only admin/manager/employee are field staff candidates.
+    Read-only. Worker-eligible roles match WORKER_ELIGIBLE_ROLES
+    (v0.1.255: includes finance / external_manager / external_employee per
+    the 2026-09-16 product decision that daily reports often record work
+    performed by external staff). Matching folds case and diacritics.
     """
     if not is_internal_user():
         return jsonify({"ok": False, "error": "无权限"}), 403
 
     q = (request.args.get("q") or "").strip()
-    like = f"%{q}%"
+    if not q:
+        return jsonify({"ok": True, "staff": [], "hint": None})
+
+    needle = _fold_staff_query(q)
     rows = db().execute(
         "SELECT id, name, email, role FROM users "
-        "WHERE is_active = 1 AND role IN ('admin', 'manager', 'employee') "
-        "AND (name LIKE ? OR email LIKE ?) ORDER BY name LIMIT 20",
-        (like, like),
+        "WHERE is_active = 1 AND role IN ('admin', 'manager', 'finance', 'employee', 'external_manager', 'external_employee') "
+        "ORDER BY name",
     ).fetchall()
-    return jsonify({
-        "ok": True,
-        "staff": [{"id": r["id"], "name": r["name"], "email": r["email"], "role": r["role"]} for r in rows],
-    })
+    staff = [
+        {"id": r["id"], "name": r["name"], "email": r["email"], "role": r["role"]}
+        for r in rows
+        if needle in _fold_staff_query(r["name"]) or needle in _fold_staff_query(r["email"])
+    ][:20]
+
+    hint = None
+    if not staff:
+        near = db().execute(
+            "SELECT id FROM users WHERE name LIKE ? OR email LIKE ? LIMIT 1",
+            (f"%{q}%", f"%{q}%"),
+        ).fetchone()
+        if near:
+            hint = "找到相近的用户，但其账号已停用或角色不可加入日报。"
+        else:
+            hint = "系统中没有该人员的账号。外部人员请先在用户管理中创建账号后再添加。"
+
+    return jsonify({"ok": True, "staff": staff, "hint": hint})
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/add-worker")
@@ -12975,8 +13005,11 @@ def ai_daily_report_add_worker(draft_id):
     ).fetchone()
     if not user:
         return jsonify({"ok": False, "error": "用户不存在"}), 404
-    if user["role"] not in {"admin", "manager", "employee"}:
-        return jsonify({"ok": False, "error": "该用户不是可添加的内部员工"}), 400
+    # v0.1.255: align with WORKER_ELIGIBLE_ROLES — external staff may be
+    # added to daily reports (2026-09-16 product decision).
+    from ai_daily_report.employee_resolution import WORKER_ELIGIBLE_ROLES
+    if user["role"] not in WORKER_ELIGIBLE_ROLES:
+        return jsonify({"ok": False, "error": "该用户角色不可加入日报工作人员"}), 400
 
     try:
         draft = svc.parse_draft_data(draft_row)
