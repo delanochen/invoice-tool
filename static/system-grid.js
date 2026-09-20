@@ -169,9 +169,9 @@
         const data = {_id:row._gridId};
         this.headers.forEach((_,index) => {
           data[`c${index}`]=valueOf(row.cells[index]);
-          const input=row.cells[index]?.querySelector('input[data-auto-amount]');
-          const value=input ? Number(input.value||0)+Number(input.dataset.autoAmount||0) : data[`c${index}`];
-          data[`m${index}`]=amounts(value,row.cells[index]?.dataset.gridCurrency || row.dataset.currency);
+          // 结算单金额单元格的 input.value 已是「实际生效金额」（来源 + 人工调整），
+          // 不能再叠加 data-auto-amount，否则会重复计数。
+          data[`m${index}`]=amounts(data[`c${index}`],row.cells[index]?.dataset.gridCurrency || row.dataset.currency);
         });
         return data;
       });

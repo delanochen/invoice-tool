@@ -5618,14 +5618,26 @@ def excessive_following_mileage_rows(order_id, threshold=500):
     ).fetchall()
 
 
-def customer_reimbursement_item_expense_amount(row, field_name):
-    def value(key):
-        try:
-            return row[key]
-        except (KeyError, TypeError, IndexError):
-            return 0
+def _row_field(row, key, default=0):
+    """读取结算明细行的字段，兼容 dict 与 sqlite3.Row（后者没有 .get）。"""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
 
-    return money_decimal(value(field_name)) + money_decimal(value(f"auto_{field_name}"))
+
+def customer_reimbursement_item_expense_amount(row, field_name):
+    """单元格实际生效金额。
+
+    结算单同时保存两列：
+      * ``field_name``  —— 人工调整值（0 表示未调整，沿用来源金额）
+      * ``auto_field_name`` —— 从员工报销自动转入的来源合计
+    用户看到、以及计入合计的就是二者中「手改优先」的那一个，不能相加，
+    否则会把来源金额重复计入。
+    """
+    manual = money_decimal(_row_field(row, field_name))
+    return manual if manual else money_decimal(_row_field(row, f"auto_{field_name}"))
 
 
 def calculate_customer_reimbursement_item(row, sort_order=0):
@@ -5715,6 +5727,22 @@ def merge_approved_expenses_into_customer_reimbursement(
 ):
     auto_fields = tuple(f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"))
     merged = [dict(row) for row in rows]
+    # The settlement form posts each expense cell as the value the user sees.
+    # Capture whether the user overrode the auto-transferred sources *before*
+    # the auto_* columns are rebuilt below, otherwise a figure the user
+    # deliberately edited would be silently reverted on every save.
+    manual_overrides = []
+    for row in merged:
+        override = {}
+        for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"):
+            if f"auto_{name}" not in row:
+                continue
+            manual = money_decimal(row.get(name))
+            auto = money_decimal(row.get(f"auto_{name}"))
+            # A cell equal to the source total means "untouched"; keep 0 so the
+            # figure keeps tracking the sources.  Anything else is a real edit.
+            override[name] = 0 if manual == auto else manual
+        manual_overrides.append(override)
     # Historical drafts keep the old auto-transfer behavior until someone opens
     # the new review pool and explicitly saves a selection.  New/manual-review
     # settlements are rebuilt only from the persisted selected expense lines.
@@ -5768,6 +5796,15 @@ def merge_approved_expenses_into_customer_reimbursement(
         })
         auto_field = f"auto_{field_name}"
         row[auto_field] = money_float(money_decimal(row.get(auto_field)) + money_decimal(expense_item["amount"]))
+
+    # Re-apply each row's manual override so an edited cell keeps the figure the
+    # user typed instead of snapping back to the raw expense sources.
+    for index, row in enumerate(merged):
+        if index >= len(manual_overrides):
+            continue
+        for name, manual in manual_overrides[index].items():
+            if manual:
+                row[name] = money_float(manual)
 
     return [calculate_customer_reimbursement_item(row, index) for index, row in enumerate(merged)]
 
@@ -5828,11 +5865,12 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
     mileage_total = sum((money_decimal(item["mileage_total"]) for item in items), Decimal("0"))
     mro_supplies_total = money_decimal(mro_supplies_total)
     rental_fuel_total = money_decimal(rental_fuel_total)
+    # 结算金额中来自员工报销的部分（人工调整后仍按来源金额展示，仅作参考）。
     employee_expense_total = sum(
-        customer_reimbursement_item_expense_amount(item, key) - money_decimal(item[key])
-        for item in items
-        for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
-    ) or Decimal("0")
+        (money_decimal(_row_field(item, f"auto_{key}")) for item in items
+         for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")),
+        Decimal("0"),
+    )
     travel_total = manual_travel_total + rental_fuel_total
     total_amount = (
         sum((money_decimal(item["total"]) for item in items), Decimal("0"))
@@ -6030,9 +6068,14 @@ def customer_reimbursement_items_from_form(order_id=None):
         "worker_name", "project_date", "standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours",
         "lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "miles", "other",
     ]
+    # auto_* columns are the auto-transferred expense sources behind each cell.
+    # The cell itself posts the effective amount the user sees, so the form must
+    # echo auto_* back untouched for the merge step to recover the manual delta.
+    auto_field_names = [f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")]
     money_fields = {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}
     rates = customer_reimbursement_rates()
     posted = {name: request.form.getlist(name) for name in field_names}
+    posted_auto = {name: request.form.getlist(name) for name in auto_field_names}
     source_report_ids = request.form.getlist("source_report_id")
     source_worker_user_ids = request.form.getlist("source_worker_user_id")
     count = max((len(values) for values in posted.values()), default=0)
@@ -6059,6 +6102,9 @@ def customer_reimbursement_items_from_form(order_id=None):
         for name in field_names[2:]:
             value = posted[name][index] if index < len(posted[name]) else 0
             row[name] = money_float(value) if name in money_fields else to_float(value)
+        for name in auto_field_names:
+            values = posted_auto[name]
+            row[name] = money_float(values[index]) if index < len(values) else 0
         if order_id is None:
             effective_rates = {
                 "standard_rate": rates["标准工时"],

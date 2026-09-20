@@ -4,6 +4,27 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.258] - 2026-09-19
+
+### Fixed
+- 修复工单结算单「从报销传递过来的数字在单元格里全部显示 0、后面还挂着『已调整』」的问题（用户报告）。根因是同一个金额存了两列却三处口径不一致：明细行的 `lodging/fuel/...` 是**人工调整值**（未调整时为 0），`auto_lodging/auto_fuel/...` 才是**从员工报销自动转入的来源合计**。而页面单元格 `input` 的 value 直接取人工列（必然为 0），徽章判定又是 `auto > 0 and 人工 != auto`（0 ≠ 来源金额，必然判定为「已调整」），于是未调整过的行也会显示 0 + 已调整。
+- 修复已调整过的金额在点击保存后被刷掉的问题。`merge_approved_expenses_into_customer_reimbursement` 每次保存都会把 `auto_*` 清零并按报销来源重新累加，但表单不回传 `auto_*`、也不保留人工列语义，用户手改的数字在重算后无处落地即被覆盖。
+
+### Changed
+- 金额口径统一为**「手改优先」**：单元格展示与合计取值均为「有人工调整值则用人工值，否则用报销来源金额」。
+  - `customer_reimbursement_item_expense_amount()` 由 `实际 + auto` 改为手改优先，避免来源金额在合计/Excel/PDF 中被重复计入。
+  - `merge_approved_expenses_into_customer_reimbursement()` 在重建 `auto_*` 前先捕获人工调整值，重算后回填，保存不再冲掉手改数字；单元格值等于来源合计时视为「未曾调整」，继续保持跟随来源。
+  - `customer_reimbursement_items_from_form()` 增读并回传 `auto_*`；模板补隐藏域。
+  - 模板 `is_adjusted` 判定改为 `人工值非 0 且不等于来源金额`，另有来源的行不再误显示「已调整」。
+  - `static/system-grid.js` 去掉 `input.value + data-auto-amount` 的重复累加（value 已是生效金额）。
+  - 新增 `_row_field()` 兼容 `sqlite3.Row`（无 `.get`）。
+- 不改动任何里程、工时、随行计费逻辑。
+
+### 测试
+- 新增 `test_reimbursement_expense_display.py`（9 项）：未调整时生效金额等于来源金额而非 0、未调整不渲染「已调整」徽章、手改后徽章出现、手改值经保存与 totals 重算后保持不变、表单回传 `auto_*` 后 round-trip 仍保留手改值、合计不重复累加来源、页面渲染的 input 值与隐藏域断言、manual_review 选择来源路径同样保留手改值。已用变异测试确认用例能捕获旧缺陷。
+- 更新 `test_customer_reimbursement_mro.py` 的 Excel 导出断言以匹配「手改优先」口径（住宿 10 与来源 20 不再相加）。
+- 结算/报销相关套件（mro、settlement_excel、profitability_status、expense_attachment_transfer、expense_on_behalf、customer_report_payroll、grid_grouping_labels）共 69 项通过。
+
 ## [0.1.257] - 2026-09-19
 
 ### Fixed

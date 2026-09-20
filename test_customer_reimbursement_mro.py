@@ -99,11 +99,16 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             self.reimbursement_id = reimbursement_id
 
     def test_settlement_excel_download_preserves_database_values(self):
+        """导出 Excel 必须沿用「手改优先」口径。
+
+        该行人工列 lodging=10 / other=3 均非 0，代表用户已调整过，合计按人工值取；
+        auto_lodging=20 / auto_other=4 只是来源快照，不能与人工值相加。
+        """
         from io import BytesIO
         from openpyxl import load_workbook
         with self.module.app.app_context():
             connection = self.module.db()
-            connection.execute("update customer_reimbursement_items set transport_hours=2, lodging=10, auto_lodging=20, other=3, auto_other=4, total=107 where customer_reimbursement_id=?", (self.reimbursement_id,))
+            connection.execute("update customer_reimbursement_items set transport_hours=2, lodging=10, auto_lodging=20, other=3, auto_other=4, total=87 where customer_reimbursement_id=?", (self.reimbursement_id,))
             connection.commit()
         with self.module.app.test_client() as client:
             with client.session_transaction() as session:
@@ -113,7 +118,8 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             workbook = load_workbook(BytesIO(response.data))
             self.addCleanup(workbook.close)
             rows = list(workbook.active.values)
-            self.assertEqual(rows[1], (1, 'Worker', '2026-08-12', 1, 2, 0, 0, 0, 70, 30, 0, 0, 0, 0, 0, 0, 0, 7, 107))
+            # 住宿 10（人工值，来源 20 不叠加）、其他 3（人工值，来源 4 不叠加）
+            self.assertEqual(rows[1], (1, 'Worker', '2026-08-12', 1, 2, 0, 0, 0, 70, 10, 0, 0, 0, 0, 0, 0, 0, 3, 87))
             response.close()
 
     def test_auto_expense_source_snapshot_matches_amount(self):
