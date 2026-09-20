@@ -38,13 +38,13 @@
       {% if can_delete %}
         <form method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}" onsubmit="return confirm('确定删除这张报销单吗？');"><button class="danger" type="submit">删除</button></form>
       {% endif %}
-      {% if expense.status == "submitted" and normalized_role() in ["admin", "manager"] %}
+      {% if expense.status == "submitted" and has_action_permission("expenses", "approve") %}
         <form method="post" action="{{ url_for('approve_expense', expense_id=expense.id) }}"><button class="primary" type="submit">审核通过</button></form>
         <button class="danger" type="button" onclick="document.querySelector('#returnExpenseDialog').showModal()">退回</button>
       {% endif %}
     </div>
   </header>
-  {% if expense.status == "submitted" and normalized_role() in ["admin", "manager"] %}
+  {% if expense.status == "submitted" and has_action_permission("expenses", "approve") %}
     <dialog id="returnExpenseDialog" class="modal">
       <form method="post" action="{{ url_for('return_expense', expense_id=expense.id) }}" class="form-stack">
         <h2>退回报销</h2>

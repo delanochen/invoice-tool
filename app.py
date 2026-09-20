@@ -359,7 +359,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "service_order_calendar", "label": "工单日历", "actions": {"view": set(ROLE_OPTIONS)}},
             {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee", "external_manager"}}},
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
-            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"manager", "finance"}}},
+            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"admin", "manager", "finance"}}},
             {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "reset": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
             {"key": "profitability", "label": "项目利润", "actions": {"view": {"admin", "manager", "finance"}}},
             {"key": "knowledge_base", "label": "知识库", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager"}}},
@@ -2207,6 +2207,7 @@ def init_db():
                 ("payroll_historical_paid_date_20260705_v1", now()),
             )
         seed_role_permissions(connection)
+        migrate_admin_expense_approve(connection)
         if not connection.execute("select id from users where role = 'admin' limit 1").fetchone():
             admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
             admin_password = os.environ.get("ADMIN_PASSWORD", "")
@@ -2499,6 +2500,33 @@ def seed_role_permissions(connection):
                 """,
                 (role, resource_key, action_key, 1 if role in roles else 0, timestamp),
             )
+
+
+def migrate_admin_expense_approve(connection):
+    """一次性数据迁移：报销审核（通过/退回）默认对 admin 开放。
+
+    seed_role_permissions 只用 insert or ignore，老库中已固化的
+    (admin, expenses, approve, is_enabled=0) 行不会被默认值变化刷新，
+    导致管理员在报销详情页点「退回」被集中路由闸门拦下（403）。
+    用 settings 哨兵保证只跑一次：管理员之后手动关闭不会被重启覆盖。
+    """
+    sentinel = connection.execute(
+        "select value from settings where key = ?", ("expense_approve_admin_v1",)
+    ).fetchone()
+    if sentinel:
+        return
+    connection.execute(
+        """
+        update role_action_permissions
+        set is_enabled = 1, updated_at = ?
+        where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
+        """,
+        (now(),),
+    )
+    connection.execute(
+        "insert into settings (key, value) values (?, ?)",
+        ("expense_approve_admin_v1", now()),
+    )
 
 
 def get_setting(key, default=""):
@@ -6005,7 +6033,12 @@ def copy_file_to_customer_reimbursement_attachment(
     extension = os.path.splitext(original_filename)[1].lstrip(".").lower() or "dat"
     stored_filename = f"{secrets.token_hex(12)}.{extension}"
     destination_path = os.path.join(customer_reimbursement_attachment_dir(reimbursement_id), stored_filename)
-    shutil.copyfile(source_path, destination_path)
+    try:
+        shutil.copyfile(source_path, destination_path)
+    except OSError as error:
+        # 拷贝失败（文件被占用、磁盘异常等）不应打断报销保存主流程。
+        app.logger.warning("Unable to copy expense attachment %s to settlement %s: %s", source_path, reimbursement_id, error)
+        return False
     try:
         db().execute(
             """
@@ -6024,6 +6057,14 @@ def copy_file_to_customer_reimbursement_attachment(
                 now(),
             ),
         )
+    except sqlite3.IntegrityError:
+        # 唯一索引 idx_customer_reimbursement_attachment_expense_source：
+        # 并发同步已复制过同一来源附件，视为已处理而非错误。
+        try:
+            os.remove(destination_path)
+        except FileNotFoundError:
+            pass
+        return False
     except sqlite3.Error:
         try:
             os.remove(destination_path)
@@ -6794,7 +6835,10 @@ def expense_attachment_fingerprints(path):
             bits = [pixels[row * 9 + column] > pixels[row * 9 + column + 1]
                     for row in range(8) for column in range(8)]
             image_hash = f"{sum(1 << index for index, bit in enumerate(bits) if bit):016x}"
-    except (OSError, ValueError):
+    except Exception:
+        # 图片指纹是尽力而为的辅助数据：Pillow 对超大图会抛
+        # DecompressionBombError（不是 OSError/ValueError 的子类），
+        # 不能让它把整条保存链路打成 500。
         pass
     return digest.hexdigest(), image_hash
 
@@ -6818,7 +6862,10 @@ def save_expense_attachment(expense_id, uploaded, expense_item_key=None):
     original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
     stored_filename = f"{secrets.token_hex(12)}.{extension}"
     stored_path = os.path.join(expense_attachment_dir(expense_id), stored_filename)
-    uploaded.save(stored_path)
+    try:
+        uploaded.save(stored_path)
+    except OSError as error:
+        raise ValueError(f"附件保存失败，请重试或更换文件后重新上传。({error})")
     file_sha256, image_dhash = expense_attachment_fingerprints(stored_path)
     return db().execute(
         """
@@ -17949,8 +17996,16 @@ def edit_expense(expense_id):
             )
             save_expense_items(expense_id, item_rows)
             save_expense_uploads(expense_id, item_rows)
-            run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
-            sync_expense_attachments_to_settlement(order["id"])
+            # 查重与附件同步是保存主流程之外的辅助步骤，任何环境性异常
+            # （文件占用、磁盘、图片解码等）都不应让报销保存返回 500。
+            try:
+                run_expense_duplicate_checks(expense_id, use_deepseek=submit_for_review)
+            except Exception:
+                app.logger.exception("Expense duplicate checks failed for expense %s", expense_id)
+            try:
+                sync_expense_attachments_to_settlement(order["id"])
+            except Exception:
+                app.logger.exception("Expense attachment sync failed for expense %s", expense_id)
             expense_summary = f"报销归属员工：{beneficiary['name']}；工单：{order['order_number']}；金额：{money(total_amount)}"
             log_action("update", "expense", expense_id, expense["expense_number"], expense_summary)
             if submit_for_review:
@@ -17960,20 +18015,29 @@ def edit_expense(expense_id):
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("edit_expense", expense_id=expense_id))
+        except Exception:
+            db().rollback()
+            app.logger.exception("Unexpected error saving expense %s", expense_id)
+            flash("保存报销时发生意外错误，请重试；若反复出现请联系管理员。", "error")
+            return redirect(url_for("edit_expense", expense_id=expense_id))
         if submit_for_review:
-            if beneficiary["id"] != g.user["id"]:
-                create_message(
-                    beneficiary["id"], "报销已提交审核",
-                    f"{g.user['name']}为你提交了报销 {expense['expense_number']}，金额 {money(total_amount)}。",
+            try:
+                if beneficiary["id"] != g.user["id"]:
+                    create_message(
+                        beneficiary["id"], "报销已提交审核",
+                        f"{g.user['name']}为你提交了报销 {expense['expense_number']}，金额 {money(total_amount)}。",
+                        url_for("expense_detail", expense_id=expense_id),
+                    )
+                notify_role(
+                    ["admin", "manager"],
+                    "报销已提交审核",
+                    f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense['expense_number']}，工单 {order['order_number']}，金额 {money(total_amount)}。",
                     url_for("expense_detail", expense_id=expense_id),
                 )
-            notify_role(
-                ["admin", "manager"],
-                "报销已提交审核",
-                f"{g.user['name']}提交了归属 {beneficiary['name']} 的报销 {expense['expense_number']}，工单 {order['order_number']}，金额 {money(total_amount)}。",
-                url_for("expense_detail", expense_id=expense_id),
-            )
-            db().commit()
+                db().commit()
+            except Exception:
+                # 报销数据已保存成功，仅通知失败时不阻塞用户。
+                app.logger.exception("Expense submit notification failed for expense %s", expense_id)
             flash("报销已提交经理审核。", "success")
             return redirect(url_for("expense_detail", expense_id=expense_id))
         flash("报销已保存。", "success")

@@ -4,6 +4,23 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.259] - 2026-09-20
+
+### Fixed
+- 修复报销单详情页明细表底部黄色「小计 / 合计」行持续闪烁的问题（用户报告，EX2609032）。`static/system-grid.js` 存在两类可自我维持的重渲染循环：① `ResizeObserver` 观察网格容器，任何高度抖动（如合计行重建）都会再次触发 `redraw()`，`redraw()` 又改变高度，形成反馈循环；② 源表格被外部（如浏览器翻译插件、脚本）以每秒数次频率改写时，`sync()` 会跟着无限 `replaceData`，每次重建都会让合计行肉眼可见地闪一下。修复：ResizeObserver 只在宽度真正变化时才 `redraw`（列布局只取决于宽度）；4 秒内 redraw 超过 8 次、replaceData 超过 12 次进入熔断窗口期，直接跳过直至振荡源停止；`renderComplete` 中的分组小计重算合并到下一帧只跑一次。`performance.now()` 熔断窗口滚动恢复，正常缩放窗口、真实数据变化不受影响。
+- 修复管理员在报销详情页点「退回」/「审核通过」提示「没有访问权限」（403）的问题（用户报告）。根因：集中路由闸门把 `return_expense`/`approve_expense` 映射到 `expenses.approve` 权限，而默认角色组 `{manager, finance}` 漏了 admin；详情页模板却按 `normalized_role() in ["admin","manager"]` 硬编码显示按钮，管理员"看得到点不动"。修复：默认组补入 admin；`seed_role_permissions` 用 `insert or ignore` 只能补缺失行、不会刷新老库中已固化的 `is_enabled=0` 行，故新增一次性数据迁移（settings 哨兵 `expense_approve_admin_v1`，管理员事后手动关闭不会被重启覆盖）；模板按钮改用 `has_action_permission("expenses", "approve")` 门控，与权限体系约定一致。
+
+### Changed
+- 报销编辑/提交保存链路对环境性异常兜底，不再因辅助步骤崩溃返回 500（用户报告"经理修改报销单点提交""提交人编辑保存"均出现 Internal Server Error）：
+  - `run_expense_duplicate_checks`（查重）与 `sync_expense_attachments_to_settlement`（报销附件同步到结算）改为尽力而为：失败记录 `app.logger.exception` 后继续保存主流程；`edit_expense` 增加 `except Exception` 兜底（回滚 + 友好提示），提交后的站内通知失败也不再阻塞（报销数据已保存）。
+  - `copy_file_to_customer_reimbursement_attachment`：`shutil.copyfile` 遇文件占用/磁盘错误（OSError）返回跳过而非抛错；命中唯一索引 `idx_customer_reimbursement_attachment_expense_source` 的并发竞争（两个请求同时同步同一附件）按"已处理"处理而非 IntegrityError 500。
+  - `expense_attachment_fingerprints` 的图片指纹部分捕获所有异常（Pillow 对超大图抛的 `DecompressionBombError` 不是 OSError/ValueError 子类，此前会逃逸成 500）；`save_expense_attachment` 的 `uploaded.save` 失败转为 ValueError 提示而非 500。
+
+### 测试
+- 新增 `test_expense_return_admin_and_robust_save.py`（8 项）：init 后 admin 的 expenses.approve 为启用、管理员 POST 退回报销返回 302 且状态变为 returned、迁移哨兵只跑一次且尊重管理员事后手动关闭、附件拷贝吞掉 PermissionError 与唯一索引并发冲突、指纹函数在 Pillow DecompressionBomb 风格异常下仍返回 SHA、编辑保存分别在查重崩溃与同步崩溃下仍返回 302 且数据落库。
+- 相关套件回归：test_reimbursement_expense_display（9）、test_customer_reimbursement_mro、test_expense_attachment_transfer、test_expense_on_behalf、test_grid_grouping_labels、test_basic_data_permissions 全部通过。
+- 闪烁熔断另以 Chrome headless + jsdom 探针验证：仅高度振荡 20 次触发 0 次 redraw；宽度振荡风暴被截断在 8 次；每 100ms 一次的持续源表格改写（30 次）仅产生 12 次 replaceData（窗口上限），合计行 DOM 数保持 1。
+
 ## [0.1.258] - 2026-09-19
 
 ### Fixed

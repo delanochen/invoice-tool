@@ -84,7 +84,7 @@
         },
       });
       this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); this.shell.classList.remove('grid-building'); settle(); });
-      this.grid.on('renderComplete', () => { this.parentTotals(); this.updateCount(); });
+      this.grid.on('renderComplete', () => { this.scheduleParentTotals(); this.updateCount(); });
       this.grid.on('dataFiltered', () => this.updateCount());
       this.grid.on('dataProcessed', () => this.updateCount());
       this.grid.on('columnResized', () => this.parentTotals());
@@ -135,7 +135,24 @@
         },0);
       }, true);
       source.closest('form')?.addEventListener('reset',()=>setTimeout(()=>this.schedule(),0),{signal:this.listeners.signal});
-      this.resizeObserver=new ResizeObserver(() => { if(this.ready && this.host.offsetWidth) this.grid.redraw(); });this.resizeObserver.observe(this.shell);
+      // 只在宽度真正变化时才 redraw：高度抖动（如合计行重建）引发的
+      // ResizeObserver 回调若也触发 redraw，会形成自我反馈循环，
+      // 表现就是底部「小计 / 合计」黄色行不停闪烁。
+      this.lastGridWidth = undefined;
+      this.redrawTimes = [];
+      this.resizeObserver=new ResizeObserver(entries => {
+        if(!this.ready || !this.host.offsetWidth) return;
+        const width = entries[entries.length-1].contentRect.width;
+        if(this.lastGridWidth === undefined){ this.lastGridWidth = width; return; }
+        if(Math.abs(width - this.lastGridWidth) < 1) return;
+        const now = performance.now();
+        this.redrawTimes = this.redrawTimes.filter(time => now - time < 4000);
+        // 熔断：4 秒内超过 8 次 redraw 视为尺寸振荡循环，暂停响应直至窗口期滑出。
+        if(this.redrawTimes.length >= 8) return;
+        this.redrawTimes.push(now);
+        this.lastGridWidth = width;
+        this.grid.redraw();
+      });this.resizeObserver.observe(this.shell);
     }
     numeric(value) { return Number(String(value).replace(/[^\d.-]/g,'')) || 0; }
     parentTotals() {
@@ -204,6 +221,13 @@
       return wrapper;
     }
     schedule() { clearTimeout(this.timer); this.timer=setTimeout(() => this.sync(),60); }
+    scheduleParentTotals() {
+      // renderComplete 在一次 replaceData 里可能连发多次，
+      // parentTotals 的增删节点又会改变表格高度；合并到下一帧只跑一次。
+      if(this.parentTotalsScheduled) return;
+      this.parentTotalsScheduled = true;
+      requestAnimationFrame(() => { this.parentTotalsScheduled = false; if(this.ready) this.parentTotals(); });
+    }
     sync() {
       if(!this.ready) return;
       // Do not reconstruct an active editor (including file pickers) while typing.
@@ -211,7 +235,12 @@
       const data=this.read();
       const signature=JSON.stringify(data)+this.source.innerHTML+JSON.stringify([...this.source.querySelectorAll('input,select,textarea')].map(input=>[input.value,input.checked,input.disabled]));
       if(signature===this.signature) return;
-      this.signature=signature; this.grid.replaceData(data).then(()=>this.updateCount());
+      const now = performance.now();
+      this.syncTimes = (this.syncTimes || []).filter(time => now - time < 4000);
+      // 熔断：4 秒内超过 12 次 replaceData 视为病态变更循环（例如浏览器
+      // 翻译插件反复改写表格文本），跳过本次刷新避免底部合计行持续闪烁。
+      if(this.syncTimes.length >= 12) return;
+      this.syncTimes.push(now); this.signature=signature; this.grid.replaceData(data).then(()=>this.updateCount());
     }
     updateCount() {
       if(!this.count) return;
