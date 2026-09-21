@@ -53,6 +53,42 @@
     background: #fff;
   }
   .report-paper .sign-grid td { height: 2.2rem; }
+  /* 上一个/下一个导航（仅屏幕显示，打印时隐藏） */
+  .service-report-toolbar {
+    max-width: 860px;
+    margin: 0 auto 0.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .service-report-nav, .service-report-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .service-report-toolbar a.button-link,
+  .service-report-toolbar button {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: #0f767e;
+    font-size: 0.86rem;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .service-report-toolbar a.button-link:hover { background: #f1f5f9; }
+  .service-report-toolbar button[disabled] {
+    color: #b8c0cc;
+    background: #f8fafc;
+    border-color: #e2e8f0;
+    cursor: not-allowed;
+  }
   @media print {
     .no-print { display: none !important; }
     .report-paper { border: none; max-width: none; padding: 0; }
@@ -61,13 +97,27 @@
 </style>
 {% endblock %}
 {% block content %}
-<div class="no-print" style="max-width:860px;margin:0 auto 0.8rem;display:flex;gap:0.5rem;justify-content:flex-end;">
-  {% if can_export %}
-  <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
-    <button type="submit">导出 Word</button>
-  </form>
-  {% endif %}
-  <button type="button" onclick="window.print()">打印</button>
+<div class="no-print service-report-toolbar">
+  <div class="service-report-nav">
+    {% if adjacent_reports.previous %}
+    <a class="button-link" href="{{ url_for('view_service_report', report_id=adjacent_reports.previous) }}">← 上一个</a>
+    {% else %}
+    <button type="button" disabled title="已经是第一个日报">← 上一个</button>
+    {% endif %}
+    {% if adjacent_reports.next %}
+    <a class="button-link" href="{{ url_for('view_service_report', report_id=adjacent_reports.next) }}">下一个 →</a>
+    {% else %}
+    <button type="button" disabled title="已经是最后一个日报">下一个 →</button>
+    {% endif %}
+  </div>
+  <div class="service-report-actions">
+    {% if can_export %}
+    <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
+      <button type="submit">导出 Word</button>
+    </form>
+    {% endif %}
+    <button type="button" onclick="window.print()">打印</button>
+  </div>
 </div>
 
 <div class="report-paper">

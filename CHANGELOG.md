@@ -4,6 +4,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.261] - 2026-09-21
+
+### Added
+- 工作日报「查看」页新增「← 上一个 / 下一个 →」导航（用户需求）：按日报列表的默认顺序（实际工作日期降序、同日按创建顺序）在相邻日报之间切换；已是第一条时「上一个」置灰、已是最后一条时「下一个」置灰（带悬停提示）。导航栏与导出/打印同行、左右分栏，打印时自动隐藏。
+- 导航范围遵守权限边界：外部账号（external_manager 按客户、external_employee 按 `user_service_orders` 授权工单）只能在有权访问的日报间导航，不会通过「上一个/下一个」看到无权日报的链接或页面。
+
+### 测试
+- 新增 `test_service_report_navigation.py`（6 项）：首/中/尾三态按钮启用与置灰、链接指向相邻日报、同日多条日报按 id 衔接、外部账号导航不越权（可见范围外日报不出现链接且按钮置灰）。
+- 回归：`test_service_report_external_view.py`、`test_report_query_filters.py`、`test_field_work.py`、`test_image_preview_unified.py` 全部通过（67 passed + 14 subtests）。
+- Chrome headless 渲染验证：中间态两按钮均可点、尾态「下一个」置灰（截图核对）。
+
 ## [0.1.260] - 2026-09-20
 
 ### Fixed
