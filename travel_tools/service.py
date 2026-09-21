@@ -205,7 +205,7 @@ def find_hotel_near_origin(
     if not geocode_ok or coords is None:
         return HotelOutcome(
             success=False,
-            error="终点地址无法解析，请更具体（城市+州或完整地址）",
+            error=_geocode_error_text(geocode_error),
             error_code=geocode_error or "geocoding_failed",
         )
     dest_lat, dest_lng = coords
@@ -326,6 +326,29 @@ def _bearing_display(label: str, degrees: Optional[float], resolved: float) -> s
     return f"{resolved:.0f} deg"
 
 
+def _geocode_error_text(code: Optional[str]) -> str:
+    """Human-readable message for a failed destination geocode.
+
+    The generic "无法解析" wording hid the real cause (missing key vs Google
+    refusal vs genuinely unknown address); surface it instead.
+    """
+    mapping = {
+        "empty_address": "请填写终点地址",
+        "geocoding_api_not_configured": "未配置 Google Geocoding API Key（请在系统设置配置，或检查环境变量）",
+        "geocoding_no_result": "Google 查无此地址：门牌号可能不存在。试试只写到「路名, 城市, 州」，或换一个相邻门牌号",
+        "geocoding_http_error": "Google Geocoding 服务返回错误，请稍后重试",
+        "geocoding_network_error": "Google Geocoding 网络超时，请稍后重试",
+        "geocoding_invalid_response": "Google Geocoding 返回内容异常，请稍后重试",
+        "geocoding_invalid_location": "Google 返回坐标异常，请换一种地址写法",
+    }
+    if code in mapping:
+        return mapping[code]
+    if code:
+        # Raw Google status passed through (REQUEST_DENIED / OVER_QUERY_LIMIT / ...).
+        return f"Google Geocoding 调用受限（{code}）：请检查密钥是否启用 Geocoding API、配额是否用尽"
+    return "终点地址无法解析，请更具体（城市+州或完整地址）"
+
+
 def _route_error_text(code: Optional[str]) -> str:
     mapping = {
         "routes_api_not_configured": "未配置 Google Routes API Key",
@@ -341,7 +364,8 @@ def _route_error_text(code: Optional[str]) -> str:
 def _static_error_text(code: Optional[str]) -> str:
     mapping = {
         "static_maps_api_not_configured": "未配置 Google Static Maps API Key",
-        "static_maps_bad_request": "地图参数无效（地址或路线过旧）",
+        "static_maps_bad_request": "地图无法渲染该请求（请检查地址写法或稍后重试）",
+        "static_maps_url_too_long": "路线跨度过大，地图无法渲染；请减少停靠点或分段生成",
         "static_maps_auth_failed": "Google Static Maps 鉴权失败（403）",
         "static_maps_rate_limit": "Static Maps 限流，请稍后重试",
         "static_maps_timeout": "Static Maps 网络超时",

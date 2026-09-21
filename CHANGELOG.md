@@ -4,6 +4,15 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.265] - 2026-09-21
+
+### Changed
+- 「出行工具」随机找宾馆：终点地址解析失败的报错改为显示**具体原因**（此前一律显示笼统的"终点地址无法解析，请更具体"），便于自助排查：
+  - **Google 查无此地址**（ZERO_RESULTS）：提示门牌号可能不存在，建议只写到「路名, 城市, 州」或换相邻门牌号再试；
+  - **未配置 Geocoding Key**：明确提示去系统设置配置 `google_geocoding_api_key`；
+  - **调用被拒/限流**：透传 Google 原始状态码（如 `REQUEST_DENIED`、`OVER_QUERY_LIMIT`），提示检查密钥是否启用 Geocoding API、配额是否用尽；
+  - 网络/响应异常等其余失败各有对应文案。
+
 ## [0.1.264] - 2026-09-21
 
 ### Added

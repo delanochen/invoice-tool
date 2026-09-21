@@ -210,7 +210,12 @@ class PlacesService:
         if data.get("status") != "OK":
             code = str(data.get("status") or "geocoding_failed")
             logger.warning("Travel tools Geocoding status %s", code)
-            return False, None, "geocoding_no_result" if code in {"ZERO_RESULTS"} else "geocoding_failed"
+            if code == "ZERO_RESULTS":
+                return False, None, "geocoding_no_result"
+            # Surface the raw Google status (REQUEST_DENIED / OVER_QUERY_LIMIT /
+            # INVALID_REQUEST ...) so the UI can tell key problems apart from
+            # unresolvable addresses.
+            return False, None, code
 
         results = data.get("results") or []
         if not results:
