@@ -10,14 +10,14 @@
     <div class="actions">
       {% if is_edit and adjacent_reports %}
         {% if adjacent_reports.previous %}
-          <a class="button-link" href="{{ url_for('edit_service_report', report_id=adjacent_reports.previous) }}" title="上一条（同工单）">&#8592; 上一条</a>
+          <a class="button" href="{{ url_for('edit_service_report', report_id=adjacent_reports.previous) }}" title="同工单的上一条日报">← 上一条</a>
         {% else %}
-          <button type="button" disabled title="已经是最新一条">&#8592; 上一条</button>
+          <button type="button" disabled title="已是同工单最新一条日报">← 上一条</button>
         {% endif %}
         {% if adjacent_reports.next %}
-          <a class="button-link" href="{{ url_for('edit_service_report', report_id=adjacent_reports.next) }}" title="下一条（同工单）">下一条 &#8594;</a>
+          <a class="button" href="{{ url_for('edit_service_report', report_id=adjacent_reports.next) }}" title="同工单的下一条日报">下一条 →</a>
         {% else %}
-          <button type="button" disabled title="已经是最早一条">下一条 &#8594;</button>
+          <button type="button" disabled title="已是同工单最早一条日报">下一条 →</button>
         {% endif %}
       {% endif %}
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>

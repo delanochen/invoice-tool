@@ -17868,6 +17868,8 @@ def same_order_adjacent_report_ids(report_id):
     与 adjacent_service_report_ids 不同：这里限定 service_order_id 相同，
     方便用户在编辑界面连续切换同一工单的不同日报，不必返回工单详情页。
     排序与全局一致：日期降序、id 降序；上一个 = 日期更近（更大），下一个 = 日期更早。
+    外部员工在编辑页只能打开自己创建的日报（edit_service_report 的守卫），
+    导航必须收在同样边界内，否则会给出点了就 403 的链接并泄露他人工单日报存在。
     """
     current = db().execute(
         """
@@ -17879,6 +17881,12 @@ def same_order_adjacent_report_ids(report_id):
     ).fetchone()
     if not current:
         return {"previous": None, "next": None}
+
+    scope_sql = ""
+    scope_params: list = []
+    if is_external_employee():
+        scope_sql = " and created_by = ?"
+        scope_params = [g.user["id"]]
 
     def fetch(direction):
         if direction == "previous":
@@ -17894,10 +17902,16 @@ def same_order_adjacent_report_ids(report_id):
         row = db().execute(
             """
             select id from service_reports
-            where service_order_id = ? and """ + comparison + """
+            where service_order_id = ?""" + scope_sql + """ and """ + comparison + """
             order by coalesce(actual_work_date, report_date) desc, id desc limit 1
             """,
-            (current["service_order_id"], current["work_date"], current["work_date"], current["id"]),
+            (
+                current["service_order_id"],
+                *scope_params,
+                current["work_date"],
+                current["work_date"],
+                current["id"],
+            ),
         ).fetchone()
         return row["id"] if row else None
 
