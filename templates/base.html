@@ -179,6 +179,9 @@
           {% if has_menu_permission("ai_daily_report") and is_internal_user() %}
             {{ nav_link("ai_daily_report_drafts_page", "AI 日报审查", ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page"]) }}
           {% endif %}
+          {% if has_menu_permission("travel_tools") and is_internal_user() %}
+            {{ nav_link("travel_tools_page", "出行工具") }}
+          {% endif %}
           {% if not is_external_manager() and not is_external_employee() %}
             {% set show_basic_data =
               (has_menu_permission("clients") and has_action_permission("clients", "view"))

@@ -4,6 +4,36 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.263] - 2026-09-21
+
+### Added
+- 「站点地图」页改为**双模式**（用户需求：国内员工也需要站点地图，且不能影响美国员工）：
+  - **交互模式（默认，零变化）**：美国员工打开页面所见与之前完全一致——配了 Google Maps Browser Key 就继续直连 Google Maps JS（拖拽/缩放/点选弹窗），未配则 Leaflet + OSM 兜底。
+  - **静态模式（新增开关）**：工具栏新增「静态模式」开关（偏好存 localStorage，会记住）。开启后页面**不加载任何第三方脚本/样式**（Google JS / Leaflet / OSM / unpkg 全不引入），改为把当前筛选出的站点坐标 POST 到服务端，由服务端用 Google Static Maps（复用 `google_static_maps_api_key`，按已存经纬度画点，无 geocoding 费用）出图并以 base64 回传——中国网络可直接查看。
+  - 静态模式能力保留：搜索与全部筛选条件继续生效（前端防抖后自动重新出图）、编号/颜色图例（颜色与交互地图一致：超期红/预警橙/正常绿/无工单灰，紫色=公司总部）、未定位站点面板与「重新定位」、统计计数；≤35 个站点时图中编号 1-9/A-Z 与下方站点列表一一对应（点击直达工单详情），站点较多（36-200）时退化为纯颜色标注并在状态栏说明，超过 200 个自动截断并提示缩小筛选范围。
+  - 站点定位（geocode-next 循环）在静态模式下依然运行，定位完成后再出图，避免反复请求。
+
+### Changed
+- `travel_tools/static_maps.py` `FlexStaticMapsService.get_map()`：支持无 label 标注（label 缺省时不再输出空 `label:` 参数）与可选 `scale` 参数（站点地图用 640x640@2x），原 travel_tools 调用行为不变。
+- 「站点地图」前端拆出共享层 `static/service-order-map-common.js`（页面元素引用、筛选/图例/未定位面板、geocode 循环、统一事件接线、模式开关），原 `service-order-map-google.js`（Google Maps JS）与 `service-order-map.js`（Leaflet）只保留各自地图专属逻辑；新增 `service-order-map-static.js`（静态渲染器：防抖请求、编号列表、错误文案）。渲染器通过 `registerServiceOrderMapRenderer()` 注册，共享控制层统一驱动，三种模式共用同一份筛选逻辑。
+
+### 测试
+- 新增 `test_service_order_map_static.py`（18 项，全部 mock 网络）：无 label/scale 的 Static Maps URL 构造；端点登录/权限守卫（未登录 302、外部员工 403、外部经理放行）、参数校验 400、未配 Key 503、成功出图（编号对齐/颜色映射/总部紫标）、>35 退化无编号、>200 截断；模板接线（开关/静态面板/动态加载器，静态模式不出现静态 `<script src>` 的 Google 标签）。
+- `test_service_order_map_email.py` 契约断言从两个 provider 文件改为共享层 `service-order-map-common.js`（buyerDetails 随重构迁移）。
+- 回归：`test_travel_tools.py`、`test_permission_menu_config.py`、`test_basic_data_permissions.py` 全部通过。
+
+## [0.1.262] - 2026-09-21
+
+### Added
+- 新增「出行工具」页面（主菜单，admin/manager/finance/employee，外部账号不可见），复用智能日报的 Google Routes / Static Maps 服务端调用模式，API Key 不出后端、佐证图即用即生成不落盘：
+  - **路线地图**：起点 + 终点 + 可选中间停靠点（最多 9 个，按顺序途经）生成路线地图佐证 PNG（A/1-9/B 标注 + 路线折线 + 路段距离/时长信息面板），可下载。
+  - **随机找宾馆**：输入终点、起点到终点总距离与大概方位（8 向罗盘或自定义角度），球面几何反推起点位置，Google Places（New）searchNearby 按半径（默认 25 英里）搜索 lodging，随机返回一家并用 Google Routes 验证「宾馆→终点」实际驾车距离/时长（与目标差值）。佐证 PNG 按「起点→终点路线」版式呈现（标题与面板格式与路线地图/里程佐证一致，不出现宾馆检索痕迹，仅展示起点=宾馆、终点、单程距离、时长）；页面上仍显示评分/推算位置/差值等辅助挑选信息；支持「换一家」（排除已展示宾馆）。
+- 新增 `travel_tools/` 模块：`geo.py`（球面几何/方位换算）、`routes_service.py`（Routes API 多点路线，TRAFFIC_UNAWARE，重试与错误码沿用 ai_daily_report 约定）、`places_service.py`（Places searchNearby + Geocoding + 随机选取）、`static_maps.py`（任意标注的 Static Maps 客户端）、`evidence.py`（地图+信息面板合成）、`service.py`（流程编排）、`web.py`（路由注册，沿用 profitability 的 register(app, globals()) 模式）。
+- 系统设置新增 `google_places_api_key`（Google Places API 密钥）：可在「系统设置」页配置或用环境变量 `GOOGLE_PLACES_API_KEY`；留空时回退使用 Geocoding 密钥（同一 Google 项目）。菜单权限「出行工具」默认内部四角色可见，外部账号默认关闭。
+
+### 测试
+- 新增 `test_travel_tools.py`（29 项，全部 mock 网络请求）：球面几何往返、Routes intermediates(via=true) 请求体与分段解析、Static Maps 标注构造、Places 解析/随机排除/地理编码、两条流程编排（成功合成图片、错误映射）、Flask 接线冒烟（菜单种子、未登录 302、外部账号 403、内部账号渲染）。
+
 ## [0.1.261] - 2026-09-21
 
 ### Added

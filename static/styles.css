@@ -2265,6 +2265,93 @@ body.service-order-map-page {
   min-height: 0;
 }
 
+/* Static mode (dual-mode site map): server-rendered image + numbered list */
+.map-toolbar label.map-mode-toggle {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  align-self: flex-end;
+}
+.map-toolbar label.map-mode-toggle input { margin: 0; cursor: pointer; }
+.static-map-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  width: 100%;
+  height: min(78vh, 820px);
+  min-height: 620px;
+  background: #fff;
+}
+.service-order-map-page .static-map-panel {
+  height: 100%;
+  min-height: 0;
+}
+.static-map-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+#staticMapImage {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.static-site-list {
+  flex: 0 1 auto;
+  max-height: 180px;
+  overflow-y: auto;
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.static-site-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.static-site-item strong { font-weight: 600; }
+.static-site-item:hover strong { color: var(--accent); text-decoration: underline; }
+.static-marker-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+@media (max-width: 720px) {
+  .static-map-panel { height: 460px; min-height: 460px; }
+  .static-site-list { max-height: 130px; }
+}
+
+
 @media (max-width: 1100px) {
   .sidebar {
     position: static;

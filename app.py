@@ -86,6 +86,7 @@ from ai_daily_report import (
     DraftStateError,
 )
 from ai_daily_report.schemas import WorkerTravel
+from travel_tools import register_travel_tools_routes
 from ai_daily_report.attachment_manifest import (
     AttachmentManifestService,
     ManifestError,
@@ -205,6 +206,7 @@ GOOGLE_MAPS_BROWSER_API_KEY_ENV = os.environ.get("GOOGLE_MAPS_BROWSER_API_KEY", 
 GOOGLE_GEOCODING_API_KEY_ENV = os.environ.get("GOOGLE_GEOCODING_API_KEY", "").strip()
 GOOGLE_ROUTES_API_KEY_ENV = os.environ.get("GOOGLE_ROUTES_API_KEY", "").strip()
 GOOGLE_STATIC_MAPS_API_KEY_ENV = os.environ.get("GOOGLE_STATIC_MAPS_API_KEY", "").strip()
+GOOGLE_PLACES_API_KEY_ENV = os.environ.get("GOOGLE_PLACES_API_KEY", "").strip()
 DEEPSEEK_API_KEY_ENV = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_VISION_MODEL_ENV = os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash").strip()
 VISION_EXTERNAL_API_ENABLED_ENV = os.environ.get("VISION_EXTERNAL_API_ENABLED", "false").strip().lower() == "true"
@@ -281,6 +283,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "ai_daily_report", "label": "AI 日报", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "travel_tools", "label": "出行工具", "roles": {"admin", "manager", "finance", "employee"}},
         ],
     },
     {
@@ -2470,6 +2473,7 @@ def seed_settings(connection):
     defaults["google_geocoding_api_key"] = GOOGLE_GEOCODING_API_KEY_ENV
     defaults["google_routes_api_key"] = GOOGLE_ROUTES_API_KEY_ENV
     defaults["google_static_maps_api_key"] = GOOGLE_STATIC_MAPS_API_KEY_ENV
+    defaults["google_places_api_key"] = GOOGLE_PLACES_API_KEY_ENV
     defaults["deepseek_enabled"] = "false"
     defaults["deepseek_api_key"] = DEEPSEEK_API_KEY_ENV
     defaults["deepseek_model"] = "deepseek-chat"
@@ -2687,6 +2691,17 @@ def get_google_routes_api_key():
 def get_google_static_maps_api_key():
     """Server-side Google Static Maps API key. Never exposed to browser/JS/HTML."""
     return get_setting("google_static_maps_api_key", GOOGLE_STATIC_MAPS_API_KEY_ENV).strip()
+
+
+def get_google_places_api_key():
+    """Server-side Google Places API (New) key.
+
+    Falls back to the geocoding key because both are server-side keys of the
+    same Google project; if the geocoding key is API-restricted the Places
+    calls will fail with 403 and travel_tools surfaces a clear error.
+    """
+    explicit = get_setting("google_places_api_key", GOOGLE_PLACES_API_KEY_ENV).strip()
+    return explicit or get_google_geocoding_api_key()
 
 
 def save_named_attachment(uploaded, directory, table, owner_column=None, owner_id=None):
@@ -3404,6 +3419,9 @@ def required_action_for_request():
         ("database_console", "POST"): ("database_console", "execute"),
         ("company_info", "GET"): ("company_info", "view"),
         ("company_info", "POST"): ("company_info", "edit"),
+        ("travel_tools_page", "GET"): ("travel_tools", "view"),
+        ("travel_tools_route_map_api", "POST"): ("travel_tools", "view"),
+        ("travel_tools_hotel_api", "POST"): ("travel_tools", "view"),
         ("knowledge_base", "GET"): ("knowledge_base", "view"),
         ("knowledge_base", "POST"): ("knowledge_base", "create"),
         ("ai_assistant", "GET"): ("ai_assistant", "view"),
@@ -3452,6 +3470,7 @@ def required_action_for_request():
         "service_order_detail": ("service_orders", "view"),
         "delete_service_order": ("service_orders", "delete"),
         "service_order_map": ("service_orders", "view"),
+        "service_order_map_static_image": ("service_orders", "view"),
         "service_order_calendar": ("service_order_calendar", "view"),
         "service_report_query": ("service_reports", "view"),
         "view_service_report": ("service_reports", "view"),
@@ -10210,6 +10229,10 @@ def system_settings():
             "google_geocoding_api_key",
             request.form.get("google_geocoding_api_key", "").strip(),
         )
+        set_setting(
+            "google_places_api_key",
+            request.form.get("google_places_api_key", "").strip(),
+        )
         set_setting("deepseek_enabled", "true" if request.form.get("deepseek_enabled") == "true" else "false")
         deepseek_api_key = request.form.get("deepseek_api_key", "").strip()
         if deepseek_api_key:
@@ -10232,6 +10255,7 @@ def system_settings():
         terms=get_invoice_terms(),
         google_maps_browser_api_key=get_google_maps_browser_api_key(),
         google_geocoding_api_key=get_google_geocoding_api_key(),
+        google_places_api_key=get_setting("google_places_api_key", GOOGLE_PLACES_API_KEY_ENV).strip(),
         deepseek_enabled=get_setting("deepseek_enabled", "false") == "true",
         deepseek_api_key_configured=bool(get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip()),
         deepseek_model=get_setting("deepseek_model", "deepseek-chat"),
@@ -16148,6 +16172,109 @@ def service_order_map():
     )
 
 
+SERVICE_ORDER_STATIC_MAP_MAX_MARKERS = 200
+SERVICE_ORDER_STATIC_MAP_LABELED_LIMIT = 35
+SERVICE_ORDER_STATIC_MAP_STATUS_COLORS = {
+    "overdue": "red",
+    "warning": "orange",
+    "fresh": "green",
+    "none": "gray",
+}
+
+
+@app.post("/service-orders/map/static-image")
+@login_required
+def service_order_map_static_image():
+    """Render the currently filtered site map as a Google Static Maps image.
+
+    The browser sends the coordinates of the sites that are already filtered
+    client-side; the server draws them with Static Maps (no geocoding cost,
+    coordinates are already stored) and returns a base64 data URL. This is the
+    same zero-Google-in-the-browser approach as the travel tools, so the page
+    works from inside China when the interactive (Google Maps JS) mode cannot.
+    """
+    if not is_internal_user() and not is_external_manager():
+        abort(403)
+    payload = request.get_json(silent=True) or {}
+    raw_points = payload.get("points")
+    if not isinstance(raw_points, list):
+        return jsonify({"available": False, "error": "invalid_request"}), 400
+    points = []
+    for item in raw_points[:SERVICE_ORDER_STATIC_MAP_MAX_MARKERS]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            latitude = float(item.get("latitude"))
+            longitude = float(item.get("longitude"))
+        except (TypeError, ValueError):
+            continue
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            continue
+        status = str(item.get("inspection_status") or "none")
+        if status not in SERVICE_ORDER_STATIC_MAP_STATUS_COLORS:
+            status = "none"
+        points.append((round(latitude, 6), round(longitude, 6), status))
+    truncated = isinstance(raw_points, list) and len(raw_points) > SERVICE_ORDER_STATIC_MAP_MAX_MARKERS
+    if not points:
+        return jsonify({"available": False, "error": "no_visible_sites"}), 400
+    api_key = get_google_static_maps_api_key()
+    if not api_key:
+        return jsonify({"available": False, "error": "static_maps_api_not_configured"}), 503
+    headquarters = headquarters_coordinates() if payload.get("include_headquarters") else None
+    labeled = len(points) <= SERVICE_ORDER_STATIC_MAP_LABELED_LIMIT
+    markers = []
+    site_labels = []
+    if headquarters:
+        markers.append(
+            {
+                "color": "purple",
+                "position": f"{headquarters['latitude']},{headquarters['longitude']}",
+            }
+        )
+    for index, (latitude, longitude, status) in enumerate(points):
+        marker = {
+            "color": SERVICE_ORDER_STATIC_MAP_STATUS_COLORS[status],
+            "position": f"{latitude},{longitude}",
+        }
+        if labeled:
+            # Static Maps labels are a single character: number the first 9
+            # sites 1-9, then A-Z for sites 10-35. The client renders the same
+            # sequence next to the site list.
+            if index < 9:
+                marker["label"] = str(index + 1)
+            else:
+                marker["label"] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[index - 9]
+        markers.append(marker)
+        site_labels.append(marker.get("label", ""))
+    from travel_tools.static_maps import FlexStaticMapsService
+
+    result = FlexStaticMapsService(api_key).get_map(markers, None, size="640x640", scale=2)
+    if not result.success or not result.image_bytes:
+        error = result.error or "static_maps_unknown_error"
+        if error == "static_maps_api_not_configured":
+            status_code = 503
+        elif error == "static_maps_rate_limit":
+            status_code = 429
+        else:
+            status_code = 502
+        return jsonify({"available": False, "error": error}), status_code
+    import base64
+
+    encoded = base64.b64encode(result.image_bytes).decode("ascii")
+    content_type = (result.content_type or "image/png").split(";")[0].strip() or "image/png"
+    return jsonify(
+        {
+            "available": True,
+            "image": f"data:{content_type};base64,{encoded}",
+            "labels": site_labels,
+            "count": len(points),
+            "labeled": labeled,
+            "truncated": truncated,
+            "headquarters": bool(headquarters),
+        }
+    )
+
+
 @app.post("/service-orders/map/geocode-next")
 @login_required
 def geocode_next_service_order():
@@ -19857,6 +19984,7 @@ register_staff_reports(app, globals())
 register_rate_routes(app, globals())
 register_settlement_review_routes(app, globals())
 register_profitability_routes(app, globals())
+register_travel_tools_routes(app, globals())
 
 
 if __name__ == "__main__":

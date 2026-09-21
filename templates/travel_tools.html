@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}出行工具 - 发票工具{% endblock %}
+{% block content %}
+<style>
+  .tt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 1100px) { .tt-grid { grid-template-columns: 1fr; } }
+  .tt-panel { background: var(--panel-bg, #fff); border: 1px solid var(--border, #e3e6ea); border-radius: 12px; padding: 18px 20px; }
+  .tt-panel h2 { margin: 0 0 12px; font-size: 16px; }
+  .tt-panel .tt-hint { color: #8a6d3b; background: #fdf6e3; border: 1px solid #f0e0b0; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-bottom: 12px; }
+  .tt-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; }
+  .tt-field input, .tt-field select, .tt-field textarea { padding: 7px 9px; border: 1px solid var(--border, #d6dade); border-radius: 8px; font-size: 14px; }
+  .tt-row { display: flex; gap: 10px; }
+  .tt-row > * { flex: 1; }
+  .tt-stop-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .tt-stop-row input { flex: 1; }
+  .tt-stop-row button { flex: 0 0 auto; }
+  .tt-actions { display: flex; gap: 10px; margin-top: 6px; }
+  .tt-result { margin-top: 16px; }
+  .tt-result img { width: 100%; max-width: 680px; border: 1px solid var(--border, #d6dade); border-radius: 8px; }
+  .tt-error { color: #b3261e; background: #fdecea; border: 1px solid #f5c6c0; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 12px; display: none; }
+  .tt-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+  .tt-table th, .tt-table td { border-bottom: 1px solid var(--border, #e3e6ea); padding: 6px 8px; text-align: left; }
+  .tt-table th { color: #5f6672; font-weight: 600; }
+  .tt-total { font-weight: 700; }
+  .tt-hotel-card { border: 1px solid var(--border, #e3e6ea); border-radius: 10px; padding: 12px 14px; margin-top: 12px; font-size: 14px; }
+  .tt-hotel-card .tt-hotel-name { font-size: 16px; font-weight: 700; }
+  .tt-hotel-card .tt-meta { color: #5f6672; font-size: 13px; margin-top: 4px; }
+  .tt-download { display: inline-block; margin-top: 8px; }
+  .tt-spin { display: none; margin-top: 10px; color: #5f6672; font-size: 13px; }
+  .tt-detail { font-size: 13px; color: #5f6672; margin-top: 6px; line-height: 1.7; }
+</style>
+
+<header class="page-header">
+  <div><p class="eyebrow">出行工具</p><h1>出行工具</h1></div>
+</header>
+
+<p style="font-size:13px;color:#5f6672;">
+  复用智能日报的 Google 路线 / 静态地图能力：① 起点、终点、中间停靠点生成路线地图佐证；② 已知终点、总距离与大概方位时，在推算出的起点附近随机找一家宾馆并验证实际驾车距离。
+  所有 Google 调用在服务端完成，API Key 不会暴露给浏览器。
+</p>
+{% if not keys_ready.routes or not keys_ready.static_maps or not keys_ready.places %}
+<div class="tt-hint" style="max-width:900px;margin-bottom:14px;">
+  ⚠️ 尚未配置的 Key：
+  {% if not keys_ready.routes %}Google Routes{% endif %}
+  {% if not keys_ready.static_maps %} / Static Maps{% endif %}
+  {% if not keys_ready.places %} / Places{% endif %}
+  —— 请在「系统设置」填写，或通过环境变量（GOOGLE_ROUTES_API_KEY / GOOGLE_STATIC_MAPS_API_KEY / GOOGLE_PLACES_API_KEY）提供；缺少对应 Key 的功能将无法使用。
+</div>
+{% endif %}
+
+<div class="tt-grid">
+  <!-- ① 路线地图 -->
+  <section class="tt-panel" id="routePanel">
+    <h2>① 路线地图（支持中间停靠点）</h2>
+    <form id="routeForm" onsubmit="return false;">
+      <div class="tt-field">
+        <label for="routeOrigin">起点 *</label>
+        <input id="routeOrigin" type="text" placeholder="如：3920 S 1st St, Austin, TX 或城市名" required>
+      </div>
+      <div class="tt-field">
+        <label>中间停靠点（可选，最多 9 个，按顺序途经）</label>
+        <div id="stopRows"></div>
+        <div><button type="button" id="addStopBtn" class="secondary">+ 添加停靠点</button></div>
+      </div>
+      <div class="tt-field">
+        <label for="routeDestination">终点 *</label>
+        <input id="routeDestination" type="text" placeholder="工地 / 站点地址" required>
+      </div>
+      <div class="tt-actions">
+        <button type="button" id="routeGoBtn">生成路线地图</button>
+      </div>
+      <div class="tt-spin" id="routeSpin">正在计算路线并获取地图…</div>
+      <div class="tt-error" id="routeError"></div>
+    </form>
+    <div class="tt-result" id="routeResult" hidden>
+      <img id="routeImg" alt="路线地图佐证">
+      <a class="tt-download" id="routeDownload" download="route-map.png" href="#">⬇ 下载佐证 PNG</a>
+      <table class="tt-table" id="routeLegTable">
+        <thead><tr><th>路段</th><th>距离（英里）</th><th>时长（小时）</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="tt-detail" id="routeSummary"></p>
+    </div>
+  </section>
+
+  <!-- ② 宾馆查找 -->
+  <section class="tt-panel" id="hotelPanel">
+    <h2>② 随机找宾馆（按终点 + 距离 + 方位）</h2>
+    <form id="hotelForm" onsubmit="return false;">
+      <div class="tt-field">
+        <label for="hotelDestination">终点 *</label>
+        <input id="hotelDestination" type="text" placeholder="工地 / 站点地址（越具体越好）" required>
+      </div>
+      <div class="tt-row">
+        <div class="tt-field">
+          <label for="hotelDistance">起点到终点总距离（英里）*</label>
+          <input id="hotelDistance" type="number" min="1" max="3000" step="1" placeholder="如 350" required>
+        </div>
+        <div class="tt-field">
+          <label for="hotelRadius">搜索半径（英里，默认 25）</label>
+          <input id="hotelRadius" type="number" min="1" max="30" step="1" value="25">
+        </div>
+      </div>
+      <div class="tt-row">
+        <div class="tt-field">
+          <label for="hotelBearing">起点位于终点的大概方位 *</label>
+          <select id="hotelBearing">
+            <option value="N">正北（N）</option>
+            <option value="NE">东北（NE）</option>
+            <option value="E">正东（E）</option>
+            <option value="SE">东南（SE）</option>
+            <option value="S">正南（S）</option>
+            <option value="SW">西南（SW）</option>
+            <option value="W">正西（W）</option>
+            <option value="NW" selected>西北（NW）</option>
+          </select>
+        </div>
+        <div class="tt-field">
+          <label for="hotelBearingDeg">或自定义角度（0-360，填了则覆盖上面）</label>
+          <input id="hotelBearingDeg" type="number" min="0" max="359" step="1" placeholder="如 315">
+        </div>
+      </div>
+      <div class="tt-actions">
+        <button type="button" id="hotelGoBtn">随机找一家</button>
+        <button type="button" id="hotelRerollBtn" class="secondary" hidden>换一家</button>
+      </div>
+      <div class="tt-spin" id="hotelSpin">正在推算起点位置并搜索宾馆…</div>
+      <div class="tt-error" id="hotelError"></div>
+    </form>
+    <div class="tt-result" id="hotelResult" hidden>
+      <div class="tt-hotel-card" id="hotelCard"></div>
+      <img id="hotelImg" alt="宾馆到终点路线图">
+      <a class="tt-download" id="hotelDownload" download="route.png" href="#">⬇ 下载佐证 PNG</a>
+      <p class="tt-detail" id="hotelSummary"></p>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var stopRows = document.getElementById("stopRows");
+  var addStopBtn = document.getElementById("addStopBtn");
+  addStopBtn.addEventListener("click", function () {
+    if (stopRows.children.length >= 9) { return; }
+    addStopRow("");
+  });
+  function addStopRow(value) {
+    var row = document.createElement("div");
+    row.className = "tt-stop-row";
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "tt-stop-input";
+    input.placeholder = "停靠点 " + (stopRows.children.length + 1) + " 地址";
+    input.value = value || "";
+    var del = document.createElement("button");
+    del.type = "button";
+    del.className = "secondary";
+    del.textContent = "删除";
+    del.addEventListener("click", function () { row.remove(); });
+    row.appendChild(input);
+    row.appendChild(del);
+    stopRows.appendChild(row);
+  }
+
+  function showError(id, message) {
+    var el = document.getElementById(id);
+    el.textContent = message || "请求失败，请稍后重试";
+    el.style.display = "block";
+  }
+  function hideError(id) {
+    var el = document.getElementById(id);
+    el.textContent = "";
+    el.style.display = "none";
+  }
+  function busy(panelId, spinId, on) {
+    document.getElementById(spinId).style.display = on ? "block" : "none";
+    document.getElementById(panelId).disabled = on;
+  }
+  function postJson(url, body) {
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (resp) {
+      return resp.json().catch(function () { return { success: false, error: "响应解析失败" }; });
+    });
+  }
+
+  // ① 路线地图
+  var hotelExclude = [];
+  document.getElementById("routeGoBtn").addEventListener("click", function () {
+    hideError("routeError");
+    var origin = document.getElementById("routeOrigin").value.trim();
+    var destination = document.getElementById("routeDestination").value.trim();
+    if (!origin || !destination) { showError("routeError", "请填写起点和终点"); return; }
+    var stops = Array.prototype.map.call(document.querySelectorAll(".tt-stop-input"), function (el) {
+      return el.value.trim();
+    }).filter(function (v) { return v; });
+    busy("routeGoBtn", "routeSpin", true);
+    postJson("/travel-tools/api/route-map", { origin: origin, destination: destination, stops: stops })
+      .then(function (data) {
+        busy("routeGoBtn", "routeSpin", false);
+        if (!data.success) { showError("routeError", data.error); return; }
+        document.getElementById("routeResult").hidden = false;
+        document.getElementById("routeImg").src = data.image;
+        document.getElementById("routeDownload").href = data.image;
+        var tbody = document.querySelector("#routeLegTable tbody");
+        tbody.innerHTML = "";
+        var names = [data.origin].concat(data.stops, [data.destination]);
+        for (var i = 0; i < data.leg_miles.length; i++) {
+          var tr = document.createElement("tr");
+          var from = names[i] || "-", to = names[i + 1] || "-";
+          tr.innerHTML = "<td>" + (i + 1) + ". " + escapeHtml(shorten(from, 28)) + " → " + escapeHtml(shorten(to, 28)) + "</td>" +
+            "<td>" + (data.leg_miles[i] == null ? "-" : data.leg_miles[i].toFixed(2)) + "</td>" +
+            "<td>" + (data.leg_hours[i] == null ? "-" : data.leg_hours[i].toFixed(2)) + "</td>";
+          tbody.appendChild(tr);
+        }
+        var trTotal = document.createElement("tr");
+        trTotal.className = "tt-total";
+        trTotal.innerHTML = "<td>合计</td><td>" + (data.total_miles == null ? "-" : data.total_miles.toFixed(2)) + "</td><td>" +
+          escapeHtml(data.total_hours_text) + "</td>";
+        tbody.appendChild(trTotal);
+        document.getElementById("routeSummary").textContent =
+          "路线由 " + data.provider + " 提供；图片包含路线折线与 A/" + (data.stops.length ? "1-" + data.stops.length + "/" : "") + "B 标注，可直接作为行程佐证。";
+      })
+      .catch(function () { busy("routeGoBtn", "routeSpin", false); showError("routeError", "网络错误，请稍后重试"); });
+  });
+
+  // ② 宾馆查找
+  function hotelRequest() {
+    hideError("hotelError");
+    var destination = document.getElementById("hotelDestination").value.trim();
+    var distance = parseFloat(document.getElementById("hotelDistance").value);
+    if (!destination) { showError("hotelError", "请填写终点"); return null; }
+    if (!distance || distance <= 0) { showError("hotelError", "请填写起点到终点的总距离（英里）"); return null; }
+    var body = {
+      destination: destination,
+      distance_miles: distance,
+      bearing: document.getElementById("hotelBearing").value,
+      bearing_deg: document.getElementById("hotelBearingDeg").value,
+      radius_miles: parseFloat(document.getElementById("hotelRadius").value) || 25,
+      exclude: hotelExclude
+    };
+    return body;
+  }
+  function renderHotel(data) {
+    document.getElementById("hotelResult").hidden = false;
+    var h = data.hotel || {};
+    var rating = (h.rating == null) ? "暂无评分" : (h.rating.toFixed(1) + " 分" + (h.user_ratings ? "（" + h.user_ratings + " 条评价）" : ""));
+    document.getElementById("hotelCard").innerHTML =
+      '<div class="tt-hotel-name">' + escapeHtml(h.name || "-") + '</div>' +
+      '<div class="tt-meta">' + escapeHtml(h.address || "-") + '</div>' +
+      '<div class="tt-meta">评分：' + escapeHtml(rating) + '</div>';
+    document.getElementById("hotelImg").src = data.image || "";
+    document.getElementById("hotelImg").hidden = !data.image;
+    document.getElementById("hotelDownload").href = data.image || "#";
+    document.getElementById("hotelDownload").hidden = !data.image;
+    var derived = data.derived || {};
+    var deltaText = "";
+    if (data.target_miles != null && data.actual_miles != null) {
+      var delta = data.actual_miles - data.target_miles;
+      deltaText = "（与目标差 " + (delta >= 0 ? "+" : "") + delta.toFixed(2) + " 英里）";
+    }
+    document.getElementById("hotelSummary").innerHTML =
+      "推算起点坐标：" + (derived.lat != null ? derived.lat.toFixed(4) + ", " + derived.lng.toFixed(4) : "-") +
+      "（" + escapeHtml(derived.area_label || "区域未知") + "）；方位：" + escapeHtml(data.bearing_label || "-") +
+      "；目标距离 " + (data.target_miles == null ? "-" : data.target_miles.toFixed(0)) + " 英里" +
+      "；宾馆→终点实际驾车 " + (data.actual_miles == null ? "未验证" : data.actual_miles.toFixed(2) + " 英里 / " + escapeHtml(data.actual_hours_text)) + deltaText +
+      "；候选宾馆 " + data.candidate_count + " 家。路线由 " + escapeHtml(data.provider || "google_routes") + " 提供。";
+    document.getElementById("hotelRerollBtn").hidden = false;
+  }
+  function hotelFlow() {
+    var body = hotelRequest();
+    if (!body) { return; }
+    busy("hotelGoBtn", "hotelSpin", true);
+    postJson("/travel-tools/api/hotel", body)
+      .then(function (data) {
+        busy("hotelGoBtn", "hotelSpin", false);
+        if (!data.success) { showError("hotelError", data.error); return; }
+        if (data.hotel && data.hotel.name) { hotelExclude.push(data.hotel.name); }
+        renderHotel(data);
+      })
+      .catch(function () { busy("hotelGoBtn", "hotelSpin", false); showError("hotelError", "网络错误，请稍后重试"); });
+  }
+  document.getElementById("hotelGoBtn").addEventListener("click", function () { hotelExclude = []; hotelFlow(); });
+  document.getElementById("hotelRerollBtn").addEventListener("click", hotelFlow);
+
+  function escapeHtml(text) {
+    return String(text == null ? "" : text)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function shorten(text, limit) {
+    text = String(text || "");
+    return text.length > limit ? text.slice(0, limit - 3) + "..." : text;
+  }
+})();
+</script>
+{% endblock %}
