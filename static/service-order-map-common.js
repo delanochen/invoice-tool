@@ -35,10 +35,17 @@ const workOrderStatusOptions = [
 
 window.serviceOrderMapGeocoding = false;
 
+// Set to true as soon as an interactive renderer (Google Maps JS or Leaflet)
+// registers itself. The page script uses it to detect that the third-party
+// map script never arrived (blocked network, invalid key, ...) and falls back
+// to the server-rendered static image instead of leaving an empty map.
+window.serviceOrderMapRendererRegistered = false;
+
 let serviceOrderMapRenderer = null;
 
 function registerServiceOrderMapRenderer(renderer) {
   serviceOrderMapRenderer = renderer;
+  window.serviceOrderMapRendererRegistered = true;
 }
 
 function serviceOrderMapRefresh(options = {}) {

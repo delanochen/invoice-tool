@@ -159,6 +159,9 @@ async function renderStaticMap({ fit = false } = {}) {
       notes.push(t("图上编号与右侧列表一致"));
     }
     if (result.headquarters) notes.push(t("紫色为公司总部"));
+    if (window.serviceOrderMapFallbackNotice) {
+      notes.unshift(t(window.serviceOrderMapFallbackNotice));
+    }
     staticStatus.textContent = notes.join(" · ");
     lastStaticSignature = signature;
   } catch (error) {

@@ -392,6 +392,38 @@ class ServiceOrderMapTemplateWiringTest(unittest.TestCase):
         )
         self.assertIn("固定美国本土视图", script)
 
+    def test_loader_falls_back_to_static_when_map_script_never_arrives(self):
+        """A blocked/failed Google Maps script must not leave the page blank.
+
+        Networks that cannot reach Google (mainland China) hang instead of
+        erroring, so the loader needs both an error handler and a timeout
+        guard that switch the page over to the server-rendered image.
+        """
+        body = self._page_body()
+        self.assertIn("fallbackToStatic", body)
+        self.assertIn("serviceOrderMapRendererRegistered", body)
+        self.assertIn("gm_authFailure", body)
+        self.assertIn("10000", body)
+        self.assertIn('localStorage.setItem("serviceOrderMapMode", "static")', body)
+
+    def test_common_js_flags_renderer_registration(self):
+        common = (Path(__file__).resolve().parent / "static" / "service-order-map-common.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("window.serviceOrderMapRendererRegistered = false;", common)
+        self.assertIn("window.serviceOrderMapRendererRegistered = true;", common)
+
+    def test_static_js_surfaces_the_fallback_reason(self):
+        script = (Path(__file__).resolve().parent / "static" / "service-order-map-static.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("window.serviceOrderMapFallbackNotice", script)
+
+    def test_static_mode_branch_never_loads_third_party_scripts(self):
+        body = self._page_body()
+        loader = body[body.index("window.serviceOrderMapMode =="):]
+        self.assertIn("不加载任何第三方脚本/样式", loader)
+
     def test_static_endpoint_url_in_config(self):
         body = self._page_body()
         self.assertIn("/service-orders/map/static-image", body)
