@@ -347,3 +347,13 @@ production record was uploaded or edited.
 ## 2026-09-21：0.1.261 基线复验
 
 正式 main 后续推进到 `a951deb`（0.1.261），新增日报前后导航及对应模板和测试，没有数据库结构变化。该提交已合入 PostgreSQL 兼容分支后重新验证：日报导航 6 项通过，PostgreSQL 兼容与集成 14 项通过。正式 SQLite 只读检查结果为 60 表、`integrity_check=ok`、0 个外键异常；正式服务仍使用 SQLite。实际自动部署单元为 `invoice-tool-deploy.timer`，仍处于定时计划中。
+
+## 2026-09-21：正式切换执行记录
+
+用户确认维护窗口后暂停 `invoice-tool-deploy.timer`，停止应用、照片后台和 Cloudflare 隧道，冻结正式写入。配套 SQLite、附件、共享照片和配置备份位于 `/srv/invoice-tool-cutover-backups/20260921-184722`：12,872 个文件、2,397,298,916 字节；清单 SHA-256 为 `187cbb9a3a5b29813473e2faf715c1e0ce4c34edc5c8ee97957a1b0a5817fcc8`。冻结 SQLite 快照 SHA-256 为 `7e7feb3901d075f3fb7a5a90cb73d6a133c1dd3e7915e0f90aa1790ba70ad283`，完整性正常且无外键异常。
+
+正式目标为内部网络中的 `invoice_production`，数据库容器不发布端口，数据卷为 `invoice-tool-postgresql-data`。迁移结果：60 表、7,905 行、84 个外键、51 个序列。应用使用非超级账号 `invoice_app`，无建库、建角色、建 schema 权限，且不能改写迁移元数据表。
+
+放行前业务差异检查结果：155 个路由全部返回 200，25 个附件预览、22 个结算 Excel、PDF、财务、结算、MRO、利润和薪资结果均无差异。首份 PostgreSQL 备份 SHA-256 为 `50733d3c783cdec8e8d94d36fddb4dd1b6e4b5510b2dbcbe4e3c5b6614e47129`；恢复到独立验证库后仍为 60 表、7,905 行、0 个未验证外键。
+
+随后恢复照片后台和 Cloudflare，内外网登录页均返回 200，容器近期日志无错误。PostgreSQL 模式的自动部署服务手动执行通过，生成新备份并正确识别 main `69de58a` 已是最新；最后恢复五分钟定时器。旧 SQLite 和切换备份继续保留，不能在 PostgreSQL 已接受新写入后直接把连接改回旧 SQLite。
