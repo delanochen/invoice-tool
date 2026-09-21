@@ -328,4 +328,18 @@ production record was uploaded or edited.
 - 4 项本地入口保护测试通过，覆盖错误目标、冻结声明缺失、校验值错误、URL 参数覆盖、运行账号误用、源文件变化、WAL 及原入口限制。
 - 输出记录位于隔离目录 `scratch/cutover-validation.json`；失败重试留下的结果文件不代表有效导入报告。
 
-本次没有修改正式数据库、应用配置或定时器。完整 Compose 部署演练仍待完成，正式切换仍需维护窗口授权。
+本次没有修改正式数据库、应用配置或定时器。后续 Compose 部署演练结果如下；正式切换仍需维护窗口授权。
+
+## 2026-09-21：隔离 Compose 部署验证
+
+使用基础 Compose 与 PostgreSQL 覆盖文件解析后的配置，生成权限 0600 的隔离配置 `/srv/invoice-tool-pg-rehearsal/compose-validation/compose.json`。项目名及外部卷为 `invoice-pg-compose-validation`，容器为 `invoice-pg-compose-db`、`invoice-pg-compose-app`，数据库为 `invoice_compose_validation`。仅使用内部网络，不发布端口、不挂载正式目录、不启动 cloudflared 或 photo-worker。
+
+- PostgreSQL 健康依赖、密码秘密文件及外部数据卷启动通过。
+- 从同一只读源快照导入 60 表、7,869 行、84 个外键、51 个序列，耗时 0.322 秒。
+- 应用以 invoice_app 运行；端点、数据库、schema 和受限权限检查通过，登录页返回 HTTP 200。
+- 重建应用容器后，全部表内容与源快照一致。
+- 重建 PostgreSQL 容器并重启应用后，全部表内容再次一致；独立数据卷持久化及应用重连通过。
+- 最初用演练运行镜像验证部署连接，随后按项目 Dockerfile 构建 `invoice-pg-compose-app:validation`，取消代码挂载并使用镜像默认命令运行，健康及权限检查再次通过。
+- 构建镜像 ID：`sha256:90030fa3b7bbf3fef007b60b8ea5c2bfbf8bdabfe24a7996fd04e0122d090a56`。应用 app.py SHA-256：`7ee8b1df41d4690c5d11c46b8fb68bcfe945548feba5124a4f4670ceef75010c`，与此前验证的正式应用基线一致。测试版本标签为 `0.1.260-pg-compose`，不是正式发布版本。
+
+构建日志保存在隔离目录 `compose-validation/build.log`。本次验证没有执行正式域名流量切换、正式写入冻结、后台任务暂停或自动部署定时器变更。最终切换仍须使用维护窗口内的新一致性快照和配套附件清单，而不能直接用本次旧快照替代。
