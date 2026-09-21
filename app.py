@@ -17673,6 +17673,67 @@ def delete_report_attachment(attachment_id):
     return redirect(url_for("edit_service_report", report_id=report["id"]) + redirect_anchor)
 
 
+def adjacent_service_report_ids(report_id):
+    """上一个 / 下一个日报（按列表默认排序：日期 desc, id desc）。
+
+    导航必须在当前用户有权访问的日报范围内移动：外部账号只能看到被授权工单
+    的日报，所以这里复用 service_order_access_filters，避免通过「下一个」跳到
+    无权查看的日报。列表顺序为「日期降序、id 降序」，因此「上一个」是列表里
+    更靠上的一条（日期更大或同日 id 更大），「下一个」是更靠下的一条。
+    """
+    current = db().execute(
+        """
+        select id,
+               coalesce(actual_work_date, report_date) as work_date
+        from service_reports where id = ?
+        """,
+        (report_id,),
+    ).fetchone()
+    if not current:
+        return {"previous": None, "next": None}
+
+    clauses, params = service_order_access_filters("service_orders")
+    if not clauses:
+        clauses.append("1 = 1")
+    access_where = " and ".join(clauses)
+
+    def fetch(direction):
+        # previous：列表中更靠上 = 日期更大，或同日 id 更大
+        if direction == "previous":
+            comparison = (
+                "(coalesce(service_reports.actual_work_date, service_reports.report_date) > ? "
+                "or (coalesce(service_reports.actual_work_date, service_reports.report_date) = ? "
+                "and service_reports.id > ?))"
+            )
+            ordering = (
+                "order by coalesce(service_reports.actual_work_date, service_reports.report_date) desc, "
+                "service_reports.id desc limit 1"
+            )
+        else:
+            comparison = (
+                "(coalesce(service_reports.actual_work_date, service_reports.report_date) < ? "
+                "or (coalesce(service_reports.actual_work_date, service_reports.report_date) = ? "
+                "and service_reports.id < ?))"
+            )
+            ordering = (
+                "order by coalesce(service_reports.actual_work_date, service_reports.report_date) desc, "
+                "service_reports.id desc limit 1"
+            )
+        row = db().execute(
+            f"""
+            select service_reports.id
+            from service_reports
+            join service_orders on service_orders.id = service_reports.service_order_id
+            where {access_where} and {comparison}
+            {ordering}
+            """,
+            [*params, current["work_date"], current["work_date"], current["id"]],
+        ).fetchone()
+        return row["id"] if row else None
+
+    return {"previous": fetch("previous"), "next": fetch("next")}
+
+
 @app.get("/service-reports/<int:report_id>/view")
 @login_required
 def view_service_report(report_id):
@@ -17720,6 +17781,7 @@ def view_service_report(report_id):
         photo_sections=photo_sections,
         company=get_company_profile(),
         can_export=has_action_permission("service_reports", "export"),
+        adjacent_reports=adjacent_service_report_ids(report_id),
     )
 
 
