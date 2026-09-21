@@ -150,13 +150,13 @@ async function renderStaticMap({ fit = false } = {}) {
     staticImage.src = result.image;
     staticImage.hidden = false;
     renderStaticSiteList(entries, Boolean(result.headquarters));
-    const notes = [`${t("共")} ${result.count} ${t("个站点")}`];
+    const notes = [`${t("共")} ${result.count} ${t("个站点")}`, t("固定美国本土视图")];
     if (result.truncated) {
       notes.push(t("站点较多，仅显示前 200 个，建议用筛选缩小范围"));
     } else if (!result.labeled) {
       notes.push(t("站点较多，图中未编号，颜色代表巡检状态"));
     } else {
-      notes.push(t("图上编号与下方列表一致"));
+      notes.push(t("图上编号与右侧列表一致"));
     }
     if (result.headquarters) notes.push(t("紫色为公司总部"));
     staticStatus.textContent = notes.join(" · ");

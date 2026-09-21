@@ -16174,6 +16174,12 @@ def service_order_map():
 
 SERVICE_ORDER_STATIC_MAP_MAX_MARKERS = 200
 SERVICE_ORDER_STATIC_MAP_LABELED_LIMIT = 35
+# Fixed view: the contiguous United States (excludes Alaska / Hawaii on
+# purpose - zooming out far enough to include them would shrink the sites
+# to a few pixels). The map never auto-fits the filtered sites, so the
+# picture stays stable when filters change.
+SERVICE_ORDER_STATIC_MAP_CENTER = "39.8283,-98.5795"
+SERVICE_ORDER_STATIC_MAP_ZOOM = 4
 SERVICE_ORDER_STATIC_MAP_STATUS_COLORS = {
     "overdue": "red",
     "warning": "orange",
@@ -16248,7 +16254,14 @@ def service_order_map_static_image():
         site_labels.append(marker.get("label", ""))
     from travel_tools.static_maps import FlexStaticMapsService
 
-    result = FlexStaticMapsService(api_key).get_map(markers, None, size="640x640", scale=2)
+    result = FlexStaticMapsService(api_key).get_map(
+        markers,
+        None,
+        size="640x640",
+        scale=2,
+        center=SERVICE_ORDER_STATIC_MAP_CENTER,
+        zoom=SERVICE_ORDER_STATIC_MAP_ZOOM,
+    )
     if not result.success or not result.image_bytes:
         error = result.error or "static_maps_unknown_error"
         if error == "static_maps_api_not_configured":

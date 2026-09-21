@@ -93,6 +93,8 @@ class FlexStaticMapsService:
         encoded_polyline: Optional[str] = None,
         size: str = DEFAULT_MAP_SIZE,
         scale: Optional[int] = None,
+        center: Optional[str] = None,
+        zoom: Optional[int] = None,
     ) -> StaticMapResult:
         """Fetch a static map image.
 
@@ -104,6 +106,11 @@ class FlexStaticMapsService:
             size: "WxH"
             scale: optional Google Static Maps scale (1 or 2); 2 returns a
                 double-resolution image at the same price tier
+            center: optional "lat,lng"; omit to let Google auto-fit markers
+            zoom: optional zoom level (used together with center). Providing
+                both pins the viewport (e.g. a fixed country-wide view) so
+                filtering no longer changes how far the map is zoomed in;
+                markers outside the viewport are not drawn by Google.
         """
         if not self.is_available():
             return StaticMapResult(
@@ -117,6 +124,10 @@ class FlexStaticMapsService:
         params = {"size": size, "maptype": "roadmap", "key": self.api_key}
         if scale in (1, 2):
             params["scale"] = str(scale)
+        if center:
+            params["center"] = center
+        if zoom is not None:
+            params["zoom"] = str(zoom)
         query_string = urllib.parse.urlencode(params)
 
         parts: List[str] = []

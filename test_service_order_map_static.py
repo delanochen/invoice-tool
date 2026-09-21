@@ -79,6 +79,20 @@ class FlexStaticMapsServiceUrlTest(unittest.TestCase):
         url = self._capture([{"label": "1", "color": "red", "position": "29.7,-95.3"}])
         self.assertNotIn("scale", url)
 
+    def test_center_and_zoom_forwarded(self):
+        url = self._capture(
+            [{"label": "1", "color": "red", "position": "29.7,-95.3"}],
+            center="39.8283,-98.5795",
+            zoom=4,
+        )
+        self.assertIn("center=39.8283%2C-98.5795", url)
+        self.assertIn("zoom=4", url)
+
+    def test_no_center_or_zoom_by_default(self):
+        url = self._capture([{"label": "1", "color": "red", "position": "29.7,-95.3"}])
+        self.assertNotIn("center=", url)
+        self.assertNotIn("zoom=", url)
+
 
 class ServiceOrderMapStaticWebTest(unittest.TestCase):
     """Endpoint guards, validation, and successful image composition."""
@@ -212,6 +226,27 @@ class ServiceOrderMapStaticWebTest(unittest.TestCase):
         self.assertEqual(sent_markers[0]["color"], "green")
         self.assertEqual(sent_markers[0]["label"], "1")
 
+    def test_static_image_pins_the_us_view(self):
+        """The static site map must not auto-zoom to the filtered sites."""
+        self._set_key("test-key")
+        client = self.module.app.test_client()
+        self._login(client, self._admin_id())
+        png = make_test_png()
+        for count in (1, 3, 40):
+            with patch("travel_tools.static_maps.FlexStaticMapsService") as maps_cls:
+                maps_cls.return_value.get_map.return_value = type(
+                    "R", (), {"success": True, "image_bytes": png, "content_type": "image/png", "status": "success", "error": None}
+                )()
+                resp = client.post(
+                    "/service-orders/map/static-image",
+                    json={"points": self._points(count)},
+                )
+            self.assertEqual(resp.status_code, 200)
+            kwargs = maps_cls.return_value.get_map.call_args[1]
+            self.assertEqual(kwargs.get("center"), "39.8283,-98.5795")
+            self.assertEqual(kwargs.get("zoom"), 4)
+            self.assertEqual(kwargs.get("size"), "640x640")
+
     def test_static_image_beyond_label_limit_unlabeled(self):
         self._set_key("test-key")
         client = self.module.app.test_client()
@@ -340,6 +375,22 @@ class ServiceOrderMapTemplateWiringTest(unittest.TestCase):
         self.assertIn("staticMapImage", body)
         self.assertIn("staticSiteList", body)
         self.assertIn("静态模式", body)
+
+    def test_map_and_site_list_share_a_row_container(self):
+        """Map and site list render side by side (not stacked) in static mode."""
+        body = self._page_body()
+        self.assertIn('class="static-map-body"', body)
+        image_at = body.index("staticMapImage")
+        list_at = body.index("staticSiteList")
+        body_at = body.index("static-map-body")
+        self.assertLess(body_at, image_at)
+        self.assertLess(image_at, list_at)
+
+    def test_static_js_mentions_fixed_us_view(self):
+        script = (Path(__file__).resolve().parent / "static" / "service-order-map-static.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("固定美国本土视图", script)
 
     def test_static_endpoint_url_in_config(self):
         body = self._page_body()

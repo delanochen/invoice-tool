@@ -2298,6 +2298,14 @@ body.service-order-map-page {
   height: 100%;
   min-height: 0;
 }
+/* Map and site list sit side by side so the map keeps the full panel height. */
+.static-map-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
 .static-map-status {
   margin: 0;
   font-size: 13px;
@@ -2305,21 +2313,29 @@ body.service-order-map-page {
 }
 #staticMapImage {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
-  width: 100%;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #f8fafc;
 }
 .static-site-list {
-  flex: 0 1 auto;
-  max-height: 180px;
+  flex: 0 0 300px;
+  width: 300px;
+  height: 100%;
+  max-height: none;
   overflow-y: auto;
+  align-content: start;
   display: grid;
   gap: 4px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  background: #fff;
 }
 .static-site-item {
   display: inline-flex;
@@ -2346,9 +2362,13 @@ body.service-order-map-page {
   line-height: 1;
   flex: 0 0 auto;
 }
+@media (max-width: 1100px) {
+  .static-site-list { flex-basis: 240px; width: 240px; }
+}
 @media (max-width: 720px) {
   .static-map-panel { height: 460px; min-height: 460px; }
-  .static-site-list { max-height: 130px; }
+  .static-map-body { flex-direction: column; }
+  .static-site-list { flex: 0 0 auto; width: auto; height: auto; max-height: 130px; }
 }
 
 
