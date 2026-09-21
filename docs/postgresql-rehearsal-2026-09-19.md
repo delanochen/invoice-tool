@@ -319,3 +319,13 @@ showed the success notification and produced server attachment 1711. After
 reloading the iframe, the saved attachment modal opened and its image reported
 complete=true, naturalWidth=1200, naturalHeight=800. No personal photo or
 production record was uploaded or edited.
+# 2026-09-21：显式迁移入口隔离验证
+
+新增 `scripts/migrate_postgresql_cutover.py`，复用既有事务导入与逐表内容核验。原演练入口保留库名限制。使用只读挂载的 `source-current.sqlite3`，SHA-256 为 `07ac9003e041383c2a9256c9e041ff1c74380315aede4c9492791c2d1e42a547`，导入隔离容器中的新库 `invoice_cutover_validation`。
+
+- 导入成功：60 表、7,869 行、84 个已验证外键、51 个序列，0.319 秒。
+- 使用新结果文件重复导入同一非空库：正确拒绝，没有覆盖已有数据。
+- 4 项本地入口保护测试通过，覆盖错误目标、冻结声明缺失、校验值错误、URL 参数覆盖、运行账号误用、源文件变化、WAL 及原入口限制。
+- 输出记录位于隔离目录 `scratch/cutover-validation.json`；失败重试留下的结果文件不代表有效导入报告。
+
+本次没有修改正式数据库、应用配置或定时器。完整 Compose 部署演练仍待完成，正式切换仍需维护窗口授权。

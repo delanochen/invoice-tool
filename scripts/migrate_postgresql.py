@@ -41,9 +41,14 @@ def compare(source,target,manifest):
 
 
 def migrate(source_path,url,target_name):
-    import psycopg
     if not target_name.endswith('_rehearsal'):
         raise ValueError('This tool is limited to *_rehearsal databases')
+    return _migrate_snapshot(source_path,url,target_name)
+
+
+def _migrate_snapshot(source_path,url,target_name,expected_sha=None,expected_user=None):
+    """Shared transaction; public entrypoints must validate their own scope first."""
+    import psycopg
     started=time.monotonic()
     source=sqlite3.connect(Path(source_path).resolve(strict=True).as_uri()+'?mode=ro',uri=True)
     source.execute('pragma query_only=on')
@@ -55,9 +60,13 @@ def migrate(source_path,url,target_name):
         expected=json.loads((ROOT/'migrations/postgresql/schema-0252.json').read_text(encoding='utf-8-sig'))
         if manifest!=expected: raise ValueError('Source schema differs from reviewed 0252 baseline')
         sha=hashlib.sha256(Path(source_path).read_bytes()).hexdigest()
-        with psycopg.connect(url,options='-c timezone=UTC') as target:
+        if expected_sha is not None and sha!=expected_sha:
+            raise ValueError('Frozen snapshot checksum changed')
+        with psycopg.connect(url,connect_timeout=10,options='-c timezone=UTC') as target:
             if target.execute('select current_database()').fetchone()[0]!=target_name:
                 raise ValueError('Target database identity mismatch')
+            if expected_user is not None and target.execute('select current_user').fetchone()[0]!=expected_user:
+                raise ValueError('Target migration role mismatch')
             if target.execute("select 1 from information_schema.tables where table_schema='public' limit 1").fetchone():
                 raise ValueError('Target is not empty; refusing overwrite')
             target.execute((ROOT/'migrations/postgresql/0252-compat.sql').read_text())
