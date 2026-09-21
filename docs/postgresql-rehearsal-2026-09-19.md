@@ -343,3 +343,7 @@ production record was uploaded or edited.
 - 构建镜像 ID：`sha256:90030fa3b7bbf3fef007b60b8ea5c2bfbf8bdabfe24a7996fd04e0122d090a56`。应用 app.py SHA-256：`7ee8b1df41d4690c5d11c46b8fb68bcfe945548feba5124a4f4670ceef75010c`，与此前验证的正式应用基线一致。测试版本标签为 `0.1.260-pg-compose`，不是正式发布版本。
 
 构建日志保存在隔离目录 `compose-validation/build.log`。本次验证没有执行正式域名流量切换、正式写入冻结、后台任务暂停或自动部署定时器变更。最终切换仍须使用维护窗口内的新一致性快照和配套附件清单，而不能直接用本次旧快照替代。
+
+## 2026-09-21：0.1.261 基线复验
+
+正式 main 后续推进到 `a951deb`（0.1.261），新增日报前后导航及对应模板和测试，没有数据库结构变化。该提交已合入 PostgreSQL 兼容分支后重新验证：日报导航 6 项通过，PostgreSQL 兼容与集成 14 项通过。正式 SQLite 只读检查结果为 60 表、`integrity_check=ok`、0 个外键异常；正式服务仍使用 SQLite。实际自动部署单元为 `invoice-tool-deploy.timer`，仍处于定时计划中。
