@@ -17431,6 +17431,7 @@ def edit_service_report(report_id):
         save_token=secrets.token_urlsafe(24),
         is_edit=True,
         can_edit_report=not is_external_manager(),
+        adjacent_reports=same_order_adjacent_report_ids(report_id),
     )
 
 
@@ -17855,6 +17856,48 @@ def adjacent_service_report_ids(report_id):
             {ordering}
             """,
             [*params, current["work_date"], current["work_date"], current["id"]],
+        ).fetchone()
+        return row["id"] if row else None
+
+    return {"previous": fetch("previous"), "next": fetch("next")}
+
+
+def same_order_adjacent_report_ids(report_id):
+    """同一工单下的上一个/下一个日报（按日期降序）。
+
+    与 adjacent_service_report_ids 不同：这里限定 service_order_id 相同，
+    方便用户在编辑界面连续切换同一工单的不同日报，不必返回工单详情页。
+    排序与全局一致：日期降序、id 降序；上一个 = 日期更近（更大），下一个 = 日期更早。
+    """
+    current = db().execute(
+        """
+        select id, service_order_id,
+               coalesce(actual_work_date, report_date) as work_date
+        from service_reports where id = ?
+        """,
+        (report_id,),
+    ).fetchone()
+    if not current:
+        return {"previous": None, "next": None}
+
+    def fetch(direction):
+        if direction == "previous":
+            comparison = (
+                "(coalesce(actual_work_date, report_date) > ? "
+                "or (coalesce(actual_work_date, report_date) = ? and id > ?))"
+            )
+        else:
+            comparison = (
+                "(coalesce(actual_work_date, report_date) < ? "
+                "or (coalesce(actual_work_date, report_date) = ? and id < ?))"
+            )
+        row = db().execute(
+            """
+            select id from service_reports
+            where service_order_id = ? and """ + comparison + """
+            order by coalesce(actual_work_date, report_date) desc, id desc limit 1
+            """,
+            (current["service_order_id"], current["work_date"], current["work_date"], current["id"]),
         ).fetchone()
         return row["id"] if row else None
 
