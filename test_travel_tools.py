@@ -13,6 +13,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -156,6 +157,46 @@ class MultiStopRoutesServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "verification_required")
 
 
+class PolylineCodecTest(unittest.TestCase):
+    """Encoded-polyline codec + simplification (URL budget fix, v0.1.264)."""
+
+    def test_roundtrip_google_documented_sample(self):
+        from travel_tools.polyline import decode_polyline, encode_polyline
+
+        sample = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+        points = decode_polyline(sample)
+        self.assertEqual(
+            [(round(lat, 6), round(lng, 6)) for lat, lng in points],
+            [(38.5, -120.2), (40.7, -120.95), (43.252, -126.453)],
+        )
+        self.assertEqual(encode_polyline(points), sample)
+
+    def test_roundtrip_synthetic_long_route(self):
+        import random as _random
+        from travel_tools.polyline import decode_polyline, encode_polyline
+
+        rng = _random.Random(7)
+        points = []
+        lat, lng = 30.05, -95.4
+        for _ in range(4600):
+            lat += rng.uniform(-0.02, 0.025)
+            lng += rng.uniform(-0.028, 0.02)
+            points.append((lat, lng))
+        encoded = encode_polyline(points)
+        self.assertGreater(len(encoded), 8000)
+        self.assertEqual(encode_polyline(decode_polyline(encoded)), encoded)
+
+    def test_douglas_peucker_preserves_endpoints_and_shrinks(self):
+        import math as _math
+        from travel_tools.polyline import douglas_peucker
+
+        points = [(30.0 + i * 0.001, -97.0 + 0.5 * _math.sin(i / 20.0)) for i in range(2000)]
+        simplified = douglas_peucker(points, 250.0)
+        self.assertLess(len(simplified), len(points))
+        self.assertEqual(simplified[0], points[0])
+        self.assertEqual(simplified[-1], points[-1])
+
+
 class FlexStaticMapsMarkersTest(unittest.TestCase):
     def test_build_markers_order_and_labels(self):
         from travel_tools.static_maps import FlexStaticMapsService
@@ -186,6 +227,92 @@ class FlexStaticMapsMarkersTest(unittest.TestCase):
             )
         self.assertFalse(result.success)
         self.assertEqual(result.error, "static_maps_invalid_content_type")
+
+
+class FlexStaticMapsUrlBudgetTest(unittest.TestCase):
+    """Static Maps URLs are capped at 8192 chars; long route polylines must be
+    simplified locally instead of failing with HTTP 400 (prod incident)."""
+
+    @staticmethod
+    def _long_polyline():
+        import math as _math
+        from travel_tools.polyline import encode_polyline
+
+        return encode_polyline(
+            [(30.0 + i * 0.001, -97.0 + 0.5 * _math.sin(i / 20.0)) for i in range(4000)]
+        )
+
+    def test_long_polyline_is_simplified_to_fit_url(self):
+        from travel_tools.polyline import decode_polyline
+        from travel_tools.static_maps import MAX_URL_LENGTH, FlexStaticMapsService
+
+        svc = FlexStaticMapsService("test-key")
+        polyline = self._long_polyline()
+        self.assertGreater(len(urllib.parse.quote(polyline)), MAX_URL_LENGTH)
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            return FakeResponse(make_test_png(), content_type="image/png")
+
+        with patch.object(urllib.request, "urlopen", side_effect=fake_urlopen):
+            result = svc.get_map(
+                [
+                    {"label": "A", "color": "green", "position": "Origin"},
+                    {"label": "B", "color": "red", "position": "Dest"},
+                ],
+                polyline,
+            )
+
+        self.assertTrue(result.success)
+        url = captured["url"]
+        self.assertIn("path=enc:", url)
+        self.assertLessEqual(len(url), MAX_URL_LENGTH)
+
+        sent = urllib.parse.unquote(url.split("path=enc:", 1)[1].split("&", 1)[0])
+        simplified = decode_polyline(sent)
+        original = decode_polyline(polyline)
+        self.assertLess(len(simplified), len(original))
+        self.assertEqual(simplified[0], original[0])
+        self.assertEqual(simplified[-1], original[-1])
+
+    def test_short_polyline_sent_unchanged(self):
+        from travel_tools.static_maps import FlexStaticMapsService
+
+        svc = FlexStaticMapsService("test-key")
+        polyline = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            return FakeResponse(make_test_png(), content_type="image/png")
+
+        with patch.object(urllib.request, "urlopen", side_effect=fake_urlopen):
+            result = svc.get_map([{"label": "A", "color": "green", "position": "x"}], polyline)
+
+        self.assertTrue(result.success)
+        self.assertIn("path=enc:" + urllib.parse.quote(polyline), captured["url"])
+
+    def test_fit_path_returns_none_when_budget_impossible(self):
+        from travel_tools.static_maps import FlexStaticMapsService
+
+        svc = FlexStaticMapsService("test-key")
+        self.assertIsNone(svc._fit_path(self._long_polyline(), 10))
+
+    def test_get_map_fails_without_http_when_url_cannot_fit(self):
+        from travel_tools.static_maps import FlexStaticMapsService
+
+        svc = FlexStaticMapsService("test-key")
+        with patch("travel_tools.static_maps.MAX_URL_LENGTH", 100), patch.object(
+            urllib.request,
+            "urlopen",
+            side_effect=AssertionError("Static Maps HTTP call must not happen"),
+        ):
+            result = svc.get_map(
+                [{"label": "A", "color": "green", "position": "x"}], self._long_polyline()
+            )
+        self.assertFalse(result.success)
+        self.assertEqual(result.error, "static_maps_url_too_long")
 
 
 class PlacesServiceTest(unittest.TestCase):
@@ -265,6 +392,26 @@ class PlacesServiceTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(err, "geocoding_no_result")
 
+    def test_geocode_address_passes_through_raw_status(self):
+        """非 ZERO_RESULTS 的失败（key 被拒/限流等）原样透传状态码，便于前端区分原因。"""
+        svc = self._service()
+        denied = json.dumps({"status": "REQUEST_DENIED", "results": []}).encode("utf-8")
+        with patch.object(urllib.request, "urlopen", return_value=FakeResponse(denied)):
+            ok, coords, err = svc.geocode_address("somewhere")
+        self.assertFalse(ok)
+        self.assertIsNone(coords)
+        self.assertEqual(err, "REQUEST_DENIED")
+
+    def test_geocode_error_text_mapping(self):
+        from travel_tools.service import _geocode_error_text
+
+        self.assertIn("查无此地址", _geocode_error_text("geocoding_no_result"))
+        self.assertIn("门牌号", _geocode_error_text("geocoding_no_result"))
+        self.assertIn("未配置", _geocode_error_text("geocoding_api_not_configured"))
+        self.assertIn("REQUEST_DENIED", _geocode_error_text("REQUEST_DENIED"))
+        self.assertIn("OVER_QUERY_LIMIT", _geocode_error_text("OVER_QUERY_LIMIT"))
+        self.assertIn("无法解析", _geocode_error_text(None))
+
 
 class BuildRouteMapServiceTest(unittest.TestCase):
     def test_missing_endpoints(self):
@@ -325,6 +472,13 @@ class BuildRouteMapServiceTest(unittest.TestCase):
             )
         self.assertFalse(outcome.success)
         self.assertIn("鉴权失败", outcome.error)
+
+    def test_static_error_text_mapping(self):
+        from travel_tools.service import _static_error_text
+
+        self.assertIn("路线跨度过大", _static_error_text("static_maps_url_too_long"))
+        self.assertNotIn("过旧", _static_error_text("static_maps_bad_request"))
+        self.assertIn("地址写法", _static_error_text("static_maps_bad_request"))
 
 
 class HotelFinderServiceTest(unittest.TestCase):
@@ -391,6 +545,30 @@ class HotelFinderServiceTest(unittest.TestCase):
         # Static map got hotel + destination markers
         markers_arg = maps_cls.return_value.get_map.call_args[0][0]
         self.assertEqual([m["label"] for m in markers_arg], ["A", "B"])
+
+    def test_geocode_failure_surfaces_specific_reason(self):
+        """终点 geocode 失败时，用户看到的是具体原因而非笼统的"无法解析"。"""
+        from travel_tools.service import TravelToolConfig, find_hotel_near_origin
+
+        config = TravelToolConfig(routes_api_key="k", static_maps_api_key="k", places_api_key="k")
+        for code, expect in (
+            ("geocoding_no_result", "查无此地址"),
+            ("geocoding_api_not_configured", "未配置"),
+            ("REQUEST_DENIED", "REQUEST_DENIED"),
+        ):
+            with self.subTest(code=code):
+                with patch("travel_tools.service.PlacesService") as places_cls:
+                    places_cls.return_value.is_available.return_value = True
+                    places_cls.return_value.geocode_address.return_value = (False, None, code)
+                    outcome = find_hotel_near_origin(
+                        config,
+                        destination="Site X, TX",
+                        trip_distance_miles=350,
+                        bearing_label="NW",
+                    )
+                self.assertFalse(outcome.success)
+                self.assertEqual(outcome.error_code, code)
+                self.assertIn(expect, outcome.error)
 
     def test_exclude_reroll_can_exhaust_candidates(self):
         from travel_tools.service import TravelToolConfig, find_hotel_near_origin

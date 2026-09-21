@@ -4,6 +4,18 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.266] - 2026-09-21
+
+### Fixed
+- 「出行工具」路线地图：**跨长路线（如休斯顿→亚利桑那，1200+ 英里）生成时 Static Maps 报「地图参数无效」**的问题。根因：Google Routes 返回的高精度路线 polyline 编码后可达 ~17k 字符，拼进 Static Maps 的 GET URL 后超过 Google 8192 字符上限，被直接 400 拒绝（实测 `polylineQuality=OVERVIEW` 无效，Google 返回同样长度的 polyline）；短路线不受影响。
+  - 修复：新增 `travel_tools/polyline.py`（Google polyline 编解码 + Douglas-Peucker 抽稀）；`FlexStaticMapsService.get_map()` 在 URL 将超限时按 50m→10km 容差逐级抽稀 polyline 后重拼 URL（640x400 证据图分辨率下视觉无差异，起终点锚点不变），仅在极少数仍超限时返回新错误码 `static_maps_url_too_long`（「路线跨度过大，地图无法渲染；请减少停靠点或分段生成」），且在发起 HTTP 请求前拦截。
+  - 原误导文案「地图参数无效（地址或路线过旧）」修正为「地图无法渲染该请求（请检查地址写法或稍后重试）」。
+  - 生产环境实测：1234.2 英里路线 polyline 17093 字符 → 50m 容差抽稀至 3687 字符（4600 点 → 704 点），最终 URL 5313 字符，Static Maps 返回 HTTP 200 有效 PNG。
+- 补提交 v0.1.265 geocoding 报错改进对应的 3 个测试用例（此前仅提交了实现代码）。
+
+### 测试
+- 新增 `PolylineCodecTest`（3 项：Google 官方样例编解码逐字节回环、长路线编解码回环、Douglas-Peucker 保端点）与 `FlexStaticMapsUrlBudgetTest`（4 项：长 polyline 自动抽稀至 URL ≤ 8192 且端点保持、短 polyline 原样透传、预算不可满足返回 None、无法满足预算时不发 HTTP 直接报错）+ 静态错误文案映射 1 项；`test_travel_tools.py` 共 39 项全过。
+
 ## [0.1.265] - 2026-09-21
 
 ### Changed
