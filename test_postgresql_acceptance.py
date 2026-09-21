@@ -1,6 +1,6 @@
 """HTTP business acceptance on a disposable PostgreSQL clone, never production.
 
-Run only with DATABASE_URL naming invoice_acceptance_rehearsal and independent
+Run only with DATABASE_URL naming an explicitly allowed acceptance clone and independent
 INVOICE_DATA_DIR under /scratch. Fixtures intentionally remain for inspection.
 """
 import os
@@ -13,7 +13,8 @@ from threading import Barrier
 from urllib.parse import urlsplit
 
 
-@unittest.skipUnless(urlsplit(os.environ.get('DATABASE_URL', '')).path == '/invoice_acceptance_rehearsal',
+@unittest.skipUnless(urlsplit(os.environ.get('DATABASE_URL', '')).path in (
+    '/invoice_acceptance_rehearsal', '/invoice_current_acceptance_rehearsal'),
                      'dedicated acceptance database required')
 class PostgreSQLBusinessAcceptance(unittest.TestCase):
     def setUp(self):

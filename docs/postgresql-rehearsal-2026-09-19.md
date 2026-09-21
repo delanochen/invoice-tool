@@ -248,3 +248,74 @@ observed failure is being concealed by skips or relaxed business code.
 
 See [cutover and rollback runbook](postgresql-cutover-runbook.md) for the planned
 freeze, reconciliation and rollback gates. Production remains SQLite.
+
+## Follow-up after main reached 863acab
+
+Production was verified at 863acab. Its running application files matched that
+commit and it still used SQLite. A new invoice_current_acceptance_rehearsal
+clone was created from the reviewed current snapshot. The two complete HTTP
+acceptance cases passed (1.35 seconds). The test and load script use an explicit
+two-name database allowlist, not a general production-name pattern.
+
+The browser container was replaced using code-current and this new clone.
+Its app.py SHA-256 matches /opt/invoice-tool/app.py exactly. VERSION is 0.1.260;
+the displayed 0.1.252-pg-rehearsal label is an old APP_VERSION env override,
+not the code baseline. Browser login and navigation to a synthetic work order
+and report succeeded; the 390 × 844 report form rendered as a readable single
+column. Browser saving remains pending explicit confirmation. Local browser
+file uploads remain unverified because extension file access was previously
+blocked; HTTP uploads passed separately.
+
+Latest real-HTTP load: four clients, 60.63 seconds, 1,186 measured requests,
+p50 28.0 ms, p95 65.3 ms, maximum 120.3 ms; no errors. Exactly 200 expenses
+were created from repeated-token submissions, with zero wrong amounts.
+
+A separate fresh import and dump/restore exercise also passed: 60 tables,
+7,869 rows, 84 validated foreign keys and 51 sequences. Restored business
+checks again matched SQLite (155 routes, 25 sampled attachments, 22 Excel
+exports). Dump size 515,339 bytes; SHA-256
+5293394fd39b67c364304bfda2461ac895271dab0554177c2e4518a48663672c.
+Dump took 0.15 s, restore 1.27 s; these are not maintenance-window estimates.
+
+Remaining deployment preparation is substantive: the current Compose file
+does not pass DATABASE_URL to the app, and the automatic deployment script
+backs up/checks SQLite specifically. Neither should be treated as PostgreSQL
+production-ready merely because application compatibility tests pass. A
+reviewed production migration entry, PostgreSQL deployment/backup integration,
+and completed browser gates are still required before the final freeze.
+
+Added an opt-in PostgreSQL Compose overlay without enabling it. Parsing with
+synthetic environment values passed: explicit application URL, internal DB
+network, no published DB port and externally provisioned volume. No containers
+were started from the overlay. Added a private/exclusive pg_dump backup helper;
+it successfully backed up invoice_current_restore_rehearsal and read the archive
+TOC. Repeating the same output name raised FileExistsError and left its hash
+unchanged; file mode was 0600; an unrelated container name was rejected. This
+does not yet integrate backups into the production auto-deploy service.
+
+After explicit user confirmation, browser save acceptance passed at 390 × 844:
+synthetic report 78 on order accept-5e10c415f1d8 was saved with service description
+`PostgreSQL browser acceptance: mobile edit persisted.` The UI showed the saved
+notification; reloading the workspace iframe retained that exact value. Only
+the dedicated acceptance clone was edited. Browser file upload remains a
+separate unverified gate.
+
+Deployment integration follow-up: the branch now selects PostgreSQL only through
+INVOICE_DATABASE_BACKEND=postgresql and refuses any mismatch with the running
+application backend. PostgreSQL updates explicitly use the Compose overlay and
+the private pg_dump helper. A read-only runtime checker validates the endpoint,
+database, invoice_app role, lack of elevated/schema-create privileges, protected
+metadata, validated FKs and schema version both before deployment and during
+post-build health checks. Six POSIX-shell stub tests passed, covering both
+backends, mismatch rejection, failed runtime checks, build error propagation and
+PostgreSQL backup selection. The checker also passed against the actual current
+acceptance container. These changes have not been installed in production.
+
+Browser upload gate subsequently passed after the user enabled extension file
+access and explicitly authorized the synthetic JPEG. In report 78, selecting
+browser-upload-fixture.jpg displayed the unsaved thumbnail; its modal opened,
+zoomed to 125% with the top-left corner accessible, and zoomed down. Saving
+showed the success notification and produced server attachment 1711. After
+reloading the iframe, the saved attachment modal opened and its image reported
+complete=true, naturalWidth=1200, naturalHeight=800. No personal photo or
+production record was uploaded or edited.

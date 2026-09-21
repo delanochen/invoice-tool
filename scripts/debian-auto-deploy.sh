@@ -33,6 +33,29 @@ effective_data_dir() {
     fi
   fi
 }
+configure_database_backend() {
+  backend="${INVOICE_DATABASE_BACKEND:-$(env_value INVOICE_DATABASE_BACKEND)}"
+  backend="${backend:-sqlite}"
+  case "$backend" in sqlite|postgresql) ;; *) log "error: unsupported database backend"; return 1 ;; esac
+  actual_backend="$(docker exec invoice-tool python -c 'import os; print("postgresql" if os.environ.get("DATABASE_URL") else "sqlite")')" || return 1
+  if [ "$actual_backend" != "$backend" ]; then
+    log "error: configured and running database backends differ; automatic cutover is forbidden"
+    return 1
+  fi
+  if [ "$backend" = "postgresql" ]; then
+    PG_DATABASE="${POSTGRES_DATABASE:-$(env_value POSTGRES_DATABASE)}"
+    [ -n "$PG_DATABASE" ] || { log "error: PostgreSQL database name is required"; return 1; }
+    [ -f "$APP_DIR/deploy/docker-compose.postgresql.yml" ] || return 1
+    python3 "$APP_DIR/scripts/check_postgresql_runtime.py" --database "$PG_DATABASE" || return 1
+  fi
+}
+compose() {
+  if [ "$backend" = "postgresql" ]; then
+    docker compose -f "$APP_DIR/docker-compose.yml" -f "$APP_DIR/deploy/docker-compose.postgresql.yml" "$@"
+  else
+    docker compose "$@"
+  fi
+}
 normalize_path() {
   path="$1"
   [ -n "$path" ] || return 1
@@ -101,12 +124,15 @@ prepare_database_for_deploy() {
     log "error: actual /app/data source mismatch: $actual_dir"
     return 1
   fi
+  if [ "$backend" = "postgresql" ]; then
+    return 0
+  fi
   database="$actual_dir/invoices.db"
   if [ ! -f "$database" ] || [ ! -s "$database" ]; then
     log "error: production database is missing or empty: $database"
     return 1
   fi
-  if ! docker compose exec -T invoice-tool python - "$database" <<'PY'
+  if ! compose exec -T invoice-tool python - "$database" <<'PY'
 import sqlite3
 import sys
 
@@ -127,12 +153,17 @@ PY
 }
 backup_database() {
   stamp="$1"
+  if [ "$backend" = "postgresql" ]; then
+    python3 "$APP_DIR/scripts/backup_postgresql.py" --container invoice-tool-postgres \
+      --database "$PG_DATABASE" --output "$BACKUP_DIR/invoices-$stamp.dump"
+    return $?
+  fi
   temp_path="$(mktemp "$BACKUP_SOURCE_DIR/.pre-deploy-$stamp.XXXXXX.db")" || {
     log "error: unable to allocate a temporary database backup"
     return 1
   }
   trap 'rm -f "$temp_path"; cleanup' EXIT INT TERM
-  if ! docker compose exec -T invoice-tool python - "$(basename "$temp_path")" <<'PY'
+  if ! compose exec -T invoice-tool python - "$(basename "$temp_path")" <<'PY'
 import sqlite3
 import sys
 
@@ -208,7 +239,7 @@ build_current_version() {
     return 1
   fi
   export APP_VERSION
-  docker compose up -d --build
+  compose up -d --build
 }
 trap cleanup EXIT INT TERM
 
@@ -218,6 +249,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 
 cd "$APP_DIR"
+configure_database_backend || exit 1
 OLD_COMMIT="$(git rev-parse HEAD)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 prepare_database_for_deploy || exit 1
@@ -236,7 +268,11 @@ git reset --hard "$NEW_COMMIT"
 if build_current_version && wait_ok=0; then
   i=0
   while [ "$i" -lt 30 ]; do
-    if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null; then wait_ok=1; break; fi
+    if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null; then
+      if [ "$backend" = "sqlite" ] || python3 "$APP_DIR/scripts/check_postgresql_runtime.py" --database "$PG_DATABASE"; then
+        wait_ok=1; break
+      fi
+    fi
     i=$((i + 1)); sleep 2
   done
   [ "$wait_ok" -eq 1 ] && { log "deployment healthy"; exit 0; }

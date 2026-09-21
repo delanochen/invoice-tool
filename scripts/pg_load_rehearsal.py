@@ -16,10 +16,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def run(seconds=60, clients=4):
-    assert urllib.parse.urlsplit(os.environ['DATABASE_URL']).path == '/invoice_acceptance_rehearsal'
-    assert 1 <= seconds <= 120 and 1 <= clients <= 6
+    if urllib.parse.urlsplit(os.environ['DATABASE_URL']).path not in (
+            '/invoice_acceptance_rehearsal', '/invoice_current_acceptance_rehearsal'):
+        raise ValueError('An explicitly allowed disposable acceptance database is required')
+    if not (1 <= seconds <= 120 and 1 <= clients <= 6):
+        raise ValueError('Load must be bounded to 120 seconds and six clients')
     import app as m
-    assert Path(m.DATA_DIR).resolve().is_relative_to('/scratch')
+    if not Path(m.DATA_DIR).resolve().is_relative_to('/scratch'):
+        raise ValueError('File root must be inside the isolated /scratch directory')
     base = 'http://invoice-pg-browser:8000'
     prefix = 'load-' + uuid.uuid4().hex[:12]
     with m.app.app_context():

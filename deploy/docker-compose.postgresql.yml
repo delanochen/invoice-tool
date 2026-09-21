@@ -1,0 +1,47 @@
+# Opt-in overlay only. Do not enable before frozen-data migration and acceptance.
+# Run from the repository root with both -f files; paths resolve from that root.
+services:
+  invoice-tool:
+    env_file:
+      - ${POSTGRES_APP_ENV_FILE:?Set an absolute private app env file containing DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+      - postgres_internal
+
+  postgres:
+    image: postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
+    container_name: invoice-tool-postgres
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:?Set the reviewed target database name}
+      POSTGRES_USER: invoice_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_owner_password
+      TZ: UTC
+    secrets:
+      - postgres_owner_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - postgres_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoice_owner -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+networks:
+  postgres_internal:
+    internal: true
+
+volumes:
+  postgres_data:
+    external: true
+    name: ${POSTGRES_VOLUME:?Set an explicitly provisioned PostgreSQL data volume}
+
+secrets:
+  postgres_owner_password:
+    file: ${POSTGRES_OWNER_PASSWORD_FILE:?Set an absolute private owner password file}
