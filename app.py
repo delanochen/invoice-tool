@@ -2118,6 +2118,10 @@ def init_db():
             )
             """
         )
+        # 老数据一次性修补：把 mro_supplies_total 并入 total_amount。
+        # 注意：现行口径（customer_reimbursement_totals）MRO 已通过 auto_other 计入
+        # item["total"]，total_amount 不应再加 mro_supplies_total。此 SQL 仅针对
+        # 尚无 auto_* 来源行的历史库生效，非现行计算逻辑。
         connection.execute(
             """
             update customer_reimbursements
@@ -5798,6 +5802,41 @@ def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
     ).fetchall()
 
 
+def _reimbursement_date_key(value):
+    """双栈归一：SQLite 存文本 '2026-09-18'，PostgreSQL 经 psycopg 回传
+    datetime/date，``str()`` 得 '2026-09-18 00:00:00'。两者作匹配键不等 →
+    生产环境翻倍更严重。统一归一成 'YYYY-MM-DD' 字符串。"""
+    if value is None:
+        return ""
+    if isinstance(value, (datetime, date)):
+        return value.strftime("%Y-%m-%d")
+    text = str(value).strip()
+    if not text:
+        return ""
+    # 兼容 '2026-09-18 00:00:00' / ISO '2026-09-18T00:00:00'
+    return text.split("T")[0].split(" ")[0]
+
+
+def _reimbursement_date_value(value):
+    """存库用的归一日期，保持 'YYYY-MM-DD' 字符串，由 DB 适配器统一处理。"""
+    return _reimbursement_date_key(value)
+
+
+def _fallback_row_for_worker(candidates_by_worker, worker_key):
+    """报销精确（人名+日期）匹配落空时回落到同一员工的已有明细行，避免
+    『同人异日拆行』导致同一来源被计入两次（翻倍根因②）。
+    - 该员工只有一行 → 直接复用
+    - 多行 → 取 project_date 最近的一行（'YYYY-MM-DD' 字符串比较有效）
+    - 该员工无任何行 → 返回 None（由调用方新建行）
+    """
+    rows = candidates_by_worker.get(worker_key)
+    if not rows:
+        return None
+    if len(rows) == 1:
+        return rows[0]
+    return max(rows, key=lambda r: _reimbursement_date_key(r.get("project_date")))
+
+
 def merge_approved_expenses_into_customer_reimbursement(
     rows, order_id, cutoff_at=None, reimbursement_id=None, selection_mode="legacy"
 ):
@@ -5834,24 +5873,30 @@ def merge_approved_expenses_into_customer_reimbursement(
 
     rates = customer_reimbursement_rates()
     row_lookup = {
-        (normalized_project_name(row.get("worker_name")).casefold(), str(row.get("project_date") or "")): row
+        (normalized_project_name(row.get("worker_name")).casefold(), _reimbursement_date_key(row.get("project_date"))): row
         for row in merged
     }
+    candidates_by_worker = {}
+    for row in merged:
+        candidates_by_worker.setdefault(
+            normalized_project_name(row.get("worker_name")).casefold(), []
+        ).append(row)
     for expense_item in expense_rows:
         field_name = customer_reimbursement_expense_field(
             expense_item["project_name"], expense_item["fuel_vehicle_type"]
         )
         if not field_name:
             continue
-        key = (
-            normalized_project_name(expense_item["worker_name"]).casefold(),
-            str(expense_item["expense_date"] or ""),
-        )
+        worker_key = normalized_project_name(expense_item["worker_name"]).casefold()
+        key = (worker_key, _reimbursement_date_key(expense_item["expense_date"]))
         row = row_lookup.get(key)
+        if row is None:
+            # 精确匹配落空：回落到同一员工的已有明细行，避免同人异日拆行导致重复计入。
+            row = _fallback_row_for_worker(candidates_by_worker, worker_key)
         if row is None:
             row = {
                 "worker_name": expense_item["worker_name"],
-                "project_date": expense_item["expense_date"],
+                "project_date": _reimbursement_date_value(expense_item["expense_date"]),
                 "standard_hours": 0, "transport_hours": 0, "overtime_hours": 0, "holiday_hours": 0,
                 "standard_rate": rates["标准工时"], "transport_rate": rates["交通工时"],
                 "overtime_rate": rates["加班工时"], "holiday_rate": rates["节假日工时"],
@@ -5863,6 +5908,7 @@ def merge_approved_expenses_into_customer_reimbursement(
                 row[auto_field] = 0
             merged.append(row)
             row_lookup[key] = row
+            candidates_by_worker.setdefault(worker_key, []).append(row)
         row.setdefault("auto_expense_sources", {}).setdefault(field_name, []).append({
             "expense_id": expense_item["expense_id"], "expense_number": expense_item["expense_number"],
             "line_key": expense_item["line_key"], "line_number": expense_item["line_number"],
@@ -5924,6 +5970,14 @@ def approved_rental_vehicle_fuel_total(order_id):
 
 
 def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total=0):
+    """结算合计（口径铁律，勿改）。
+    total_amount = Σ item["total"] + rental_fuel_total。
+    MRO Supplies 经 CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS 映射到 other 字段，
+    已通过 auto_other → item["total"] 计入合计；mro_supplies_total 参数只用于快照列/
+    PDF/发票展示，**绝不能加进 total_amount**（加进去才是真翻倍）。rental_fuel_total
+    才是独立于明细行的增量（不进 auto_fuel）。自洽关系：
+    total_amount - (labor+lodging+other+mileage) == rental_fuel_total。
+    下方迁移 SQL 里 `+ mro_supplies_total` 是老数据一次性修补，非现行口径。"""
     labor_total = sum((money_decimal(item["labor_total"]) for item in items), Decimal("0"))
     lodging_total = sum(
         (customer_reimbursement_item_expense_amount(item, "lodging") for item in items),
@@ -5963,6 +6017,103 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
         "employee_expense_total": money_float(employee_expense_total),
         "total_amount": money_float(total_amount),
     }
+
+
+def customer_reimbursement_pending_sources(reimbursement):
+    """只读比对：该工单下尚未计入当前结算的报销明细，按报销状态分三档。
+    零写库，仅用于结算页横幅与 gate 校验。"""
+    order_id = reimbursement["service_order_id"]
+    reimb_id = reimbursement["id"]
+    included_keys = set()
+    for item in customer_reimbursement_items(reimb_id):
+        sources = item["auto_expense_sources"]
+        if isinstance(sources, str):
+            try:
+                sources = json.loads(sources or "{}")
+            except (ValueError, TypeError):
+                sources = {}
+        for field_sources in (sources or {}).values():
+            for source in field_sources:
+                if source.get("expense_id") and source.get("line_key"):
+                    included_keys.add((source["expense_id"], source["line_key"]))
+    rows = db().execute(
+        """
+        select expenses.id as expense_id, expenses.expense_number, expenses.status,
+               expense_items.line_key, expense_items.amount, expense_items.description as item_description,
+               (select count(*) from expense_items ordinal where ordinal.expense_id = expenses.id
+                and (ordinal.sort_order < expense_items.sort_order or (ordinal.sort_order = expense_items.sort_order and ordinal.id <= expense_items.id))) as line_number,
+               coalesce(projects.name, expense_items.project) as project_name,
+               expense_items.fuel_vehicle_type as fuel_vehicle_type,
+               expenses.expense_date, users.name as worker_name
+        from expenses
+        join expense_items on expense_items.expense_id = expenses.id
+        join users on users.id = coalesce(expenses.beneficiary_id, expenses.created_by)
+        left join projects on projects.id = expense_items.project_id
+        where expenses.service_order_id = ?
+        order by expenses.expense_date, expenses.id, expense_items.sort_order, expense_items.id
+        """,
+        (order_id,),
+    ).fetchall()
+    includable, pending, returned = [], [], []
+    for row in rows:
+        field_name = customer_reimbursement_expense_field(row["project_name"], row["fuel_vehicle_type"])
+        if not field_name:
+            continue
+        key = (row["expense_id"], row["line_key"])
+        if key in included_keys:
+            continue
+        entry = {
+            "expense_id": row["expense_id"],
+            "expense_number": row["expense_number"],
+            "line_key": row["line_key"],
+            "line_number": row["line_number"],
+            "worker_name": row["worker_name"],
+            "project_name": row["project_name"],
+            "description": row["item_description"],
+            "amount": money_float(row["amount"]),
+            "date": _reimbursement_date_key(row["expense_date"]),
+            "status": row["status"],
+        }
+        status = row["status"]
+        if status == "approved":
+            includable.append(entry)
+        elif status in ("pending", "submitted"):
+            pending.append(entry)
+        elif status == "returned":
+            returned.append(entry)
+    def bucket_total(entries):
+        return money_float(sum((money_decimal(e["amount"]) for e in entries), Decimal("0")))
+    return {
+        "includable": includable,
+        "pending": pending,
+        "returned": returned,
+        "includable_total": bucket_total(includable),
+        "pending_total": bucket_total(pending),
+        "returned_total": bucket_total(returned),
+    }
+
+
+def customer_reimbursement_gate_error(reimbursement, allow_pending=False):
+    """三出口 gate：提交/开票/发邮件/审核前校验未计入的报销。
+    - 已审核未计入（includable 非空）→ 硬拦截（无论 allow_pending）
+    - 待审核（pending 非空）→ 默认拦截；allow_pending=True 放行
+    - 已退回（returned 非空）→ 不拦（退回提示由横幅呈现）
+    返回 (error_code, message) 或 None。"""
+    sources = customer_reimbursement_pending_sources(reimbursement)
+    if sources["includable"]:
+        return (
+            "pending_sources",
+            f"仍有 {len(sources['includable'])} 笔已审核报销未计入工单结算"
+            f"（合计 {money(sources['includable_total'])}）。请先在结算页面点击"
+            f"「计入并重算」或确认无需计入后再继续。",
+        )
+    if sources["pending"] and not allow_pending:
+        return (
+            "pending_approval",
+            f"有 {len(sources['pending'])} 笔报销仍在待审核状态"
+            f"（合计 {money(sources['pending_total'])}）。确认要忽略待审核报销并继续吗？",
+        )
+    return None
 
 
 def customer_reimbursement_person_days(order_id):
@@ -6231,6 +6382,15 @@ def customer_reimbursement_items_from_form(order_id=None):
 def save_customer_reimbursement_items(reimbursement_id, rows):
     db().execute("delete from customer_reimbursement_items where customer_reimbursement_id = ?", (reimbursement_id,))
     for row in rows:
+        # 入库前把「人工值 == 来源值」的单元格归一为 0，避免下一轮被误判成
+        # 手改值而不再跟随来源（翻倍根因④的清理语义）。
+        for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"):
+            auto = row.get(f"auto_{name}")
+            if auto is None:
+                continue
+            if money_decimal(row.get(name)) == money_decimal(auto):
+                row[name] = 0
+        calculate_customer_reimbursement_item(row, row.get("sort_order", 0))
         db().execute(
             """
             insert into customer_reimbursement_items (
@@ -16817,12 +16977,8 @@ def customer_reimbursement_form(order_id):
         return redirect(url_for("customer_reimbursement_expense_review", order_id=order_id))
     else:
         reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
-        if reimbursement["status"] in {"draft", "returned"}:
-            update_customer_reimbursement_totals(reimbursement["id"])
-            reimbursement = db().execute(
-                "select * from customer_reimbursements where id = ?",
-                (reimbursement["id"],),
-            ).fetchone()
+        # 方案 A：不再在 GET 期自动重合并覆盖快照（那会导致保存时一闪而过、
+        # 且可能把同人异日报销重复计入）。改为只读比对未计入来源，由横幅呈现。
         db().commit()
     if request.method == "POST":
         try:
@@ -16838,6 +16994,10 @@ def customer_reimbursement_form(order_id):
                 if action == "send_email":
                     if reimbursement["status"] != "approved":
                         raise ValueError("工单结算审核通过后才能发送邮件。")
+                    gate = customer_reimbursement_gate_error(reimbursement, allow_pending=False)
+                    if gate:
+                        flash(gate[1], "error")
+                        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
                     recipient = deliver_customer_reimbursement_email(reimbursement, order)
                     db().commit()
                     flash(f"工单结算已发送至 {recipient}。", "success")
@@ -16847,6 +17007,10 @@ def customer_reimbursement_form(order_id):
                         raise ValueError("工单结算审核通过后才能生成发票。")
                     if not can_create_invoice():
                         abort(403)
+                    gate = customer_reimbursement_gate_error(reimbursement, allow_pending=False)
+                    if gate:
+                        flash(gate[1], "error")
+                        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
                     linked_invoice = service_order_active_invoice(order_id)
                     if linked_invoice:
                         if not reimbursement["invoice_id"]:
@@ -16864,6 +17028,13 @@ def customer_reimbursement_form(order_id):
                         )
                     )
                 raise ValueError("只有保存未提交或已退回的工单结算可以修改。")
+            if action == "submit":
+                gate = customer_reimbursement_gate_error(
+                    reimbursement, allow_pending=request.form.get("confirm_pending") == "1"
+                )
+                if gate:
+                    flash(gate[1], "error")
+                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
             rows = customer_reimbursement_items_from_form(order_id)
             save_customer_reimbursement_items(reimbursement["id"], rows)
             totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
@@ -17026,6 +17197,7 @@ def customer_reimbursement_form(order_id):
         person_days=customer_reimbursement_person_days(order_id),
         column_totals=customer_reimbursement_column_totals(items),
         can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
+        pending_sources=customer_reimbursement_pending_sources(reimbursement),
     )
 
 
@@ -17056,6 +17228,24 @@ def download_customer_reimbursement_excel(reimbursement_id):
                      item["transport_hours"], item["public_transport_hours"], item["overtime_hours"], item["holiday_hours"],
                      item["labor_total"], *expenses, item["mileage_total"],
                      customer_reimbursement_item_expense_amount(item, "other"), item["total"]])
+    # 合计行：逐列求和；末列取快照 total_amount（租车油费不在明细行，已计入合计）。
+    total_row = ["合计", "", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    for item in items:
+        total_row[3] += to_float(item["standard_hours"])
+        total_row[4] += to_float(item["transport_hours"])
+        total_row[5] += to_float(item["public_transport_hours"])
+        total_row[6] += to_float(item["overtime_hours"])
+        total_row[7] += to_float(item["holiday_hours"])
+        total_row[8] += float(money_decimal(item["labor_total"]))
+        for offset, key in enumerate(("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")):
+            total_row[9 + offset] += float(money_decimal(customer_reimbursement_item_expense_amount(item, key)))
+        total_row[16] += float(money_decimal(item["mileage_total"]))
+        total_row[17] += float(money_decimal(customer_reimbursement_item_expense_amount(item, "other")))
+    total_row[18] = float(money_decimal(reimbursement["total_amount"]))
+    rows.append(total_row)
+    rows.append([
+        "说明：租车油费不在明细行，已计入合计；MRO 耗材已计入「其他」列；合计为工单结算快照总额。",
+    ] + [""] * 18)
     workbook = build_simple_xlsx(headers, rows, sheet_name="工单结算")
     return send_file(workbook, as_attachment=True, download_name="_".join(re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value)).strip(" .") for value in (order["order_number"], order["client_order_number"], "工单结算.xlsx") if value), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -17089,6 +17279,10 @@ def approve_customer_reimbursement(reimbursement_id):
     if reimbursement["status"] != "submitted":
         flash("只有待经理审核的工单结算可以审核通过。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    gate = customer_reimbursement_gate_error(reimbursement, allow_pending=False)
+    if gate:
+        flash(gate[1], "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
     db().execute(
         """
         update customer_reimbursements
@@ -17117,6 +17311,26 @@ def approve_customer_reimbursement(reimbursement_id):
     db().commit()
     flash("工单结算已审核通过。", "success")
     return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+
+
+@app.post("/service-orders/<int:order_id>/customer-reimbursement/sync-sources")
+@login_required
+def sync_customer_reimbursement_sources(order_id):
+    """方案 A「计入并重算」：手动把已审核报销计入当前结算并重算快照。
+    仅在保存未提交/已退回状态可用；内部重跑 merge（已修翻倍）。"""
+    if not can_manage_customer_reimbursement():
+        abort(403)
+    require_service_order(order_id)
+    reimbursement = latest_customer_reimbursement(order_id)
+    if not reimbursement:
+        abort(404)
+    if reimbursement["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或已退回的工单结算可以计入并重算。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+    update_customer_reimbursement_totals(reimbursement["id"])
+    db().commit()
+    flash("已将已审核报销计入工单结算并重算。", "success")
+    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
 
 
 @app.post("/customer-reimbursements/<int:reimbursement_id>/return")

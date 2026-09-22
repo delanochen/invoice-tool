@@ -30,8 +30,10 @@ function reimbursementQuantity(value) {
 }
 
 function reimbursementInputValue(row, name) {
+  // 单元格生效金额就是 input 的 value（手改优先：input 已填生效金额）。
+  // 不能再叠加 data-auto-amount，否则会与来源金额重复计入导致显示翻倍。
   const input = row.querySelector(`[name="${name}"]`);
-  return reimbursementNumber(input?.value) + reimbursementNumber(input?.dataset.autoAmount);
+  return reimbursementNumber(input?.value);
 }
 
 function reimbursementAutoValue(row, name) {
@@ -193,6 +195,21 @@ reimbursementForm?.addEventListener("submit", (event) => {
     action.value = submitter.value;
     action.dataset.submitAction = "true";
     reimbursementForm.appendChild(action);
+  }
+  // 方案 A gate：有待审核报销时，提交/开票按钮带 data-confirm-pending，
+  // 二次确认后再注入 confirm_pending=1 放行（已审核未计入是硬拦，不会到这）。
+  if (submitter?.dataset.confirmPending) {
+    if (!window.confirm(submitter.dataset.confirmPending)) {
+      event.preventDefault();
+      reimbursementSubmitting = false;
+      return;
+    }
+    const confirmInput = document.createElement("input");
+    confirmInput.type = "hidden";
+    confirmInput.name = "confirm_pending";
+    confirmInput.value = "1";
+    confirmInput.dataset.submitAction = "true";
+    reimbursementForm.appendChild(confirmInput);
   }
   document.querySelectorAll(`button[form="${reimbursementForm.id}"]`).forEach((button) => {
     button.dataset.originalText = button.textContent;

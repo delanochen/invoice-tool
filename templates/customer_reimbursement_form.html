@@ -78,7 +78,7 @@
       {% if can_edit %}
         <button type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_expense_review', order_id=order.id) }}'">选择报销来源</button>
         <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
-        <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit">提交经理审核</button>
+        <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit"{% if pending_sources.pending %} data-confirm-pending="有报销仍在待审核状态，确认忽略并提交经理审核吗？"{% endif %}>提交经理审核</button>
       {% endif %}
       {# v0.1.239: 删除工单结算由菜单权限「工单结算-删除」控制（默认财务/经理/管理员）。 #}
       {% if has_action_permission("customer_reimbursements", "delete") and reimbursement.status in ["draft", "returned"] %}
@@ -117,6 +117,35 @@
       {% endif %}
     </div>
   </header>
+
+  {# 方案 A：结算页报销来源比对横幅（只读三档，零写库）。
+     - includable（已审核未计入）：硬拦提交，提供「计入并重算」自助化解。
+     - pending（待审核）/ returned（已退回）：仅提示。 #}
+  {% if pending_sources.includable or pending_sources.pending or pending_sources.returned %}
+  <section class="panel" id="pendingSourcesNotice">
+    {% if pending_sources.includable %}
+    <div class="flash error">
+      有 <strong>{{ pending_sources.includable|length }}</strong> 笔已审核报销尚未计入本工单结算（合计 {{ pending_sources.includable_total|money }}）。
+      提交经理审核前必须先计入或确认无需计入。
+      {% if can_edit %}
+      <form method="post" action="{{ url_for('sync_customer_reimbursement_sources', order_id=order.id) }}" style="display:inline;margin-left:8px">
+        <button class="primary" type="submit">计入并重算</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if pending_sources.pending %}
+    <div class="flash">
+      有 <strong>{{ pending_sources.pending|length }}</strong> 笔报销仍在待审核状态（合计 {{ pending_sources.pending_total|money }}）。提交经理审核时会再次确认是否忽略。
+    </div>
+    {% endif %}
+    {% if pending_sources.returned %}
+    <div class="flash">
+      有 <strong>{{ pending_sources.returned|length }}</strong> 笔报销已被退回（合计 {{ pending_sources.returned_total|money }}）。如需计入，请先在报销页重新提交审核。
+    </div>
+    {% endif %}
+  </section>
+  {% endif %}
 
   {% if reimbursement.status == "approved" and linked_invoice %}
     <section class="panel" id="resetCustomerReimbursementNotice">

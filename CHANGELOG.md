@@ -4,6 +4,19 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.272] - 2026-09-21
+
+### Fixed（工单结算金额翻倍修复 · 方案 A）
+- **背景**：工单结算「结算合计」会出现整行金额翻倍。经排查为三根因叠加：①前端 `reimbursementInputValue` 把单元格 input 值再叠加 `data-auto-amount`，显示层翻倍；②后端合并 `merge_approved_expenses_into_customer_reimbursement` 用「人名 + 报销填单日」精确匹配「人名 + 日报工作日」，异日则新建一行，同一来源被计两次；③PostgreSQL 经 psycopg 回传 `datetime`，`str()` 得 `'2026-09-18 00:00:00'`，与 SQLite 文本 `'2026-09-18'` 不等，匹配键失效——生产（PG）翻倍比本地（SQLite）更严重。
+- **根因①前端**：`static/customer-reimbursement.js` 的 `reimbursementInputValue` 改为只取 `input.value`（生效金额本就是 input 已填值），不再叠加 `data-auto-amount`。口径与 `system-grid.js` 完全一致。
+- **根因②③后端（双栈红线）**：新增 `_reimbursement_date_key()` 把日期统一归一成 `'YYYY-MM-DD'`（兼容 `date`/`datetime`/含 `T` 或空格的 ISO 字符串）；合并时 row 匹配键与新建行 `project_date` 均走该归一；新增 `_fallback_row_for_worker()`——精确匹配落空时回落到同一员工的已有明细行（单行直接复用，多行取最近日期），避免「同人异日拆行」导致重复计入；仅在回落也为空时才新建行。
+- **手改跟随来源**：`save_customer_reimbursement_items()` 入库前把「人工值 == 来源值」的单元格归一为 0，避免被误判成手改值而不再跟随来源（翻倍语义清理）。与 0.1.258「手改优先、人工+auto 绝不相加」口径一致。
+- **方案 A 快照为准**：结算详情页/PDF/Excel/结算详情页四处统一读落库快照，GET 期不再调 `update_customer_reimbursement_totals()` 覆盖。新增只读比对 `customer_reimbursement_pending_sources()`（三档 `includable`/`pending`/`returned`，零写库）+ 结算页横幅「计入并重算」→ 新端点 `POST /service-orders/<id>/customer-reimbursement/sync-sources`（仅 draft/returned 可用，显式重算快照）。
+- **三出口 gate**：`customer_reimbursement_gate_error()`——已审核未计入硬拦（无论是否确认）、待审核默认拦（带 `confirm_pending=1` 可放行）、已退回不拦；接入 submit / generate_invoice / send_email / approve。前端 submit 按钮待审核时带 `data-confirm-pending` 二次确认。
+- **MRO 口径铁律（勿再把 mro 加进 total）**：`customer_reimbursement_totals()` 的 `total_amount = Σ item["total"] + rental_fuel_total`；MRO Supplies 经 `CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS` 映射到 `other` 字段已通过 `auto_other` 计入合计，`mro_supplies_total` 参数只用于快照列/PDF/发票展示，绝不能加进合计（自洽：`total_amount - (labor+lodging+other+mileage) == rental_fuel_total`）。迁移 SQL 里 `+ mro_supplies_total` 是老数据一次性修补，非现行口径。
+- **Excel 导出**：`download_customer_reimbursement_excel()` 明细后追加合计行（逐列求和，末列=快照 `reimbursement["total_amount"]`）+ 口径说明行（租车油费不在明细行、MRO 已计入其他列）。
+- **测试**：`test_reimbursement_expense_display.py` 新增 `ReimbursementPlanARegressionTest`（22 项），覆盖日期双栈归一、禁用 fallback 复现翻倍（2 行）、fallback 后不拆行（1 行）、manual==auto 归一为 0、MRO 参数不改 total 且自洽、gate 四分支、Excel 合计行，以及路由级集成（submit 被 gate 拦 → sync 计入 → 再 submit 成功、横幅渲染）。
+
 ## [0.1.271] - 2026-09-21
 
 ### Changed（侧边栏：「知识库」与「智能助手」移入「实用工具」分组）

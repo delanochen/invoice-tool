@@ -6,6 +6,7 @@
   3. 用户改过的金额在保存（含 totals 重算、重进页面）后保持不变。
 """
 import importlib.util
+import json
 import shutil
 import tempfile
 import unittest
@@ -280,6 +281,340 @@ class ReimbursementExpenseDisplayTest(unittest.TestCase):
         after = self._item()
         self.assertEqual(after["lodging"], 250.0, "manual_review 下保存后手改值不应被冲掉")
         self.assertEqual(self._effective(after, "lodging"), 250.0)
+
+
+class ReimbursementPlanARegressionTest(unittest.TestCase):
+    """方案 A 回归：翻倍根因修复、MRO 口径、gate 三出口、Excel 合计行。
+
+    翻倍根因②（同人异日拆行）+ 根因③（PG 日期类型）由
+    _reimbursement_date_key / _fallback_row_for_worker 修复。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        module_path = Path(cls.temp_dir.name) / "app_plan_a.py"
+        shutil.copyfile(REPO_DIR / "app.py", module_path)
+        spec = importlib.util.spec_from_file_location("invoice_tool_plan_a_app", module_path)
+        cls.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.module)
+        cls.module.app.config.update(TESTING=True, SECRET_KEY="test-secret")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp_dir.cleanup()
+
+    def setUp(self):
+        with self.module.app.app_context():
+            db = self.module.db()
+            # 关闭 FK 检查，避免删除顺序（或上轮遗留孤立行）触发约束失败。
+            db.execute("PRAGMA foreign_keys=OFF")
+            so_row = db.execute("select id from service_orders where order_number='SO-PLANA'").fetchone()
+            so_id = so_row[0] if so_row else None
+            if so_id is not None:
+                db.execute(
+                    "delete from customer_reimbursement_items where customer_reimbursement_id in "
+                    "(select id from customer_reimbursements where service_order_id=?)",
+                    (so_id,),
+                )
+                db.execute("delete from customer_reimbursements where service_order_id=?", (so_id,))
+                db.execute(
+                    "delete from expense_items where expense_id in (select id from expenses where service_order_id=?)",
+                    (so_id,),
+                )
+                db.execute("delete from expenses where service_order_id=?", (so_id,))
+            db.execute("delete from users where email='plan-a-admin@example.com'")
+            db.execute("delete from service_orders where order_number='SO-PLANA'")
+            lodging_project_id = db.execute("select id from projects where name='Accommodation/Lodging'").fetchone()
+            if lodging_project_id is None:
+                lodging_project_id = db.execute(
+                    "insert into projects (name,name_key,project_type,unit_price,is_active,created_at) "
+                    "values ('Accommodation/Lodging','accommodation/lodging','expense',0,1,'2026-09-15T12:00:00')"
+                ).lastrowid
+            else:
+                lodging_project_id = lodging_project_id[0]
+            self.lodging_project_id = lodging_project_id
+            user_id = db.execute(
+                "insert into users (name,email,password_hash,role,created_at) values "
+                "('Plan A Admin','plan-a-admin@example.com','x','admin','2026-09-15T12:00:00')"
+            ).lastrowid
+            order_id = db.execute(
+                "insert into service_orders (order_number,client_name,site_address,client_order_number,"
+                "start_date,created_by,created_at) values ('SO-PLANA','C','addr','CL','2026-09-15',?, "
+                "'2026-09-15T12:00:00')",
+                (user_id,),
+            ).lastrowid
+            reimb_id = db.execute(
+                "insert into customer_reimbursements (service_order_id,file_name,stored_filename,status,"
+                "expense_selection_mode,created_by,created_at) values (?, 's.pdf','s.pdf','draft','legacy',?, "
+                "'2026-09-15T12:00:00')",
+                (order_id, user_id),
+            ).lastrowid
+            db.execute("PRAGMA foreign_keys=ON")
+            db.commit()
+            self.user_id = user_id
+            self.order_id = order_id
+            self.reimb_id = reimb_id
+
+    def _make_expense(self, expense_date, amount, status="approved", project="Accommodation/Lodging"):
+        with self.module.app.app_context():
+            db = self.module.db()
+            eid = db.execute(
+                "insert into expenses (service_order_id,expense_number,project,expense_date,amount,status,"
+                "created_by,beneficiary_id,created_at,updated_at) values (?,?,?,?,?,?,?,?, '2026-09-15T12:00:00',"
+                "'2026-09-15T12:00:00')",
+                (self.order_id, f"EXP-{expense_date}-{amount}-{status}", project, expense_date, amount,
+                 status, self.user_id, self.user_id),
+            ).lastrowid
+            line_key = f"line-{eid}-0"
+            db.execute(
+                "insert into expense_items (expense_id,project_id,project,amount,sort_order,line_key) "
+                "values (?,?,?,?,0,?)",
+                (eid, self.lodging_project_id, project, amount, line_key),
+            )
+            db.commit()
+            return eid, line_key
+
+    def _seed_item(self, worker, project_date, with_source=None):
+        with self.module.app.app_context():
+            db = self.module.db()
+            sources = json.dumps({"lodging": [with_source]}) if with_source else "{}"
+            db.execute(
+                "insert into customer_reimbursement_items (customer_reimbursement_id,worker_name,project_date,"
+                "auto_expense_sources,sort_order) values (?,?,?,?,0)",
+                (self.reimb_id, worker, project_date, sources),
+            )
+            db.commit()
+
+    def _merge_result(self, disable_fallback=False):
+        with self.module.app.app_context():
+            rows = self.module.customer_reimbursement_items(self.reimb_id)
+            original = None
+            if disable_fallback:
+                original = self.module._fallback_row_for_worker
+                self.module._fallback_row_for_worker = lambda cw, wk: None
+            result = self.module.merge_approved_expenses_into_customer_reimbursement(
+                rows, self.order_id, reimbursement_id=self.reimb_id
+            )
+            if disable_fallback and original is not None:
+                self.module._fallback_row_for_worker = original
+            return result
+
+    def _count_worker(self, result, name):
+        return sum(1 for r in result if r.get("worker_name") == name)
+
+    def _reimb_row(self):
+        with self.module.app.app_context():
+            return self.module.db().execute(
+                "select * from customer_reimbursements where id=?", (self.reimb_id,)
+            ).fetchone()
+
+    # ---- 日期双栈归一 ----
+    def test_date_key_normalizes_variants(self):
+        f = self.module._reimbursement_date_key
+        from datetime import date, datetime
+        self.assertEqual(f(date(2026, 9, 18)), "2026-09-18")
+        self.assertEqual(f(datetime(2026, 9, 18, 0, 0, 0)), "2026-09-18")
+        self.assertEqual(f("2026-09-18 00:00:00"), "2026-09-18")
+        self.assertEqual(f("2026-09-18T00:00:00"), "2026-09-18")
+        self.assertEqual(f("2026-09-18"), "2026-09-18")
+        self.assertEqual(f(None), "")
+        self.assertEqual(f(""), "")
+
+    # ---- 翻倍回归：禁用 fallback 应拆成 2 行（复现缺陷）----
+    def test_double_count_regression_without_fallback(self):
+        self._seed_item("Plan A Admin", "2026-09-15")
+        self._make_expense("2026-09-20", 300, status="approved")
+        result = self._merge_result(disable_fallback=True)
+        self.assertEqual(self._count_worker(result, "Plan A Admin"), 2)
+
+    # ---- 修复后：同人异日回落到已有行，不新增 ----
+    def test_no_double_count_with_fallback(self):
+        self._seed_item("Plan A Admin", "2026-09-15")
+        self._make_expense("2026-09-20", 300, status="approved")
+        result = self._merge_result()
+        self.assertEqual(self._count_worker(result, "Plan A Admin"), 1)
+        row = [r for r in result if r.get("worker_name") == "Plan A Admin"][0]
+        self.assertEqual(float(row.get("auto_lodging") or 0), 300)
+        self.assertEqual(float(row.get("lodging") or 0), 0)
+
+    # ---- 未调整（manual==auto）入库归一为 0 ----
+    def test_untouched_normalized_to_zero_on_save(self):
+        self._seed_item("Plan A Admin", "2026-09-15")
+        self._make_expense("2026-09-20", 300, status="approved")
+        result = self._merge_result()
+        with self.module.app.app_context():
+            self.module.save_customer_reimbursement_items(self.reimb_id, result)
+            self.module.db().commit()
+            item = dict(self.module.customer_reimbursement_items(self.reimb_id)[0])
+        self.assertEqual(float(item["auto_lodging"]), 300)
+        self.assertEqual(float(item["lodging"]), 0, "manual==auto 应归一为 0")
+
+    # ---- MRO 参数绝不能改变合计；total 自洽 ----
+    def test_totals_mro_param_ignored_and_self_consistent(self):
+        items = [
+            {"labor_total": 100, "total": 570.03, "lodging": 0, "auto_lodging": 50, "airfare": 0,
+             "auto_airfare": 0, "baggage": 0, "auto_baggage": 0, "rental_car": 0, "auto_rental_car": 0,
+             "fuel": 0, "auto_fuel": 0, "parking": 0, "auto_parking": 0, "taxi": 0, "auto_taxi": 0,
+             "mileage_total": 50, "other": 0, "auto_other": 370.03},
+            {"labor_total": 50, "total": 100, "lodging": 0, "auto_lodging": 20, "airfare": 0,
+             "auto_airfare": 0, "baggage": 0, "auto_baggage": 0, "rental_car": 0, "auto_rental_car": 0,
+             "fuel": 0, "auto_fuel": 0, "parking": 0, "auto_parking": 0, "taxi": 0, "auto_taxi": 0,
+             "mileage_total": 30, "other": 0, "auto_other": 0},
+        ]
+        a = self.module.customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total=155.5)
+        b = self.module.customer_reimbursement_totals(items, mro_supplies_total=370.03, rental_fuel_total=155.5)
+        self.assertEqual(a["total_amount"], b["total_amount"], "MRO 参数绝不能改变合计")
+        self.assertEqual(a["mro_supplies_total"], 0)
+        self.assertEqual(b["mro_supplies_total"], 370.03)
+        diff = a["total_amount"] - (a["labor_total"] + a["lodging_total"] + a["other_total"] + a["mileage_total"])
+        self.assertAlmostEqual(diff, 155.5, places=4)
+
+    def _gate(self, allow_pending=False):
+        # gate 内部调 db()/money()，必须在 app context 内执行。
+        with self.module.app.app_context():
+            return self.module.customer_reimbursement_gate_error(self._reimb_row(), allow_pending=allow_pending)
+
+    # ---- gate 三出口 ----
+    def test_gate_includable_hard_block(self):
+        self._make_expense("2026-09-20", 300, status="approved")
+        gate = self._gate()
+        self.assertIsNotNone(gate)
+        self.assertEqual(gate[0], "pending_sources")
+
+    def test_gate_pending_soft_block_default(self):
+        self._make_expense("2026-09-20", 300, status="pending")
+        gate = self._gate()
+        self.assertIsNotNone(gate)
+        self.assertEqual(gate[0], "pending_approval")
+
+    def test_gate_pending_allowed_with_confirm(self):
+        self._make_expense("2026-09-20", 300, status="pending")
+        gate = self._gate(allow_pending=True)
+        self.assertIsNone(gate)
+
+    def test_gate_returned_not_blocked(self):
+        self._make_expense("2026-09-20", 300, status="returned")
+        gate = self._gate()
+        self.assertIsNone(gate)
+
+    def test_gate_all_included_none(self):
+        eid, line_key = self._make_expense("2026-09-20", 300, status="approved")
+        self._seed_item("Plan A Admin", "2026-09-15", with_source={"expense_id": eid, "line_key": line_key, "amount": 300})
+        gate = self._gate()
+        self.assertIsNone(gate)
+
+    # ---- Excel 合计行 ----
+    def test_excel_totals_row_present(self):
+        with self.module.app.app_context():
+            db = self.module.db()
+            db.execute(
+                "insert into customer_reimbursement_items (customer_reimbursement_id,worker_name,project_date,"
+                "standard_hours,standard_rate,labor_total,total,miles,mileage_rate,mileage_total,sort_order) "
+                "values (?, 'A','2026-09-15',2,50,100,300,10,0.5,5,0)",
+                (self.reimb_id,),
+            )
+            db.execute(
+                "insert into customer_reimbursement_items (customer_reimbursement_id,worker_name,project_date,"
+                "standard_hours,standard_rate,labor_total,total,miles,mileage_rate,mileage_total,sort_order) "
+                "values (?, 'B','2026-09-16',3,50,150,450,20,0.5,10,1)",
+                (self.reimb_id,),
+            )
+            db.execute(
+                "update customer_reimbursements set total_amount=750, rental_fuel_total=0 where id=?",
+                (self.reimb_id,),
+            )
+            db.commit()
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            resp = client.get(f"/customer-reimbursements/{self.reimb_id}/download.xlsx")
+            self.assertEqual(resp.status_code, 200)
+            from io import BytesIO
+            from openpyxl import load_workbook
+            wb = load_workbook(BytesIO(resp.get_data()))
+            rows = list(wb.active.iter_rows(values_only=True))
+            self.assertEqual(len(rows), 5, "表头+2明细+合计+说明")
+            total_row = rows[-2]
+            self.assertEqual(total_row[0], "合计")
+            self.assertAlmostEqual(float(total_row[-1]), 750, places=2)
+
+    # ---- 路由级集成：submit 被 gate 拦 → sync 计入 → 再 submit 成功 ----
+    def test_route_submit_gate_then_sync_then_submit(self):
+        self._make_expense("2026-09-20", 300, status="approved")
+        self._seed_item("Plan A Admin", "2026-09-15")
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            # 1) 已审核报销未计入 → submit 被 gate 拦截，保持 draft
+            resp = client.post(
+                f"/service-orders/{self.order_id}/customer-reimbursement",
+                data={"action": "submit"}, follow_redirects=False,
+            )
+            self.assertEqual(resp.status_code, 302)
+            with self.module.app.app_context():
+                status = self.module.db().execute(
+                    "select status from customer_reimbursements where id=?", (self.reimb_id,)
+                ).fetchone()["status"]
+                self.assertEqual(status, "draft", "gate 拦截后应保持 draft")
+            # 2) sync-sources 计入并重算快照
+            resp2 = client.post(
+                f"/service-orders/{self.order_id}/customer-reimbursement/sync-sources",
+                data={}, follow_redirects=False,
+            )
+            self.assertEqual(resp2.status_code, 302)
+            with self.module.app.app_context():
+                item = dict(self.module.customer_reimbursement_items(self.reimb_id)[0])
+                self.assertAlmostEqual(float(item["auto_lodging"]), 300, "已审核报销应计入")
+                reimb = self.module.db().execute(
+                    "select total_amount from customer_reimbursements where id=?", (self.reimb_id,)
+                ).fetchone()
+                self.assertAlmostEqual(float(reimb["total_amount"]), 300, places=2)
+            # 3) 再 submit 无 includable → 成功进入 submitted（需回传完整表单）
+            resp3 = client.post(
+                f"/service-orders/{self.order_id}/customer-reimbursement",
+                data={
+                    "action": "submit",
+                    "worker_name": ["Plan A Admin"],
+                    "project_date": ["2026-09-15"],
+                    "standard_hours": ["0"],
+                    "transport_hours": ["0"],
+                    "public_transport_hours": ["0"],
+                    "overtime_hours": ["0"],
+                    "holiday_hours": ["0"],
+                    "lodging": ["0"], "auto_lodging": ["300"],
+                    "airfare": ["0"], "auto_airfare": ["0"],
+                    "baggage": ["0"], "auto_baggage": ["0"],
+                    "rental_car": ["0"], "auto_rental_car": ["0"],
+                    "fuel": ["0"], "auto_fuel": ["0"],
+                    "parking": ["0"], "auto_parking": ["0"],
+                    "taxi": ["0"], "auto_taxi": ["0"],
+                    "miles": ["0"],
+                    "other": ["0"], "auto_other": ["0"],
+                    "source_report_id": [""],
+                    "source_worker_user_id": [""],
+                },
+                follow_redirects=False,
+            )
+            self.assertEqual(resp3.status_code, 302)
+            with self.module.app.app_context():
+                status = self.module.db().execute(
+                    "select status from customer_reimbursements where id=?", (self.reimb_id,)
+                ).fetchone()["status"]
+                self.assertEqual(status, "submitted")
+
+    # ---- 结算页横幅：已审核未计入时渲染「计入并重算」按钮 ----
+    def test_pending_sources_banner_renders(self):
+        self._make_expense("2026-09-20", 300, status="approved")
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            resp = client.get(f"/service-orders/{self.order_id}/customer-reimbursement")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.get_data(as_text=True)
+            self.assertIn("已审核报销尚未计入", html)
+            self.assertIn("计入并重算", html)
+            self.assertIn("sync-sources", html)
 
 
 if __name__ == "__main__":
