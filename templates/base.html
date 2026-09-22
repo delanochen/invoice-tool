@@ -57,7 +57,7 @@
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document"] %}
         {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
-        {% set utility_endpoints = ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page", "travel_tools_page", "database_console"] %}
+        {% set utility_endpoints = ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page", "travel_tools_page", "knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document", "ai_assistant", "ai_assistant_chat", "database_console"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
@@ -171,16 +171,12 @@
           {% if has_menu_permission("messages") %}
             {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
           {% endif %}
-          {% if has_menu_permission("knowledge_base") and has_action_permission("knowledge_base", "view") %}
-            {{ nav_link("knowledge_base", "知识库", knowledge_base_endpoints) }}
-          {% endif %}
-          {% if has_menu_permission("ai_assistant") and has_action_permission("ai_assistant", "view") %}
-            {{ nav_link("ai_assistant", "智能助手", ai_assistant_endpoints) }}
-          {% endif %}
           {% set show_utility_menu =
             (has_menu_permission("ai_daily_report") and is_internal_user())
             or (has_menu_permission("travel_tools") and is_internal_user())
             or (has_menu_permission("database_console") and has_action_permission("database_console", "view"))
+            or (has_menu_permission("knowledge_base") and has_action_permission("knowledge_base", "view"))
+            or (has_menu_permission("ai_assistant") and has_action_permission("ai_assistant", "view"))
           %}
           {% if show_utility_menu %}
           <details class="nav-group {{ 'active' if active_endpoint in utility_endpoints else '' }}" {% if active_endpoint in utility_endpoints %}open{% endif %}>
@@ -191,6 +187,12 @@
               {% endif %}
               {% if has_menu_permission("travel_tools") and is_internal_user() %}
                 {{ nav_link("travel_tools_page", "出行工具") }}
+              {% endif %}
+              {% if has_menu_permission("knowledge_base") and has_action_permission("knowledge_base", "view") %}
+                {{ nav_link("knowledge_base", "知识库", knowledge_base_endpoints) }}
+              {% endif %}
+              {% if has_menu_permission("ai_assistant") and has_action_permission("ai_assistant", "view") %}
+                {{ nav_link("ai_assistant", "智能助手", ai_assistant_endpoints) }}
               {% endif %}
               {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}
                 {{ nav_link("database_console", "数据库工具") }}

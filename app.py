@@ -280,8 +280,6 @@ MENU_PERMISSION_GROUPS = [
             {"key": "expense_processing", "label": "报销处理", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "new_invoice", "label": "新建发票", "roles": {"manager", "finance"}},
             {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
-            {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
         ],
     },
     {
@@ -328,6 +326,8 @@ MENU_PERMISSION_GROUPS = [
         "items": [
             {"key": "ai_daily_report", "label": "AI 日报", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "travel_tools", "label": "出行工具", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "database_console", "label": "数据库工具", "roles": {"admin"}},
         ],
     },

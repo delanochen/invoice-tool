@@ -789,7 +789,7 @@
 
   const nl = {
     "现场工作": "Werk op locatie", "员工证书查询": "Medewerkerscertificaten", "工单拍照": "Werkfoto's maken", "照片台账": "Fotoregister", "工单照片台账": "Werkfotoregister",
-    "实用工具": "Hulpmiddelen", "AI 日报审查": "AI-dagrapportcontrole", "数据库工具": "Databaseconsole",
+    "实用工具": "Hulpmiddelen", "AI 日报审查": "AI-dagrapportcontrole", "数据库工具": "Databaseconsole", "知识库": "Kennisbank", "智能助手": "AI-assistent",
     "请填写地址。": "Vul een adres in.",
     "菜单": "Menu",
     "报销归属员工": "Medewerker voor wie de kosten zijn",
@@ -1404,7 +1404,7 @@
 
   const de = {
     "现场工作": "Vor-Ort-Arbeit", "员工证书查询": "Mitarbeiterzertifikate", "工单拍照": "Auftragsfotos aufnehmen", "照片台账": "Fotoregister", "工单照片台账": "Auftragsfotoregister",
-    "实用工具": "Dienstprogramme", "AI 日报审查": "KI-Tagesbericht-Prüfung", "数据库工具": "Datenbankkonsole",
+    "实用工具": "Dienstprogramme", "AI 日报审查": "KI-Tagesbericht-Prüfung", "数据库工具": "Datenbankkonsole", "知识库": "Wissensdatenbank", "智能助手": "KI-Assistent",
     "请填写地址。": "Bitte geben Sie eine Adresse ein.",
     "菜单": "Menü",
     "报销归属员工": "Mitarbeiter der Erstattung",
@@ -2006,7 +2006,7 @@
 
   const es = {
     "现场工作": "Trabajo de campo", "员工证书查询": "Certificados del personal", "工单拍照": "Tomar fotos del trabajo", "照片台账": "Registro de fotos", "工单照片台账": "Registro de fotos de trabajo",
-    "实用工具": "Utilidades", "AI 日报审查": "Revisión de informes diarios IA", "数据库工具": "Consola de base de datos",
+    "实用工具": "Utilidades", "AI 日报审查": "Revisión de informes diarios IA", "数据库工具": "Consola de base de datos", "知识库": "Base de conocimiento", "智能助手": "Asistente de IA",
     "请填写地址。": "Introduce una dirección.",
     "菜单": "Menú",
     "报销归属员工": "Empleado beneficiario",

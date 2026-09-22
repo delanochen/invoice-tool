@@ -4,6 +4,16 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.271] - 2026-09-21
+
+### Changed（侧边栏：「知识库」与「智能助手」移入「实用工具」分组）
+- **背景**：0.1.269 把 AI 日报审查、出行工具、数据库工具收进「实用工具」折叠组，但「知识库」与「智能助手」仍挂在「主菜单」下，与它们同类的工具型功能分散在两处。本版把这两项也并入「实用工具」，让主菜单只保留日常业务入口（看板、合同、工单、现场工作、站点地图、工单日历、报销处理、新建发票、消息）。
+- **改法**：`MENU_PERMISSION_GROUPS` 中把 `knowledge_base`、`ai_assistant` 两个条目从「主菜单」组移除，插入「实用工具」组的 `travel_tools` 之后、`database_console` 之前。组内顺序为：AI 日报 → 出行工具 → 知识库 → 智能助手 → 数据库工具。
+- **权限零变更（重要）**：两个条目的 `roles` 原样保留（`{"admin", "manager", "finance", "employee"}`），`DEFAULT_MENU_ROLES` 与 `ROLE_ACTION_PERMISSION_GROUPS` 均未改动，因此本版是**纯重组**——谁能看到「知识库」「智能助手」与之前完全一致，不涉及任何授权变化，也不需要数据迁移。
+- **侧边栏模板**：`templates/base.html` 中把两个顶层 `nav_link` 移入「实用工具」`<details>` 块（紧接出行工具之后、数据库工具之前）；`utility_endpoints` 扩充 `knowledge_base` 页面及其 11 个子端点（预览/下载/编辑/上传版本/预览版本/下载版本/删除）与 `ai_assistant`、`ai_assistant_chat`，使访问这些页面时「实用工具」组自动展开并高亮；`show_utility_menu` 同步纳入两个菜单权限与 `view` 动作权限判定。
+- **多语言**：`static/ui-i18n.js` 为 `nl` / `de` / `es` 三份词典补上「知识库」「智能助手」的译名（Kennisbank / AI-assistent、Wissensdatenbank / KI-Assistent、Base de conocimiento / Asistente de IA），英文词典原本已有。新增项合并进各自已有的 `"实用工具"` 行，避免在同一对象里出现重复键造成遮蔽。
+- **测试**：`test_utility_menu.py` 由 8 项扩到 13 项，覆盖分组归属与顺序、从旧分组移除、每个菜单键恰好定义一次、默认角色未变、组内五个链接齐全、组后不再出现顶层重复、`utility_endpoints` 含新端点、以及三份词典各自的定义次数。该文件 13 项全过；连同知识库与 AI 日报相关用例共 26 项通过。
+
 ## [0.1.270] - 2026-09-21
 
 ### Changed（站点地图：按访问国家自动选择地图模式，中国用户首屏即静态图）
