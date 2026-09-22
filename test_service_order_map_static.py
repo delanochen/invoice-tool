@@ -355,7 +355,7 @@ class ServiceOrderMapTemplateWiringTest(unittest.TestCase):
         sys.path.remove(str(cls.temp_dir.name))
         cls.temp_dir.cleanup()
 
-    def _page_body(self):
+    def _page_body(self, country=None):
         client = self.module.app.test_client()
         with self.module.app.app_context():
             row = self.module.db().execute(
@@ -364,7 +364,10 @@ class ServiceOrderMapTemplateWiringTest(unittest.TestCase):
             admin_id = row["id"]
         with client.session_transaction() as sess:
             sess["user_id"] = admin_id
-        resp = client.get("/service-orders/map")
+        if country:
+            resp = client.get("/service-orders/map", environ_base={"HTTP_CF_IPCOUNTRY": country})
+        else:
+            resp = client.get("/service-orders/map")
         self.assertEqual(resp.status_code, 200)
         return resp.get_data(as_text=True)
 
@@ -418,6 +421,38 @@ class ServiceOrderMapTemplateWiringTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("window.serviceOrderMapFallbackNotice", script)
+
+    def test_country_detection_reads_the_cloudflare_header(self):
+        with self.module.app.test_request_context("/", headers={"CF-IPCountry": "cn"}):
+            self.assertEqual(self.module.request_country_code(), "CN")
+        with self.module.app.test_request_context("/", headers={"CF-IPCountry": "US"}):
+            self.assertEqual(self.module.request_country_code(), "US")
+        with self.module.app.test_request_context("/"):
+            self.assertIsNone(self.module.request_country_code())
+
+    def test_chinese_visitor_opens_straight_into_static_mode(self):
+        """Visitors who cannot reach Google must not wait for the timeout."""
+        body = self._page_body(country="CN")
+        self.assertIn('preferredMapMode: "static"', body)
+        self.assertIn('mapCountryCode: "CN"', body)
+
+    def test_other_countries_keep_the_interactive_default(self):
+        body = self._page_body(country="US")
+        self.assertIn('preferredMapMode: "interactive"', body)
+        self.assertIn('mapCountryCode: "US"', body)
+
+    def test_unknown_country_defaults_to_interactive(self):
+        body = self._page_body()
+        self.assertIn('preferredMapMode: "interactive"', body)
+        self.assertIn("mapCountryCode: null", body)
+
+    def test_mode_script_prefers_the_stored_choice_over_the_server_default(self):
+        body = self._page_body(country="CN")
+        loader = body[body.index("window.serviceOrderMapMode ="):]
+        self.assertIn("preferredMapMode", loader)
+        # An explicit choice (from the toggle or a fallback) must still win.
+        self.assertIn('localStorage.getItem("serviceOrderMapMode")', loader)
+        self.assertIn('stored === "interactive"', loader)
 
     def test_static_mode_branch_never_loads_third_party_scripts(self):
         body = self._page_body()

@@ -72,6 +72,8 @@
       companyAddress: {{ company_address|tojson }},
       routeOriginAddress: {{ route_origin_address|tojson }},
       staticImageUrl: {{ url_for('service_order_map_static_image')|tojson }},
+      preferredMapMode: {{ preferred_map_mode|tojson }},
+      mapCountryCode: {{ map_country_code|tojson }},
       mapProvider: {{ ('google' if google_maps_enabled else 'openstreetmap')|tojson }}
     };
   </script>
@@ -79,11 +81,19 @@
 {% block scripts %}
   <script>
     window.serviceOrderMapMode = (function () {
+      // Order: the visitor's own choice (toggle or an automatic fallback)
+      // wins; otherwise the server decides from the visitor's country, so
+      // networks that cannot load Google open straight into static mode
+      // instead of waiting for the script to time out.
+      var serverDefault = (window.serviceOrderMapConfig || {}).preferredMapMode === "static"
+        ? "static" : "interactive";
       try {
-        return localStorage.getItem("serviceOrderMapMode") === "static" ? "static" : "interactive";
+        var stored = localStorage.getItem("serviceOrderMapMode");
+        if (stored === "static" || stored === "interactive") return stored;
       } catch (error) {
-        return "interactive";
+        /* storage unavailable; use the server default */
       }
+      return serverDefault;
     })();
   </script>
   <script src="{{ url_for('static', filename='service-order-map-common.js', v=app_version) }}"></script>

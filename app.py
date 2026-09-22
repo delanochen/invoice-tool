@@ -16164,9 +16164,13 @@ def service_order_map():
             "address": company["address"],
         }
     route_origin_address = (g.user["address"] or "").strip() or company["address"]
+    country_code = request_country_code()
+    preferred_map_mode = "static" if country_code in STATIC_MAP_COUNTRIES else "interactive"
     return render_template(
         "service_order_map.html",
         map_buyers=buyers_payload,
+        preferred_map_mode=preferred_map_mode,
+        map_country_code=country_code,
         show_invoice_amounts=can_view_invoices(),
         headquarters=headquarters,
         company_address=company["address"],
@@ -16191,6 +16195,26 @@ SERVICE_ORDER_STATIC_MAP_STATUS_COLORS = {
     "fresh": "green",
     "none": "gray",
 }
+
+# Countries whose visitors normally cannot reach Google from the browser
+# (the Great Firewall blocks maps.googleapis.com). For them the site map
+# opens directly in static mode: the server (which does reach Google) draws
+# the image, so the first visit is not left blank while the browser waits
+# for a script that will never arrive. Detected from the Cloudflare header;
+# unknown/absent means "assume the interactive map works".
+STATIC_MAP_COUNTRIES = {"CN"}
+
+
+def request_country_code():
+    """Two-letter country of the current visitor, or None when unknown.
+
+    Cloudflare (including the Tunnel in front of this app) adds
+    ``CF-IPCountry`` to every request. No GeoIP database is bundled, so an
+    absent header simply means "unknown" and callers must fall back to the
+    permissive behaviour.
+    """
+    code = (request.headers.get("CF-IPCountry") or "").strip().upper()
+    return code or None
 
 
 @app.post("/service-orders/map/static-image")
