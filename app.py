@@ -282,8 +282,6 @@ MENU_PERMISSION_GROUPS = [
             {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
             {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "ai_daily_report", "label": "AI 日报", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "travel_tools", "label": "出行工具", "roles": {"admin", "manager", "finance", "employee"}},
         ],
     },
     {
@@ -326,11 +324,18 @@ MENU_PERMISSION_GROUPS = [
         ],
     },
     {
+        "label": "实用工具",
+        "items": [
+            {"key": "ai_daily_report", "label": "AI 日报", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "travel_tools", "label": "出行工具", "roles": {"admin", "manager", "finance", "employee"}},
+            {"key": "database_console", "label": "数据库工具", "roles": {"admin"}},
+        ],
+    },
+    {
         "label": "系统配置",
         "items": [
             {"key": "payment_terms", "label": "账期管理", "roles": {"admin", "finance"}},
             {"key": "system_settings", "label": "系统设置", "roles": {"admin"}},
-            {"key": "database_console", "label": "数据库工具", "roles": {"admin"}},
         ],
     },
 ]

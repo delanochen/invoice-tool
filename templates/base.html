@@ -57,12 +57,13 @@
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document"] %}
         {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
+        {% set utility_endpoints = ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page", "travel_tools_page", "database_console"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
-        {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "database_console", "menu_permissions"] %}
+        {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions"] %}
         {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
           <a href="{{ url_for(endpoint) }}" class="translatable-text {{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
@@ -176,11 +177,26 @@
           {% if has_menu_permission("ai_assistant") and has_action_permission("ai_assistant", "view") %}
             {{ nav_link("ai_assistant", "智能助手", ai_assistant_endpoints) }}
           {% endif %}
-          {% if has_menu_permission("ai_daily_report") and is_internal_user() %}
-            {{ nav_link("ai_daily_report_drafts_page", "AI 日报审查", ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page"]) }}
-          {% endif %}
-          {% if has_menu_permission("travel_tools") and is_internal_user() %}
-            {{ nav_link("travel_tools_page", "出行工具") }}
+          {% set show_utility_menu =
+            (has_menu_permission("ai_daily_report") and is_internal_user())
+            or (has_menu_permission("travel_tools") and is_internal_user())
+            or (has_menu_permission("database_console") and has_action_permission("database_console", "view"))
+          %}
+          {% if show_utility_menu %}
+          <details class="nav-group {{ 'active' if active_endpoint in utility_endpoints else '' }}" {% if active_endpoint in utility_endpoints %}open{% endif %}>
+            <summary>实用工具</summary>
+            <div class="nav-submenu">
+              {% if has_menu_permission("ai_daily_report") and is_internal_user() %}
+                {{ nav_link("ai_daily_report_drafts_page", "AI 日报审查", ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page"]) }}
+              {% endif %}
+              {% if has_menu_permission("travel_tools") and is_internal_user() %}
+                {{ nav_link("travel_tools_page", "出行工具") }}
+              {% endif %}
+              {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}
+                {{ nav_link("database_console", "数据库工具") }}
+              {% endif %}
+            </div>
+          </details>
           {% endif %}
           {% if not is_external_manager() and not is_external_employee() %}
             {% set show_basic_data =
@@ -232,7 +248,6 @@
               normalized_role() == "admin"
               or (has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view"))
               or (has_menu_permission("system_settings") and has_action_permission("system_settings", "view"))
-              or (has_menu_permission("database_console") and has_action_permission("database_console", "view"))
             %}
             {% if show_system_config %}
               <details class="nav-group {{ 'active' if active_endpoint in system_config_endpoints else '' }}" {% if active_endpoint in system_config_endpoints %}open{% endif %}>
@@ -241,7 +256,6 @@
                   {% if normalized_role() == "admin" %}{{ nav_link("menu_permissions", "权限管理") }}{% endif %}
                   {% if has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view") %}{{ nav_link("payment_terms", "账期管理") }}{% endif %}
                   {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}{{ nav_link("system_settings", "系统设置") }}{% endif %}
-                  {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}{{ nav_link("database_console", "数据库工具") }}{% endif %}
                 </div>
               </details>
             {% endif %}

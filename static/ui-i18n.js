@@ -12,6 +12,7 @@
     "SMTP 密码": "SMTP Password",
     "SMTP 发件人": "SMTP From",
     "现场工作": "Field work", "员工证书查询": "Employee certificates", "工单拍照": "Take job photos", "照片台账": "Photo register", "工单照片台账": "Job photo register",
+    "实用工具": "Utilities", "AI 日报审查": "AI daily report review", "数据库工具": "Database console",
     "请填写地址。": "Please enter an address.",
     "菜单": "Menu",
     "报销归属员工": "Expense beneficiary",
@@ -788,6 +789,7 @@
 
   const nl = {
     "现场工作": "Werk op locatie", "员工证书查询": "Medewerkerscertificaten", "工单拍照": "Werkfoto's maken", "照片台账": "Fotoregister", "工单照片台账": "Werkfotoregister",
+    "实用工具": "Hulpmiddelen", "AI 日报审查": "AI-dagrapportcontrole", "数据库工具": "Databaseconsole",
     "请填写地址。": "Vul een adres in.",
     "菜单": "Menu",
     "报销归属员工": "Medewerker voor wie de kosten zijn",
@@ -1402,6 +1404,7 @@
 
   const de = {
     "现场工作": "Vor-Ort-Arbeit", "员工证书查询": "Mitarbeiterzertifikate", "工单拍照": "Auftragsfotos aufnehmen", "照片台账": "Fotoregister", "工单照片台账": "Auftragsfotoregister",
+    "实用工具": "Dienstprogramme", "AI 日报审查": "KI-Tagesbericht-Prüfung", "数据库工具": "Datenbankkonsole",
     "请填写地址。": "Bitte geben Sie eine Adresse ein.",
     "菜单": "Menü",
     "报销归属员工": "Mitarbeiter der Erstattung",
@@ -2003,6 +2006,7 @@
 
   const es = {
     "现场工作": "Trabajo de campo", "员工证书查询": "Certificados del personal", "工单拍照": "Tomar fotos del trabajo", "照片台账": "Registro de fotos", "工单照片台账": "Registro de fotos de trabajo",
+    "实用工具": "Utilidades", "AI 日报审查": "Revisión de informes diarios IA", "数据库工具": "Consola de base de datos",
     "请填写地址。": "Introduce una dirección.",
     "菜单": "Menú",
     "报销归属员工": "Empleado beneficiario",
