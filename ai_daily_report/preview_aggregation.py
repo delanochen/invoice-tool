@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from .schemas import collect_safety_photos
+from trip_policy import normalize_trip_type
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ class PreviewAggregationService:
                 "origin_confirmed": w.get("origin_confirmed", False),
                 "destination": w.get("destination"),
                 "destination_source": w.get("destination_source", "service_order"),
-                "overnight_stay": w.get("overnight_stay"),
+                "trip_type": normalize_trip_type(w.get("trip_type")),
                 "one_way_miles": w.get("one_way_miles"),
                 "reported_miles": w.get("reported_miles"),
                 "route_status": w.get("route_status", "not_calculated"),
@@ -247,9 +248,9 @@ class PreviewAggregationService:
 
         # Workers
         if workers:
+            # 行程类型有默认值（往返），不再像旧 overnight_stay 那样参与「是否待确认」判定。
             all_origin_confirmed = all(w.get("origin_confirmed") for w in workers if w.get("transportation") == "self_drive")
-            all_overnight_set = all(w.get("overnight_stay") is not None for w in workers if w.get("transportation") == "self_drive")
-            if all_origin_confirmed and all_overnight_set:
+            if all_origin_confirmed:
                 checklist.append({"field": "workers", "status": "ready", "message": f"{len(workers)} 名工作人员，出行信息完整"})
             else:
                 checklist.append({"field": "workers", "status": "warning", "message": "部分工作人员出行信息待确认"})

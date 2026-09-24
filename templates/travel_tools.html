@@ -131,6 +131,10 @@
       <div class="tt-hotel-card" id="hotelCard"></div>
       <img id="hotelImg" alt="宾馆到终点路线图">
       <a class="tt-download" id="hotelDownload" download="route.png" href="#">⬇ 下载佐证 PNG</a>
+      <table class="tt-table" id="hotelLegTable" hidden>
+        <thead><tr><th>路段</th><th>距离（英里）</th><th>时长（小时）</th></tr></thead>
+        <tbody></tbody>
+      </table>
       <p class="tt-detail" id="hotelSummary"></p>
     </div>
   </section>
@@ -244,7 +248,7 @@
     };
     return body;
   }
-  function renderHotel(data) {
+  function renderHotel(data, destination) {
     document.getElementById("hotelResult").hidden = false;
     var h = data.hotel || {};
     var rating = (h.rating == null) ? "暂无评分" : (h.rating.toFixed(1) + " 分" + (h.user_ratings ? "（" + h.user_ratings + " 条评价）" : ""));
@@ -256,6 +260,29 @@
     document.getElementById("hotelImg").hidden = !data.image;
     document.getElementById("hotelDownload").href = data.image || "#";
     document.getElementById("hotelDownload").hidden = !data.image;
+    // 与 ① 路线地图 同款的路段表格（宾馆 → 终点）
+    var legTable = document.getElementById("hotelLegTable");
+    var tbody = legTable.querySelector("tbody");
+    tbody.innerHTML = "";
+    if (data.leg_miles && data.leg_miles.length) {
+      var names = [(h.name || "宾馆"), destination || data.destination || "终点"];
+      for (var i = 0; i < data.leg_miles.length; i++) {
+        var tr = document.createElement("tr");
+        var from = names[i] || "-", to = names[i + 1] || "-";
+        tr.innerHTML = "<td>" + (i + 1) + ". " + escapeHtml(shorten(from, 28)) + " → " + escapeHtml(shorten(to, 28)) + "</td>" +
+          "<td>" + (data.leg_miles[i] == null ? "-" : data.leg_miles[i].toFixed(2)) + "</td>" +
+          "<td>" + (data.leg_hours[i] == null ? "-" : data.leg_hours[i].toFixed(2)) + "</td>";
+        tbody.appendChild(tr);
+      }
+      var trTotal = document.createElement("tr");
+      trTotal.className = "tt-total";
+      trTotal.innerHTML = "<td>合计</td><td>" + (data.total_miles == null ? "-" : data.total_miles.toFixed(2)) + "</td><td>" +
+        escapeHtml(data.total_hours_text) + "</td>";
+      tbody.appendChild(trTotal);
+      legTable.hidden = false;
+    } else {
+      legTable.hidden = true;
+    }
     var derived = data.derived || {};
     var deltaText = "";
     if (data.target_miles != null && data.actual_miles != null) {
@@ -267,7 +294,7 @@
       "（" + escapeHtml(derived.area_label || "区域未知") + "）；方位：" + escapeHtml(data.bearing_label || "-") +
       "；目标距离 " + (data.target_miles == null ? "-" : data.target_miles.toFixed(0)) + " 英里" +
       "；宾馆→终点实际驾车 " + (data.actual_miles == null ? "未验证" : data.actual_miles.toFixed(2) + " 英里 / " + escapeHtml(data.actual_hours_text)) + deltaText +
-      "；候选宾馆 " + data.candidate_count + " 家。路线由 " + escapeHtml(data.provider || "google_routes") + " 提供。";
+      "；候选宾馆 " + data.candidate_count + " 家。路线由 " + escapeHtml(data.provider || "google_routes") + " 提供；图片为宾馆(A)→终点(B)路线折线，可直接作为行程佐证。";
     document.getElementById("hotelRerollBtn").hidden = false;
   }
   function hotelFlow() {
@@ -279,7 +306,7 @@
         busy("hotelGoBtn", "hotelSpin", false);
         if (!data.success) { showError("hotelError", data.error); return; }
         if (data.hotel && data.hotel.name) { hotelExclude.push(data.hotel.name); }
-        renderHotel(data);
+        renderHotel(data, body.destination);
       })
       .catch(function () { busy("hotelGoBtn", "hotelSpin", false); showError("hotelError", "网络错误，请稍后重试"); });
   }

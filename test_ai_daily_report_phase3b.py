@@ -93,7 +93,7 @@ class AIDailyReportPhase3BTest(unittest.TestCase):
             destination="123 Site St, Test City, TX 12345",
             destination_source="service_order",
             destination_normalized="123 Site St, Test City, TX 12345, USA",
-            overnight_stay=False,
+            trip_type="round_trip",
             route_distance_meters=160934.4,
             one_way_miles=100.0,
             reported_miles=200.0,
@@ -160,29 +160,29 @@ class AIDailyReportPhase3BTest(unittest.TestCase):
 
     # ─── Mileage Display Tests (D-F) ────────────────────────────────────
 
-    def test_D_overnight_false_shows_round_trip(self):
-        """D. overnight=false -> info panel shows Round Trip x2"""
+    def test_D_round_trip_shows_doubled_mileage(self):
+        """D. trip_type=round_trip -> 证据显示 Round Trip（单程×2）"""
         evidence_svc, _ = self._make_services()
-        worker = self._make_worker(overnight_stay=False, reported_miles=200.0)
+        worker = self._make_worker(trip_type="round_trip", reported_miles=200.0)
         record = evidence_svc.generate_evidence(
             worker, draft_id=2, service_order_id=self.order["id"],
             report_date="2026-09-14", generated_by=self.admin_id,
         )
         self.assertEqual(record.evidence_status, "ready")
         self.assertEqual(record.reported_miles, 200.0)
-        self.assertFalse(record.overnight_stay)
+        self.assertEqual(record.trip_type, "round_trip")
 
-    def test_E_overnight_true_shows_one_way(self):
-        """E. overnight=true -> info panel shows one-way only"""
+    def test_E_one_way_shows_single_mileage(self):
+        """E. trip_type=one_way -> 证据显示单程里程"""
         evidence_svc, _ = self._make_services()
-        worker = self._make_worker(overnight_stay=True, reported_miles=100.0)
+        worker = self._make_worker(trip_type="one_way", reported_miles=100.0)
         record = evidence_svc.generate_evidence(
             worker, draft_id=3, service_order_id=self.order["id"],
             report_date="2026-09-14", generated_by=self.admin_id,
         )
         self.assertEqual(record.evidence_status, "ready")
         self.assertEqual(record.reported_miles, 100.0)
-        self.assertTrue(record.overnight_stay)
+        self.assertEqual(record.trip_type, "one_way")
 
     def test_F_evidence_reported_miles_matches_draft(self):
         """F. Evidence reported_miles exactly matches Draft worker"""
@@ -372,16 +372,16 @@ class AIDailyReportPhase3BTest(unittest.TestCase):
 
     # ─── Staleness Tests (S-T) ─────────────────────────────────────────
 
-    def test_S_overnight_change_evidence_stale(self):
-        """S. overnight change -> evidence is stale"""
+    def test_S_trip_type_change_evidence_stale(self):
+        """S. 行程类型变化 -> 指纹变化 -> evidence is stale"""
         from ai_daily_report import MileageEvidenceService, MileageEvidenceRecord
-        worker = self._make_worker(overnight_stay=False)
+        worker = self._make_worker(trip_type="round_trip")
         record = MileageEvidenceRecord(
             evidence_id="test", draft_id=1, service_order_id=1,
             report_date="2026-09-14", worker_user_id=1,
             route_fingerprint=MileageEvidenceService.compute_route_fingerprint(worker),
         )
-        worker.overnight_stay = True
+        worker.trip_type = "one_way"
         self.assertTrue(MileageEvidenceService.is_evidence_stale(record, worker))
 
     def test_T_transportation_change_evidence_stale(self):

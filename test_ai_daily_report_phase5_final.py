@@ -23,7 +23,7 @@ def make_test_jpeg(path, color=(100, 150, 200), exif_gps=False):
     img = Image.new("RGB", (200, 150), color)
     if exif_gps:
         try:
-            import piexif
+            import piexif  # type: ignore[import-not-found]
             exif_dict = {
                 "0th": {},
                 "Exif": {},

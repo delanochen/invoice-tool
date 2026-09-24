@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 from .schemas import collect_safety_photos
+from trip_policy import normalize_trip_type, trip_label, trip_multiplier
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -56,7 +57,6 @@ VERIFICATION_FIELD_RULE_MAP: Dict[str, str] = {
     "no_photos": "PTML-004",
     "origin": "ORIG-002",
     "origin_unconfirmed": "ORIG-002",
-    "overnight_stay": "OVRN-001",
     "mileage": "MILE-006",
     "mileage_verification_required": "MILE-006",
     "safety_photo": "SAFE-002",
@@ -416,7 +416,7 @@ def add_acknowledgement(
     draft_version: int,
     user_id: int,
     now_iso: str,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """Add or update an acknowledgement record. Returns the updated ack list."""
     acks = get_acknowledgements(draft_data)
     # Remove any existing ack for same issue_key (replace with fresh one)
@@ -507,7 +507,6 @@ class ValidationEngine:
         issues.extend(self._check_workers(draft_data, context))
         issues.extend(self._check_transportation(draft_data))
         issues.extend(self._check_origin_destination(draft_data, context))
-        issues.extend(self._check_overnight(draft_data))
         issues.extend(self._check_route_status(draft_data))
         issues.extend(self._check_mileage(draft_data))
         issues.extend(self._check_evidence(draft_data))
@@ -732,23 +731,9 @@ class ValidationEngine:
         return issues
 
     # ─── 6. Overnight Stay (OVRN) ────────────────────────────────────────
-
-    def _check_overnight(self, d: Dict[str, Any]) -> List[ValidationIssue]:
-        issues = []
-        for w in d.get("workers", []):
-            if w.get("transportation") != "self_drive":
-                continue
-            uid = w.get("user_id") or w.get("name", "unknown")
-            name = w.get("name", str(uid))
-            # OVRN-001: overnight_stay is None (unconfirmed)
-            if w.get("overnight_stay") is None:
-                issues.append(ValidationIssue(
-                    "OVRN-001", SEVERITY_ERROR,
-                    f"{name} 未确认是否住宿",
-                    subject_type=SUBJECT_WORKER, subject_id=str(uid),
-                    relevant_values={"overnight_stay": None},
-                ))
-        return issues
+    # REMOVED (v0.1.273): OVRN-001「未确认是否住宿」不再是一条校验规则。
+    # 行程类型 trip_type 有默认值（往返），不再需要用户确认住宿与否；
+    # 里程口径是否自洽改由 MILE-005 按 trip_type 校验。
 
     # ─── 7. Route Status (ROUT) ──────────────────────────────────────────
 
@@ -806,7 +791,7 @@ class ValidationEngine:
             reported = w.get("reported_miles")
             one_way = w.get("one_way_miles")
             rs = w.get("route_status", "not_calculated")
-            overnight = w.get("overnight_stay")
+            trip_type = normalize_trip_type(w.get("trip_type"))
 
             # MILE-001: no reported_miles and route not successful → ERROR
             if reported is None and rs != "success":
@@ -840,21 +825,19 @@ class ValidationEngine:
                     subject_type=SUBJECT_WORKER, subject_id=str(uid),
                     relevant_values={"reported_miles": reported, "one_way_miles": one_way},
                 ))
-            # MILE-005: overnight inconsistency (use Phase 3A logic)
-            if reported is not None and one_way is not None and overnight is not None:
+            # MILE-005: 行程类型与里程口径不一致（往返 → 单程×2，单程 → 单程）
+            if reported is not None and one_way is not None:
                 from .mileage_service import MileageService
-                expected = MileageService.round_miles(
-                    one_way * 2 if overnight is False else one_way
-                )
+                expected = MileageService.round_miles(one_way * trip_multiplier(trip_type))
                 if abs(reported - expected) > 0.01:
                     issues.append(ValidationIssue(
                         "MILE-005", SEVERITY_WARNING,
-                        f"{name} 的报告里程 {reported} 与计算值 {expected} 不一致（住宿={overnight}）",
+                        f"{name} 的报告里程 {reported} 与计算值 {expected} 不一致（行程类型={trip_label(trip_type)}）",
                         subject_type=SUBJECT_WORKER, subject_id=str(uid),
                         relevant_values={
                             "reported_miles": reported,
                             "one_way_miles": one_way,
-                            "overnight_stay": overnight,
+                            "trip_type": trip_type,
                             "expected": expected,
                         },
                     ))
@@ -886,7 +869,7 @@ class ValidationEngine:
                     "route_distance_meters": w.get("route_distance_meters"),
                     "one_way_miles": w.get("one_way_miles"),
                     "reported_miles": w.get("reported_miles"),
-                    "overnight_stay": w.get("overnight_stay"),
+                    "trip_type": w.get("trip_type"),
                 }
 
         for rec in records:

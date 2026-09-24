@@ -111,7 +111,7 @@ class Cursor:
 class PostgreSQLConnection:
     dialect='postgresql'
     def __init__(self, url=None):
-        import psycopg
+        import psycopg  # type: ignore[import-not-found]
         self.driver=psycopg
         self.raw=psycopg.connect(url or os.environ['DATABASE_URL'], autocommit=True, cursor_factory=psycopg.ClientCursor,
             connect_timeout=10, application_name='invoice-tool', options='-c timezone=UTC -c lock_timeout=15000 -c statement_timeout=60000')

@@ -3,9 +3,9 @@
 All Google API calls are mocked. No real network requests.
 
 Covers:
-A. self_drive + confirmed origin + no overnight -> x2
-B. self_drive + overnight -> x1
-C. overnight null -> no Google call
+A. self_drive + 往返 -> x2
+B. self_drive + 单程 -> x1
+C. 行程类型有默认值，不再阻塞 Google 调用
 D. origin_confirmed=false -> no Google call
 E. destination empty -> no Google call
 F. passenger -> no Google call
@@ -20,7 +20,7 @@ N. Google 400 no retry
 O. no route -> verification
 P. API key not in log
 Q. origin change clears route
-R. overnight change clears route
+R. trip_type change clears route
 S. action retry no recalculation (idempotency)
 T. preview no recalculation (cache)
 """
@@ -115,7 +115,7 @@ class AIDailyReportPhase3ATest(unittest.TestCase):
             origin_source="user_input", origin_confirmed=True,
             destination="123 Site St, Test City, TX 12345",
             destination_source="service_order",
-            overnight_stay=False,
+            trip_type="round_trip",
         )
         defaults.update(kwargs)
         return WorkerTravel(**defaults)
@@ -128,38 +128,39 @@ class AIDailyReportPhase3ATest(unittest.TestCase):
 
     # ─── Mileage Calculation Tests (A-B) ────────────────────────────────
 
-    def test_A_self_drive_no_overnight_doubles(self):
-        """A. self_drive + confirmed origin + no overnight -> reported = one_way * 2"""
+    def test_A_self_drive_round_trip_doubles(self):
+        """A. self_drive + 往返 -> reported = one_way * 2"""
         from ai_daily_report import MileageService
         # 160934.4 meters = 100 miles one way
         mock = MockRouteResult(distance_meters=160934.4)
         svc, _ = self._make_mileage_service(mock)
-        worker = self._make_worker(overnight_stay=False)
+        worker = self._make_worker(trip_type="round_trip")
         svc.calculate_for_worker(worker)
         self.assertEqual(worker.route_status, "success")
         self.assertEqual(worker.one_way_miles, 100.0)
         self.assertEqual(worker.reported_miles, 200.0)
 
-    def test_B_self_drive_overnight_single(self):
-        """B. self_drive + overnight -> reported = one_way (no doubling)"""
+    def test_B_self_drive_one_way_single(self):
+        """B. self_drive + 单程 -> reported = one_way (no doubling)"""
         mock = MockRouteResult(distance_meters=160934.4)
         svc, _ = self._make_mileage_service(mock)
-        worker = self._make_worker(overnight_stay=True)
+        worker = self._make_worker(trip_type="one_way")
         svc.calculate_for_worker(worker)
         self.assertEqual(worker.one_way_miles, 100.0)
         self.assertEqual(worker.reported_miles, 100.0)
 
     # ─── Route Eligibility Tests (C-G) ──────────────────────────────────
 
-    def test_C_overnight_null_no_google_call(self):
-        """C. overnight_stay == null -> no Google call, verification_required"""
+    def test_C_trip_type_default_does_not_block_google_call(self):
+        """C. 行程类型有默认值（往返），不再像旧 overnight_stay=null 那样阻塞 Google 调用。"""
         mock = MockRouteResult()
         svc, routes = self._make_mileage_service(mock)
-        worker = self._make_worker(overnight_stay=None)
+        worker = self._make_worker()
+        self.assertEqual(worker.trip_type, "round_trip")
         svc.calculate_for_worker(worker)
-        routes.get_driving_route.assert_not_called()
-        self.assertEqual(worker.route_status, "verification_required")
-        self.assertIsNone(worker.reported_miles)
+        routes.get_driving_route.assert_called_once()
+        self.assertEqual(worker.route_status, "success")
+        self.assertAlmostEqual(worker.reported_miles, worker.one_way_miles * 2, places=2)
 
     def test_D_origin_unconfirmed_no_google_call(self):
         """D. origin_confirmed=false -> no Google call"""
@@ -303,20 +304,20 @@ class AIDailyReportPhase3ATest(unittest.TestCase):
         self.assertIsNone(worker.route_polyline)
         self.assertEqual(worker.route_status, "not_calculated")
 
-    def test_R_overnight_change_clears_route(self):
-        """R. Changing overnight_stay clears route fields"""
+    def test_R_trip_type_change_clears_route(self):
+        """R. Changing trip_type clears route fields"""
         with self.module.app.app_context():
             from ai_daily_report import TravelService, EmployeeResolutionService
             emp = EmployeeResolutionService(self.module.db(), self.admin_id, self.admin_name)
             travel_svc = TravelService(self.module.db(), emp)
             worker = self._make_worker(
-                overnight_stay=False, reported_miles=200.0, route_status="success",
+                trip_type="round_trip", reported_miles=200.0, route_status="success",
             )
             workers = [worker]
-            travel_svc.set_overnight_for_worker(workers, self.admin_id, True)
+            travel_svc.set_trip_type_for_worker(workers, self.admin_id, "one_way")
             self.assertIsNone(worker.reported_miles)
             self.assertEqual(worker.route_status, "not_calculated")
-            self.assertTrue(worker.overnight_stay)
+            self.assertEqual(worker.trip_type, "one_way")
 
     # ─── Cache/Idempotency Tests (S-T) ──────────────────────────────────
 
@@ -370,7 +371,7 @@ class AIDailyReportPhase3ATest(unittest.TestCase):
         # Verify service uses raw
         mock = MockRouteResult(distance_meters=raw_meters)
         svc, _ = self._make_mileage_service(mock)
-        worker = self._make_worker(overnight_stay=False)
+        worker = self._make_worker(trip_type="round_trip")
         svc.calculate_for_worker(worker)
         self.assertEqual(worker.reported_miles, reported_from_raw)
 

@@ -348,6 +348,13 @@ class AttachmentManifestService:
                     sources[identity]["materialize"] = True
                 if primary is None:
                     primary = sources[identity]
+            if primary is None:
+                # refs is validated non-empty above, so this is unreachable;
+                # keep an explicit guard so the return type stays honest.
+                raise ManifestIntegrityError(
+                    ERROR_PHOTO_NOT_IN_DISCOVERED_SET,
+                    f"所选照片 {photo_id[:12]}... 无法解析为附件来源。",
+                )
             return primary
 
         # Safety photos (role: safety_photo, category self_check, multi allowed)

@@ -13,7 +13,7 @@ SYSTEM_PROMPT = """你是 Prasinos Power 工单系统的 AI 日报助手。你�
    - 只有当用户明确提到日期（如"昨天"、"9月14日"、"明天"）时，才在 date 字段输出解析后的 YYYY-MM-DD。
    - 用户没有提到日期时，date 字段为 null，由后端使用 current_business_date。
 6. **人员交通方式**：transportation 只有当用户明确提到出行方式（自驾/开车、乘车/搭车、坐车、飞机、租车等）时才输出对应值；用户没有提到时输出 null，**不要默认填 self_drive**。可选值：self_drive（自驾）、carpool（拼车）、passenger（乘车）、flight（飞机）、rental_car（租车）、other（其他）。
-7. **住宿**：用户没有明确说"住宿"或"不住宿"时，overnight_stay 为 null，并设置 clarification_required=true，missing_fields 包含 "overnight_stay"。
+7. **行程类型**：trip_type 只有 round_trip（往返）和 one_way（单程）两个值，**默认 round_trip**。只有当用户明确提到"单程""只去不回"时才输出 one_way；提到"往返""来回""当天回来"或完全没有提到时都输出 round_trip。trip_type 不要输出 null，也不要加入 missing_fields，**永远不要**再追问"是否住宿"。
 8. **出发地址**：新建日报（create_daily_report）时，每个 self_drive 人员必须有 origin。如果用户没有提供某个人的出发地址，origin 为 null，并设置 clarification_required=true，missing_fields 包含该人员的 origin。修改已有日报（update_worker / update_daily_report）时，用户没有提到的人员和字段保持 null（表示不变），**不要**因此设置 clarification_required。
 9. **照片操作**：使用 photo_hash 标识照片，不要使用索引。
 10. **施工内容**：施工内容是一段描述文字，不是表格化字段。把用户描述的施工过程完整放入 work_items[].description（尽量保留原文，一段一项即可）；equipment / action / fuse_number 只有当用户明确提到设备编号或操作类型时才填写，没有就输出 null，**不要**为了结构化而拆分、推断或编造设备号。**永远不要**把 "work_items.equipment" 加入 missing_fields。
@@ -32,7 +32,7 @@ SYSTEM_PROMPT = """你是 Prasinos Power 工单系统的 AI 日报助手。你�
   "work_items": [
     {"equipment": "设备编号", "action": "replace_fuse", "fuse_number": 2, "description": "描述"}
   ],
-  "overnight_stay": true | false | null,
+  "trip_type": "round_trip" | "one_way" | null,
   "arrival_time": "HH:MM 或 null",
   "departure_time": "HH:MM 或 null",
   "waiting_hours": 数字 或 null,
@@ -47,7 +47,7 @@ SYSTEM_PROMPT = """你是 Prasinos Power 工单系统的 AI 日报助手。你�
 
 - create_daily_report: 用户要求创建/填写新日报
 - update_daily_report: 修改当前日报的通用字段
-- update_worker: 修改已有草稿中某个工作人员的信息（出行方式、出发地点、住宿）。只输出用户明确要求修改的字段，其余字段为 null（保持不变）。例如用户说"张三改成乘车"时输出 {"name":"张三","transportation":"passenger","origin":null}；说"把我出发地点改成XX"时输出 {"name":"<当前用户姓名>","transportation":null,"origin":"XX"}。workers 中也可以包含新增人员（原草稿没有的人会被添加）。
+- update_worker: 修改已有草稿中某个工作人员的信息（出行方式、出发地点、行程类型 trip_type）。只输出用户明确要求修改的字段，其余字段为 null（保持不变）。例如用户说"张三改成乘车"时输出 {"name":"张三","transportation":"passenger","origin":null}；说"把我出发地点改成XX"时输出 {"name":"<当前用户姓名>","transportation":null,"origin":"XX"}。workers 中也可以包含新增人员（原草稿没有的人会被添加）。
 - add_work_item: 增加施工项
 - update_work_item: 修改施工项
 - remove_work_item: 删除施工项
@@ -77,10 +77,10 @@ SYSTEM_PROMPT = """你是 Prasinos Power 工单系统的 AI 日报助手。你�
   "work_items": [
     {"equipment": "A313", "action": "replace_fuse", "fuse_number": 2, "description": "更换2号保险丝"}
   ],
-  "overnight_stay": null,
+  "trip_type": "round_trip",
   "clarification_required": true,
-  "missing_fields": ["overnight_stay"],
-  "clarification_question": "当天是否住宿？"
+  "missing_fields": ["Ethan.origin"],
+  "clarification_question": "Ethan 当天从哪里出发？"
 }
 
 注意：如果不知道当前用户姓名，workers 中不要编造，使用用户提到的名字即可。"我"对应的人名由后端根据当前登录用户填充。

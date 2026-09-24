@@ -79,6 +79,11 @@ class HotelOutcome:
     straight_miles: Optional[float] = None
     actual_miles: Optional[float] = None
     actual_hours_text: str = "-"
+    leg_miles: List[Optional[float]] = field(default_factory=list)
+    leg_hours: List[Optional[float]] = field(default_factory=list)
+    total_miles: Optional[float] = None
+    total_hours_text: str = "-"
+    destination: str = ""
     provider: str = "google_routes"
     image_data_url: Optional[str] = None
 
@@ -249,6 +254,7 @@ def find_hotel_near_origin(
 
     # Driving verification: hotel -> destination with the same Routes client
     actual_miles: Optional[float] = None
+    actual_hours: Optional[float] = None
     actual_hours_text = "-"
     provider = "google_routes"
     polyline: Optional[str] = None
@@ -259,6 +265,7 @@ def find_hotel_near_origin(
         )
         if route.success:
             actual_miles = geo.meters_to_miles(route.total_distance_meters) if route.total_distance_meters else None
+            actual_hours = route.total_duration_seconds / 3600.0 if route.total_duration_seconds else None
             actual_hours_text = _hours_text(route.total_duration_seconds)
             polyline = route.encoded_polyline
             provider = route.provider
@@ -306,6 +313,11 @@ def find_hotel_near_origin(
         straight_miles=round(straight_miles, 2),
         actual_miles=round(actual_miles, 2) if actual_miles is not None else None,
         actual_hours_text=actual_hours_text,
+        leg_miles=[actual_miles] if actual_miles is not None else [],
+        leg_hours=[actual_hours] if actual_hours is not None else [],
+        total_miles=actual_miles,
+        total_hours_text=actual_hours_text,
+        destination=destination,
         provider=provider,
         image_data_url=image_data_url,
     )

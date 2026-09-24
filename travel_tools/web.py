@@ -100,7 +100,7 @@ def _outcome_payload(outcome) -> dict:
         "error_code": outcome.error_code,
         "image": outcome.image_data_url,
     }
-    if hasattr(outcome, "leg_miles"):
+    if isinstance(outcome, service.RouteMapOutcome):
         data.update(
             {
                 "origin": outcome.origin,
@@ -113,10 +113,11 @@ def _outcome_payload(outcome) -> dict:
                 "provider": outcome.provider,
             }
         )
-    if hasattr(outcome, "hotel"):
+    elif isinstance(outcome, service.HotelOutcome):
         data.update(
             {
                 "hotel": outcome.hotel,
+                "destination": outcome.destination,
                 "candidate_count": outcome.candidate_count,
                 "derived": {
                     "lat": outcome.derived_lat,
@@ -128,6 +129,10 @@ def _outcome_payload(outcome) -> dict:
                 "straight_miles": _round2(outcome.straight_miles),
                 "actual_miles": _round2(outcome.actual_miles),
                 "actual_hours_text": outcome.actual_hours_text,
+                "leg_miles": [_round2(m) for m in outcome.leg_miles],
+                "leg_hours": [_round2(h) for h in outcome.leg_hours],
+                "total_miles": _round2(outcome.total_miles),
+                "total_hours_text": outcome.total_hours_text,
                 "provider": outcome.provider,
             }
         )

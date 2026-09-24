@@ -48,7 +48,7 @@ def migrate(source_path,url,target_name):
 
 def _migrate_snapshot(source_path,url,target_name,expected_sha=None,expected_user=None):
     """Shared transaction; public entrypoints must validate their own scope first."""
-    import psycopg
+    import psycopg  # type: ignore[import-not-found]
     started=time.monotonic()
     source=sqlite3.connect(Path(source_path).resolve(strict=True).as_uri()+'?mode=ro',uri=True)
     source.execute('pragma query_only=on')

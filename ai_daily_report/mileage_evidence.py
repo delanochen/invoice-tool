@@ -41,6 +41,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, normalize_trip_type, trip_label
+
 from .schemas import (
     EVIDENCE_VERSION,
     MileageEvidenceRecord,
@@ -156,8 +158,6 @@ class MileageEvidenceService:
             return False, "destination_null"
         if not worker.origin_confirmed:
             return False, "origin_not_confirmed"
-        if worker.overnight_stay is None:
-            return False, "overnight_stay_null"
         if not worker.route_polyline:
             return False, "route_polyline_null"
         return True, None
@@ -172,7 +172,7 @@ class MileageEvidenceService:
             str(worker.destination_normalized or worker.destination or ""),
             str(worker.route_distance_meters or ""),
             str(worker.route_polyline or ""),
-            str(worker.overnight_stay),
+            str(worker.trip_type),  # 行程类型变化 → 指纹变化 → 重新生成佐证
             str(worker.route_query_time or ""),
         ]
         raw = "|".join(components)
@@ -358,7 +358,7 @@ class MileageEvidenceService:
                 route_distance_meters=worker.route_distance_meters,
                 one_way_miles=worker.one_way_miles,
                 reported_miles=worker.reported_miles,
-                overnight_stay=worker.overnight_stay,
+                trip_type=worker.trip_type,
                 route_fingerprint=fingerprint,
                 evidence_status="failed",
                 error=map_result.error or ERROR_STATIC_MAP_UNEXPECTED,
@@ -440,7 +440,7 @@ class MileageEvidenceService:
             route_distance_meters=worker.route_distance_meters,
             one_way_miles=worker.one_way_miles,
             reported_miles=worker.reported_miles,
-            overnight_stay=worker.overnight_stay,
+            trip_type=worker.trip_type,
             route_fingerprint=fingerprint,
             evidence_version=EVIDENCE_VERSION,
             evidence_status="ready",
@@ -482,16 +482,16 @@ class MileageEvidenceService:
 
         origin_display = self.format_address_for_evidence(worker.origin or "")
         dest_display = self.format_address_for_evidence(worker.destination or "")
-        travel_rule = "Round Trip (one-way x 2)" if worker.overnight_stay is False else "One-way only (overnight stay)"
+        trip_type = normalize_trip_type(worker.trip_type)
+        travel_rule = "Round Trip (one-way x 2)" if trip_type == ROUND_TRIP else "One-way only"
 
         lines = [
             f"Employee: {worker.name}",
             f"Origin: {origin_display}",
             f"Destination: {dest_display}",
             f"One-way Distance: {worker.one_way_miles:.2f} mi",
-            f"Mileage Rule: {travel_rule}",
+            f"Trip Type: {trip_label(trip_type)} ({travel_rule})",
             f"Reported Mileage: {worker.reported_miles:.2f} mi",
-            f"Overnight Stay: {'Yes' if worker.overnight_stay else 'No'}",
             f"Route Provider: {worker.route_provider or 'Google Maps'}",
         ]
         # v0.1.235: Report Date and Route Calculated lines were removed from

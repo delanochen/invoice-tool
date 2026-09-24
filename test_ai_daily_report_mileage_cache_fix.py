@@ -2,7 +2,7 @@
 
 Covers two approved fixes:
 1. Mileage cache invalidation (user-reported issue #1):
-   - update_worker changing origin / transportation / overnight_stay must invalidate the
+   - update_worker changing origin / transportation / trip_type must invalidate the
      cached route so MileageService re-fetches (previously stale miles were reused).
    - recalculate_mileage intent must invalidate routes (previously the hasattr guard
      always evaluated False and did nothing).
@@ -78,7 +78,7 @@ class MileageCacheFixTest(unittest.TestCase):
             origin_source="user_input", origin_confirmed=True,
             destination="123 Site St, Test City, TX 12345",
             destination_source="service_order",
-            overnight_stay=False,
+            trip_type="round_trip",
             route_status="success",
             route_distance_meters=160934.4,
             one_way_miles=100.0,
@@ -130,30 +130,30 @@ class MileageCacheFixTest(unittest.TestCase):
             self.assertNotEqual(w.route_status, "success")
             self.assertIsNone(w.route_distance_meters)
 
-    def test_worker_overnight_change_invalidates_route(self):
-        """update_worker changing overnight_stay must clear route (round-trip vs one-way)."""
+    def test_worker_trip_type_change_invalidates_route(self):
+        """update_worker changing trip_type must clear route (往返 vs 单程)."""
         with self.module.app.app_context():
             from ai_daily_report import AIAction
             svc = self._make_svc()
             draft = self._make_draft()
             action = AIAction(action_version=1, intent="update_worker")
-            resolved = [{"user_id": self.admin_id, "name": "Test Admin", "overnight_stay": True}]
+            resolved = [{"user_id": self.admin_id, "name": "Test Admin", "trip_type": "one_way"}]
             draft, _ = svc.execute_action(draft, action, resolved_workers=resolved)
             w = draft.workers[0]
-            self.assertTrue(w.overnight_stay)
+            self.assertEqual(w.trip_type, "one_way")
             self.assertNotEqual(w.route_status, "success")
             self.assertIsNone(w.reported_miles)
 
-    def test_global_overnight_shortcut_invalidates_route(self):
-        """Global overnight_stay shortcut must invalidate all workers."""
+    def test_global_trip_type_shortcut_invalidates_route(self):
+        """Global trip_type shortcut must invalidate all workers."""
         with self.module.app.app_context():
             from ai_daily_report import AIAction
             svc = self._make_svc()
             draft = self._make_draft()
-            action = AIAction(action_version=1, intent="update_worker", overnight_stay=True)
+            action = AIAction(action_version=1, intent="update_worker", trip_type="one_way")
             draft, _ = svc.execute_action(draft, action, resolved_workers=[])
             for w in draft.workers:
-                self.assertTrue(w.overnight_stay)
+                self.assertEqual(w.trip_type, "one_way")
                 self.assertNotEqual(w.route_status, "success")
                 self.assertIsNone(w.reported_miles)
 
@@ -208,7 +208,7 @@ class MileageCacheFixTest(unittest.TestCase):
         from ai_daily_report.intent_service import AIIntentService
         svc = AIIntentService({"enabled": True, "api_key": "k", "model": "test-model"})
         calls = {"n": 0}
-        valid_json = json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "overnight_stay": None, "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
+        valid_json = json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "trip_type": "round_trip", "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
         with patch.object(svc, "_call_deepseek_json", side_effect=lambda messages, json_mode=True: (calls.update(n=calls["n"] + 1), "" if calls["n"] < 2 else valid_json)[1]):
             result = svc.parse_intent(
                 user_message="创建日报", current_business_date="2026-09-14",
@@ -223,7 +223,7 @@ class MileageCacheFixTest(unittest.TestCase):
         """JSON-mode empty response triggers a fallback call with json_mode=False."""
         from ai_daily_report.intent_service import AIIntentService
         svc = AIIntentService({"enabled": True, "api_key": "k", "model": "test-model"})
-        valid_json = json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "overnight_stay": None, "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
+        valid_json = json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "trip_type": "round_trip", "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
         modes = []
         def fake_call(messages, json_mode=True):
             modes.append(json_mode)
@@ -264,7 +264,7 @@ class MileageCacheFixTest(unittest.TestCase):
         from ai_daily_report.intent_service import AIIntentService
         import json as _json
         svc = AIIntentService({"enabled": True, "api_key": "k", "model": "test-model"})
-        valid_json = _json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "overnight_stay": None, "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
+        valid_json = _json.dumps({"action_version": 1, "intent": "create_daily_report", "date": None, "workers": [], "work_items": [], "trip_type": "round_trip", "arrival_time": None, "departure_time": None, "waiting_hours": None, "waiting_reason": None, "photo_hash": None, "clarification_required": False, "missing_fields": [], "clarification_question": None})
         seen_payloads = []
         orig = svc._call_deepseek_json
 
@@ -401,7 +401,7 @@ class MileageCacheFixTest(unittest.TestCase):
                     WorkerInput(name="Antonio", transportation="self_drive"),
                 ],
                 work_items=[WorkItemInput(equipment="A313", action="replace_fuse", fuse_number=2)],
-                overnight_stay=False,
+                trip_type="round_trip",
             )
             resolved = [
                 {"user_id": self.admin_id, "name": "Test Admin", "transportation": "self_drive", "origin": None},
@@ -415,7 +415,7 @@ class MileageCacheFixTest(unittest.TestCase):
             self.assertEqual(draft.workers[1].user_id, 9001)
             self.assertEqual(draft.workers[2].user_id, 9002)
             for w in draft.workers:
-                self.assertFalse(w.overnight_stay)
+                self.assertEqual(w.trip_type, "round_trip")  # 默认往返，不再要求确认是否住宿
             self.assertEqual(len(draft.work_items), 1)
             self.assertEqual(draft.work_items[0].equipment, "A313")
 

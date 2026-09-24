@@ -546,6 +546,50 @@ class HotelFinderServiceTest(unittest.TestCase):
         markers_arg = maps_cls.return_value.get_map.call_args[0][0]
         self.assertEqual([m["label"] for m in markers_arg], ["A", "B"])
 
+    def test_success_exposes_leg_fields_for_route_map_table(self):
+        """找到宾馆后返回与①路线地图同款的路段字段（宾馆→终点），供前端画表格。"""
+        from travel_tools.routes_service import MultiStopRouteResult
+        from travel_tools.service import TravelToolConfig, find_hotel_near_origin
+        from travel_tools.static_maps import StaticMapResult
+
+        hotels = [
+            {"name": "Hotel A", "address": "addr a", "rating": 4.0, "lat": 28.9, "lng": -96.5},
+        ]
+        route_result = MultiStopRouteResult(
+            success=True,
+            total_distance_meters=500000,  # ~310.69 mi
+            total_duration_seconds=18000,  # 5h
+            legs=[{"distance_meters": 500000, "duration_seconds": 18000}],
+            encoded_polyline="drive-poly",
+            status="success",
+        )
+        map_result = StaticMapResult(success=True, image_bytes=make_test_png(), content_type="image/png", status="success")
+
+        config = TravelToolConfig(routes_api_key="k", static_maps_api_key="k", places_api_key="k")
+        with patch("travel_tools.service.PlacesService") as places_cls, patch(
+            "travel_tools.service.MultiStopRoutesService"
+        ) as routes_cls, patch("travel_tools.service.FlexStaticMapsService") as maps_cls:
+            self._setup_places(places_cls, hotels)
+            routes_cls.return_value.get_route.return_value = route_result
+            maps_cls.return_value.get_map.return_value = map_result
+            outcome = find_hotel_near_origin(
+                config,
+                destination="Site X, TX",
+                trip_distance_miles=350,
+                bearing_label="NW",
+                rng=random.Random(7),
+            )
+
+        self.assertTrue(outcome.success)
+        # 单段：宾馆 -> 终点，与①路线地图表格结构一致
+        self.assertEqual(len(outcome.leg_miles), 1)
+        self.assertEqual(len(outcome.leg_hours), 1)
+        self.assertAlmostEqual(outcome.leg_miles[0], 310.69, delta=0.5)
+        self.assertAlmostEqual(outcome.leg_hours[0], 5.0, delta=0.01)
+        self.assertAlmostEqual(outcome.total_miles, 310.69, delta=0.5)
+        self.assertEqual(outcome.total_hours_text, "5h 00m")
+        self.assertEqual(outcome.destination, "Site X, TX")
+
     def test_geocode_failure_surfaces_specific_reason(self):
         """终点 geocode 失败时，用户看到的是具体原因而非笼统的"无法解析"。"""
         from travel_tools.service import TravelToolConfig, find_hotel_near_origin

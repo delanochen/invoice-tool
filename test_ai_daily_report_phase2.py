@@ -5,7 +5,7 @@ Covers:
 - user_id-based worker matching
 - Origin priority (user_input > draft > employee_default)
 - Destination from service_order
-- Overnight stay per-worker
+- Trip type per-worker: round_trip（默认）/ one_way
 - Transportation modes
 - Conversation context limits
 - Version conflict
@@ -255,45 +255,48 @@ class AIDailyReportPhase2Test(unittest.TestCase):
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
-            w = WorkerTravel(user_id=1, name="A", origin="X", origin_confirmed=True, overnight_stay=False)
+            w = WorkerTravel(user_id=1, name="A", origin="X", origin_confirmed=True, trip_type="round_trip")
             missing, msgs = travel.verify_travel_fields([w], site_address_present=False)
             self.assertIn("site_address", missing)
 
-    # ─── Overnight Stay Tests ────────────────────────────────────────────
+    # ─── 行程类型 Trip Type Tests ────────────────────────────────────────
 
-    def test_all_not_stay_batch(self):
+    def test_batch_set_round_trip(self):
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
             workers = [WorkerTravel(user_id=1, name="A"), WorkerTravel(user_id=2, name="B")]
-            travel.set_overnight_for_all(workers, False)
-            self.assertTrue(all(w.overnight_stay is False for w in workers))
+            travel.set_trip_type_for_all(workers, "round_trip")
+            self.assertTrue(all(w.trip_type == "round_trip" for w in workers))
 
-    def test_all_stay_batch(self):
+    def test_batch_set_one_way(self):
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
             workers = [WorkerTravel(user_id=1, name="A"), WorkerTravel(user_id=2, name="B")]
-            travel.set_overnight_for_all(workers, True)
-            self.assertTrue(all(w.overnight_stay is True for w in workers))
+            travel.set_trip_type_for_all(workers, "one_way")
+            self.assertTrue(all(w.trip_type == "one_way" for w in workers))
 
-    def test_per_worker_different_overnight(self):
+    def test_per_worker_different_trip_type(self):
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
             workers = [WorkerTravel(user_id=1, name="A"), WorkerTravel(user_id=2, name="B")]
-            travel.set_overnight_for_worker(workers, 1, False)
-            travel.set_overnight_for_worker(workers, 2, True)
-            self.assertFalse(workers[0].overnight_stay)
-            self.assertTrue(workers[1].overnight_stay)
+            travel.set_trip_type_for_worker(workers, 1, "round_trip")
+            travel.set_trip_type_for_worker(workers, 2, "one_way")
+            self.assertEqual(workers[0].trip_type, "round_trip")
+            self.assertEqual(workers[1].trip_type, "one_way")
 
-    def test_overnight_unknown_triggers_verification(self):
+    def test_trip_type_default_does_not_trigger_verification(self):
+        """行程类型有默认值（往返），不再产生「是否住宿」待确认项。"""
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
             w = WorkerTravel(user_id=1, name="A", transportation="self_drive", origin="X", origin_confirmed=True)
             missing, msgs = travel.verify_travel_fields([w], site_address_present=True)
-            self.assertTrue(any("overnight" in m for m in missing))
+            self.assertEqual(missing, [])
+            self.assertNotIn("当天是否住宿？", msgs)
+            self.assertNotIn("worker_1_overnight_stay", missing)
 
     # ─── Transportation Tests ────────────────────────────────────────────
 
@@ -301,14 +304,14 @@ class AIDailyReportPhase2Test(unittest.TestCase):
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
-            w = WorkerTravel(user_id=1, name="A", transportation="passenger", overnight_stay=False)
+            w = WorkerTravel(user_id=1, name="A", transportation="passenger", trip_type="round_trip")
             self.assertFalse(travel.needs_mileage_calculation(w))
 
     def test_self_drive_requires_origin(self):
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
-            w = WorkerTravel(user_id=1, name="A", transportation="self_drive", origin=None, overnight_stay=False)
+            w = WorkerTravel(user_id=1, name="A", transportation="self_drive", origin=None, trip_type="round_trip")
             self.assertFalse(travel.needs_mileage_calculation(w))
             w.origin = "X"
             w.origin_confirmed = True
@@ -406,16 +409,16 @@ class AIDailyReportPhase2Test(unittest.TestCase):
             draft.workers.append(WorkerTravel(user_id=self.zhangsan["id"], name="张三"))
             action = AIAction(action_version=1, intent="update_worker")
             resolved = [
-                {"user_id": self.admin_id, "name": self.admin_name, "origin": "Spring, TX", "overnight_stay": False},
-                {"user_id": self.zhangsan["id"], "name": "张三", "origin": "Hobbs, NM", "overnight_stay": True},
+                {"user_id": self.admin_id, "name": self.admin_name, "origin": "Spring, TX", "trip_type": "round_trip"},
+                {"user_id": self.zhangsan["id"], "name": "张三", "origin": "Hobbs, NM", "trip_type": "one_way"},
             ]
             draft, msg = svc.execute_action(draft, action, resolved_workers=resolved)
             admin_w = next(w for w in draft.workers if w.user_id == self.admin_id)
             zs_w = next(w for w in draft.workers if w.user_id == self.zhangsan["id"])
             self.assertEqual(admin_w.origin, "Spring, TX")
-            self.assertFalse(admin_w.overnight_stay)
+            self.assertEqual(admin_w.trip_type, "round_trip")
             self.assertEqual(zs_w.origin, "Hobbs, NM")
-            self.assertTrue(zs_w.overnight_stay)
+            self.assertEqual(zs_w.trip_type, "one_way")
 
     # ─── Conversation Context Tests ──────────────────────────────────────
 
@@ -552,17 +555,17 @@ class AIDailyReportPhase2Test(unittest.TestCase):
             self.assertIsNone(w.route_duration_seconds)
             self.assertIsNone(w.mileage_evidence_path)
 
-    def test_F_overnight_change_invalidates_route(self):
-        """F. Changing overnight_stay clears route/mileage fields."""
+    def test_F_trip_type_change_invalidates_route(self):
+        """F. 行程类型从往返改成单程会清空里程/路线字段。"""
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             _, travel, _, _ = self._make_services()
             w = WorkerTravel(
-                user_id=1, name="A", overnight_stay=False,
+                user_id=1, name="A", trip_type="round_trip",
                 one_way_miles=100.0, reported_miles=200.0,
             )
             workers = [w]
-            travel.set_overnight_for_worker(workers, 1, True)
+            travel.set_trip_type_for_worker(workers, 1, "one_way")
             self.assertIsNone(w.one_way_miles)
             self.assertIsNone(w.reported_miles)
 

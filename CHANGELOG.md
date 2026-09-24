@@ -4,6 +4,29 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.273] - 2026-09-24
+
+### Changed（行程类型取代「是否住宿」：全系统共用一套口径）
+- **背景**：里程是否翻倍原先由 AI 智能日报的「当天是否住宿（`overnight_stay`）」反推（不住 → 里程 ×2），隐含且易误解，LLM 还需额外追问一次住宿；工作日报（服务报告）侧则完全没有行程口径，两边迟早分叉。
+- **新增单一口径源** `trip_policy.py`：取值只有 `round_trip`（往返，默认）与 `one_way`（单程），提供 `normalize_trip_type` / `trip_multiplier` / `trip_label`。AI 智能日报与后续工作日报「辅助填写」都从这里取口径，**禁止各自推导或再用布尔反推往返**。
+- **数据模型**：`WorkerTravel`、`MileageEvidence`、`AIAction` 的 `overnight_stay` 全部替换为 `trip_type`；`model_validator(mode="before")` 自动迁移存量草稿与佐证（住宿 `true` → 单程，不住宿 `false` → 往返），历史草稿金额口径不变，模型层不再保留旧字段。
+- **统一计算口径**：`reported_miles = 单程英里 × trip_multiplier(trip_type)`（往返=2）；交通时长同按倍数放大，再沿用 v0.1.243 的 1.15 冗余系数并向上取整到 0.25 小时。
+- **路线不再被阻塞**：旧逻辑要求 `overnight_stay` 非空才允许调用 Google Routes；改为默认往返后行程类型不再是「缺失字段」，起终点确定即可算里程。
+- **校验与提示**：删除 `OVRN-001`（未确认住宿）；`MILE-005` 改为按行程类型判定倍数；LLM 提示词不再追问住宿。
+- **前端 / 接口**：员工出行区下拉改为「往返 / 单程」（默认往返）；`POST /api/ai/daily-report/draft/<id>/update-worker` 改收 `trip_type`（仍兼容旧 `overnight_stay` 传参），行程类型变化即触发路线作废重算。
+- **测试**：11 个 AI 日报测试文件的住宿用例改写为行程类型用例，补充往返/单程倍数、默认值、旧数据迁移、接口兼容四类断言。
+
+### Fixed
+- **知识库上传异常路径崩溃（回归）**：`app.py` 中为静态检查补的 `saved = None` 初始化与残留的 `"saved" in locals()` 判断冲突——`saved` 永远"已定义"，异常分支会对 `None` 取下标抛 `TypeError`，掩盖真实错误（如 PDF 校验失败）并泄漏临时文件。改回 `if saved is not None:` 后 `test_knowledge_base` 恢复通过。
+- **新建发票变量未定义**：`new_invoice()` 用 `source_reimbursement` 做判断却读 `source_order`，非报销来源时会 `UnboundLocalError` / 选错客户。统一按实际赋值的 `source_order` 判定。
+- **Tabulator 在隐藏面板初始化**：ERP 面板 `display:none` 时量不到高度，切过去表头被压扁、明细看似为空。面板切换后在 `requestAnimationFrame` 内对当前面板的 grid 强制 `redraw(true)`。
+- **出行工具宾馆卡片缺路段明细**：宾馆结果补齐 `leg_miles` / `leg_hours` / `total_miles` / `total_hours_text` / `destination`，前端新增与「路线地图」同款的路段表（宾馆→终点），并在摘要里注明图片为 A→B 折线、可直接作为行程佐证。
+- **盈利报表打磨**：移除冗余的查询/重置按钮（筛选即时生效），利润来源卡片改为与 SummaryBar 一致的左对齐紧凑指标（正负分色），明细与汇总表通过 `data-grid-calcs="bottom"` 只保留表尾合计行（`system-grid.js` 新增该 opt-in 开关）。
+- **类型噪音**：`database.py` / `scripts/migrate_postgresql.py` 的可选依赖 `import psycopg` 补 `# type: ignore[import-not-found]`；删除 `app.py` 中的冗余局部 `import json`。
+
+### 补记
+- 提交 `4b6d79d`（工单报表 ERP 风格 UI 改造：桌面高密度 DataGrid + 手机卡片列表）当时未升版本号也未记 CHANGELOG，本条「盈利报表打磨」即该改造的后续调整，一并纳入本版。
+
 ## [0.1.272] - 2026-09-21
 
 ### Fixed（工单结算金额翻倍修复 · 方案 A）

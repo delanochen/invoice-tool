@@ -212,12 +212,11 @@
               <span class="muted-line" style="font-size:0.75rem;">来源: ${w.origin_source || "unknown"} ${w.origin_confirmed ? "✓" : "⚠ 未确认"}</span>
             </td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">目的地</td><td>${escapeHtml(w.destination || "-")} <span class="muted-line" style="font-size:0.75rem;">(${w.destination_source || "service_order"})</span></td></tr>
-            <tr><td style="padding:2px 8px; color:#6b7280;">当天住宿</td><td>
-              ${canEdit ? `<select data-worker-idx="${idx}" data-field="overnight_stay">
-                <option value="" ${w.overnight_stay === null || w.overnight_stay === undefined ? "selected" : ""}>未选择</option>
-                <option value="false" ${w.overnight_stay === false ? "selected" : ""}>不住宿</option>
-                <option value="true" ${w.overnight_stay === true ? "selected" : ""}>住宿</option>
-              </select>` : (w.overnight_stay === null ? "未选择" : w.overnight_stay ? "住宿" : "不住宿")}
+            <tr><td style="padding:2px 8px; color:#6b7280;">行程类型</td><td>
+              ${canEdit ? `<select data-worker-idx="${idx}" data-field="trip_type">
+                <option value="round_trip" ${w.trip_type !== "one_way" ? "selected" : ""}>往返（里程×2）</option>
+                <option value="one_way" ${w.trip_type === "one_way" ? "selected" : ""}>单程</option>
+              </select>` : (w.trip_type === "one_way" ? "单程" : "往返（里程×2）")}
             </td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">单程里程</td><td>${w.one_way_miles != null ? w.one_way_miles + " mi" : "-"}</td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">日报里程</td><td><strong>${w.reported_miles != null ? w.reported_miles + " mi" : "-"}</strong></td></tr>
@@ -356,11 +355,7 @@
     const updates = { user_id: w.user_id };
     inputs.forEach((inp) => {
       const field = inp.dataset.field;
-      if (field === "overnight_stay") {
-        updates[field] = inp.value === "" ? null : inp.value === "true";
-      } else {
-        updates[field] = inp.value;
-      }
+      updates[field] = inp.value;
     });
     updates.draft_version = currentDraftVersion;
 

@@ -63,8 +63,11 @@ class TestTravelHoursFromRoute(unittest.TestCase):
         # 1h one-way, same-day return: 60 * 2 * 1.15 = 138 -> ceil 150 min = 2.5 h
         self.assertEqual(self._svc().duration_to_travel_hours(3600, False), 2.5)
 
-    def test_overnight_single_trip(self):
-        self.assertEqual(self._svc().duration_to_travel_hours(3600, True), 1.25)
+    def test_round_trip_doubles_duration(self):
+        self.assertEqual(self._svc().duration_to_travel_hours(3600, "round_trip"), 2.5)
+
+    def test_one_way_single_trip(self):
+        self.assertEqual(self._svc().duration_to_travel_hours(3600, "one_way"), 1.25)
 
     def test_short_trip_rounds_up_to_quarter(self):
         # 10 min * 2 * 1.15 = 23 -> ceil to 30 min = 0.5 h
@@ -78,7 +81,7 @@ class TestTravelHoursFromRoute(unittest.TestCase):
         worker = WorkerTravel(
             user_id=1, name="A", transportation="self_drive",
             route_status="success", route_duration_seconds=3600,
-            overnight_stay=False,
+            trip_type="round_trip",
         )
         self._svc().ensure_travel_hours(worker)
         self.assertEqual(worker.travel_hours, 2.5)
@@ -88,7 +91,7 @@ class TestTravelHoursFromRoute(unittest.TestCase):
         worker = WorkerTravel(
             user_id=1, name="A", transportation="self_drive",
             route_status="success", route_duration_seconds=3600,
-            overnight_stay=False,
+            trip_type="round_trip",
             travel_hours=9.99, travel_hours_source="user_input",
         )
         self._svc().ensure_travel_hours(worker)
@@ -100,7 +103,7 @@ class TestTravelHoursFromRoute(unittest.TestCase):
         worker = WorkerTravel(
             user_id=1, name="A", transportation="self_drive",
             origin="a", origin_confirmed=True, destination="b",
-            overnight_stay=False, route_status="success",
+            trip_type="round_trip", route_status="success",
             route_distance_meters=1000.0, route_duration_seconds=3600,
         )
         svc.calculate_for_worker(worker)

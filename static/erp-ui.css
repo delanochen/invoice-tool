@@ -484,13 +484,31 @@ body.workspace-embedded .erp-app { min-height: calc(100vh - 12px); border: 0; }
 .erp-detail-metrics span { display: block; color: var(--erp-muted); font-size: 10.5px; }
 .erp-detail-metrics strong { font-size: 13px; }
 .erp-detail-section-title {
-  margin: 10px 0 4px;
+  margin: 6px 0 4px;
   padding: 2px 4px;
   background: #eaeef4;
   border: 1px solid var(--erp-line-soft);
   color: #41506a;
   font-size: 11.5px;
   font-weight: 700;
+}
+/* 利润来源指标条：与 SummaryBar 一致的左对齐紧凑单元 */
+.erp-source-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 6px 0 8px;
+  background: var(--erp-line-soft);
+  border: 1px solid var(--erp-line);
+}
+.erp-source-metric { padding: 4px 8px; background: #fff; }
+.erp-source-metric > span { display: block; color: var(--erp-muted); font-size: 10.5px; letter-spacing: .3px; }
+.erp-source-metric strong { font-size: 13px; font-weight: 700; }
+.erp-source-metric strong.neg { color: #b42318; }
+.erp-source-metric strong.pos { color: #027a48; }
+.erp-source-metric small { display: block; margin-top: 1px; color: var(--erp-muted); font-size: 10.5px; }
+@media (max-width: 1024px) {
+  .erp-source-metrics { grid-template-columns: 1fr; }
 }
 .erp-detail-list { width: 100%; border-collapse: separate; border-spacing: 0; background: #fff; border: 1px solid var(--erp-line); font-size: 12px; }
 .erp-detail-list th, .erp-detail-list td {

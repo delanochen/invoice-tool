@@ -313,7 +313,7 @@ class AIDailyReportPhase1Test(unittest.TestCase):
             draft, msg = svc.execute_action(draft, action)
             self.assertEqual(draft.workers[0].origin, "Midland, TX")
 
-    def test_overnight_stay_global_shortcut(self):
+    def test_trip_type_global_shortcut(self):
         with self.module.app.app_context():
             from ai_daily_report import AIAction, WorkerTravel
             svc = self._make_service()
@@ -321,21 +321,23 @@ class AIDailyReportPhase1Test(unittest.TestCase):
             draft = svc.parse_draft_data(created)
             draft.workers.append(WorkerTravel(user_id=1, name="A"))
             draft.workers.append(WorkerTravel(user_id=2, name="B"))
+            # 默认是往返
+            self.assertTrue(all(w.trip_type == "round_trip" for w in draft.workers))
             action = AIAction(action_version=1, intent="update_worker",
-                              workers=[], overnight_stay=True)
+                              workers=[], trip_type="one_way")
             draft, msg = svc.execute_action(draft, action)
-            self.assertTrue(all(w.overnight_stay is True for w in draft.workers))
+            self.assertTrue(all(w.trip_type == "one_way" for w in draft.workers))
 
-    def test_per_worker_overnight_independence(self):
+    def test_per_worker_trip_type_independence(self):
         with self.module.app.app_context():
             from ai_daily_report import WorkerTravel
             svc = self._make_service()
             created = svc.create_draft(self.order["id"], "2026-09-14")
             draft = svc.parse_draft_data(created)
-            draft.workers.append(WorkerTravel(user_id=1, name="A", overnight_stay=True))
-            draft.workers.append(WorkerTravel(user_id=2, name="B", overnight_stay=False))
-            self.assertTrue(draft.workers[0].overnight_stay)
-            self.assertFalse(draft.workers[1].overnight_stay)
+            draft.workers.append(WorkerTravel(user_id=1, name="A", trip_type="one_way"))
+            draft.workers.append(WorkerTravel(user_id=2, name="B", trip_type="round_trip"))
+            self.assertEqual(draft.workers[0].trip_type, "one_way")
+            self.assertEqual(draft.workers[1].trip_type, "round_trip")
 
     def test_add_work_item(self):
         with self.module.app.app_context():
@@ -444,7 +446,7 @@ class AIDailyReportPhase1Test(unittest.TestCase):
             svc = self._make_service()
             created = svc.create_draft(
                 self.order["id"], "2026-09-14",
-                initial_workers=[{"user_id": 1, "name": "Ethan", "origin": "Spring", "overnight_stay": False}],
+                initial_workers=[{"user_id": 1, "name": "Ethan", "origin": "Spring", "trip_type": "round_trip"}],
             )
             draft = svc.parse_draft_data(created)
             summary = svc.build_draft_summary(draft)

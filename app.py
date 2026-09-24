@@ -68,6 +68,7 @@ from settlement_review import (
     selected_expense_total,
 )
 from profitability import init_profitability_schema, register_profitability_routes
+from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from ai_daily_report import (
     AIIntentService,
     DailyReportService,
@@ -2990,7 +2991,6 @@ def can_view_ai_daily_report_draft(user, draft_row):
     # Employee can view drafts where they are listed as a worker
     if role == "employee":
         try:
-            import json
             draft_data = json.loads(draft_row.get("draft_data", "{}") or "{}")
             workers = draft_data.get("workers", [])
             for w in workers:
@@ -11288,7 +11288,8 @@ def ai_daily_report_chat():
     )
 
     # Phase 3A: Calculate mileage for eligible workers (only when no missing fields)
-    # Google Routes is only called for self_drive workers with confirmed origin + destination + overnight
+    # Google Routes is only called for self_drive workers with confirmed origin + destination
+    # 行程类型（默认往返）不再作为阻塞条件，见 trip_policy
     mileage_calculated = False
     if not missing:
         routes_api_key = get_google_routes_api_key()
@@ -13158,7 +13159,7 @@ def ai_daily_report_manifest_cancel(draft_id, manifest_id):
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/update-worker")
 @login_required
 def ai_daily_report_update_worker(draft_id):
-    """Update worker travel info (origin, overnight_stay, transportation).
+    """Update worker travel info (origin, trip_type, transportation).
 
     Triggers route invalidation (clears old mileage/evidence).
     Requires CSRF token + optimistic locking.
@@ -13181,7 +13182,10 @@ def ai_daily_report_update_worker(draft_id):
         user_id = data.get("user_id")
         origin = data.get("origin")
         origin_source = data.get("origin_source", "user_input")
-        overnight_stay = data.get("overnight_stay")
+        # trip_type: round_trip / one_way（默认往返）；旧的 overnight_stay 仅做兼容映射
+        trip_type = normalize_trip_type(
+            data.get("trip_type") if data.get("trip_type") not in (None, "") else data.get("overnight_stay")
+        )
         transportation = data.get("transportation", "self_drive")
         expected_version = data.get("draft_version")
         if expected_version is not None:
@@ -13202,8 +13206,8 @@ def ai_daily_report_update_worker(draft_id):
                     w.origin = origin
                     w.origin_source = origin_source
                     w.origin_confirmed = True if origin_source == "user_input" else w.origin_confirmed
-                if overnight_stay is not None:
-                    w.overnight_stay = overnight_stay
+                if trip_type and w.trip_type != trip_type:
+                    w.trip_type = trip_type
                 if transportation is not None:
                     w.transportation = transportation
                 updated = True
@@ -13912,6 +13916,7 @@ def knowledge_version_path(version):
 @login_required
 def knowledge_base():
     if request.method == "POST":
+        saved = None
         try:
             saved = save_knowledge_pdf_upload(request.files.get("document"))
             expires_on = knowledge_expiry_from_form()
@@ -13970,7 +13975,7 @@ def knowledge_base():
             db().commit()
         except ValueError as error:
             db().rollback()
-            if "saved" in locals():
+            if saved is not None:
                 try:
                     os.remove(saved["destination"])
                 except FileNotFoundError:
@@ -13979,7 +13984,7 @@ def knowledge_base():
             return redirect(url_for("knowledge_base"))
         except Exception:
             db().rollback()
-            if "saved" in locals():
+            if saved is not None:
                 try:
                     os.remove(saved["destination"])
                 except FileNotFoundError:
@@ -14134,6 +14139,7 @@ def edit_knowledge_document(document_id):
 @login_required
 def upload_knowledge_document_version(document_id):
     document = knowledge_document_or_404(document_id)
+    saved = None
     try:
         saved = save_knowledge_pdf_upload(request.files.get("document"))
         version_number = db().execute(
@@ -14193,7 +14199,7 @@ def upload_knowledge_document_version(document_id):
         return redirect(url_for("knowledge_base"))
     except Exception:
         db().rollback()
-        if "saved" in locals():
+        if saved is not None:
             try:
                 os.remove(saved["destination"])
             except FileNotFoundError:
@@ -18932,6 +18938,7 @@ def new_invoice():
     requested_order_id = request.args.get("service_order_id", "")
     requested_reimbursement_id = request.args.get("customer_reimbursement_id", "")
     source_reimbursement = None
+    source_order = None
     prefilled_items = []
     if request.method == "GET" and not requested_reimbursement_id.isdigit():
         flash("请从审核通过的工单结算生成发票。", "error")
@@ -19014,7 +19021,7 @@ def new_invoice():
         flash("发票已生成。", "success")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     today = date.today()
-    selected_client_id = source_order["client_id"] if source_reimbursement else clients_rows[0]["id"]
+    selected_client_id = source_order["client_id"] if source_order else clients_rows[0]["id"]
     selected_client = next((row for row in clients_rows if row["id"] == selected_client_id), clients_rows[0])
     selected_term = db().execute(
         "select * from payment_terms where id = ?",
@@ -19026,7 +19033,7 @@ def new_invoice():
         "due_date": calculate_payment_due_date(today.isoformat(), selected_term).isoformat(),
         "service_order_id": int(requested_order_id) if requested_order_id.isdigit() else None,
         "customer_reimbursement_id": source_reimbursement["id"] if source_reimbursement else None,
-        "client_id": source_order["client_id"] if source_reimbursement else None,
+        "client_id": source_order["client_id"] if source_order else None,
     }
     return render_template(
         "invoice_form.html",

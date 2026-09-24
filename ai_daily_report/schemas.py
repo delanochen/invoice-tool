@@ -5,6 +5,8 @@ import re
 from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from trip_policy import DEFAULT_TRIP_TYPE, normalize_trip_type
+
 ACTION_VERSION = 1
 
 
@@ -90,7 +92,7 @@ class AIAction(BaseModel):
     date: Optional[str] = None
     workers: Optional[List[WorkerInput]] = None
     work_items: Optional[List[WorkItemInput]] = None
-    overnight_stay: Optional[bool] = None  # global shortcut; per-person in worker_overrides
+    trip_type: Optional[str] = None  # "round_trip" / "one_way"; global shortcut, per-person in worker_overrides
     worker_overrides: Optional[List[Dict[str, Any]]] = None
     arrival_time: Optional[str] = None
     departure_time: Optional[str] = None
@@ -145,11 +147,13 @@ class WorkerTravel(BaseModel):
     destination: Optional[str] = None
     destination_source: Optional[str] = None  # service_order
     destination_normalized: Optional[str] = None
-    overnight_stay: Optional[bool] = None  # None = unconfirmed
+    # 行程类型（往返 / 单程），默认往返。取代旧的 overnight_stay 派生：
+    # 往返 → 里程与交通时长按单程 ×2；单程 → 直接用单程值。见 trip_policy。
+    trip_type: str = DEFAULT_TRIP_TYPE
     # Route results (Phase 3A)
     route_distance_meters: Optional[float] = None  # raw Google distance, always meters
     one_way_miles: Optional[float] = None  # meters / 1609.344
-    reported_miles: Optional[float] = None  # one_way * 2 (no overnight) or one_way (overnight)
+    reported_miles: Optional[float] = None  # one_way * trip_multiplier(trip_type)
     route_duration_seconds: Optional[int] = None
     route_polyline: Optional[str] = None
     route_provider: Optional[str] = None  # "google_routes"
@@ -163,6 +167,27 @@ class WorkerTravel(BaseModel):
     # duration (with uplift) when the route succeeds. user_input never overwritten.
     travel_hours: Optional[float] = None
     travel_hours_source: Optional[str] = None  # auto_route / user_input
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_overnight_stay(cls, data):
+        """把旧草稿里的 overnight_stay 迁移为显式 trip_type，并丢弃旧字段。
+
+        旧语义：住宿(True) → 只算单程；不住宿(False) → 当天往返。迁移后不再
+        依赖是否住宿，老草稿保持原有金额口径不变。
+        """
+        if isinstance(data, dict) and ("overnight_stay" in data or "trip_type" in data):
+            data = dict(data)
+            legacy = data.pop("overnight_stay", None)
+            if legacy is not None and not data.get("trip_type"):
+                data["trip_type"] = normalize_trip_type(legacy)
+        return data
+
+    @field_validator("trip_type")
+    @classmethod
+    def validate_trip_type(cls, v) -> str:
+        # None / 未知值 → 默认往返；前端可能传 "true"/"false" 等历史写法。
+        return normalize_trip_type(v)
 
     @field_validator("travel_hours")
     @classmethod
@@ -306,7 +331,7 @@ class MileageEvidenceRecord(BaseModel):
     route_distance_meters: Optional[float] = None
     one_way_miles: Optional[float] = None
     reported_miles: Optional[float] = None
-    overnight_stay: Optional[bool] = None
+    trip_type: str = DEFAULT_TRIP_TYPE  # 行程类型快照；旧记录里的 overnight_stay 已废弃
     route_fingerprint: str = ""  # SHA256 of route identity fields
     # Evidence file
     evidence_version: int = EVIDENCE_VERSION
@@ -316,6 +341,17 @@ class MileageEvidenceRecord(BaseModel):
     file_relative_path: Optional[str] = None  # relative to draft evidence dir
     file_sha256: Optional[str] = None
     error: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_overnight_stay(cls, data):
+        """存量佐证记录里的 overnight_stay 迁移为 trip_type（口径保持一致）。"""
+        if isinstance(data, dict) and ("overnight_stay" in data or "trip_type" in data):
+            data = dict(data)
+            legacy = data.pop("overnight_stay", None)
+            if legacy is not None and not data.get("trip_type"):
+                data["trip_type"] = normalize_trip_type(legacy)
+        return data
 
 
 # ─── Photo Analysis Schema (for Phase 4+, defined here for stability) ──────
@@ -367,7 +403,7 @@ class MileageEvidence(BaseModel):
     destination_address: str
     one_way_miles: float
     reported_miles: float
-    overnight_stay: bool
+    trip_type: str = DEFAULT_TRIP_TYPE
     route_provider: str = "google_routes"
     route_query_time: str
     route_reference: Optional[str] = None

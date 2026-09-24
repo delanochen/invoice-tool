@@ -31,6 +31,15 @@
     panels.forEach(panel => panel.classList.toggle('active', panel.dataset.erpPanel === panelName));
     switches.forEach(button => button.classList.toggle('active', button.dataset.erpTab === panelName));
     app.dataset.activePanel = panelName;
+    // system-grid.js 的 Tabulator 在 display:none 面板里初始化时量不到尺寸，
+    // 表头/数据行会被压成 0 高（表现为切过去“看不到明细、表头异常高”），
+    // 面板显示后必须强制重算一次。
+    requestAnimationFrame(() => {
+      window.systemGrids?.instances.forEach(instance => {
+        const panel = instance.source.closest('[data-erp-panel]');
+        if (instance.ready && panel?.dataset.erpPanel === panelName) instance.grid.redraw(true);
+      });
+    });
   }
   switches.forEach(button => button.addEventListener('click', () => activate(button.dataset.erpTab)));
   if (!switches.some(button => button.classList.contains('active')) && switches.length) {

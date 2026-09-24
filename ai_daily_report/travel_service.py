@@ -3,14 +3,14 @@
 Manages per-worker travel information:
 - Origin resolution with priority: user_input > draft_existing > employee_default
 - Destination from service_order.site_address (protected, not overwritten by AI)
-- Overnight stay per-worker
+- Trip type per-worker: round_trip（默认）/ one_way（旧 overnight_stay 已废弃）
 - Transportation mode (only self_drive enters mileage flow)
 - Missing field verification
 - Route invalidation when travel inputs change
 
 Does NOT call Google Routes (Phase 3). one_way_miles/reported_miles stay null.
 
-IMPORTANT: Any change to origin/destination/overnight_stay/transportation
+IMPORTANT: Any change to origin/destination/trip_type/transportation
 MUST invalidate previously computed route data (one_way_miles, reported_miles,
 route_polyline, route_duration_seconds, mileage_evidence_path). This prevents
 stale route data from being used after inputs change.
@@ -21,6 +21,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from .schemas import WorkerTravel
+from trip_policy import DEFAULT_TRIP_TYPE, normalize_trip_type
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class TravelService:
     def invalidate_worker_route(worker: WorkerTravel) -> None:
         """Clear all computed route/mileage fields for a worker.
 
-        Called whenever origin, destination, overnight_stay, or transportation
+        Called whenever origin, destination, trip_type, or transportation
         changes. Prevents stale route data (Phase 3+).
         Sets route_status to "not_calculated".
         """
@@ -102,7 +103,7 @@ class TravelService:
         draft_existing_origin: Optional[str] = None,
         draft_existing_origin_confirmed: bool = False,
         destination: Optional[str] = None,
-        overnight_stay: Optional[bool] = None,
+        trip_type: str = DEFAULT_TRIP_TYPE,
     ) -> WorkerTravel:
         """Build a WorkerTravel with origin resolution.
 
@@ -145,7 +146,7 @@ class TravelService:
             origin_confirmed=origin_confirmed,
             destination=destination,
             destination_source="service_order" if destination else None,
-            overnight_stay=overnight_stay,
+            trip_type=normalize_trip_type(trip_type),
         )
 
     def confirm_employee_default_origin(
@@ -181,24 +182,26 @@ class TravelService:
                 self.invalidate_worker_route(w)
         return workers
 
-    def set_overnight_for_all(
-        self, workers: List[WorkerTravel], overnight: bool
+    def set_trip_type_for_all(
+        self, workers: List[WorkerTravel], trip_type: str
     ) -> List[WorkerTravel]:
-        """Batch set overnight_stay for all workers. Invalidates routes."""
+        """Batch set trip_type (round_trip / one_way) for all workers. Invalidates routes."""
+        target = normalize_trip_type(trip_type)
         for w in workers:
-            if w.overnight_stay != overnight:
-                w.overnight_stay = overnight
+            if w.trip_type != target:
+                w.trip_type = target
                 self.invalidate_worker_route(w)
         return workers
 
-    def set_overnight_for_worker(
-        self, workers: List[WorkerTravel], user_id: int, overnight: bool
+    def set_trip_type_for_worker(
+        self, workers: List[WorkerTravel], user_id: int, trip_type: str
     ) -> bool:
-        """Set overnight_stay for a specific worker by user_id. Invalidates route."""
+        """Set trip_type for a specific worker by user_id. Invalidates route."""
+        target = normalize_trip_type(trip_type)
         for w in workers:
             if w.user_id == user_id:
-                if w.overnight_stay != overnight:
-                    w.overnight_stay = overnight
+                if w.trip_type != target:
+                    w.trip_type = target
                     self.invalidate_worker_route(w)
                 return True
         return False
@@ -262,25 +265,19 @@ class TravelService:
                     missing.append(f"worker_{w.user_id}_origin_unconfirmed")
                     messages.append(f"{w.name} 的出发地址（{w.origin}）是否正确？")
 
-                if w.overnight_stay is None:
-                    missing.append(f"worker_{w.user_id}_overnight_stay")
-                    # Only add overnight question once if all workers need it
-                    if not any("当天是否住宿" in m for m in messages):
-                        messages.append("当天是否住宿？")
-
         return missing, messages
 
     def needs_mileage_calculation(self, worker: WorkerTravel) -> bool:
         """Check if a worker should enter the mileage calculation flow.
 
         Only self_drive workers with confirmed origin and destination need mileage.
+        行程类型有默认值（往返），因此不再像旧 overnight_stay 那样阻塞计算。
         """
         return (
             worker.transportation == "self_drive"
             and bool(worker.origin)
             and worker.origin_confirmed
             and bool(worker.destination)
-            and worker.overnight_stay is not None
         )
 
 
@@ -290,10 +287,11 @@ import re as _re
 
 # Travel-owned verification entries, two spellings coexist in stored drafts:
 #   - "worker_<id>_origin" / "worker_<id>_origin_unconfirmed" /
-#     "worker_<id>_overnight_stay"  (TravelService.verify_travel_fields)
+#     "worker_<id>_overnight_stay"  (旧版住宿确认，v0.1.273 起行程类型有默认值，
+#      已不再产生这种待确认项；存量条目在这里被识别后丢弃)
 #   - "<Name>.origin" / "<Name>.overnight_stay"      (LLM missing_fields)
-_TRAVEL_FIELD_RE = _re.compile(r"^worker_(\d+)_(origin|origin_unconfirmed|overnight_stay)$")
-_NAME_FIELD_RE = _re.compile(r"^(.+)\.(origin|origin_unconfirmed|overnight_stay)$")
+_TRAVEL_FIELD_RE = _re.compile(r"^worker_(\d+)_(origin|origin_unconfirmed|overnight_stay|trip_type)$")
+_NAME_FIELD_RE = _re.compile(r"^(.+)\.(origin|origin_unconfirmed|overnight_stay|trip_type)$")
 
 
 def reconcile_travel_verification_fields(
@@ -302,13 +300,12 @@ def reconcile_travel_verification_fields(
     """Drop stale travel verification entries that are already resolved.
 
     verification_fields accumulates over the draft's life. When a worker's
-    origin/overnight is later confirmed (manual edit, auto timeline flow),
-    the stored entries used to stay behind, so every confirm attempt kept
-    showing the "以下字段仍需要确认" override dialog (v0.1.241 fix).
+    origin is later confirmed (manual edit, auto timeline flow), the stored
+    entries used to stay behind, so every confirm attempt kept showing the
+    "以下字段仍需要确认" override dialog (v0.1.241 fix).
 
     workers: iterable of dicts (WorkerTravel.model_dump() or raw draft_data
-    dicts) with user_id / name / transportation / origin / origin_confirmed /
-    overnight_stay.
+    dicts) with user_id / name / transportation / origin / origin_confirmed.
 
     Returns the filtered field list: travel-owned entries are kept only when
     they are still genuinely pending; everything else (timeline, photos, ...)
@@ -342,12 +339,6 @@ def reconcile_travel_verification_fields(
                 pending.add(f"worker_{uid}_origin_unconfirmed")
             if name:
                 pending.add(f"{name}.origin")
-        if w.get("overnight_stay") is None:
-            if uid is not None:
-                pending.add(f"worker_{uid}_overnight_stay")
-            if name:
-                pending.add(f"{name}.overnight_stay")
-
     filtered = []
     for f in fields:
         m = _TRAVEL_FIELD_RE.match(f)

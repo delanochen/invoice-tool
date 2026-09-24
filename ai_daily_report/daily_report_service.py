@@ -20,7 +20,7 @@ import logging
 import re
 import sqlite3
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from .schemas import (
     AIAction,
@@ -32,6 +32,7 @@ from .schemas import (
 )
 from .action_validator import generate_action_id
 from .travel_service import TravelService
+from trip_policy import DEFAULT_TRIP_TYPE, normalize_trip_type, trip_label
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ class DailyReportService:
             ),
         )
         draft_id = cursor.lastrowid
-        return self.get_draft(draft_id)
+        return cast(Dict[str, Any], self.get_draft(draft_id))
 
     def parse_draft_data(self, draft_row: Dict[str, Any]) -> DailyReportDraft:
         """Parse draft_data JSON with safe error handling.
@@ -241,7 +242,7 @@ class DailyReportService:
                     draft_id,
                 ),
             )
-        return self.get_draft(draft_id)
+        return cast(Dict[str, Any], self.get_draft(draft_id))
 
     def update_draft_status(self, draft_id: int, status: str) -> None:
         """Transition draft status with state machine validation."""
@@ -1126,9 +1127,12 @@ class DailyReportService:
                 ]
             if action.workers:
                 draft, _ = self._apply_update_worker(draft, action, resolved_workers=resolved_workers)
-            if action.overnight_stay is not None:
+            if action.trip_type:
+                target_trip = normalize_trip_type(action.trip_type)
                 for w in draft.workers:
-                    w.overnight_stay = action.overnight_stay
+                    if w.trip_type != target_trip:
+                        w.trip_type = target_trip
+                        TravelService.invalidate_worker_route(w)
             if action.arrival_time:
                 draft.arrival_time = action.arrival_time
                 draft.arrival_time_source = "manual"
@@ -1224,8 +1228,8 @@ class DailyReportService:
                     if rw.get("transportation"):
                         existing.transportation = rw["transportation"]
                         TravelService.invalidate_worker_route(existing)
-                    if rw.get("overnight_stay") is not None:
-                        existing.overnight_stay = rw["overnight_stay"]
+                    if rw.get("trip_type"):
+                        existing.trip_type = normalize_trip_type(rw["trip_type"])
                         TravelService.invalidate_worker_route(existing)
                     messages.append(f"已更新 {rw.get('name', user_id)} 的信息")
                 else:
@@ -1236,7 +1240,7 @@ class DailyReportService:
                         origin=rw.get("origin"),
                         origin_source="user_input" if rw.get("origin") else None,
                         origin_confirmed=bool(rw.get("origin")),
-                        overnight_stay=rw.get("overnight_stay"),
+                        trip_type=rw.get("trip_type") or DEFAULT_TRIP_TYPE,
                     ))
                     messages.append(f"已添加工作人员 {rw.get('name', user_id)}")
         elif action.workers:
@@ -1266,14 +1270,14 @@ class DailyReportService:
                     ))
                     messages.append(f"已添加工作人员 {wi.name}")
 
-        # Apply overnight_stay global shortcut
-        if action.overnight_stay is not None:
+        # Apply trip_type global shortcut（往返 / 单程，默认往返）
+        if action.trip_type:
+            target_trip = normalize_trip_type(action.trip_type)
             for w in draft.workers:
-                w.overnight_stay = action.overnight_stay
-                TravelService.invalidate_worker_route(w)
-            messages.append(
-                f"所有人员已设置为{'住宿' if action.overnight_stay else '不住宿'}"
-            )
+                if w.trip_type != target_trip:
+                    w.trip_type = target_trip
+                    TravelService.invalidate_worker_route(w)
+            messages.append(f"所有人员行程类型已设置为{trip_label(target_trip)}")
 
         return draft, "；".join(messages) if messages else "未变更"
 
@@ -1357,9 +1361,9 @@ class DailyReportService:
         if draft.workers:
             worker_strs = []
             for w in draft.workers:
-                overnight = "住宿" if w.overnight_stay else ("不住宿" if w.overnight_stay is False else "未确认住宿")
+                trip = trip_label(w.trip_type)
                 origin = w.origin or "出发地未知"
-                worker_strs.append(f"{w.name}({origin},{overnight})")
+                worker_strs.append(f"{w.name}({origin},{trip})")
             parts.append(f"人员={','.join(worker_strs)}")
         if draft.work_items:
             item_strs = []

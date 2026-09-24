@@ -99,10 +99,6 @@
             <option value="order" {% if group_by == 'order' %}selected{% endif %}>按工单</option>
           </select>
         </label>
-        <div class="erp-filter-actions">
-          <button type="submit" class="erp-btn primary">查询</button>
-          <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
-        </div>
         <p class="erp-filter-note">客户收入使用合同有效期费率；员工成本使用员工等级有效期费率；已审核员工报销计入实际项目成本。</p>
       </form>
 
@@ -179,7 +175,7 @@
     <!-- 利润明细（沿用原有明细表） -->
     <section class="erp-panel" data-erp-panel="detail">
       <div class="table-scroll">
-        <table class="list-table erp-grid" data-no-report-export="true">
+        <table class="list-table erp-grid" data-no-report-export="true" data-grid-calcs="bottom">
           <thead><tr>
             <th>日期</th><th>工单</th><th>员工</th><th>类别</th><th>项目</th>
             <th class="num">数量</th><th class="num">客户单价</th><th class="num">员工/实际成本单价</th>
@@ -210,23 +206,32 @@
       </div>
     </section>
 
-    <!-- 利润来源 -->
+    <!-- 利润来源：与底部 SummaryBar 同一套左对齐紧凑指标样式 -->
     <section class="erp-panel" data-erp-panel="source">
       <div class="erp-detail-section-title">费率差价型与实报实销 / 公司承担费用分开显示</div>
-      <div class="erp-card-metrics" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-        <div class="erp-card-metric"><span>工时</span><strong>{{ summary.by_category.labor.profit|money }}</strong>
-          <span style="text-align:right">收入 {{ summary.by_category.labor.revenue|money }} · 成本 {{ summary.by_category.labor.cost|money }}</span></div>
-        <div class="erp-card-metric"><span>交通 / 公交 / 里程</span><strong>{{ summary.by_category.allowance.profit|money }}</strong>
-          <span style="text-align:right">收入 {{ summary.by_category.allowance.revenue|money }} · 成本 {{ summary.by_category.allowance.cost|money }}</span></div>
-        <div class="erp-card-metric"><span>实际费用</span><strong>{{ summary.by_category.expense.profit|money }}</strong>
-          <span style="text-align:right">客户结算 {{ summary.by_category.expense.revenue|money }} · 实际成本 {{ summary.by_category.expense.cost|money }}</span></div>
+      <div class="erp-source-metrics">
+        <div class="erp-source-metric">
+          <span>工时</span>
+          <strong class="{{ 'neg' if summary.by_category.labor.profit < 0 else 'pos' }}">{{ summary.by_category.labor.profit|money }}</strong>
+          <small>收入 {{ summary.by_category.labor.revenue|money }} · 成本 {{ summary.by_category.labor.cost|money }}</small>
+        </div>
+        <div class="erp-source-metric">
+          <span>交通 / 公交 / 里程</span>
+          <strong class="{{ 'neg' if summary.by_category.allowance.profit < 0 else 'pos' }}">{{ summary.by_category.allowance.profit|money }}</strong>
+          <small>收入 {{ summary.by_category.allowance.revenue|money }} · 成本 {{ summary.by_category.allowance.cost|money }}</small>
+        </div>
+        <div class="erp-source-metric">
+          <span>实际费用</span>
+          <strong class="{{ 'neg' if summary.by_category.expense.profit < 0 else 'pos' }}">{{ summary.by_category.expense.profit|money }}</strong>
+          <small>客户结算 {{ summary.by_category.expense.revenue|money }} · 实际成本 {{ summary.by_category.expense.cost|money }}</small>
+        </div>
       </div>
     </section>
 
     <!-- 按日 / 按月 / 按工单汇总（沿用后端 rows） -->
     <section class="erp-panel" data-erp-panel="summary">
       <div class="table-scroll">
-        <table class="list-table erp-grid" data-no-report-export="true">
+        <table class="list-table erp-grid" data-no-report-export="true" data-grid-calcs="bottom">
           <thead><tr>
             <th>{{ {'day':'日期','month':'月份','order':'工单'}[group_by] }}</th>
             <th class="num">收入</th><th class="num">成本</th><th class="num">利润</th>

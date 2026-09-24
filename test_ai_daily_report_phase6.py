@@ -100,8 +100,8 @@ class Phase6TestBase(unittest.TestCase):
             "report_date": "2026-09-14",
             "site_address": "123 Test St",
             "workers": [
-                {"user_id": 101, "name": "Ethan P6", "transportation": "self_drive", "origin": "Spring, TX", "origin_source": "user_input", "origin_confirmed": True, "overnight_stay": False, "route_status": "success", "one_way_miles": 100.0, "reported_miles": 200.0},
-                {"user_id": 102, "name": "张三 P6", "transportation": "self_drive", "origin": "Hobbs, NM", "origin_source": "user_input", "origin_confirmed": True, "overnight_stay": False, "route_status": "success", "one_way_miles": 150.0, "reported_miles": 300.0},
+                {"user_id": 101, "name": "Ethan P6", "transportation": "self_drive", "origin": "Spring, TX", "origin_source": "user_input", "origin_confirmed": True, "trip_type": "round_trip", "route_status": "success", "one_way_miles": 100.0, "reported_miles": 200.0},
+                {"user_id": 102, "name": "张三 P6", "transportation": "self_drive", "origin": "Hobbs, NM", "origin_source": "user_input", "origin_confirmed": True, "trip_type": "round_trip", "route_status": "success", "one_way_miles": 150.0, "reported_miles": 300.0},
             ],
             "arrival_time": "08:00",
             "departure_time": "17:00",

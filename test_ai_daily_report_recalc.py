@@ -129,7 +129,7 @@ class RecalculateMileageTest(unittest.TestCase):
             "origin": "123 Origin Ave",
             "origin_source": "user_input",
             "origin_confirmed": True,
-            "overnight_stay": False,
+            "trip_type": "round_trip",
         }
 
     def _patch_google(self):
@@ -308,7 +308,7 @@ class RecalculateMileageTest(unittest.TestCase):
         self._login()
         worker = {"user_id": 501, "name": "Emp", "transportation": "carpool",
                   "origin": "123 Origin Ave", "origin_source": "user_input",
-                  "origin_confirmed": True, "overnight_stay": False}
+                  "origin_confirmed": True, "trip_type": "round_trip"}
         draft_id, v = self._make_draft([worker])
         with patch("app.get_google_routes_api_key", return_value="fake"):
             resp = self.client.post(

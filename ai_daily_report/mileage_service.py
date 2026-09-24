@@ -11,17 +11,15 @@ Rounding policy:
     We preserve at least 2 decimal places via round(x, 2).
     Raw distance_meters is always saved for audit.
 
-Reported mileage:
-    overnight_stay == false -> one_way_miles * 2 (round trip)
-    overnight_stay == true  -> one_way_miles (one way only)
-    overnight_stay == null  -> DO NOT calculate
+Reported mileage (v0.1.273: driven by explicit trip_type, no longer by 住宿):
+    trip_type == round_trip（默认） -> one_way_miles * 2
+    trip_type == one_way            -> one_way_miles
 
 Route eligibility (ALL must be true):
     transportation == self_drive
     origin != null
     origin_confirmed == true
     destination != null
-    overnight_stay != null
 
 DeepSeek CANNOT provide distance/miles/polyline. These only come from
 GoogleRoutesService + backend calculation.
@@ -34,6 +32,7 @@ from typing import Optional, Tuple
 
 from .schemas import WorkerTravel
 from .google_routes import GoogleRoutesService, RouteResult
+from trip_policy import trip_multiplier
 
 logger = logging.getLogger(__name__)
 
@@ -76,22 +75,19 @@ class MileageService:
             return False, "origin not confirmed (employee_default)"
         if not worker.destination:
             return False, "destination is null"
-        if worker.overnight_stay is None:
-            return False, "overnight_stay is null"
         return True, None
 
     @staticmethod
-    def duration_to_travel_hours(duration_seconds: Optional[int], overnight_stay: Optional[bool]) -> float:
+    def duration_to_travel_hours(duration_seconds: Optional[int], trip_type: Optional[str] = None) -> float:
         """Convert one-way route duration into per-worker traffic hours.
 
-        Same round-trip semantics as reported_miles: overnight_stay == False
-        means same-day return -> double the one-way duration; overnight_stay
-        == True means one way only. Uplift factor compensates for Google's
-        optimistic estimates; result rounds UP to the nearest 0.25 h.
+        Same round-trip semantics as reported_miles: round_trip doubles the
+        one-way duration, one_way keeps it. Uplift factor compensates for
+        Google's optimistic estimates; result rounds UP to the nearest 0.25 h.
         """
         if not duration_seconds or duration_seconds <= 0:
             return 0.0
-        trips = 1 if overnight_stay else 2
+        trips = trip_multiplier(trip_type)
         minutes = (duration_seconds / 60.0) * trips * TRAVEL_HOURS_UPLIFT
         rounded_minutes = math.ceil(minutes / 15) * 15
         return round(rounded_minutes / 60, 2)
@@ -107,7 +103,7 @@ class MileageService:
             return
         if worker.route_status == "success" and worker.route_duration_seconds:
             worker.travel_hours = self.duration_to_travel_hours(
-                worker.route_duration_seconds, worker.overnight_stay
+                worker.route_duration_seconds, worker.trip_type
             )
             worker.travel_hours_source = "auto_route"
 
@@ -157,11 +153,8 @@ class MileageService:
         raw_one_way = self.meters_to_miles(result.distance_meters)
         worker.one_way_miles = self.round_miles(raw_one_way)
 
-        # Reported mileage based on overnight
-        if worker.overnight_stay is False:
-            worker.reported_miles = self.round_miles(raw_one_way * 2)
-        else:  # overnight_stay is True
-            worker.reported_miles = self.round_miles(raw_one_way)
+        # Reported mileage based on explicit trip type (默认往返 → ×2)
+        worker.reported_miles = self.round_miles(raw_one_way * trip_multiplier(worker.trip_type))
 
         worker.mileage_verification_required = False
         self.ensure_travel_hours(worker)

@@ -29,11 +29,11 @@ class TestReconcileTravelVerificationFields(unittest.TestCase):
     """Pure unit tests for the reconciliation helper."""
 
     def _w(self, uid=1, name="Antonio", transportation="self_drive",
-           origin="100 Main St", origin_confirmed=True, overnight_stay=False):
+           origin="100 Main St", origin_confirmed=True, trip_type="round_trip"):
         return {
             "user_id": uid, "name": name, "transportation": transportation,
             "origin": origin, "origin_confirmed": origin_confirmed,
-            "overnight_stay": overnight_stay,
+            "trip_type": trip_type,
         }
 
     def test_stale_entries_dropped_when_origin_confirmed(self):
@@ -64,15 +64,16 @@ class TestReconcileTravelVerificationFields(unittest.TestCase):
             sorted(["陈亦珹.origin", "worker_2_origin_unconfirmed", "高阳.origin", "worker_3_origin"]),
         )
 
-    def test_overnight_pending_kept_and_resolved_dropped(self):
+    def test_legacy_overnight_stay_fields_dropped(self):
+        """行程类型有默认值后，存量「是否住宿」待确认项一律丢弃，不再弹窗追问。"""
         workers = [
-            self._w(uid=4, name="Antonio", overnight_stay=None),
-            self._w(uid=5, name="Bob", overnight_stay=True),
+            self._w(uid=4, name="Antonio"),
+            self._w(uid=5, name="Bob", trip_type="one_way"),
         ]
         fields = ["worker_4_overnight_stay", "worker_5_overnight_stay", "no_photos"]
         self.assertEqual(
             reconcile_travel_verification_fields(workers, fields),
-            ["worker_4_overnight_stay", "no_photos"],
+            ["no_photos"],
         )
 
     def test_non_travel_fields_pass_through(self):

@@ -44,7 +44,7 @@ def _make_valid_draft(**overrides):
                 "user_id": 101, "name": "Ethan", "transportation": "self_drive",
                 "origin": "100 Main St", "origin_source": "user_input",
                 "origin_confirmed": True, "destination": "123 Site Ave, Spring, TX 77386",
-                "destination_source": "service_order", "overnight_stay": False,
+                "destination_source": "service_order", "trip_type": "round_trip",
                 "route_status": "success", "route_distance_meters": 16093.44,
                 "one_way_miles": 10.0, "reported_miles": 20.0,
                 "route_provider": "google_routes",
@@ -226,7 +226,7 @@ class TestWorkerRules(unittest.TestCase):
         draft = _make_valid_draft(workers=[{
             "user_id": 999, "name": "Ghost", "transportation": "self_drive",
             "origin": "X", "origin_confirmed": True, "destination": "Y",
-            "overnight_stay": False, "route_status": "success",
+            "trip_type": "round_trip", "route_status": "success",
             "one_way_miles": 10, "reported_miles": 20,
         }])
         ctx = _make_context(workers={})
@@ -247,11 +247,11 @@ class TestWorkerRules(unittest.TestCase):
         draft = _make_valid_draft(workers=[
             {"user_id": 101, "name": "Ethan", "transportation": "self_drive",
              "origin": "X", "origin_confirmed": True, "destination": "Y",
-             "overnight_stay": False, "route_status": "success",
+             "trip_type": "round_trip", "route_status": "success",
              "one_way_miles": 10, "reported_miles": 20},
             {"user_id": 101, "name": "Ethan Duplicate", "transportation": "self_drive",
              "origin": "X2", "origin_confirmed": True, "destination": "Y",
-             "overnight_stay": False, "route_status": "success",
+             "trip_type": "round_trip", "route_status": "success",
              "one_way_miles": 10, "reported_miles": 20},
         ])
         ctx = _make_context(workers={101: {"name": "Ethan", "is_active": True}})
@@ -329,19 +329,32 @@ class TestOriginDestinationRules(unittest.TestCase):
         self.assertEqual(orig[0].severity, "error")
 
 
-class TestOvernightRules(unittest.TestCase):
+class TestTripTypeRules(unittest.TestCase):
+    """住宿（OVRN-001）规则已移除，行程类型有默认值，不再产生阻塞性 ERROR。"""
+
     def setUp(self):
         from ai_daily_report.validation_engine import ValidationEngine
         self.engine = ValidationEngine()
 
-    def test_ovrn001_overnight_unconfirmed(self):
+    def test_no_overnight_rule_any_more(self):
         workers = [dict(_make_valid_draft()["workers"][0])]
         workers[0]["overnight_stay"] = None
         draft = _make_valid_draft(workers=workers)
         result = self.engine.validate(draft, _make_context(), 1)
         ovrn = [i for i in result.issues if i.rule_id == "OVRN-001"]
-        self.assertEqual(len(ovrn), 1)
-        self.assertEqual(ovrn[0].severity, "error")
+        self.assertEqual(len(ovrn), 0)
+
+    def test_missing_trip_type_falls_back_to_round_trip(self):
+        workers = [dict(_make_valid_draft()["workers"][0])]
+        workers[0].pop("trip_type", None)
+        draft = _make_valid_draft(workers=workers)
+        result = self.engine.validate(draft, _make_context(), 1)
+        # 往返口径：reported 应为 one_way × 2，这里若不适用会给出 MILE-005 warning
+        worker = draft["workers"][0]
+        if worker.get("reported_miles") is not None and worker.get("one_way_miles") is not None:
+            mile = [i for i in result.issues if i.rule_id == "MILE-005"]
+            expected_warn = abs(worker["reported_miles"] - worker["one_way_miles"] * 2) > 0.01
+            self.assertEqual(len(mile), 1 if expected_warn else 0)
 
 
 class TestRouteStatusRules(unittest.TestCase):
@@ -433,10 +446,10 @@ class TestMileageRules(unittest.TestCase):
         self.assertIn("worker:101", mile[0].issue_key)
         self.assertIn("worker:102", mile[1].issue_key)
 
-    def test_mile005_overnight_inconsistency_warning(self):
-        """reported_miles should be one_way*2 when overnight=False. Inconsistent → WARNING."""
+    def test_mile005_round_trip_inconsistency_warning(self):
+        """reported_miles should be one_way*2 when trip_type=round_trip. Inconsistent → WARNING."""
         workers = [dict(_make_valid_draft()["workers"][0])]
-        workers[0]["overnight_stay"] = False
+        workers[0]["trip_type"] = "round_trip"
         workers[0]["one_way_miles"] = 10.0
         workers[0]["reported_miles"] = 10.0  # should be 20.0
         draft = _make_valid_draft(workers=workers)
@@ -445,11 +458,11 @@ class TestMileageRules(unittest.TestCase):
         self.assertEqual(len(mile), 1)
         self.assertEqual(mile[0].severity, "warning")
 
-    def test_mile005_overnight_true_consistent_no_warning(self):
+    def test_mile005_one_way_consistent_no_warning(self):
         workers = [dict(_make_valid_draft()["workers"][0])]
-        workers[0]["overnight_stay"] = True
+        workers[0]["trip_type"] = "one_way"
         workers[0]["one_way_miles"] = 10.0
-        workers[0]["reported_miles"] = 10.0  # correct for overnight
+        workers[0]["reported_miles"] = 10.0  # 单程：报告里程 = 单程
         draft = _make_valid_draft(workers=workers)
         result = self.engine.validate(draft, _make_context(), 1)
         mile = [i for i in result.issues if i.rule_id == "MILE-005"]

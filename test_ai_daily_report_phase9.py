@@ -52,7 +52,7 @@ def _make_valid_draft(**overrides):
                 "user_id": 401, "name": "Ethan P9", "transportation": "self_drive",
                 "origin": "100 Main St", "origin_source": "user_input",
                 "origin_confirmed": True, "destination": "123 Site Ave, Spring, TX 77386",
-                "destination_source": "service_order", "overnight_stay": False,
+                "destination_source": "service_order", "trip_type": "round_trip",
                 "route_status": "success", "route_distance_meters": 16093.44,
                 "one_way_miles": 10.0, "reported_miles": 20.0,
                 "route_provider": "google_routes", "route_fingerprint": "route-fp-001",
@@ -84,7 +84,7 @@ def _make_evidence_record(evidence_id, draft_id, rel_path, sha256, **overrides):
         "draft_id": draft_id,
         "service_order_id": 400,
         "reported_miles": 20.0,
-        "overnight_stay": False,
+        "trip_type": "round_trip",
         "route_fingerprint": "route-fp-001",
         "evidence_version": 1,
         "evidence_status": "verified",
@@ -680,7 +680,7 @@ class TestFormalSaveService(Phase9TestBase):
         data["workers"].append({
             "user_id": 403, "name": "Outsider", "transportation": "self_drive",
             "origin": "200 Oak Ave", "origin_confirmed": True,
-            "destination": "123 Site Ave, Spring, TX 77386", "overnight_stay": False,
+            "destination": "123 Site Ave, Spring, TX 77386", "trip_type": "round_trip",
             "route_status": "success", "one_way_miles": 5.0, "reported_miles": 10.0,
         })
         self._insert_draft(did, data, status="confirmed", draft_version=1)

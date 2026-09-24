@@ -70,10 +70,13 @@
       // (or any CSS height) on the source table; without it the grid keeps the
       // legacy behaviour of growing with the page.
       const gridHeight = source.dataset.gridHeight;
+      // Opt-in totals-row position: data-grid-calcs="bottom" keeps the yellow
+      // totals row in the footer only (dense ERP look); default stays "both".
+      const gridCalcs = source.dataset.gridCalcs;
       this.grid = new Tabulator(this.host, {
         data:this.data, index:'_id', columns:groupedColumns, columnHeaderVertAlign:'middle', layout:'fitDataStretch', renderVertical:'basic',
         ...(gridHeight ? {height:gridHeight, columnHeaderVertAlign:'middle'} : {}),
-        movableColumns:true, columnCalcs:'both', groupClosedShowCalcs:true,
+        movableColumns:true, columnCalcs: gridCalcs === 'bottom' ? 'bottom' : 'both', groupClosedShowCalcs:true,
         groupToggleElement:'header', placeholder:t('没有符合条件的记录'),
         groupHeader:(value,count,data,group) => {
           const label=button(`${value || '—'} · ${count}`,event => { event.stopPropagation(); group.toggle(); });
