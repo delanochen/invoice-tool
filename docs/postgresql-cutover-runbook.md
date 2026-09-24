@@ -51,3 +51,14 @@
 ## 留存记录
 
 记录源快照 SHA-256、目标身份、提交和镜像摘要、各阶段时间、迁移及对账输出、备份恢复结果、浏览器验收、写入放行时间与监控结果。配置文件中的密码只保存在服务器受限权限文件中，不写入本运行单或 Git。
+
+## 0252 基线之后的增量 schema 变更（2026-09-24 起生效）
+
+自动部署只认 origin/main 新提交，且应用运行角色（invoice_app）无权执行 DDL，因此 PostgreSQL 的 schema 演进必须随代码走「随版本交付的幂等增量升级」，而不是各库手工 ALTER：
+
+1. SQLite 侧改动（app.init_db 的 ensure_column / create table）必须在同一提交内提供对应的 `migrations/postgresql/<version>-<topic>.sql`：只允许 ADD COLUMN IF NOT EXISTS、CREATE TABLE/INDEX IF NOT EXISTS 与 invoice_sqlite_columns 记账的 ON CONFLICT DO NOTHING，禁止 DROP/TRUNCATE/改类型。
+2. `scripts/upgrade_postgresql.py` 是唯一增量入口：先核验 invoice_schema_version 标记与实际 catalog 形态（基线或已升级，其余一律拒绝），再以迁移角色在 postgres 容器内用 psql --single-transaction + ON_ERROR_STOP 应用，失败自动回滚到基线，最后复核形态。
+3. `scripts/debian-auto-deploy.sh` 在每次部署尝试（备份之后、"already current" 短路之前）对 PostgreSQL 后端调用该入口，因此 schema 变更永远不会跑到其消费代码之前；升级失败会中止部署。
+4. invoice_schema_version 标记保持 '0252-compat-v2'：纯增量对象不改变已审查的 0252 行为，提前改标记会让正在运行的校验器先于升级拒绝启动，造成部署死锁。只有破坏性/语义变更才需要新标记并配套迁移演练。
+
+背景（事故记录）：v0.1.274 为工作日报新增 `service_report_workers.origin_address/trip_type` 与 `service_report_mileage_evidence`，仅落在 SQLite 的 init_db 中；PostgreSQL 生产库缺少这些对象，导致编辑/复制工作日报等所有加载已有日报服务人员的页面 500（用户报告 2026-09-24）。v0.1.275 以上述机制自动修复，无需人工登录服务器。

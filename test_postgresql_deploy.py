@@ -34,7 +34,14 @@ python3() {
                        INVOICE_TOOL_BACKUP_DIR=folder, INVOICE_DATABASE_BACKEND=configured,
                        POSTGRES_DATABASE='invoice', RUNNING=running, TRACE=str(trace),
                        FAIL_RUNTIME=str(int(fail_runtime)), FAIL_BUILD=str(int(fail_build)))
-            result = subprocess.run(['sh', '-c', functions + stubs + '\n' + action],
+            # Deliver the composed script as a FILE, not via `sh -c`: native
+            # Windows Python + MSYS2 corrupts embedded quotes when the whole
+            # script travels through the -c command line, while file mode is
+            # byte-exact on every platform (and matches how production runs
+            # the real deploy script anyway).
+            harness = root / 'harness.sh'
+            harness.write_text(functions + stubs + '\n' + action + '\n', encoding='utf-8')
+            result = subprocess.run(['sh', harness.name],
                                     cwd=folder, env=env, capture_output=True, text=True)
             return result, trace.read_text() if trace.exists() else ''
 

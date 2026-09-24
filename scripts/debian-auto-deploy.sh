@@ -232,6 +232,15 @@ PY
   trap cleanup EXIT INT TERM
   return 0
 }
+upgrade_postgresql_schema() {
+  # Additive, idempotent schema upgrade for PostgreSQL. Runs on EVERY deploy
+  # attempt (before the "already current" shortcut) so a code release that
+  # needs new schema objects is never deployed ahead of its schema: the very
+  # next timer run after the upgrade lands applies it, even if that run has
+  # nothing new to pull. Failure aborts the deploy; the database keeps the
+  # verified 0252 baseline (psql runs in a single transaction).
+  python3 "$APP_DIR/scripts/upgrade_postgresql.py" --database "$PG_DATABASE" || return 1
+}
 build_current_version() {
   APP_VERSION="$(tr -d '\r\n' < VERSION)"
   if ! printf '%s' "$APP_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -255,6 +264,9 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 prepare_database_for_deploy || exit 1
 mkdir -p "$BACKUP_DIR"
 backup_database "$STAMP" || exit 1
+if [ "$backend" = "postgresql" ]; then
+  upgrade_postgresql_schema || exit 1
+fi
 
 git fetch --quiet origin main
 NEW_COMMIT="$(git rev-parse origin/main)"

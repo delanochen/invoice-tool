@@ -4,6 +4,22 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.275] - 2026-09-24
+
+### Fixed（紧急：PostgreSQL 生产库编辑/复制工作日报 500）
+- **现象**（用户报告）：v0.1.274 自动部署后，工单日报的「编辑」与「复制日报」直接显示 Internal Server Error；保存日报、里程佐证等路径同样受影响。
+- **根因**：v0.1.274 为 SQLite 在 `init_db` 中新增了 `service_report_workers.origin_address` / `trip_type` 两列和 `service_report_mileage_evidence` 表，但 PostgreSQL 模式从不执行 init_db 的 DDL（schema 变更必须走迁移工具，运行角色无权建对象），而 0252 冻结基线之后没有任何增量机制——生产 PG 库缺列，`service_report_workers()` 等查询直接报错。所有加载「已有日报服务人员」的页面（编辑/复制/查看/保存）全部命中，纯新建页面不受影响。
+- **修复**（不 bump `invoice_schema_version`，纯增量、幂等、随部署自动生效）：
+  - 新增 `migrations/postgresql/0274-report-workers-trip.sql`：`ADD COLUMN IF NOT EXISTS` 两列 + `CREATE TABLE IF NOT EXISTS` 里程佐证表（identity 主键、`UNIQUE(report_id, worker_user_id)`、级联外键）+ 报表索引 + `invoice_sqlite_columns` 记账（PRAGMA table_info 在 PG 的翻译源），与 SQLite 定义逐字段对齐。
+  - 新增 `scripts/upgrade_postgresql.py`（唯一增量入口，fail-closed）：校验版本标记与实际 catalog 形态（0252 基线或已升级，其余拒绝）→ 在 postgres 容器内以迁移角色 `psql --single-transaction + ON_ERROR_STOP` 应用（失败自动回滚）→ 复核形态后才报告成功；已升级则幂等跳过。
+  - `scripts/debian-auto-deploy.sh` 在每次部署尝试（备份之后、`already current` 短路之前）对 PostgreSQL 后端执行该升级，保证「schema 先于其消费代码就位」；升级失败中止部署。无需人工登录服务器，推送后由 5 分钟定时器自动完成修复。
+  - 测试装置修复：`test_postgresql_deploy.py` 的组合脚本改用临时文件执行（`sh -c` 在 Windows 原生 Python + MSYS2 下会损坏内嵌引号；文件模式与生产执行方式一致，Linux 行为不变）。
+- **后续建议**（未包含在本版）：未来的破坏性/语义 schema 变更需要新版本标记并配套迁移演练；流程已写入 `docs/postgresql-cutover-runbook.md`「0252 基线之后的增量 schema 变更」。
+
+### 测试
+- 新增 `test_postgresql_schema_upgrade.py`（14 项）：升级器状态机（基线→应用、已升级→跳过、版本标记不符/形态异常→拒绝）、单事务应用与 stdin 内容契约、迁移 SQL 只增不改 + 幂等语句 + 记账行齐全、部署脚本接线位置（备份后、fetch 前）与失败中止。
+- 回归：`test_postgresql_deploy.py` 6 项全部通过；`sh -n` 部署脚本、`py_compile` 升级器、sqlglot（postgres 方言）解析迁移 SQL 均通过。
+
 ## [0.1.274] - 2026-09-24
 
 ### Added（工作日报「辅助填写」：照片、进出场时间、出发地与里程一次填好）
