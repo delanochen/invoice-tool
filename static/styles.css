@@ -3065,3 +3065,21 @@ body.service-order-map-page {
 .checkbox-line { display:flex; align-items:center; gap:8px; }
 .checkbox-line input[type=checkbox] { flex:0 0 auto; width:18px; height:18px; margin:0; }
 .schema-details summary { overflow-wrap:anywhere; }
+
+/* 工作日报「辅助填写」预览面板 */
+.assist-plan-section { margin-bottom: 14px; }
+.assist-plan-body { max-height: 62vh; overflow: auto; }
+.assist-plan-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  background: #fff;
+}
+.assist-plan-row input { margin-top: 2px; flex: 0 0 auto; }
+.assist-plan-row input:disabled + span { color: #6b7280; }
+.assist-warnings { margin: 8px 0 0 18px; color: #b42318; font-size: 12.5px; }

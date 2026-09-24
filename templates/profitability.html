@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "erp_ui.html" import status_pill, summary_item, nav_item, tab_button, order_card %}
-{% block title %}工单报表 - 发票工具{% endblock %}
+{% block title %}项目利润 - 发票工具{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
@@ -39,8 +39,8 @@
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
-      工单报表
-      <small>项目利润 · 按实际工作日期核算</small>
+      项目利润
+      <small>按实际工作日期核算 · 收入 / 成本 / 毛利润</small>
     </div>
     <span class="erp-badge">{{ group_label }}汇总可用</span>
     {% if summary.incomplete %}<span class="erp-badge warn">缺费率 {{ summary.incomplete }} 条</span>{% endif %}
@@ -293,7 +293,7 @@
 {% block scripts %}
 <script type="application/json" id="erp-report-lines">{{ lines|tojson }}</script>
 <script>
-  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "工单报表（项目利润）"};
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "项目利润报表"};
 </script>
 <script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
 <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>

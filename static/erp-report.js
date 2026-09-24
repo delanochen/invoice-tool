@@ -1,5 +1,5 @@
 /* ==========================================================================
- * ERP 工单报表行为脚本（第一阶段：项目利润报表 / 工单通知书式视图）
+ * ERP 报表行为脚本（第一阶段：项目利润报表 / 员工证书清单）
  * 纯前端：只读取页面已有的数据（`#erp-report-lines` JSON + 已渲染的表格），
  * 不改变任何后端接口与利润计算逻辑。
  * 组件行为：TabWorkspace / SidebarTree / FilterBar / DataGrid 行选中 /
@@ -185,6 +185,12 @@
         case 'reset':
           form?.querySelectorAll('input[type=date], input[type=search], input[type=text]').forEach(input => { input.value = ''; });
           form?.querySelectorAll('select').forEach(select => { select.selectedIndex = 0; });
+          // 通用多选：清空勾选并派发 change，让 report-multiselect.js 同步「全部」文案
+          form?.querySelectorAll('input[type=checkbox]').forEach(box => {
+            if (!box.checked) return;
+            box.checked = false;
+            box.dispatchEvent(new Event('change', {bubbles: true}));
+          });
           form?.requestSubmit();
           break;
         case 'refresh': window.location.reload(); break;
@@ -206,7 +212,9 @@
   /* -------------------------------------------- StatusBar 记录数同步 */
   // system-grid.js 在本脚本之后才构建 Tabulator，因此要等 .grid-count 出现。
   const countTarget = app.querySelector('[data-erp-count]');
-  const findCounter = () => app.querySelector('[data-erp-panel="orders"] .system-grid .grid-count');
+  // 取当前活动面板里的计数（工单报表与员工证书清单都适用）
+  const findCounter = () => app.querySelector('[data-erp-panel].active .system-grid .grid-count')
+    || app.querySelector('[data-erp-panel] .system-grid .grid-count');
   if (countTarget) {
     let bound = null;
     const bind = counter => {

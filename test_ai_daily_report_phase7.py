@@ -1382,7 +1382,8 @@ class TestNoSideEffects(unittest.TestCase):
 
     def test_engine_does_not_import_external_clients(self):
         import ai_daily_report.validation_engine as ve
-        with open(ve.__file__) as f:
+        # 源码含中文注释，必须显式 utf-8（Windows 默认 GBK 会 UnicodeDecodeError）
+        with open(ve.__file__, encoding="utf-8") as f:
             source = f.read()
         # Check import lines only (not docstrings/comments)
         import_lines = [line for line in source.split("\n")

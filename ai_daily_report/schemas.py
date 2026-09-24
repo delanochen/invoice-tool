@@ -167,6 +167,9 @@ class WorkerTravel(BaseModel):
     # duration (with uplift) when the route succeeds. user_input never overwritten.
     travel_hours: Optional[float] = None
     travel_hours_source: Optional[str] = None  # auto_route / user_input
+    # 工作内容：人工填写，或从设备维修清单读取（位置号 + 铭牌号 + 备注，多台设备换行）。
+    # 与路程计算无关，修改它不会让里程失效。
+    work_description: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod

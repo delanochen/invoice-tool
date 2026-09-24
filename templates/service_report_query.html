@@ -1,45 +1,244 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item, nav_item, tab_button %}
+{% from "report_multiselect.html" import multi_filter %}
 {% block title %}日报查询 - 发票工具{% endblock %}
-{% block content %}
-  <header class="page-header"><div><p class="eyebrow">Reports</p><h1>日报查询</h1></div></header>
-  <form class="filter-bar service-filter no-print" method="get">
-    
-    {% from "report_multiselect.html" import multi_filter %}
-    {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
-    {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
-    {{ multi_filter('人员', 'worker_id', worker_options, worker_ids, 'id', 'name') }}
-    <label>实际开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
-    <label>实际结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('service_report_query') }}'">重置</button>
-    </div>
-  </form>
-  <section class="panel">
-    <table class="list-table">
-      <thead><tr><th>报告日期</th><th>实际日期</th><th>工单</th><th>站点名称</th><th>业主</th><th>洲</th><th>国家</th><th>服务人员</th><th>服务工时</th><th>交通时长</th></tr></thead>
-      <tbody>
-        {% for row in rows %}
-          <tr>
-            <td><a href="{{ url_for('view_service_report', report_id=row.id) if external_view else url_for('edit_service_report', report_id=row.id) }}">{{ row.report_date }}</a></td>
-            <td>{{ row.actual_work_date or row.report_date }}</td>
-            <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
-            <td>{{ row.client_name }}</td>
-            <td>{{ row.buyer_owner or "-" }}</td>
-            <td>{{ row.region_name }}</td>
-            <td>{{ row.country_name }}</td>
-            <td>{{ row.worker_names or "-" }}</td>
-            <td>{{ row.total_service_hours }}</td>
-            <td>{{ row.travel_hours }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="10" class="empty">没有符合条件的日报。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
-{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>{% endblock %}
+
 {% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{# 只读报表：数据来自 app.py service_report_query() 的一条 SQL，
+   这里只做展示层分组与合计（工时/时长/份数），不改动任何后端逻辑。 #}
+{% set ns = namespace(service_hours=0, travel_hours=0) %}
+{% for row in rows %}
+  {% set ns.service_hours = ns.service_hours + (row.total_service_hours or 0)|float %}
+  {% set ns.travel_hours = ns.travel_hours + (row.travel_hours or 0)|float %}
+{% endfor %}
+{% set order_count = rows|map(attribute='service_order_id')|unique|list|length %}
+{% set site_count = rows|map(attribute='client_name')|unique|list|length %}
+{% set report_view_url = 'view_service_report' if external_view else 'edit_service_report' %}
+
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      日报查询
+      <small>工作日报 · 按实际工作日期倒序</small>
+    </div>
+    <span class="erp-badge">{{ rows|length }} 份日报</span>
+    {% if rows and ns.service_hours == 0 %}<span class="erp-badge warn">工时为 0</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ───────────────────────────────── SidebarTree ──────────────────────── -->
+  <aside class="erp-nav no-print">
+    <div class="erp-nav-title">报表视图</div>
+    <ul class="erp-nav-tree">
+      {{ nav_item('list', '日报清单', rows|length) }}
+      {{ nav_item('order', '按工单汇总', order_count) }}
+      {{ nav_item('site', '按站点汇总', site_count) }}
+    </ul>
+  </aside>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    {# TabWorkspace：与SidebarTree 共用入口，和敏感性报表保持一致 #}
+    <nav class="erp-tabs no-print">
+      {{ tab_button('list', '日报清单', true) }}
+      {{ tab_button('order', '按工单汇总') }}
+      {{ tab_button('site', '按站点汇总') }}
+    </nav>
+
+    <!-- FilterBar：字段名与后端完全一致（order_id / site / worker_id / date_from / date_to / q） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
+      {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
+      {{ multi_filter('人员', 'worker_id', worker_options, worker_ids, 'id', 'name') }}
+      <label class="erp-field">实际开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+      <label class="erp-field">实际结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+      <label class="erp-field">关键词
+        <input type="search" name="q" value="{{ q }}" placeholder="工单号 / 站点 / 业主 / 柜号">
+      </label>
+      <p class="erp-filter-note">关键词同时匹配工单号、站点名称、业主与柜号；日期按「实际工作日期」过滤，未填实际日期的日报按报告日期参与筛选。</p>
+    </form>
+
+    <!-- Panel 1：日报清单（一份日报一行） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead>
+            <tr>
+              <th>报告日期</th>
+              <th>实际日期</th>
+              <th>工单</th>
+              <th>站点名称</th>
+              <th>业主</th>
+              <th>洲</th>
+              <th>国家</th>
+              <th>服务人员</th>
+              <th class="num">服务工时</th>
+              <th class="num">交通时长</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td><a href="{{ url_for(report_view_url, report_id=row.id) }}">{{ row.report_date }}</a></td>
+                <td>{{ row.actual_work_date or row.report_date }}</td>
+                <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
+                <td>{{ row.client_name }}</td>
+                <td>{{ row.buyer_owner or "-" }}</td>
+                <td>{{ row.region_name or "-" }}</td>
+                <td>{{ row.country_name or "-" }}</td>
+                <td>{{ row.worker_names or "-" }}</td>
+                <td class="num">{{ row.total_service_hours }}</td>
+                <td class="num">{{ row.travel_hours }}</td>
+                <td>
+                  <div class="row-actions">
+                    <a class="erp-btn" href="{{ url_for(report_view_url, report_id=row.id) }}">{{ '查看' if external_view else '编辑' }}</a>
+                  </div>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="11" class="empty">没有符合条件的日报。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in rows %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.actual_work_date or row.report_date }}</span>
+              <span class="erp-card-customer">{{ row.order_number }} · {{ row.client_name }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ row.buyer_owner or '-' }}</span>
+              <span>{{ row.country_name or '-' }}</span>
+              <span>工时 {{ row.total_service_hours }}</span>
+              <span>交通 {{ row.travel_hours }}</span>
+            </div>
+            <div class="erp-cert-file">{{ row.worker_names or '未填写服务人员' }}</div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for(report_view_url, report_id=row.id) }}">{{ '查看日报' if external_view else '编辑日报' }}</a>
+              <a class="erp-btn primary" href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">工单详情</a>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的日报。</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- Panel 2：按工单汇总（同一份 rows 在模板层归并，不额外查库） -->
+    <section class="erp-panel" data-erp-panel="order">
+      <div class="table-scroll">
+        <table class="list-table erp-grid" data-no-report-export="true" data-grid-calcs="bottom">
+          <thead><tr>
+            <th>工单</th><th>站点名称</th><th>国家</th>
+            <th class="num">日报数</th><th class="num">服务工时</th><th class="num">交通时长</th>
+            <th>服务人员</th><th>日期范围</th>
+          </tr></thead>
+          <tbody>
+            {% for group in rows|groupby('service_order_id') %}
+              {% set acc = namespace(service=0, travel=0) %}
+              {% for row in group.list %}
+                {% set acc.service = acc.service + (row.total_service_hours or 0)|float %}
+                {% set acc.travel = acc.travel + (row.travel_hours or 0)|float %}
+              {% endfor %}
+              <tr>
+                <td><a href="{{ url_for('service_order_detail', order_id=group.grouper) }}">{{ group.list[0].order_number }}</a></td>
+                <td>{{ group.list[0].client_name }}</td>
+                <td>{{ group.list[0].country_name or "-" }}</td>
+                <td class="num">{{ group.list|length }}</td>
+                <td class="num">{{ acc.service }}</td>
+                <td class="num">{{ acc.travel }}</td>
+                <td>{{ group.list|map(attribute='worker_names')|reject('none')|unique|join(' / ') or "-" }}</td>
+                <td>{{ group.list|map(attribute='report_date')|min }}{% if group.list|map(attribute='report_date')|min != group.list|map(attribute='report_date')|max %} ~ {{ group.list|map(attribute='report_date')|max }}{% endif %}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="8" class="empty">没有符合条件的日报。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Panel 3：按站点汇总 -->
+    <section class="erp-panel" data-erp-panel="site">
+      <div class="table-scroll">
+        <table class="list-table erp-grid" data-no-report-export="true" data-grid-calcs="bottom">
+          <thead><tr>
+            <th>站点名称</th><th>业主</th><th>国家</th>
+            <th class="num">日报数</th><th class="num">服务工时</th><th class="num">交通时长</th><th>服务人员</th>
+          </tr></thead>
+          <tbody>
+            {% for group in rows|groupby('client_name') %}
+              {% set acc = namespace(service=0, travel=0) %}
+              {% for row in group.list %}
+                {% set acc.service = acc.service + (row.total_service_hours or 0)|float %}
+                {% set acc.travel = acc.travel + (row.travel_hours or 0)|float %}
+              {% endfor %}
+              <tr>
+                <td>{{ group.grouper }}</td>
+                <td>{{ group.list[0].buyer_owner or "-" }}</td>
+                <td>{{ group.list[0].country_name or "-" }}</td>
+                <td class="num">{{ group.list|length }}</td>
+                <td class="num">{{ acc.service }}</td>
+                <td class="num">{{ acc.travel }}</td>
+                <td>{{ group.list|map(attribute='worker_names')|reject('none')|unique|join(' / ') or "-" }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="empty">没有符合条件的日报。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('日报数', rows|length, 'muted') }}
+    {{ summary_item('涉及工单', order_count, 'muted') }}
+    {{ summary_item('涉及站点', site_count, 'muted') }}
+    {{ summary_item('服务工时合计', ns.service_hours) }}
+    {{ summary_item('交通时长合计', ns.travel_hours) }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
+    {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
+    <span class="sep"></span>
+    <span>视图 <b>{{ '查看' if external_view else '编辑' }}</b></span>
+    <span class="sep"></span>
+    <span>数据来源 <b>工作日报</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "日报查询"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

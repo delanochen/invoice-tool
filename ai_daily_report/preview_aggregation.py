@@ -125,6 +125,8 @@ class PreviewAggregationService:
                 "route_provider": w.get("route_provider"),
                 "route_query_time": w.get("route_query_time"),
                 "mileage_evidence_id": w.get("mileage_evidence_id"),
+                # 工作内容（人工填写或从设备维修清单读取的「位置号 + 铭牌号 + 备注」）
+                "work_description": w.get("work_description") or "",
                 "provenance": self._determine_worker_provenance(w),
             }
             workers.append(worker)

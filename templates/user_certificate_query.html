@@ -1,20 +1,218 @@
 {% extends "base.html" %}
-{% block title %}员工证书查询 - 发票工具{% endblock %}
-{% block body_class %}user-certificate-query-page{% endblock %}
+{% from "erp_ui.html" import summary_item %}
+{% block title %}员工证书 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-<header class="page-header"><div><p class="eyebrow">Reports</p><h1>员工证书查询</h1></div><div class="metric"><span>{{ employee_count }} 位员工</span><strong>{{ attachment_count }} 份附件</strong></div></header>
-<form method="get" class="filter-bar no-print">
-  
-  <label>员工<select name="user_id"><option value="">全部人员</option>{% for person in people %}<option value="{{ person.id }}" {% if request.args.get('user_id') == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}</select></label>
-  <label>附件情况<select name="presence">{% for value,label in [('yes','有附件'),('no','没有附件'),('','全部')] %}<option value="{{ value }}" {% if request.args.get('presence','yes') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-  <label>账号状态<select name="active">{% for value,label in [('','全部'),('1','启用'),('0','停用')] %}<option value="{{ value }}" {% if request.args.get('active','') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-  <div class="filter-actions">
-  <button type="submit">查询</button><a class="button" href="{{ url_for('user_certificate_query') }}">重置</a>
+{# 全部只读：数据来自 staff_reports.py 的 SQL（users left join user_attachments），
+   这里只做展示层分组与计数，不改动任何后端接口。 #}
+{% set flag_active = request.args.get('active', '') %}
+{% set flag_presence = request.args.get('presence', 'yes') %}
+{% set person = request.args.get('user_id', '') %}
+{% set keyword = request.args.get('q', '') %}
+{% set missing_rows = rows|selectattr('attachment_id', 'none')|list %}
+{% set attached_rows = rows|rejectattr('attachment_id', 'none')|list %}
+{% set people_in_rows = rows|map(attribute='user_id')|unique|list %}
+{% set presence_label = {'yes': '有附件', 'no': '没有附件'}.get(flag_presence, '全部') %}
+{% set active_label = {'1': '启用', '0': '停用'}.get(flag_active, '全部') %}
+{% set selected_person = people|selectattr('id', 'equalto', person|int)|list %}
+{% set person_label = selected_person[0].name if selected_person else '全部人员' %}
+
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      员工证书
+      <small>员工资料中的现有附件 · 一份附件一行</small>
+    </div>
+    <span class="erp-badge">{{ employee_count }} 位员工</span>
+    {% if missing_rows %}<span class="erp-badge warn">缺附件 {{ missing_rows|length }} 行</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ───────────────────────────────── SidebarTree ──────────────────────── -->
+  {# 侧栏是视图快捷方式（走 URL 参数），不是 Tabulator 面板切换，因此用 <a> 而非 <button data-erp-tab> #}
+  <aside class="erp-nav no-print">
+    <div class="erp-nav-title">报表视图</div>
+    <ul class="erp-nav-tree">
+      <li>
+        <a class="erp-nav-item{% if flag_presence == '' and flag_active == '' %} active{% endif %}"
+           href="{{ url_for('user_certificate_query', presence='', active='', user_id=person, q=keyword) }}">
+          <span>全部清单</span><span class="count">{{ rows|length }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="erp-nav-item{% if flag_presence == 'yes' %} active{% endif %}"
+           href="{{ url_for('user_certificate_query', presence='yes', active=flag_active, user_id=person, q=keyword) }}">
+          <span>已有附件</span><span class="count">{{ attached_rows|length }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="erp-nav-item{% if flag_presence == 'no' %} active{% endif %}"
+           href="{{ url_for('user_certificate_query', presence='no', active=flag_active, user_id=person, q=keyword) }}">
+          <span>缺少附件</span><span class="count">{{ missing_rows|length }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="erp-nav-item{% if flag_active == '0' %} active{% endif %}"
+           href="{{ url_for('user_certificate_query', presence='', active='0', user_id=person, q=keyword) }}">
+          <span>停用账号</span><span class="count">{{ rows|selectattr('is_active', 'equalto', 0)|list|length }}</span>
+        </a>
+      </li>
+    </ul>
+  </aside>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="list">
+
+      <!-- FilterBar：字段名与 staff_reports.py 完全一致（user_id / presence / active / q） -->
+      <form class="erp-filter no-print" method="get" data-erp-filter>
+        <label class="erp-field">员工
+          <select name="user_id">
+            <option value="">全部人员</option>
+            {% for item in people %}<option value="{{ item.id }}" {% if person == item.id|string %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="erp-field">附件情况
+          <select name="presence">
+            {% for value, label in [('yes', '有附件'), ('no', '没有附件'), ('', '全部')] %}
+            <option value="{{ value }}" {% if flag_presence == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="erp-field">账号状态
+          <select name="active">
+            {% for value, label in [('', '全部'), ('1', '启用'), ('0', '停用')] %}
+            <option value="{{ value }}" {% if flag_active == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="erp-field">文件名关键词
+          <input type="search" name="q" value="{{ keyword }}" placeholder="证书或附件名称">
+        </label>
+        <p class="erp-filter-note">清单来自员工资料中的现有附件，按文件名展示。附件尚未区分证书类型和有效期；“没有附件”不等同于没有证书。</p>
+      </form>
+
+      <!-- DataGrid：原生表格 + system-grid.js 增强（排序 / 冻结表头 / 列宽调整 / 列设置），滚动只发生在表格内部 -->
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead>
+            <tr>
+              <th>员工编号</th>
+              <th>员工</th>
+              <th>邮箱</th>
+              <th>角色</th>
+              <th>国家</th>
+              <th>账号状态</th>
+              <th>证书 / 附件名称</th>
+              <th>附件</th>
+              <th>上传日期</th>
+              <th>上传人</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td class="num">{{ row.user_id }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ row.email }}</td>
+                <td>{{ row.role|role_label }}</td>
+                <td>{{ row.country_code or '-' }}</td>
+                <td>{% if row.is_active %}<span class="status completed">启用</span>{% else %}<span class="status draft">停用</span>{% endif %}</td>
+                <td>{{ row.original_filename or '没有附件' }}</td>
+                <td>{% if row.attachment_id %}<span class="status completed">有附件</span>{% else %}<span class="status returned">缺附件</span>{% endif %}</td>
+                <td>{{ row.uploaded_at or '-' }}</td>
+                <td>{{ row.uploader_name or '-' }}</td>
+                <td>
+                  <div class="row-actions">
+                    {% if row.attachment_id %}
+                      <a class="erp-btn" href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" target="_blank" rel="noopener">预览</a>
+                      <a class="erp-btn" href="{{ url_for('download_user_attachment', attachment_id=row.attachment_id) }}">下载</a>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="11" class="empty">没有符合条件的记录。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in rows %}
+          <article class="erp-card {{ 'neg' if row.attachment_id is none else '' }}">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.name }}</span>
+              <span class="erp-card-customer">{{ row.email }}</span>
+              {% if row.attachment_id %}<span class="status completed">有附件</span>{% else %}<span class="status returned">缺附件</span>{% endif %}
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ row.role|role_label }}</span>
+              <span>{{ row.country_code or '-' }}</span>
+              <span>{{ '启用' if row.is_active else '停用' }}</span>
+              <span>{{ row.uploaded_at or '未上传' }}</span>
+            </div>
+            <div class="erp-cert-file">{{ row.original_filename or '没有附件' }}</div>
+            <div class="erp-card-foot">
+              {% if row.attachment_id %}
+                <a class="erp-btn" href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" target="_blank" rel="noopener">预览</a>
+                <a class="erp-btn primary" href="{{ url_for('download_user_attachment', attachment_id=row.attachment_id) }}">下载</a>
+              {% else %}
+                <span class="erp-meta">未上传附件</span>
+              {% endif %}
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的记录。</div>
+        {% endfor %}
+      </div>
+    </section>
   </div>
-</form>
-<p class="muted-line">清单来自员工资料中的现有附件，按文件名展示，一份附件一行。附件尚未区分证书类型和有效期；“没有附件”不等同于没有证书。</p>
-<section class="panel" style="overflow-x:auto"><table class="list-table"><thead><tr><th>员工编号</th><th>员工</th><th>邮箱</th><th>角色</th><th>国家</th><th>账号状态</th><th>证书 / 附件名称</th><th>上传日期</th><th>上传人</th><th>操作</th></tr></thead><tbody>
-{% for row in rows %}<tr><td>{{ row.user_id }}</td><td>{{ row.name }}</td><td>{{ row.email }}</td><td>{{ row.role|role_label }}</td><td>{{ row.country_code or '-' }}</td><td>{{ '启用' if row.is_active else '停用' }}</td><td>{{ row.original_filename or '没有附件' }}</td><td>{{ row.uploaded_at or '-' }}</td><td>{{ row.uploader_name or '-' }}</td><td>{% if row.attachment_id %}<a href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" target="_blank" rel="noopener">预览</a> · <a href="{{ url_for('download_user_attachment', attachment_id=row.attachment_id) }}">下载</a>{% endif %}</td></tr>
-{% else %}<tr><td colspan="10" class="empty">没有符合条件的记录。</td></tr>{% endfor %}
-</tbody></table></section>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('员工数', people_in_rows|length, 'muted') }}
+    {{ summary_item('附件行', attached_rows|length) }}
+    {{ summary_item('缺附件行', missing_rows|length, 'neg' if missing_rows else 'muted') }}
+    {{ summary_item('停用账号行', rows|selectattr('is_active', 'equalto', 0)|list|length, 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>附件情况 <b>{{ presence_label }}</b></span>
+    <span class="sep"></span>
+    <span>账号状态 <b>{{ active_label }}</b></span>
+    <span class="sep"></span>
+    <span>员工 <b>{{ person_label }}</b></span>
+    {% if keyword %}<span class="sep"></span><span>关键词 <b>{{ keyword }}</b></span>{% endif %}
+    <span class="sep"></span>
+    <span>数据来源 <b>员工资料附件</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "员工证书清单"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

@@ -4,6 +4,41 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.274] - 2026-09-24
+
+### Added（工作日报「辅助填写」：照片、进出场时间、出发地与里程一次填好）
+- **入口**：日报表单工具栏新增「辅助填写」按钮，按「工单 + 报告日期」产出建议，**全程只读、不写库**——前端把勾选的建议值填进表单，用户点保存才落库。新增页没有 `report_id` 也可用（`can_edit_report=True`）。
+- **接口** `POST /api/service-reports/assist-plan`：入参 `order_id` / `report_date` / `workers[]` / `site_address` / `departure_address`；人员必须在工单可选范围内，越权 id 一律忽略（避免取到别人地址）。
+- **照片**：按 `field_photos.photo_type` 归类为到达 / 离开 / 自检 / 现场服务四类；到达时间取该类最早、离开取最晚；现场服务照片按拍摄时间取前 10 张（超出时预览提示「共 N 张，已取前 10 张」）；取不到水印时间的**不猜**，单独提示。
+- **出发地与里程**：出发地取值链「表单已填 > 员工主数据地址 > 日报级出发地址」；里程与交通时长走 Google Routes + `trip_policy`（往返 ×2，时长沿用 1.15 冗余 + 0.25h 向上取整）。同一份 plan 内同起终点只请求一次 Google（有缓存）。
+- **降级逐条说明**：随行 / 飞机不算驾车里程、缺出发地、缺目的地、未配置 Google Routes 都写明原因，能填的部分照常填。
+- **前端策略**：里程 / 交通时长 / 出发地**只填空值**（手工填过的不覆盖）；照片沿用 `service-report.js` 的 NAS 通道（`nasSelections`），落库路径与「服务器选择」完全一致，不新增上传通道。
+- **薄适配层** `service_report_assist.py`：只做「表单结构 ↔ 已有服务入参」的翻译，照片发现、拍摄时间、里程换算、行程口径分别复用 `PhotoDiscoveryService` / `PhotoMetadataService` / `MileageService` / `trip_policy`，**不重新实现任何口径**。
+
+### Added（里程佐证：生成 / 复用 / 地址变更自动重做）
+- 日报表单新增「生成里程佐证」，用 `MileageEvidenceService` 合成静态地图佐证并挂到附件分类 `mileage_proof`；接口 `POST /service-reports/<id>/mileage-evidence/generate`（`force=1` 强制重做）。
+- **按线路指纹判断是否过期**：出发地 / 目的地 / 行程类型变化 → 指纹变化 → 自动重新生成；指纹一致且附件还在则复用。同一员工重新生成**复用同一附件行**（`save_generated_report_attachment` 换文件并清掉旧文件），不会每点一次多一行。
+- 新增表 `service_report_mileage_evidence`（`report_id + worker_user_id` 唯一）记指纹 / 里程 / 附件 id；`service_report_workers` 补 `origin_address`、`trip_type` 两列（`trip_type` 默认 `round_trip`，与其他入口同口径）。
+
+### Added（设备维修清单「读取」进工作内容）
+- `field_work.py` 把设备维修清单的聚合逻辑抽成模块级 `group_repair_photos()`（与 `/reports/field-repairs` 表格同口径，两处不再各写一遍），并新增 `repair_work_text()` 生成「位置号 + 铭牌号 + 备注」文本。
+- 新增 `GET /api/field/repairs/order/<order_id>`：按工单返回设备行与可直接写入工作内容的文本（多台设备换行）。
+- **服务报告表单**：工作内容由单行 `input` 改为 `textarea`，每行加「读取」按钮，一次把该工单当天的设备维修清单添进工作内容。
+- **AI 智能日报草稿详情**：人员行新增「工作内容」，同样带「读取设备维修清单」按钮；`WorkerTravel` 增加 `work_description`（与里程计算无关）。
+- `POST /api/ai/daily-report/draft/<id>/update-worker` 支持 `work_description`，并且**只有路程相关字段（出发地 / 行程类型 / 出行方式）真的变了才作废里程**——单独改工作内容不再逼用户重算里程。
+
+### Changed（「日报查询」「员工证书」两页 ERP 风格改造）
+- 两页统一改为 `erp_ui.html` 宏 + `erp-ui.css` 体系：顶部工具栏 / 筛选 / SummaryBar 常驻，桌面端高密度 DataGrid、移动端卡片列表；均为**只读展示层分组合计**，后端 SQL 与接口未改动。
+- `static/erp-report.js` 适配这类面板：清空多选时派发 `change` 让「全部」文案同步；面板计数取当前活动面板，避免隐藏面板量不到高度。
+
+### Fixed
+- **租车驾驶拿不到里程佐证**：`MileageEvidenceService` 原先只认 `self_drive`，工作日报侧租车（`rental_drive → rental_car`）员工无法生成佐证。放宽为 `self_drive` / `rental_car`（两者都是自己开车）；佐证正文不使用该字段，AI 智能日报既有行为不变。
+- **`test_ai_daily_report_phase7` 在 Windows 上必然失败**：测试以默认编码（GBK）读 UTF-8 源码导致 `UnicodeDecodeError`，改为显式 `encoding="utf-8"`。
+
+### 测试
+- 新增 `test_service_report_assist.py`（22 项）：照片归类与到达 / 离开时间取最早最晚、现场照片上限与排序、时间不明不猜、出发地取值链、往返翻倍、路线缓存去重、佐证指纹复用 / 重生成 / `force`、接口入参校验。
+- 本版相关回归 263 + 111 项通过；「辅助填写」另做浏览器端到端核对（真实点击 + 桩数据验证「应用到表单」的填值与只填空值策略）。
+
 ## [0.1.273] - 2026-09-24
 
 ### Changed（行程类型取代「是否住宿」：全系统共用一套口径）

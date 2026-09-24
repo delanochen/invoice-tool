@@ -68,6 +68,68 @@ def init_field_schema(connection):
                                (position, container, row[0]))
 
 
+def group_repair_photos(photos):
+    """把设备类现场照片归并成「设备维修清单」行（与 /reports/field-repairs 同口径）。
+
+    同一工单、日期、铭牌号、位置号、柜号与维修人员的照片汇总为一行：
+    照片数量相加，水泵保险编号合并去重，备注用 ' / ' 连接。
+    没有铭牌号的照片按一次拍摄会话（equipment_session）归为一行。
+    """
+    grouped = {}
+    for photo in photos:
+        technician = (photo['technician_name'] or photo['employee_name'] or '').strip()
+        equipment_number = (photo['equipment_number'] or '').strip()
+        position_number = (photo['position_number'] or '').strip()
+        container_number = (photo['container_number'] or '').strip()
+        if equipment_number:
+            group_key = (
+                'device', photo['order_id'], photo['capture_date'], equipment_number.casefold(),
+                position_number.casefold(), container_number.casefold(), technician.casefold(),
+            )
+        else:
+            group_key = ('session', photo['order_id'], photo['equipment_session'] or f"photo-{photo['id']}")
+        entry = grouped.setdefault(group_key, dict(
+            order_number=photo['order_number'], date=photo['capture_date'], position_number=position_number,
+            container_number=container_number, equipment_number=equipment_number, pump_fuses=[],
+            notes=[], technicians=[], photo_count=0, photo_ids=[], order_id=photo['order_id'],
+        ))
+        entry['photo_count'] += 1
+        entry['photo_ids'].append(photo['id'])
+        for fuse in re.split(r'[/,，;；\s]+', (photo['pump_fuse_numbers'] or '').strip()):
+            if fuse and fuse.casefold() not in {item.casefold() for item in entry['pump_fuses']}:
+                entry['pump_fuses'].append(fuse)
+        if photo['note'] and photo['note'] not in entry['notes']:
+            entry['notes'].append(photo['note'])
+        if technician and technician not in entry['technicians']:
+            entry['technicians'].append(technician)
+    rows = []
+    for index, entry in enumerate(sorted(grouped.values(), key=lambda item: (item['date'], item['order_number'], item['position_number'])), 1):
+        entry['sequence'] = index
+        pump_fuses = entry.pop('pump_fuses')
+        pump_fuses.sort(key=lambda value: (0, int(value)) if value.isdigit() else (1, value.casefold()))
+        entry['pump_fuse_numbers'] = '/'.join(pump_fuses)
+        entry['note'] = ' / '.join(entry.pop('notes'))
+        entry['technician'] = ' / '.join(entry.pop('technicians'))
+        rows.append(entry)
+    return rows
+
+
+def repair_work_text(rows):
+    """把设备维修清单行拼成日报工作内容文本：一台设备一行，位置号 + 铭牌号 + 备注。"""
+    lines = []
+    for row in rows:
+        parts = []
+        if row.get('position_number'):
+            parts.append('位置号 ' + row['position_number'])
+        if row.get('equipment_number'):
+            parts.append('铭牌号 ' + row['equipment_number'])
+        if row.get('note'):
+            parts.append('备注 ' + row['note'])
+        if parts:
+            lines.append('，'.join(parts))
+    return '\n'.join(lines)
+
+
 def register_field_routes(app, api):
     @app.after_request
     def field_response_version(response):
@@ -545,43 +607,7 @@ def register_field_routes(app, api):
 
     def repair_table_rows():
         photos = [row for row in photo_rows() if row['photo_type'] == 'equipment']
-        grouped = {}
-        for photo in photos:
-            technician = (photo['technician_name'] or photo['employee_name'] or '').strip()
-            equipment_number = (photo['equipment_number'] or '').strip()
-            position_number = (photo['position_number'] or '').strip()
-            container_number = (photo['container_number'] or '').strip()
-            if equipment_number:
-                group_key = (
-                    'device', photo['order_id'], photo['capture_date'], equipment_number.casefold(),
-                    position_number.casefold(), container_number.casefold(), technician.casefold(),
-                )
-            else:
-                group_key = ('session', photo['order_id'], photo['equipment_session'] or f"photo-{photo['id']}")
-            entry = grouped.setdefault(group_key, dict(
-                order_number=photo['order_number'], date=photo['capture_date'], position_number=position_number,
-                container_number=container_number, equipment_number=equipment_number, pump_fuses=[],
-                notes=[], technicians=[], photo_count=0, photo_ids=[], order_id=photo['order_id'],
-            ))
-            entry['photo_count'] += 1
-            entry['photo_ids'].append(photo['id'])
-            for fuse in re.split(r'[/,，;；\s]+', (photo['pump_fuse_numbers'] or '').strip()):
-                if fuse and fuse.casefold() not in {item.casefold() for item in entry['pump_fuses']}:
-                    entry['pump_fuses'].append(fuse)
-            if photo['note'] and photo['note'] not in entry['notes']:
-                entry['notes'].append(photo['note'])
-            if technician and technician not in entry['technicians']:
-                entry['technicians'].append(technician)
-        rows = []
-        for index, entry in enumerate(sorted(grouped.values(), key=lambda item: (item['date'], item['order_number'], item['position_number'])), 1):
-            entry['sequence'] = index
-            pump_fuses = entry.pop('pump_fuses')
-            pump_fuses.sort(key=lambda value: (0, int(value)) if value.isdigit() else (1, value.casefold()))
-            entry['pump_fuse_numbers'] = '/'.join(pump_fuses)
-            entry['note'] = ' / '.join(entry.pop('notes'))
-            entry['technician'] = ' / '.join(entry.pop('technicians'))
-            rows.append(entry)
-        return rows
+        return group_repair_photos(photos)
 
     @app.get('/reports/field-repairs')
     @access
@@ -600,6 +626,35 @@ def register_field_routes(app, api):
                 row['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': row['photo_ids']})
         return render_template('field_repair_report.html', rows=rows, photo_orders=photo_order_rows(),
                                field_csrf=token(), can_delete_repairs=can_delete)
+
+    @app.get('/api/field/repairs/order/<int:order_id>')
+    @access
+    def field_repair_devices(order_id):
+        """按工单读取设备维修清单（位置号 / 铭牌号 / 备注），供日报工作内容「读取」按钮使用。
+
+        返回 items（一台设备一行）与 text（可直接写入工作内容的文本，多台设备换行继续）。
+        """
+        clauses, params = api['service_order_access_filters']()
+        clauses.append('service_orders.id = ?')
+        params.append(order_id)
+        order = api['db']().execute(
+            'select id, order_number from service_orders where ' + ' and '.join(clauses), params).fetchone()
+        if not order:
+            return jsonify(error='工单不存在或无权访问。'), 404
+        photos = api['db']().execute('''
+            select p.*, service_orders.order_number, users.name as employee_name
+            from field_photos p join service_orders on service_orders.id = p.order_id
+            join users on users.id = p.user_id
+            where p.order_id = ? and p.photo_type = 'equipment'
+            order by p.captured_at, p.id''', (order_id,)).fetchall()
+        rows = group_repair_photos([dict(row) for row in photos])
+        items = [dict(
+            date=row['date'], position_number=row['position_number'], container_number=row['container_number'],
+            equipment_number=row['equipment_number'], pump_fuse_numbers=row['pump_fuse_numbers'],
+            note=row['note'], technician=row['technician'], photo_count=row['photo_count'],
+        ) for row in rows]
+        return jsonify(ok=True, order_id=order_id, order_number=order['order_number'],
+                       items=items, count=len(items), text=repair_work_text(rows))
 
     @app.post('/api/field/repairs/delete')
     @access

@@ -29,6 +29,7 @@
           <button type="submit">导出 Word</button>
         </form>
       {% endif %}
+      {% if can_edit_report %}<button type="button" id="assistFillBtn" title="按报告日期自动匹配照片、进出场时间、员工出发地与里程">辅助填写</button>{% endif %}
       {% if can_edit_report %}<button class="primary" type="submit" form="serviceReportForm" id="saveServiceReport">保存</button>{% endif %}
     </div>
   </header>
@@ -117,16 +118,24 @@
       </div>
       <div class="table-scroll">
         <table class="list-table compact-table selectable-list-table" id="serviceWorkersTable">
-          <thead><tr><th>人员</th><th>出行方式</th><th>里程</th><th>交通时长</th><th>公共交通时长</th><th>工作内容</th></tr></thead>
+          <thead><tr><th>人员</th><th>员工出发地</th><th>出行方式</th><th>行程类型</th><th>里程</th><th>交通时长</th><th>公共交通时长</th><th>工作内容</th></tr></thead>
           <tbody>
             {% for worker in worker_rows %}
+              {% set worker_trip = worker.trip_type or 'round_trip' %}
               <tr tabindex="0" aria-selected="false">
                 <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}" {% if worker.id == user.id %}selected{% endif %}>{{ user.name }}</option>{% endfor %}</select></td>
+                <td><input name="worker_origin" value="{{ worker.origin_address or '' }}" placeholder="留空则由辅助填写取员工主数据地址"></td>
                 <td><select name="worker_travel_mode"><option value="self_drive" {% if worker.travel_mode in ['self_drive', 'legacy'] %}selected{% endif %}>自驾</option><option value="rental_drive" {% if worker.travel_mode == 'rental_drive' %}selected{% endif %}>租车驾驶</option><option value="flight" {% if worker.travel_mode == 'flight' %}selected{% endif %}>飞机</option><option value="following" {% if worker.travel_mode == 'following' %}selected{% endif %}>随行</option></select></td>
+                <td><select name="worker_trip_type"><option value="round_trip" {% if worker_trip == 'round_trip' %}selected{% endif %}>往返</option><option value="one_way" {% if worker_trip == 'one_way' %}selected{% endif %}>单程</option></select></td>
                 <td><input type="number" step="0.1" min="0" name="worker_driving_miles" value="{{ worker.driving_miles or 0 }}"></td>
                 <td><input type="number" step="0.1" min="0" name="worker_travel_hours" value="{{ worker.travel_hours if worker.travel_hours is not none else report.travel_hours or 0 }}"></td>
                 <td><input type="number" step="0.1" min="0" name="worker_public_transport_hours" value="{{ worker.public_transport_hours if worker.public_transport_hours is not none else report.public_transport_hours or 0 }}"></td>
-                <td><input name="worker_work_description" value="{{ worker.work_description or '' }}"></td>
+                <td>
+                  <div style="display:flex; gap:4px; align-items:flex-start;">
+                    <textarea name="worker_work_description" rows="2" style="flex:1; min-width:0;" data-work-desc>{{ worker.work_description or '' }}</textarea>
+                    <button type="button" class="small" data-read-repair data-order-id="{{ order.id }}" title="读取设备维修清单：位置号 + 铭牌号 + 备注，多个设备换行添加">读取</button>
+                  </div>
+                </td>
               </tr>
             {% endfor %}
           </tbody>
@@ -134,11 +143,18 @@
       </div>
       <template id="serviceWorkerRowTemplate"><tr tabindex="0" aria-selected="false">
         <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}">{{ user.name }}</option>{% endfor %}</select></td>
+        <td><input name="worker_origin" placeholder="留空则由辅助填写取员工主数据地址"></td>
         <td><select name="worker_travel_mode"><option value="self_drive">自驾</option><option value="rental_drive">租车驾驶</option><option value="flight">飞机</option><option value="following">随行</option></select></td>
+        <td><select name="worker_trip_type"><option value="round_trip">往返</option><option value="one_way">单程</option></select></td>
         <td><input type="number" step="0.1" min="0" name="worker_driving_miles"></td>
         <td><input type="number" step="0.1" min="0" name="worker_travel_hours"></td>
         <td><input type="number" step="0.1" min="0" name="worker_public_transport_hours"></td>
-        <td><input name="worker_work_description"></td>
+        <td>
+          <div style="display:flex; gap:4px; align-items:flex-start;">
+            <textarea name="worker_work_description" rows="2" style="flex:1; min-width:0;" data-work-desc></textarea>
+            <button type="button" class="small" data-read-repair data-order-id="{{ order.id }}" title="读取设备维修清单：位置号 + 铭牌号 + 备注，多个设备换行添加">读取</button>
+          </div>
+        </td>
       </tr></template>
       <p class="field-error" id="serviceWorkersError" hidden>请至少添加一名服务人员，并完整填写出行数据。</p>
     </section>
@@ -241,7 +257,19 @@
       <div class="form-field">
         <span class="field-label">上传里程佐证</span>
         <input type="file" name="mileage_proof_attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
-        <small>支持 Word、Excel、PDF、图片，可多选。不会放入工作日报 Word，会在生成发票时作为发票附件带出。</small>
+        <button
+          type="button"
+          class="small"
+          id="generateMileageEvidenceBtn"
+          {% if is_edit %}
+            data-generate-url="{{ url_for('generate_service_report_mileage_evidence', report_id=report.id) }}"
+          {% else %}
+            disabled
+            title="保存日报后即可生成里程佐证"
+          {% endif %}
+        >自动生成里程佐证</button>
+        <span id="mileageEvidenceStatus" class="muted-line"></span>
+        <small>支持 Word、Excel、PDF、图片，可多选。不会放入工作日报 Word，会在生成发票时作为发票附件带出。自动生成按员工清单的出发地与行程类型拿 Google 路线；随行不生成，出发地或行程类型变了会重新生成。</small>
       </div>
       {% set mileage_proofs = attachments.mileage_proof %}
       {% if mileage_proofs %}
@@ -318,5 +346,26 @@
     <div id="nasPhotoFolders" class="nas-photo-folders" hidden></div>
     <div id="nasPhotoBrowser" class="nas-photo-browser"></div>
   </dialog>
+  <dialog
+    id="assistPlanDialog"
+    class="modal assist-plan-dialog"
+    data-plan-url="{{ url_for('service_report_assist_plan') }}"
+    data-order-id="{{ order.id }}"
+  >
+    <div class="modal-header">
+      <div>
+        <h2>辅助填写</h2>
+        <p class="muted-line" id="assistPlanSummary">核对后应用到表单，取消勾选的项目不会被填写。</p>
+      </div>
+      <button type="button" id="closeAssistPlanDialog">关闭</button>
+    </div>
+    <div id="assistPlanBody" class="assist-plan-body"></div>
+    <div class="modal-footer">
+      <button type="button" id="cancelAssistPlan">取消</button>
+      <button class="primary" type="button" id="applyAssistPlan" disabled>应用到表单</button>
+    </div>
+  </dialog>
   <script src="{{ url_for('static', filename='service-report.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='service-report-assist.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='service-report-repair-read.js', v=app_version) }}"></script>
 {% endblock %}

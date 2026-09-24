@@ -69,6 +69,7 @@ from settlement_review import (
 )
 from profitability import init_profitability_schema, register_profitability_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
+from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
 from ai_daily_report import (
     AIIntentService,
     DailyReportService,
@@ -1796,6 +1797,36 @@ def init_db():
                         )
         except Exception:
             pass
+        # v0.1.274 工作日报辅助填写：员工清单补「出发地 + 行程类型」，
+        # 并新增里程佐证记录表（用于判断地址变更后是否需要重新生成佐证）。
+        ensure_column(connection, "service_report_workers", "origin_address", "text not null default ''")
+        ensure_column(connection, "service_report_workers", "trip_type", "text not null default 'round_trip'")
+        connection.execute(
+            """
+            create table if not exists service_report_mileage_evidence (
+                id integer primary key autoincrement,
+                report_id integer not null,
+                worker_user_id integer not null,
+                route_fingerprint text not null,
+                origin_address text not null default '',
+                destination_address text not null default '',
+                trip_type text not null default 'round_trip',
+                distance_meters real,
+                duration_seconds integer,
+                one_way_miles real,
+                reported_miles real,
+                attachment_id integer,
+                status text not null default 'success',
+                generated_by integer,
+                generated_at text not null,
+                unique(report_id, worker_user_id),
+                foreign key(report_id) references service_reports(id) on delete cascade
+            )
+            """
+        )
+        connection.execute(
+            "create index if not exists idx_sr_mileage_evidence_report on service_report_mileage_evidence(report_id)"
+        )
         connection.execute(
             """
             create table if not exists payment_terms (
@@ -5196,6 +5227,51 @@ def save_shared_report_photo(report_id, relative_path, category):
     return True
 
 
+def save_generated_report_attachment(report_id, source_path, original_filename, replace_attachment_id=None):
+    """把系统生成的图片（里程佐证）挂到日报的里程佐证附件上。
+
+    同一员工重新生成时传入 replace_attachment_id：让原记录指向新文件并清掉旧
+    文件，避免每点一次「自动生成」附件列表就多一行。
+    """
+    if not os.path.isfile(source_path):
+        raise ValueError("佐证图片不存在，请重新生成。")
+    extension = os.path.splitext(source_path)[1].lower().lstrip(".") or "png"
+    target_dir = report_attachment_dir(report_id, "mileage_proof")
+    image_filename = f"{secrets.token_hex(12)}.{extension}"
+    shutil.copyfile(source_path, os.path.join(target_dir, image_filename))
+    stored_filename = report_attachment_relative_path(report_id, "mileage_proof", image_filename)
+
+    if replace_attachment_id:
+        previous = db().execute(
+            "select id, stored_filename from service_report_attachments "
+            "where id = ? and report_id = ? and category = 'mileage_proof'",
+            (replace_attachment_id, report_id),
+        ).fetchone()
+        if previous:
+            old_path = report_attachment_path(previous)
+            db().execute(
+                "update service_report_attachments "
+                "set original_filename = ?, stored_filename = ?, uploaded_by = ?, uploaded_at = ? "
+                "where id = ?",
+                (original_filename, stored_filename, g.user["id"], now(), previous["id"]),
+            )
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+            return previous["id"]
+
+    cursor = db().execute(
+        """
+        insert into service_report_attachments (
+            report_id, category, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
+        ) values (?, 'mileage_proof', ?, ?, 'image/png', ?, ?)
+        """,
+        (report_id, original_filename, stored_filename, g.user["id"], now()),
+    )
+    return cursor.lastrowid
+
+
 def save_report_uploads(report_id):
     for field_name, category in (
         ("self_check_photos", "self_check"),
@@ -5300,6 +5376,7 @@ def report_worker_rows_from_form():
     field_names = (
         "worker_user_id", "worker_travel_mode", "worker_driving_miles",
         "worker_travel_hours", "worker_public_transport_hours", "worker_work_description",
+        "worker_origin", "worker_trip_type",
     )
     values = {name: request.form.getlist(name) for name in field_names}
     rows = []
@@ -5337,6 +5414,9 @@ def report_worker_rows_from_form():
             driving_miles=miles if mode != "flight" else 0,
             travel_hours=travel_hours if mode != "flight" else 0,
             public_transport_hours=public_hours if mode == "flight" else 0,
+            origin_address=row["worker_origin"].strip(),
+            # 空值 / 未知值一律归一为默认往返（唯一口径见 trip_policy）
+            trip_type=normalize_trip_type(row["worker_trip_type"]),
         )
         rows.append(row)
     if not rows:
@@ -7306,7 +7386,8 @@ def service_report_workers(report_id):
         """
         select users.id, users.name, users.email, service_report_workers.driving_miles,
                service_report_workers.travel_mode, service_report_workers.travel_hours,
-               service_report_workers.public_transport_hours, service_report_workers.work_description
+               service_report_workers.public_transport_hours, service_report_workers.work_description,
+               service_report_workers.origin_address, service_report_workers.trip_type
         from service_report_workers
         join users on users.id = service_report_workers.user_id
         where service_report_workers.report_id = ?
@@ -7479,13 +7560,14 @@ def save_report_detail_rows(report_id):
             """
             insert into service_report_workers (
                 report_id, user_id, driving_miles, travel_mode, travel_hours,
-                public_transport_hours, work_description
-            ) values (?, ?, ?, ?, ?, ?, ?)
+                public_transport_hours, work_description, origin_address, trip_type
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 report_id, worker["worker_user_id"], worker["driving_miles"],
                 worker["worker_travel_mode"], worker["travel_hours"],
                 worker["public_transport_hours"], worker["worker_work_description"],
+                worker["origin_address"], worker["trip_type"],
             ),
         )
 
@@ -13187,6 +13269,8 @@ def ai_daily_report_update_worker(draft_id):
             data.get("trip_type") if data.get("trip_type") not in (None, "") else data.get("overnight_stay")
         )
         transportation = data.get("transportation", "self_drive")
+        # 工作内容（可选）：人工填写或从设备维修清单读取，不参与路程计算
+        work_description = data.get("work_description")
         expected_version = data.get("draft_version")
         if expected_version is not None:
             expected_version = int(expected_version)
@@ -13200,19 +13284,30 @@ def ai_daily_report_update_worker(draft_id):
         draft = svc.parse_draft_data(draft_row)
         # Find and update worker
         updated = False
+        route_invalidated = False
         for w in draft.workers:
             if w.user_id == user_id:
-                if origin is not None:
+                # 只有路程相关字段真的变了才让里程失效：工作内容（work_description）
+                # 与路线无关，单独保存工作内容不该逼用户重算里程。
+                route_related = False
+                if origin is not None and w.origin != origin:
                     w.origin = origin
                     w.origin_source = origin_source
                     w.origin_confirmed = True if origin_source == "user_input" else w.origin_confirmed
+                    route_related = True
                 if trip_type and w.trip_type != trip_type:
                     w.trip_type = trip_type
-                if transportation is not None:
+                    route_related = True
+                if transportation is not None and w.transportation != transportation:
                     w.transportation = transportation
+                    route_related = True
+                if work_description is not None:
+                    w.work_description = work_description
                 updated = True
-                # Invalidate route (clears old mileage/evidence) - static method
-                TravelService.invalidate_worker_route(w)
+                if route_related:
+                    # Invalidate route (clears old mileage/evidence) - static method
+                    TravelService.invalidate_worker_route(w)
+                    route_invalidated = True
                 break
 
         if not updated:
@@ -13222,7 +13317,9 @@ def ai_daily_report_update_worker(draft_id):
         db().commit()
         # Get updated draft_version from database
         updated_row = svc.get_draft(draft_id)
-        return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "message": "工作人员信息已更新，里程已失效需重新计算"})
+        message = ("工作人员信息已更新，里程已失效需重新计算" if route_invalidated
+                   else "工作人员信息已更新")
+        return jsonify({"ok": True, "draft_version": updated_row["draft_version"], "message": message})
     except DraftVersionConflict:
         return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
 
@@ -17695,6 +17792,194 @@ def edit_service_report(report_id):
         can_edit_report=not is_external_manager(),
         adjacent_reports=same_order_adjacent_report_ids(report_id),
     )
+
+
+@app.post("/service-reports/<int:report_id>/mileage-evidence/generate")
+@login_required
+def generate_service_report_mileage_evidence(report_id):
+    """按员工清单里的出发地生成（或重新生成）里程佐证图片。
+
+    随行 / 飞机不生成；地点（出发地或目的地）或行程类型变了 -> 线路指纹变化
+    -> 自动重新生成；否则复用已有佐证，`force=1` 表示用户明确要求重做。
+    """
+    report, order = require_service_report(report_id)
+    if is_external_employee() and report["created_by"] != g.user["id"]:
+        abort(403)
+    if is_external_manager():
+        abort(403)
+
+    payload = request.get_json(silent=True) or {}
+    force = str(payload.get("force", "")).lower() in ("1", "true", "yes")
+
+    worker_rows = service_report_workers(report_id)
+    destination = (report["site_address"] or "").strip() or (order["site_address"] or "").strip()
+    existing_rows = db().execute(
+        "select worker_user_id, route_fingerprint, attachment_id from service_report_mileage_evidence "
+        "where report_id = ?",
+        (report_id,),
+    ).fetchall()
+    existing_by_user = {
+        int(row["worker_user_id"]): {
+            "route_fingerprint": row["route_fingerprint"],
+            "attachment_id": row["attachment_id"],
+        }
+        for row in existing_rows
+    }
+
+    workers = [
+        {
+            "user_id": row["id"],
+            "name": row["name"],
+            "travel_mode": row["travel_mode"],
+            "trip_type": row["trip_type"],
+            "origin": (row["origin_address"] or "").strip(),
+        }
+        for row in worker_rows
+    ]
+
+    routes_api_key = get_google_routes_api_key()
+    static_maps_key = get_google_static_maps_api_key()
+    evidence_root = os.path.join(DATA_DIR, "service-report-mileage")
+    evidence_svc = ServiceReportEvidenceService(
+        routes_service=GoogleRoutesService(routes_api_key) if routes_api_key else None,
+        evidence_service=MileageEvidenceService(
+            GoogleStaticMapsService(static_maps_key),
+            evidence_root,
+        ),
+        attachment_saver=save_generated_report_attachment,
+        evidence_root=evidence_root,
+        uploaded_by=g.user["id"],
+        now_fn=now,
+    )
+    summary = evidence_svc.generate(
+        report_id=report_id,
+        order_id=order["id"],
+        report_date=report["report_date"],
+        workers=workers,
+        destination=destination,
+        existing_by_user=existing_by_user,
+        force=force,
+    )
+
+    # 只有成功生成的写指纹/附件 id，失败的保留上一次记录（避免抖一下就丢线索）
+    for index, result in enumerate(summary["results"]):
+        if result["outcome"] != "generated":
+            continue
+        db().execute(
+            """
+            insert into service_report_mileage_evidence (
+                report_id, worker_user_id, route_fingerprint, origin_address, destination_address,
+                trip_type, distance_meters, duration_seconds, one_way_miles, reported_miles,
+                attachment_id, status, generated_by, generated_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, ?)
+            on conflict(report_id, worker_user_id) do update set
+                route_fingerprint=excluded.route_fingerprint,
+                origin_address=excluded.origin_address,
+                destination_address=excluded.destination_address,
+                trip_type=excluded.trip_type,
+                distance_meters=excluded.distance_meters,
+                duration_seconds=excluded.duration_seconds,
+                one_way_miles=excluded.one_way_miles,
+                reported_miles=excluded.reported_miles,
+                attachment_id=excluded.attachment_id,
+                generated_by=excluded.generated_by,
+                generated_at=excluded.generated_at
+            """,
+            (
+                report_id, result["user_id"], result["route_fingerprint"],
+                workers[index]["origin"], destination, result.get("trip_type") or DEFAULT_TRIP_TYPE,
+                None, None, result.get("one_way_miles"), result.get("reported_miles"),
+                result["attachment_id"], g.user["id"], now(),
+            ),
+        )
+    db().commit()
+    log_action(
+        "update",
+        "service_report",
+        report_id,
+        f"{order['order_number']} / {report['report_date']}",
+        f"生成里程佐证（新增 {summary['generated']}、复用 {summary['reused']}、失败 {summary['failed']}）",
+    )
+    return jsonify({"ok": True, **summary})
+
+
+@app.post("/api/service-reports/assist-plan")
+@login_required
+def service_report_assist_plan():
+    """只读预览：产出「辅助填写」建议（照片归类 / 进出场时间 / 出发地 / 里程时长）。
+
+    不写库、不改表单。新增页没有 report_id，入参只依赖 order_id + report_date，
+    结果由前端填入表单，用户点保存才真正落库。
+    """
+    payload = request.get_json(silent=True) or {}
+    order_id = payload.get("order_id")
+    if not order_id or not str(order_id).isdigit():
+        return jsonify({"ok": False, "error": "缺少工单信息。"}), 400
+    order = require_service_order(int(order_id))
+    if not can_create_service_report(order):
+        abort(403)
+
+    report_date = (payload.get("report_date") or "").strip()
+    try:
+        datetime.strptime(report_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"ok": False, "error": "请先在表单里选择有效的报告日期。"}), 400
+
+    allowed_workers = {str(row["id"]): row for row in service_report_worker_options(order)}
+    workers = []
+    for item in payload.get("workers") or []:
+        user_id = str(item.get("user_id") or "").strip()
+        if user_id not in allowed_workers:
+            continue  # 不在可选人员范围内的一律忽略，避免越权取地址
+        workers.append(
+            {
+                "user_id": int(user_id),
+                "name": allowed_workers[user_id]["name"],
+                "travel_mode": item.get("travel_mode") or "self_drive",
+                "trip_type": item.get("trip_type"),
+                "current_origin": (item.get("current_origin") or "").strip(),
+            }
+        )
+
+    site_address = (payload.get("site_address") or "").strip() or (order["site_address"] or "")
+    fallback_origin = (payload.get("departure_address") or "").strip()
+
+    # field_photos.photo_type 是权威分类（arrival / departure / safety / equipment…）
+    fp_map = {}
+    try:
+        fp_rows = db().execute("select relative_path, photo_type from field_photos").fetchall()
+        fp_map = {row["relative_path"]: row["photo_type"] for row in fp_rows}
+    except Exception:
+        fp_map = {}
+
+    photo_discovery = PhotoDiscoveryService(
+        shared_photos_root=SHARED_PHOTOS_DIR,
+        service_order_photo_folder_func=service_order_photo_folder,
+    )
+    photo_metadata = PhotoMetadataService(shared_photos_root=SHARED_PHOTOS_DIR)
+    routes_api_key = get_google_routes_api_key()
+    emp_resolver = EmployeeResolutionService(db(), g.user["id"], g.user["name"])
+
+    assist = ServiceReportAssistService(
+        photo_discovery=photo_discovery,
+        photo_metadata=photo_metadata,
+        routes_service=GoogleRoutesService(routes_api_key) if routes_api_key else None,
+        employee_address_lookup=lambda uid: emp_resolver.get_employee_default_address(uid),
+        photo_url_builder=lambda relative_path: {
+            "thumbnail": url_for("shared_photo_thumbnail", path=relative_path),
+            "preview": url_for("shared_photo_preview", path=relative_path),
+        },
+    )
+    plan = assist.build_plan(
+        order_number=order["order_number"],
+        report_date=report_date,
+        workers=workers,
+        destination=site_address,
+        fallback_origin=fallback_origin,
+        photo_type_lookup=lambda relative_path: fp_map.get(relative_path) or None,
+        include_routes=bool(payload.get("include_routes", True)),
+    )
+    return jsonify(plan)
 
 
 @app.post("/service-reports/<int:report_id>/delete")

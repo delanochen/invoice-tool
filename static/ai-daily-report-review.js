@@ -220,6 +220,12 @@
             </td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">单程里程</td><td>${w.one_way_miles != null ? w.one_way_miles + " mi" : "-"}</td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">日报里程</td><td><strong>${w.reported_miles != null ? w.reported_miles + " mi" : "-"}</strong></td></tr>
+            <tr><td style="padding:2px 8px; color:#6b7280;">工作内容</td><td>
+              ${canEdit
+                ? `<textarea data-worker-idx="${idx}" data-field="work_description" data-work-desc rows="2" style="width:100%;">${escapeHtml(w.work_description || "")}</textarea>
+                   <button type="button" class="secondary" style="margin-top:4px;" data-read-repair data-order-id="${(currentPreview.basic_info || {}).service_order_id || ""}">读取设备维修清单</button>`
+                : (w.work_description ? escapeHtml(w.work_description).replace(/\n/g, "<br>") : "-")}
+            </td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">路线提供商</td><td>${w.route_provider || "-"}</td></tr>
             <tr><td style="padding:2px 8px; color:#6b7280;">查询时间</td><td>${formatDate(w.route_query_time)}</td></tr>
           </table>

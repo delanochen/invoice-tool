@@ -140,7 +140,11 @@ class MileageEvidenceService:
 
         ALL conditions must be met. Returns (eligible, reason_if_not).
         """
-        if worker.transportation != "self_drive":
+        # self_drive / rental_car 都是「自己开车」，都产生驾车里程。
+        # v0.1.274：租车驾驶（rental_drive -> rental_car）此前被排除，导致
+        # 工作日报侧无法为租车员工生成里程佐证。佐证正文不使用该字段，
+        # 放宽不影响 AI 智能日报既有行为。
+        if worker.transportation not in ("self_drive", "rental_car"):
             return False, "transportation_not_self_drive"
         if worker.route_status != "success":
             return False, f"route_status_{worker.route_status}"
