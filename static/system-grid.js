@@ -66,8 +66,13 @@
         else groupedColumns.push({_group:group, title:t(group), columns:[column]});
       });
       groupedColumns.forEach(column => delete column._group);
+      // Opt-in frozen header / fixed body height. Set `data-grid-height="100%"`
+      // (or any CSS height) on the source table; without it the grid keeps the
+      // legacy behaviour of growing with the page.
+      const gridHeight = source.dataset.gridHeight;
       this.grid = new Tabulator(this.host, {
         data:this.data, index:'_id', columns:groupedColumns, columnHeaderVertAlign:'middle', layout:'fitDataStretch', renderVertical:'basic',
+        ...(gridHeight ? {height:gridHeight, columnHeaderVertAlign:'middle'} : {}),
         movableColumns:true, columnCalcs:'both', groupClosedShowCalcs:true,
         groupToggleElement:'header', placeholder:t('没有符合条件的记录'),
         groupHeader:(value,count,data,group) => {

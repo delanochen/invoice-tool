@@ -1,0 +1,58 @@
+{# ==========================================================================
+   可复用 ERP UI 宏（第一阶段：工单报表）
+   配套样式：static/erp-ui.css    配套脚本：static/erp-report.js
+   用法：{% from "erp_ui.html" import status_pill, summary_item, nav_item, tab_button, order_card %}
+   ========================================================================== #}
+
+{# 工单状态标签：缺费率 > 客户已确认 > 结算中 > 预计 #}
+{% macro status_pill(incomplete, statuses) -%}
+{%- if incomplete -%}<span class="status returned">缺 {{ incomplete }} 条费率</span>
+{%- elif statuses|length and statuses[0] == 'client_confirmed' and statuses|unique|list|length == 1 -%}<span class="status completed">客户已确认</span>
+{%- elif 'settlement_in_progress' in statuses -%}<span class="status submitted">结算中</span>
+{%- else -%}<span class="status draft">预计</span>
+{%- endif -%}
+{%- endmacro %}
+
+{# 底部 SummaryBar 单元：label / value / tone(pos|neg|muted) #}
+{% macro summary_item(label, value, tone='') -%}
+<div class="erp-summary-item {{ tone }}"><span>{{ label }}</span><strong>{{ value }}</strong></div>
+{%- endmacro %}
+
+{# 左侧 SidebarTree 节点（同时兼任 TabWorkspace 的入口） #}
+{% macro nav_item(panel, label, count='', warn=false) -%}
+<li><button type="button" class="erp-nav-item" data-erp-tab="{{ panel }}">
+  {%- if warn %}<i class="dot" aria-hidden="true"></i>{% endif -%}
+  <span>{{ label }}</span>
+  {%- if count is not none and count != '' %}<span class="count">{{ count }}</span>{% endif -%}
+</button></li>
+{%- endmacro %}
+
+{# TabWorkspace 标签 #}
+{% macro tab_button(panel, label, active=false) -%}
+<button type="button" class="erp-tab{% if active %} active{% endif %}" data-erp-tab="{{ panel }}">{{ label }}</button>
+{%- endmacro %}
+
+{# MobileWorkOrderCard：手机端工单卡片 #}
+{% macro order_card(row) -%}
+<article class="erp-card {{ 'neg' if row.profit < 0 else ('pos' if row.margin >= 30 else '') }}">
+  <div class="erp-card-head">
+    <span class="erp-card-code">{{ row.order_number }}</span>
+    <span class="erp-card-customer">{{ row.client_name }}</span>
+    {{ status_pill(row.incomplete, row.statuses) }}
+  </div>
+  <div class="erp-card-sub">
+    <span>{{ row.start_date }}{% if row.end_date != row.start_date %} ~ {{ row.end_date }}{% endif %}</span>
+    <span>明细 {{ row.line_count }} 条</span>
+  </div>
+  <div class="erp-card-metrics">
+    <div class="erp-card-metric"><span>收入</span><strong>{{ row.revenue|money }}</strong></div>
+    <div class="erp-card-metric"><span>成本</span><strong>{{ row.cost|money }}</strong></div>
+    <div class="erp-card-metric"><span>毛利润</span><strong class="{{ 'neg' if row.profit < 0 else 'pos' }}">{{ row.profit|money }}</strong></div>
+    <div class="erp-card-metric"><span>利润率</span><strong class="{{ 'neg' if row.profit < 0 else 'pos' }}">{{ '%.2f%%'|format(row.margin) }}</strong></div>
+  </div>
+  <div class="erp-card-foot">
+    <a class="erp-btn" href="{{ url_for('service_order_detail', order_id=row.order_id) }}">工单详情</a>
+    <button type="button" class="erp-btn primary" data-order-id="{{ row.order_id }}">收支明细</button>
+  </div>
+</article>
+{%- endmacro %}
