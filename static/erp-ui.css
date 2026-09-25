@@ -62,6 +62,10 @@
 /* 嵌入 workspace 时 class 加在 <html> 上（base.html），这里必须匹配 html 或 body 的任意祖先 */
 /* 24px = main 容器上下各 12px padding，减掉后 erp-app 正好贴在 iframe 视口内 */
 .workspace-embedded .erp-app { height: calc(100vh - 24px); min-height: 0; border: 0; }
+/* 工单日历页的 .main 上下各 18px（styles.css），比默认 12px 多 12px；ERP 高度要跟着减，
+   否则整页会多出 12px 而冒出页面级滚动条（见「整页不滚动」规范）。 */
+body.service-order-calendar-page .erp-app { --erp-offset: 140px; }
+.workspace-embedded body.service-order-calendar-page .erp-app { height: calc(100vh - 36px); }
 @media (max-width: 1024px) {
   .erp-app {
     grid-template-columns: minmax(0, 1fr);
@@ -231,6 +235,15 @@
 
 /* 当前面板吃掉全部剩余高度；表格区在其内部滚动，不把页面顶出滚动条 */
 .erp-body > .erp-panel.active { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* 非表格类内容（详情字段区、月历）：内容超出可视高度时自己滚动，
+   同样不顶出整页滚动条，也不挤压页签栏。 */
+.erp-body > .erp-panel.active > .erp-detail-scroll,
+.erp-body > .erp-panel.active > .erp-calendar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.erp-panel-actions { flex: 0 0 auto; display: flex; gap: 6px; padding-top: 6px; }
 .erp-tabs {
   display: flex;
   align-items: stretch;

@@ -1,59 +1,141 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}合同 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Contracts</p><h1>合同管理</h1></div>
-    {% if can_manage_contracts() %}
-      <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_contract') }}'">新建合同</button>
-    {% endif %}
+{# 只读列表：数据来自 app.py contracts() 的一条 SQL，这里只做展示与计数，不改动后端。
+   后端本来就支持关键词 q（合同编号 / 名称 / 客户 / 项目），旧模板漏了输入框，这里补上。 #}
+{% set active_count = contracts|selectattr('status', 'equalto', 'active')|list|length %}
+{% set order_total = contracts|map(attribute='work_order_count')|sum %}
+
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      合同管理
+      <small>合同 · 按状态与到期日排序</small>
+    </div>
+    <span class="erp-badge">{{ contracts|length }} 份合同</span>
+    {% if active_count %}<span class="erp-badge">{{ active_count }} 份生效中</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      {% if can_manage_contracts() %}
+        <button type="button" class="erp-btn primary" onclick="window.location.href='{{ url_for('new_contract') }}'">新建合同</button>
+      {% endif %}
+      <button type="button" class="erp-btn" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
   </header>
 
-  <form class="panel filter-bar no-print" method="get">
-    
-    <label>合同类型
-      <select name="contract_type">
-        <option value="">全部类型</option>
-        {% for value, label in contract_type_labels.items() %}
-          <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>状态
-      <select name="status">
-        <option value="">全部状态</option>
-        {% for value, label in contract_status_labels.items() %}
-          <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('contracts') }}'">重置</button>
-    </div>
-  </form>
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图（合同清单），不设页签也不设侧栏 → 走 erp-ui.css 的无导航单列布局 #}
+  <div class="erp-body">
+    <!-- FilterBar：字段名与后端完全一致（q / contract_type / status） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      <label class="erp-field">关键词 <input type="search" name="q" value="{{ q }}" placeholder="合同编号 / 名称 / 客户 / 项目"></label>
+      <label class="erp-field">合同类型
+        <select name="contract_type">
+          <option value="">全部类型</option>
+          {% for value, label in contract_type_labels.items() %}
+            <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">状态
+        <select name="status">
+          <option value="">全部状态</option>
+          {% for value, label in contract_status_labels.items() %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="erp-filter-note">关键词同时匹配合同编号、合同名称、客户名称与项目名称；列表按「生效中 → 已签订 → 待评审 → 其他」排序。</p>
+    </form>
 
-  <section class="panel">
-    <div class="panel-title"><h2>合同列表</h2><span class="muted-line">{{ contracts|length }} 份合同</span></div>
-    <table class="list-table">
-      <thead>
-        <tr><th>合同编号</th><th>合同名称</th><th>客户</th><th>类型</th><th>合同金额</th><th>期限</th><th>工单</th><th>状态</th></tr>
-      </thead>
-      <tbody>
+    <!-- Panel：合同清单（一份合同一行） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead>
+            <tr><th>合同编号</th><th>合同名称</th><th>客户</th><th>类型</th><th>合同金额</th><th>期限</th><th>工单</th><th>状态</th></tr>
+          </thead>
+          <tbody>
+            {% for contract in contracts %}
+              <tr>
+                <td><a href="{{ url_for('contract_detail', contract_id=contract.id) }}">{{ contract.contract_number }}</a></td>
+                <td>{{ contract.title }}</td>
+                <td>{{ contract.client_name }}</td>
+                <td>{{ contract_type_labels[contract.contract_type] }}</td>
+                <td class="num" data-grid-currency="{{ contract.currency }}">{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}-{% endif %}</td>
+                <td>{{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</td>
+                <td class="num">{{ contract.work_order_count }}</td>
+                <td><span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="8" class="empty">没有符合条件的合同。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
         {% for contract in contracts %}
-          <tr>
-            <td><a href="{{ url_for('contract_detail', contract_id=contract.id) }}">{{ contract.contract_number }}</a></td>
-            <td>{{ contract.title }}</td>
-            <td>{{ contract.client_name }}</td>
-            <td>{{ contract_type_labels[contract.contract_type] }}</td>
-            <td data-grid-currency="{{ contract.currency }}">{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}-{% endif %}</td>
-            <td>{{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</td>
-            <td>{{ contract.work_order_count }}</td>
-            <td><span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span></td>
-          </tr>
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ contract.contract_number }}</span>
+              <span class="erp-card-customer">{{ contract.title }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ contract.client_name }}</span>
+              <span>{{ contract_type_labels[contract.contract_type] }}</span>
+              <span>工单 {{ contract.work_order_count }}</span>
+            </div>
+            <div class="erp-cert-file">{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}金额未填{% endif %} · {{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('contract_detail', contract_id=contract.id) }}">合同详情</a>
+              <span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span>
+            </div>
+          </article>
         {% else %}
-          <tr><td colspan="8" class="empty">没有符合条件的合同。</td></tr>
+          <div class="erp-empty">没有符合条件的合同。</div>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('合同数', contracts|length, 'muted') }}
+    {{ summary_item('生效中', active_count, 'muted') }}
+    {{ summary_item('关联工单', order_total, 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ contracts|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>类型 <b>{{ contract_type_labels[selected_type] if selected_type else '全部' }}</b></span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ contract_status_labels[selected_status] if selected_status else '全部' }}</b></span>
+    {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "合同管理"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

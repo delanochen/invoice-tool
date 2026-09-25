@@ -1,43 +1,94 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}工单日历 - 发票工具{% endblock %}
 {% block body_class %}service-order-calendar-page{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Work Orders</p><h1>工单日历</h1></div>
-    <div class="toolbar-actions no-print">
-      <button type="button" onclick="window.location.href='{{ url_for('service_order_calendar', year=previous_month.year, month=previous_month.month) }}'">上个月</button>
-      <button type="button" onclick="window.location.href='{{ url_for('service_order_calendar') }}'">本月</button>
-      <button type="button" onclick="window.location.href='{{ url_for('service_order_calendar', year=next_month.year, month=next_month.month) }}'">下个月</button>
-      <button type="button" onclick="window.location.href='{{ url_for('service_orders') }}'">工单列表</button>
+{# 只读月历：数据来自 app.py service_order_calendar() 的 service_order_calendar_weeks()，
+   这里只做展示与计数，不改动任何后端逻辑。 #}
+{% set all_events = [] %}
+{% for week in weeks %}
+  {% for day in week %}
+    {% for event in day.events %}{% set _ = all_events.append(event) %}{% endfor %}
+  {% endfor %}
+{% endfor %}
+{% set order_count = all_events|map(attribute='order_number')|unique|list|length %}
+{% set day_count = all_events|map(attribute='date')|unique|list|length %}
+
+<div class="erp-app" data-active-panel="calendar">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      工单日历
+      <small>{{ visible_month.strftime("%Y-%m") }} · 按工作日报实际日期排期</small>
+    </div>
+    <span class="erp-badge">{{ visible_month.year }} 年 {{ visible_month.month }} 月</span>
+    <span class="erp-badge">{{ order_count }} 个工单</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_calendar', year=previous_month.year, month=previous_month.month) }}'">上个月</button>
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_calendar') }}'">本月</button>
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_calendar', year=next_month.year, month=next_month.month) }}'">下个月</button>
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_orders') }}'">工单列表</button>
     </div>
   </header>
 
-  <section class="panel service-order-calendar-panel">
-    <div class="panel-title">
-      <h2>{{ visible_month.strftime("%Y-%m") }}</h2>
-      <span class="muted-line">按工作日报实际日期显示；同一工单连续多天会在日历上连成一条，没有日报时按工单实际开始日期显示。</span>
-    </div>
-    <div class="work-order-calendar">
-      {% for day_name in ["一", "二", "三", "四", "五", "六", "日"] %}
-        <div class="work-order-calendar-head">{{ day_name }}</div>
-      {% endfor %}
-      {% for week in weeks %}
-        {% for day in week %}
-          <div class="work-order-calendar-day {{ '' if day.in_month else 'muted-day' }} {{ 'today' if day.is_today else '' }}">
-            <span class="calendar-date">{{ day.date.day }}</span>
-            <div class="work-order-calendar-events"{% if day.lane_count %} style="grid-template-rows: repeat({{ day.lane_count }}, 44px);"{% endif %}>
-              {% for event in day.events %}
-                <a class="work-order-calendar-event{% if event.billing_state %} {{ event.billing_state }}{% endif %} continues-{{ event.continuation }}" style="grid-row: {{ event.lane + 1 }};" href="{{ event.detail_url }}" title="{{ event.site_name }} · {{ event.order_number }} · {{ event.status_label }}{% if event.work_order_type %} · {{ event.work_order_type }}{% endif %}{% if event.client_order_number_warning %} · {{ event.client_order_number_warning }}{% endif %}">
-                  <span>{{ event.site_name }}</span>
-                  <small{% if event.client_order_number_warning %} class="client-order-number-warning"{% endif %}>
-                    {{ event.client_order_number or "未填写服务订单号码" }}{% if event.client_order_number_warning %} <span class="client-order-warning-icon" aria-hidden="true">⚠</span>{% endif %}
-                  </small>
-                </a>
-              {% endfor %}
-            </div>
-          </div>
-        {% endfor %}
-      {% endfor %}
-    </div>
-  </section>
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图（月历），不设页签也不设侧栏 → 走 erp-ui.css 的无导航单列布局 #}
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="calendar">
+      <!-- 月历高度随周数变化，超出可视高度时在这里滚动，不顶出整页滚动条 -->
+      <div class="erp-calendar-scroll">
+        <div class="work-order-calendar">
+          {% for day_name in ["一", "二", "三", "四", "五", "六", "日"] %}
+            <div class="work-order-calendar-head">{{ day_name }}</div>
+          {% endfor %}
+          {% for week in weeks %}
+            {% for day in week %}
+              <div class="work-order-calendar-day {{ '' if day.in_month else 'muted-day' }} {{ 'today' if day.is_today else '' }}">
+                <span class="calendar-date">{{ day.date.day }}</span>
+                <div class="work-order-calendar-events"{% if day.lane_count %} style="grid-template-rows: repeat({{ day.lane_count }}, 44px);"{% endif %}>
+                  {% for event in day.events %}
+                    <a class="work-order-calendar-event{% if event.billing_state %} {{ event.billing_state }}{% endif %} continues-{{ event.continuation }}" style="grid-row: {{ event.lane + 1 }};" href="{{ event.detail_url }}" title="{{ event.site_name }} · {{ event.order_number }} · {{ event.status_label }}{% if event.work_order_type %} · {{ event.work_order_type }}{% endif %}{% if event.client_order_number_warning %} · {{ event.client_order_number_warning }}{% endif %}">
+                      <span>{{ event.site_name }}</span>
+                      <small{% if event.client_order_number_warning %} class="client-order-number-warning"{% endif %}>
+                        {{ event.client_order_number or "未填写服务订单号码" }}{% if event.client_order_number_warning %} <span class="client-order-warning-icon" aria-hidden="true">⚠</span>{% endif %}
+                      </small>
+                    </a>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      </div>
+      <p class="erp-filter-note">按工作日报实际日期显示；同一工单连续多天会在日历上连成一条，没有日报时按工单实际开始日期显示。</p>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('工单数', order_count, 'muted') }}
+    {{ summary_item('排期天数', day_count, 'muted') }}
+    {{ summary_item('排期条数', all_events|length, 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>月份 <b>{{ visible_month.strftime("%Y-%m") }}</b></span>
+    <span class="sep"></span>
+    <span>工单 <b data-erp-count>{{ order_count }}</b> 个</span>
+    <span class="sep"></span>
+    <span>数据来源 <b>工作日报实际日期 / 工单开始日期</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

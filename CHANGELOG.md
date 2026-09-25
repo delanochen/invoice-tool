@@ -4,6 +4,26 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.279] - 2026-09-24
+
+### Changed（合同管理页 ERP 风格改造）
+- `/contracts`（`templates/contracts.html`）改为 `.erp-app` 体系：工具栏（新建合同 / 查询 / 重置 / 筛选 / 刷新 / 导出 Excel / 打印）、筛选区、DataGrid、SummaryBar（合同数 / 生效中 / 关联工单）、StatusBar、手机端卡片。单视图 → 不设页签也不设侧栏，走无导航单列布局。
+- **补上后端已支持但旧模板漏掉的关键词筛选**：`q` 同时匹配合同编号、合同名称、客户名称与项目名称（后端 SQL 本来就查，只是没有输入框）。
+- 金额列带 `data-grid-currency`，表尾合计由表格按币种分别汇总；纯展示层改造，后端 SQL 未改。
+
+### Changed（合同详情页 ERP 风格改造）
+- `/contracts/<id>`（`templates/contract_detail.html`）改为 ERP 详情：顶部工具栏放状态与操作（返回列表 / 费率版本 / 编辑 / 删除），正文用**四个页签**分组——合同信息 / 附件（N）/ 关联工单（N）/ 关联发票（N），页签上直接带条数。
+- 各页签内容是表格时用 `erp-grid` 内部滚动；合同信息字段区用新增的 `.erp-detail-scroll` 自己滚动，**不顶出整页滚动条**。
+- SummaryBar：附件 / 工单 / 发票数量 + 合同金额 + 期限。后端数据与接口未改。
+
+### Changed（工单日历 ERP 风格改造）
+- `/service-orders/calendar`（`templates/service_order_calendar.html`）改为 ERP 布局：工具栏（上个月 / 本月 / 下个月 / 工单列表）+ 月历内容区 + SummaryBar（工单数 / 排期天数 / 排期条数）+ StatusBar。
+- 月历高度随周数变化，超出可视高度时在新增的 `.erp-calendar-scroll` 内滚动。
+- **修整页滚动条**：该页 `.main` 上下各 18px（`styles.css`，比默认 12px 多 12px），ERP 高度按 24px 算会多出 12px 而冒出页面级滚动条；现在按页面修正（`--erp-offset: 140px` / 嵌入时 `calc(100vh - 36px)`），整页溢出 0。
+
+### 测试
+- 相关回归 83 项 + 9 subtests 通过；三个页面均实测：单列布局、页签切换、金额两位、整页溢出 0（日历页改为内容区内部滚动）。
+
 ## [0.1.278] - 2026-09-24
 
 ### Fixed（删除报销报 Internal Server Error）
