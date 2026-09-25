@@ -110,6 +110,45 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
         mro = [item for item in items if item["project_id"] == self.invoice_projects["MRO Supplies配件及耗材费"]]
         self.assertEqual(mro[0]["amount"], 25)
 
+    def test_legacy_mro_invoice_project_name_is_normalized_on_read(self):
+        """已跑过旧版 0282 的库里 MRO 映射是裸名，读取时必须归一为规范全名。"""
+        with self.m.app.app_context():
+            db = self.m.db()
+            db.execute(
+                "update expense_settlement_invoice_map set invoice_project_name = 'MRO Supplies'"
+                " where expense_project_name = 'MRO Supplies配件及耗材费'"
+            )
+            db.commit()
+            self.assertEqual(
+                self.m.expense_settlement_invoice_field("MRO Supplies配件及耗材费"),
+                ("other", "MRO Supplies配件及耗材费"),
+            )
+
+    def test_invoice_items_accept_legacy_mro_invoice_project_record(self):
+        """PostgreSQL 不跑 init_db 的别名合并，发票项目可能仍是裸名 MRO Supplies。"""
+        with self.m.app.app_context():
+            db = self.m.db()
+            db.execute(
+                "delete from projects where project_type = 'invoice' and name_key like 'mro supplies%'"
+            )
+            connection_id = db.execute(
+                "insert into projects (name, name_key, project_type, unit_price, tax_rate, is_active, created_at)"
+                " values ('MRO Supplies', ?, 'invoice', 0, 0, 1, ?)",
+                (self.m.project_name_key("MRO Supplies"), self.m.now()),
+            ).lastrowid
+            db.commit()
+        sources = [{"project_name": "MRO Supplies配件及耗材费", "amount": 30}]
+        reimbursement = {
+            "id": 1, "labor_total": 100, "travel_total": 50,
+            "mileage_total": 20, "mro_supplies_total": 30,
+        }
+        with patch.object(self.m, "customer_reimbursement_items", return_value=self.fake_items(sources)):
+            with self.m.app.app_context():
+                items = self.m.customer_reimbursement_invoice_items(reimbursement)
+        mro = [item for item in items if item["project_id"] == connection_id]
+        self.assertEqual(len(mro), 1)
+        self.assertEqual(mro[0]["amount"], 30)
+
     def test_unmapped_other_source_is_rejected(self):
         sources = [{"project_name": "来路不明的项目", "amount": 99}]
         reimbursement = {

@@ -638,10 +638,26 @@ def verify_data_directory_identity():
         raise RuntimeError("Refusing to start: the protected production database identity is incorrect.")
 
 
+# MRO 项目合并后的规范全名：裸名（MRO Supplies / MroSupplies）一律归到它名下。
+MRO_CANONICAL_PROJECT_NAME = "MRO Supplies配件及耗材费"
+
+
+def is_mro_alias_project_name(value):
+    """MRO 裸名（'MRO Supplies'、'MroSupplies'），尚未合并成规范全名的写法。"""
+    return "".join(normalized_project_name(value).casefold().split()) == "mrosupplies"
+
+
+def is_mro_project_name(value):
+    """MRO 系列项目名：裸名或合并后的规范全名。"""
+    return is_mro_alias_project_name(value) or project_name_key(value) == project_name_key(
+        MRO_CANONICAL_PROJECT_NAME
+    )
+
+
 def merge_mro_project_aliases(connection):
-    canonical_name = "MRO Supplies配件及耗材费"
+    canonical_name = MRO_CANONICAL_PROJECT_NAME
     def is_alias(value):
-        return "".join(normalized_project_name(value).casefold().split()) == "mrosupplies"
+        return is_mro_alias_project_name(value)
     rows = connection.execute("select * from projects order by id").fetchall()
     for old in rows:
         if not is_alias(old["name"]):
@@ -5964,15 +5980,26 @@ def calculate_customer_reimbursement_item(row, sort_order=0):
 
 
 def expense_settlement_invoice_mapping():
-    """员工报销项目 → (结算字段, 发票项目名)，读 expense_settlement_invoice_map 表。"""
+    """员工报销项目 → (结算字段, 发票项目名)，读 expense_settlement_invoice_map 表。
+
+    MRO 的发票项目在读取时归一为规范全名：迁移 0282 早期种子写的是裸名
+    'MRO Supplies'，而升级脚本按「表已存在即跳过」执行，跑过旧版 0282 的库
+    不会再补这一行（PostgreSQL 尤其如此，init_db 在 PG 上直接返回、不跑种子）。
+    所以修正放在读取侧，SQLite / PostgreSQL 两个栈都生效。
+    """
     rows = db().execute(
         "select expense_project_name, settlement_field, invoice_project_name from expense_settlement_invoice_map"
     ).fetchall()
-    return {
-        project_name_key(row["expense_project_name"]):
-            (row["settlement_field"], row["invoice_project_name"])
-        for row in rows
-    }
+    mapping = {}
+    for row in rows:
+        invoice_project_name = row["invoice_project_name"]
+        if is_mro_project_name(invoice_project_name):
+            invoice_project_name = MRO_CANONICAL_PROJECT_NAME
+        mapping[project_name_key(row["expense_project_name"])] = (
+            row["settlement_field"],
+            invoice_project_name,
+        )
+    return mapping
 
 
 def expense_settlement_invoice_field(project_name):
@@ -6748,6 +6775,23 @@ def customer_reimbursement_invoice_items(reimbursement):
         current = projects_by_name.get(expected_name)
         if current is None or project_name_key(project["name"]) == canonical_key:
             projects_by_name[expected_name] = project
+    missing = [name for name in required_names if name not in projects_by_name]
+    if missing and all(is_mro_project_name(name) for name in missing):
+        # 发票项目可能仍是裸名 'MRO Supplies'：PostgreSQL 不跑 init_db 的别名合并，
+        # 老库里只有裸名；两个写法都认，优先规范全名，避免开票时500。
+        canonical_key = project_name_key(MRO_CANONICAL_PROJECT_NAME)
+        candidates = [project for project in projects if is_mro_project_name(project["name"])]
+        if candidates:
+            chosen = next(
+                (
+                    project
+                    for project in candidates
+                    if project_name_key(project["name"]) == canonical_key
+                ),
+                candidates[0],
+            )
+            for name in missing:
+                projects_by_name[name] = chosen
     missing = [name for name in required_names if name not in projects_by_name]
     if missing:
         raise ValueError(f"请先在项目维护中创建发票项目：{', '.join(missing)}。")
