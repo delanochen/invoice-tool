@@ -236,7 +236,8 @@ class CustomerReimbursementMroTest(unittest.TestCase):
         with client.session_transaction() as session:
             session["user_id"] = self.user_id
         page = client.get(f"/reports/expenses?person_id={self.user_id}").get_data(as_text=True)
-        self.assertEqual(page.count("EXP-APPROVED"), 2)
+        # ERP 布局同时渲染桌面网格与手机卡片：每条明细的报销编号出现 2 次（网格行 + 卡片），2 条明细共 4 次。
+        self.assertEqual(page.count("EXP-APPROVED"), 4)
         self.assertIn("Second receipt", page)
         self.assertIn("明细金额", page)
         self.assertIn("人员", page)
