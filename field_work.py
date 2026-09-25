@@ -630,8 +630,9 @@ def register_field_routes(app, api):
     @app.get('/api/field/repairs/order/<int:order_id>')
     @access
     def field_repair_devices(order_id):
-        """按工单读取设备维修清单（位置号 / 铭牌号 / 备注），供日报工作内容「读取」按钮使用。
+        """按工单读取设备维修清单（位置号 / 铭牌号 / 备注），供日报「读取」按钮使用。
 
+        可选 `?date=YYYY-MM-DD`：只统计当天拍摄的维修照片（日报按报告日期读取）。
         返回 items（一台设备一行）与 text（可直接写入工作内容的文本，多台设备换行继续）。
         """
         clauses, params = api['service_order_access_filters']()
@@ -641,12 +642,24 @@ def register_field_routes(app, api):
             'select id, order_number from service_orders where ' + ' and '.join(clauses), params).fetchone()
         if not order:
             return jsonify(error='工单不存在或无权访问。'), 404
-        photos = api['db']().execute('''
+        report_date = (request.args.get('date') or '').strip()
+        where_day = ''
+        day_params = []
+        if report_date:
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', report_date):
+                return jsonify(error='日期格式应为 YYYY-MM-DD。'), 400
+            where_day = ' and p.capture_date = ?'
+            day_params = [report_date]
+        sql = '''
             select p.*, service_orders.order_number, users.name as employee_name
             from field_photos p join service_orders on service_orders.id = p.order_id
             join users on users.id = p.user_id
             where p.order_id = ? and p.photo_type = 'equipment'
-            order by p.captured_at, p.id''', (order_id,)).fetchall()
+        '''
+        if where_day:
+            sql += where_day
+        sql += ' order by p.captured_at, p.id'
+        photos = api['db']().execute(sql, (order_id, *day_params)).fetchall()
         rows = group_repair_photos([dict(row) for row in photos])
         items = [dict(
             date=row['date'], position_number=row['position_number'], container_number=row['container_number'],

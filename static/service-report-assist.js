@@ -350,9 +350,24 @@ async function generateMileageEvidence(force) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ force: force ? 1 : 0 }),
     });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) {
-      if (mileageEvidenceStatus) mileageEvidenceStatus.textContent = payload.error || "生成失败，请稍后重试。";
+    // 响应可能是网关/错误页 HTML，不能直接假设是 JSON
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || !payload.ok) {
+      let message = (payload && payload.error) || "";
+      if (!message) {
+        if (response.status === 502 || response.status === 504) {
+          message = "生成耗时过长，网关中断了请求。请稍等几分钟再试；如果反复出现，请联系管理员。";
+        } else if (response.status === 401 || response.status === 403) {
+          message = "当前登录状态不足，请刷新页面重新登录后再试。";
+        } else if (response.status >= 500) {
+          message = `服务器错误（HTTP ${response.status}），数据没有改动。请稍后重试；如果反复出现，请联系管理员。`;
+        } else if (!response.ok) {
+          message = `请求失败（HTTP ${response.status}），请稍后重试。`;
+        } else {
+          message = "生成失败，服务器返回了无法识别的响应，请刷新页面后重试。";
+        }
+      }
+      if (mileageEvidenceStatus) mileageEvidenceStatus.textContent = message;
       return;
     }
     const skippedText = (payload.results || [])
@@ -368,7 +383,12 @@ async function generateMileageEvidence(force) {
     }
     window.location.reload();
   } catch (error) {
-    if (mileageEvidenceStatus) mileageEvidenceStatus.textContent = "生成失败，请检查网络后重试。";
+    // fetch 本身抛错：连接被服务器/网关切断（生成超时）或本机断网
+    if (mileageEvidenceStatus) {
+      mileageEvidenceStatus.textContent = !navigator.onLine
+        ? "网络已断开，请检查网络后重试。"
+        : "与服务器中断了连接：生成耗时过长时连接会被切断。请稍等几分钟再试；如果反复出现，请联系管理员。";
+    }
   } finally {
     mileageEvidenceButton.disabled = false;
     mileageEvidenceButton.textContent = label;

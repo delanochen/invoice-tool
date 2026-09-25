@@ -104,9 +104,12 @@ class RouteResult:
 class GoogleRoutesService:
     """Google Routes API client with retry and error handling."""
 
-    def __init__(self, api_key: str, timeout: int = DEFAULT_TIMEOUT):
+    def __init__(self, api_key: str, timeout: int = DEFAULT_TIMEOUT, max_retries: int = MAX_RETRIES):
         self.api_key = api_key
         self.timeout = timeout
+        # 同步 UI 流程（如工作日报里程佐证）会传更小的 max_retries / timeout，
+        # 避免每个员工最坏情况拖到分钟级、被 gunicorn/网关掐断连接。
+        self.max_retries = max_retries
 
     def is_available(self) -> bool:
         return bool(self.api_key and self.api_key.strip())
@@ -141,7 +144,7 @@ class GoogleRoutesService:
         }).encode("utf-8")
 
         last_error = None
-        for attempt in range(MAX_RETRIES + 1):
+        for attempt in range(self.max_retries + 1):
             try:
                 req = urllib.request.Request(
                     GOOGLE_ROUTES_URL,
@@ -165,7 +168,7 @@ class GoogleRoutesService:
                 if status_code == 429:
                     # Rate limit - retry with backoff
                     last_error = f"Rate limited (429)"
-                    if attempt < MAX_RETRIES:
+                    if attempt < self.max_retries:
                         self._sleep_backoff(attempt)
                         continue
                     return RouteResult(success=False, status="failed", error="Google Routes rate limit exceeded")
@@ -173,7 +176,7 @@ class GoogleRoutesService:
                 if status_code >= 500:
                     # Server error - retry
                     last_error = f"Server error ({status_code})"
-                    if attempt < MAX_RETRIES:
+                    if attempt < self.max_retries:
                         self._sleep_backoff(attempt)
                         continue
                     return RouteResult(success=False, status="failed", error=f"Google Routes server error ({status_code})")
@@ -192,7 +195,7 @@ class GoogleRoutesService:
                 # Network error / timeout - retry
                 last_error = f"Network error: {type(e).__name__}"
                 logger.warning("Google Routes network error (attempt %s): %s", attempt + 1, type(e).__name__)
-                if attempt < MAX_RETRIES:
+                if attempt < self.max_retries:
                     self._sleep_backoff(attempt)
                     continue
                 return RouteResult(success=False, status="failed", error="Google Routes network timeout")

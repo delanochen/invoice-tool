@@ -62,10 +62,22 @@
 /* 嵌入 workspace 时 class 加在 <html> 上（base.html），这里必须匹配 html 或 body 的任意祖先 */
 /* 24px = main 容器上下各 12px padding，减掉后 erp-app 正好贴在 iframe 视口内 */
 .workspace-embedded .erp-app { height: calc(100vh - 24px); min-height: 0; border: 0; }
-/* 工单日历页的 .main 上下各 18px（styles.css），比默认 12px 多 12px；ERP 高度要跟着减，
-   否则整页会多出 12px 而冒出页面级滚动条（见「整页不滚动」规范）。 */
-body.service-order-calendar-page .erp-app { --erp-offset: 140px; }
-.workspace-embedded body.service-order-calendar-page .erp-app { height: calc(100vh - 36px); }
+/* 例外：月历这类「高度天然不定」的内容不走视口锁定——锁死会把每一格压扁。
+   erp-app--flow 回到文档流：排版仍是 ERP 紧凑观感，一页放不下就整页上下滚动。
+   注意 content 区不再内部滚动，避免出现「页面滚动条 + 内容滚动条」两层。 */
+.erp-app--flow,
+.workspace-embedded .erp-app--flow {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  grid-template-rows: auto auto auto auto;
+}
+.erp-app--flow .erp-body { overflow: visible; }
+.erp-app--flow .erp-body > .erp-panel.active { flex: 0 0 auto; }
+/* 必须比基础规则 .erp-body > .erp-panel.active > .erp-calendar-scroll（0,4,0）更特异，
+   否则 --flow 下月历仍会被锁成内部 overflow:auto，违背「回到文档流、整页滚动」的意图 */
+.erp-app--flow .erp-body > .erp-panel.active > .erp-calendar-scroll,
+.erp-app--flow .erp-body > .erp-panel.active > .erp-detail-scroll { flex: 0 0 auto; overflow: visible; }
 @media (max-width: 1024px) {
   .erp-app {
     grid-template-columns: minmax(0, 1fr);

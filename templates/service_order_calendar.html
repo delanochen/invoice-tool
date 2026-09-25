@@ -19,7 +19,9 @@
 {% set order_count = all_events|map(attribute='order_number')|unique|list|length %}
 {% set day_count = all_events|map(attribute='date')|unique|list|length %}
 
-<div class="erp-app" data-active-panel="calendar">
+{# 例外：月历高度随周数变化，锁死视口会把每一格压扁 —— 用 erp-app--flow 回到文档流，
+   排版仍是 ERP 紧凑观感，一页放不下时允许整页上下滚动。 #}
+<div class="erp-app erp-app--flow" data-active-panel="calendar">
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">

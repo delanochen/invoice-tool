@@ -1,10 +1,15 @@
-/* 工作日报：工作内容「读取」按钮
- * 从设备维修清单（/api/field/repairs/order/<order_id>）读取每台设备的
- * 位置号 + 铭牌号 + 备注，一台设备一行追加到工作内容；已有内容不会被覆盖。
- * 只读操作，不提交表单。
+/* 工作日报：现场服务描述「读取」按钮
+ * 从设备维修清单（/api/field/repairs/order/<order_id>?date=<报告日期>）读取该工单
+ * 当天每台设备的位置号 + 铭牌号 + 备注，一台设备一行追加到现场服务描述；
+ * 已有内容不会被覆盖。只读操作，不提交表单。
  */
 (function () {
   'use strict';
+
+  function reportDate() {
+    const input = document.querySelector('input[name="report_date"]');
+    return input && input.value ? input.value.trim() : '';
+  }
 
   function splitLines(text) {
     return String(text || '').split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
@@ -35,9 +40,13 @@
     const orderId = button.dataset.orderId;
     if (!field || !orderId) return;
 
+    const day = reportDate();
+    const url = '/api/field/repairs/order/' + encodeURIComponent(orderId) +
+      (day ? '?date=' + encodeURIComponent(day) : '');
+
     button.disabled = true;
     try {
-      const response = await fetch('/api/field/repairs/order/' + encodeURIComponent(orderId), {
+      const response = await fetch(url, {
         headers: {'Accept': 'application/json'},
         credentials: 'same-origin',
       });
@@ -48,7 +57,7 @@
         return;
       }
       if (!payload.count) {
-        feedback(button, '无清单', false);
+        feedback(button, day ? '当天无清单' : '无清单', false);
         return;
       }
       const before = field.value;

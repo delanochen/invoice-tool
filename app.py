@@ -17850,10 +17850,12 @@ def generate_service_report_mileage_evidence(report_id):
     routes_api_key = get_google_routes_api_key()
     static_maps_key = get_google_static_maps_api_key()
     evidence_root = os.path.join(DATA_DIR, "service-report-mileage")
+    # 同步接口：用更短的超时/重试（fail-fast）。否则每台设备最坏 ~96 秒，
+    # 多台设备会超过 gunicorn/网关超时被切断连接，前端只会看到"网络错误"。
     evidence_svc = ServiceReportEvidenceService(
-        routes_service=GoogleRoutesService(routes_api_key) if routes_api_key else None,
+        routes_service=GoogleRoutesService(routes_api_key, timeout=8, max_retries=1) if routes_api_key else None,
         evidence_service=MileageEvidenceService(
-            GoogleStaticMapsService(static_maps_key),
+            GoogleStaticMapsService(static_maps_key, timeout=8, max_retries=1),
             evidence_root,
         ),
         attachment_saver=save_generated_report_attachment,
@@ -17861,48 +17863,56 @@ def generate_service_report_mileage_evidence(report_id):
         uploaded_by=g.user["id"],
         now_fn=now,
     )
-    summary = evidence_svc.generate(
-        report_id=report_id,
-        order_id=order["id"],
-        report_date=report["report_date"],
-        workers=workers,
-        destination=destination,
-        existing_by_user=existing_by_user,
-        force=force,
-    )
-
-    # 只有成功生成的写指纹/附件 id，失败的保留上一次记录（避免抖一下就丢线索）
-    for index, result in enumerate(summary["results"]):
-        if result["outcome"] != "generated":
-            continue
-        db().execute(
-            """
-            insert into service_report_mileage_evidence (
-                report_id, worker_user_id, route_fingerprint, origin_address, destination_address,
-                trip_type, distance_meters, duration_seconds, one_way_miles, reported_miles,
-                attachment_id, status, generated_by, generated_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, ?)
-            on conflict(report_id, worker_user_id) do update set
-                route_fingerprint=excluded.route_fingerprint,
-                origin_address=excluded.origin_address,
-                destination_address=excluded.destination_address,
-                trip_type=excluded.trip_type,
-                distance_meters=excluded.distance_meters,
-                duration_seconds=excluded.duration_seconds,
-                one_way_miles=excluded.one_way_miles,
-                reported_miles=excluded.reported_miles,
-                attachment_id=excluded.attachment_id,
-                generated_by=excluded.generated_by,
-                generated_at=excluded.generated_at
-            """,
-            (
-                report_id, result["user_id"], result["route_fingerprint"],
-                workers[index]["origin"], destination, result.get("trip_type") or DEFAULT_TRIP_TYPE,
-                None, None, result.get("one_way_miles"), result.get("reported_miles"),
-                result["attachment_id"], g.user["id"], now(),
-            ),
+    try:
+        summary = evidence_svc.generate(
+            report_id=report_id,
+            order_id=order["id"],
+            report_date=report["report_date"],
+            workers=workers,
+            destination=destination,
+            existing_by_user=existing_by_user,
+            force=force,
         )
-    db().commit()
+
+        # 只有成功生成的写指纹/附件 id，失败的保留上一次记录（避免抖一下就丢线索）
+        for index, result in enumerate(summary["results"]):
+            if result["outcome"] != "generated":
+                continue
+            db().execute(
+                """
+                insert into service_report_mileage_evidence (
+                    report_id, worker_user_id, route_fingerprint, origin_address, destination_address,
+                    trip_type, distance_meters, duration_seconds, one_way_miles, reported_miles,
+                    attachment_id, status, generated_by, generated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'success', ?, ?)
+                on conflict(report_id, worker_user_id) do update set
+                    route_fingerprint=excluded.route_fingerprint,
+                    origin_address=excluded.origin_address,
+                    destination_address=excluded.destination_address,
+                    trip_type=excluded.trip_type,
+                    distance_meters=excluded.distance_meters,
+                    duration_seconds=excluded.duration_seconds,
+                    one_way_miles=excluded.one_way_miles,
+                    reported_miles=excluded.reported_miles,
+                    attachment_id=excluded.attachment_id,
+                    generated_by=excluded.generated_by,
+                    generated_at=excluded.generated_at
+                """,
+                (
+                    report_id, result["user_id"], result["route_fingerprint"],
+                    workers[index]["origin"], destination, result.get("trip_type") or DEFAULT_TRIP_TYPE,
+                    None, None, result.get("one_way_miles"), result.get("reported_miles"),
+                    result["attachment_id"], g.user["id"], now(),
+                ),
+            )
+        db().commit()
+    except Exception:
+        db().rollback()
+        app.logger.exception("生成里程佐证失败：report_id=%s", report_id)
+        return jsonify({
+            "ok": False,
+            "error": "生成里程佐证时服务器出现异常，数据没有改动。请稍后重试；如果反复出现，请联系管理员并告知操作时间。",
+        }), 500
     log_action(
         "update",
         "service_report",

@@ -409,6 +409,41 @@ class FieldWorkTest(unittest.TestCase):
         backend = (fixture.ROOT / 'field_work.py').read_text(encoding='utf-8')
         self.assertIn("'HEIF', 'HEIC', 'AVIF'", backend)
 
+    def test_repair_devices_filter_by_report_date(self):
+        # 默认时区 Pacific/Kiritimati(+14) 与 UTC 相差一天：两张照片落在不同 capture_date
+        self.assertEqual(self.upload(position_number='POS-A', note='one', photo_type='equipment').status_code, 200)
+        self.assertEqual(self.upload(position_number='POS-B', note='two', photo_type='equipment',
+                                     timezone_name='UTC').status_code, 200)
+        with self.module.app.app_context():
+            day = self.module.db().execute(
+                'select capture_date from field_photos order by id limit 1').fetchone()['capture_date']
+        everything = self.http.get(f'/api/field/repairs/order/{self.fixture.order}').json
+        self.assertEqual(everything['count'], 2)
+        same_day = self.http.get(f'/api/field/repairs/order/{self.fixture.order}',
+                                 query_string={'date': day}).json
+        self.assertEqual(same_day['count'], 1)
+        self.assertIn('位置号 POS-A', same_day['text'])
+        self.assertNotIn('POS-B', same_day['text'])
+        bad_format = self.http.get(f'/api/field/repairs/order/{self.fixture.order}',
+                                   query_string={'date': '09/11/2026'})
+        self.assertEqual(bad_format.status_code, 400)
+
+    def test_service_description_read_button_contract(self):
+        source = (fixture.ROOT / 'templates' / 'service_report_form.html').read_text(encoding='utf-8')
+        # 全表单只有一个「读取」按钮，位于现场服务描述的 label 内（旁边），员工行不再有
+        self.assertEqual(source.count('data-read-repair'), 1)
+        label = source.split('现场服务描述', 1)[1].split('</label>', 1)[0]
+        self.assertIn('data-read-repair', label)
+        self.assertIn('data-work-desc', label)
+        worker_template = source.split('<template', 1)[1].split('</template>', 1)[0]
+        self.assertNotIn('data-read-repair', worker_template)
+        # 员工行不再有「工作内容」输入（维修清单统一写入现场服务描述）
+        self.assertNotIn('worker_work_description', source)
+        # JS 按报告日期读取当天维修清单
+        script = (fixture.ROOT / 'static' / 'service-report-repair-read.js').read_text(encoding='utf-8')
+        self.assertIn('input[name="report_date"]', script)
+        self.assertIn('?date=', script)
+
 
 if __name__ == '__main__':
     unittest.main()
