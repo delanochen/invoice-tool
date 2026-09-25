@@ -1,71 +1,157 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% from "report_multiselect.html" import multi_filter %}
 {% block title %}工单结算报表 - 发票工具{% endblock %}
-{% block content %}
-  <header class="page-header"><div><p class="eyebrow">Reports</p><h1>工单结算报表</h1></div></header>
 
-  <form class="filter-bar service-filter no-print" method="get">
-    
-    {% from "report_multiselect.html" import multi_filter %}
-    {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
-    {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
-    <label>状态
-      <select name="status">
-        <option value="">全部</option>
-        {% for value, label in labels.items() %}
-          <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
-    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_query') }}'">重置</button>
-    </div>
-  </form>
-
-  <section class="metric-grid">
-    <div class="panel metric"><span>工时费小计</span><strong>{{ totals.labor_total|money }}</strong></div>
-    <div class="panel metric"><span>差旅费小计</span><strong>{{ totals.travel_total|money }}</strong></div>
-    <div class="panel metric"><span>里程费小计</span><strong>{{ totals.mileage_total|money }}</strong></div>
-    <div class="panel metric"><span>合计</span><strong>{{ totals.total_amount|money }}</strong></div>
-  </section>
-
-  <section class="panel">
-    <table class="list-table">
-      <thead>
-        <tr>
-          <th>创建日期</th><th>工单</th><th>站点名称</th><th>业主</th><th>洲</th><th>国家</th>
-          <th>工时费</th><th>差旅费</th><th>里程费</th><th>合计</th>
-          <th>状态</th><th>创建人</th><th>审核人</th><th>审核时间</th><th>关联发票</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-          <tr>
-            <td>{{ row.created_at[:10] }}</td>
-            <td><a href="{{ url_for('customer_reimbursement_form', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
-            <td>{{ row.client_name }}</td>
-            <td>{{ row.buyer_owner or "-" }}</td>
-            <td>{{ row.region_name }}</td>
-            <td>{{ row.country_name }}</td>
-            <td>{{ row.labor_total|money }}</td>
-            <td>{{ row.travel_total|money }}</td>
-            <td>{{ row.mileage_total|money }}</td>
-            <td>{{ row.total_amount|money }}</td>
-            <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
-            <td>{{ row.creator_name or "Unknown" }}</td>
-            <td>{{ row.reviewer_name or "-" }}</td>
-            <td>{{ row.reviewed_at[:10] if row.reviewed_at else "-" }}</td>
-            <td>{{ row.invoice_number or "-" }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="15" class="empty">没有符合条件的工单结算。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">
 {% endblock %}
 
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>{% endblock %}
+{% block content %}
+{# 只读报表：数据来自 app.py customer_reimbursement_query() 的一条 SQL，
+   这里只做展示层与合计，不改动任何后端接口与金额计算。 #}
+{% set approved_count = rows|selectattr('status', 'equalto', 'approved')|list|length %}
+
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      工单结算报表
+      <small>客户结算 · 按创建日期倒序</small>
+    </div>
+    <span class="erp-badge">{{ rows|length }} 条结算</span>
+    {% if approved_count %}<span class="erp-badge warn">已通过 {{ approved_count }}</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图（结算清单），不需要页签也不需要左侧菜单，
+     因此 .erp-app 走「无导航单列」布局（见 erp-ui.css）。 #}
+  <div class="erp-body">
+    <!-- FilterBar：字段名与后端完全一致（order_id / site / status / q / date_from / date_to） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
+      {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
+      <label class="erp-field">状态
+        <select name="status">
+          <option value="">全部</option>
+          {% for value, label in labels.items() %}
+            <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">关键词
+        <input type="search" name="q" value="{{ q }}" placeholder="文件名 / 工单号 / 站点 / 发票号">
+      </label>
+      <label class="erp-field">开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+      <label class="erp-field">结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+      <p class="erp-filter-note">关键词同时匹配结算文件名、工单号、客户订单号、站点名称、业主与关联发票号；日期按结算创建日期过滤。</p>
+    </form>
+
+    <!-- Panel：工单结算清单（一条结算一行） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead>
+            <tr>
+              <th>创建日期</th><th>工单</th><th>站点名称</th><th>业主</th><th>洲</th><th>国家</th>
+              <th class="num">工时费</th><th class="num">差旅费</th><th class="num">里程费</th><th class="num">合计</th>
+              <th>状态</th><th>创建人</th><th>审核人</th><th>审核时间</th><th>关联发票</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ row.created_at[:10] }}</td>
+                <td><a href="{{ url_for('customer_reimbursement_form', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
+                <td>{{ row.client_name }}</td>
+                <td>{{ row.buyer_owner or "-" }}</td>
+                <td>{{ row.region_name }}</td>
+                <td>{{ row.country_name }}</td>
+                <td class="num">{{ row.labor_total|money }}</td>
+                <td class="num">{{ row.travel_total|money }}</td>
+                <td class="num">{{ row.mileage_total|money }}</td>
+                <td class="num">{{ row.total_amount|money }}</td>
+                <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
+                <td>{{ row.creator_name or "Unknown" }}</td>
+                <td>{{ row.reviewer_name or "-" }}</td>
+                <td>{{ row.reviewed_at[:10] if row.reviewed_at else "-" }}</td>
+                <td>{{ row.invoice_number or "-" }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="15" class="empty">没有符合条件的工单结算。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in rows %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.order_number }}</span>
+              <span class="erp-card-customer">{{ row.client_name }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ row.created_at[:10] }}</span>
+              <span>{{ row.country_name }}</span>
+              <span>{{ labels[row.status] }}</span>
+            </div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>工时费</span><strong>{{ row.labor_total|money }}</strong></div>
+              <div class="erp-card-metric"><span>差旅费</span><strong>{{ row.travel_total|money }}</strong></div>
+              <div class="erp-card-metric"><span>里程费</span><strong>{{ row.mileage_total|money }}</strong></div>
+              <div class="erp-card-metric"><span>合计</span><strong>{{ row.total_amount|money }}</strong></div>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('customer_reimbursement_form', order_id=row.service_order_id) }}">结算单</a>
+              <span class="erp-meta">发票 {{ row.invoice_number or '未关联' }}</span>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的工单结算。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('结算数', rows|length, 'muted') }}
+    {{ summary_item('工时费小计', totals.labor_total|money) }}
+    {{ summary_item('差旅费小计', totals.travel_total|money) }}
+    {{ summary_item('里程费小计', totals.mileage_total|money) }}
+    {{ summary_item('合计', totals.total_amount|money) }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ labels[status] if status else '全部' }}</b></span>
+    {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "工单结算报表"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+{% endblock %}

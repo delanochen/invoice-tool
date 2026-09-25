@@ -1,51 +1,132 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}操作日志 - 发票工具{% endblock %}
-{% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">操作日志</p><h1>操作日志</h1></div>
-  </header>
-  <form class="filter-bar no-print" method="get">
 
-    <label>业务类型
-      <select name="entity_type">
-        <option value="">全部</option>
-        {% for value, label in entity_labels.items() %}
-          <option value="{{ value }}" {% if entity_type == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>操作
-      <select name="action">
-        <option value="">全部</option>
-        {% for value, label in action_labels.items() %}
-          <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
-    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('audit_log_report') }}'">重置</button>
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{# 只读报表：数据来自 app.py audit_log_report() 的一条 SQL，这里只做展示层统计。 #}
+{% set operator_count = rows|map(attribute='user_name')|unique|list|length %}
+
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      操作日志
+      <small>审计日志 · 按时间倒序</small>
     </div>
-  </form>
-  <section class="panel">
-    <table class="list-table">
-      <thead><tr><th>时间</th><th>操作者</th><th>业务类型</th><th>对象</th><th>操作</th><th>内容</th></tr></thead>
-      <tbody>
+    <span class="erp-badge">{{ rows|length }} 条记录</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图（日志清单），不需要页签也不需要左侧菜单，
+     因此 .erp-app 走「无导航单列」布局（见 erp-ui.css）。 #}
+  <div class="erp-body">
+    <!-- FilterBar：字段名与后端完全一致（q / entity_type / action / date_from / date_to） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      <label class="erp-field">关键词
+        <input type="search" name="q" value="{{ q }}" placeholder="操作者 / 对象 / 内容">
+      </label>
+      <label class="erp-field">业务类型
+        <select name="entity_type">
+          <option value="">全部</option>
+          {% for value, label in entity_labels.items() %}
+            <option value="{{ value }}" {% if entity_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">操作
+        <select name="action">
+          <option value="">全部</option>
+          {% for value, label in action_labels.items() %}
+            <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+      <label class="erp-field">结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+      <p class="erp-filter-note">关键词同时匹配操作者、对象与内容；日期按日志创建日期过滤。</p>
+    </form>
+
+    <!-- Panel：日志清单（一条日志一行） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead><tr><th>时间</th><th>操作者</th><th>业务类型</th><th>对象</th><th>操作</th><th>内容</th></tr></thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ row.created_at|local_datetime }}</td>
+                <td>{{ row.user_name }}</td>
+                <td>{{ entity_labels.get(row.entity_type, row.entity_type) }}</td>
+                <td>{{ row.entity_label }}</td>
+                <td>{{ action_labels.get(row.action, row.action) }}</td>
+                <td>{{ row.summary or "-" }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="empty">没有符合条件的操作日志。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
         {% for row in rows %}
-          <tr>
-            <td>{{ row.created_at|local_datetime }}</td>
-            <td>{{ row.user_name }}</td>
-            <td>{{ entity_labels.get(row.entity_type, row.entity_type) }}</td>
-            <td>{{ row.entity_label }}</td>
-            <td>{{ action_labels.get(row.action, row.action) }}</td>
-            <td>{{ row.summary or "-" }}</td>
-          </tr>
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.created_at|local_datetime }}</span>
+              <span class="erp-card-customer">{{ row.user_name }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ entity_labels.get(row.entity_type, row.entity_type) }}</span>
+              <span>{{ action_labels.get(row.action, row.action) }}</span>
+            </div>
+            <div class="erp-cert-file">{{ row.entity_label }}{% if row.summary %} · {{ row.summary }}{% endif %}</div>
+          </article>
         {% else %}
-          <tr><td colspan="6" class="empty">没有符合条件的操作日志。</td></tr>
+          <div class="erp-empty">没有符合条件的操作日志。</div>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('记录数', rows|length, 'muted') }}
+    {{ summary_item('操作者数', operator_count, 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
+    <span class="sep"></span>
+    <span>业务类型 <b>{{ entity_labels[entity_type] if entity_type else '全部' }}</b></span>
+    <span class="sep"></span>
+    <span>操作 <b>{{ action_labels[action] if action else '全部' }}</b></span>
+    {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "操作日志"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

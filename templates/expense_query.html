@@ -1,75 +1,167 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}报销明细查询 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Reports</p><h1>报销明细查询</h1></div>
-    <div class="metric">
-      <span>待报销金额</span>
-      <strong>{{ total|money }}</strong>
+{# 只读报表：数据来自 app.py expense_query() 的一条 SQL，
+   这里只做展示层与合计（待报销金额 = 已通过且未发放的明细合计），不改动任何后端逻辑。 #}
+
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      报销明细查询
+      <small>报销明细 · 按费用日期倒序</small>
+    </div>
+    <span class="erp-badge">{{ rows|length }} 条明细</span>
+    {% if total %}<span class="erp-badge warn">待报销 {{ total|money }}</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
     </div>
   </header>
-  <form class="filter-bar service-filter no-print" method="get">
-    
-    <label>报销归属员工
-      <select name="person_id">
-        <option value="">全部人员</option>
-        {% for person in people %}<option value="{{ person.id }}" {% if person_id == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>工单号 <input name="order_number" value="{{ order_number }}" placeholder="输入完整或部分工单号"></label>
-    <label>项目
-      <select name="project_name">
-        <option value="">全部项目</option>
-        {% for project in project_options %}{% if project.name %}<option value="{{ project.name }}" {% if project_name == project.name %}selected{% endif %}>{{ project.name }}</option>{% endif %}{% endfor %}
-      </select>
-    </label>
-    <label>状态
-      <select name="status">
-        <option value="">全部</option>
-        {% for value, label in labels.items() %}
-          <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>报销状态
-      <select name="payout_status">
-        <option value="">全部</option>
-        {% for value, label in payout_labels.items() %}
-          <option value="{{ value }}" {% if payout_status == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
-    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('expense_query') }}'">重置</button>
-    </div>
-  </form>
-  <section class="panel">
-    <table class="list-table">
-      <thead><tr><th>报销编号</th><th>工单</th><th>站点名称</th><th>洲</th><th>国家</th><th>明细项目</th><th>明细说明</th><th>日期</th><th>报销归属员工</th><th>提交人</th><th>明细金额</th><th>流程状态</th><th>报销状态</th></tr></thead>
-      <tbody>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图（报销明细清单），不需要页签也不需要左侧菜单，
+     因此 .erp-app 走「无导航单列」布局（见 erp-ui.css）。 #}
+  <div class="erp-body">
+    <!-- FilterBar：字段名与后端完全一致（person_id / order_number / project_name /
+         status / payout_status / date_from / date_to / q） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      <label class="erp-field">报销归属员工
+        <select name="person_id">
+          <option value="">全部人员</option>
+          {% for person in people %}<option value="{{ person.id }}" {% if person_id == person.id|string %}selected{% endif %}>{{ person.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">工单号 <input type="search" name="order_number" value="{{ order_number }}" placeholder="输入完整或部分工单号"></label>
+      <label class="erp-field">项目
+        <select name="project_name">
+          <option value="">全部项目</option>
+          {% for project in project_options %}{% if project.name %}<option value="{{ project.name }}" {% if project_name == project.name %}selected{% endif %}>{{ project.name }}</option>{% endif %}{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">状态
+        <select name="status">
+          <option value="">全部</option>
+          {% for value, label in labels.items() %}
+            <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">报销状态
+        <select name="payout_status">
+          <option value="">全部</option>
+          {% for value, label in payout_labels.items() %}
+            <option value="{{ value }}" {% if payout_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+      <label class="erp-field">结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+      <label class="erp-field">关键词
+        <input type="search" name="q" value="{{ q }}" placeholder="报销编号 / 项目 / 说明 / 工单号">
+      </label>
+      <p class="erp-filter-note">关键词同时匹配报销编号、项目、明细说明、工单号与站点名称；日期按费用日期过滤。</p>
+    </form>
+
+    <!-- Panel：报销明细清单（一条明细一行） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead><tr>
+            <th>报销编号</th><th>工单</th><th>站点名称</th><th>洲</th><th>国家</th>
+            <th>明细项目</th><th>明细说明</th><th>日期</th><th>报销归属员工</th><th>提交人</th>
+            <th class="num">明细金额</th><th>流程状态</th><th>报销状态</th>
+          </tr></thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td><a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a></td>
+                <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
+                <td>{{ row.client_name }}</td>
+                <td>{{ row.region_name }}</td>
+                <td>{{ row.country_name }}</td>
+                <td>{{ row.item_project }}</td>
+                <td>{{ row.item_description or "-" }}</td>
+                <td>{{ row.expense_date }}</td>
+                <td>{{ row.beneficiary_name or row.creator_name or "Unknown" }}</td>
+                <td>{{ row.creator_name or "Unknown" }}</td>
+                <td class="num" data-grid-currency="{{ row.currency }}">{{ row.item_amount|money(row.currency) }}</td>
+                <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
+                <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="13" class="empty">没有符合条件的报销明细。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
         {% for row in rows %}
-          <tr>
-            <td><a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a></td>
-            <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
-            <td>{{ row.client_name }}</td>
-            <td>{{ row.region_name }}</td>
-            <td>{{ row.country_name }}</td>
-            <td>{{ row.item_project }}</td>
-            <td>{{ row.item_description or "-" }}</td>
-            <td>{{ row.expense_date }}</td>
-            <td>{{ row.beneficiary_name or row.creator_name or "Unknown" }}</td>
-            <td>{{ row.creator_name or "Unknown" }}</td>
-            <td data-grid-currency="{{ row.currency }}">{{ row.item_amount|money(row.currency) }}</td>
-            <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
-            <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
-          </tr>
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.expense_number }}</span>
+              <span class="erp-card-customer">{{ row.order_number }} · {{ row.client_name }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ row.expense_date }}</span>
+              <span>{{ row.country_name }}</span>
+              <span>{{ labels[row.status] }}</span>
+            </div>
+            <div class="erp-cert-file">{{ row.item_project }}{% if row.item_description %} · {{ row.item_description }}{% endif %}</div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>明细金额</span><strong>{{ row.item_amount|money(row.currency) }}</strong></div>
+              <div class="erp-card-metric"><span>报销</span><strong>{{ payout_labels[row.payout_status] }}</strong></div>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('expense_detail', expense_id=row.id) }}">报销详情</a>
+              <a class="erp-btn primary" href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">工单详情</a>
+            </div>
+          </article>
         {% else %}
-          <tr><td colspan="13" class="empty">没有符合条件的报销明细。</td></tr>
+          <div class="erp-empty">没有符合条件的报销明细。</div>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('明细数', rows|length, 'muted') }}
+    {{ summary_item('待报销金额', total|money) }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
+    <span class="sep"></span>
+    <span>流程状态 <b>{{ labels[status] if status else '全部' }}</b></span>
+    <span class="sep"></span>
+    <span>报销状态 <b>{{ payout_labels[payout_status] if payout_status else '全部' }}</b></span>
+    {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "报销明细查询"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

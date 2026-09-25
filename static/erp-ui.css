@@ -477,6 +477,7 @@
 .erp-summary-item strong { font-size: 13px; font-weight: 700; }
 .erp-summary-item.neg strong { color: #b42318; }
 .erp-summary-item.pos strong { color: #027a48; }
+.erp-summary-item.warn strong { color: #b45309; }
 .erp-summary-item.muted strong { color: var(--erp-muted); }
 @media (max-width: 1024px) {
   .erp-summary { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
