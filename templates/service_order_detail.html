@@ -110,8 +110,8 @@
             <td>{{ report.actual_work_date or report.report_date }}</td>
             <td>{{ report.creator_name or "-" }}</td>
             <td>{{ report.worker_names or "-" }}</td>
-            <td>{{ report.total_service_hours }}</td>
-            <td>{{ report.travel_hours }}</td>
+            <td>{{ report.total_service_hours|hours }}</td>
+            <td>{{ report.travel_hours|hours }}</td>
           </tr>
         {% else %}
           <tr><td colspan="6" class="empty">还没有工作日报。</td></tr>

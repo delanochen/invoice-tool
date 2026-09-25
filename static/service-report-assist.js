@@ -180,7 +180,7 @@ function renderAssistPlan(plan) {
     checkbox.dataset.assistWorker = String(worker.user_id);
     const text = document.createElement("span");
     if (worker.route_status === "success") {
-      text.textContent = `${worker.name}：${worker.origin} → ${plan.destination || "目的地"}，${worker.reported_miles} 英里 / ${worker.travel_hours} 小时（${
+      text.textContent = `${worker.name}：${worker.origin} → ${plan.destination || "目的地"}，${worker.reported_miles} 英里 / ${Number(worker.travel_hours || 0).toFixed(1)} 小时（${
         worker.trip_type === "one_way" ? "单程" : "往返"
       }）`;
     } else {

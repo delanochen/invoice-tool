@@ -1,114 +1,174 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% from "report_multiselect.html" import multi_filter %}
 {% block title %}发票明细查询 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='report-multiselect.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header"><div><p class="eyebrow">Reports</p><h1>发票明细查询</h1></div></header>
+{# 只读报表：数据来自 app.py invoice_query() 的一条 SQL，这里只做展示层与合计，
+   不改动任何后端接口与金额计算（税额 = 金额 × 税率，后端已算好）。 #}
+{% set invoice_count = rows|map(attribute='row')|map(attribute='id')|unique|list|length %}
+{% set paid_options = [{'code': 'paid', 'text': '已核销'}, {'code': 'unpaid', 'text': '待核销'}] %}
 
-  <form class="filter-bar report-filter no-print" method="get">
-    <label>客户 <input name="client" value="{{ client_q }}" placeholder="客户编号或名称"></label>
-    <label>客户简称 <input name="short_name" value="{{ short_q }}" placeholder="客户简称"></label>
-    <label>洲
-      <select name="region_code">
-        <option value="">全部</option>
-        {% for region in regions %}
-          <option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>国家
-      <select name="country_code">
-        <option value="">全部</option>
-        {% for country in countries %}
-          <option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
-    <label>结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
-    <label>工单状态
-      <select name="work_order_status">
-        <option value="">全部状态</option>
-        <option value="open" {% if work_order_status == "open" %}selected{% endif %}>进行中</option>
-        <option value="closed" {% if work_order_status == "closed" %}selected{% endif %}>已关闭</option>
-      </select>
-    </label>
-    <details class="multi-select">
-      <summary>发票状态</summary>
-      <div class="multi-select-menu">
-        {% for value, text in labels.items() %}
-          <label>
-            <input type="checkbox" name="status" value="{{ value }}" {% if value in selected_statuses %}checked{% endif %}>
-            {{ text }}
-          </label>
-        {% endfor %}
-      </div>
-    </details>
-    <details class="multi-select">
-      <summary>核销状态</summary>
-      <div class="multi-select-menu">
-        <label><input type="checkbox" name="paid_status" value="paid" {% if "paid" in selected_paid_statuses %}checked{% endif %}> 已核销</label>
-        <label><input type="checkbox" name="paid_status" value="unpaid" {% if "unpaid" in selected_paid_statuses %}checked{% endif %}> 待核销</label>
-      </div>
-    </details>
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('invoice_query') }}'">重置</button>
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      发票明细查询
+      <small>发票 · 按开票日期倒序</small>
     </div>
-    <details class="multi-select project-filter">
-      <summary>项目</summary>
-      <div class="multi-select-menu">
-        {% for project in project_options %}
-          <label>
-            <input type="checkbox" name="project_id" value="{{ project.id }}" {% if project.id|string in selected_project_ids %}checked{% endif %}>
-            {{ project.name }}
-          </label>
-        {% endfor %}
-      </div>
-    </details>
-  </form>
+    <span class="erp-badge">{{ rows|length }} 条明细</span>
+    <span class="erp-badge">{{ invoice_count }} 张发票</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
 
-  <section class="panel">
-    <table class="list-table">
-      <thead>
-        <tr>
-          <th>日期</th><th>发票编号</th><th>客户编号</th><th>服务订单号码</th><th>客户简称</th>
-          <th>项目</th><th>金额</th><th>税率</th><th>税额</th><th>合计</th><th>发票状态</th><th>工单状态</th><th>核销</th>
-        </tr>
-      </thead>
-      <tbody>
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图（发票明细），不需要页签也不需要左侧菜单，
+     因此 .erp-app 走「无导航单列」布局（见 erp-ui.css）。 #}
+  <div class="erp-body">
+    <!-- FilterBar：字段名与后端完全一致（client / short_name / region_code / country_code /
+         date_from / date_to / work_order_status / status / paid_status / project_id） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      <label class="erp-field">客户 <input type="search" name="client" value="{{ client_q }}" placeholder="客户编号或名称"></label>
+      <label class="erp-field">客户简称 <input type="search" name="short_name" value="{{ short_q }}" placeholder="客户简称"></label>
+      <label class="erp-field">洲
+        <select name="region_code">
+          <option value="">全部</option>
+          {% for region in regions %}
+            <option value="{{ region.code }}" {% if region_code == region.code %}selected{% endif %}>{{ region.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">国家
+        <select name="country_code">
+          <option value="">全部</option>
+          {% for country in countries %}
+            <option value="{{ country.code }}" {% if country_code == country.code %}selected{% endif %}>{{ country.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
+      <label class="erp-field">结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
+      <label class="erp-field">工单状态
+        <select name="work_order_status">
+          <option value="">全部状态</option>
+          <option value="open" {% if work_order_status == "open" %}selected{% endif %}>进行中</option>
+          <option value="closed" {% if work_order_status == "closed" %}selected{% endif %}>已关闭</option>
+        </select>
+      </label>
+      {{ multi_filter('发票状态', 'status', labels.items(), selected_statuses, 0, 1) }}
+      {{ multi_filter('核销状态', 'paid_status', paid_options, selected_paid_statuses, 'code', 'text') }}
+      {{ multi_filter('项目', 'project_id', project_options, selected_project_ids, 'id', 'name') }}
+      <p class="erp-filter-note">金额 / 税额 / 合计按币种分别汇总（表尾合计行由表格自动计算）；日期按开票日期过滤。</p>
+    </form>
+
+    <!-- Panel：发票明细（一条发票明细一行） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead>
+            <tr>
+              <th>日期</th><th>发票编号</th><th>客户编号</th><th>服务订单号码</th><th>客户简称</th>
+              <th>项目</th><th>金额</th><th>税率</th><th>税额</th><th>合计</th><th>发票状态</th><th>工单状态</th><th>核销</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in rows %}
+              {% set row = item.row %}
+              <tr>
+                <td>{{ row.issue_date }}</td>
+                <td><a href="{{ url_for('invoice_detail', invoice_id=row.id) }}">{{ row.invoice_number }}</a></td>
+                <td>{{ row.client_number }}</td>
+                <td>{{ row.service_client_order_number or "-" }}</td>
+                <td>{{ row.short_name }}</td>
+                <td>{{ row.project_name }}</td>
+                <td class="num" data-grid-currency="{{ row.currency }}">{{ row.amount|money(row.currency) }}</td>
+                <td class="num">{{ "%.2f"|format(row.tax_rate) }}%</td>
+                <td class="num" data-grid-currency="{{ row.currency }}">{{ item.tax|money(row.currency) }}</td>
+                <td class="num" data-grid-currency="{{ row.currency }}">{{ item.line_total|money(row.currency) }}</td>
+                <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
+                <td>{% if row.service_order_status == "closed" %}已关闭{% elif row.service_order_status %}进行中{% else %}-{% endif %}</td>
+                <td><span class="status {% if row.paid_at %}completed{% elif row.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ row|payment_label }}</span></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="13" class="empty">没有符合条件的报表数据。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
         {% for item in rows %}
           {% set row = item.row %}
-          <tr>
-            <td>{{ row.issue_date }}</td>
-            <td><a href="{{ url_for('invoice_detail', invoice_id=row.id) }}">{{ row.invoice_number }}</a></td>
-            <td>{{ row.client_number }}</td>
-            <td>{{ row.service_client_order_number or "-" }}</td>
-            <td>{{ row.short_name }}</td>
-            <td>{{ row.project_name }}</td>
-            <td data-grid-currency="{{ row.currency }}">{{ row.amount|money(row.currency) }}</td>
-            <td>{{ "%.2f"|format(row.tax_rate) }}%</td>
-            <td data-grid-currency="{{ row.currency }}">{{ item.tax|money(row.currency) }}</td>
-            <td data-grid-currency="{{ row.currency }}">{{ item.line_total|money(row.currency) }}</td>
-            <td><span class="status {{ row.status }}">{{ labels[row.status] }}</span></td>
-            <td>{% if row.service_order_status == "closed" %}已关闭{% elif row.service_order_status %}进行中{% else %}-{% endif %}</td>
-            <td><span class="status {% if row.paid_at %}completed{% elif row.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ row|payment_label }}</span></td>
-          </tr>
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.issue_date }}</span>
+              <span class="erp-card-customer">{{ row.invoice_number }} · {{ row.short_name }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ row.client_number }}</span>
+              <span>{{ row.service_client_order_number or '-' }}</span>
+              <span>{{ labels[row.status] }}</span>
+            </div>
+            <div class="erp-cert-file">{{ row.project_name }}</div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>金额</span><strong>{{ row.amount|money(row.currency) }}</strong></div>
+              <div class="erp-card-metric"><span>税额</span><strong>{{ item.tax|money(row.currency) }}</strong></div>
+              <div class="erp-card-metric"><span>合计</span><strong>{{ item.line_total|money(row.currency) }}</strong></div>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('invoice_detail', invoice_id=row.id) }}">发票详情</a>
+            </div>
+          </article>
         {% else %}
-          <tr><td colspan="13" class="empty">没有符合条件的报表数据。</td></tr>
+          <div class="erp-empty">没有符合条件的报表数据。</div>
         {% endfor %}
-        {% if rows %}
-          <tr class="report-total">
-            <td colspan="6">汇总</td>
-            <td>{{ subtotal|money }}</td>
-            <td></td>
-            <td>{{ tax_total|money }}</td>
-            <td>{{ grand_total|money }}</td>
-            <td></td>
-            <td></td>
-            <td></td>
-          </tr>
-        {% endif %}
-      </tbody>
-    </table>
-  </section>
-  <script src="{{ url_for('static', filename='report-filters.js', v='20260601-autoclose') }}"></script>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('明细数', rows|length, 'muted') }}
+    {{ summary_item('发票数', invoice_count, 'muted') }}
+    {{ summary_item('金额小计', subtotal|money) }}
+    {{ summary_item('税额合计', tax_total|money) }}
+    {{ summary_item('价税合计', grand_total|money) }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
+    {% if client_q or short_q %}<span class="sep"></span><span>客户 <b>{{ client_q or short_q }}</b></span>{% endif %}
+    <span class="sep"></span>
+    <span>发票状态 <b>{{ selected_statuses|length }}/{{ labels|length }}</b></span>
+    <span class="sep"></span>
+    <span>项目 <b>{{ selected_project_ids|length }}/{{ project_options|length }}</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='report-multiselect.js', v=app_version) }}"></script>
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "发票明细查询"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

@@ -3627,6 +3627,15 @@ def money(value, currency="USD"):
     return f"{symbols.get(currency, currency + ' ')}{amount:,.2f}"
 
 
+def hours(value):
+    """时间数量（工时 / 时长 / 小时）统一一位小数；金额与单价不要用它。
+
+    只用于**只读展示**：表单里的 input 值必须保留原始精度（如 0.25 小时），
+    否则保存时会把用户填的值改掉。
+    """
+    return f"{float(value or 0):.1f}"
+
+
 PROJECT_COLORS = ["#0f766e", "#175cd3", "#b42318", "#7a271a", "#6941c6", "#027a48", "#b54708", "#3538cd"]
 
 
@@ -3737,6 +3746,7 @@ def is_customer_reimbursement_image_attachment(attachment):
 
 
 app.jinja_env.filters["money"] = money
+app.jinja_env.filters["hours"] = hours
 app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
 app.jinja_env.filters["local_datetime"] = local_datetime

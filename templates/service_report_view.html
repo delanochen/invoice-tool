@@ -147,8 +147,8 @@
     <tr><th>报告日期</th><th>总计服务工时（小时）</th><th>交通时长（小时）</th></tr>
     <tr>
       <td class="center">{{ report.report_date }}</td>
-      <td class="center">{{ report.total_service_hours }}</td>
-      <td class="center">{{ report.travel_hours }}</td>
+      <td class="center">{{ report.total_service_hours|hours }}</td>
+      <td class="center">{{ report.travel_hours|hours }}</td>
     </tr>
   </table>
 
@@ -162,7 +162,7 @@
   <h2 class="report-section">公共交通时长及自驾车里程细节</h2>
   <table>
     <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
-    <tr><td colspan="2"><strong>公共交通时长：{{ report.public_transport_hours or 0 }} 小时&nbsp;&nbsp;&nbsp;&nbsp;自驾里程总计：{{ report.driving_miles or 0 }} 英里</strong></td></tr>
+    <tr><td colspan="2"><strong>公共交通时长：{{ (report.public_transport_hours or 0)|hours }} 小时&nbsp;&nbsp;&nbsp;&nbsp;自驾里程总计：{{ report.driving_miles or 0 }} 英里</strong></td></tr>
     <tr><td>出发地址：{{ report.departure_address or "" }}</td><td>场地地址：{{ report.site_address or order.site_address or "" }}</td></tr>
     <tr><td colspan="2">合计用时：{{ report.total_time or "" }}</td></tr>
   </table>

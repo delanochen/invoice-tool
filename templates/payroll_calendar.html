@@ -119,7 +119,7 @@
         payslipTable.querySelector("tbody").innerHTML = payslip.lines.map((line) => `
           <tr>
             <td>${escapeHtml(t(line.label))}</td>
-            <td>${escapeHtml(line.hours ?? "")}</td>
+            <td>${escapeHtml(line.hours == null ? "" : Number(line.hours).toFixed(1))}</td>
             <td>${escapeHtml(line.rate ?? "")}</td>
             <td>${escapeHtml(line.days ?? "")}</td>
             <td>${escapeHtml(line.count ?? "")}</td>

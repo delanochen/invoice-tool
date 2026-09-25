@@ -210,11 +210,11 @@
         <thead>
           <tr>
             <th>姓名</th><th>项目时间</th>
-            <th>标准（<span data-column-total="standard_hours">{{ "%g"|format(column_totals.standard_hours) }}</span>）</th>
-            <th>交通（<span data-column-total="transport_hours">{{ "%g"|format(column_totals.transport_hours) }}</span>）</th>
-            <th>公共交通（<span data-column-total="public_transport_hours">{{ "%g"|format(column_totals.public_transport_hours) }}</span>）</th>
-            <th>加班（<span data-column-total="overtime_hours">{{ "%g"|format(column_totals.overtime_hours) }}</span>）</th>
-            <th>节假日（<span data-column-total="holiday_hours">{{ "%g"|format(column_totals.holiday_hours) }}</span>）</th>
+            <th>标准（<span data-column-total="standard_hours">{{ column_totals.standard_hours|hours }}</span>）</th>
+            <th>交通（<span data-column-total="transport_hours">{{ column_totals.transport_hours|hours }}</span>）</th>
+            <th>公共交通（<span data-column-total="public_transport_hours">{{ column_totals.public_transport_hours|hours }}</span>）</th>
+            <th>加班（<span data-column-total="overtime_hours">{{ column_totals.overtime_hours|hours }}</span>）</th>
+            <th>节假日（<span data-column-total="holiday_hours">{{ column_totals.holiday_hours|hours }}</span>）</th>
             <th>工时费（<span data-column-total="labor_total">{{ column_totals.labor_total|money }}</span>）</th>
             <th>住宿（<span data-column-total="lodging">{{ column_totals.lodging|money }}</span>）</th>
             <th>机票（<span data-column-total="airfare">{{ column_totals.airfare|money }}</span>）</th>

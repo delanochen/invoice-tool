@@ -22,11 +22,11 @@
   </form>
 
   <section class="metric-grid">
-    <div class="panel metric"><span>工作时长</span><strong>{{ "%.2f"|format(totals.work_hours) }}</strong></div>
-    <div class="panel metric"><span>标准工时</span><strong>{{ "%.2f"|format(totals.standard_hours) }}</strong></div>
-    <div class="panel metric"><span>交通工时</span><strong>{{ "%.2f"|format(totals.transport_hours) }}</strong></div>
-    <div class="panel metric"><span>加班工时</span><strong>{{ "%.2f"|format(totals.overtime_hours) }}</strong></div>
-    <div class="panel metric"><span>假期工时</span><strong>{{ "%.2f"|format(totals.holiday_hours) }}</strong></div>
+    <div class="panel metric"><span>工作时长</span><strong>{{ totals.work_hours|hours }}</strong></div>
+    <div class="panel metric"><span>标准工时</span><strong>{{ totals.standard_hours|hours }}</strong></div>
+    <div class="panel metric"><span>交通工时</span><strong>{{ totals.transport_hours|hours }}</strong></div>
+    <div class="panel metric"><span>加班工时</span><strong>{{ totals.overtime_hours|hours }}</strong></div>
+    <div class="panel metric"><span>假期工时</span><strong>{{ totals.holiday_hours|hours }}</strong></div>
   </section>
 
   <section class="panel">
@@ -46,11 +46,11 @@
             <td>{{ row.client_name }}</td>
             <td>{{ row.buyer_owner or "-" }}</td>
             <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
-            <td>{{ "%.2f"|format(row.work_hours) }}</td>
-            <td>{{ "%.2f"|format(row.standard_hours) }}</td>
-            <td>{{ "%.2f"|format(row.transport_hours) }}</td>
-            <td>{{ "%.2f"|format(row.overtime_hours) }}</td>
-            <td>{{ "%.2f"|format(row.holiday_hours) }}</td>
+            <td>{{ row.work_hours|hours }}</td>
+            <td>{{ row.standard_hours|hours }}</td>
+            <td>{{ row.transport_hours|hours }}</td>
+            <td>{{ row.overtime_hours|hours }}</td>
+            <td>{{ row.holiday_hours|hours }}</td>
           </tr>
         {% else %}
           <tr><td colspan="11" class="empty">没有符合条件的工时记录。</td></tr>

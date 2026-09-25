@@ -217,7 +217,7 @@
           var from = names[i] || "-", to = names[i + 1] || "-";
           tr.innerHTML = "<td>" + (i + 1) + ". " + escapeHtml(shorten(from, 28)) + " → " + escapeHtml(shorten(to, 28)) + "</td>" +
             "<td>" + (data.leg_miles[i] == null ? "-" : data.leg_miles[i].toFixed(2)) + "</td>" +
-            "<td>" + (data.leg_hours[i] == null ? "-" : data.leg_hours[i].toFixed(2)) + "</td>";
+            "<td>" + (data.leg_hours[i] == null ? "-" : data.leg_hours[i].toFixed(1)) + "</td>";
           tbody.appendChild(tr);
         }
         var trTotal = document.createElement("tr");
@@ -271,7 +271,7 @@
         var from = names[i] || "-", to = names[i + 1] || "-";
         tr.innerHTML = "<td>" + (i + 1) + ". " + escapeHtml(shorten(from, 28)) + " → " + escapeHtml(shorten(to, 28)) + "</td>" +
           "<td>" + (data.leg_miles[i] == null ? "-" : data.leg_miles[i].toFixed(2)) + "</td>" +
-          "<td>" + (data.leg_hours[i] == null ? "-" : data.leg_hours[i].toFixed(2)) + "</td>";
+          "<td>" + (data.leg_hours[i] == null ? "-" : data.leg_hours[i].toFixed(1)) + "</td>";
         tbody.appendChild(tr);
       }
       var trTotal = document.createElement("tr");

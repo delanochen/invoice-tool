@@ -94,8 +94,8 @@
                 <td>{{ row.region_name or "-" }}</td>
                 <td>{{ row.country_name or "-" }}</td>
                 <td>{{ row.worker_names or "-" }}</td>
-                <td class="num">{{ row.total_service_hours }}</td>
-                <td class="num">{{ row.travel_hours }}</td>
+                <td class="num">{{ (row.total_service_hours or 0)|hours }}</td>
+                <td class="num">{{ (row.travel_hours or 0)|hours }}</td>
                 <td>
                   <div class="row-actions">
                     <a class="erp-btn" href="{{ url_for(report_view_url, report_id=row.id) }}">{{ '查看' if external_view else '编辑' }}</a>
@@ -120,8 +120,8 @@
             <div class="erp-card-sub">
               <span>{{ row.buyer_owner or '-' }}</span>
               <span>{{ row.country_name or '-' }}</span>
-              <span>工时 {{ row.total_service_hours }}</span>
-              <span>交通 {{ row.travel_hours }}</span>
+              <span>工时 {{ (row.total_service_hours or 0)|hours }}</span>
+              <span>交通 {{ (row.travel_hours or 0)|hours }}</span>
             </div>
             <div class="erp-cert-file">{{ row.worker_names or '未填写服务人员' }}</div>
             <div class="erp-card-foot">
@@ -156,8 +156,8 @@
                 <td>{{ group.list[0].client_name }}</td>
                 <td>{{ group.list[0].country_name or "-" }}</td>
                 <td class="num">{{ group.list|length }}</td>
-                <td class="num">{{ acc.service }}</td>
-                <td class="num">{{ acc.travel }}</td>
+                <td class="num">{{ acc.service|hours }}</td>
+                <td class="num">{{ acc.travel|hours }}</td>
                 <td>{{ group.list|map(attribute='worker_names')|reject('none')|unique|join(' / ') or "-" }}</td>
                 <td>{{ group.list|map(attribute='report_date')|min }}{% if group.list|map(attribute='report_date')|min != group.list|map(attribute='report_date')|max %} ~ {{ group.list|map(attribute='report_date')|max }}{% endif %}</td>
               </tr>
@@ -189,8 +189,8 @@
                 <td>{{ group.list[0].buyer_owner or "-" }}</td>
                 <td>{{ group.list[0].country_name or "-" }}</td>
                 <td class="num">{{ group.list|length }}</td>
-                <td class="num">{{ acc.service }}</td>
-                <td class="num">{{ acc.travel }}</td>
+                <td class="num">{{ acc.service|hours }}</td>
+                <td class="num">{{ acc.travel|hours }}</td>
                 <td>{{ group.list|map(attribute='worker_names')|reject('none')|unique|join(' / ') or "-" }}</td>
               </tr>
             {% else %}
@@ -207,8 +207,8 @@
     {{ summary_item('日报数', rows|length, 'muted') }}
     {{ summary_item('涉及工单', order_count, 'muted') }}
     {{ summary_item('涉及站点', site_count, 'muted') }}
-    {{ summary_item('服务工时合计', ns.service_hours) }}
-    {{ summary_item('交通时长合计', ns.travel_hours) }}
+    {{ summary_item('服务工时合计', ns.service_hours|hours) }}
+    {{ summary_item('交通时长合计', ns.travel_hours|hours) }}
   </footer>
 
   <!-- ───────────────────────────────── StatusBar ────────────────────────── -->

@@ -49,12 +49,12 @@
             <td>{{ row.base_salary|money }}</td>
             <td>{{ row.attendance_days }}</td>
             <td>{{ "%.1f"|format(row.driving_miles) }}</td>
-            <td>{{ "%.2f"|format(row.standard_hours) }}</td>
+            <td>{{ row.standard_hours|hours }}</td>
             <td>{{ row.standard_pay|money }}</td>
-            <td>{{ "%.2f"|format(row.following_travel_hours) }}</td><td>{{ "%.2f"|format(row.rental_driving_hours) }}</td><td>{{ row.following_allowance|money }}</td><td>{{ row.rental_driving_allowance|money }}</td>
-            <td>{{ "%.2f"|format(row.overtime_hours) }}</td>
+            <td>{{ row.following_travel_hours|hours }}</td><td>{{ row.rental_driving_hours|hours }}</td><td>{{ row.following_allowance|money }}</td><td>{{ row.rental_driving_allowance|money }}</td>
+            <td>{{ row.overtime_hours|hours }}</td>
             <td>{{ row.overtime_pay|money }}</td>
-            <td>{{ "%.2f"|format(row.holiday_hours) }}</td>
+            <td>{{ row.holiday_hours|hours }}</td>
             <td>{{ row.holiday_pay|money }}</td>
             <td>{{ row.self_drive_allowance|money }}</td>
             <td>{{ row.subsidy_total|money }}</td>

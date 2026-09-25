@@ -67,7 +67,8 @@ class PayrollDetailsTest(unittest.TestCase):
     def test_settlement_excel_name(self):
         from urllib.parse import unquote
         order={'order_number':'SO2607003','client_order_number':'SHPG202608018942'}
-        with patch.object(self.m,'require_customer_reimbursement',return_value=({},order)), patch.object(self.m,'customer_reimbursement_items',return_value=[]):
+        # 合计行末列读快照 total_amount（见 download_customer_reimbursement_excel），mock 必须带上
+        with patch.object(self.m,'require_customer_reimbursement',return_value=({'total_amount':0},order)), patch.object(self.m,'customer_reimbursement_items',return_value=[]):
             response=self.f.http.get('/customer-reimbursements/1/download.xlsx')
         self.assertEqual(response.status_code,200)
         self.assertIn('SO2607003_SHPG202608018942_工单结算.xlsx',unquote(response.headers['Content-Disposition']))

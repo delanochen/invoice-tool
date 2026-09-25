@@ -29,6 +29,14 @@ function reimbursementQuantity(value) {
   });
 }
 
+// 时间数量（工时 / 时长）统一一位小数，与模板 `|hours` 过滤器同口径
+function reimbursementHours(value) {
+  return reimbursementNumber(value).toLocaleString("en-US", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
 function reimbursementInputValue(row, name) {
   // 单元格生效金额就是 input 的 value（手改优先：input 已填生效金额）。
   // 不能再叠加 data-auto-amount，否则会与来源金额重复计入导致显示翻倍。
@@ -117,9 +125,12 @@ function updateCustomerReimbursementTotals() {
   Object.entries(columnTotals).forEach(([key, value]) => {
     const target = document.querySelector(`[data-column-total="${key}"]`);
     if (!target) return;
-    target.textContent = ["standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours", "miles"].includes(key)
-      ? reimbursementQuantity(value)
-      : reimbursementMoney(value);
+    const hourKeys = ["standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours"];
+    if (hourKeys.includes(key)) {
+      target.textContent = reimbursementHours(value); // 时间数量：一位小数
+    } else {
+      target.textContent = key === "miles" ? reimbursementQuantity(value) : reimbursementMoney(value);
+    }
   });
 }
 
