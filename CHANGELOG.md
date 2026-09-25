@@ -4,6 +4,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.278] - 2026-09-24
+
+### Fixed（删除报销报 Internal Server Error）
+- **现象**（用户报告）：用 A 账号删除 B 提交的报销，直接显示英文 Internal Server Error 页。
+- **根因**：删除时只清了 `expense_attachments` / `expense_items`，但 `expense_save_tokens` 和 `expense_duplicate_checks` 也外键引用 `expenses`——其中 `expense_duplicate_checks.matched_expense_id` 会被**别人的**重复报销检查记录指向这条报销。SQLite 的外键带 `on delete cascade`（本地根本复现不出来），PostgreSQL 生产库不一定有，删到引用行就抛外键错误 → 500。
+- **修复**：删除报销前显式清理这两张表的相关行（`expense_id` 或 `matched_expense_id`）；删除报销附件时同样先清引用该附件的检查记录（`attachment_id` / `matched_attachment_id`）。
+- **失败不再 500**：删除失败时回滚事务后抛 `RuntimeError`（项目惯例），由全局处理器转成页面上的中文提示：「删除报销失败，数据没有改动：这条报销还被其它记录引用（例如重复报销检查记录、发票或工单结算）。请先解除这些引用，或联系管理员处理。」
+
+### Added（全局 500 兜底）
+- 新增 `errorhandler(500)`：任何未捕获异常都渲染中文提示页（`error.html`，说明数据未被改动、可返回重试/联系管理员），真实堆栈只写日志。**不再出现 Werkzeug 的英文 500 页。**
+
+### 测试
+- 新增 `test_expense_delete.py`（4 项）：清理 `expense_save_tokens` / `expense_duplicate_checks`、清理「被别人 `matched_expense_id` 指向」的检查记录且不动对方报销、删除失败给友好提示且数据不丢、删附件时清理引用该附件的检查记录。
+- 报销相关回归 37 项 + 5 subtests 通过。
+
 ## [0.1.277] - 2026-09-24
 
 ### Added（发票明细查询页 ERP 风格改造）

@@ -19042,11 +19042,28 @@ def delete_expense(expense_id):
             return redirect(url_for("expense_detail", expense_id=expense_id))
         abort(403)
     shutil.rmtree(expense_attachment_dir(expense_id), ignore_errors=True)
-    db().execute("delete from expense_attachments where expense_id = ?", (expense_id,))
-    db().execute("delete from expense_items where expense_id = ?", (expense_id,))
-    db().execute("delete from expenses where id = ?", (expense_id,))
-    log_action("delete", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
-    db().commit()
+    try:
+        # 依赖行必须逐个显式删除：SQLite 的外键带 on delete cascade，但 PostgreSQL
+        # 生产库不一定有，漏掉任何一张（尤其「重复报销检查」里被别人 matched_expense_id
+        # 指到这条报销的记录）就会在 delete 时抛外键错误，用户只看到 500。
+        db().execute(
+            "delete from expense_duplicate_checks where expense_id = ? or matched_expense_id = ?",
+            (expense_id, expense_id),
+        )
+        db().execute("delete from expense_save_tokens where expense_id = ?", (expense_id,))
+        db().execute("delete from expense_attachments where expense_id = ?", (expense_id,))
+        db().execute("delete from expense_items where expense_id = ?", (expense_id,))
+        db().execute("delete from expenses where id = ?", (expense_id,))
+        log_action("delete", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
+        db().commit()
+    except Exception:
+        db().rollback()
+        app.logger.exception("删除报销 %s 失败", expense_id)
+        # RuntimeError 由全局处理器转成页面上的友好提示，不再抛 500
+        raise RuntimeError(
+            "删除报销失败，数据没有改动：这条报销还被其它记录引用（例如重复报销检查记录、发票或工单结算）。"
+            "请先解除这些引用，或联系管理员处理。"
+        )
     flash("报销已删除。", "success")
     return redirect(url_for("service_order_detail", order_id=order["id"]))
 
@@ -19089,8 +19106,18 @@ def delete_expense_attachment(attachment_id):
         os.remove(expense_attachment_path(attachment))
     except FileNotFoundError:
         pass
-    db().execute("delete from expense_attachments where id = ?", (attachment_id,))
-    db().commit()
+    try:
+        # 「重复报销检查」按附件存记录，先清引用再删附件（PostgreSQL 外键不一定级联）
+        db().execute(
+            "delete from expense_duplicate_checks where attachment_id = ? or matched_attachment_id = ?",
+            (attachment_id, attachment_id),
+        )
+        db().execute("delete from expense_attachments where id = ?", (attachment_id,))
+        db().commit()
+    except Exception:
+        db().rollback()
+        app.logger.exception("删除报销附件 %s 失败", attachment_id)
+        raise RuntimeError("删除附件失败，数据没有改动：这张附件还被重复报销检查记录引用。请稍后重试或联系管理员。")
     flash("附件已删除。", "success")
     return redirect(url_for("edit_expense", expense_id=expense["id"]))
 
@@ -20407,6 +20434,25 @@ def not_found(error):
             message="你输入的地址可能不正确，或者这张发票、附件、客户资料已经被删除。",
         ),
         404,
+    )
+
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    """兜底：任何未捕获异常都显示中文提示页，而不是 Werkzeug 的英文 500 页。
+
+    真实堆栈只进日志（便于排查），页面只给可操作提示。数据是事务性的，
+    出错路径都已 rollback，这里明确告知用户「数据没有被改动」。
+    """
+    app.logger.exception("未处理的服务器错误：%s", error)
+    return (
+        render_template(
+            "error.html",
+            status_code="500",
+            title="服务器出了点问题",
+            message="这个操作没能完成，数据没有被改动。请返回上一页重试；如果反复出现，请把当前页面地址和你做的操作发给管理员。",
+        ),
+        500,
     )
 
 
