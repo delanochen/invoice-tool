@@ -41,9 +41,9 @@
       <label>报告日期 <input type="date" name="report_date" value="{{ report.report_date }}" required></label>
       <label>实际日期 <input type="date" name="actual_work_date" value="{{ report.actual_work_date or report.report_date }}" required></label>
       <label>总计服务工时：小时 <input type="number" step="0.25" min="0" name="total_service_hours" value="{{ report.total_service_hours }}" readonly></label>
-      <label>交通时长：小时 <input type="number" step="0.1" min="0" name="travel_hours" value="{{ report.travel_hours }}" readonly></label>
-      <label>公共交通时长 <input type="number" step="0.1" min="0" name="public_transport_hours" value="{{ report.public_transport_hours }}" readonly></label>
-      <label>自驾里程总计：英里 <input type="number" step="0.1" min="0" name="driving_miles" value="{{ report.driving_miles }}" readonly></label>
+      <label>交通时长：小时 <input type="number" step="any" min="0" name="travel_hours" value="{{ report.travel_hours }}" readonly></label>
+      <label>公共交通时长 <input type="number" step="any" min="0" name="public_transport_hours" value="{{ report.public_transport_hours }}" readonly></label>
+      <label>自驾里程总计：英里 <input type="number" step="any" min="0" name="driving_miles" value="{{ report.driving_miles }}" readonly></label>
       <label>甲方里程计算方式
         <select name="mileage_billing_method">
           <option value="per_person" {% if report.mileage_billing_method != 'per_vehicle' %}selected{% endif %}>按人员计算</option>
@@ -127,9 +127,9 @@
                 <td><input name="worker_origin" value="{{ worker.origin_address or '' }}" placeholder="留空则由辅助填写取员工主数据地址"></td>
                 <td><select name="worker_travel_mode"><option value="self_drive" {% if worker.travel_mode in ['self_drive', 'legacy'] %}selected{% endif %}>自驾</option><option value="rental_drive" {% if worker.travel_mode == 'rental_drive' %}selected{% endif %}>租车驾驶</option><option value="flight" {% if worker.travel_mode == 'flight' %}selected{% endif %}>飞机</option><option value="following" {% if worker.travel_mode == 'following' %}selected{% endif %}>随行</option></select></td>
                 <td><select name="worker_trip_type"><option value="round_trip" {% if worker_trip == 'round_trip' %}selected{% endif %}>往返</option><option value="one_way" {% if worker_trip == 'one_way' %}selected{% endif %}>单程</option></select></td>
-                <td><input type="number" step="0.1" min="0" name="worker_driving_miles" value="{{ worker.driving_miles or 0 }}"></td>
-                <td><input type="number" step="0.1" min="0" name="worker_travel_hours" value="{{ worker.travel_hours if worker.travel_hours is not none else report.travel_hours or 0 }}"></td>
-                <td><input type="number" step="0.1" min="0" name="worker_public_transport_hours" value="{{ worker.public_transport_hours if worker.public_transport_hours is not none else report.public_transport_hours or 0 }}"></td>
+                <td><input type="number" step="any" min="0" name="worker_driving_miles" value="{{ worker.driving_miles or 0 }}"></td>
+                <td><input type="number" step="any" min="0" name="worker_travel_hours" value="{{ worker.travel_hours if worker.travel_hours is not none else report.travel_hours or 0 }}"></td>
+                <td><input type="number" step="any" min="0" name="worker_public_transport_hours" value="{{ worker.public_transport_hours if worker.public_transport_hours is not none else report.public_transport_hours or 0 }}"></td>
               </tr>
             {% endfor %}
           </tbody>
@@ -140,9 +140,9 @@
         <td><input name="worker_origin" placeholder="留空则由辅助填写取员工主数据地址"></td>
         <td><select name="worker_travel_mode"><option value="self_drive">自驾</option><option value="rental_drive">租车驾驶</option><option value="flight">飞机</option><option value="following">随行</option></select></td>
         <td><select name="worker_trip_type"><option value="round_trip">往返</option><option value="one_way">单程</option></select></td>
-        <td><input type="number" step="0.1" min="0" name="worker_driving_miles"></td>
-        <td><input type="number" step="0.1" min="0" name="worker_travel_hours"></td>
-        <td><input type="number" step="0.1" min="0" name="worker_public_transport_hours"></td>
+        <td><input type="number" step="any" min="0" name="worker_driving_miles"></td>
+        <td><input type="number" step="any" min="0" name="worker_travel_hours"></td>
+        <td><input type="number" step="any" min="0" name="worker_public_transport_hours"></td>
       </tr></template>
       <p class="field-error" id="serviceWorkersError" hidden>请至少添加一名服务人员，并完整填写出行数据。</p>
     </section>
