@@ -65,9 +65,10 @@ def effective_settings(connection):
             "base_url": "", "api_key": "", "model": "",
             "model_label": "未配置", "timeout_seconds": TIMEOUT_SECONDS,
         }
+    api_key = cfg["api_key"] or os.environ.get("DEEPSEEK_API_KEY", "").strip()
     return {
         "base_url": cfg["base_url"],
-        "api_key": cfg["api_key"],
+        "api_key": api_key,
         "model": cfg["model"],
         "model_label": cfg["name"],
         "timeout_seconds": cfg["timeout_seconds"],

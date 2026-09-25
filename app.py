@@ -10968,7 +10968,7 @@ def deepseek_assistant_settings():
         return {"enabled": False, "api_key": "", "model": "", "base_url": ""}
     return {
         "enabled": True,
-        "api_key": cfg["api_key"],
+        "api_key": cfg["api_key"] or DEEPSEEK_API_KEY_ENV,
         "model": cfg["model"],
         "base_url": cfg["base_url"],
     }
