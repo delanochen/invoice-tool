@@ -33,10 +33,6 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             connection.execute("delete from expenses")
             connection.execute("delete from service_orders where order_number = 'SO-MRO'")
             connection.execute("delete from projects where project_type = 'expense' and name_key like 'mro supplies%'")
-            connection.execute(
-                """update projects set name = 'MRO Supplies', name_key = 'mro supplies'
-                   where project_type = 'invoice' and name_key like 'mro supplies%'"""
-            )
             connection.execute("delete from users where email = 'mro-admin@example.com'")
             user_id = connection.execute(
                 """
@@ -143,12 +139,7 @@ class CustomerReimbursementMroTest(unittest.TestCase):
                 "select * from customer_reimbursements where id = ?",
                 (self.reimbursement_id,),
             ).fetchone()
-            self.module.db().execute(
-                """update projects
-                   set name = 'MRO Supplies',
-                       name_key = 'mro supplies'
-                   where project_type = 'invoice' and name = 'MRO Supplies'"""
-            )
+            # init_db 已按映射种子创建发票项目 MRO Supplies配件及耗材费（合并后的规范全名）
             invoice_items = self.module.customer_reimbursement_invoice_items(reimbursement)
             invoice_projects = {
                 self.module.db().execute("select name from projects where id = ?", (item["project_id"],)).fetchone()["name"]: item
@@ -169,8 +160,8 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             self.assertEqual(totals["employee_expense_total"], 125.0)
             self.assertEqual(totals["total_amount"], 195.0)
             self.assertEqual(reimbursement["mro_supplies_total"], 125.0)
-            # “其他”桶按来源项目拆分：MRO 来源经映射表开入同名发票项目
-            self.assertEqual(invoice_projects["MRO Supplies"]["amount"], 125.0)
+            # “其他”桶按来源项目拆分：MRO 来源经映射表开入规范发票项目
+            self.assertEqual(invoice_projects["MRO Supplies配件及耗材费"]["amount"], 125.0)
             self.assertNotIn("Travel Expenses Reimbursement", invoice_projects)
 
     def test_bilingual_expense_labels_map_to_all_customer_reimbursement_fields(self):

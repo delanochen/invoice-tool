@@ -14,7 +14,7 @@ INSERT INTO expense_settlement_invoice_map
 SELECT v.expense_project_name, v.settlement_field, v.invoice_project_name,
        to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 FROM (VALUES
-    ('MRO Supplies配件及耗材费', 'other', 'MRO Supplies'),
+    ('MRO Supplies配件及耗材费', 'other', 'MRO Supplies配件及耗材费'),
     ('Client Entertainment Expenses客户招待费', 'other', 'Other'),
     ('Express Delivery Fees快递费', 'other', 'Express Delivery Fees'),
     ('Accommodation/Lodging住宿费', 'lodging', 'Travel Expenses Reimbursement'),
@@ -29,3 +29,10 @@ WHERE NOT EXISTS (
     SELECT 1 FROM expense_settlement_invoice_map m
     WHERE m.expense_project_name = v.expense_project_name
 );
+
+-- 自愈修正：MRO 的发票项目必须是 merge_mro_project_aliases 合并后的规范全名。
+-- 仅修正由本迁移种子创建的那一行（旧值为 'MRO Supplies'），不碰任何其他行。
+UPDATE expense_settlement_invoice_map
+SET invoice_project_name = 'MRO Supplies配件及耗材费'
+WHERE expense_project_name = 'MRO Supplies配件及耗材费'
+  AND invoice_project_name = 'MRO Supplies';

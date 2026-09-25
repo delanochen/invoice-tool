@@ -24,7 +24,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
         with self.m.app.app_context():
             db = self.m.db()
             self.invoice_projects = {}
-            for name in ("MRO Supplies", "Other", "Express Delivery Fees"):
+            for name in ("MRO Supplies配件及耗材费", "Other", "Express Delivery Fees"):
                 self.invoice_projects[name] = db.execute(
                     "insert into projects (name, name_key, project_type, unit_price, tax_rate, is_active, created_at)"
                     " values (?, ?, 'invoice', 0, 0, 1, ?)",
@@ -43,7 +43,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
         self.assertEqual(len(rows), 10)
         by_name = {row["expense_project_name"]: row for row in rows}
         self.assertEqual(by_name["MRO Supplies配件及耗材费"]["settlement_field"], "other")
-        self.assertEqual(by_name["MRO Supplies配件及耗材费"]["invoice_project_name"], "MRO Supplies")
+        self.assertEqual(by_name["MRO Supplies配件及耗材费"]["invoice_project_name"], "MRO Supplies配件及耗材费")
         self.assertEqual(by_name["Client Entertainment Expenses客户招待费"]["invoice_project_name"], "Other")
         self.assertEqual(by_name["Express Delivery Fees快递费"]["invoice_project_name"], "Express Delivery Fees")
         self.assertEqual(by_name["Accommodation/Lodging住宿费"]["settlement_field"], "lodging")
@@ -81,7 +81,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
             "Technical Services": 100,
             "Travel Expenses Reimbursement": 50,
             "Mileage Reimbursement": 20,
-            "MRO Supplies": 30,
+            "MRO Supplies配件及耗材费": 30,
             "Other": 12,
             "Express Delivery Fees": 8,
         })
@@ -96,7 +96,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
             with self.m.app.app_context():
                 items = self.m.customer_reimbursement_invoice_items(reimbursement)
         self.assertEqual(len(items), 4)
-        mro = [item for item in items if item["project_id"] == self.invoice_projects["MRO Supplies"]]
+        mro = [item for item in items if item["project_id"] == self.invoice_projects["MRO Supplies配件及耗材费"]]
         self.assertEqual(mro[0]["amount"], 30)
 
     def test_invoice_items_legacy_fallback_without_sources(self):
@@ -107,7 +107,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
         with patch.object(self.m, "customer_reimbursement_items", return_value=self.fake_items([])):
             with self.m.app.app_context():
                 items = self.m.customer_reimbursement_invoice_items(reimbursement)
-        mro = [item for item in items if item["project_id"] == self.invoice_projects["MRO Supplies"]]
+        mro = [item for item in items if item["project_id"] == self.invoice_projects["MRO Supplies配件及耗材费"]]
         self.assertEqual(mro[0]["amount"], 25)
 
     def test_unmapped_other_source_is_rejected(self):

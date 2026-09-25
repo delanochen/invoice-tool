@@ -512,7 +512,8 @@ CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
 # 建表/补种子用 insert or ignore：唯一键冲突时跳过，绝不覆盖已有行。
 # 工时人工、里程补贴不是员工报销项目，不走这张表。
 EXPENSE_SETTLEMENT_INVOICE_SEEDS = (
-    ("MRO Supplies配件及耗材费", "other", "MRO Supplies"),
+    # MRO 的发票项目以 merge_mro_project_aliases 合并后的规范全名为准
+    ("MRO Supplies配件及耗材费", "other", "MRO Supplies配件及耗材费"),
     ("Client Entertainment Expenses客户招待费", "other", "Other"),
     ("Express Delivery Fees快递费", "other", "Express Delivery Fees"),
     ("Accommodation/Lodging住宿费", "lodging", "Travel Expenses Reimbursement"),
@@ -6725,7 +6726,7 @@ def customer_reimbursement_invoice_items(reimbursement):
     if not breakdown and money_float(money_decimal(reimbursement["mro_supplies_total"])) > 0:
         # 旧结算单没有 auto_expense_sources 记录时的兜底：按 MRO 快照金额开一行，
         # 避免“其他”金额在发票上消失；新结算单一律走来源项目拆分。
-        breakdown = {"MRO Supplies": money_float(money_decimal(reimbursement["mro_supplies_total"]))}
+        breakdown = {"MRO Supplies配件及耗材费": money_float(money_decimal(reimbursement["mro_supplies_total"]))}
 
     required_names = tuple(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS) + tuple(
         name for name in breakdown if name not in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS
