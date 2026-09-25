@@ -70,6 +70,7 @@ from settlement_review import (
 from profitability import init_profitability_schema, register_profitability_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
+import llm_config
 from ai_interpretation import (
     MODEL_OPTIONS,
     SETTINGS_DEFAULTS as AI_INTERPRET_DEFAULTS,
@@ -10855,6 +10856,22 @@ def system_settings():
             flash("智能审核执行时间格式应为 HH:MM（例如 03:00）。", "error")
             return redirect(url_for("system_settings"))
         set_setting("ai_review_time", ai_review_time)
+        for _key, _label in llm_config.SCENES:
+            set_setting("llm_scene_" + _key, request.form.get("llm_scene_" + _key, "").strip())
+        _new_name = request.form.get("llm_new_name", "").strip()
+        if _new_name:
+            db().execute(
+                "insert into llm_configs (name, base_url, api_key, model, supports_vision, timeout_seconds, enabled, notes, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (_new_name,
+                 request.form.get("llm_new_base_url", "").strip(),
+                 request.form.get("llm_new_api_key", "").strip(),
+                 request.form.get("llm_new_model", "").strip(),
+                 1 if request.form.get("llm_new_supports_vision") == "on" else 0,
+                 int(request.form.get("llm_new_timeout", "300") or 300),
+                 1 if request.form.get("llm_new_enabled") == "on" else 0,
+                 request.form.get("llm_new_notes", "").strip(),
+                 api["now"](), api["now"]()),
+            )
         db().commit()
         flash("系统设置已保存。", "success")
         return redirect(url_for("system_settings"))
@@ -10880,6 +10897,9 @@ def system_settings():
         ai_interpret_ready=bool(ai_interpret_settings_snapshot["model"]) and bool(ai_interpret_settings_snapshot["base_url"]),
         ai_review_enabled=get_setting("ai_review_enabled", "true") == "true",
         ai_review_time=get_setting("ai_review_time", "03:00"),
+        llm_configs=llm_config.list_configs(db()),
+        llm_scenes=llm_config.SCENES,
+        llm_scene_current={key: get_setting("llm_scene_" + key, "") for key, _ in llm_config.SCENES},
         inspection_warning_days=inspection_warning_days(),
         inspection_cycle_days=inspection_cycle_days(),
         field_watermark_time_password=get_setting("field_watermark_time_password", ""),
@@ -10893,10 +10913,12 @@ AI_SEARCH_DOMAINS = {
 
 
 def deepseek_assistant_settings():
+    cfg = llm_config.get_config(db(), "daily_intent")
     return {
         "enabled": get_setting("deepseek_enabled", "false") == "true",
-        "api_key": get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip(),
-        "model": get_setting("deepseek_model", "deepseek-chat").strip() or "deepseek-chat",
+        "api_key": cfg["api_key"],
+        "model": cfg["model"],
+        "base_url": cfg["base_url"],
     }
 
 
@@ -10907,10 +10929,12 @@ def vision_settings():
     If disabled, classification_status = disabled, no photo uploaded externally.
     Default model: deepseek-flash (from DEEPSEEK_VISION_MODEL env, not hardcoded).
     """
+    cfg = llm_config.get_config(db(), "daily_vision")
     return {
         "enabled": get_setting("vision_external_api_enabled", "false") == "true",
-        "api_key": get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip(),
-        "model": get_setting("deepseek_vision_model", DEEPSEEK_VISION_MODEL_ENV).strip() or DEEPSEEK_VISION_MODEL_ENV,
+        "api_key": cfg["api_key"],
+        "model": cfg["model"],
+        "base_url": cfg["base_url"],
         "safety_auto_select_confidence": float(get_setting("safety_auto_select_confidence", "0.80")),
         "safety_verify_confidence": float(get_setting("safety_verify_confidence", "0.60")),
         "max_service_photos": int(get_setting("max_service_photos", "10")),
@@ -11227,8 +11251,9 @@ def call_deepseek_chat(messages, settings, include_tools=True, max_tokens=1600):
         request_payload["tools"] = AI_ASSISTANT_TOOLS
         request_payload["tool_choice"] = "auto"
     payload = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
+    _base = (settings.get("base_url") or "https://api.deepseek.com").rstrip("/")
     api_request = Request(
-        "https://api.deepseek.com/chat/completions",
+        _base + "/chat/completions",
         data=payload,
         headers={"Authorization": f"Bearer {settings['api_key']}", "Content-Type": "application/json"},
         method="POST",
@@ -12007,6 +12032,7 @@ def _make_photo_classification_service():
     provider = DeepSeekVisionProvider(
         api_key=settings["api_key"],
         model=settings["model"],
+        api_url=(settings.get("base_url") or "https://api.deepseek.com").rstrip("/") + "/chat/completions",
     )
     vision = VisionClassificationService(
         provider=provider,
