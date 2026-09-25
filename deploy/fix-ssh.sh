@@ -9,10 +9,13 @@ echo "[1/5] 配置 /root/.ssh 目录与权限..."
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
 
-echo "[2/5] 幂等写入公钥（先删旧行再追加，修复可能的粘连坏行）..."
+echo "[2/5] 幂等写入公钥（先删旧行再追加，确保独立成行）..."
 grep -vF "$KEYPREFIX" /root/.ssh/authorized_keys > /tmp/ak.new || true
 cat /tmp/ak.new > /root/.ssh/authorized_keys
+# 关键：确保末尾有换行，避免公钥粘连成坏行
+printf '\n' >> /root/.ssh/authorized_keys
 cat "$KEYFILE" >> /root/.ssh/authorized_keys
+printf '\n' >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 
 echo "[3/5] 设置 sshd: PermitRootLogin prohibit-password + PubkeyAuthentication yes..."
