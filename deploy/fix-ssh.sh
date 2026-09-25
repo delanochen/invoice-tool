@@ -9,8 +9,11 @@ echo "[1/5] 配置 /root/.ssh 目录与权限..."
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
 
-echo "[2/5] 幂等写入公钥（先删旧行再追加，确保独立成行）..."
-grep -vF "$KEYPREFIX" /root/.ssh/authorized_keys > /tmp/ak.new || true
+echo "[2/5] 清理垃圾行并幂等写入公钥（只保留有效 ssh-* 行）..."
+# 只保留以 ssh-ed25519/ssh-rsa/ecdsa- 开头的有效公钥行（剔除粘贴带入的乱码行）
+grep -E "^ssh-(ed25519|rsa|ecdsa)" /root/.ssh/authorized_keys > /tmp/ak.valid || true
+# 删除旧版本公钥（避免重复）
+grep -vF "$KEYPREFIX" /tmp/ak.valid > /tmp/ak.new || true
 cat /tmp/ak.new > /root/.ssh/authorized_keys
 # 关键：确保末尾有换行，避免公钥粘连成坏行
 printf '\n' >> /root/.ssh/authorized_keys
