@@ -54,48 +54,6 @@
       <small>员工选择“调整水印时间”时需要输入。密码按管理员要求保存在系统设置中。</small>
     </section>
     <section class="form-stack full-span">
-      <h2>DeepSeek 智能助手</h2>
-      <p class="muted-line">第一阶段仅允许读取当前登录用户有权限查看的数据，不执行新增、修改、删除或任意 SQL。</p>
-      <label>启用智能助手
-        <select name="deepseek_enabled">
-          <option value="false" {% if not deepseek_enabled %}selected{% endif %}>停用</option>
-          <option value="true" {% if deepseek_enabled %}selected{% endif %}>启用</option>
-        </select>
-      </label>
-      <label>模型
-        <select name="deepseek_model">
-          <option value="deepseek-flash" {% if deepseek_model == 'deepseek-flash' %}selected{% endif %}>DeepSeek Flash（推荐，V4.1 结构化输出更稳定）</option>
-          <option value="deepseek-v4-pro" {% if deepseek_model == 'deepseek-v4-pro' %}selected{% endif %}>DeepSeek V4 Pro（复杂分析）</option>
-        </select>
-      </label>
-      <label>API 密钥
-        <input type="password" name="deepseek_api_key" value="" autocomplete="new-password" placeholder="{{ '已配置；留空保持不变' if deepseek_api_key_configured else '请输入 DeepSeek API Key' }}">
-      </label>
-      <small>API Key 仅保存在服务器设置中，不会发送到浏览器；更换 Key 后请先保存，再测试连接。</small>
-      <div class="form-actions">
-        <button type="button" id="testDeepSeekConnection">测试 DeepSeek 连接</button>
-        <span id="deepSeekConnectionResult" class="muted-line" aria-live="polite"></span>
-      </div>
-    </section>
-    <section class="form-stack full-span">
-      <h2>报销附件智能解读（本地大模型）</h2>
-      <p class="muted-line">用于解读报销附件（图片/PDF）。每天凌晨 2 点后台会自动解读所有未解读过的附件，也可以在报销详情页手动点击「智能解读」。</p>
-      <label>大模型
-        <select name="ai_interpret_model_choice">
-          <option value="qwen4b" {% if ai_interpret_choice == 'qwen4b' %}selected{% endif %}>Qwen 4B（本地）</option>
-          <option value="qwen9b" {% if ai_interpret_choice == 'qwen9b' %}selected{% endif %}>Qwen 9B（本地）</option>
-          <option value="custom" {% if ai_interpret_choice == 'custom' %}selected{% endif %}>自定义</option>
-        </select>
-      </label>
-      <label>Qwen 4B 模型 ID <input type="text" name="ai_interpret_model_qwen4b" value="{{ ai_interpret_model_qwen4b }}"><small>需与 `ollama list` 中的名称一致</small></label>
-      <label>Qwen 9B 模型 ID <input type="text" name="ai_interpret_model_qwen9b" value="{{ ai_interpret_model_qwen9b }}"><small>需与 `ollama list` 中的名称一致</small></label>
-      <label>自定义模型 ID <input type="text" name="ai_interpret_model_custom" value="{{ ai_interpret_model_custom }}" placeholder="选择“自定义”时使用"></label>
-      <label>接口地址（OpenAI 兼容） <input type="text" name="ai_interpret_base_url" value="{{ ai_interpret_base_url }}"><small>Ollama 默认：http://127.0.0.1:11434/v1；容器内访问宿主机用 http://host.docker.internal:11434/v1</small></label>
-      <label>API 密钥（本地模型通常留空）
-        <input type="password" name="ai_interpret_api_key" value="" autocomplete="new-password" placeholder="{{ '已配置；留空保持不变' if ai_interpret_api_key_configured else '本地模型可留空' }}">
-      </label>
-    </section>
-    <section class="form-stack full-span">
       <h2>报销智能审核（夜间批量）</h2>
       <p class="muted-line">默认每天 03:00 批量审核所有待审核报销（状态=submitted）。附件解读 worker（02:00）会先完成，审核可直接引用其结果。AI 只输出审核意见供参考，不会自动改变报销状态。</p>
       <label>启用智能审核
@@ -108,12 +66,27 @@
     </section>
     <section class="form-stack full-span">
       <h2>大模型配置</h2>
-      <p class="muted-line">每个功能可独立选择使用哪个大模型。未选择时回退到上方旧配置。API Key 明文存储在数据库。</p>
+      <p class="muted-line">每个功能可独立选择使用哪个大模型。API Key 明文存储在数据库。</p>
+      <input type="hidden" name="llm_action" id="llmAction" value="">
+      <input type="hidden" name="llm_target_id" id="llmTargetId" value="">
+      <div class="table-toolbar">
+        <button type="button" class="primary" id="llmAddBtn">新增</button>
+      </div>
       <table class="list-table">
-        <thead><tr><th>名称</th><th>模型</th><th>接口地址</th><th>视觉</th><th>启用</th></tr></thead>
+        <thead><tr><th>名称</th><th>模型</th><th>接口地址</th><th>视觉</th><th>启用</th><th>操作</th></tr></thead>
         <tbody>
         {% for c in llm_configs %}
-          <tr><td>{{ c.name }}</td><td>{{ c.model }}</td><td>{{ c.base_url }}</td><td>{{ '是' if c.supports_vision else '否' }}</td><td>{{ '是' if c.enabled else '否' }}</td></tr>
+          <tr>
+            <td>{{ c.name }}</td><td>{{ c.model }}</td><td>{{ c.base_url }}</td>
+            <td>{{ '是' if c.supports_vision else '否' }}</td><td>{{ '是' if c.enabled else '否' }}</td>
+            <td class="row-actions">
+              <button type="button" class="llm-test" data-id="{{ c.id }}">测试</button>
+              <span class="llm-test-result" data-result-for="{{ c.id }}"></span>
+              <button type="button" class="llm-edit" data-id="{{ c.id }}" data-name="{{ c.name }}" data-base-url="{{ c.base_url }}" data-model="{{ c.model }}" data-timeout="{{ c.timeout_seconds }}" data-vision="{{ '1' if c.supports_vision else '0' }}" data-enabled="{{ '1' if c.enabled else '0' }}" data-notes="{{ c.notes or '' }}">修改</button>
+              <button type="button" class="llm-toggle" data-id="{{ c.id }}">{{ '停用' if c.enabled else '启用' }}</button>
+              <button type="button" class="llm-delete" data-id="{{ c.id }}">删除</button>
+            </td>
+          </tr>
         {% endfor %}
         </tbody>
       </table>
@@ -121,44 +94,126 @@
       {% for key, label in llm_scenes %}
       <label>{{ label }}
         <select name="llm_scene_{{ key }}">
-          <option value="">（旧配置回退）</option>
+          <option value="">（未配置）</option>
           {% for c in llm_configs %}
           <option value="{{ c.id }}" {% if llm_scene_current.get(key, '') == c.id|string %}selected{% endif %}>{{ c.name }}（{{ c.model }}）</option>
           {% endfor %}
         </select>
       </label>
       {% endfor %}
-      <h3 style="margin-top:1rem">新增大模型配置</h3>
-      <label>名称 <input name="llm_new_name" placeholder="例如 DeepSeek-V3"></label>
-      <label>接口地址 <input name="llm_new_base_url" placeholder="https://api.deepseek.com 或 http://host.docker.internal:11434/v1"></label>
-      <label>API Key <input type="password" name="llm_new_api_key" autocomplete="new-password"></label>
-      <label>模型名 <input name="llm_new_model" placeholder="deepseek-flash / qwen3.5:4b"></label>
-      <label>超时（秒） <input type="number" name="llm_new_timeout" value="300" min="10"></label>
-      <label>支持视觉 <input type="checkbox" name="llm_new_supports_vision"></label>
-      <label>启用 <input type="checkbox" name="llm_new_enabled" checked></label>
-      <label>备注 <input name="llm_new_notes"></label>
+      <div id="llmModal" class="modal-overlay" hidden>
+        <div class="modal-box">
+          <h3 id="llmModalTitle">新增大模型配置</h3>
+          <input type="hidden" name="llm_edit_id" id="llmEditId">
+          <label>名称 <input name="llm_new_name" id="mName" placeholder="例如 DeepSeek-V3"></label>
+          <label>接口地址 <input name="llm_new_base_url" id="mBaseUrl" placeholder="https://api.deepseek.com 或 http://host.docker.internal:11434/v1"></label>
+          <label>API Key <input type="password" name="llm_new_api_key" id="mApiKey" autocomplete="new-password" placeholder="新增时填写；修改时留空保持不变"></label>
+          <label>模型名 <input name="llm_new_model" id="mModel" placeholder="deepseek-flash / qwen3.5:4b"></label>
+          <label>超时（秒） <input type="number" name="llm_new_timeout" id="mTimeout" value="300" min="10"></label>
+          <label class="inline-check"><input type="checkbox" name="llm_new_supports_vision" id="mVision"> 支持视觉</label>
+          <label class="inline-check"><input type="checkbox" name="llm_new_enabled" id="mEnabled" checked> 启用</label>
+          <label>备注 <input name="llm_new_notes" id="mNotes"></label>
+          <div class="modal-actions">
+            <button type="button" class="btn-plain" id="llmModalCancel">取消</button>
+            <button type="button" class="primary" id="llmModalOk">保存</button>
+          </div>
+        </div>
+      </div>
     </section>    <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
   </form>
 {% endblock %}
 {% block scripts %}
+  <style>
+    .table-toolbar { display:flex; justify-content:flex-end; margin-bottom:0.5rem; }
+    .table-toolbar button { font-size:13px; }
+    .row-actions { white-space:nowrap; }
+    .row-actions button { font-size:12px; padding:2px 8px; margin-right:4px; }
+    .llm-test-result { display:block; font-size:12px; margin-top:2px; }
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:1000; }
+    .modal-box { background:#fff; border-radius:8px; padding:1.25rem 1.5rem; width:min(480px, 92vw); box-shadow:0 10px 30px rgba(0,0,0,.25); }
+    .modal-box h3 { margin-top:0; }
+    .modal-box label { display:block; margin-bottom:0.6rem; }
+    .modal-box input[type=text], .modal-box input[type=password], .modal-box input[type=number] { width:100%; }
+    .modal-box .inline-check { display:flex; align-items:center; gap:6px; }
+    .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:1rem; }
+    .btn-plain { background:#f0f0f0; border:1px solid #ccc; border-radius:4px; padding:5px 14px; cursor:pointer; }
+    .btn-plain:hover { background:#e2e2e2; }
+  </style>
   <script>
     (() => {
-      const button = document.getElementById("testDeepSeekConnection");
-      const result = document.getElementById("deepSeekConnectionResult");
-      button?.addEventListener("click", async () => {
-        button.disabled = true;
-        result.textContent = "正在测试...";
+      const form = document.querySelector("form.settings-layout");
+      if (!form) return;
+      const actionField = document.getElementById("llmAction");
+      const targetField = document.getElementById("llmTargetId");
+      const modal = document.getElementById("llmModal");
+      const title = document.getElementById("llmModalTitle");
+      const editId = document.getElementById("llmEditId");
+      const mName = document.getElementById("mName");
+      const mBaseUrl = document.getElementById("mBaseUrl");
+      const mApiKey = document.getElementById("mApiKey");
+      const mModel = document.getElementById("mModel");
+      const mTimeout = document.getElementById("mTimeout");
+      const mVision = document.getElementById("mVision");
+      const mEnabled = document.getElementById("mEnabled");
+      const mNotes = document.getElementById("mNotes");
+      const openModal = (isEdit, btn) => {
+        if (isEdit) {
+          editId.value = btn.dataset.id;
+          mName.value = btn.dataset.name || "";
+          mBaseUrl.value = btn.dataset.baseUrl || "";
+          mModel.value = btn.dataset.model || "";
+          mTimeout.value = btn.dataset.timeout || "300";
+          mVision.checked = btn.dataset.vision === "1";
+          mEnabled.checked = btn.dataset.enabled === "1";
+          mNotes.value = btn.dataset.notes || "";
+          mApiKey.value = "";
+          mApiKey.placeholder = "留空保持不变";
+          title.textContent = "修改大模型配置";
+        } else {
+          editId.value = "";
+          mName.value = ""; mBaseUrl.value = ""; mApiKey.value = ""; mModel.value = "";
+          mTimeout.value = "300"; mVision.checked = false; mEnabled.checked = true; mNotes.value = "";
+          mApiKey.placeholder = "新增时填写";
+          title.textContent = "新增大模型配置";
+        }
+        modal.hidden = false;
+      };
+      const closeModal = () => { modal.hidden = true; };
+      document.getElementById("llmAddBtn")?.addEventListener("click", () => openModal(false, null));
+      document.querySelectorAll(".llm-edit").forEach((btn) => btn.addEventListener("click", () => openModal(true, btn)));
+      document.getElementById("llmModalOk")?.addEventListener("click", () => {
+        actionField.value = editId.value ? "edit" : "new";
+        targetField.value = editId.value || "";
+        form.submit();
+      });
+      document.getElementById("llmModalCancel")?.addEventListener("click", closeModal);
+      document.querySelectorAll(".llm-toggle").forEach((btn) => btn.addEventListener("click", () => {
+        actionField.value = "toggle"; targetField.value = btn.dataset.id; form.submit();
+      }));
+      document.querySelectorAll(".llm-delete").forEach((btn) => btn.addEventListener("click", () => {
+        if (window.confirm("确定删除该大模型配置吗？")) {
+          actionField.value = "delete"; targetField.value = btn.dataset.id; form.submit();
+        }
+      }));
+      document.querySelectorAll(".llm-test").forEach((btn) => btn.addEventListener("click", async () => {
+        const span = document.querySelector(`[data-result-for="${btn.dataset.id}"]`);
+        btn.disabled = true;
+        if (span) { span.textContent = "测试中..."; span.style.color = ""; }
         try {
-          const response = await fetch({{ url_for('deepseek_connection_test')|tojson }}, {method: "POST"});
+          const response = await fetch({{ url_for('deepseek_connection_test')|tojson }}, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({config_id: Number(btn.dataset.id)})
+          });
           const data = await response.json().catch(() => ({}));
           if (!response.ok || !data.ok) throw new Error(data.error || `测试失败（${response.status}）`);
-          result.textContent = `${data.model}：${data.message}`;
+          if (span) { span.textContent = `${data.name || data.model}：${data.message}`; span.style.color = "#2e7d32"; }
         } catch (error) {
-          result.textContent = error.message || "测试失败。";
+          if (span) { span.textContent = error.message || "测试失败。"; span.style.color = "#c62828"; }
         } finally {
-          button.disabled = false;
+          btn.disabled = false;
         }
-      });
+      }));
     })();
   </script>
 {% endblock %}

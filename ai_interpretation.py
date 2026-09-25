@@ -58,7 +58,13 @@ def setting_value(connection, key):
 
 def effective_settings(connection):
     import llm_config
-    cfg = llm_config.get_config(connection, "attachment_interpret")
+    try:
+        cfg = llm_config.get_config(connection, "attachment_interpret")
+    except ValueError:
+        return {
+            "base_url": "", "api_key": "", "model": "",
+            "model_label": "未配置", "timeout_seconds": TIMEOUT_SECONDS,
+        }
     return {
         "base_url": cfg["base_url"],
         "api_key": cfg["api_key"],

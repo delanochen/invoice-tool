@@ -10805,6 +10805,38 @@ def delete_user(user_id):
 @login_required
 def system_settings():
     if request.method == "POST":
+        # 大模型配置表的行级操作（删除 / 停用切换）先行处理，不保存其余表单
+        llm_action = request.form.get("llm_action", "").strip()
+        llm_target_id = request.form.get("llm_target_id", "").strip()
+        if llm_action == "delete" and llm_target_id:
+            _row = llm_config.get_row(db(), llm_target_id)
+            if _row is None:
+                flash("要删除的配置不存在。", "error")
+            else:
+                _used = [
+                    label for key, label in llm_config.SCENES
+                    if get_setting("llm_scene_" + key, "").strip() == llm_target_id
+                ]
+                if _used:
+                    flash(f"该配置正被「{'、'.join(_used)}」使用，请先调整场景映射后再删除。", "error")
+                else:
+                    db().execute("delete from llm_configs where id = ?", (int(llm_target_id),))
+                    db().commit()
+                    flash("配置已删除。", "success")
+            return redirect(url_for("system_settings"))
+        if llm_action == "toggle" and llm_target_id:
+            _row = llm_config.get_row(db(), llm_target_id)
+            if _row is None:
+                flash("要操作的配置不存在。", "error")
+            else:
+                _next = 0 if _row["enabled"] else 1
+                db().execute(
+                    "update llm_configs set enabled = ?, updated_at = ? where id = ?",
+                    (_next, api["now"](), int(llm_target_id)),
+                )
+                db().commit()
+                flash("配置已" + ("停用" if _row["enabled"] else "启用") + "。", "success")
+            return redirect(url_for("system_settings"))
         warning_days = positive_int(request.form.get("inspection_warning_days"), 150)
         cycle_days = positive_int(request.form.get("inspection_cycle_days"), 180)
         if warning_days >= cycle_days:
@@ -10828,27 +10860,9 @@ def system_settings():
             "google_places_api_key",
             request.form.get("google_places_api_key", "").strip(),
         )
-        set_setting("deepseek_enabled", "true" if request.form.get("deepseek_enabled") == "true" else "false")
-        deepseek_api_key = request.form.get("deepseek_api_key", "").strip()
-        if deepseek_api_key:
-            set_setting("deepseek_api_key", deepseek_api_key)
-        model = request.form.get("deepseek_model", "deepseek-flash").strip()
-        if model not in {"deepseek-flash", "deepseek-v4-pro"}:
-            model = "deepseek-flash"
-        set_setting("deepseek_model", model)
         set_setting("inspection_warning_days", str(warning_days))
         set_setting("inspection_cycle_days", str(cycle_days))
         set_setting("field_watermark_time_password", request.form.get("field_watermark_time_password", "").strip())
-        # 报销附件智能解读（本地大模型）
-        set_setting("ai_interpret_base_url", request.form.get("ai_interpret_base_url", "").strip())
-        ai_choice = request.form.get("ai_interpret_model_choice", "qwen4b").strip()
-        if ai_choice not in {key for key, _label, _setting in MODEL_OPTIONS} | {"custom"}:
-            ai_choice = "qwen4b"
-        set_setting("ai_interpret_model_choice", ai_choice)
-        set_setting("ai_interpret_model_qwen4b", request.form.get("ai_interpret_model_qwen4b", "").strip())
-        set_setting("ai_interpret_model_qwen9b", request.form.get("ai_interpret_model_qwen9b", "").strip())
-        set_setting("ai_interpret_model_custom", request.form.get("ai_interpret_model_custom", "").strip())
-        set_setting("ai_interpret_api_key", request.form.get("ai_interpret_api_key", "").strip())
         # 报销智能审核夜间批量（worker 读取）
         set_setting("ai_review_enabled", "true" if request.form.get("ai_review_enabled") == "true" else "false")
         ai_review_time = request.form.get("ai_review_time", "03:00").strip()
@@ -10856,26 +10870,57 @@ def system_settings():
             flash("智能审核执行时间格式应为 HH:MM（例如 03:00）。", "error")
             return redirect(url_for("system_settings"))
         set_setting("ai_review_time", ai_review_time)
+        # 场景映射（大模型配置表的行）
         for _key, _label in llm_config.SCENES:
             set_setting("llm_scene_" + _key, request.form.get("llm_scene_" + _key, "").strip())
-        _new_name = request.form.get("llm_new_name", "").strip()
-        if _new_name:
-            db().execute(
-                "insert into llm_configs (name, base_url, api_key, model, supports_vision, timeout_seconds, enabled, notes, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (_new_name,
-                 request.form.get("llm_new_base_url", "").strip(),
-                 request.form.get("llm_new_api_key", "").strip(),
-                 request.form.get("llm_new_model", "").strip(),
-                 1 if request.form.get("llm_new_supports_vision") == "on" else 0,
-                 int(request.form.get("llm_new_timeout", "300") or 300),
-                 1 if request.form.get("llm_new_enabled") == "on" else 0,
-                 request.form.get("llm_new_notes", "").strip(),
-                 api["now"](), api["now"]()),
-            )
-        db().commit()
-        flash("系统设置已保存。", "success")
+        # 大模型配置：修改（模态框）或新增（模态框）
+        if llm_action == "edit":
+            _edit_id = request.form.get("llm_edit_id", "").strip()
+            _row = llm_config.get_row(db(), _edit_id) if _edit_id else None
+            if _row is None:
+                flash("要修改的配置不存在。", "error")
+            else:
+                _api_key = request.form.get("llm_new_api_key", "").strip()
+                if not _api_key:
+                    _api_key = _row["api_key"]
+                db().execute(
+                    "update llm_configs set name=?, base_url=?, api_key=?, model=?, supports_vision=?, timeout_seconds=?, enabled=?, notes=?, updated_at=? where id=?",
+                    (request.form.get("llm_new_name", "").strip() or _row["name"],
+                     request.form.get("llm_new_base_url", "").strip() or _row["base_url"],
+                     _api_key,
+                     request.form.get("llm_new_model", "").strip() or _row["model"],
+                     1 if request.form.get("llm_new_supports_vision") == "on" else 0,
+                     int(request.form.get("llm_new_timeout", "") or _row["timeout_seconds"]),
+                     1 if request.form.get("llm_new_enabled") == "on" else 0,
+                     request.form.get("llm_new_notes", "").strip(),
+                     api["now"](),
+                     int(_edit_id)),
+                )
+                db().commit()
+                flash("配置已更新。", "success")
+        elif llm_action == "new":
+            _new_name = request.form.get("llm_new_name", "").strip()
+            if not _new_name:
+                flash("新增配置：名称不能为空。", "error")
+            else:
+                db().execute(
+                    "insert into llm_configs (name, base_url, api_key, model, supports_vision, timeout_seconds, enabled, notes, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (_new_name,
+                     request.form.get("llm_new_base_url", "").strip(),
+                     request.form.get("llm_new_api_key", "").strip(),
+                     request.form.get("llm_new_model", "").strip(),
+                     1 if request.form.get("llm_new_supports_vision") == "on" else 0,
+                     int(request.form.get("llm_new_timeout", "300") or 300),
+                     1 if request.form.get("llm_new_enabled") == "on" else 0,
+                     request.form.get("llm_new_notes", "").strip(),
+                     api["now"](), api["now"]()),
+                )
+                db().commit()
+                flash("配置已新增。", "success")
+        else:
+            db().commit()
+            flash("系统设置已保存。", "success")
         return redirect(url_for("system_settings"))
-    ai_interpret_settings_snapshot = ai_interpret_effective_settings(db())
     return render_template(
         "company_settings.html",
         company=get_company_profile(),
@@ -10885,16 +10930,6 @@ def system_settings():
         google_maps_browser_api_key=get_google_maps_browser_api_key(),
         google_geocoding_api_key=get_google_geocoding_api_key(),
         google_places_api_key=get_setting("google_places_api_key", GOOGLE_PLACES_API_KEY_ENV).strip(),
-        deepseek_enabled=get_setting("deepseek_enabled", "false") == "true",
-        deepseek_api_key_configured=bool(get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip()),
-        deepseek_model=get_setting("deepseek_model", "deepseek-flash"),
-        ai_interpret_choice=get_setting("ai_interpret_model_choice", AI_INTERPRET_DEFAULTS["ai_interpret_model_choice"]),
-        ai_interpret_base_url=get_setting("ai_interpret_base_url", AI_INTERPRET_DEFAULTS["ai_interpret_base_url"]),
-        ai_interpret_model_qwen4b=get_setting("ai_interpret_model_qwen4b", AI_INTERPRET_DEFAULTS["ai_interpret_model_qwen4b"]),
-        ai_interpret_model_qwen9b=get_setting("ai_interpret_model_qwen9b", AI_INTERPRET_DEFAULTS["ai_interpret_model_qwen9b"]),
-        ai_interpret_model_custom=get_setting("ai_interpret_model_custom", ""),
-        ai_interpret_api_key_configured=bool(get_setting("ai_interpret_api_key", "").strip()),
-        ai_interpret_ready=bool(ai_interpret_settings_snapshot["model"]) and bool(ai_interpret_settings_snapshot["base_url"]),
         ai_review_enabled=get_setting("ai_review_enabled", "true") == "true",
         ai_review_time=get_setting("ai_review_time", "03:00"),
         llm_configs=llm_config.list_configs(db()),
@@ -10913,9 +10948,12 @@ AI_SEARCH_DOMAINS = {
 
 
 def deepseek_assistant_settings():
-    cfg = llm_config.get_config(db(), "daily_intent")
+    try:
+        cfg = llm_config.get_config(db(), "daily_intent")
+    except ValueError:
+        return {"enabled": False, "api_key": "", "model": "", "base_url": ""}
     return {
-        "enabled": get_setting("deepseek_enabled", "false") == "true",
+        "enabled": True,
         "api_key": cfg["api_key"],
         "model": cfg["model"],
         "base_url": cfg["base_url"],
@@ -10929,9 +10967,12 @@ def vision_settings():
     If disabled, classification_status = disabled, no photo uploaded externally.
     Default model: deepseek-flash (from DEEPSEEK_VISION_MODEL env, not hardcoded).
     """
-    cfg = llm_config.get_config(db(), "daily_vision")
+    try:
+        cfg = llm_config.get_config(db(), "daily_vision")
+    except ValueError:
+        cfg = {"api_key": "", "model": "", "base_url": ""}
     return {
-        "enabled": get_setting("vision_external_api_enabled", "false") == "true",
+        "enabled": get_setting("vision_external_api_enabled", "false") == "true" and bool(cfg["model"]),
         "api_key": cfg["api_key"],
         "model": cfg["model"],
         "base_url": cfg["base_url"],
@@ -11279,9 +11320,18 @@ def call_deepseek_chat(messages, settings, include_tools=True, max_tokens=1600):
 @app.post("/api/settings/deepseek-test")
 @admin_required
 def deepseek_connection_test():
-    settings = deepseek_assistant_settings()
+    payload = request.get_json(silent=True) or {}
+    config_id = payload.get("config_id")
+    if config_id:
+        settings = llm_config.config_by_id(db(), config_id)
+        if not settings:
+            return jsonify({"ok": False, "error": "配置不存在。"}), 404
+        provider_name = settings["name"]
+    else:
+        settings = deepseek_assistant_settings()
+        provider_name = settings.get("model", "")
     if not settings["api_key"]:
-        return jsonify({"ok": False, "error": "尚未配置 DeepSeek API Key。"}), 422
+        return jsonify({"ok": False, "error": "该配置未填写 API Key。"}), 422
     try:
         response = call_deepseek_chat(
             [{"role": "user", "content": "请只回复：连接成功"}],
@@ -11290,7 +11340,7 @@ def deepseek_connection_test():
             max_tokens=32,
         )
         answer = str(response.get("content") or "").strip()
-        return jsonify({"ok": True, "message": answer or "连接成功。", "model": settings["model"]})
+        return jsonify({"ok": True, "message": answer or "连接成功。", "model": settings["model"], "name": provider_name})
     except RuntimeError as error:
         return jsonify({"ok": False, "error": str(error)}), 422
 

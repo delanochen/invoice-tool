@@ -2,13 +2,10 @@
 
 Every feature that calls a chat/completions API resolves its provider through
 get_config(db, scene). The admin maps each scene to a row in llm_configs from
-the system settings page. When a scene has no explicit mapping (or the mapped
-row is disabled), we fall back to the legacy per-feature settings so existing
-deployments keep working unchanged.
+the system settings page. Scenes must map to an enabled config row; there is no
+legacy fallback — legacy DeepSeek / local-model settings were removed in 0.1.283.
 """
 from __future__ import annotations
-
-import os
 
 # scene key -> human label. Order matters for the settings page.
 SCENES = (
@@ -19,7 +16,7 @@ SCENES = (
 )
 
 SCENE_KEYS = {key for key, _label in SCENES}
-_DEEPSEEK_BASE = "https://api.deepseek.com"
+SCENE_LABELS = dict(SCENES)
 
 
 def _setting(db, key, default=""):
@@ -28,63 +25,42 @@ def _setting(db, key, default=""):
 
 
 def list_configs(db):
-    return db.execute(
-        "select * from llm_configs order by id"
-    ).fetchall()
+    return db.execute("select * from llm_configs order by id").fetchall()
+
+
+def get_row(db, config_id):
+    """Return the raw llm_configs row for `config_id`, or None."""
+    try:
+        return db.execute(
+            "select * from llm_configs where id = ?", (int(config_id),)
+        ).fetchone()
+    except (TypeError, ValueError):
+        return None
+
+
+def config_by_id(db, config_id):
+    """Normalized provider dict for a config row (regardless of enabled)."""
+    row = get_row(db, config_id)
+    if row is None:
+        return None
+    return _from_row(row)
 
 
 def get_config(db, scene):
-    """Return a normalized provider dict for `scene`, with legacy fallback.
+    """Return a normalized provider dict for `scene` (must map to an enabled config).
 
     Shape: {name, base_url, api_key, model, supports_vision, timeout_seconds}.
+    Raises ValueError when the scene has no mapping to an enabled config.
     """
     mapped = _setting(db, f"llm_scene_{scene}").strip()
     if mapped:
-        row = db.execute(
-            "select * from llm_configs where id = ?", (int(mapped),)
-        ).fetchone()
+        row = get_row(db, mapped)
         if row and row["enabled"]:
             return _from_row(row)
-    # --- legacy fallback (keeps existing deployments working) ---
-    if scene == "attachment_interpret":
-        base = os.environ.get("AI_INTERPRET_BASE_URL",
-                              "http://host.docker.internal:11434/v1")
-        base = _setting(db, "ai_interpret_base_url", base).strip() or base
-        choice = _setting(db, "ai_interpret_model_choice", "qwen4b")
-        if choice == "custom":
-            model = _setting(db, "ai_interpret_model_custom", "")
-        elif choice == "qwen9b":
-            model = _setting(db, "ai_interpret_model_qwen9b", "qwen3.5:9b")
-        else:
-            model = _setting(db, "ai_interpret_model_qwen4b", "qwen3.5:4b")
-        return {
-            "name": "本地 Ollama (legacy)", "base_url": base.rstrip("/"),
-            "api_key": _setting(db, "ai_interpret_api_key", ""),
-            "model": model, "supports_vision": True, "timeout_seconds": 300,
-        }
-    if scene == "expense_review":
-        # review historically reused the attachment provider
-        return get_config(db, "attachment_interpret")
-    if scene == "daily_vision":
-        key = _setting(db, "deepseek_api_key",
-                       os.environ.get("DEEPSEEK_API_KEY", "")).strip()
-        model = _setting(db, "deepseek_vision_model",
-                         os.environ.get("DEEPSEEK_VISION_MODEL", "deepseek-flash"))
-        return {
-            "name": "DeepSeek vision (legacy)", "base_url": _DEEPSEEK_BASE,
-            "api_key": key, "model": model, "supports_vision": True,
-            "timeout_seconds": 120,
-        }
-    if scene == "daily_intent":
-        key = _setting(db, "deepseek_api_key",
-                       os.environ.get("DEEPSEEK_API_KEY", "")).strip()
-        model = _setting(db, "deepseek_model", "deepseek-flash")
-        return {
-            "name": "DeepSeek chat (legacy)", "base_url": _DEEPSEEK_BASE,
-            "api_key": key, "model": model, "supports_vision": False,
-            "timeout_seconds": 120,
-        }
-    raise ValueError(f"unknown LLM scene: {scene}")
+    label = SCENE_LABELS.get(scene, scene)
+    raise ValueError(
+        f"场景「{label}」未配置可用的模型，请在系统设置 → 大模型配置中选择。"
+    )
 
 
 def _from_row(row):
