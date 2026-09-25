@@ -64,8 +64,7 @@
       </label>
       <label>模型
         <select name="deepseek_model">
-          <option value="deepseek-chat" {% if deepseek_model == 'deepseek-chat' %}selected{% endif %}>DeepSeek Chat（推荐，结构化输出更稳定）</option>
-          <option value="deepseek-v4-flash" {% if deepseek_model == 'deepseek-v4-flash' %}selected{% endif %}>DeepSeek V4 Flash（日常查询）</option>
+          <option value="deepseek-flash" {% if deepseek_model == 'deepseek-flash' %}selected{% endif %}>DeepSeek Flash（推荐，V4.1 结构化输出更稳定）</option>
           <option value="deepseek-v4-pro" {% if deepseek_model == 'deepseek-v4-pro' %}selected{% endif %}>DeepSeek V4 Pro（复杂分析）</option>
         </select>
       </label>
@@ -107,38 +106,7 @@
       </label>
       <label>执行时间 <input type="time" name="ai_review_time" value="{{ ai_review_time }}" required><small>默认 03:00（HH:MM）</small></label>
     </section>
-    <section class="form-stack full-span">
-      <h2>大模型配置</h2>
-      <p class="muted-line">每个功能可独立选择使用哪个大模型。未选择时回退到上方旧配置。API Key 明文存储在数据库。</p>
-      <table class="list-table">
-        <thead><tr><th>名称</th><th>模型</th><th>接口地址</th><th>视觉</th><th>启用</th></tr></thead>
-        <tbody>
-        {% for c in llm_configs %}
-          <tr><td>{{ c.name }}</td><td>{{ c.model }}</td><td>{{ c.base_url }}</td><td>{{ '是' if c.supports_vision else '否' }}</td><td>{{ '是' if c.enabled else '否' }}</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-      <h3 style="margin-top:1rem">各功能使用的模型</h3>
-      {% for key, label in llm_scenes %}
-      <label>{{ label }}
-        <select name="llm_scene_{{ key }}">
-          <option value="">（旧配置回退）</option>
-          {% for c in llm_configs %}
-          <option value="{{ c.id }}" {% if llm_scene_current.get(key, '') == c.id|string %}selected{% endif %}>{{ c.name }}（{{ c.model }}）</option>
-          {% endfor %}
-        </select>
-      </label>
-      {% endfor %}
-      <h3 style="margin-top:1rem">新增大模型配置</h3>
-      <label>名称 <input name="llm_new_name" placeholder="例如 DeepSeek-V3"></label>
-      <label>接口地址 <input name="llm_new_base_url" placeholder="https://api.deepseek.com 或 http://host.docker.internal:11434/v1"></label>
-      <label>API Key <input type="password" name="llm_new_api_key" autocomplete="new-password"></label>
-      <label>模型名 <input name="llm_new_model" placeholder="deepseek-chat / qwen3.5:4b"></label>
-      <label>超时（秒） <input type="number" name="llm_new_timeout" value="300" min="10"></label>
-      <label>支持视觉 <input type="checkbox" name="llm_new_supports_vision"></label>
-      <label>启用 <input type="checkbox" name="llm_new_enabled" checked></label>
-      <label>备注 <input name="llm_new_notes"></label>
-    </section>    <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
+    <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
   </form>
 {% endblock %}
 {% block scripts %}
