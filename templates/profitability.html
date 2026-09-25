@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "erp_ui.html" import status_pill, summary_item, nav_item, tab_button, order_card %}
+{% from "erp_ui.html" import status_pill, summary_item, tab_button, order_card %}
 {% block title %}项目利润 - 发票工具{% endblock %}
 
 {% block head %}
@@ -55,24 +55,15 @@
     </div>
   </header>
 
-  <!-- ───────────────────────────────── SidebarTree ──────────────────────── -->
-  <aside class="erp-nav no-print">
-    <div class="erp-nav-title">报表视图</div>
-    <ul class="erp-nav-tree">
-      {{ nav_item('orders', '工单汇总', summary_rows|length) }}
-      {{ nav_item('detail', '利润明细', lines|length, summary.incomplete) }}
-      {{ nav_item('source', '利润来源') }}
-      {{ nav_item('summary', group_label ~ '汇总', rows|length) }}
-    </ul>
-  </aside>
-
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图入口：顶部页签，计数与「缺费率」警示点直接挂在页签上。
+     不再另设左侧「报表视图」菜单——同一组入口在同一屏出现两次、还白占 208px 宽度。 #}
   <div class="erp-body">
     <nav class="erp-tabs no-print">
-      {{ tab_button('orders', '工单汇总', true) }}
-      {{ tab_button('detail', '利润明细') }}
+      {{ tab_button('orders', '工单汇总', true, summary_rows|length) }}
+      {{ tab_button('detail', '利润明细', false, lines|length, summary.incomplete) }}
       {{ tab_button('source', '利润来源') }}
-      {{ tab_button('summary', group_label ~ '汇总') }}
+      {{ tab_button('summary', group_label ~ '汇总', false, rows|length) }}
     </nav>
 
     <!-- FilterBar：字段名与后端完全保持一致 -->

@@ -27,9 +27,10 @@
 </button></li>
 {%- endmacro %}
 
-{# TabWorkspace 标签 #}
-{% macro tab_button(panel, label, active=false) -%}
-<button type="button" class="erp-tab{% if active %} active{% endif %}" data-erp-tab="{{ panel }}">{{ label }}</button>
+{# TabWorkspace 标签：count 显示条数、warn 显示警示点（口径与 nav_item 一致）。
+   页面若同时有 SidebarTree 与页签，可只保留页签，把计数/警示点挂到页签上。 #}
+{% macro tab_button(panel, label, active=false, count='', warn=false) -%}
+<button type="button" class="erp-tab{% if active %} active{% endif %}" data-erp-tab="{{ panel }}">{% if warn %}<i class="dot" aria-hidden="true"></i>{% endif %}<span>{{ label }}</span>{% if count is not none and count != '' %}<span class="count">{{ count }}</span>{% endif %}</button>
 {%- endmacro %}
 
 {# MobileWorkOrderCard：手机端工单卡片 #}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "erp_ui.html" import summary_item, nav_item, tab_button %}
+{% from "erp_ui.html" import summary_item, tab_button %}
 {% from "report_multiselect.html" import multi_filter %}
 {% block title %}日报查询 - 发票工具{% endblock %}
 
@@ -41,23 +41,14 @@
     </div>
   </header>
 
-  <!-- ───────────────────────────────── SidebarTree ──────────────────────── -->
-  <aside class="erp-nav no-print">
-    <div class="erp-nav-title">报表视图</div>
-    <ul class="erp-nav-tree">
-      {{ nav_item('list', '日报清单', rows|length) }}
-      {{ nav_item('order', '按工单汇总', order_count) }}
-      {{ nav_item('site', '按站点汇总', site_count) }}
-    </ul>
-  </aside>
-
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图入口：顶部页签。不再另设左侧「报表视图」菜单，
+     否则同一组入口在同一屏出现两次、还白占 208px 宽度（见 erp-ui.css 的无导航布局）。 #}
   <div class="erp-body">
-    {# TabWorkspace：与SidebarTree 共用入口，和敏感性报表保持一致 #}
     <nav class="erp-tabs no-print">
-      {{ tab_button('list', '日报清单', true) }}
-      {{ tab_button('order', '按工单汇总') }}
-      {{ tab_button('site', '按站点汇总') }}
+      {{ tab_button('list', '日报清单', true, rows|length) }}
+      {{ tab_button('order', '按工单汇总', false, order_count) }}
+      {{ tab_button('site', '按站点汇总', false, site_count) }}
     </nav>
 
     <!-- FilterBar：字段名与后端完全一致（order_id / site / worker_id / date_from / date_to / q） -->
