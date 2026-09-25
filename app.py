@@ -10843,7 +10843,7 @@ def system_settings():
             if _row is None:
                 flash("要操作的配置不存在。", "error")
             else:
-                _next = 0 if _row["enabled"] else 1
+                _next = not bool(_row["enabled"])
                 db().execute(
                     "update llm_configs set enabled = ?, updated_at = ? where id = ?",
                     (_next, now(), int(llm_target_id)),
@@ -10903,9 +10903,9 @@ def system_settings():
                      request.form.get("llm_new_base_url", "").strip() or _row["base_url"],
                      _api_key,
                      request.form.get("llm_new_model", "").strip() or _row["model"],
-                     1 if request.form.get("llm_new_supports_vision") == "on" else 0,
+                     request.form.get("llm_new_supports_vision") == "on",
                      int(request.form.get("llm_new_timeout", "") or _row["timeout_seconds"]),
-                     1 if request.form.get("llm_new_enabled") == "on" else 0,
+                     request.form.get("llm_new_enabled") == "on",
                      request.form.get("llm_new_notes", "").strip(),
                      now(),
                      int(_edit_id)),
@@ -10923,9 +10923,9 @@ def system_settings():
                      request.form.get("llm_new_base_url", "").strip(),
                      request.form.get("llm_new_api_key", "").strip(),
                      request.form.get("llm_new_model", "").strip(),
-                     1 if request.form.get("llm_new_supports_vision") == "on" else 0,
+                     request.form.get("llm_new_supports_vision") == "on",
                      int(request.form.get("llm_new_timeout", "300") or 300),
-                     1 if request.form.get("llm_new_enabled") == "on" else 0,
+                     request.form.get("llm_new_enabled") == "on",
                      request.form.get("llm_new_notes", "").strip(),
                      now(), now()),
                 )
