@@ -78,7 +78,7 @@ def get_config(db, scene):
     if scene == "daily_intent":
         key = _setting(db, "deepseek_api_key",
                        os.environ.get("DEEPSEEK_API_KEY", "")).strip()
-        model = _setting(db, "deepseek_model", "deepseek-chat")
+        model = _setting(db, "deepseek_model", "deepseek-flash")
         return {
             "name": "DeepSeek chat (legacy)", "base_url": _DEEPSEEK_BASE,
             "api_key": key, "model": model, "supports_vision": False,
