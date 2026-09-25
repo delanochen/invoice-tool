@@ -18,6 +18,10 @@ services:
       GOOGLE_GEOCODING_API_KEY: "${GOOGLE_GEOCODING_API_KEY:-}"
       REQUIRE_DATA_DIRECTORY_IDENTITY: "1"
       DATA_DIRECTORY_IDENTITY: "invoice-tool-primary-volume1-20260816"
+    extra_hosts:
+      # 报销附件智能解读需要访问宿主机上的本地大模型（如 Ollama :11434），
+      # 系统设置里的接口地址填 http://host.docker.internal:11434/v1
+      - "host.docker.internal:host-gateway"
     volumes:
       - "${DATA_HOST_DIR:-/srv/invoice-tool/data}:/app/data"
       - "${SHARED_PHOTOS_HOST_DIR:-/srv/invoice-tool/shared-photos}:/app/shared-photos"
@@ -49,3 +53,32 @@ services:
       PHOTO_BACKUP_DAYS: "7"
     volumes:
       - "${SHARED_PHOTOS_HOST_DIR:-/srv/invoice-tool/shared-photos}:/app/shared-photos"
+
+  ai-interpret-worker:
+    image: invoice-tool:latest
+    container_name: invoice-tool-ai-interpret
+    restart: unless-stopped
+    command: python ai_interpret_worker.py
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATA_DIR: "/app/data"
+      AI_INTERPRET_RUN_HOUR: "2"
+      AI_INTERPRET_BATCH_LIMIT: "200"
+      AI_INTERPRET_BASE_URL: "${AI_INTERPRET_BASE_URL:-}"
+    volumes:
+      - "${DATA_HOST_DIR:-/srv/invoice-tool/data}:/app/data"
+
+  ai-review-worker:
+    image: invoice-tool:latest
+    container_name: invoice-tool-ai-review
+    restart: unless-stopped
+    command: python ai_review_worker.py
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATA_DIR: "/app/data"
+      AI_REVIEW_BATCH_LIMIT: "100"
+      AI_REVIEW_RUN_TIME: "${AI_REVIEW_RUN_TIME:-}"
+    volumes:
+      - "${DATA_HOST_DIR:-/srv/invoice-tool/data}:/app/data"

@@ -13,6 +13,18 @@
   </div>
 </header>
 
+{% if missing_rate_summary %}
+<section class="panel">
+  <div class="flash error">
+    <strong>⚠ 客户费率未配置</strong>（来源：合同费率版本）——
+    {% for rate_date, labels in missing_rate_summary.items() %}
+      {{ rate_date }}：{{ labels|join("、") }}{% if not loop.last %}；{% endif %}
+    {% endfor %}
+    。请先在对应合同的「费率版本」中配置，否则相关结算金额会按 0 计算且无法保存。
+  </div>
+</section>
+{% endif %}
+
 <form method="post" id="settlementExpenseReviewForm" class="form-stack">
   <section class="panel">
     <div class="panel-title">

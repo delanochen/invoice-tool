@@ -154,10 +154,19 @@
         return;
       }
       {% if google_maps_enabled %}
-        loadScript("{{ url_for('static', filename='service-order-map-google.js', v=app_version) }}");
-        var googleScript = loadScript("https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async", true);
-        googleScript.setAttribute("data-interactive-map", "google");
-        watchInteractiveLoad(INTERACTIVE_LOAD_TIMEOUT_MS, {{ "交互地图脚本未能加载（网络不可达），已自动切换为静态模式"|tojson }});
+        // 动态插入的脚本默认 async，两个脚本会互相赛跑：Google API 先执行时
+        // 回调函数还不存在（渲染器脚本未跑），渲染器永远注册不上，10 秒后
+        // 被误判为"网络不可达"回退静态 —— 且该回退会写入 localStorage 永久生效。
+        // 因此必须先让本地渲染器脚本执行完，再请求第三方 API。
+        var rendererScript = loadScript("{{ url_for('static', filename='service-order-map-google.js', v=app_version) }}");
+        rendererScript.addEventListener("error", function () {
+          fallbackToStatic({{ "交互地图渲染脚本加载失败，已自动切换为静态模式"|tojson }});
+        });
+        rendererScript.addEventListener("load", function () {
+          var googleScript = loadScript("https://maps.googleapis.com/maps/api/js?key={{ google_maps_browser_api_key|e }}&callback=initServiceOrderGoogleMap&loading=async", true);
+          googleScript.setAttribute("data-interactive-map", "google");
+          watchInteractiveLoad(INTERACTIVE_LOAD_TIMEOUT_MS, {{ "交互地图脚本未能加载（网络不可达），已自动切换为静态模式"|tojson }});
+        });
       {% else %}
         var link = document.createElement("link");
         link.rel = "stylesheet";
@@ -165,7 +174,10 @@
         document.head.appendChild(link);
         var leafletScript = loadScript("https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", true);
         leafletScript.setAttribute("data-interactive-map", "leaflet");
-        loadScript("{{ url_for('static', filename='service-order-map.js', v=app_version) }}");
+        // 同上：Leaflet 渲染器顶层就调用 L.map，必须等 leaflet.js 执行完再加载
+        leafletScript.addEventListener("load", function () {
+          loadScript("{{ url_for('static', filename='service-order-map.js', v=app_version) }}");
+        });
         watchInteractiveLoad(LEAFLET_LOAD_TIMEOUT_MS, {{ "交互地图脚本未能加载（网络不可达），已自动切换为静态模式"|tojson }});
       {% endif %}
     })();

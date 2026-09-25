@@ -1,53 +1,111 @@
 {% extends "base.html" %}
 {% block title %}员工等级 - 发票工具{% endblock %}
 {% block content %}
+<style>
+  .grade-workbench { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .grade-workbench { grid-template-columns: minmax(0, 1fr); } }
+  .grade-list-item { display: block; padding: 10px 12px; border: 1px solid #d7dde5; border-radius: 6px; margin-bottom: 8px; text-decoration: none; color: inherit; background: #fff; }
+  .grade-list-item:hover { background: #f4f8ff; }
+  .grade-list-item.is-selected { border-color: #2b5fd9; background: #eaf1fc; }
+  .grade-list-item .grade-name-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .grade-badge { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .grade-badge.ok { background: #e3f6ec; color: #027a48; }
+  .grade-badge.off { background: #eef1f5; color: #64748b; }
+  .inline-form { display: inline; }
+  .grade-version-note { margin: 4px 0 10px; }
+</style>
   <header class="page-header">
     <div><p class="eyebrow">员工等级</p><h1>员工等级</h1></div>
   </header>
 
-  <section class="panel">
-    <div class="panel-title"><span class="muted-line">{{ grades|length }} 个等级</span><div class="toolbar-actions"><button class="small primary" type="button" data-dialog-open="newEmployeeGradeDialog">新增等级</button><button class="small" type="button" id="editSelectedGrade" disabled>编辑</button><button class="danger small" type="button" id="deleteSelectedGrade" disabled>删除</button></div></div>
-    <table class="list-table selectable-list-table">
-      <thead>
-        <tr>
-          <th>等级</th><th>等级描述</th><th>基本工资</th><th>餐费补贴/天</th><th>车补方式</th><th>里程单价</th><th>租车驾驶补贴/小时</th><th>标准时薪</th><th>交通时薪</th><th>加班时薪</th><th>假期时薪</th><th>状态</th>
-        </tr>
-      </thead>
-      <tbody>
+  <div class="grade-workbench">
+    <!-- ──────────────── 左板块：等级列表 ──────────────── -->
+    <section class="panel">
+      <div class="panel-title">
+        <span class="muted-line">{{ grades|length }} 个等级</span>
+        {% if can_edit %}<button class="small primary" type="button" data-dialog-open="newEmployeeGradeDialog">新增等级</button>{% endif %}
+      </div>
+      <div class="grade-list">
         {% for grade in grades %}
-          <tr data-grade-row="{{ grade.id }}" data-row-id="{{ grade.id }}" tabindex="0" aria-selected="false">
-            <td><a href="{{ url_for('employee_rate_versions', grade_id=grade.id) }}">{{ grade.grade_name }}</a></td>
-            <td>{{ grade.description or "-" }}</td>
-            <td>{{ grade.base_salary|money }}</td>
-            <td>{{ grade.meal_daily_amount|money }}</td>
-            <td>{{ "按时长" if grade.car_allowance_method == "hourly" else "按里程" }}</td>
-            <td>{{ grade.car_mileage_rate|money }}</td>
-            <td>{{ grade.rental_driving_hourly_rate|money }}</td>
-            <td>{{ grade.standard_hourly_rate|money }}</td>
-            <td>{{ grade.transport_hourly_rate|money }}</td>
-            <td>{{ grade.overtime_hourly_rate|money }}</td>
-            <td>{{ grade.holiday_hourly_rate|money }}</td>
-            <td>{{ "启用" if grade.is_active else "停用" }}</td>
-          </tr>
+          {% set total, active = usage.get(grade.id, (0, 0)) %}
+          <a class="grade-list-item {% if selected and selected.id == grade.id %}is-selected{% endif %}"
+             href="{{ url_for('employee_grades', grade_id=grade.id) }}">
+            <span class="grade-name-line">
+              <strong>{{ grade.grade_name }}</strong>
+              <span class="grade-badge {{ 'ok' if grade.is_active else 'off' }}">{{ "启用" if grade.is_active else "停用" }}</span>
+            </span>
+            <span class="muted-line">{{ grade.description or "无描述" }}</span><br>
+            <span class="muted-line">{{ total }} 名员工{% if total %}（{{ active }} 名在职）{% endif %}</span>
+          </a>
         {% else %}
-          <tr><td colspan="12" class="empty">还没有员工等级。</td></tr>
+          <p class="empty">还没有员工等级。</p>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
+      </div>
+    </section>
+
+    <!-- ──────────────── 右板块：选中等级的费率版本 ──────────────── -->
+    <section class="panel">
+      {% if selected %}
+        {% set total, active = usage.get(selected.id, (0, 0)) %}
+        <div class="panel-title">
+          <h2>{{ selected.grade_name }} · 结算费率版本</h2>
+          <div class="toolbar-actions">
+            {% if can_edit %}
+              <button class="small" type="button" data-dialog-open="editGradeDialog">编辑等级</button>
+              <form class="inline-form" method="post" action="{{ url_for('set_employee_grade_state', grade_id=selected.id) }}" data-confirm-state>
+                <input type="hidden" name="is_active" value="{{ '0' if selected.is_active else '1' }}">
+                <button class="small" type="submit">{{ "停用等级" if selected.is_active else "启用等级" }}</button>
+              </form>
+            {% endif %}
+            {% if can_delete %}<button class="danger small" type="button" id="deleteGradeButton">删除等级</button>{% endif %}
+          </div>
+        </div>
+        <p class="muted-line grade-version-note">
+          {{ selected.description or "无描述" }} ·
+          {{ total }} 名员工使用{% if total %}（{{ active }} 名在职）{% endif %} ·
+          {{ "启用中" if selected.is_active else "已停用" }}
+        </p>
+        <p class="muted-line grade-version-note">规则：等级被员工使用时不能删除；仍有在职员工使用时不能停用；员工全部停用后可停用等级。计算工资按工作日落在的有效期版本取费率，没有版本时用等级资料里的静态费率。</p>
+
+        {% if can_edit %}
+          <details class="panel" {% if not versions %}open{% endif %}>
+            <summary><strong>新增结算版本</strong></summary>
+            <form method="post" class="form-stack" action="{{ url_for('employee_rate_versions', grade_id=selected.id) }}">
+              <div class="form-grid two-columns">
+                <label>生效日期 <input type="date" name="effective_from" required></label>
+                <label>结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不允许与有效版本重叠。</small></label>
+                {% for key, label, unit in rate_types %}<label>{{ label }} <input type="number" name="{{ key }}" step="0.0001" min="0" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>{% endfor %}
+                <label class="full-span">备注 <textarea name="notes" rows="3"></textarea></label>
+              </div>
+              <div class="form-actions"><button class="primary" type="submit">创建新版本</button></div>
+            </form>
+          </details>
+        {% endif %}
+
+        <h3>版本历史</h3>
+        {% for version in versions %}
+          <details {% if loop.first %}open{% endif %}>
+            <summary><strong>v{{ version.version_no }}</strong> · {{ version.effective_from }} ～ {{ version.effective_to or "长期" }} · {{ "有效" if version.status == "active" else "已停用" }}</summary>
+            <div class="table-scroll" style="margin-top:1rem"><table class="list-table compact-table"><thead><tr><th>结算项目</th><th>单位</th><th>员工结算标准</th></tr></thead><tbody>
+              {% for key, label, unit in rate_types %}{% set item = item_map.get(version.id, {}).get(key) %}<tr><td>{{ label }}</td><td>{{ unit }}</td><td>{{ item.rate|money if item else '-' }}</td></tr>{% endfor %}
+            </tbody></table></div>
+            {% if version.notes %}<p class="muted-line">{{ version.notes }}</p>{% endif %}
+          </details>
+        {% else %}
+          <p class="empty">尚未建立版本化费率；计算工资时使用等级资料中的静态费率。</p>
+        {% endfor %}
+      {% else %}
+        <p class="empty">请先在左侧新增一个员工等级。</p>
+      {% endif %}
+    </section>
+  </div>
 
   {% macro grade_form(grade=None) %}
-    <form method="post" class="form-stack">
+    <form method="post" class="form-stack" action="{{ url_for('employee_grades') }}">
       {% if grade %}<input type="hidden" name="grade_id" value="{{ grade.id }}">{% endif %}
       <div class="form-grid two-columns">
         <label>等级 <input name="grade_name" value="{{ grade.grade_name if grade else '' }}" required></label>
         <label>等级描述 <input name="description" value="{{ grade.description if grade else '' }}"></label>
-        <label>状态
-          <select name="is_active">
-            <option value="1" {% if not grade or grade.is_active %}selected{% endif %}>启用</option>
-            <option value="0" {% if grade and not grade.is_active %}selected{% endif %}>停用</option>
-          </select>
-        </label>
         <label>基本工资 <input type="number" step="0.01" min="0" name="base_salary" value="{{ grade.base_salary if grade else 0 }}"></label>
         <label>餐费补贴/天 <input type="number" step="0.01" min="0" name="meal_daily_amount" value="{{ grade.meal_daily_amount if grade else 0 }}"></label>
         <label>车补计算方式
@@ -69,47 +127,32 @@
     {{ grade_form() }}
   </dialog>
 
-  {% for grade in grades %}
-    <dialog id="employeeGrade{{ grade.id }}" class="modal-dialog">
-      <div class="dialog-header"><h2>编辑 {{ grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
-      {{ grade_form(grade) }}
+  {% if selected and can_edit %}
+    <dialog id="editGradeDialog" class="modal-dialog">
+      <div class="dialog-header"><h2>编辑 {{ selected.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+      {{ grade_form(selected) }}
     </dialog>
-  {% endfor %}
+  {% endif %}
   <form method="post" id="deleteGradeForm" hidden></form>
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script>
     (() => {
-      const rows = [...document.querySelectorAll('[data-grade-row]')];
-      const edit = document.getElementById('editSelectedGrade');
-      const remove = document.getElementById('deleteSelectedGrade');
-      let selectedGradeId = '';
-      const selected = () => selectedGradeId;
-      const selectRow = (row) => {
-        selectedGradeId = row.dataset.gradeRow;
-        edit.disabled = false; remove.disabled = false;
-        rows.forEach((candidate) => {
-          const isSelected = candidate === row;
-          candidate.classList.toggle('is-selected', isSelected);
-          candidate.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-        });
-      };
-      rows.forEach((row) => {
-        row.addEventListener('click', () => selectRow(row));
-        row.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
+      const deleteButton = document.getElementById('deleteGradeButton');
+      deleteButton?.addEventListener('click', () => {
+        if (!uiConfirm('确定删除该员工等级吗？被员工使用的等级不能删除。')) return;
+        const form = document.getElementById('deleteGradeForm');
+        form.action = '{{ url_for("employee_grades") }}/{{ selected.id }}/delete';
+        form.submit();
+      });
+      document.querySelectorAll('form[data-confirm-state]').forEach((form) => {
+        form.addEventListener('submit', (event) => {
+          const deactivating = form.querySelector('[name="is_active"]')?.value === '0';
+          if (deactivating && !uiConfirm('确定停用该等级吗？仍有在职员工使用的等级无法停用。')) {
             event.preventDefault();
-            selectRow(row);
           }
         });
-      });
-      edit.addEventListener('click', () => document.getElementById(`employeeGrade${selected()}`)?.showModal());
-      remove.addEventListener('click', () => {
-        const id = selected();
-        if (!id || !uiConfirm('确定删除选中的员工等级吗？正在使用的等级不会被删除。')) return;
-        const form = document.getElementById('deleteGradeForm');
-        form.action = `{{ url_for('employee_grades') }}/${id}/delete`; form.submit();
       });
     })();
   </script>

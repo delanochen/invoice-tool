@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from flask import abort, flash, g, redirect, render_template, request, url_for
+from flask import abort, flash, g, redirect, request, url_for
 
 
 CONTRACT_RATE_TYPES = (
@@ -127,7 +127,13 @@ def _version_for_day(connection, table, owner_column, owner_id, work_date):
     ).fetchone()
 
 
-def contract_rate(connection, order_id, work_date, rate_type, legacy_rates=None, lodging_fallback=0):
+def contract_rate(connection, order_id, work_date, rate_type, lodging_fallback=0):
+    """客户费率一律以数据库（合同费率版本）为准。
+
+    查不到生效版本或对应条目时返回 source="missing"、rate=0 —— 调用方必须
+    显式提示/拦截，禁止在代码里用默认价兜底。
+    lodging_fallback 来自 settings 全局配置（住宿实报实销上限），不是硬编码费率。
+    """
     order = connection.execute(
         "select id, contract_id from service_orders where id = ?",
         (order_id,),
@@ -154,29 +160,11 @@ def contract_rate(connection, order_id, work_date, rate_type, legacy_rates=None,
                     "version_no": version["version_no"],
                 }
 
-    legacy_rates = legacy_rates or {}
-    legacy_map = {
-        "regular_hours": "标准工时",
-        "overtime_hours": "加班工时",
-        "holiday_hours": "节假日工时",
-        "travel_hours": "交通工时",
-        "public_transport_hours": "交通工时",
-        "mileage": "里程费",
-    }
     if rate_type == "lodging_cap":
         return {
             "rate": float(lodging_fallback or 0),
             "unit": "person_night",
             "source": "legacy_lodging_limit",
-            "version_id": None,
-            "version_no": None,
-        }
-    legacy_key = legacy_map.get(rate_type)
-    if legacy_key is not None:
-        return {
-            "rate": float(legacy_rates.get(legacy_key, 0) or 0),
-            "unit": RATE_UNITS.get(rate_type, "hour"),
-            "source": "legacy_global_rate",
             "version_id": None,
             "version_no": None,
         }
@@ -415,62 +403,40 @@ def register_rate_routes(app, api):
         grade = api["db"]().execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
         if not grade:
             abort(404)
-        if request.method == "POST":
-            if not api["has_action_permission"]("employee_grades", "edit"):
-                abort(403)
-            try:
-                effective_from = request.form.get("effective_from", "").strip()
-                effective_to = request.form.get("effective_to", "").strip() or None
-                _validate_dates(effective_from, effective_to)
-                effective_to = _prepare_new_version_range(
-                    api["db"](), "employee_rate_versions", "employee_grade_id", grade_id, effective_from, effective_to
+        if request.method == "GET":
+            # 独立费率版本页已并入员工等级工作台（左等级列表 / 右费率版本）
+            return redirect(url_for("employee_grades", grade_id=grade_id))
+        if not api["has_action_permission"]("employee_grades", "edit"):
+            abort(403)
+        try:
+            effective_from = request.form.get("effective_from", "").strip()
+            effective_to = request.form.get("effective_to", "").strip() or None
+            _validate_dates(effective_from, effective_to)
+            effective_to = _prepare_new_version_range(
+                api["db"](), "employee_rate_versions", "employee_grade_id", grade_id, effective_from, effective_to
+            )
+            next_no = api["db"]().execute(
+                "select coalesce(max(version_no), 0) + 1 as value from employee_rate_versions where employee_grade_id = ?",
+                (grade_id,),
+            ).fetchone()["value"]
+            cursor = api["db"]().execute(
+                """
+                insert into employee_rate_versions
+                    (employee_grade_id, version_no, effective_from, effective_to, status, notes, created_by, created_at, updated_at)
+                values (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+                """,
+                (grade_id, next_no, effective_from, effective_to, request.form.get("notes", "").strip(), g.user["id"], api["now"](), api["now"]()),
+            )
+            version_id = cursor.lastrowid
+            for key, _label, unit in EMPLOYEE_RATE_TYPES:
+                api["db"]().execute(
+                    "insert into employee_rate_items (version_id, rate_type, unit, rate) values (?, ?, ?, ?)",
+                    (version_id, key, unit, _float_form(key)),
                 )
-                next_no = api["db"]().execute(
-                    "select coalesce(max(version_no), 0) + 1 as value from employee_rate_versions where employee_grade_id = ?",
-                    (grade_id,),
-                ).fetchone()["value"]
-                cursor = api["db"]().execute(
-                    """
-                    insert into employee_rate_versions
-                        (employee_grade_id, version_no, effective_from, effective_to, status, notes, created_by, created_at, updated_at)
-                    values (?, ?, ?, ?, 'active', ?, ?, ?, ?)
-                    """,
-                    (grade_id, next_no, effective_from, effective_to, request.form.get("notes", "").strip(), g.user["id"], api["now"](), api["now"]()),
-                )
-                version_id = cursor.lastrowid
-                for key, _label, unit in EMPLOYEE_RATE_TYPES:
-                    api["db"]().execute(
-                        "insert into employee_rate_items (version_id, rate_type, unit, rate) values (?, ?, ?, ?)",
-                        (version_id, key, unit, _float_form(key)),
-                    )
-                api["log_action"]("create", "employee_rate_version", version_id, f"{grade['grade_name']} v{next_no}", f"生效：{effective_from} 至 {effective_to or '长期'}")
-                api["db"]().commit()
-                flash("员工结算费率版本已创建。", "success")
-                return redirect(url_for("employee_rate_versions", grade_id=grade_id))
-            except ValueError as error:
-                api["db"]().rollback()
-                flash(str(error), "error")
-        versions = api["db"]().execute(
-            "select * from employee_rate_versions where employee_grade_id = ? order by effective_from desc, version_no desc",
-            (grade_id,),
-        ).fetchall()
-        items = api["db"]().execute(
-            """
-            select employee_rate_items.* from employee_rate_items
-            join employee_rate_versions on employee_rate_versions.id = employee_rate_items.version_id
-            where employee_rate_versions.employee_grade_id = ?
-            order by employee_rate_versions.version_no desc, employee_rate_items.id
-            """,
-            (grade_id,),
-        ).fetchall()
-        item_map = {}
-        for item in items:
-            item_map.setdefault(item["version_id"], {})[item["rate_type"]] = item
-        return render_template(
-            "employee_rate_versions.html",
-            grade=grade,
-            versions=versions,
-            item_map=item_map,
-            rate_types=EMPLOYEE_RATE_TYPES,
-            can_edit=api["has_action_permission"]("employee_grades", "edit"),
-        )
+            api["log_action"]("create", "employee_rate_version", version_id, f"{grade['grade_name']} v{next_no}", f"生效：{effective_from} 至 {effective_to or '长期'}")
+            api["db"]().commit()
+            flash("员工结算费率版本已创建。", "success")
+        except ValueError as error:
+            api["db"]().rollback()
+            flash(str(error), "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))

@@ -336,16 +336,50 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_generic_attachment_upload_is_rejected(self):
+        """整单级“通用附件”已下线：name="attachments" 的文件必须报错且不落库。"""
+        before = self.attachment_count()
+        with self.assertRaises(ValueError) as caught:
+            with self.module.app.test_request_context(
+                "/", method="POST",
+                data={"attachments": (BytesIO(b"stray"), "generic.png")},
+            ):
+                self.module.save_expense_uploads(self.expense_id, [])
+        self.assertIn("挂到对应明细行", str(caught.exception))
+        self.assertEqual(self.attachment_count(), before)
+
+    def test_detail_page_warns_for_attachments_without_line_key(self):
+        detail_html = self.client.get(f"/expenses/{self.expense_id}").get_data(as_text=True)
+        self.assertIn("个附件未挂到明细行", detail_html)
+        self.assertIn("<strong>1</strong>", detail_html)
+        self.assertIn("receipt.png", detail_html)
+        # 警告区不提供通用附件的再上传入口
+        self.assertNotIn('name="attachments"', detail_html)
+
+    def attachment_count(self):
+        with self.module.app.app_context():
+            return self.module.db().execute(
+                "select count(*) as n from expense_attachments where expense_id = ?",
+                (self.expense_id,),
+            ).fetchone()["n"]
+
     def test_line_attachment_is_rendered_with_its_expense_item(self):
         edit_html = self.client.get(f"/expenses/{self.expense_id}/edit").get_data(as_text=True)
         self.assertIn('name="item_line_key" value="line-travel"', edit_html)
         self.assertIn('name="item_attachments_line-travel"', edit_html)
         self.assertIn("travel-receipt.png", edit_html)
-        self.assertIn("通用附件", edit_html)
+        # 整单级“通用附件”已下线：表单不再有上传入口
+        self.assertNotIn("通用附件", edit_html)
+        self.assertNotIn('name="attachments"', edit_html)
 
         detail_html = self.client.get(f"/expenses/{self.expense_id}").get_data(as_text=True)
         self.assertIn("对应附件", detail_html)
-        self.assertLess(detail_html.index("travel-receipt.png"), detail_html.index("通用附件"))
+        self.assertIn("travel-receipt.png", detail_html)
+        self.assertNotIn("通用附件", detail_html)
+        # 夹具里保留了 1 个未挂行的历史附件：详情页顶部应显示警告而非通用附件区
+        self.assertIn("个附件未挂到明细行", detail_html)
+        self.assertIn("<strong>1</strong>", detail_html)
+        self.assertIn("receipt.png", detail_html)
 
     def test_removing_expense_item_also_removes_its_specific_attachment(self):
         with self.module.app.app_context():

@@ -12,11 +12,23 @@
         <a class="expense-line-attachment-name" href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}data-image-preview data-preview-name="{{ attachment.original_filename }}"{% else %}target="_blank"{% endif %}>{{ attachment.original_filename }}</a>
         <div class="row-actions">
           <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
+          {{ interpretation_controls(attachment) }}
         </div>
       </div>
     {% else %}
       <span class="muted-line">无</span>
     {% endfor %}
+  {% endmacro %}
+  {% macro interpretation_controls(attachment) %}
+    {% set interpretation = interpretations.get(attachment.id) %}
+    <span class="interpret-controls" data-interpret-cell="{{ attachment.id }}">
+      <button class="small" type="button" data-interpret="{{ attachment.id }}" title="调用系统设置中配置的本地大模型解读该附件">智能解读</button>
+      {% if interpretation and interpretation.status == 'done' %}
+        <a href="#" data-interpretation-result="{{ attachment.id }}">解读结果</a>
+      {% elif interpretation and interpretation.status == 'failed' %}
+        <a href="#" data-interpretation-result="{{ attachment.id }}" class="muted-line">上次失败</a>
+      {% endif %}
+    </span>
   {% endmacro %}
   <header class="page-header">
     <div>
@@ -55,6 +67,39 @@
         </div>
       </form>
     </dialog>
+  {% endif %}
+  {% if can_review %}
+  <section class="panel" id="aiReviewSection">
+    <div class="panel-title">
+      <h2>智能审核意见
+        {% if ai_review and ai_review.status == 'done' %}
+          {% if ai_review.conclusion == '通过' %}
+            <span class="status approved">{{ ai_review.conclusion }}</span>
+          {% elif ai_review.conclusion == '需人工复核' %}
+            <span class="status submitted">{{ ai_review.conclusion }}</span>
+          {% else %}
+            <span class="status returned">{{ ai_review.conclusion }}</span>
+          {% endif %}
+        {% endif %}
+      </h2>
+      <div class="toolbar-actions">
+        <button class="small" type="button" id="runAiReviewBtn"
+                data-ai-review-url="{{ url_for('expense_ai_review', expense_id=expense.id) }}">
+          {% if ai_review and ai_review.status == 'done' %}重新审核{% elif ai_review and ai_review.status == 'failed' %}重试{% else %}立即审核{% endif %}
+        </button>
+      </div>
+    </div>
+    <div id="aiReviewBody">
+      {% if ai_review and ai_review.status == 'done' %}
+        <p class="muted-line">模型 {{ ai_review.model }} · {{ ai_review.updated_at|local_datetime }}</p>
+        <div style="white-space:pre-wrap; line-height:1.6;">{{ ai_review.content }}</div>
+      {% elif ai_review and ai_review.status == 'failed' %}
+        <div class="flash error">AI 审核失败：{{ ai_review.error }}。可点「重试」，或直接人工审核（AI 意见不阻塞审核流程）。</div>
+      {% else %}
+        <p class="muted-line">该报销将在下次定时审核中生成意见（默认每天 03:00）；也可以点「立即审核」手动生成。</p>
+      {% endif %}
+    </div>
+  </section>
   {% endif %}
   <section class="panel">
     <div class="detail-grid">
@@ -149,40 +194,145 @@
       <tfoot><tr class="report-total"><td colspan="2">合计</td><td data-grid-currency="{{ expense.currency }}">{{ expense.amount|money(expense.currency) }}</td><td></td></tr></tfoot>
     </table>
   </section>
+  {% if unassigned_attachments %}
   <section class="panel">
-    <h2>通用附件</h2>
-    <p class="muted-line">同时对应多条明细或整张报销单的文件。</p>
-    <table class="list-table">
-      <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
-      <tbody>
-        {% for attachment in common_attachments %}
-          <tr>
-            <td>
-              {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}
-                <a
-                  href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}"
-                  data-image-preview
-                  data-preview-name="{{ attachment.original_filename }}"
-                >
-                  <img class="inline-thumb" src="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
-                  {{ attachment.original_filename }}
-                </a>
-              {% else %}
-                <a href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
-              {% endif %}
-            </td>
-            <td>{{ attachment.uploader_name or "Unknown" }}</td>
-            <td>{{ attachment.uploaded_at[:10] }}</td>
-            <td>
-              <div class="row-actions">
-                <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
-              </div>
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="4" class="empty">还没有附件。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="flash error">
+      有 <strong>{{ unassigned_attachments|length }}</strong> 个附件未挂到明细行（历史数据）：
+      {% for attachment in unassigned_attachments %}{{ attachment.original_filename }}{% if not loop.last %}、{% endif %}{% endfor %}。
+      请等待数据迁移完成，或联系管理员处理。
+    </div>
   </section>
+  {% endif %}
+
+  <dialog id="interpretationDialog" class="modal-dialog">
+    <div class="dialog-header">
+      <h2>附件智能解读</h2>
+      <button class="small" type="button" id="closeInterpretationDialog">关闭</button>
+    </div>
+    <p class="muted-line" id="interpretationMeta"></p>
+    <div id="interpretationContent" style="white-space:pre-wrap; line-height:1.6; max-height:60vh; overflow:auto;"></div>
+  </dialog>
+{% endblock %}
+{% block scripts %}
+  <script>
+    (() => {
+      const runButton = document.getElementById("runAiReviewBtn");
+      const body = document.getElementById("aiReviewBody");
+      if (!runButton || !body) return;
+      const url = runButton.dataset.aiReviewUrl;
+
+      function renderRecord(payload) {
+        const badge = payload.conclusion === "通过"
+          ? '<span class="status approved">通过</span>'
+          : payload.conclusion === "需人工复核"
+            ? '<span class="status submitted">需人工复核</span>'
+            : '<span class="status returned">存疑</span>';
+        body.innerHTML =
+          `<p class="muted-line">模型 ${payload.model || "未知模型"}${payload.updated_at ? " · " + payload.updated_at : ""}</p>` +
+          `<div style="white-space:pre-wrap; line-height:1.6;">${payload.content || payload.error || "（无内容）"}</div>`;
+        const heading = document.querySelector("#aiReviewSection h2");
+        if (heading && payload.status === "done" && !heading.querySelector(".status")) {
+          heading.insertAdjacentHTML("beforeend", " " + badge);
+        }
+        runButton.textContent = "重新审核";
+        runButton.dataset.force = "1";
+      }
+
+      async function requestReview(force) {
+        runButton.disabled = true;
+        const original = runButton.textContent;
+        if (force) runButton.textContent = "AI 审核中…";
+        try {
+          const response = await fetch(url, { method: force ? "POST" : "GET", headers: { "Accept": "application/json" }, credentials: "same-origin" });
+          const payload = await response.json().catch(() => ({}));
+          if (!payload.ok) throw new Error(payload.error || `AI 审核失败（${response.status}）`);
+          renderRecord(payload);
+        } catch (error) {
+          body.innerHTML = `<div class="flash error">AI 审核失败：${error.message || "请稍后重试"}。可点「重试」，或直接人工审核。</div>`;
+          runButton.textContent = "重试";
+        } finally {
+          runButton.disabled = false;
+        }
+      }
+
+      runButton.addEventListener("click", () => requestReview(true));
+    })();
+  </script>
+  <script>
+    (() => {
+      const dialog = document.getElementById("interpretationDialog");
+      const contentEl = document.getElementById("interpretationContent");
+      const metaEl = document.getElementById("interpretationMeta");
+      document.getElementById("closeInterpretationDialog")?.addEventListener("click", () => dialog.close());
+
+      async function showResult(attachmentId) {
+        contentEl.textContent = "正在加载解读结果…";
+        metaEl.textContent = "";
+        dialog.showModal();
+        try {
+          const response = await fetch(`/expense-attachments/${attachmentId}/interpretation`, {
+            headers: { "Accept": "application/json" },
+            credentials: "same-origin",
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.ok) throw new Error(payload.error || `加载失败（${response.status}）`);
+          if (payload.status === "none") {
+            contentEl.textContent = "该附件还没有解读结果，请点击「智能解读」。";
+            metaEl.textContent = "";
+            return;
+          }
+          contentEl.textContent = payload.content || payload.error || "（无内容）";
+          metaEl.textContent = `${payload.model || "未知模型"} · ${payload.status === "done" ? "解读完成" : "解读失败"}${payload.updated_at ? " · " + payload.updated_at : ""}`;
+        } catch (error) {
+          contentEl.textContent = error.message || "加载解读结果失败。";
+        }
+      }
+
+      document.addEventListener("click", async (event) => {
+        const resultLink = event.target.closest("[data-interpretation-result]");
+        if (resultLink) {
+          event.preventDefault();
+          await showResult(resultLink.dataset.interpretationResult);
+          return;
+        }
+        const button = event.target.closest("[data-interpret]");
+        if (!button) return;
+        event.preventDefault();
+        const attachmentId = button.dataset.interpret;
+        const original = button.textContent;
+        button.disabled = true;
+        button.textContent = "解读中…";
+        try {
+          const response = await fetch(`/expense-attachments/${attachmentId}/interpret`, {
+            method: "POST",
+            headers: { "Accept": "application/json" },
+            credentials: "same-origin",
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!payload.ok) throw new Error(payload.error || `解读失败（${response.status}）`);
+          const cell = button.closest("[data-interpret-cell]");
+          if (cell) {
+            button.remove();
+            const link = document.createElement("a");
+            link.href = "#";
+            link.dataset.interpretationResult = attachmentId;
+            link.textContent = "解读结果";
+            cell.appendChild(link);
+          } else {
+            button.textContent = original;
+            button.disabled = false;
+          }
+          await showResult(attachmentId);
+        } catch (error) {
+          button.textContent = original;
+          button.disabled = false;
+          if (window.uiConfirm) {
+            window.uiConfirm(`智能解读失败：${error.message || "请稍后重试。"}`);
+          } else {
+            window.alert(`智能解读失败：${error.message || "请稍后重试。"}`);
+          }
+        }
+      });
+    })();
+  </script>
 {% endblock %}

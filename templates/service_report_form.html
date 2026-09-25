@@ -148,9 +148,8 @@
     </section>
 
     <label class="full">现场服务描述
-      <button type="button" class="small" data-read-repair data-order-id="{{ order.id }}"
-              title="读取该工单当天的设备维修清单：位置号 + 铭牌号 + 备注，多个设备换行追加，已有内容不会被覆盖"
-              style="margin-left:6px;">读取</button>
+      <button type="button" class="small read-repair-btn" data-read-repair data-order-id="{{ order.id }}"
+              title="自动读取该工单当天的设备维修清单：位置号 + 铭牌号 + 备注，多个设备换行追加到现场服务描述，已有内容不会被覆盖">自动读取工作日志</button>
       <textarea name="service_description" rows="6" data-work-desc>{{ report.service_description or '' }}</textarea>
     </label>
 
@@ -358,6 +357,21 @@
       <button class="primary" type="button" id="applyAssistPlan" disabled>应用到表单</button>
     </div>
   </dialog>
+  <script>
+    // 员工主数据出发地：切换服务人员时自动带出到「员工出发地」栏位
+    {% set origin_map = {} %}
+    {% for user in users %}
+      {% set _ = origin_map.update({user.id|string: user.address or ''}) %}
+    {% endfor %}
+    window.employeeOriginAddresses = {{ origin_map|tojson }};
+    document.addEventListener("change", (event) => {
+      const select = event.target.closest('select[name="worker_user_id"]');
+      if (!select || !select.value) return;
+      const row = select.closest("tr");
+      const origin = row?.querySelector('input[name="worker_origin"]');
+      if (origin) origin.value = window.employeeOriginAddresses[select.value] || "";
+    });
+  </script>
   <script src="{{ url_for('static', filename='service-report.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='service-report-assist.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='service-report-repair-read.js', v=app_version) }}"></script>

@@ -95,47 +95,7 @@
     </div>
     <input type="hidden" name="currency" value="USD">
     <label>报销单说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
-    <h3>通用附件</h3>
-    <p class="muted-line">用于同时对应多条明细或整张报销单的审批单、合并付款凭证、行程说明等文件。</p>
-    <div class="file-picker-row">
-      <span>添加通用附件</span>
-      <input id="expenseAttachmentsInput" type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
-      <small>支持图片、PDF、Word、Excel，可多选。</small>
-    </div>
-    {% if common_attachments %}
-      <h3>已保存通用附件</h3>
-      <table class="list-table attachment-table">
-        <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
-        <tbody>
-          {% for attachment in common_attachments %}
-            <tr>
-              <td>
-                {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}
-                  <a
-                    href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}"
-                    data-image-preview
-                    data-preview-name="{{ attachment.original_filename }}"
-                  >
-                    <img class="inline-thumb" src="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
-                    {{ attachment.original_filename }}
-                  </a>
-                {% else %}
-                  <a href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
-                {% endif %}
-              </td>
-              <td>{{ attachment.uploader_name or "Unknown" }}</td>
-              <td>{{ attachment.uploaded_at[:10] }}</td>
-              <td>
-                <div class="row-actions">
-                  <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
-                  <button class="danger small" type="submit" form="deleteExpenseAttachment{{ attachment.id }}">删除</button>
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endif %}
+    <p class="muted-line">附件请添加到对应的员工报销明细行（「添加附件」），不挂明细行的附件无法保存。</p>
   </form>
   {% if is_edit %}
     <form id="deleteExpenseForm" method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}"></form>

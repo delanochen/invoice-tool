@@ -3,7 +3,7 @@
 {% block content %}
   {# 单元格展示「实际生效金额」：手动调整值优先，否则回落到报销来源金额。
      隐藏域回传 auto_*，供后端还原「来源 + 人工调整量」，保存时不会冲掉手改值。 #}
-  {% macro expense_amount_cell(item, field_name) %}
+  {% macro expense_amount_cell(item, field_name, readonly=False) %}
     {% set auto_amount = item['auto_' ~ field_name] or 0 %}
     {% set sources = item.expense_sources.get(field_name, []) %}
     {% set manual_amount = item[field_name] or 0 %}
@@ -14,6 +14,7 @@
         <input type="hidden" name="auto_{{ field_name }}" value="{{ auto_amount }}">
         <input name="{{ field_name }}" type="number" step="0.01" min="0" value="{{ effective_amount }}"
                data-auto-amount="{{ auto_amount }}" data-field-name="{{ field_name }}"
+               {% if readonly %}readonly title="金额来自结算池勾选的报销明细，请在结算池中勾选/取消来调整"{% endif %}
                class="{% if is_adjusted %}is-adjusted{% endif %}">
         {% if auto_amount > 0 %}
         <button type="button" class="expense-source-icon" title="查看来源明细" aria-label="查看来源明细">ⓘ</button>
@@ -118,6 +119,19 @@
     </div>
   </header>
 
+  {# 客户费率一律来自合同费率版本：缺哪些费率就醒目列出哪些，未配置时相关金额按 0 显示且无法保存 #}
+  {% if missing_rate_summary %}
+  <section class="panel" id="missingRatesNotice">
+    <div class="flash error">
+      <strong>⚠ 客户费率未配置</strong>（来源：合同费率版本）——
+      {% for rate_date, labels in missing_rate_summary.items() %}
+        {{ rate_date }}：{{ labels|join("、") }}{% if not loop.last %}；{% endif %}
+      {% endfor %}
+      。请先在对应合同的「费率版本」中配置；未配置前相关金额按 0 显示，保存时会被阻止。
+    </div>
+  </section>
+  {% endif %}
+
   {# 方案 A：结算页报销来源比对横幅（只读三档，零写库）。
      - includable（已审核未计入）：硬拦提交，提供「计入并重算」自助化解。
      - pending（待审核）/ returned（已退回）：仅提示。 #}
@@ -191,7 +205,7 @@
       <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>
       <div class="metric"><span>差旅费小计</span><strong data-reimbursement-total="travel">{{ totals.travel_total|money }}</strong></div>
       <div class="metric"><span>里程费小计</span><strong data-reimbursement-total="mileage">{{ totals.mileage_total|money }}</strong></div>
-      <div class="metric"><span>其他</span><strong data-reimbursement-total="other">{{ totals.other_total|money }}</strong><small>其中 MRO Supplies配件及耗材费 {{ totals.mro_supplies_total|money }}，开票时计入同名项目</small></div>
+      <div class="metric"><span>其他</span><strong data-reimbursement-total="other">{{ totals.other_total|money }}</strong><small>金额全部来自结算池勾选的报销明细，只读；开票时按来源项目拆分（映射见 expense_settlement_invoice_map）</small></div>
       {% if totals.rental_fuel_total %}
         <div class="metric"><span>历史独立转入</span><strong>{{ totals.rental_fuel_total|money }}</strong><small>旧版已锁定结算记录</small></div>
       {% endif %}
@@ -253,7 +267,7 @@
               {{ expense_amount_cell(item, 'taxi') }}
               <td><input name="miles" type="number" step="0.01" min="0" value="{{ item.miles }}"></td>
               <td data-row-total="mileage">{{ item.mileage_total|money }}</td>
-              {{ expense_amount_cell(item, 'other') }}
+              {{ expense_amount_cell(item, 'other', readonly=True) }}
               <td data-row-total="total">{{ item.total|money }}</td>
               <td><button class="danger small remove-customer-reimbursement-row" type="button">删除</button></td>
             </tr>
@@ -325,14 +339,7 @@
 {% endblock %}
 {% block scripts %}
   <script>
-    window.customerReimbursementRates = {{ {
-      "standard": rates["标准工时"],
-      "transport": rates["交通工时"],
-      "publicTransport": rates["交通工时"],
-      "overtime": rates["加班工时"],
-      "holiday": rates["节假日工时"],
-      "mileage": rates["里程费"]
-    }|tojson }};
+    window.customerReimbursementRates = {{ js_rates|tojson }};
     window.customerReimbursementMro = {{ totals.mro_supplies_total|tojson }};
     window.customerReimbursementRentalFuel = {{ totals.rental_fuel_total|tojson }};
     window.customerReimbursementLodgingLimit = {{ lodging_reimbursement_limit()|tojson }};

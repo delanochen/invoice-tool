@@ -58,7 +58,7 @@ from customer_report_logic import (
     migrate_historical_customer_reports,
     normalize_customer_report_choice,
 )
-from rate_engine import contract_rate, init_rate_schema, register_rate_routes
+from rate_engine import contract_rate, employee_rate, init_rate_schema, register_rate_routes, EMPLOYEE_RATE_TYPES
 from settlement_review import (
     init_settlement_review_schema,
     linked_approved_expense_rows,
@@ -70,6 +70,13 @@ from settlement_review import (
 from profitability import init_profitability_schema, register_profitability_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
+from ai_interpretation import (
+    MODEL_OPTIONS,
+    SETTINGS_DEFAULTS as AI_INTERPRET_DEFAULTS,
+    effective_settings as ai_interpret_effective_settings,
+    interpret_attachment as run_expense_attachment_interpretation,
+)
+from ai_review import run_expense_ai_review as run_expense_ai_review_task
 from ai_daily_report import (
     AIIntentService,
     DailyReportService,
@@ -473,20 +480,49 @@ CONTRACT_STATUS_LABELS = {
     "terminated": "已终止",
 }
 
-CUSTOMER_REIMBURSEMENT_PROJECTS = {
-    "标准工时": 70,
-    "交通工时": 35,
-    "加班工时": 105,
-    "节假日工时": 140,
-    "里程费": 1,
-}
+# 客户费率一律以数据库（合同费率版本）为准；这里只保留项目名称清单用于
+# 初始化 projects 目录，不再携带任何费率数值，也不会覆盖已有 unit_price。
+CUSTOMER_REIMBURSEMENT_PROJECTS = (
+    "标准工时",
+    "交通工时",
+    "加班工时",
+    "节假日工时",
+    "里程费",
+)
 
+# 工单结算行字段 -> 合同费率版本 rate_type -> 展示名
+CUSTOMER_REIMBURSEMENT_RATE_FIELDS = (
+    ("standard_rate", "regular_hours", "标准工时"),
+    ("transport_rate", "travel_hours", "交通工时"),
+    ("public_transport_rate", "public_transport_hours", "公共交通工时"),
+    ("overtime_rate", "overtime_hours", "加班工时"),
+    ("holiday_rate", "holiday_hours", "节假日工时"),
+    ("mileage_rate", "mileage", "里程费"),
+)
+
+# 发票行中无“来源项目”概念的三类，仍按结算单 totals 开票；
+# “其他”桶按结算明细 auto_expense_sources 的来源项目经 expense_settlement_invoice_map 拆分。
 CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
     "Technical Services": "labor_total",
     "Travel Expenses Reimbursement": "travel_total",
     "Mileage Reimbursement": "mileage_total",
-    "MRO Supplies配件及耗材费": "mro_supplies_total",
 }
+
+# expense_settlement_invoice_map 种子数据（员工报销项目全名 → 结算字段 → 发票项目名）。
+# 建表/补种子用 insert or ignore：唯一键冲突时跳过，绝不覆盖已有行。
+# 工时人工、里程补贴不是员工报销项目，不走这张表。
+EXPENSE_SETTLEMENT_INVOICE_SEEDS = (
+    ("MRO Supplies配件及耗材费", "other", "MRO Supplies"),
+    ("Client Entertainment Expenses客户招待费", "other", "Other"),
+    ("Express Delivery Fees快递费", "other", "Express Delivery Fees"),
+    ("Accommodation/Lodging住宿费", "lodging", "Travel Expenses Reimbursement"),
+    ("Airfare机票费", "airfare", "Travel Expenses Reimbursement"),
+    ("Car Rental Fee租车费用", "rental_car", "Travel Expenses Reimbursement"),
+    ("Checked Baggage Fee行李费", "baggage", "Travel Expenses Reimbursement"),
+    ("Fuel Expenses燃油费", "fuel", "Travel Expenses Reimbursement"),
+    ("Parking Charge停车费", "parking", "Travel Expenses Reimbursement"),
+    ("Taxi Fare / Ride-Hailing Fare打车费", "taxi", "Travel Expenses Reimbursement"),
+)
 
 DEFAULT_OWNER_NAMES = [
     "未知",
@@ -1277,6 +1313,37 @@ def init_db():
                 foreign key(expense_id) references expenses(id) on delete cascade,
                 foreign key(uploaded_by) references users(id)
             );
+
+            create table if not exists expense_attachment_interpretations (
+                id integer primary key autoincrement,
+                attachment_id integer not null unique,
+                model text not null default '',
+                status text not null default 'pending',
+                content text not null default '',
+                error text not null default '',
+                created_at text not null,
+                updated_at text not null,
+                foreign key(attachment_id) references expense_attachments(id) on delete cascade
+            );
+
+            create index if not exists idx_expense_interpretations_status
+                on expense_attachment_interpretations(status);
+
+            create table if not exists expense_ai_reviews (
+                id integer primary key autoincrement,
+                expense_id integer not null unique,
+                status text not null default 'pending',
+                conclusion text not null default '',
+                content text not null default '',
+                model text not null default '',
+                error text not null default '',
+                created_at text not null,
+                updated_at text not null,
+                foreign key(expense_id) references expenses(id) on delete cascade
+            );
+
+            create index if not exists idx_expense_ai_reviews_status
+                on expense_ai_reviews(status);
 
             create table if not exists expense_duplicate_checks (
                 id integer primary key autoincrement,
@@ -5173,29 +5240,26 @@ def order_photo_status(order_dir):
 
 
 def seed_customer_reimbursement_projects(connection):
-    for name, unit_price in CUSTOMER_REIMBURSEMENT_PROJECTS.items():
+    # 只补建缺失的项目记录；已存在的记录（含 unit_price）绝不覆盖，
+    # 否则重启会把数据库里维护的客户费率改回代码默认值。
+    for name in CUSTOMER_REIMBURSEMENT_PROJECTS:
         row = connection.execute(
-            "select id, project_type from projects where name_key = ? and project_type = 'customer_expense'",
+            "select id from projects where name_key = ? and project_type = 'customer_expense'",
             (project_name_key(name),),
         ).fetchone()
         if row:
-            connection.execute(
-                """
-                update projects
-                set name = ?, name_key = ?, unit_price = ?, is_active = 1
-                where id = ?
-                """,
-                (name, project_name_key(name), unit_price, row["id"]),
-            )
             continue
         connection.execute(
             """
             insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-            values (?, ?, 'customer_expense', 0, ?, 0, 1, ?)
+            values (?, ?, 'customer_expense', 0, 0, 0, 1, ?)
             """,
-            (name, project_name_key(name), unit_price, now()),
+            (name, project_name_key(name), now()),
         )
-    for name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS:
+    invoice_names = set(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS) | {
+        row[2] for row in EXPENSE_SETTLEMENT_INVOICE_SEEDS
+    }
+    for name in sorted(invoice_names):
         row = connection.execute(
             "select id from projects where name_key = ? and project_type = 'invoice'",
             (project_name_key(name),),
@@ -5208,6 +5272,27 @@ def seed_customer_reimbursement_projects(connection):
             values (?, ?, 'invoice', 0, 0, 0, 1, ?)
             """,
             (name, project_name_key(name), now()),
+        )
+    # 员工报销项目 → 结算字段 → 发票项目 的可维护映射表（种子 insert or ignore）
+    connection.execute(
+        """
+        create table if not exists expense_settlement_invoice_map (
+            id integer primary key autoincrement,
+            expense_project_name text not null unique,
+            settlement_field text not null,
+            invoice_project_name text not null,
+            created_at text not null
+        )
+        """
+    )
+    for expense_name, settlement_field, invoice_name in EXPENSE_SETTLEMENT_INVOICE_SEEDS:
+        connection.execute(
+            """
+            insert or ignore into expense_settlement_invoice_map
+                (expense_project_name, settlement_field, invoice_project_name, created_at)
+            values (?, ?, ?, ?)
+            """,
+            (expense_name, settlement_field, invoice_name, now()),
         )
 
 
@@ -5488,17 +5573,66 @@ def require_customer_reimbursement(reimbursement_id):
     return reimbursement, order
 
 
-def customer_reimbursement_rates():
-    rows = db().execute(
-        """
-        select name, unit_price
-        from projects
-        where project_type = 'customer_expense' and is_active = 1
-        """
-    ).fetchall()
-    rates = {name: 0.0 for name in CUSTOMER_REIMBURSEMENT_PROJECTS}
-    rates.update({row["name"]: float(row["unit_price"] or 0) for row in rows})
-    return rates
+def resolve_contract_rates(order_id, work_date):
+    """按工单+日期从合同费率版本解析客户费率。
+
+    返回 (rates, missing)：rates 为行字段->单价；missing 为缺失配置的展示名清单
+    （合同不存在 / 日期无生效版本 / 版本缺条目）。缺什么由调用方醒目提示或拦截。
+    """
+    resolved = {}
+    missing = []
+    for field, rate_type, label in CUSTOMER_REIMBURSEMENT_RATE_FIELDS:
+        result = contract_rate(db(), order_id, work_date, rate_type, lodging_fallback=lodging_reimbursement_limit())
+        resolved[field] = result["rate"]
+        if result["source"] == "missing":
+            missing.append(label)
+    return resolved, missing
+
+
+def contract_rate_missing_summary(order_id, dates):
+    """汇总一组日期上缺失的客户费率：{日期: [展示名, ...]}，仅返回有缺失的日期。"""
+    summary = {}
+    for work_date in sorted({str(value)[:10] for value in dates if value}):
+        _, missing = resolve_contract_rates(order_id, work_date)
+        if missing:
+            summary[work_date] = missing
+    return summary
+
+
+def used_customer_rate_fields(row):
+    """结算行实际用到（数量>0）的费率字段——缺这些才阻止保存。"""
+    fields = []
+    if to_float(row.get("standard_hours")) > 0:
+        fields.append("standard_rate")
+    if to_float(row.get("transport_hours")) > 0:
+        fields.append("transport_rate")
+    if to_float(row.get("public_transport_hours")) > 0:
+        fields.append("public_transport_rate")
+    if to_float(row.get("overtime_hours")) > 0:
+        fields.append("overtime_rate")
+    if to_float(row.get("holiday_hours")) > 0:
+        fields.append("holiday_rate")
+    if to_float(row.get("miles")) > 0:
+        fields.append("mileage_rate")
+    return fields
+
+
+def assert_contract_rates_covered(order_id, rows):
+    """工单结算落库前的守门：用到的客户费率必须来自合同费率版本，缺失则阻止保存。"""
+    label_by_field = {field: label for field, _rate_type, label in CUSTOMER_REIMBURSEMENT_RATE_FIELDS}
+    problems = {}
+    for row in rows:
+        used = used_customer_rate_fields(row)
+        if not used:
+            continue
+        _, missing = resolve_contract_rates(order_id, row.get("project_date"))
+        for field in used:
+            label = label_by_field[field]
+            if label in missing:
+                problems.setdefault((str(row.get("project_date") or "")[:10], label))
+    if problems:
+        detail = "；".join(f"{label}（{work_date or '日期缺失'}）" for work_date, label in sorted(problems.items()))
+        raise ValueError(f"客户费率未配置：{detail}。请先在对应合同的「费率版本」中配置后再保存工单结算。")
 
 
 def employee_grade_options(include_inactive=False):
@@ -5650,7 +5784,6 @@ def split_report_labor_hours(report, worker_count=1):
 
 
 def customer_reimbursement_seed_rows(order_id):
-    rates = customer_reimbursement_rates()
     reports = db().execute(
         """
         select service_reports.*
@@ -5685,18 +5818,13 @@ def customer_reimbursement_seed_rows(order_id):
             worker_report["worker_public_transport_hours"] = worker["worker_public_transport_hours"]
             labor_hours = split_report_labor_hours(worker_report, len(workers))
             work_date = report_actual_date(report)
-            standard_rate = contract_rate(db(), order_id, work_date, "regular_hours", legacy_rates=rates,
-                                          lodging_fallback=lodging_reimbursement_limit())
-            travel_rate = contract_rate(db(), order_id, work_date, "travel_hours", legacy_rates=rates,
-                                        lodging_fallback=lodging_reimbursement_limit())
-            public_rate = contract_rate(db(), order_id, work_date, "public_transport_hours", legacy_rates=rates,
-                                        lodging_fallback=lodging_reimbursement_limit())
-            overtime_rate = contract_rate(db(), order_id, work_date, "overtime_hours", legacy_rates=rates,
-                                          lodging_fallback=lodging_reimbursement_limit())
-            holiday_rate = contract_rate(db(), order_id, work_date, "holiday_hours", legacy_rates=rates,
-                                         lodging_fallback=lodging_reimbursement_limit())
-            mileage_rate = contract_rate(db(), order_id, work_date, "mileage", legacy_rates=rates,
-                                         lodging_fallback=lodging_reimbursement_limit())
+            resolved_rates, _missing = resolve_contract_rates(order_id, work_date)
+            standard_rate = resolved_rates["standard_rate"]
+            travel_rate = resolved_rates["transport_rate"]
+            public_rate = resolved_rates["public_transport_rate"]
+            overtime_rate = resolved_rates["overtime_rate"]
+            holiday_rate = resolved_rates["holiday_rate"]
+            mileage_rate = resolved_rates["mileage_rate"]
             if mode == "rental_drive":
                 billing_miles = 0
             elif report["mileage_billing_method"] == "per_vehicle":
@@ -5713,11 +5841,11 @@ def customer_reimbursement_seed_rows(order_id):
                 "public_transport_hours": labor_hours["public_transport_hours"],
                 "overtime_hours": labor_hours["overtime_hours"],
                 "holiday_hours": labor_hours["holiday_hours"],
-                "standard_rate": standard_rate["rate"],
-                "transport_rate": travel_rate["rate"],
-                "public_transport_rate": public_rate["rate"],
-                "overtime_rate": overtime_rate["rate"],
-                "holiday_rate": holiday_rate["rate"],
+                "standard_rate": standard_rate,
+                "transport_rate": travel_rate,
+                "public_transport_rate": public_rate,
+                "overtime_rate": overtime_rate,
+                "holiday_rate": holiday_rate,
                 "lodging": 0,
                 "airfare": 0,
                 "baggage": 0,
@@ -5726,7 +5854,7 @@ def customer_reimbursement_seed_rows(order_id):
                 "parking": 0,
                 "taxi": 0,
                 "miles": billing_miles or 0,
-                "mileage_rate": mileage_rate["rate"],
+                "mileage_rate": mileage_rate,
                 "other": 0,
             }
             rows.append(calculate_customer_reimbursement_item(row, len(rows)))
@@ -5834,16 +5962,49 @@ def calculate_customer_reimbursement_item(row, sort_order=0):
     return row
 
 
-CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS = {
-    project_name_key("Accommodation/Lodging"): "lodging",
-    project_name_key("Airfare"): "airfare",
-    project_name_key("Car Rental Fee"): "rental_car",
-    project_name_key("Checked Baggage Fee"): "baggage",
-    project_name_key("Fuel Expenses"): "fuel",
-    project_name_key("Parking Charge"): "parking",
-    project_name_key("Taxi Fare / Ride-Hailing Fare"): "taxi",
-    project_name_key("MRO Supplies"): "other",
-}
+def expense_settlement_invoice_mapping():
+    """员工报销项目 → (结算字段, 发票项目名)，读 expense_settlement_invoice_map 表。"""
+    rows = db().execute(
+        "select expense_project_name, settlement_field, invoice_project_name from expense_settlement_invoice_map"
+    ).fetchall()
+    return {
+        project_name_key(row["expense_project_name"]):
+            (row["settlement_field"], row["invoice_project_name"])
+        for row in rows
+    }
+
+
+def expense_settlement_invoice_field(project_name):
+    """按员工报销项目名查映射（全名精确优先，英文基名前缀匹配兜底）。
+
+    映射表存全名（如 "MRO Supplies配件及耗材费"）：先全名精确匹配；再取每行的
+    英文基名（首个非 ASCII 字符前的部分）做前缀匹配，基名长短倒序避免同前缀
+    项目混淆（如 Express Delivery Fees快递费 vs Express Delivery Fees）。
+    查不到返回 (None, None)：该项目不进入客户实报实销，也不拆发票行。
+    """
+    mapping = expense_settlement_invoice_mapping()
+    key = project_name_key(project_name)
+    if key in mapping:
+        return mapping[key]
+    bases = []
+    for row_key, value in mapping.items():
+        base = row_key
+        for index, char in enumerate(row_key):
+            if not char.isascii():
+                base = row_key[:index]
+                break
+        base = base.rstrip()
+        if base:
+            bases.append((base, value))
+    bases.sort(key=lambda item: len(item[0]), reverse=True)
+    for base, value in bases:
+        if key == base:
+            return value
+        if key.startswith(base):
+            suffix = key[len(base):].lstrip()
+            if suffix and (not suffix[0].isascii() or not suffix[0].isalnum()):
+                return value
+    return (None, None)
 
 
 def canonical_project_mapping_key(value, canonical_keys):
@@ -5860,11 +6021,7 @@ def canonical_project_mapping_key(value, canonical_keys):
 
 
 def customer_reimbursement_expense_field(project_name, fuel_vehicle_type=None):
-    project_key = canonical_project_mapping_key(
-        project_name,
-        CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS,
-    )
-    field_name = CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS.get(project_key)
+    field_name, _invoice_project = expense_settlement_invoice_field(project_name)
     if field_name == "fuel" and fuel_vehicle_type != "rental":
         return None
     return field_name
@@ -5961,7 +6118,6 @@ def merge_approved_expenses_into_customer_reimbursement(
         for field_name in auto_fields:
             row[field_name] = 0
 
-    rates = customer_reimbursement_rates()
     row_lookup = {
         (normalized_project_name(row.get("worker_name")).casefold(), _reimbursement_date_key(row.get("project_date"))): row
         for row in merged
@@ -5984,15 +6140,21 @@ def merge_approved_expenses_into_customer_reimbursement(
             # 精确匹配落空：回落到同一员工的已有明细行，避免同人异日拆行导致重复计入。
             row = _fallback_row_for_worker(candidates_by_worker, worker_key)
         if row is None:
+            fallback_rates, _missing = resolve_contract_rates(
+                order_id, _reimbursement_date_value(expense_item["expense_date"])
+            )
             row = {
                 "worker_name": expense_item["worker_name"],
                 "project_date": _reimbursement_date_value(expense_item["expense_date"]),
                 "standard_hours": 0, "transport_hours": 0, "overtime_hours": 0, "holiday_hours": 0,
-                "standard_rate": rates["标准工时"], "transport_rate": rates["交通工时"],
-                "overtime_rate": rates["加班工时"], "holiday_rate": rates["节假日工时"],
+                "standard_rate": fallback_rates["standard_rate"],
+                "transport_rate": fallback_rates["transport_rate"],
+                "public_transport_rate": fallback_rates["public_transport_rate"],
+                "overtime_rate": fallback_rates["overtime_rate"],
+                "holiday_rate": fallback_rates["holiday_rate"],
                 "lodging": 0, "airfare": 0, "baggage": 0, "rental_car": 0,
                 "fuel": 0, "parking": 0, "taxi": 0, "other": 0,
-                "miles": 0, "mileage_rate": rates["里程费"],
+                "miles": 0, "mileage_rate": fallback_rates["mileage_rate"],
             }
             for auto_field in auto_fields:
                 row[auto_field] = 0
@@ -6022,15 +6184,12 @@ def merge_approved_expenses_into_customer_reimbursement(
 
 
 def approved_mro_supplies_total(order_id, cutoff_at=None):
-    mro_key = project_name_key("MRO Supplies")
     total = sum(
         (
             money_decimal(row["amount"])
             for row in approved_customer_reimbursement_expense_rows(order_id, cutoff_at)
-            if canonical_project_mapping_key(
-                row["project_name"],
-                CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS,
-            ) == mro_key
+            if customer_reimbursement_expense_field(row["project_name"]) == "other"
+            and project_name_key(row["project_name"]).startswith(project_name_key("MRO Supplies"))
         ),
         Decimal("0"),
     )
@@ -6062,7 +6221,7 @@ def approved_rental_vehicle_fuel_total(order_id):
 def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total=0):
     """结算合计（口径铁律，勿改）。
     total_amount = Σ item["total"] + rental_fuel_total。
-    MRO Supplies 经 CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS 映射到 other 字段，
+    MRO Supplies 经 expense_settlement_invoice_map 映射表进入 other 字段，
     已通过 auto_other → item["total"] 计入合计；mro_supplies_total 参数只用于快照列/
     PDF/发票展示，**绝不能加进 total_amount**（加进去才是真翻倍）。rental_fuel_total
     才是独立于明细行的增量（不进 auto_fuel）。自洽关系：
@@ -6394,6 +6553,9 @@ def copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, service_orde
 
 
 def customer_reimbursement_items_from_form(order_id=None):
+    if order_id is None:
+        # 没有工单就无法从合同费率版本解析客户费率，禁止静默使用默认价
+        raise ValueError("工单结算必须关联工单才能解析客户费率，请刷新页面后重试。")
     field_names = [
         "worker_name", "project_date", "standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours",
         "lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "miles", "other",
@@ -6403,7 +6565,6 @@ def customer_reimbursement_items_from_form(order_id=None):
     # echo auto_* back untouched for the merge step to recover the manual delta.
     auto_field_names = [f"auto_{name}" for name in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")]
     money_fields = {"lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"}
-    rates = customer_reimbursement_rates()
     posted = {name: request.form.getlist(name) for name in field_names}
     posted_auto = {name: request.form.getlist(name) for name in auto_field_names}
     source_report_ids = request.form.getlist("source_report_id")
@@ -6435,30 +6596,7 @@ def customer_reimbursement_items_from_form(order_id=None):
         for name in auto_field_names:
             values = posted_auto[name]
             row[name] = money_float(values[index]) if index < len(values) else 0
-        if order_id is None:
-            effective_rates = {
-                "standard_rate": rates["标准工时"],
-                "transport_rate": rates["交通工时"],
-                "public_transport_rate": rates["交通工时"],
-                "overtime_rate": rates["加班工时"],
-                "holiday_rate": rates["节假日工时"],
-                "mileage_rate": rates["里程费"],
-            }
-        else:
-            effective_rates = {
-                "standard_rate": contract_rate(db(), order_id, project_date, "regular_hours", legacy_rates=rates,
-                                                lodging_fallback=lodging_reimbursement_limit())["rate"],
-                "transport_rate": contract_rate(db(), order_id, project_date, "travel_hours", legacy_rates=rates,
-                                                 lodging_fallback=lodging_reimbursement_limit())["rate"],
-                "public_transport_rate": contract_rate(db(), order_id, project_date, "public_transport_hours", legacy_rates=rates,
-                                                        lodging_fallback=lodging_reimbursement_limit())["rate"],
-                "overtime_rate": contract_rate(db(), order_id, project_date, "overtime_hours", legacy_rates=rates,
-                                                lodging_fallback=lodging_reimbursement_limit())["rate"],
-                "holiday_rate": contract_rate(db(), order_id, project_date, "holiday_hours", legacy_rates=rates,
-                                               lodging_fallback=lodging_reimbursement_limit())["rate"],
-                "mileage_rate": contract_rate(db(), order_id, project_date, "mileage", legacy_rates=rates,
-                                               lodging_fallback=lodging_reimbursement_limit())["rate"],
-            }
+        effective_rates, _missing = resolve_contract_rates(order_id, project_date)
         row.update(effective_rates)
         if not row["worker_name"] or not row["project_date"]:
             raise ValueError("工单结算每一行都必须有姓名和项目时间。")
@@ -6466,6 +6604,8 @@ def customer_reimbursement_items_from_form(order_id=None):
         rows.append(calculate_customer_reimbursement_item(row, len(rows)))
     if not rows:
         raise ValueError("工单结算至少需要一行明细。")
+    # 守门：用到的客户费率必须来自合同费率版本，缺失则阻止保存
+    assert_contract_rates_covered(order_id, rows)
     return rows
 
 
@@ -6548,8 +6688,48 @@ def customer_reimbursement_linked_invoice(reimbursement, order_id):
     return service_order_active_invoice(order_id)
 
 
+def customer_reimbursement_other_invoice_breakdown(reimbursement_id):
+    """“其他”桶按来源项目聚合：遍历结算明细行 auto_expense_sources（field=other）。
+
+    口径：工单结算“其他”不接受手工输入，auto_expense_sources 就是最终勾选结果的
+    记录，发票拆分直接按来源金额聚合，无任何分摊规则。
+    返回 {发票项目名: 金额}；出现没有映射的来源项目时抛错（fail-fast，不静默吞金额）。
+    """
+    breakdown = {}
+    unmapped = []
+    for item in customer_reimbursement_items(reimbursement_id):
+        sources = item["auto_expense_sources"]
+        if isinstance(sources, str):
+            try:
+                sources = json.loads(sources)
+            except (TypeError, ValueError):
+                sources = {}
+        for source in (sources or {}).get("other", []):
+            _field, invoice_project = expense_settlement_invoice_field(source.get("project_name"))
+            if not invoice_project:
+                unmapped.append(normalized_project_name(source.get("project_name")) or "(空项目名)")
+                continue
+            amount = money_decimal(source.get("amount"))
+            breakdown[invoice_project] = money_float(money_decimal(breakdown.get(invoice_project)) + amount)
+    if unmapped:
+        raise ValueError(
+            "以下报销来源项目没有配置「员工报销项目 → 结算/发票项目」映射，无法拆分发票行："
+            + "、".join(sorted(set(unmapped)))
+            + "。请先在映射表中配置。"
+        )
+    return breakdown
+
+
 def customer_reimbursement_invoice_items(reimbursement):
-    project_names = tuple(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS.keys())
+    breakdown = customer_reimbursement_other_invoice_breakdown(reimbursement["id"])
+    if not breakdown and money_float(money_decimal(reimbursement["mro_supplies_total"])) > 0:
+        # 旧结算单没有 auto_expense_sources 记录时的兜底：按 MRO 快照金额开一行，
+        # 避免“其他”金额在发票上消失；新结算单一律走来源项目拆分。
+        breakdown = {"MRO Supplies": money_float(money_decimal(reimbursement["mro_supplies_total"]))}
+
+    required_names = tuple(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS) + tuple(
+        name for name in breakdown if name not in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS
+    )
     projects = db().execute(
         """
         select *
@@ -6557,23 +6737,35 @@ def customer_reimbursement_invoice_items(reimbursement):
         where project_type = 'invoice'
         """
     ).fetchall()
-    canonical_invoice_keys = tuple(project_name_key(name) for name in project_names)
+    canonical_invoice_keys = tuple(project_name_key(name) for name in required_names)
     projects_by_name = {}
     for project in projects:
         canonical_key = canonical_project_mapping_key(project["name"], canonical_invoice_keys)
         if canonical_key not in canonical_invoice_keys:
             continue
-        expected_name = project_names[canonical_invoice_keys.index(canonical_key)]
+        expected_name = required_names[canonical_invoice_keys.index(canonical_key)]
         current = projects_by_name.get(expected_name)
         if current is None or project_name_key(project["name"]) == canonical_key:
             projects_by_name[expected_name] = project
-    missing = [name for name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS if name not in projects_by_name]
+    missing = [name for name in required_names if name not in projects_by_name]
     if missing:
         raise ValueError(f"请先在项目维护中创建发票项目：{', '.join(missing)}。")
     items = []
     for project_name, amount_field in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS.items():
         amount = float(reimbursement[amount_field] or 0)
         if amount <= 0:
+            continue
+        project = projects_by_name[project_name]
+        items.append(
+            {
+                "project_id": project["id"],
+                "amount": round(amount, 2),
+                "tax_rate": project["tax_rate"],
+            }
+        )
+    for project_name, amount in breakdown.items():
+        # 与固定三类同名（配置错误）时跳过，避免同一发票项目出现两行
+        if amount <= 0 or project_name in CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS:
             continue
         project = projects_by_name[project_name]
         items.append(
@@ -6602,6 +6794,8 @@ def create_customer_reimbursement(order, expense_selection_mode="legacy"):
     rows = customer_reimbursement_seed_rows(order["id"])
     if not rows:
         raise ValueError("这个工单还没有可用于生成工单结算的工作日报。")
+    # 守门：生成的结算行用到的客户费率必须来自合同费率版本，缺失则阻止生成
+    assert_contract_rates_covered(order["id"], rows)
     save_customer_reimbursement_items(reimbursement_id, rows)
     copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, order["id"])
     update_customer_reimbursement_totals(reimbursement_id, rows)
@@ -6666,8 +6860,8 @@ def sync_expense_attachments_to_settlement(order_id):
                     [attachment["source_expense_id"], *selected_ids],
                 ).fetchone():
                     continue
-        project_key = canonical_project_mapping_key(attachment["project_name"], CUSTOMER_REIMBURSEMENT_EXPENSE_FIELDS)
-        if ((project_key == project_name_key("Fuel Expenses") and attachment["fuel_vehicle_type"] != "rental")
+        settlement_field, _invoice_project = expense_settlement_invoice_field(attachment["project_name"])
+        if ((settlement_field == "fuel" and attachment["fuel_vehicle_type"] != "rental")
                 or normalized_project_name(attachment["project_name"]) == "个人自驾油费"):
             continue
         if copy_file_to_customer_reimbursement_attachment(reimbursement["id"], expense_attachment_path(attachment),
@@ -7180,8 +7374,10 @@ def save_expense_attachment(expense_id, uploaded, expense_item_key=None):
 
 
 def save_expense_uploads(expense_id, item_rows=None):
-    for uploaded in uploaded_attachments_from_request():
-        save_expense_attachment(expense_id, uploaded)
+    # 整单级“通用附件”已下线：所有附件必须挂在明细行（expense_item_key 必填）。
+    # 请求里仍带 name="attachments" 的非空文件时明确报错，不允许静默丢弃。
+    if uploaded_attachments_from_request():
+        raise ValueError("附件请挂到对应明细行后再保存。")
     for item in item_rows or []:
         line_key = item["line_key"]
         for uploaded in request.files.getlist(f"item_attachments_{line_key}"):
@@ -7426,7 +7622,7 @@ def service_report_worker_options(order, report_id=None):
         params.insert(0, g.user["id"])
     return db().execute(
         f"""
-        select users.id, users.name, users.email, users.country_code
+        select users.id, users.name, users.email, users.country_code, users.address
         from users
         where {role_clause}
           and users.is_active = 1
@@ -7452,15 +7648,12 @@ def report_writer_options():
 
 
 def group_expense_attachments(attachments):
-    common = []
+    """只按明细行分组；expense_item_key 为空的旧数据返回在 "" 组，由详情页提示。"""
     by_item = {}
     for attachment in attachments:
         line_key = (attachment["expense_item_key"] or "").strip()
-        if line_key:
-            by_item.setdefault(line_key, []).append(attachment)
-        else:
-            common.append(attachment)
-    return common, by_item
+        by_item.setdefault(line_key, []).append(attachment)
+    return by_item
 
 
 def posted_report_writer_id():
@@ -9931,6 +10124,71 @@ def countries():
     return render_template("countries.html", countries=rows, translations=translations)
 
 
+def employee_grade_usage(grade_id):
+    """返回 (员工总数, 其中在职数)：等级删除/停用校验的数据依据。"""
+    row = db().execute(
+        """
+        select count(*) as total,
+               coalesce(sum(case when is_active = 1 then 1 else 0 end), 0) as active
+        from users
+        where employee_grade_id = ?
+        """,
+        (grade_id,),
+    ).fetchone()
+    return int(row["total"] or 0), int(row["active"] or 0)
+
+
+def render_employee_grades_page(selected_id=""):
+    """员工等级工作台：左板块等级列表 + 右板块选中等级的费率版本。"""
+    grades = employee_grade_options(include_inactive=True)
+    usage = {
+        row["employee_grade_id"]: (int(row["total"] or 0), int(row["active"] or 0))
+        for row in db().execute(
+            """
+            select employee_grade_id, count(*) as total,
+                   coalesce(sum(case when is_active = 1 then 1 else 0 end), 0) as active
+            from users
+            where employee_grade_id is not null
+            group by employee_grade_id
+            """
+        ).fetchall()
+    }
+    if not str(selected_id).isdigit() and grades:
+        selected_id = str(grades[0]["id"])
+    selected = None
+    versions = []
+    item_map = {}
+    if str(selected_id).isdigit():
+        selected = db().execute("select * from employee_grades where id = ?", (int(selected_id),)).fetchone()
+    if selected:
+        versions = db().execute(
+            "select * from employee_rate_versions where employee_grade_id = ? order by effective_from desc, version_no desc",
+            (selected["id"],),
+        ).fetchall()
+        items = db().execute(
+            """
+            select employee_rate_items.* from employee_rate_items
+            join employee_rate_versions on employee_rate_versions.id = employee_rate_items.version_id
+            where employee_rate_versions.employee_grade_id = ?
+            order by employee_rate_versions.version_no desc, employee_rate_items.id
+            """,
+            (selected["id"],),
+        ).fetchall()
+        for item in items:
+            item_map.setdefault(item["version_id"], {})[item["rate_type"]] = item
+    return render_template(
+        "employee_grades.html",
+        grades=grades,
+        usage=usage,
+        selected=selected,
+        versions=versions,
+        item_map=item_map,
+        rate_types=EMPLOYEE_RATE_TYPES,
+        can_edit=has_action_permission("employee_grades", "edit"),
+        can_delete=has_action_permission("employee_grades", "delete"),
+    )
+
+
 @app.route("/employee-grades", methods=["GET", "POST"])
 @login_required
 def employee_grades():
@@ -9959,16 +10217,16 @@ def employee_grades():
             transport_hourly_rate,
             to_float(request.form.get("overtime_hourly_rate")),
             to_float(request.form.get("holiday_hourly_rate")),
-            1 if request.form.get("is_active", "1") == "1" else 0,
         )
         try:
             if grade_id and str(grade_id).isdigit():
+                # 启用/停用走列表页的专用按钮（带在职员工校验），编辑只改资料不改状态
                 db().execute(
                     """
                     update employee_grades
                     set grade_name = ?, description = ?, base_salary = ?, meal_daily_amount = ?,
                         car_allowance_method = ?, car_mileage_rate = ?, car_hourly_rate = ?, rental_driving_hourly_rate = ?, standard_hourly_rate = ?, transport_hourly_rate = ?,
-                        overtime_hourly_rate = ?, holiday_hourly_rate = ?, is_active = ?
+                        overtime_hourly_rate = ?, holiday_hourly_rate = ?
                     where id = ?
                     """,
                     (*values, int(grade_id)),
@@ -9981,7 +10239,7 @@ def employee_grades():
                         grade_name, description, base_salary, meal_daily_amount, car_allowance_method,
                         car_mileage_rate, car_hourly_rate, rental_driving_hourly_rate, standard_hourly_rate, transport_hourly_rate,
                         overtime_hourly_rate, holiday_hourly_rate, is_active, created_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                     """,
                     (*values, now()),
                 )
@@ -9991,8 +10249,37 @@ def employee_grades():
         except sqlite3.IntegrityError:
             db().rollback()
             flash("员工等级名称已存在。", "error")
-        return redirect(url_for("employee_grades"))
-    return render_template("employee_grades.html", grades=employee_grade_options(include_inactive=True))
+        return redirect(url_for("employee_grades", grade_id=grade_id or ""))
+    return render_employee_grades_page()
+
+
+@app.post("/employee-grades/<int:grade_id>/state")
+@login_required
+def set_employee_grade_state(grade_id):
+    if not has_action_permission("employee_grades", "edit"):
+        abort(403)
+    grade = db().execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
+    if not grade:
+        abort(404)
+    target_active = request.form.get("is_active", "1") == "1"
+    if grade["is_active"] == target_active:
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+    if target_active:
+        db().execute("update employee_grades set is_active = 1 where id = ?", (grade_id,))
+        log_action("update", "employee_grade", grade_id, grade["grade_name"], "启用员工等级")
+        db().commit()
+        flash("员工等级已启用。", "success")
+    else:
+        # 停用校验：只要还有在职员工使用该等级，就不能停用（员工全部停用后才允许）
+        total, active = employee_grade_usage(grade_id)
+        if active:
+            flash(f"该等级仍有 {active} 名在职员工使用，不能停用；请先在员工管理中停用这些员工或调整其等级。", "error")
+            return redirect(url_for("employee_grades", grade_id=grade_id))
+        db().execute("update employee_grades set is_active = 0 where id = ?", (grade_id,))
+        log_action("update", "employee_grade", grade_id, grade["grade_name"], f"停用员工等级（{total} 名员工均已停用）")
+        db().commit()
+        flash("员工等级已停用。", "success")
+    return redirect(url_for("employee_grades", grade_id=grade_id))
 
 
 @app.post("/employee-grades/<int:grade_id>/delete")
@@ -10003,14 +10290,19 @@ def delete_employee_grade(grade_id):
     grade = db().execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
     if not grade:
         abort(404)
-    user_count = db().execute(
-        "select count(*) as count from users where employee_grade_id = ?", (grade_id,)
-    ).fetchone()["count"]
-    if user_count:
-        flash(f"该等级仍被 {user_count} 名员工使用，不能删除；请先停用或调整员工等级。", "error")
-        return redirect(url_for("employee_grades"))
+    total, active = employee_grade_usage(grade_id)
+    if total:
+        detail = f"其中 {active} 名在职" if active else "对应员工均已停用"
+        flash(f"该等级仍被 {total} 名员工使用（{detail}），不能删除；请先把这些员工调整到其它等级。", "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+    # 显式清理费率版本与明细，不依赖外键级联（SQLite/PostgreSQL 行为一致）
+    db().execute(
+        "delete from employee_rate_items where version_id in (select id from employee_rate_versions where employee_grade_id = ?)",
+        (grade_id,),
+    )
+    db().execute("delete from employee_rate_versions where employee_grade_id = ?", (grade_id,))
     db().execute("delete from employee_grades where id = ?", (grade_id,))
-    log_action("delete", "employee_grade", grade_id, grade["grade_name"], "删除员工等级")
+    log_action("delete", "employee_grade", grade_id, grade["grade_name"], "删除员工等级（含费率版本）")
     db().commit()
     flash("员工等级已删除。", "success")
     return redirect(url_for("employee_grades"))
@@ -10501,9 +10793,27 @@ def system_settings():
         set_setting("inspection_warning_days", str(warning_days))
         set_setting("inspection_cycle_days", str(cycle_days))
         set_setting("field_watermark_time_password", request.form.get("field_watermark_time_password", "").strip())
+        # 报销附件智能解读（本地大模型）
+        set_setting("ai_interpret_base_url", request.form.get("ai_interpret_base_url", "").strip())
+        ai_choice = request.form.get("ai_interpret_model_choice", "qwen4b").strip()
+        if ai_choice not in {key for key, _label, _setting in MODEL_OPTIONS} | {"custom"}:
+            ai_choice = "qwen4b"
+        set_setting("ai_interpret_model_choice", ai_choice)
+        set_setting("ai_interpret_model_qwen4b", request.form.get("ai_interpret_model_qwen4b", "").strip())
+        set_setting("ai_interpret_model_qwen9b", request.form.get("ai_interpret_model_qwen9b", "").strip())
+        set_setting("ai_interpret_model_custom", request.form.get("ai_interpret_model_custom", "").strip())
+        set_setting("ai_interpret_api_key", request.form.get("ai_interpret_api_key", "").strip())
+        # 报销智能审核夜间批量（worker 读取）
+        set_setting("ai_review_enabled", "true" if request.form.get("ai_review_enabled") == "true" else "false")
+        ai_review_time = request.form.get("ai_review_time", "03:00").strip()
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", ai_review_time):
+            flash("智能审核执行时间格式应为 HH:MM（例如 03:00）。", "error")
+            return redirect(url_for("system_settings"))
+        set_setting("ai_review_time", ai_review_time)
         db().commit()
         flash("系统设置已保存。", "success")
         return redirect(url_for("system_settings"))
+    ai_interpret_settings_snapshot = ai_interpret_effective_settings(db())
     return render_template(
         "company_settings.html",
         company=get_company_profile(),
@@ -10516,6 +10826,15 @@ def system_settings():
         deepseek_enabled=get_setting("deepseek_enabled", "false") == "true",
         deepseek_api_key_configured=bool(get_setting("deepseek_api_key", DEEPSEEK_API_KEY_ENV).strip()),
         deepseek_model=get_setting("deepseek_model", "deepseek-chat"),
+        ai_interpret_choice=get_setting("ai_interpret_model_choice", AI_INTERPRET_DEFAULTS["ai_interpret_model_choice"]),
+        ai_interpret_base_url=get_setting("ai_interpret_base_url", AI_INTERPRET_DEFAULTS["ai_interpret_base_url"]),
+        ai_interpret_model_qwen4b=get_setting("ai_interpret_model_qwen4b", AI_INTERPRET_DEFAULTS["ai_interpret_model_qwen4b"]),
+        ai_interpret_model_qwen9b=get_setting("ai_interpret_model_qwen9b", AI_INTERPRET_DEFAULTS["ai_interpret_model_qwen9b"]),
+        ai_interpret_model_custom=get_setting("ai_interpret_model_custom", ""),
+        ai_interpret_api_key_configured=bool(get_setting("ai_interpret_api_key", "").strip()),
+        ai_interpret_ready=bool(ai_interpret_settings_snapshot["model"]) and bool(ai_interpret_settings_snapshot["base_url"]),
+        ai_review_enabled=get_setting("ai_review_enabled", "true") == "true",
+        ai_review_time=get_setting("ai_review_time", "03:00"),
         inspection_warning_days=inspection_warning_days(),
         inspection_cycle_days=inspection_cycle_days(),
         field_watermark_time_password=get_setting("field_watermark_time_password", ""),
@@ -15022,6 +15341,10 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             "transport_rate": float(row["transport_hourly_rate"] or 0),
             "overtime_rate": float(row["overtime_hourly_rate"] or 0),
             "holiday_rate": float(row["holiday_hourly_rate"] or 0),
+            # 工资按「工作日当天的等级费率版本」逐条累加（无版本时回退等级静态列）；
+            # 上面的 *_rate 只作展示/兜底，不再参与金额计算。
+            "pay_standard": 0.0, "pay_overtime": 0.0, "pay_holiday": 0.0,
+            "pay_self_drive": 0.0, "pay_following": 0.0, "pay_rental": 0.0,
             "standard_hours": 0, "transport_hours": 0, "overtime_hours": 0,
             "holiday_hours": 0, "attendance_dates": set(), "driving_miles": 0,
             "self_drive_travel_hours": 0, "following_travel_hours": 0,
@@ -15029,23 +15352,43 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
             "report_writing_count": 0,
         })
 
+    rate_cache = {}
+
+    def dated_rate(worker_id, work_date, rate_type):
+        """按员工+工作日取费率（等级费率版本优先，缺失回退等级静态列），周期内缓存。"""
+        key = (worker_id, work_date, rate_type)
+        if key not in rate_cache:
+            rate_cache[key] = employee_rate(db(), worker_id, work_date, rate_type)["rate"]
+        return rate_cache[key]
+
     for row in rows:
         worker = ensure_worker(row)
         if detail:
             worker["report_ids"].add(row["report_id"])
+        work_date = row["attendance_date"] or period_start.isoformat()
+        worker_id = row["worker_id"]
         for key in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours"):
             worker[key] += row[key]
+        worker["pay_standard"] += row["standard_hours"] * dated_rate(worker_id, work_date, "regular_hours")
+        worker["pay_overtime"] += row["overtime_hours"] * dated_rate(worker_id, work_date, "overtime_hours")
+        worker["pay_holiday"] += row["holiday_hours"] * dated_rate(worker_id, work_date, "holiday_hours")
         if row["attendance_date"]:
             worker["attendance_dates"].add(row["attendance_date"])
         travel_mode = row["worker_travel_mode"] or "legacy"
         if travel_mode in {"self_drive", "legacy"}:
-            worker["driving_miles"] += float(row["worker_driving_miles"] or 0)
+            miles = float(row["worker_driving_miles"] or 0)
+            worker["driving_miles"] += miles
             worker["self_drive_travel_hours"] += float(row["worker_travel_hours"] or 0)
+            worker["pay_self_drive"] += miles * dated_rate(worker_id, work_date, "mileage")
         if travel_mode == "following":
-            worker["following_travel_hours"] += float(row["worker_travel_hours"] or 0)
+            hours_value = float(row["worker_travel_hours"] or 0)
+            worker["following_travel_hours"] += hours_value
+            worker["pay_following"] += hours_value * dated_rate(worker_id, work_date, "travel_hours")
         if travel_mode == "rental_drive":
-            worker["rental_driving_hours"] += float(row["worker_travel_hours"] or 0)
+            hours_value = float(row["worker_travel_hours"] or 0)
+            worker["rental_driving_hours"] += hours_value
             worker["rental_driving_miles"] += float(row["worker_driving_miles"] or 0)
+            worker["pay_rental"] += hours_value * dated_rate(worker_id, work_date, "rental_drive_hours")
 
     date_expr = "date(service_reports.report_date)" if date_mode == "report" else "date(coalesce(service_reports.actual_work_date, service_reports.report_date))"
     clauses = [f"{date_expr} >= ?", f"{date_expr} <= ?", "service_reports.report_writer_id is not null"]
@@ -15081,12 +15424,13 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
     payroll_rows = []
     for worker in payroll.values():
         attendance_days = len(worker["attendance_dates"])
-        standard_pay = worker["standard_hours"] * worker["standard_rate"]
-        overtime_pay = worker["overtime_hours"] * worker["overtime_rate"]
-        holiday_pay = worker["holiday_hours"] * worker["holiday_rate"]
-        self_drive_allowance = worker["driving_miles"] * worker["car_mileage_rate"]
-        following_allowance = worker["following_travel_hours"] * worker["transport_rate"]
-        rental_driving_allowance = worker["rental_driving_hours"] * worker["rental_driving_hourly_rate"]
+        # 金额来自逐条工时 × 当日费率版本（见上面的 pay_* 累加）
+        standard_pay = worker["pay_standard"]
+        overtime_pay = worker["pay_overtime"]
+        holiday_pay = worker["pay_holiday"]
+        self_drive_allowance = worker["pay_self_drive"]
+        following_allowance = worker["pay_following"]
+        rental_driving_allowance = worker["pay_rental"]
         worker["transport_hours"] = worker["following_travel_hours"] + worker["rental_driving_hours"]
         transport_pay = following_allowance + rental_driving_allowance
         car_allowance = self_drive_allowance
@@ -17291,6 +17635,12 @@ def customer_reimbursement_form(order_id):
         "select name from users where id = ?",
         (reimbursement["reviewed_by"],),
     ).fetchone() if reimbursement["reviewed_by"] else None
+    # 客户费率一律来自合同费率版本：给 JS 的兜底单价按工单开始日期解析（缺失传 0），
+    # 行级单价已随明细行的 data-*-rate 传入；缺失项在页面顶部横幅醒目提示
+    js_rates, _ = resolve_contract_rates(order_id, order["start_date"])
+    missing_rate_summary = contract_rate_missing_summary(
+        order_id, [item.get("project_date") for item in items] or [order["start_date"]]
+    )
     return render_template(
         "customer_reimbursement_form.html",
         order=order,
@@ -17301,7 +17651,15 @@ def customer_reimbursement_form(order_id):
             reimbursement["mro_supplies_total"],
             reimbursement["rental_fuel_total"],
         ),
-        rates=customer_reimbursement_rates(),
+        js_rates={
+            "standard": js_rates["standard_rate"],
+            "transport": js_rates["transport_rate"],
+            "publicTransport": js_rates["public_transport_rate"],
+            "overtime": js_rates["overtime_rate"],
+            "holiday": js_rates["holiday_rate"],
+            "mileage": js_rates["mileage_rate"],
+        },
+        missing_rate_summary=missing_rate_summary,
         attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
         linked_invoice=linked_invoice,
         reviewer=reviewer,
@@ -18792,7 +19150,6 @@ def new_expense(order_id):
         expense_projects=expense_projects,
         is_edit=False,
         attachments=[],
-        common_attachments=[],
         attachments_by_item={},
         save_token=secrets.token_urlsafe(24),
     )
@@ -18900,7 +19257,7 @@ def edit_expense(expense_id):
         flash("报销已保存。", "success")
         return redirect(url_for("edit_expense", expense_id=expense_id))
     attachments = get_expense_attachments(expense_id)
-    common_attachments, attachments_by_item = group_expense_attachments(attachments)
+    attachments_by_item = group_expense_attachments(attachments)
     return render_template(
         "expense_form.html",
         order=order,
@@ -18910,7 +19267,6 @@ def edit_expense(expense_id):
         expense_projects=expense_projects,
         is_edit=True,
         attachments=attachments,
-        common_attachments=common_attachments,
         attachments_by_item=attachments_by_item,
         transfer_reimbursement=latest_customer_reimbursement(order["id"]),
         save_token=secrets.token_urlsafe(24),
@@ -18929,7 +19285,26 @@ def expense_detail(expense_id):
         (expense["reimbursed_by"],),
     ).fetchone() if expense["reimbursed_by"] else None
     attachments = get_expense_attachments(expense_id)
-    common_attachments, attachments_by_item = group_expense_attachments(attachments)
+    attachments_by_item = group_expense_attachments(attachments)
+    # 旧数据兜底：迁移完成前仍存在的“未挂明细行”附件，顶部警告提示而不是渲染通用附件区
+    unassigned_attachments = attachments_by_item.pop("", [])
+    can_review = normalized_role() in {"admin", "manager"}
+    ai_review = db().execute(
+        "select * from expense_ai_reviews where expense_id = ?", (expense_id,)
+    ).fetchone() if can_review else None
+    # AI 审核意见由夜间批量 worker（默认 03:00，见 ai_review_worker.py）生成；
+    # 详情页只展示已有结果并提供手动「立即审核」按钮，白天不占用模型资源。
+    attachment_ids = [attachment["id"] for attachment in attachments]
+    interpretations = {}
+    if attachment_ids:
+        placeholders = ",".join("?" for _ in attachment_ids)
+        interpretations = {
+            row["attachment_id"]: dict(row)
+            for row in db().execute(
+                f"select * from expense_attachment_interpretations where attachment_id in ({placeholders})",
+                attachment_ids,
+            ).fetchall()
+        }
     return render_template(
         "expense_detail.html",
         order=order,
@@ -18940,8 +19315,11 @@ def expense_detail(expense_id):
         reviewer=reviewer,
         reimburser=reimburser,
         attachments=attachments,
-        common_attachments=common_attachments,
         attachments_by_item=attachments_by_item,
+        unassigned_attachments=unassigned_attachments,
+        interpretations=interpretations,
+        ai_review=ai_review,
+        can_review=can_review,
         transfer_reimbursement=latest_customer_reimbursement(order["id"]) if can_transfer_attachments else None,
         can_transfer_attachments=can_transfer_attachments,
         can_delete=can_delete_expense(expense),
@@ -19099,6 +19477,77 @@ def download_expense_attachment(attachment_id):
         abort(404)
     require_expense(attachment["expense_id"])
     return send_file(expense_attachment_path(attachment), as_attachment=True, download_name=attachment["original_filename"])
+
+
+@app.get("/expense-attachments/<int:attachment_id>/interpretation")
+@login_required
+def get_expense_attachment_interpretation(attachment_id):
+    """弹窗展示附件的智能解读结果。"""
+    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_expense(attachment["expense_id"])
+    row = db().execute(
+        "select * from expense_attachment_interpretations where attachment_id = ?",
+        (attachment_id,),
+    ).fetchone()
+    if not row:
+        return jsonify({"ok": True, "status": "none", "content": "", "error": "", "model": "", "updated_at": ""})
+    return jsonify({
+        "ok": True,
+        "status": row["status"],
+        "content": row["content"],
+        "error": row["error"],
+        "model": row["model"],
+        "updated_at": row["updated_at"],
+    })
+
+
+@app.post("/expense-attachments/<int:attachment_id>/interpret")
+@login_required
+def interpret_expense_attachment(attachment_id):
+    """立即调用配置的本地大模型解读该附件（已有结果则覆盖重做）。"""
+    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
+    if not attachment:
+        abort(404)
+    require_expense(attachment["expense_id"])
+    result = run_expense_attachment_interpretation(
+        db(), attachment_id, EXPENSE_ATTACHMENTS_DIR, force=True
+    )
+    db().commit()
+    status_code = 200 if result["ok"] else 502
+    return jsonify({"ok": result["ok"], "status": result["status"], "error": result["error"]}), status_code
+
+
+@app.route("/expenses/<int:expense_id>/ai_review", methods=["GET", "POST"])
+@login_required
+def expense_ai_review(expense_id):
+    """AI 智能审核意见。
+
+    GET：只返回已有记录（夜间批量 worker 生成；无记录返回 status=none，不触发模型）。
+    POST：强制重新审核（同步执行，详情页「立即审核/重新审核」按钮用）。仅 admin/manager。
+    """
+    if normalized_role() not in {"admin", "manager"}:
+        abort(403)
+    expense = db().execute("select * from expenses where id = ?", (expense_id,)).fetchone()
+    if not expense:
+        abort(404)
+    if request.method == "GET":
+        row = db().execute(
+            "select * from expense_ai_reviews where expense_id = ?", (expense_id,)
+        ).fetchone()
+        if not row:
+            return jsonify({"ok": True, "status": "none", "conclusion": "", "content": "", "model": "", "error": "", "updated_at": ""})
+        return jsonify({
+            "ok": row["status"] != "failed",
+            "status": row["status"], "conclusion": row["conclusion"],
+            "content": row["content"], "model": row["model"],
+            "error": row["error"], "updated_at": row["updated_at"],
+        })
+    result = run_expense_ai_review_task(db(), expense_id, EXPENSE_ATTACHMENTS_DIR, force=True)
+    db().commit()
+    status_code = 200 if result["ok"] else 502
+    return jsonify(result), status_code
 
 
 @app.post("/expense-attachments/<int:attachment_id>/delete")

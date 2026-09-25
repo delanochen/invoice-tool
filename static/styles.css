@@ -2924,6 +2924,17 @@ body.service-order-map-page {
   padding: 0.35rem;
   font-size: 0.8rem;
 }
+
+/* 现场服务描述的「自动读取工作日志」按钮：紧凑小按钮，不随表单网格拉伸 */
+.read-repair-btn {
+  width: auto;
+  justify-self: start;
+  align-self: center;
+  white-space: nowrap;
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
 /* Read-only AI assistant */
 .ai-assistant-shell {
   max-width: 1100px;

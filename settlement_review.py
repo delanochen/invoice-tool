@@ -237,7 +237,6 @@ def _contract_lodging_cap(api, order, work_date=None):
         order["id"],
         work_date or order["start_date"] or date.today().isoformat(),
         "lodging_cap",
-        legacy_rates=api["customer_reimbursement_rates"](),
         lodging_fallback=fallback,
     )
     return rate
@@ -448,6 +447,10 @@ def register_settlement_review_routes(app, api):
             for candidate in candidates:
                 candidate["selected"] = candidate["expense_item_id"] in selected
         summary = _candidate_summary(candidates, person_nights, lodging_rate["rate"])
+        # 客户费率一律来自合同费率版本：审核页同样醒目提示缺失项
+        missing_rate_summary = api["contract_rate_missing_summary"](
+            order_id, [candidate.get("expense_date") for candidate in candidates]
+        )
         return render_template(
             "settlement_expense_review.html",
             order=order,
@@ -457,4 +460,5 @@ def register_settlement_review_routes(app, api):
             lodging_rate=lodging_rate,
             person_nights=person_nights,
             default_person_nights=default_nights,
+            missing_rate_summary=missing_rate_summary,
         )

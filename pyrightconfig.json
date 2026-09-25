@@ -1,0 +1,46 @@
+{
+  // 基线说明：本仓库为无类型注解的历史 Flask 代码，DB 访问统一走 sqlite3.Row /
+  // 自研 PostgreSQLConnection，取值在类型系统里都是 Any，会连带放大成大量误报。
+  // 这里只保留“能抓真实运行时缺陷”的规则，关掉由动态取值 / 第三方类型桩引起的噪音。
+  "typeCheckingMode": "standard",
+  "exclude": [
+    "**/__pycache__",
+    "**/node_modules",
+    ".codesight",
+    ".workbuddy",
+    ".vscode",
+    ".git.broken2",
+    ".git.broken3_01271",
+    "_clone_tmp",
+    "_gitbak_01241",
+    "_gitbak_v0247",
+    "_release",
+    "_tool_fix",
+    "_wip_backup_01264",
+    "_wip_backup_01271_app.py",
+    "_*.py",
+    "_*.html"
+  ],
+  // sqlite3.Row 取值 / Jinja globals 赋值 / reportlab、PIL 类型桩造成的误报
+  "reportArgumentType": false,
+  "reportAttributeAccessIssue": false,
+  "reportCallIssue": false,
+  "reportIndexIssue": false,
+  "reportOperatorIssue": false,
+  "reportAssignmentType": false,
+  "reportGeneralTypeIssues": false,
+  // DB 行 / 配置取值一律是 Optional，本仓库已用 if not row 等运行期守卫
+  "reportOptionalSubscript": false,
+  "reportOptionalMemberAccess": false,
+  "reportOptionalIterable": false,
+  "reportOptionalOperand": false,
+  "reportOptionalCall": false,
+  "reportUninitializedInstanceVariable": false,
+  "reportMissingTypeArgument": false,
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownLambdaType": false,
+  "reportUnknownParameterType": false
+}

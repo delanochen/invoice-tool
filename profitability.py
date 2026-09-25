@@ -161,7 +161,6 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
         """,
         params,
     ).fetchall()
-    legacy_rates = api["customer_reimbursement_rates"]()
     lines = []
     for report in reports:
         workers = api["db"]().execute(
@@ -186,7 +185,6 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
                     continue
                 client = contract_rate(
                     api["db"](), report["service_order_id"], work_date, item_type,
-                    legacy_rates=legacy_rates,
                     lodging_fallback=api["lodging_reimbursement_limit"](),
                 )
                 employee_type = _employee_cost_rate_type(item_type, worker)

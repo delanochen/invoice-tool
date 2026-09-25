@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPO_DIR = Path(__file__).resolve().parent
@@ -144,8 +145,8 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             ).fetchone()
             self.module.db().execute(
                 """update projects
-                   set name = 'MRO Supplies配件及耗材费',
-                       name_key = 'mro supplies配件及耗材费'
+                   set name = 'MRO Supplies',
+                       name_key = 'mro supplies'
                    where project_type = 'invoice' and name = 'MRO Supplies'"""
             )
             invoice_items = self.module.customer_reimbursement_invoice_items(reimbursement)
@@ -168,7 +169,8 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             self.assertEqual(totals["employee_expense_total"], 125.0)
             self.assertEqual(totals["total_amount"], 195.0)
             self.assertEqual(reimbursement["mro_supplies_total"], 125.0)
-            self.assertEqual(invoice_projects["MRO Supplies配件及耗材费"]["amount"], 125.0)
+            # “其他”桶按来源项目拆分：MRO 来源经映射表开入同名发票项目
+            self.assertEqual(invoice_projects["MRO Supplies"]["amount"], 125.0)
             self.assertNotIn("Travel Expenses Reimbursement", invoice_projects)
 
     def test_bilingual_expense_labels_map_to_all_customer_reimbursement_fields(self):
@@ -182,12 +184,13 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             "Taxi Fare / Ride-Hailing Fare打车费": "taxi",
             "MRO Supplies配件及耗材费": "other",
         }
-        for label, expected_field in labels.items():
-            fuel_type = "rental" if expected_field == "fuel" else None
-            self.assertEqual(
-                self.module.customer_reimbursement_expense_field(label, fuel_type),
-                expected_field,
-            )
+        with self.module.app.app_context():
+            for label, expected_field in labels.items():
+                fuel_type = "rental" if expected_field == "fuel" else None
+                self.assertEqual(
+                    self.module.customer_reimbursement_expense_field(label, fuel_type),
+                    expected_field,
+                )
 
     def test_customer_reimbursement_lodging_over_limit_is_warning_only(self):
         with self.module.app.test_request_context(
@@ -211,7 +214,14 @@ class CustomerReimbursementMroTest(unittest.TestCase):
                 "miles": ["0"],
             },
         ):
-            rows = self.module.customer_reimbursement_items_from_form()
+            # 客户费率只查合同费率版本：这里打补丁模拟"费率已配置"，
+            # order_id=None 在生产代码中已被禁止（阻止保存）。
+            stub_rates = {
+                "standard_rate": 70, "transport_rate": 35, "public_transport_rate": 35,
+                "overtime_rate": 105, "holiday_rate": 105, "mileage_rate": 1,
+            }
+            with patch.object(self.module, "resolve_contract_rates", return_value=(stub_rates, [])):
+                rows = self.module.customer_reimbursement_items_from_form(order_id=1)
             self.assertEqual(rows[0]["lodging"], 450.0)
 
     def test_expense_detail_report_lists_each_item_and_filters_person(self):

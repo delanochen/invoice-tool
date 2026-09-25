@@ -78,6 +78,35 @@
         <span id="deepSeekConnectionResult" class="muted-line" aria-live="polite"></span>
       </div>
     </section>
+    <section class="form-stack full-span">
+      <h2>报销附件智能解读（本地大模型）</h2>
+      <p class="muted-line">用于解读报销附件（图片/PDF）。每天凌晨 2 点后台会自动解读所有未解读过的附件，也可以在报销详情页手动点击「智能解读」。</p>
+      <label>大模型
+        <select name="ai_interpret_model_choice">
+          <option value="qwen4b" {% if ai_interpret_choice == 'qwen4b' %}selected{% endif %}>Qwen 4B（本地）</option>
+          <option value="qwen9b" {% if ai_interpret_choice == 'qwen9b' %}selected{% endif %}>Qwen 9B（本地）</option>
+          <option value="custom" {% if ai_interpret_choice == 'custom' %}selected{% endif %}>自定义</option>
+        </select>
+      </label>
+      <label>Qwen 4B 模型 ID <input type="text" name="ai_interpret_model_qwen4b" value="{{ ai_interpret_model_qwen4b }}"><small>需与 `ollama list` 中的名称一致</small></label>
+      <label>Qwen 9B 模型 ID <input type="text" name="ai_interpret_model_qwen9b" value="{{ ai_interpret_model_qwen9b }}"><small>需与 `ollama list` 中的名称一致</small></label>
+      <label>自定义模型 ID <input type="text" name="ai_interpret_model_custom" value="{{ ai_interpret_model_custom }}" placeholder="选择“自定义”时使用"></label>
+      <label>接口地址（OpenAI 兼容） <input type="text" name="ai_interpret_base_url" value="{{ ai_interpret_base_url }}"><small>Ollama 默认：http://127.0.0.1:11434/v1；容器内访问宿主机用 http://host.docker.internal:11434/v1</small></label>
+      <label>API 密钥（本地模型通常留空）
+        <input type="password" name="ai_interpret_api_key" value="" autocomplete="new-password" placeholder="{{ '已配置；留空保持不变' if ai_interpret_api_key_configured else '本地模型可留空' }}">
+      </label>
+    </section>
+    <section class="form-stack full-span">
+      <h2>报销智能审核（夜间批量）</h2>
+      <p class="muted-line">默认每天 03:00 批量审核所有待审核报销（状态=submitted）。附件解读 worker（02:00）会先完成，审核可直接引用其结果。AI 只输出审核意见供参考，不会自动改变报销状态。</p>
+      <label>启用智能审核
+        <select name="ai_review_enabled">
+          <option value="true" {% if ai_review_enabled %}selected{% endif %}>启用</option>
+          <option value="false" {% if not ai_review_enabled %}selected{% endif %}>停用</option>
+        </select>
+      </label>
+      <label>执行时间 <input type="time" name="ai_review_time" value="{{ ai_review_time }}" required><small>默认 03:00（HH:MM）</small></label>
+    </section>
     <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
   </form>
 {% endblock %}

@@ -439,6 +439,10 @@ class FieldWorkTest(unittest.TestCase):
         self.assertNotIn('data-read-repair', worker_template)
         # 员工行不再有「工作内容」输入（维修清单统一写入现场服务描述）
         self.assertNotIn('worker_work_description', source)
+        # 按钮文案与紧凑样式；切换人员自动带出员工主数据出发地
+        self.assertIn('自动读取工作日志', source)
+        self.assertIn('read-repair-btn', source)
+        self.assertIn('employeeOriginAddresses', source)
         # JS 按报告日期读取当天维修清单
         script = (fixture.ROOT / 'static' / 'service-report-repair-read.js').read_text(encoding='utf-8')
         self.assertIn('input[name="report_date"]', script)
