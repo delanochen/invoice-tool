@@ -996,6 +996,20 @@ def init_db():
                 value text not null
             );
 
+            create table if not exists llm_configs (
+                id integer primary key autoincrement,
+                name text not null,
+                base_url text not null default '',
+                api_key text not null default '',
+                model text not null default '',
+                supports_vision integer not null default 0,
+                timeout_seconds integer not null default 300,
+                enabled integer not null default 1,
+                notes text not null default '',
+                created_at text not null,
+                updated_at text not null
+            );
+
             create table if not exists knowledge_documents (
                 id integer primary key autoincrement,
                 title text not null,
@@ -10832,7 +10846,7 @@ def system_settings():
                 _next = 0 if _row["enabled"] else 1
                 db().execute(
                     "update llm_configs set enabled = ?, updated_at = ? where id = ?",
-                    (_next, api["now"](), int(llm_target_id)),
+                    (_next, now(), int(llm_target_id)),
                 )
                 db().commit()
                 flash("配置已" + ("停用" if _row["enabled"] else "启用") + "。", "success")
@@ -10893,7 +10907,7 @@ def system_settings():
                      int(request.form.get("llm_new_timeout", "") or _row["timeout_seconds"]),
                      1 if request.form.get("llm_new_enabled") == "on" else 0,
                      request.form.get("llm_new_notes", "").strip(),
-                     api["now"](),
+                     now(),
                      int(_edit_id)),
                 )
                 db().commit()
@@ -10913,7 +10927,7 @@ def system_settings():
                      int(request.form.get("llm_new_timeout", "300") or 300),
                      1 if request.form.get("llm_new_enabled") == "on" else 0,
                      request.form.get("llm_new_notes", "").strip(),
-                     api["now"](), api["now"]()),
+                     now(), now()),
                 )
                 db().commit()
                 flash("配置已新增。", "success")
