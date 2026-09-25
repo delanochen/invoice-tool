@@ -1,43 +1,74 @@
 {% extends "base.html" %}
 {% block title %}合同费率版本 - {{ contract.contract_number }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .erp-app .rate-form textarea {
+    min-height: 56px; width: 260px; padding: 2px 5px;
+    border: 1px solid #a9b4c5; border-radius: var(--erp-radius);
+    font: inherit; font-size: 12px; box-sizing: border-box;
+  }
+  .erp-app .rate-form .full-span { flex: 1 1 100%; }
+  .erp-app .rate-form small { color: var(--erp-muted); }
+  .erp-app details.rate-version-card {
+    border: 1px solid var(--erp-line); border-radius: var(--erp-radius);
+    background: #fff; padding: 6px 8px; margin-bottom: 6px;
+  }
+  .erp-app details.rate-version-card summary { cursor: pointer; font-size: 12.5px; }
+</style>
+{% endblock %}
 {% block content %}
-<header class="page-header">
-  <div><p class="eyebrow">Contract Rate Versions</p><h1>{{ contract.contract_number }} · 费率版本</h1><p class="muted-line">工单绑定合同；利润核算按实际工作日期自动选择当日有效版本。</p></div>
-  <div class="actions"><button type="button" onclick="window.location.href='{{ url_for('contract_detail', contract_id=contract.id) }}'">返回合同</button></div>
-</header>
-
-{% if can_edit %}
-<section class="panel">
-  <h2>新增费率版本</h2>
-  <form method="post" class="form-stack">
-    <div class="form-grid two-columns">
-      <label>生效日期 <input type="date" name="effective_from" required></label>
-      <label>结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不允许与其他有效版本重叠。</small></label>
-      {% for key, label, unit in rate_types %}
-      <label>{{ label }} <input type="number" name="{{ key }}" step="0.0001" min="0" value="{{ 100 if key == 'lodging_cap' else '' }}" required><small>单位：{{ {'hour':'小时','mile':'英里','person_night':'人晚'}.get(unit, unit) }}</small></label>
-      {% endfor %}
-      <label class="full-span">备注 <textarea name="notes" rows="3" placeholder="例如 2027 年续签合同新费率"></textarea></label>
+<div class="erp-app" data-active-panel="versions">
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ contract.contract_number }} · 费率版本
+      <small>工单绑定合同；利润核算按实际工作日期自动选择当日有效版本。</small>
     </div>
-    <div class="form-actions"><button class="primary" type="submit">创建新版本</button></div>
-  </form>
-</section>
-{% endif %}
-
-<section class="panel">
-  <div class="panel-title"><h2>历史版本</h2><span class="muted-line">历史版本不会被新版本覆盖</span></div>
-  {% for version in versions %}
-  <details class="rate-version-card" {% if loop.first %}open{% endif %}>
-    <summary><strong>v{{ version.version_no }}</strong> · {{ version.effective_from }} ～ {{ version.effective_to or '长期' }} · <span class="status {{ 'completed' if version.status == 'active' else 'void' }}">{{ '有效' if version.status == 'active' else '已停用' }}</span></summary>
-    <div class="table-scroll" style="margin-top:1rem">
-      <table class="list-table compact-table"><thead><tr><th>计费项目</th><th>单位</th><th>客户结算标准</th><th>模型</th></tr></thead><tbody>
-      {% for key, label, unit in rate_types %}
-        {% set item = item_map.get(version.id, {}).get(key) %}
-        <tr><td>{{ label }}</td><td>{{ unit }}</td><td>{{ item.rate|money if item else '-' }}</td><td>{{ '实报实销上限' if item and item.billing_model == 'actual_with_cap' else '费率 × 数量' }}</td></tr>
-      {% endfor %}
-      </tbody></table>
+    <span class="erp-badge">{{ versions|length }} 个版本</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('contract_detail', contract_id=contract.id) }}'">返回合同</button>
     </div>
-    {% if version.notes %}<p class="muted-line">{{ version.notes }}</p>{% endif %}
-  </details>
-  {% else %}<p class="empty">尚未建立结构化合同费率。系统暂时继续使用现有项目单价作为兼容回退。</p>{% endfor %}
-</section>
+  </header>
+
+  <div class="erp-body">
+    {% if can_edit %}
+    <form method="post" class="erp-filter rate-form" data-erp-form>
+      <label class="erp-field">生效日期 <input type="date" name="effective_from" required></label>
+      <label class="erp-field">结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不允许与其他有效版本重叠。</small></label>
+      {% for key, label, unit in rate_types %}
+      <label class="erp-field">{{ label }} <input type="number" name="{{ key }}" step="0.0001" min="0" value="{{ 100 if key == 'lodging_cap' else '' }}" required><small>单位：{{ {'hour':'小时','mile':'英里','person_night':'人晚'}.get(unit, unit) }}</small></label>
+      {% endfor %}
+      <label class="erp-field full-span">备注 <textarea name="notes" rows="3" placeholder="例如 2027 年续签合同新费率"></textarea></label>
+      <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">创建新版本</button></div>
+    </form>
+    {% endif %}
+
+    <section class="erp-panel active">
+      {% for version in versions %}
+      <details class="rate-version-card" {% if loop.first %}open{% endif %}>
+        <summary><strong>v{{ version.version_no }}</strong> · {{ version.effective_from }} ～ {{ version.effective_to or '长期' }} · <span class="status {{ 'completed' if version.status == 'active' else 'void' }}">{{ '有效' if version.status == 'active' else '已停用' }}</span></summary>
+        <div class="erp-grid-wrap" style="margin-top:6px">
+          <table class="list-table erp-grid" data-grid-height="auto">
+            <thead><tr><th>计费项目</th><th>单位</th><th>客户结算标准</th><th>模型</th></tr></thead>
+            <tbody>
+            {% for key, label, unit in rate_types %}
+              {% set item = item_map.get(version.id, {}).get(key) %}
+              <tr><td>{{ label }}</td><td>{{ unit }}</td><td>{{ item.rate|money if item else '-' }}</td><td>{{ '实报实销上限' if item and item.billing_model == 'actual_with_cap' else '费率 × 数量' }}</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if version.notes %}<p class="erp-filter-note">{{ version.notes }}</p>{% endif %}
+      </details>
+      {% else %}<div class="erp-empty">尚未建立结构化合同费率。系统暂时继续使用现有项目单价作为兼容回退。</div>{% endfor %}
+    </section>
+  </div>
+
+  <footer class="erp-status">
+    <span>费率版本</span>
+    <span class="sep"></span>
+    <span>历史版本不会被新版本覆盖。</span>
+  </footer>
+</div>
 {% endblock %}

@@ -1,23 +1,42 @@
 {% extends "base.html" %}
 {% block title %}{{ form_title }} - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .erp-app .contract-form textarea {
+    min-height: 64px; width: 260px; padding: 2px 5px;
+    border: 1px solid #a9b4c5; border-radius: var(--erp-radius);
+    font: inherit; font-size: 12px; box-sizing: border-box;
+  }
+  .erp-app .contract-form input[type=file] { font-size: 12px; }
+  .erp-app .contract-form .full-span { flex: 1 1 100%; }
+  .erp-app .erp-field[hidden] { display: none; }
+  .erp-app .contract-form small { color: var(--erp-muted); }
+  .erp-app .contract-form input[type=date] { min-width: 130px; }
+</style>
+{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Contract</p><h1>{{ form_title }}</h1></div>
-    <div class="actions">
-      <button type="button" onclick="window.location.href='{{ url_for('contract_detail', contract_id=contract.id) if contract else url_for('contracts') }}'">返回</button>
-      <button class="primary" type="submit" form="contractForm">保存合同</button>
+<div class="erp-app" data-active-panel="form">
+  <!-- TopToolbar -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ form_title }}
+      <small>合同 · 新建 / 编辑</small>
+    </div>
+    <span class="erp-badge">合同表单</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('contract_detail', contract_id=contract.id) if contract else url_for('contracts') }}'">返回</button>
+      <button type="submit" class="erp-btn primary" form="contractForm">保存合同</button>
     </div>
   </header>
 
-  <form method="post" enctype="multipart/form-data" class="panel form-stack" id="contractForm">
-    <div class="form-grid two-columns">
-      <label>合同编号
-        <input name="contract_number" value="{{ defaults.contract_number or '' }}" required>
-      </label>
-      <label>合同名称
-        <input name="title" value="{{ defaults.title or '' }}" required>
-      </label>
-      <label>客户
+  <div class="erp-body">
+    <!-- 表单：紧凑 ERP 字段网格（字段自动换行） -->
+    <form method="post" enctype="multipart/form-data" class="erp-filter contract-form" id="contractForm" data-erp-form>
+      <label class="erp-field">合同编号 <input name="contract_number" value="{{ defaults.contract_number or '' }}" required></label>
+      <label class="erp-field">合同名称 <input name="title" value="{{ defaults.title or '' }}" required></label>
+      <label class="erp-field">客户
         <select name="client_id" required>
           <option value="">请选择客户</option>
           {% for client in clients %}
@@ -25,93 +44,103 @@
           {% endfor %}
         </select>
       </label>
-      <label>合同类型
+      <label class="erp-field">合同类型
         <select name="contract_type" id="contractType">
           {% for value, label in contract_type_labels.items() %}
             <option value="{{ value }}" {% if defaults.contract_type == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </label>
-      <label>状态
+      <label class="erp-field">状态
         <select name="status">
           {% for value, label in contract_status_labels.items() %}
             <option value="{{ value }}" {% if defaults.status == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </label>
-      <label>签订日期 <input type="date" name="signed_date" value="{{ defaults.signed_date or '' }}"></label>
-      <label>开始日期 <input type="date" name="start_date" value="{{ defaults.start_date or '' }}"></label>
-      <label>结束日期 <input type="date" name="end_date" value="{{ defaults.end_date or '' }}"></label>
-      <label>货币
+      <label class="erp-field">签订日期 <input type="date" name="signed_date" value="{{ defaults.signed_date or '' }}"></label>
+      <label class="erp-field">开始日期 <input type="date" name="start_date" value="{{ defaults.start_date or '' }}"></label>
+      <label class="erp-field">结束日期 <input type="date" name="end_date" value="{{ defaults.end_date or '' }}"></label>
+      <label class="erp-field">货币
         <select name="currency">
           {% for currency in ["USD", "CNY", "EUR", "GBP", "JPY"] %}
             <option value="{{ currency }}" {% if (defaults.currency or "USD") == currency %}selected{% endif %}>{{ currency }}</option>
           {% endfor %}
         </select>
       </label>
-      <label>合同金额
+      <label class="erp-field">合同金额
         <input type="number" step="0.01" min="0" name="amount" value="{{ defaults.amount if defaults.amount is not none else '' }}" placeholder="框架合同可留空">
       </label>
-      <label class="project-contract-field">项目名称
+      <label class="erp-field project-contract-field">项目名称
         <input name="project_name" value="{{ defaults.project_name or '' }}" placeholder="项目合同必填">
       </label>
-      <label>付款条款
+      <label class="erp-field">付款条款
         <input name="payment_terms" value="{{ defaults.payment_terms or '' }}" placeholder="例如 Net 30、30/40/30">
       </label>
-      <label class="full-span framework-contract-field">价格表 / 计费约定
+      <label class="erp-field full-span framework-contract-field">价格表 / 计费约定
         <textarea name="rate_card" rows="5" placeholder="例如 Technician $120/hr；Engineer $160/hr；Mileage $1/mile">{{ defaults.rate_card or '' }}</textarea>
       </label>
-      <label class="full-span">备注
+      <label class="erp-field full-span">备注
         <textarea name="notes" rows="5">{{ defaults.notes or '' }}</textarea>
       </label>
-      <label class="full-span">新增附件
+      <label class="erp-field full-span">新增附件
         <input type="file" name="attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
         <small>支持 Word、Excel、PDF 和图片，可多选。</small>
       </label>
-    </div>
-  </form>
+    </form>
 
-  {% if contract %}
-    <section class="panel">
-      <h2>已保存附件</h2>
-      <table class="list-table">
-        <thead><tr><th>文件名</th><th>上传时间</th><th>操作</th></tr></thead>
-        <tbody>
-          {% for attachment in attachments %}
-            <tr>
-              <td>
-                <a
-                  href="{{ url_for('preview_contract_attachment', attachment_id=attachment.id) }}"
-                  {% if (attachment.content_type or '').startswith('image/') %}
-                    data-image-preview
-                    data-preview-name="{{ attachment.original_filename }}"
-                  {% else %}
-                    target="_blank"
-                  {% endif %}
-                >
-                  {% if (attachment.content_type or '').startswith('image/') %}
-                    <img class="inline-thumb" src="{{ url_for('preview_contract_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
-                  {% endif %}
-                  {{ attachment.original_filename }}
-                </a>
-              </td>
-              <td>{{ attachment.uploaded_at|local_datetime }}</td>
-              <td>
-                <div class="row-actions">
-                  <button class="small" type="button" onclick="window.location.href='{{ url_for('download_contract_attachment', attachment_id=attachment.id) }}'">下载</button>
-                  <form method="post" action="{{ url_for('delete_contract_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm(window.uiTranslate('确定删除这个附件吗？'));">
-                    <button class="danger small" type="submit">删除</button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-          {% else %}
-            <tr><td colspan="3" class="empty">还没有附件。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <!-- 已保存附件 -->
+    {% if contract %}
+    <section class="erp-panel active">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="auto">
+          <thead><tr><th>文件名</th><th>上传时间</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for attachment in attachments %}
+              <tr>
+                <td>
+                  <a
+                    href="{{ url_for('preview_contract_attachment', attachment_id=attachment.id) }}"
+                    {% if (attachment.content_type or '').startswith('image/') %}
+                      data-image-preview
+                      data-preview-name="{{ attachment.original_filename }}"
+                    {% else %}
+                      target="_blank"
+                    {% endif %}
+                  >
+                    {% if (attachment.content_type or '').startswith('image/') %}
+                      <img class="inline-thumb" src="{{ url_for('preview_contract_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                    {% endif %}
+                    {{ attachment.original_filename }}
+                  </a>
+                </td>
+                <td>{{ attachment.uploaded_at|local_datetime }}</td>
+                <td>
+                  <div class="row-actions">
+                    <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('download_contract_attachment', attachment_id=attachment.id) }}'">下载</button>
+                    <form method="post" action="{{ url_for('delete_contract_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm(window.uiTranslate('确定删除这个附件吗？'));">
+                      <button type="submit" class="erp-btn" style="color:#c62828">删除</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="3" class="empty">还没有附件。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </section>
-  {% endif %}
+    {% endif %}
+  </div>
+
+  <!-- StatusBar -->
+  <footer class="erp-status">
+    <span>合同表单</span>
+    <span class="sep"></span>
+    <span>保存后自动返回{{ '合同详情' if contract else '合同列表' }}。</span>
+  </footer>
+</div>
 {% endblock %}
 {% block scripts %}
   <script>
