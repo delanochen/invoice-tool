@@ -10,14 +10,14 @@ mkdir -p /root/.ssh && chmod 700 /root/.ssh
 touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
 
 echo "[2/5] 清理垃圾行并幂等写入公钥（只保留有效 ssh-* 行）..."
-# 只保留以 ssh-ed25519/ssh-rsa/ecdsa- 开头的有效公钥行（剔除粘贴带入的乱码行）
+# 只保留以 ssh-ed25519/ssh-rsa/ecdsa- 开头的有效公钥行（剔除 BOM/乱码/粘贴带入的垃圾）
 grep -E "^ssh-(ed25519|rsa|ecdsa)" /root/.ssh/authorized_keys > /tmp/ak.valid || true
 # 删除旧版本公钥（避免重复）
 grep -vF "$KEYPREFIX" /tmp/ak.valid > /tmp/ak.new || true
 cat /tmp/ak.new > /root/.ssh/authorized_keys
-# 关键：确保末尾有换行，避免公钥粘连成坏行
 printf '\n' >> /root/.ssh/authorized_keys
-cat "$KEYFILE" >> /root/.ssh/authorized_keys
+# 追加时提取纯公钥行（免疫 BOM/乱码/CR 污染），只取第一行匹配
+grep -oE "ssh-(ed25519|rsa|ecdsa)[-A-Za-z0-9+/=]+ [A-Za-z0-9+/=]+ [^[:space:]]+" "$KEYFILE" | head -1 >> /root/.ssh/authorized_keys
 printf '\n' >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 
