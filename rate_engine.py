@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from flask import abort, flash, g, redirect, request, url_for
+from flask import abort, flash, g, redirect, render_template, request, url_for
 
 
 CONTRACT_RATE_TYPES = (
