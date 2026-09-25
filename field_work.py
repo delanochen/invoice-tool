@@ -513,7 +513,10 @@ def register_field_routes(app, api):
     @app.get('/reports/field-photos')
     @access
     def field_photo_query():
-        rows = photo_rows()
+        _FILTER_KEYS = ('order_id', 'site', 'equipment_number', 'position_number',
+                        'container_number', 'photo_type', 'technician', 'date_from', 'date_to')
+        queried = any(request.args.get(k, '').strip() for k in _FILTER_KEYS)
+        rows = photo_rows() if queried else []
         can_delete = api['has_action_permission']('service_reports', 'delete')
         allowed_orders = set()
         if can_delete:
@@ -527,7 +530,7 @@ def register_field_routes(app, api):
             row['photo_type_label'] = PHOTO_TYPE_LABELS.get(row.get('photo_type'), row.get('photo_type') or '-')
             if row['can_delete']:
                 row['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': [row['id']]})
-        return render_template('field_photo_query.html', rows=limited_rows, truncated=len(rows) > 2000,
+        return render_template('field_photo_query.html', rows=limited_rows, queried=queried, truncated=len(rows) > 2000,
                                photo_orders=photo_order_rows(), can_delete_photos=can_delete,
                                can_edit_photo_type=api['has_action_permission']('service_reports', 'create'),
                                field_csrf=token())

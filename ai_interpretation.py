@@ -57,32 +57,25 @@ def setting_value(connection, key):
 
 
 def effective_settings(connection):
-    values = dict(SETTINGS_DEFAULTS)
-    for key in SETTINGS_DEFAULTS:
-        stored = setting_value(connection, key)
-        if stored is not None and str(stored).strip() != "":
-            values[key] = str(stored).strip()
-    choice = values["ai_interpret_model_choice"]
-    if choice == "custom":
-        model = values["ai_interpret_model_custom"]
-        label = "自定义模型"
-    else:
-        label, setting_key = MODEL_OPTION_KEYS.get(choice, MODEL_OPTIONS[0])
-        model = values[setting_key]
+    import llm_config
+    cfg = llm_config.get_config(connection, "attachment_interpret")
     return {
-        "base_url": values["ai_interpret_base_url"].rstrip("/"),
-        "api_key": values["ai_interpret_api_key"],
-        "model": model,
-        "model_label": label,
+        "base_url": cfg["base_url"],
+        "api_key": cfg["api_key"],
+        "model": cfg["model"],
+        "model_label": cfg["name"],
+        "timeout_seconds": cfg["timeout_seconds"],
     }
 
 
-def call_chat_completion(settings, messages, timeout=TIMEOUT_SECONDS):
+def call_chat_completion(settings, messages, timeout=None):
     """调用 OpenAI 兼容 /chat/completions，返回助手文本。"""
     if not settings["base_url"]:
         raise RuntimeError("未配置大模型接口地址，请先在系统设置中填写。")
     if not settings["model"]:
         raise RuntimeError("未配置大模型名称，请先在系统设置中选择或填写。")
+    if timeout is None:
+        timeout = int(settings.get("timeout_seconds") or TIMEOUT_SECONDS)
     payload = json.dumps({"model": settings["model"], "messages": messages}).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if settings["api_key"]:
