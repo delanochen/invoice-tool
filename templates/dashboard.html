@@ -1,98 +1,172 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import tab_button, summary_item %}
 {% block title %}概览 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 概览：指标磁贴 + 两张趋势图 + 最近发票页签。
+    指标区沿用 ERP 的「密、细线、右对齐数字」观感，不复用 .metric-grid 的大卡片版式。 */
+  .erp-app .dash-metrics {
+    flex: 0 0 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px; margin-bottom: 6px; background: var(--erp-line-soft); border: 1px solid var(--erp-line-soft);
+  }
+  .erp-app .dash-metric { padding: 4px 8px; background: #fff; }
+  .erp-app .dash-metric span { display: block; color: var(--erp-muted); font-size: 10.5px; letter-spacing: .3px; }
+  .erp-app .dash-metric strong { font-size: 15px; font-weight: 700; }
+  .erp-app .dash-metric.warn strong { color: #b45309; }
+  .erp-app .dash-metric.neg strong { color: #b42318; }
+  .erp-app .dash-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .erp-app .dash-chart { border: 1px solid var(--erp-line-soft); background: #fff; padding: 4px 6px 6px; min-width: 0; }
+  .erp-app .dash-chart-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+    margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px solid var(--erp-line-soft);
+  }
+  .erp-app .dash-chart-head h2 { margin: 0; font-size: 12.5px; font-weight: 700; }
+  .erp-app .dash-chart-head .erp-filter { border: 0; background: none; padding: 0; margin: 0; gap: 5px; }
+  .erp-app .dash-chart .bar-chart { margin: 0; }
+  .erp-app .dash-chart .bar-item small { font-size: 10.5px; }
+  @media (max-width: 1100px) { .erp-app .dash-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 1024px) { .erp-app .dash-charts { grid-template-columns: minmax(0, 1fr); } }
+</style>
+{% endblock %}
+
 {% block content %}
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">Overview</p>
-      <h1>开票概览</h1>
+{# ERP 化：原「指标卡片 + 两张图 + 最近发票」三段纵向堆叠改成
+   顶部工具条 + 页签工作区（开票与核销趋势 / 最近发票）+ 底部汇总栏与状态栏。 #}
+<div class="erp-app erp-compact" data-active-panel="overview">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      开票概览
+      <small>Overview · 开票与核销</small>
     </div>
-    {% if can_create_invoice() %}
-      <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_invoice') }}'">新建发票</button>
-    {% endif %}
+    <span class="erp-badge">{{ metrics.invoice_count }} 张发票</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('invoices') }}'">发票列表</button>
+      {% if can_create_invoice() %}
+        <button class="erp-btn primary" type="button" onclick="window.location.href='{{ url_for('new_invoice') }}'">新建发票</button>
+      {% endif %}
+    </div>
   </header>
 
-  <section class="metric-grid compact">
-    <article class="metric"><span>开票数量</span><strong>{{ metrics.invoice_count }}</strong></article>
-    <article class="metric"><span>开票金额</span><strong>{{ metrics.completed|money }}</strong></article>
-    <article class="metric"><span>核销金额</span><strong>{{ metrics.paid|money }}</strong></article>
-    <article class="metric"><span>待核销</span><strong>{{ metrics.unpaid|money }}</strong></article>
-    <article class="metric"><span>总开票</span><strong>{{ metrics.total|money }}</strong></article>
-    <article class="metric"><span>待报销金额</span><strong>{{ metrics.pending_reimbursement|money }}</strong></article>
-    <article class="metric"><span>待审核报销</span><strong>{{ metrics.pending_expenses|money }}</strong></article>
-    <article class="metric"><span>已报销金额</span><strong>{{ metrics.reimbursed_expenses|money }}</strong></article>
-  </section>
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <nav class="erp-tabs" aria-label="概览视图">
+      {{ tab_button('overview', '开票与核销趋势', true) }}
+      {{ tab_button('recent', '最近发票', false, recent|length) }}
+    </nav>
 
-  <section class="panel">
-    <div class="panel-title">
-      <h2>月度项目开票趋势</h2>
-      <form method="get" class="project-switches">
-        <input type="hidden" name="project_filter" value="1">
-        {% for project in project_options %}
-          <label class="check-chip">
-            <input type="checkbox" name="project_id" value="{{ project.id }}" {% if project.id|string in selected_project_ids %}checked{% endif %} onchange="this.form.submit()">
-            <span style="color: {{ project.color }}">{{ project.name }}</span>
-          </label>
-        {% endfor %}
-      </form>
-    </div>
-    {% if chart %}
-      <div class="bar-chart stacked-chart">
-        {% for point in chart %}
-          <div class="bar-item">
-            <div class="bar-track">
-              <div class="stacked-track" style="height: {{ point.height }}%">
-                {% for segment in point.segments %}
-                  <span class="stacked-segment" title="{{ segment.name }} {{ segment.value|money }}" style="height: {{ segment.height }}%; background: {{ segment.color }}"></span>
+    <section class="erp-panel active" data-erp-panel="overview">
+      <div class="erp-detail-scroll">
+        <div class="dash-metrics">
+          <div class="dash-metric"><span>开票数量</span><strong>{{ metrics.invoice_count }}</strong></div>
+          <div class="dash-metric"><span>开票金额</span><strong>{{ metrics.completed|money }}</strong></div>
+          <div class="dash-metric"><span>核销金额</span><strong>{{ metrics.paid|money }}</strong></div>
+          <div class="dash-metric warn"><span>待核销</span><strong>{{ metrics.unpaid|money }}</strong></div>
+          <div class="dash-metric"><span>总开票</span><strong>{{ metrics.total|money }}</strong></div>
+          <div class="dash-metric warn"><span>待报销金额</span><strong>{{ metrics.pending_reimbursement|money }}</strong></div>
+          <div class="dash-metric warn"><span>待审核报销</span><strong>{{ metrics.pending_expenses|money }}</strong></div>
+          <div class="dash-metric"><span>已报销金额</span><strong>{{ metrics.reimbursed_expenses|money }}</strong></div>
+        </div>
+
+        <div class="dash-charts">
+          <section class="dash-chart">
+            <div class="dash-chart-head">
+              <h2>月度项目开票趋势</h2>
+              <form method="get" class="erp-filter project-switches">
+                <input type="hidden" name="project_filter" value="1">
+                {% for project in project_options %}
+                  <label class="check-chip">
+                    <input type="checkbox" name="project_id" value="{{ project.id }}" {% if project.id|string in selected_project_ids %}checked{% endif %} onchange="this.form.submit()">
+                    <span style="color: {{ project.color }}">{{ project.name }}</span>
+                  </label>
+                {% endfor %}
+              </form>
+            </div>
+            {% if chart %}
+              <div class="bar-chart stacked-chart">
+                {% for point in chart %}
+                  <div class="bar-item">
+                    <div class="bar-track">
+                      <div class="stacked-track" style="height: {{ point.height }}%">
+                        {% for segment in point.segments %}
+                          <span class="stacked-segment" title="{{ segment.name }} {{ segment.value|money }}" style="height: {{ segment.height }}%; background: {{ segment.color }}"></span>
+                        {% endfor %}
+                      </div>
+                    </div>
+                    <small>{{ point.month }}</small>
+                    <strong>{{ point.total|money }}</strong>
+                  </div>
                 {% endfor %}
               </div>
-            </div>
-            <small>{{ point.month }}</small>
-            <strong>{{ point.total|money }}</strong>
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}
-      <p class="empty">还没有发票数据。</p>
-    {% endif %}
-  </section>
+            {% else %}
+              <p class="erp-empty">还没有发票数据。</p>
+            {% endif %}
+          </section>
 
-  <section class="panel">
-    <div class="panel-title"><h2>月度核销趋势</h2></div>
-    {% if paid_chart %}
-      <div class="bar-chart">
-        {% for point in paid_chart %}
-          <div class="bar-item">
-            <div class="bar-track"><span style="height: {{ point.height }}%"></span></div>
-            <small>{{ point.month }}</small>
-            <strong>{{ point.value|money }}</strong>
-          </div>
-        {% endfor %}
+          <section class="dash-chart">
+            <div class="dash-chart-head"><h2>月度核销趋势</h2></div>
+            {% if paid_chart %}
+              <div class="bar-chart">
+                {% for point in paid_chart %}
+                  <div class="bar-item">
+                    <div class="bar-track"><span style="height: {{ point.height }}%"></span></div>
+                    <small>{{ point.month }}</small>
+                    <strong>{{ point.value|money }}</strong>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="erp-empty">还没有核销数据。</p>
+            {% endif %}
+          </section>
+        </div>
       </div>
-    {% else %}
-      <p class="empty">还没有核销数据。</p>
-    {% endif %}
-  </section>
+    </section>
 
-  <section class="panel">
-    <div class="panel-title">
-      <h2>最近发票</h2>
-      <a href="{{ url_for('invoices') }}">查看全部</a>
-    </div>
-    <table class="list-table">
-      <thead><tr><th>编号</th><th>客户</th><th>日期</th><th>状态</th><th>核销</th></tr></thead>
-      <tbody>
-        {% for invoice in recent %}
-          <tr>
-            <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
-            <td>{{ invoice.client_name }}</td>
-            <td>{{ invoice.issue_date }}</td>
-            <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
-            <td><span class="status {% if invoice.paid_at %}completed{% elif invoice.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ invoice|payment_label }}</span></td>
-          </tr>
-        {% else %}
-          <tr><td colspan="5" class="empty">还没有发票。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+    <section class="erp-panel" data-erp-panel="recent">
+      <div class="table-scroll">
+        <table class="list-table erp-grid">
+          <thead><tr><th>编号</th><th>客户</th><th>日期</th><th>状态</th><th>核销</th></tr></thead>
+          <tbody>
+            {% for invoice in recent %}
+              <tr>
+                <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
+                <td>{{ invoice.client_name }}</td>
+                <td>{{ invoice.issue_date }}</td>
+                <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
+                <td><span class="status {% if invoice.paid_at %}completed{% elif invoice.status == 'completed' %}returned{% else %}submitted{% endif %}">{{ invoice|payment_label }}</span></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="empty">还没有发票。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('开票数量', metrics.invoice_count) }}
+    {{ summary_item('总开票', metrics.total|money) }}
+    {{ summary_item('待核销', metrics.unpaid|money, 'warn') }}
+    {{ summary_item('待报销金额', metrics.pending_reimbursement|money, 'warn') }}
+    {{ summary_item('最近发票', recent|length, 'muted') }}
+  </footer>
+  <footer class="erp-status">
+    <span>发票 <b>{{ metrics.invoice_count }}</b> 张</span>
+    <span class="sep"></span>
+    <span>总开票 <b>{{ metrics.total|money }}</b></span>
+    <span class="sep"></span>
+    <span>待核销 <b>{{ metrics.unpaid|money }}</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

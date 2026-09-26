@@ -1,17 +1,56 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 错误页：居中窄栏的 .error-panel 换成 ERP 外壳，文案与按钮保持原样 */
+  .erp-app .error-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 18px 22px; }
+  .erp-app .error-body h1 { margin: 2px 0 10px; font-size: 20px; }
+  .erp-app .error-body .muted { color: var(--erp-muted); line-height: 1.7; max-width: 720px; }
+  .erp-app .error-body .erp-eyebrow { margin: 0; color: var(--erp-muted); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; }
+  .erp-app .error-body .actions { display: flex; justify-content: flex-start; gap: 6px; margin-top: 16px; }
+</style>
+{% endblock %}
+
 {% block content %}
-  <section class="panel error-panel">
-    <p class="eyebrow">{{ status_code }}</p>
-    <h1>{{ title }}</h1>
-    <p class="muted">{{ message }}</p>
-    <div class="actions">
+<div class="erp-app erp-compact">
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ title }}
+      <small>{{ status_code }}</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
       {% if g.user %}
-        <button type="button" onclick="window.location.href='{{ url_for('invoices') }}'">返回发票列表</button>
-        <button class="primary" type="button" onclick="window.location.href='{{ url_for('dashboard') }}'">返回概览</button>
+        <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('invoices') }}'">返回发票列表</button>
+        <button class="erp-btn primary" type="button" onclick="window.location.href='{{ url_for('dashboard') }}'">返回概览</button>
       {% else %}
-        <button class="primary" type="button" onclick="window.location.href='{{ url_for('login') }}'">返回登录</button>
+        <button class="erp-btn primary" type="button" onclick="window.location.href='{{ url_for('login') }}'">返回登录</button>
       {% endif %}
     </div>
-  </section>
+  </header>
+
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <div class="error-body">
+        <p class="erp-eyebrow">{{ status_code }}</p>
+        <h1>{{ title }}</h1>
+        <p class="muted">{{ message }}</p>
+        <div class="actions">
+          {% if g.user %}
+            <button type="button" onclick="window.location.href='{{ url_for('invoices') }}'">返回发票列表</button>
+            <button class="primary" type="button" onclick="window.location.href='{{ url_for('dashboard') }}'">返回概览</button>
+          {% else %}
+            <button class="primary" type="button" onclick="window.location.href='{{ url_for('login') }}'">返回登录</button>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="erp-status">
+    <span>错误码 <b>{{ status_code }}</b></span>
+  </footer>
+</div>
 {% endblock %}

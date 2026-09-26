@@ -101,7 +101,8 @@ def test_user_routes_persist_language_columns():
 
 def test_dashboard_shows_pending_review_expenses():
     html = _read("templates/dashboard.html")
-    assert 'class="metric-grid compact"' in html
+    # 指标区改成 ERP 的紧凑磁贴网格（原 .metric-grid.compact 大卡片版式已随 ERP 化下线）
+    assert 'class="dash-metrics"' in html
     assert "<span>待审核报销</span><strong>{{ metrics.pending_expenses|money }}</strong>" in html
     # 发票数量保留（缩小字号方案）
     assert "开票数量" in html

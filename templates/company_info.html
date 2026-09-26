@@ -1,60 +1,117 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import tab_button, summary_item %}
 {% block title %}公司信息 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 表单与附件表格各自占满所属面板并内部滚动（原 .spreadsheet-wrap 的 max-height 在 ERP 里会截断） */
+  .erp-app .erp-body > .erp-panel.active > .erp-detail-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+</style>
+{% endblock %}
+
 {% block content %}
-  <header class="page-header"><div><p class="eyebrow">Company</p><h1>公司信息</h1></div></header>
-  <form method="post" enctype="multipart/form-data" class="panel form-stack">
-    <div class="form-grid two-columns">
-      <label>公司名称 <input name="company_name" value="{{ company.name }}" required {% if not can_manage_company_info() %}readonly{% endif %}></label>
-      <label>邮箱 <input type="email" name="company_email" value="{{ company.email }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
-      <label>电话 <input name="company_phone" value="{{ company.phone }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
-      <label>系统时区 <input name="app_timezone" value="{{ timezone_name }}" placeholder="America/Chicago" required {% if not can_manage_company_info() %}readonly{% endif %}></label>
-      <label>登记号码 <input name="company_registration_number" value="{{ company.registration_number }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
-      <label>EIN 号码 <input name="company_ein" value="{{ company.ein }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
-      <label class="full-span">地址 <textarea name="company_address" rows="4" {% if not can_manage_company_info() %}readonly{% endif %}>{{ company.address }}</textarea></label>
+{# ERP 化：公司资料（表单）与已保存附件（表格）拆成两个页签，不再纵向堆叠。
+   字段名 / name / 路由与只读判断全部保持原样。 #}
+<div class="erp-app erp-compact" data-active-panel="profile">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      公司信息
+      <small>Company · 公司资料与附件</small>
+    </div>
+    <span class="erp-badge">{{ attachments|length }} 个附件</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
       {% if can_manage_company_info() %}
-        <div class="full-span form-field">
-          <span class="field-label">公司附件</span>
-          <input type="file" name="attachments" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx">
-        </div>
+        <button type="submit" class="erp-btn primary" form="companyInfoForm">保存公司信息</button>
       {% endif %}
     </div>
-    {% if can_manage_company_info() %}
-      <div class="form-actions"><button class="primary" type="submit">保存公司信息</button></div>
-    {% endif %}
-  </form>
-  <section class="panel">
-    <div class="panel-title"><h2>已保存附件</h2><span class="muted-line">{{ attachments|length }} 个公司文件</span></div>
-    <table class="list-table">
-      <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
-      <tbody>
-        {% for attachment in attachments %}
-          <tr>
-            <td>
-              {% if (attachment.content_type or '').startswith('image/') %}
-                <a
-                  href="{{ url_for('preview_company_attachment', attachment_id=attachment.id) }}"
-                  data-image-preview
-                  data-preview-name="{{ attachment.original_filename }}"
-                ><img class="inline-thumb" src="{{ url_for('preview_company_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">{{ attachment.original_filename }}</a>
-              {% else %}
-                <a href="{{ url_for('preview_company_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
-              {% endif %}
-            </td>
-            <td>{{ attachment.uploader_name or "-" }}</td>
-            <td>{{ attachment.uploaded_at|local_datetime }}</td>
-            <td><div class="row-actions">
-              <a class="button small" href="{{ url_for('download_company_attachment', attachment_id=attachment.id) }}">下载</a>
-              {% if can_manage_company_info() %}
-                <form method="post" action="{{ url_for('delete_company_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除该附件吗？');">
-                  <button class="danger small" type="submit">删除</button>
-                </form>
-              {% endif %}
-            </div></td>
-          </tr>
-        {% else %}
-          <tr><td colspan="4" class="empty">还没有公司附件。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+  </header>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <nav class="erp-tabs" aria-label="公司信息视图">
+      {{ tab_button('profile', '公司资料', true) }}
+      {{ tab_button('files', '已保存附件', false, attachments|length) }}
+    </nav>
+
+    <section class="erp-panel active" data-erp-panel="profile">
+      <form method="post" enctype="multipart/form-data" class="form-stack" id="companyInfoForm">
+        <div class="form-grid two-columns">
+          <label>公司名称 <input name="company_name" value="{{ company.name }}" required {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>邮箱 <input type="email" name="company_email" value="{{ company.email }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>电话 <input name="company_phone" value="{{ company.phone }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>系统时区 <input name="app_timezone" value="{{ timezone_name }}" placeholder="America/Chicago" required {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>登记号码 <input name="company_registration_number" value="{{ company.registration_number }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>EIN 号码 <input name="company_ein" value="{{ company.ein }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label class="full-span">地址 <textarea name="company_address" rows="4" {% if not can_manage_company_info() %}readonly{% endif %}>{{ company.address }}</textarea></label>
+          {% if can_manage_company_info() %}
+            <div class="full-span form-field">
+              <span class="field-label">公司附件</span>
+              <input type="file" name="attachments" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx">
+            </div>
+          {% endif %}
+        </div>
+        {% if can_manage_company_info() %}
+          <div class="form-actions"><button class="primary" type="submit">保存公司信息</button></div>
+        {% endif %}
+      </form>
+    </section>
+
+    <section class="erp-panel" data-erp-panel="files">
+      <div class="table-scroll">
+        <table class="list-table erp-grid">
+          <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for attachment in attachments %}
+              <tr>
+                <td>
+                  {% if (attachment.content_type or '').startswith('image/') %}
+                    <a
+                      href="{{ url_for('preview_company_attachment', attachment_id=attachment.id) }}"
+                      data-image-preview
+                      data-preview-name="{{ attachment.original_filename }}"
+                    ><img class="inline-thumb" src="{{ url_for('preview_company_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">{{ attachment.original_filename }}</a>
+                  {% else %}
+                    <a href="{{ url_for('preview_company_attachment', attachment_id=attachment.id) }}" target="_blank">{{ attachment.original_filename }}</a>
+                  {% endif %}
+                </td>
+                <td>{{ attachment.uploader_name or "-" }}</td>
+                <td>{{ attachment.uploaded_at|local_datetime }}</td>
+                <td><div class="row-actions">
+                  <a class="button small" href="{{ url_for('download_company_attachment', attachment_id=attachment.id) }}">下载</a>
+                  {% if can_manage_company_info() %}
+                    <form method="post" action="{{ url_for('delete_company_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除该附件吗？');">
+                      <button class="danger small" type="submit">删除</button>
+                    </form>
+                  {% endif %}
+                </div></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="empty">还没有公司附件。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('公司名称', company.name) }}
+    {{ summary_item('系统时区', timezone_name, 'muted') }}
+    {{ summary_item('附件', attachments|length, 'muted') }}
+  </footer>
+  <footer class="erp-status">
+    <span>公司 <b>{{ company.name }}</b></span>
+    <span class="sep"></span>
+    <span>附件 <b>{{ attachments|length }}</b> 个</span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}
