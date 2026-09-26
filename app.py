@@ -64,6 +64,7 @@ from rate_engine import (
     employee_rate,
     init_rate_schema,
     register_rate_routes,
+    EMPLOYEE_RATE_LABELS,
     EMPLOYEE_RATE_TYPES,
 )
 from settlement_review import (
@@ -10254,6 +10255,13 @@ def employee_grade_panel(grade):
         item_map.setdefault(item["version_id"], {})[item["rate_type"]] = item
     snapshot = employee_grade_rate_snapshot(db(), grade_id, date.today().isoformat())
     missing = [key for key, value in snapshot["rates"].items() if value["source"] == "missing"]
+    # 费率为 0 有两种来源：列里就是 0（新建等级默认值），或版本里明确写了 0。
+    # 两者都不会落进 missing，但固化进版本后会明确按 0 计薪，必须让用户看见。
+    zero_labels = [
+        EMPLOYEE_RATE_LABELS.get(key, key)
+        for key, value in snapshot["rates"].items()
+        if not value["rate"]
+    ]
     return {
         "grade": grade,
         "total": total,
@@ -10265,6 +10273,8 @@ def employee_grade_panel(grade):
         "rates": snapshot["rates"],
         "current_version": snapshot["version"],
         "missing_rates": missing,
+        "zero_rate_labels": zero_labels,
+        "rates_all_zero": len(zero_labels) == len(snapshot["rates"]),
     }
 
 
@@ -10308,23 +10318,54 @@ def employee_grades():
         if not grade_name:
             flash("请填写员工等级。", "error")
             return redirect(url_for("employee_grades"))
-        car_method = request.form.get("car_allowance_method", "mileage")
+        existing = None
+        if grade_id and str(grade_id).isdigit():
+            existing = db().execute(
+                "select * from employee_grades where id = ?", (int(grade_id),)
+            ).fetchone()
+            if existing is None:
+                flash("该员工等级不存在，可能已被删除。", "error")
+                return redirect(url_for("employee_grades"))
+
+        def grade_number(name, absent=0, empty=None):
+            """取一个数值列，**表单没提交就保留库里的现值**。
+
+            「编辑等级」弹窗已不再维护费率字段（各时薪、里程单价、租车驾驶补贴统一到
+            「费率版本」页签按生效日期维护），所以这些列不再随表单提交。若沿用
+            「缺省即 0」（to_float(None) == 0）的写法，保存一次等级就会把等级静态费率
+            全部清零 —— 而没有费率版本的等级（含全部历史数据）正是靠这些列兜底计算工资，
+            等于静默把工资算成 0。
+
+            absent：新增等级且表单没提交时用的值（对齐建表默认值）。
+            empty：表单提交了该字段但为空时的值，默认与 absent 相同。
+            """
+            if name in request.form:
+                raw = str(request.form.get(name) or "").strip()
+                if raw:
+                    return to_float(raw)
+                return float(absent if empty is None else empty)
+            if existing is not None:
+                return to_float(existing[name], absent)
+            return float(absent)
+
+        car_method = request.form.get("car_allowance_method", "").strip()
         if car_method not in {"mileage", "hourly"}:
-            car_method = "mileage"
-        transport_hourly_rate = to_float(request.form.get("transport_hourly_rate"))
+            car_method = existing["car_allowance_method"] if existing is not None else "mileage"
+        # car_hourly_rate 历史上就是跟随交通时薪写入的（test_payment_terms 有断言钉住），保持口径不变
+        transport_hourly_rate = grade_number("transport_hourly_rate")
         values = (
             grade_name,
             request.form.get("description", "").strip(),
-            to_float(request.form.get("base_salary")),
-            max(to_float(request.form.get("meal_daily_amount")), 0),
+            grade_number("base_salary"),
+            max(grade_number("meal_daily_amount"), 0),
             car_method,
-            max(to_float(request.form.get("car_mileage_rate")), 0),
+            max(grade_number("car_mileage_rate", absent=0.5, empty=0), 0),
             max(transport_hourly_rate, 0),
-            max(to_float(request.form.get("rental_driving_hourly_rate") or 15), 0),
-            to_float(request.form.get("standard_hourly_rate")),
+            max(grade_number("rental_driving_hourly_rate", absent=15), 0),
+            grade_number("standard_hourly_rate"),
             transport_hourly_rate,
-            to_float(request.form.get("overtime_hourly_rate")),
-            to_float(request.form.get("holiday_hourly_rate")),
+            grade_number("overtime_hourly_rate"),
+            grade_number("holiday_hourly_rate"),
         )
         try:
             if grade_id and str(grade_id).isdigit():

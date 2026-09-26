@@ -4,18 +4,40 @@
 - 等级被员工使用时不能删除（员工停用与否均不可删）；未分配时可删，费率版本一并清理。
 - 仍有在职员工使用时不能停用；员工全部停用后可以停用等级。
 - 工资计算按工作日落在的有效期费率版本取价，没有版本时回退等级静态费率列。
+- 费率只在「费率版本」页签按生效日期维护：「编辑等级」弹窗不再提交费率字段，
+  因此保存等级必须保留库里的静态费率现值（不能按「缺省即 0」清零）；
+  「按当前费率建版本」把当前生效费率原样固化成一条版本。
 """
 import importlib.util
 import shutil
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import test_expense_on_behalf as fixture
 
 ROOT = Path(__file__).resolve().parent
+
+RATE_FIELDS = (
+    'standard_hourly_rate',
+    'transport_hourly_rate',
+    'overtime_hourly_rate',
+    'holiday_hourly_rate',
+    'car_mileage_rate',
+    'rental_driving_hourly_rate',
+)
+# 费率版本表单里的 name 用的是费率条目名（rate_type），不是等级表的静态费率列名。
+EMPLOYEE_RATE_FIELDS = (
+    'regular_hours',
+    'overtime_hours',
+    'holiday_hours',
+    'travel_hours',
+    'public_transport_hours',
+    'mileage',
+    'rental_drive_hours',
+)
 
 
 class EmployeeGradesWorkbenchTest(unittest.TestCase):
@@ -303,6 +325,153 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertIn('生效版本', page)
         # 版本里没给的条目仍回退静态费率，不能显示成 0
         self.assertIn('$20.00', page)          # overtime_hourly_rate 静态值
+
+    # --------------------------- 费率只在「费率版本」里维护（弹窗不再有费率字段）
+    def edit_dialog_html(self):
+        page = self.page(self.grade_id)
+        return page.split(f'id="editGradeDialog{self.grade_id}"', 1)[1].split('</dialog>', 1)[0]
+
+    def test_edit_grade_dialog_no_longer_carries_rate_fields(self):
+        """「编辑等级」弹窗只维护非费率资料，费率统一在「费率版本」页签维护。
+
+        同一口径留两个可写入口时，在这里改费率既不生成版本、工资取的仍是
+        「版本优先 / 静态兜底」那一套，用户会以为改了没生效。
+        """
+        dialog = self.edit_dialog_html()
+        # 弹窗里既不能再有静态费率列，也不能出现任何费率条目输入
+        for field in (*RATE_FIELDS, *EMPLOYEE_RATE_FIELDS):
+            self.assertNotIn(f'name="{field}"', dialog, field)
+        for label in ('标准时薪', '交通时薪', '加班时薪', '假期时薪', '车补里程单价', '租车驾驶补贴/小时'):
+            self.assertNotIn(label, dialog, label)
+        self.assertIn('name="base_salary"', dialog)
+        self.assertIn('name="meal_daily_amount"', dialog)
+        self.assertIn('name="car_allowance_method"', dialog)
+
+        # 费率入口都还在「费率版本」页签：手动表单 + 一键固化
+        page = self.page(self.grade_id)
+        for field in EMPLOYEE_RATE_FIELDS:
+            self.assertIn(f'name="{field}"', page, field)
+        self.assertIn('name="rate_source" value="current"', page)
+        self.assertIn('创建新版本', page)
+        self.assertIn('按当前费率建版本', page)
+
+    def test_saving_grade_without_rate_fields_keeps_static_rates(self):
+        """保存等级必须保留库里已有的静态费率。
+
+        弹窗不再提交费率字段后，若沿用 to_float(None) == 0 的「缺省即 0」写法，
+        一次保存就会把等级静态费率全部清零 —— 而这正是所有「没有费率版本」的等级
+        （含全部历史数据）计算工资的兜底值，等于静默把工资算成 0。
+        """
+        before = self.query('select * from employee_grades where id = ?', (self.grade_id,))[0]
+        response = self.http.post('/employee-grades', data={
+            'grade_id': str(self.grade_id),
+            'grade_name': 'P1 改',
+            'description': '改了描述',
+            'base_salary': '120',
+            'meal_daily_amount': '8',
+            'car_allowance_method': 'mileage',
+        })
+        self.assertEqual(response.status_code, 302)
+        after = self.query('select * from employee_grades where id = ?', (self.grade_id,))[0]
+        self.assertEqual(after['grade_name'], 'P1 改')
+        self.assertEqual(after['base_salary'], 120)
+        self.assertEqual(after['meal_daily_amount'], 8)
+        self.assertEqual(after['car_allowance_method'], 'mileage')
+        for column in RATE_FIELDS:
+            self.assertEqual(after[column], before[column], column)
+
+    def version_items(self, version_id):
+        return {row['rate_type']: row['rate'] for row in self.query(
+            'select * from employee_rate_items where version_id = ?', (version_id,))}
+
+    def test_one_click_version_freezes_current_static_rates(self):
+        """没有版本时，「按当前费率建版本」把等级静态费率原样固化成 v1。"""
+        today = date.today().isoformat()
+        response = self.http.post(
+            f'/employee-grades/{self.grade_id}/rates',
+            data={'rate_source': 'current', 'effective_from': today},
+        )
+        self.assertEqual(response.status_code, 302)
+        versions = self.query(
+            'select * from employee_rate_versions where employee_grade_id = ?', (self.grade_id,))
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0]['version_no'], 1)
+        self.assertEqual(versions[0]['effective_from'], today)
+        self.assertIn('沿用', versions[0]['notes'])
+        items = self.version_items(versions[0]['id'])
+        self.assertEqual(items['regular_hours'], 10)
+        self.assertEqual(items['overtime_hours'], 20)
+        self.assertEqual(items['holiday_hours'], 30)
+        self.assertEqual(items['travel_hours'], 5)
+        self.assertEqual(items['public_transport_hours'], 5)
+        self.assertEqual(items['mileage'], 0.5)
+        self.assertEqual(items['rental_drive_hours'], 15)
+        # 固化后费率来源就该是版本了
+        self.assertIn('生效版本', self.page(self.grade_id))
+
+    def test_one_click_version_copies_live_rates_before_closing_previous(self):
+        """一键固化取的必须是页面上那份「当前生效费率」，不能是被收尾后的静态兜底值。
+
+        _prepare_new_version_range 会先把上一个版本的结束日期收到新版本生效日前一天；
+        若快照在那之后才取，按「今天」就查不到生效版本，会静默退化成静态费率 ——
+        固化的就不是用户屏幕上看到的那份费率。
+        """
+        start = (date.today() - timedelta(days=30)).isoformat()
+        self.add_version(start, None, {'regular_hours': 25})
+        self.http.post(
+            f'/employee-grades/{self.grade_id}/rates',
+            data={'rate_source': 'current', 'effective_from': date.today().isoformat()},
+        )
+        versions = self.query(
+            'select * from employee_rate_versions where employee_grade_id = ? order by version_no',
+            (self.grade_id,))
+        self.assertEqual(len(versions), 2)
+        self.assertEqual(versions[0]['effective_to'], (date.today() - timedelta(days=1)).isoformat())
+        items = self.version_items(versions[1]['id'])
+        self.assertEqual(items['regular_hours'], 25)     # 版本费率，不是静态的 10
+        self.assertEqual(items['overtime_hours'], 20)    # 版本里没给 → 回退静态兜底
+
+    def test_one_click_version_refused_when_rates_all_zero(self):
+        """7 项费率全为 0 时拒绝固化。
+
+        固化出一条全 0 的版本比「没有版本」更危险：没有版本时页面会明确提示
+        「未设置」，而全 0 版本看起来是「已配置」，会静默把工资算成 0。
+        """
+        with self.m.app.app_context():
+            db = self.m.db()
+            blank = db.execute(
+                """insert into employee_grades
+                   (grade_name, description, car_mileage_rate, rental_driving_hourly_rate, is_active, created_at)
+                   values ('Blank','',0,0,1,?)""",
+                (self.m.now(),),
+            ).lastrowid
+            db.commit()
+        self.http.post(
+            f'/employee-grades/{blank}/rates',
+            data={'rate_source': 'current', 'effective_from': date.today().isoformat()},
+        )
+        self.assertEqual(self.query(
+            'select count(*) as n from employee_rate_versions where employee_grade_id = ?',
+            (blank,))[0]['n'], 0)
+        self.assertIn('全是 0', self.page(blank))
+
+    def test_manual_version_creation_still_works(self):
+        """手动填 7 项费率的路径不受一键固化改造影响。"""
+        response = self.http.post(f'/employee-grades/{self.grade_id}/rates', data={
+            'effective_from': '2026-09-01',
+            'regular_hours': '31', 'overtime_hours': '0', 'holiday_hours': '0',
+            'travel_hours': '0', 'public_transport_hours': '0', 'mileage': '1.2',
+            'rental_drive_hours': '0', 'notes': '手填',
+        })
+        self.assertEqual(response.status_code, 302)
+        versions = self.query(
+            'select * from employee_rate_versions where employee_grade_id = ?', (self.grade_id,))
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0]['notes'], '手填')
+        items = self.version_items(versions[0]['id'])
+        self.assertEqual(items['regular_hours'], 31)
+        self.assertEqual(items['mileage'], 1.2)
+        self.assertEqual(items['overtime_hours'], 0)
 
 
 if __name__ == '__main__':

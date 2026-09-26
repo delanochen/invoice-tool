@@ -268,6 +268,38 @@ def employee_grade_rate_snapshot(connection, grade_id, work_date):
     return {"version": version, "rates": rates}
 
 
+def current_rate_values(connection, grade_id, work_date):
+    """把「当前生效费率」取成 7 项数值，供「按当前费率建版本」一键固化。
+
+    "当前生效费率" 的口径完全复用 employee_grade_rate_snapshot()（版本优先、静态兜底），
+    也就是「员工等级」页面上那一栏数字、以及工资计算实际取的值 —— 三者同一口径，
+    不在这里另立一套默认价。
+
+    任一项 source == "missing"（既没有版本条目也没有等级静态值）时直接拒绝：
+    固化出一条按 0 计薪的版本，比「没有版本」更危险 —— 没有版本时页面会明确
+    提示「未设置」，而一条全 0 的版本看起来是「已配置」，会静默把工资算成 0。
+    """
+    snapshot = employee_grade_rate_snapshot(connection, grade_id, _iso_day(work_date))
+    values = {}
+    missing = []
+    for key, label, _unit in EMPLOYEE_RATE_TYPES:
+        entry = snapshot["rates"].get(key, {})
+        if entry.get("source") == "missing":
+            missing.append(label)
+        values[key] = float(entry.get("rate") or 0)
+    if missing:
+        raise ValueError(
+            "以下费率既没有生效版本也没有等级静态值，无法固化："
+            + "、".join(missing)
+            + "。请在下方表单里手动填写。"
+        )
+    if not any(values.values()):
+        raise ValueError(
+            "当前 7 项费率全是 0，固化成版本后工资会按 0 计算；请在下方表单里填写真实费率。"
+        )
+    return values
+
+
 def _float_form(name):
     raw = request.form.get(name, "").strip()
     if raw == "":
@@ -454,6 +486,19 @@ def register_rate_routes(app, api):
             effective_from = request.form.get("effective_from", "").strip()
             effective_to = request.form.get("effective_to", "").strip() or None
             _validate_dates(effective_from, effective_to)
+            notes = request.form.get("notes", "").strip()
+            if request.form.get("rate_source") == "current":
+                # 「按当前费率建版本」：把页面上「当前生效费率」显示的 7 个数字原样固化，
+                # 用户不必照着屏幕手抄（手抄最容易出现某几项漏改）。
+                #
+                # 快照必须在这里取，不能挪到 _prepare_new_version_range 之后：那一步会先把
+                # 上一个版本的结束日期收到新版本生效日前一天，事后再按「今天」查就查不到
+                # 生效版本了，会静默退化成静态费率 —— 固化的就不是用户屏幕上看到的那份。
+                today = date.today().isoformat()
+                rate_values = current_rate_values(api["db"](), grade_id, today)
+                notes = notes or f"沿用 {today} 的当前费率"
+            else:
+                rate_values = {key: _float_form(key) for key, _label, _unit in EMPLOYEE_RATE_TYPES}
             effective_to = _prepare_new_version_range(
                 api["db"](), "employee_rate_versions", "employee_grade_id", grade_id, effective_from, effective_to
             )
@@ -467,13 +512,13 @@ def register_rate_routes(app, api):
                     (employee_grade_id, version_no, effective_from, effective_to, status, notes, created_by, created_at, updated_at)
                 values (?, ?, ?, ?, 'active', ?, ?, ?, ?)
                 """,
-                (grade_id, next_no, effective_from, effective_to, request.form.get("notes", "").strip(), g.user["id"], api["now"](), api["now"]()),
+                (grade_id, next_no, effective_from, effective_to, notes, g.user["id"], api["now"](), api["now"]()),
             )
             version_id = cursor.lastrowid
             for key, _label, unit in EMPLOYEE_RATE_TYPES:
                 api["db"]().execute(
                     "insert into employee_rate_items (version_id, rate_type, unit, rate) values (?, ?, ?, ?)",
-                    (version_id, key, unit, _float_form(key)),
+                    (version_id, key, unit, rate_values[key]),
                 )
             api["log_action"]("create", "employee_rate_version", version_id, f"{grade['grade_name']} v{next_no}", f"生效：{effective_from} 至 {effective_to or '长期'}")
             api["db"]().commit()
