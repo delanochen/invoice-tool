@@ -4,6 +4,47 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.307] - 2026-09-26
+
+### 变更
+- **二/三级子菜单项前面补上小图标。** 一级菜单的 `summary` 一直有 svg 图标，下钻之后
+  清一色纯文字。现在 39 个 24 格线性图标集中在 `base.html` 的 sprite 里（`<symbol>` +
+  `<use>`），各调用点只传图标名：`nav_link("clients", "客户", icon="clients")`，
+  三级菜单（薪酬参数）用 `nav_icon("params")` 宏。形状只写一遍，描边交给 CSS 的
+  `.nav-item-icon`（`fill:none; stroke:currentColor; stroke-width:1.7`）—— `currentColor`
+  让图标跟着文字走，hover 变白底蓝字时自动反色，不用另写一套。
+  图标与文字行垂直居中、左缘统一 20px（与 `.nav-submenu hr` 分隔线对齐）。
+- **「消息」从「主菜单」下拉里剥出来，成为菜单栏上紧跟「系统配置」的一级入口**，
+  后面带红底未读数徽标（>99 显示 `99+`，0 条整个徽标不渲染）。它没有下拉面板，
+  点击直接进消息页；当前就在消息页时该入口呈按下态，主菜单组不再跟着高亮
+  （`messages` 已从 `main_endpoints` 移除）。
+- 菜单权限配置页里「消息」也从「主菜单」组挪到「系统配置」组末尾：分组只决定配置页的
+  展示分类，但 UI 上它在系统配置后面，两边对不上会让人以为配置没生效。
+
+### 修复
+- **未读徽标的 `[hidden]` 必须显式失效兜住。** `.nav-badge` 自己设了 `display:inline-flex`，
+  与 UA 样式表的 `[hidden]{display:none}` 同特异性、作者样式优先 —— 不写
+  `#topnav .nav-badge[hidden]{display:none}` 的话，0 条未读时会留一个空心红点。
+- **`data-message-nav` 钩子从整个 `<a>` 挪到徽标 `<span>` 上。** `messages.js` 原来做
+  `element.textContent = messageNavText(count)`（往元素里写「消息 (2)」）；钩子挂在 `<a>` 上
+  会把里面的图标一起抹掉。改成 `paintMessageNav(count)`：只写数字、管 `hidden`、
+  同步 `aria-label`（`未读消息 N 条`），不再动文字。
+- 菜单栏 `←/→` 的行走序列纳入 `.nav-entry`。消息不是 `.nav-group`，不进序列的话
+  键盘走遍菜单栏会把它漏掉；方向键落到直接入口时只聚焦、不开面板。
+
+### 测试
+- 新增 `test_topnav_menu.py`（15 条）：每个 `nav_link` 调用都传了 `icon`、sprite 与引用
+  一一对应（不多不少）、渲染出的子菜单项都带图标 svg、图标名都能解析到 symbol、
+  三级 summary 也有图标、CSS 给了描边属性、sprite 容器不是 `display:none`、
+  消息已离开主菜单下拉（连那条分隔线一起）、消息是系统配置之后的一级入口、
+  消息页高亮的是入口而不是主菜单、未读徽标 3 / 0 / 120 三种取值、
+  `.nav-badge[hidden]` 真的 `display:none`、`messages.js` 只往徽标写数字。
+- 真渲染（headless Chrome + 页面内几何取值，不只截图）：40 个子菜单项全部有图标、
+  39 个 `<use>` 全部能解析到 symbol 且 symbol 内部有形状、把全部菜单展开后所有图标
+  `getBBox()` 非空、图标左缘 20px 且与文字行垂直居中（`dyCentre=0`）、
+  菜单栏未被挤溢出（`scrollWidth == clientWidth`）、0 条未读时徽标 `display:none`。
+  截图三张：主菜单下拉、薪酬管理 + 三级「薪酬参数」级联、移动端抽屉。
+
 ## [0.1.306] - 2026-09-26
 
 ### 变更
