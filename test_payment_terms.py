@@ -487,7 +487,8 @@ class PaymentTermsTest(unittest.TestCase):
 
         page = self.http.get(f"/service-orders/{self.open_order_id}").get_data(as_text=True)
         self.assertIn("2 张报销 · 合计 $655.59", page)
-        self.assertIn('data-selected-summary="2 张报销 · 合计 $655.59"', page)
+        # data-selected-summary 属性已随 v0.1.291 的详情页 ERP 化（ba84dce）移除，
+        # 页面只保留「2 张报销 · 合计 $655.59」文案本身，这里不再断言该属性。
 
     def test_projects_can_filter_by_type_and_name(self):
         with self.module.app.app_context():

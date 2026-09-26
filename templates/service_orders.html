@@ -36,7 +36,6 @@
         <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_calendar') }}'">工单日历</button>
         <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_query') }}'">工单查询</button>
       {% endif %}
-      <button type="button" class="erp-btn" data-erp-action="query">查询</button>
       <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
       <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
@@ -46,14 +45,8 @@
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
   {# 只有一个视图（工单清单），不设页签也不设侧栏 → 走 erp-ui.css 的无导航单列布局 #}
   <div class="erp-body">
-    <!-- FilterBar：字段名与后端一致（q） -->
-    <form class="erp-filter no-print" method="get" data-erp-filter>
-      <label class="erp-field">关键词
-        <input type="search" name="q" value="{{ q }}" placeholder="工单号 / 站点 / 业主 / 服务订单号">
-      </label>
-      <p class="erp-filter-note">关键词同时匹配工单号、站点名称、业主与服务订单号；本页只显示进行中的工单，查已关闭工单请用「工单查询」。</p>
-    </form>
-
+    <!-- 本页不放关键词筛选：只列「进行中」工单，条件查询（含已关闭）统一走「工单查询」页，
+         避免两处各留一个半功能搜索框。2026-09-26 应用户要求移除原关键词 FilterBar。 -->
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid service-orders-table" data-grid-height="100%">
