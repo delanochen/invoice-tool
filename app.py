@@ -454,7 +454,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "bank_accounts", "label": "银行账户", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "bank_transactions", "label": "银行流水", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "employee_ledger", "label": "员工往来账", "actions": {"view": {"admin", "manager", "finance"}}},
-            {"key": "bank_reconciliation", "label": "银行对账", "actions": {"view": {"admin", "finance"}, "edit": {"admin", "finance"}}},
+            {"key": "bank_reconciliation", "label": "银行对账", "actions": {"view": {"admin", "finance"}, "reconcile": {"admin", "finance"}}},
             {"key": "assets", "label": "资产档案", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin"}}},
         ],
     },
@@ -16807,6 +16807,16 @@ def process_expense_action():
     if not expense:
         abort(404)
     action = request.form.get("action", "")
+    if action == "reimburse" and postgres_enabled():
+        if not has_action_permission("expenses", "approve"):
+            abort(403)
+        if expense["status"] != "approved":
+            flash("只有已审核通过的报销可以进入付款流程。", "error")
+            return redirect(url_for("expense_processing"))
+        payment_id = ensure_expense_payment_order(globals(), expense_id)
+        db().commit()
+        flash("该报销已进入员工付款中心，请在付款单完成审核、付款和对账。", "success")
+        return redirect(url_for("employee_payment_detail", payment_id=payment_id))
     if action == "reimburse":
         if not has_action_permission("expenses", "approve"):
             abort(403)

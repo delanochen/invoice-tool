@@ -102,8 +102,10 @@
         {% set utility_endpoints = ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page", "travel_tools_page", "knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document", "ai_assistant", "ai_assistant_chat", "database_console"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
-        {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies"] %}
+        {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies", "employee_payments", "employee_payment_detail"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
+        {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "bank_reconciliation"] %}
+        {% set asset_endpoints = ["assets", "asset_detail"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
         {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions"] %}
         {% macro nav_icon(name) -%}
@@ -206,10 +208,11 @@
             (has_menu_permission("employee_grades") and can_manage_employee_grades())
             or (has_menu_permission("payroll_subsidies") and can_manage_employee_grades())
           %}
-          {% if show_payroll_reports or show_payroll_parameters %}
+          {% if show_payroll_reports or show_payroll_parameters or (has_menu_permission("employee_payments") and has_action_permission("employee_payments", "view")) %}
             <details class="nav-group {{ 'active' if active_endpoint in payroll_endpoints else '' }}" {% if active_endpoint in payroll_endpoints %}open{% endif %}>
               <summary accesskey="p"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 10h4.2a1.9 1.9 0 0 1 0 3.8H10.3a1.9 1.9 0 0 0 0 3.8h4.2"/></svg>薪酬管理<span class="nav-key">(<u>P</u>)</span></summary>
               <div class="nav-submenu">
+                {% if has_menu_permission("employee_payments") and has_action_permission("employee_payments", "view") %}{{ nav_link("employee_payments", "员工付款中心", ["employee_payments", "employee_payment_detail"], icon="payroll") }}{% endif %}
                 {% if show_payroll_reports %}
                   {% if has_menu_permission("labor_hours_report") and can_view_labor_payroll_reports() %}{{ nav_link("labor_hours_report", "工时统计", icon="hours") }}{% endif %}
                   {% if has_menu_permission("payroll_report") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_report", "薪酬统计", icon="payroll") }}{% endif %}
@@ -226,6 +229,31 @@
                   </details>
                 {% endif %}
               </div>
+            </details>
+          {% endif %}
+          {% set show_finance_menu =
+            (has_menu_permission("finance_overview") and has_action_permission("finance_overview", "view"))
+            or (has_menu_permission("bank_accounts") and has_action_permission("bank_accounts", "view"))
+            or (has_menu_permission("bank_transactions") and has_action_permission("bank_transactions", "view"))
+            or (has_menu_permission("employee_advances") and has_action_permission("employee_advances", "view"))
+            or (has_menu_permission("employee_ledger") and has_action_permission("employee_ledger", "view"))
+            or (has_menu_permission("bank_reconciliation") and has_action_permission("bank_reconciliation", "view"))
+          %}
+          {% if show_finance_menu %}
+            <details class="nav-group {{ 'active' if active_endpoint in finance_endpoints else '' }}" {% if active_endpoint in finance_endpoints %}open{% endif %}>
+              <summary>财务管理</summary><div class="nav-submenu">
+                {% if has_menu_permission("finance_overview") and has_action_permission("finance_overview", "view") %}{{ nav_link("finance_overview", "财务总览", icon="profit") }}{% endif %}
+                {% if has_menu_permission("bank_accounts") and has_action_permission("bank_accounts", "view") %}{{ nav_link("bank_accounts", "银行账户", icon="company") }}{% endif %}
+                {% if has_menu_permission("bank_transactions") and has_action_permission("bank_transactions", "view") %}{{ nav_link("bank_transactions", "银行流水", icon="table") }}{% endif %}
+                {% if has_menu_permission("employee_advances") and has_action_permission("employee_advances", "view") %}{{ nav_link("employee_advances", "员工借款", icon="receipt") }}{% endif %}
+                {% if has_menu_permission("employee_ledger") and has_action_permission("employee_ledger", "view") %}{{ nav_link("employee_ledger", "员工往来账", icon="user") }}{% endif %}
+                {% if has_menu_permission("bank_reconciliation") and has_action_permission("bank_reconciliation", "view") %}{{ nav_link("bank_reconciliation", "银行对账", icon="audit") }}{% endif %}
+              </div>
+            </details>
+          {% endif %}
+          {% if has_menu_permission("assets") and has_action_permission("assets", "view") %}
+            <details class="nav-group {{ 'active' if active_endpoint in asset_endpoints else '' }}" {% if active_endpoint in asset_endpoints %}open{% endif %}>
+              <summary>资产管理</summary><div class="nav-submenu">{{ nav_link("assets", "资产档案", asset_endpoints, icon="database") }}</div>
             </details>
           {% endif %}
           {% set show_utility_menu =

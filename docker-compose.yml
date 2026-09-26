@@ -7,6 +7,8 @@ services:
     image: invoice-tool:latest
     container_name: invoice-tool
     restart: unless-stopped
+    env_file:
+      - ${POSTGRES_APP_ENV_FILE:?Set an absolute private app env file containing DATABASE_URL}
     ports:
       - "8088:8000"
     environment:
@@ -43,6 +45,8 @@ services:
     image: invoice-tool:latest
     container_name: invoice-tool-photo-worker
     restart: unless-stopped
+    env_file:
+      - ${POSTGRES_APP_ENV_FILE:?Set an absolute private app env file containing DATABASE_URL}
     command: python photo_worker.py
     mem_limit: 768m
     environment:
@@ -58,6 +62,8 @@ services:
     image: invoice-tool:latest
     container_name: invoice-tool-ai-interpret
     restart: unless-stopped
+    env_file:
+      - ${POSTGRES_APP_ENV_FILE:?Set an absolute private app env file containing DATABASE_URL}
     command: python ai_interpret_worker.py
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -73,6 +79,8 @@ services:
     image: invoice-tool:latest
     container_name: invoice-tool-ai-review
     restart: unless-stopped
+    env_file:
+      - ${POSTGRES_APP_ENV_FILE:?Set an absolute private app env file containing DATABASE_URL}
     command: python ai_review_worker.py
     extra_hosts:
       - "host.docker.internal:host-gateway"

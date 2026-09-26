@@ -1,0 +1,733 @@
+"""PostgreSQL-backed employee payments, treasury, advances and assets.
+
+The module deliberately sits after the existing payroll/expense calculations:
+those systems remain the source of truth for amounts, while payment orders are
+the accounts-payable document and bank transactions are the cash evidence.
+Schema changes live only in migrations/postgresql/0285-employee-finance-assets.sql.
+"""
+from __future__ import annotations
+
+import csv
+import hashlib
+import io
+import json
+import os
+from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
+
+from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
+from werkzeug.utils import secure_filename
+
+
+PAYMENT_STATUS_LABELS = {
+    "draft": "草稿", "pending_review": "待审核", "approved": "已批准",
+    "pending_payment": "待付款", "paid": "已付款", "reconciled": "已对账",
+    "rejected": "已驳回", "cancelled": "已取消", "payment_failed": "付款失败",
+}
+PAYMENT_TYPE_LABELS = {
+    "system_payroll": "系统工资", "offline_salary": "线下约定工资",
+    "expense": "员工报销", "bonus": "奖金", "allowance": "补贴", "other": "其他",
+}
+PAYMENT_METHOD_LABELS = {
+    "ach": "ACH", "wire": "电汇", "check": "支票", "cash": "现金", "other": "其他",
+}
+ASSET_STATUS_LABELS = {
+    "available": "可领用", "assigned": "使用中", "damaged": "损坏",
+    "lost": "丢失", "retired": "已报废",
+}
+ASSET_EVENT_LABELS = {
+    "created": "建档", "assign": "领用", "return": "归还", "damaged": "损坏",
+    "lost": "丢失", "retired": "报废", "updated": "更新",
+}
+
+
+def _money(value, field="金额") -> Decimal:
+    try:
+        amount = Decimal(str(value or "0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        raise ValueError(f"{field}格式不正确。")
+    return amount
+
+
+def payment_amounts(gross_amount, advance_offset=0, other_adjustment=0):
+    """Return normalized (gross, offset, adjustment, net) with domain checks."""
+    gross = _money(gross_amount, "应付金额")
+    offset = _money(advance_offset, "借款抵扣")
+    adjustment = _money(other_adjustment, "其他调整")
+    if gross < 0 or offset < 0:
+        raise ValueError("应付金额和借款抵扣不能为负数。")
+    net = gross - offset + adjustment
+    if net < 0:
+        raise ValueError("实付金额不能为负数。")
+    return gross, offset, adjustment, net
+
+
+def payment_transition_target(status, action):
+    transitions = {
+        ("draft", "submit"): "pending_review",
+        ("pending_review", "approve"): "approved",
+        ("pending_review", "reject"): "rejected",
+        ("approved", "ready"): "pending_payment",
+        ("pending_payment", "mark_paid"): "paid",
+        ("pending_payment", "fail"): "payment_failed",
+        ("payment_failed", "retry"): "pending_payment",
+        ("paid", "reconcile"): "reconciled",
+    }
+    return transitions.get((status, action))
+
+
+def _require(api, resource, action="view"):
+    if not api["has_action_permission"](resource, action):
+        abort(403)
+
+
+def _next_number(api, prefix, table, column):
+    api["lock_number_allocation"](api["db"]())
+    stamp = date.today().strftime("%y%m")
+    root = f"{prefix}-{stamp}-"
+    row = api["db"]().execute(
+        f"select {column} from {table} where {column} like ? order by id desc limit 1", (root + "%",)
+    ).fetchone()
+    sequence = 1
+    if row:
+        try:
+            sequence = int(row[column].rsplit("-", 1)[1]) + 1
+        except (ValueError, IndexError):
+            pass
+    return f"{root}{sequence:04d}"
+
+
+def _payment_order(api, payment_id):
+    row = api["db"]().execute(
+        """
+        select p.*, u.name employee_name, a.account_name, a.bank_name,
+               creator.name creator_name, reviewer.name reviewer_name, payer.name payer_name
+        from employee_payment_orders p
+        join users u on u.id=p.employee_id
+        left join bank_accounts a on a.id=p.bank_account_id
+        left join users creator on creator.id=p.created_by
+        left join users reviewer on reviewer.id=p.reviewed_by
+        left join users payer on payer.id=p.paid_by
+        where p.id=?
+        """, (payment_id,)
+    ).fetchone()
+    if not row:
+        abort(404)
+    return row
+
+
+def _advance_balances(api, employee_id=None):
+    clauses, params = ["1=1"], []
+    if employee_id:
+        clauses.append("a.employee_id=?")
+        params.append(employee_id)
+    return api["db"]().execute(
+        f"""
+        select a.*, u.name employee_name, b.account_name,
+               coalesce(sum(l.amount),0) applied_amount,
+               a.principal_amount-coalesce(sum(l.amount),0) remaining_amount
+        from employee_advances a join users u on u.id=a.employee_id
+        left join bank_accounts b on b.id=a.bank_account_id
+        left join employee_advance_applications l on l.advance_id=a.id
+        where {' and '.join(clauses)}
+        group by a.id,u.name,b.account_name
+        order by a.advance_date desc,a.id desc
+        """, params
+    ).fetchall()
+
+
+def employee_finance_summary(api, employee_id):
+    """Small, read-only employee profile summary used by the existing user page."""
+    pending = api["db"]().execute(
+        "select coalesce(sum(net_amount),0) total,count(*) count from employee_payment_orders "
+        "where employee_id=? and status in ('pending_review','approved','pending_payment','payment_failed')",
+        (employee_id,),
+    ).fetchone()
+    paid = api["db"]().execute(
+        "select coalesce(sum(net_amount),0) total,count(*) count from employee_payment_orders "
+        "where employee_id=? and status in ('paid','reconciled')", (employee_id,),
+    ).fetchone()
+    advances = _advance_balances(api, employee_id)
+    assets = api["db"]().execute(
+        "select id,asset_number,name,status from assets where current_holder_id=? and status='assigned' order by asset_number",
+        (employee_id,),
+    ).fetchall()
+    return {
+        "pending_total": pending["total"], "pending_count": pending["count"],
+        "paid_total": paid["total"], "paid_count": paid["count"],
+        "advance_balance": sum(Decimal(str(row["remaining_amount"] or 0)) for row in advances),
+        "assets": assets,
+    }
+
+
+def _insert_payment(api, *, employee_id, payment_type, gross_amount, source_type,
+                    source_id=None, source_number="", source_key="", description="",
+                    other_adjustment=Decimal("0"), advance_id=None, advance_offset=Decimal("0")):
+    gross, offset, adjustment, net = payment_amounts(gross_amount, advance_offset, other_adjustment)
+    if offset and not advance_id:
+        raise ValueError("填写借款抵扣时必须选择员工借款。")
+    if advance_id:
+        advance = api["db"]().execute(
+            "select employee_id from employee_advances where id=?", (advance_id,)
+        ).fetchone()
+        if not advance or advance["employee_id"] != employee_id:
+            raise ValueError("所选借款不属于该员工。")
+    if source_key:
+        existing = api["db"]().execute(
+            "select id from employee_payment_orders where source_key=?", (source_key,)
+        ).fetchone()
+        if existing:
+            return existing["id"], False
+    number = _next_number(api, "EP", "employee_payment_orders", "payment_number")
+    created_at = api["now"]()
+    cursor = api["db"]().execute(
+        """
+        insert into employee_payment_orders
+        (payment_number,employee_id,payment_type,status,currency,gross_amount,advance_offset,
+         other_adjustment,net_amount,primary_advance_id,description,source_type,source_id,
+         source_number,source_key,sync_source,sync_status,created_by,created_at,updated_at)
+        values (?,?,?,'draft','USD',?,?,?,?,?,?,?,?,?,?,'manual','local',?,?,?)
+        """,
+        (number, employee_id, payment_type, gross, offset, adjustment, net, advance_id,
+         description, source_type, source_id, source_number, source_key or None,
+         g.user["id"], created_at, created_at),
+    )
+    payment_id = cursor.lastrowid
+    api["db"]().execute(
+        "insert into payment_order_sources(payment_order_id,source_type,source_id,source_number,amount,created_at) values(?,?,?,?,?,?)",
+        (payment_id, source_type, source_id, source_number, gross, created_at),
+    )
+    api["db"]().execute(
+        "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,?,'','draft',?,?,?)",
+        (payment_id, "created", description, g.user["id"], created_at),
+    )
+    api["log_action"]("create", "employee_payment", payment_id, number, f"{PAYMENT_TYPE_LABELS[payment_type]} {net}")
+    return payment_id, True
+
+
+def ensure_expense_payment_order(api, expense_id):
+    """Idempotently bridge an already-approved expense into accounts payable."""
+    expense = api["db"]().execute(
+        "select *,coalesce(beneficiary_id,created_by) employee_id from expenses where id=?", (expense_id,)
+    ).fetchone()
+    if not expense or expense["status"] != "approved":
+        return None
+    payment_id, _ = _insert_payment(
+        api, employee_id=expense["employee_id"], payment_type="expense",
+        gross_amount=expense["amount"], source_type="expense", source_id=expense_id,
+        source_number=expense["expense_number"], source_key=f"expense:{expense_id}",
+        description=f"报销单 {expense['expense_number']}",
+    )
+    return payment_id
+
+
+def _create_advance_application(api, payment):
+    if not payment["primary_advance_id"] or not Decimal(str(payment["advance_offset"] or 0)):
+        return
+    api["db"]().execute("begin immediate")
+    exists = api["db"]().execute(
+        "select id from employee_advance_applications where payment_order_id=? and entry_type='application'",
+        (payment["id"],),
+    ).fetchone()
+    if exists:
+        return
+    balances = {row["id"]: Decimal(str(row["remaining_amount"])) for row in _advance_balances(api, payment["employee_id"])}
+    amount = Decimal(str(payment["advance_offset"]))
+    if balances.get(payment["primary_advance_id"], Decimal("0")) < amount:
+        raise ValueError("借款未结余额不足以完成本次抵扣。")
+    api["db"]().execute(
+        "insert into employee_advance_applications(advance_id,payment_order_id,entry_type,amount,notes,created_by,created_at) values(?,?,'application',?,?,?,?)",
+        (payment["primary_advance_id"], payment["id"], amount, f"付款单 {payment['payment_number']} 抵扣", g.user["id"], api["now"]()),
+    )
+
+
+def _reverse_advance_application(api, payment):
+    applied = api["db"]().execute(
+        "select coalesce(sum(amount),0) amount from employee_advance_applications where payment_order_id=?",
+        (payment["id"],),
+    ).fetchone()["amount"]
+    applied = Decimal(str(applied or 0))
+    if applied:
+        api["db"]().execute(
+            "insert into employee_advance_applications(advance_id,payment_order_id,entry_type,amount,notes,created_by,created_at) values(?,?,'reversal',?,?,?,?)",
+            (payment["primary_advance_id"], payment["id"], -applied, f"付款单 {payment['payment_number']} 取消冲销", g.user["id"], api["now"]()),
+        )
+
+
+def register_employee_finance_routes(app, api):
+    app.jinja_env.globals["employee_finance_summary"] = lambda employee_id: employee_finance_summary(api, employee_id)
+
+    @app.get("/employee-payments")
+    @api["login_required"]
+    def employee_payments():
+        _require(api, "employee_payments")
+        status = request.args.get("status", "")
+        employee_id = request.args.get("employee_id", "")
+        clauses, params = ["1=1"], []
+        if status in PAYMENT_STATUS_LABELS:
+            clauses.append("p.status=?"); params.append(status)
+        if employee_id.isdigit():
+            clauses.append("p.employee_id=?"); params.append(int(employee_id))
+        rows = api["db"]().execute(
+            f"""select p.*,u.name employee_name,b.account_name from employee_payment_orders p
+            join users u on u.id=p.employee_id left join bank_accounts b on b.id=p.bank_account_id
+            where {' and '.join(clauses)} order by p.created_at desc,p.id desc""", params
+        ).fetchall()
+        employees = api["db"]().execute("select id,name from users where role in ('employee','manager','finance','admin') order by name").fetchall()
+        accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
+        advances = _advance_balances(api, int(employee_id) if employee_id.isdigit() else None)
+        agreements = api["db"]().execute(
+            "select s.*,u.name employee_name from employee_salary_agreements s join users u on u.id=s.employee_id order by s.is_active desc,s.effective_from desc"
+        ).fetchall()
+        return render_template("employee_payments.html", rows=rows, employees=employees, accounts=accounts,
+                               advances=advances, agreements=agreements, status=status, employee_id=employee_id,
+                               status_labels=PAYMENT_STATUS_LABELS, type_labels=PAYMENT_TYPE_LABELS,
+                               method_labels=PAYMENT_METHOD_LABELS)
+
+    @app.post("/employee-payments/create")
+    @api["login_required"]
+    def create_employee_payment():
+        _require(api, "employee_payments", "create")
+        try:
+            employee_id = int(request.form.get("employee_id", ""))
+            payment_type = request.form.get("payment_type", "other")
+            if payment_type not in PAYMENT_TYPE_LABELS:
+                raise ValueError("付款类型无效。")
+            payment_id, _ = _insert_payment(
+                api, employee_id=employee_id, payment_type=payment_type,
+                gross_amount=request.form.get("gross_amount"), source_type="manual",
+                description=request.form.get("description", "").strip(),
+                other_adjustment=request.form.get("other_adjustment", "0"),
+                advance_id=int(request.form["advance_id"]) if request.form.get("advance_id", "").isdigit() else None,
+                advance_offset=request.form.get("advance_offset", "0"),
+            )
+            api["db"]().commit()
+            flash("员工付款单已创建。", "success")
+            return redirect(url_for("employee_payment_detail", payment_id=payment_id))
+        except (ValueError, TypeError) as error:
+            api["db"]().rollback(); flash(str(error), "error")
+            return redirect(url_for("employee_payments"))
+
+    @app.post("/employee-payments/salary-agreements")
+    @api["login_required"]
+    def create_salary_agreement():
+        _require(api, "employee_payments", "create")
+        try:
+            employee_id = int(request.form.get("employee_id", ""))
+            amount = _money(request.form.get("amount"), "约定工资")
+            effective_from = date.fromisoformat(request.form.get("effective_from", "")).isoformat()
+            effective_to = request.form.get("effective_to", "").strip() or None
+            if amount < 0: raise ValueError("约定工资不能为负数。")
+            if effective_to and effective_to < effective_from: raise ValueError("结束日期不能早于生效日期。")
+            overlap = api["db"]().execute(
+                "select id from employee_salary_agreements where employee_id=? and is_active=1 and effective_from<=? and (effective_to is null or effective_to>=?) limit 1",
+                (employee_id, effective_to or "9999-12-31", effective_from),
+            ).fetchone()
+            if overlap: raise ValueError("该员工已有生效期重叠的线下工资约定。")
+            api["db"]().execute(
+                "insert into employee_salary_agreements(employee_id,amount,currency,effective_from,effective_to,replaces_system_payroll,notes,is_active,created_by,created_at,updated_at) values(?,?,'USD',?,?,?, ?,1,?,?,?)",
+                (employee_id, amount, effective_from, effective_to,
+                 1 if request.form.get("replaces_system_payroll", "1") == "1" else 0,
+                 request.form.get("notes", "").strip(), g.user["id"], api["now"](), api["now"]()),
+            )
+            api["log_action"]("create", "employee_salary_agreement", employee_id, str(employee_id), f"约定工资 {amount}")
+            api["db"]().commit(); flash("线下约定工资已保存。", "success")
+        except (ValueError, TypeError) as error:
+            api["db"]().rollback(); flash(str(error), "error")
+        return redirect(url_for("employee_payments"))
+
+    @app.post("/employee-payments/generate-payroll")
+    @api["login_required"]
+    def generate_payroll_payments():
+        _require(api, "employee_payments", "create")
+        try:
+            period_start = date.fromisoformat(request.form.get("period_start", ""))
+            batch = api["payroll_rows_for_period"](period_start)
+            agreements = api["db"]().execute(
+                "select * from employee_salary_agreements where is_active=1 and effective_from<=? and (effective_to is null or effective_to>=?)",
+                (batch["period_end"].isoformat(), period_start.isoformat()),
+            ).fetchall()
+            replacements = {row["employee_id"]: row for row in agreements if row["replaces_system_payroll"]}
+            created = 0
+            for row in batch["rows"]:
+                agreement = replacements.get(row["worker_id"])
+                amount = agreement["amount"] if agreement else row["total_pay"]
+                kind = "offline_salary" if agreement else "system_payroll"
+                _, inserted = _insert_payment(
+                    api, employee_id=row["worker_id"], payment_type=kind, gross_amount=amount,
+                    source_type=kind, source_id=agreement["id"] if agreement else None,
+                    source_number=f"{period_start.isoformat()}~{batch['period_end'].isoformat()}",
+                    source_key=f"payroll:{kind}:{row['worker_id']}:{period_start.isoformat()}",
+                    description=f"{period_start.isoformat()} 至 {batch['period_end'].isoformat()} {PAYMENT_TYPE_LABELS[kind]}",
+                )
+                created += int(inserted)
+            # Offline-only employees may have no service-report row in this period.
+            worker_ids = {row["worker_id"] for row in batch["rows"]}
+            for agreement in agreements:
+                if agreement["employee_id"] in worker_ids and agreement["replaces_system_payroll"]:
+                    continue
+                _, inserted = _insert_payment(
+                    api, employee_id=agreement["employee_id"], payment_type="offline_salary",
+                    gross_amount=agreement["amount"], source_type="offline_salary", source_id=agreement["id"],
+                    source_number=f"{period_start.isoformat()}~{batch['period_end'].isoformat()}",
+                    source_key=f"payroll:offline_salary:{agreement['employee_id']}:{period_start.isoformat()}",
+                    description=f"{period_start.isoformat()} 至 {batch['period_end'].isoformat()} 线下约定工资",
+                )
+                created += int(inserted)
+            api["db"]().commit(); flash(f"已生成 {created} 张付款单；重复来源已自动跳过。", "success")
+        except (ValueError, TypeError) as error:
+            api["db"]().rollback(); flash(str(error), "error")
+        return redirect(url_for("employee_payments"))
+
+    @app.get("/employee-payments/<int:payment_id>")
+    @api["login_required"]
+    def employee_payment_detail(payment_id):
+        _require(api, "employee_payments")
+        payment = _payment_order(api, payment_id)
+        sources = api["db"]().execute("select * from payment_order_sources where payment_order_id=? order by id", (payment_id,)).fetchall()
+        events = api["db"]().execute(
+            "select e.*,u.name creator_name from payment_order_events e left join users u on u.id=e.created_by where e.payment_order_id=? order by e.id",
+            (payment_id,),
+        ).fetchall()
+        applications = api["db"]().execute(
+            "select l.*,a.advance_number from employee_advance_applications l join employee_advances a on a.id=l.advance_id where l.payment_order_id=? order by l.id",
+            (payment_id,),
+        ).fetchall()
+        accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
+        return render_template("employee_payment_detail.html", payment=payment, sources=sources, events=events,
+                               applications=applications, accounts=accounts, status_labels=PAYMENT_STATUS_LABELS,
+                               type_labels=PAYMENT_TYPE_LABELS, method_labels=PAYMENT_METHOD_LABELS)
+
+    @app.post("/employee-payments/<int:payment_id>/transition")
+    @api["login_required"]
+    def transition_employee_payment(payment_id):
+        payment = _payment_order(api, payment_id)
+        action = request.form.get("action", "")
+        transitions = {
+            "submit": ("draft", "pending_review", "edit"),
+            "approve": ("pending_review", "approved", "approve"),
+            "ready": ("approved", "pending_payment", "pay"),
+            "retry": ("payment_failed", "pending_payment", "pay"),
+            "mark_paid": ("pending_payment", "paid", "pay"),
+            "fail": ("pending_payment", "payment_failed", "pay"),
+            "reject": ("pending_review", "rejected", "approve"),
+        }
+        try:
+            if action == "cancel":
+                if payment["status"] in {"paid", "reconciled", "cancelled"}:
+                    raise ValueError("已付款、已对账或已取消的付款单不能取消。")
+                _require(api, "employee_payments", "edit")
+                target = "cancelled"
+                _reverse_advance_application(api, payment)
+            else:
+                source, target, permission = transitions.get(action, (None, None, None))
+                if not source or payment["status"] != source:
+                    raise ValueError("付款单当前状态不允许执行该操作。")
+                _require(api, "employee_payments", permission)
+                if target == "pending_payment":
+                    _create_advance_application(api, payment)
+                if target == "paid":
+                    account_id = request.form.get("bank_account_id", "")
+                    method = request.form.get("payment_method", "")
+                    if not account_id.isdigit() or method not in PAYMENT_METHOD_LABELS:
+                        raise ValueError("付款时必须选择付款账户和付款方式。")
+                    api["db"]().execute(
+                        "update employee_payment_orders set bank_account_id=?,payment_method=?,external_transaction_id=?,paid_by=?,paid_at=? where id=?",
+                        (int(account_id), method, request.form.get("external_transaction_id", "").strip() or None,
+                         g.user["id"], api["now"](), payment_id),
+                    )
+                    if payment["source_type"] == "expense" and payment["source_id"]:
+                        api["db"]().execute(
+                            "update expenses set payout_status='paid',reimbursed_by=?,reimbursed_at=?,updated_at=? where id=?",
+                            (g.user["id"], api["now"](), api["now"](), payment["source_id"]),
+                        )
+                if target in {"approved", "rejected"}:
+                    api["db"]().execute("update employee_payment_orders set reviewed_by=?,reviewed_at=? where id=?", (g.user["id"], api["now"](), payment_id))
+            reason = request.form.get("reason", "").strip()
+            api["db"]().execute("update employee_payment_orders set status=?,updated_at=? where id=?", (target, api["now"](), payment_id))
+            api["db"]().execute(
+                "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,?,?,?,?,?,?)",
+                (payment_id, action, payment["status"], target, reason, g.user["id"], api["now"]()),
+            )
+            api["log_action"](action, "employee_payment", payment_id, payment["payment_number"], f"{payment['status']} → {target} {reason}")
+            api["db"]().commit(); flash("付款单状态已更新。", "success")
+        except ValueError as error:
+            api["db"]().rollback(); flash(str(error), "error")
+        return redirect(url_for("employee_payment_detail", payment_id=payment_id))
+
+    @app.route("/finance/advances", methods=["GET", "POST"])
+    @api["login_required"]
+    def employee_advances():
+        _require(api, "employee_advances")
+        if request.method == "POST":
+            _require(api, "employee_advances", "create")
+            try:
+                employee_id = int(request.form.get("employee_id", ""))
+                amount = _money(request.form.get("principal_amount"), "借款金额")
+                if amount <= 0: raise ValueError("借款金额必须大于零。")
+                number = _next_number(api, "EA", "employee_advances", "advance_number")
+                upload = request.files.get("attachment")
+                original, stored = "", ""
+                if upload and upload.filename:
+                    original = secure_filename(upload.filename)
+                    stored = os.urandom(16).hex() + Path(original).suffix.lower()
+                    folder = Path(api["DATA_DIR"]) / "employee-advance-attachments"; folder.mkdir(parents=True, exist_ok=True)
+                    upload.save(folder / stored)
+                cursor = api["db"]().execute(
+                    "insert into employee_advances(advance_number,employee_id,principal_amount,currency,advance_date,bank_account_id,purpose,attachment_name,attachment_stored_filename,status,external_transaction_id,sync_source,sync_status,created_by,created_at,updated_at) values(?,?,?,'USD',?,?,?,?,?,'open',?,'manual','local',?,?,?)",
+                    (number, employee_id, amount, request.form.get("advance_date") or date.today().isoformat(),
+                     int(request.form["bank_account_id"]) if request.form.get("bank_account_id", "").isdigit() else None,
+                     request.form.get("purpose", "").strip(), original, stored,
+                     request.form.get("external_transaction_id", "").strip() or None,
+                     g.user["id"], api["now"](), api["now"]()),
+                )
+                advance_id = api["db"]().execute("select id from employee_advances where advance_number=?", (number,)).fetchone()["id"]
+                api["log_action"]("create", "employee_advance", advance_id, number, f"借款 {amount}")
+                api["db"]().commit(); flash("员工借款已登记。", "success")
+            except (ValueError, TypeError) as error:
+                api["db"]().rollback(); flash(str(error), "error")
+            return redirect(url_for("employee_advances"))
+        rows = _advance_balances(api)
+        employees = api["db"]().execute("select id,name from users where is_active=1 order by name").fetchall()
+        accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
+        return render_template("employee_advances.html", rows=rows, employees=employees, accounts=accounts)
+
+    @app.get("/finance/advances/<int:advance_id>/attachment")
+    @api["login_required"]
+    def employee_advance_attachment(advance_id):
+        _require(api, "employee_advances")
+        advance = api["db"]().execute("select attachment_name,attachment_stored_filename from employee_advances where id=?", (advance_id,)).fetchone()
+        if not advance or not advance["attachment_stored_filename"]: abort(404)
+        return send_file(Path(api["DATA_DIR"]) / "employee-advance-attachments" / advance["attachment_stored_filename"], download_name=advance["attachment_name"])
+
+    @app.get("/finance")
+    @api["login_required"]
+    def finance_overview():
+        _require(api, "finance_overview")
+        payment_summary = api["db"]().execute(
+            "select status,count(*) count,coalesce(sum(net_amount),0) total from employee_payment_orders group by status"
+        ).fetchall()
+        account_summary = api["db"]().execute(
+            """select a.*,coalesce(sum(case when t.direction='credit' then t.amount else -t.amount end),0) movement
+            from bank_accounts a left join bank_transactions t on t.bank_account_id=a.id group by a.id order by a.account_name"""
+        ).fetchall()
+        unreconciled = api["db"]().execute("select count(*) count,coalesce(sum(amount),0) total from bank_transactions where matched_payment_order_id is null").fetchone()
+        advances = _advance_balances(api)
+        return render_template("finance_overview.html", payment_summary=payment_summary, account_summary=account_summary,
+                               unreconciled=unreconciled, advance_total=sum(Decimal(str(r["remaining_amount"])) for r in advances),
+                               status_labels=PAYMENT_STATUS_LABELS)
+
+    @app.route("/finance/bank-accounts", methods=["GET", "POST"])
+    @api["login_required"]
+    def bank_accounts():
+        _require(api, "bank_accounts")
+        if request.method == "POST":
+            _require(api, "bank_accounts", "create")
+            name = request.form.get("account_name", "").strip()
+            if not name:
+                flash("账户名称不能为空。", "error")
+            else:
+                cursor = api["db"]().execute(
+                    "insert into bank_accounts(account_name,bank_name,account_type,currency,last_four,opening_balance,is_active,external_account_id,sync_source,sync_status,created_by,created_at,updated_at) values(?,?,?,?,?,?,1,?,'manual','local',?,?,?)",
+                    (name, request.form.get("bank_name", "").strip(), request.form.get("account_type", "checking"),
+                     request.form.get("currency", "USD"), request.form.get("last_four", "").strip(),
+                     _money(request.form.get("opening_balance"), "期初余额"), request.form.get("external_account_id", "").strip() or None,
+                     g.user["id"], api["now"](), api["now"]()),
+                )
+                api["log_action"]("create", "bank_account", cursor.lastrowid, name, request.form.get("bank_name", "").strip())
+                api["db"]().commit(); flash("银行账户已创建。", "success")
+            return redirect(url_for("bank_accounts"))
+        rows = api["db"]().execute("select * from bank_accounts order by is_active desc,account_name").fetchall()
+        return render_template("bank_accounts.html", rows=rows)
+
+    def insert_bank_transaction(account_id, values, source="manual"):
+        amount = _money(values.get("amount"), "流水金额")
+        if amount <= 0: raise ValueError("流水金额必须大于零。")
+        direction = values.get("direction", "debit").strip().lower()
+        if direction not in {"debit", "credit"}: raise ValueError("收支方向必须为 debit 或 credit。")
+        external_id = (values.get("external_transaction_id") or "").strip() or None
+        fingerprint = hashlib.sha256("|".join([
+            str(account_id), values.get("transaction_date") or "", direction, str(amount),
+            external_id or "", values.get("description") or ""
+        ]).encode("utf-8")).hexdigest()
+        api["db"]().execute(
+            "insert into bank_transactions(bank_account_id,transaction_date,posted_date,direction,amount,currency,description,reference_number,external_transaction_id,sync_source,sync_status,import_fingerprint,created_by,created_at) values(?,?,?,?,?,'USD',?,?,?,?,'imported',?,?,?) on conflict(import_fingerprint) do nothing",
+            (account_id, values.get("transaction_date") or date.today().isoformat(), values.get("posted_date") or None,
+             direction, amount, values.get("description", "").strip(), values.get("reference_number", "").strip(),
+             external_id, source, fingerprint, g.user["id"], api["now"]()),
+        )
+
+    @app.route("/finance/bank-transactions", methods=["GET", "POST"])
+    @api["login_required"]
+    def bank_transactions():
+        _require(api, "bank_transactions")
+        if request.method == "POST":
+            _require(api, "bank_transactions", "create")
+            try:
+                account_id = int(request.form.get("bank_account_id", ""))
+                upload = request.files.get("csv_file")
+                if upload and upload.filename:
+                    text = io.TextIOWrapper(upload.stream, encoding="utf-8-sig", newline="")
+                    count = 0
+                    for row in csv.DictReader(text):
+                        insert_bank_transaction(account_id, row, "csv"); count += 1
+                    message = f"CSV 已处理 {count} 行；重复流水按指纹跳过。"
+                else:
+                    insert_bank_transaction(account_id, request.form, "manual"); message = "银行流水已登记。"
+                api["log_action"]("import", "bank_transaction", 0, f"账户 {account_id}", message)
+                api["db"]().commit(); flash(message, "success")
+            except (ValueError, TypeError) as error:
+                api["db"]().rollback(); flash(str(error), "error")
+            return redirect(url_for("bank_transactions"))
+        rows = api["db"]().execute(
+            "select t.*,a.account_name,p.payment_number from bank_transactions t join bank_accounts a on a.id=t.bank_account_id left join employee_payment_orders p on p.id=t.matched_payment_order_id order by t.transaction_date desc,t.id desc"
+        ).fetchall()
+        accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
+        return render_template("bank_transactions.html", rows=rows, accounts=accounts)
+
+    @app.route("/finance/reconciliation", methods=["GET", "POST"])
+    @api["login_required"]
+    def bank_reconciliation():
+        _require(api, "bank_reconciliation")
+        if request.method == "POST":
+            _require(api, "bank_reconciliation", "reconcile")
+            _require(api, "employee_payments", "reconcile")
+            try:
+                transaction_id = int(request.form.get("transaction_id", "")); payment_id = int(request.form.get("payment_id", ""))
+                tx = api["db"]().execute("select * from bank_transactions where id=?", (transaction_id,)).fetchone()
+                payment = _payment_order(api, payment_id)
+                if not tx or tx["matched_payment_order_id"]: raise ValueError("银行流水不存在或已匹配。")
+                if payment["status"] != "paid": raise ValueError("只有已付款的付款单可以对账。")
+                if tx["direction"] != "debit" or tx["bank_account_id"] != payment["bank_account_id"]:
+                    raise ValueError("流水必须是付款账户下的支出记录。")
+                if tx["currency"] != payment["currency"]:
+                    raise ValueError("流水币种与付款单不一致。")
+                if Decimal(str(tx["amount"])) != Decimal(str(payment["net_amount"])):
+                    raise ValueError("流水金额必须与付款单实付金额一致。")
+                api["db"]().execute("update bank_transactions set matched_payment_order_id=?,matched_by=?,matched_at=?,sync_status='matched' where id=?", (payment_id,g.user["id"],api["now"](),transaction_id))
+                api["db"]().execute("update employee_payment_orders set status='reconciled',reconciled_by=?,reconciled_at=?,updated_at=? where id=?", (g.user["id"],api["now"](),api["now"](),payment_id))
+                api["db"]().execute("insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,'reconcile','paid','reconciled',?,?,?)", (payment_id,f"匹配银行流水 #{transaction_id}",g.user["id"],api["now"]()))
+                api["log_action"]("reconcile", "employee_payment", payment_id, payment["payment_number"], f"银行流水 #{transaction_id}")
+                api["db"]().commit(); flash("付款单与银行流水已完成对账。", "success")
+            except (ValueError, TypeError) as error:
+                api["db"]().rollback(); flash(str(error), "error")
+            return redirect(url_for("bank_reconciliation"))
+        transactions = api["db"]().execute("select t.*,a.account_name from bank_transactions t join bank_accounts a on a.id=t.bank_account_id where t.matched_payment_order_id is null and t.direction='debit' order by t.transaction_date desc").fetchall()
+        payments = api["db"]().execute("select p.*,u.name employee_name from employee_payment_orders p join users u on u.id=p.employee_id where p.status='paid' order by p.paid_at desc").fetchall()
+        return render_template("bank_reconciliation.html", transactions=transactions, payments=payments)
+
+    @app.get("/finance/employee-ledger")
+    @api["login_required"]
+    def employee_ledger():
+        _require(api, "employee_ledger")
+        employee_id = request.args.get("employee_id", "")
+        employees = api["db"]().execute("select id,name from users order by name").fetchall()
+        payments, advances = [], []
+        if employee_id.isdigit():
+            payments = api["db"]().execute("select * from employee_payment_orders where employee_id=? order by created_at desc", (int(employee_id),)).fetchall()
+            advances = _advance_balances(api, int(employee_id))
+        return render_template("employee_ledger.html", employees=employees, employee_id=employee_id,
+                               payments=payments, advances=advances, status_labels=PAYMENT_STATUS_LABELS,
+                               type_labels=PAYMENT_TYPE_LABELS)
+
+    @app.route("/assets", methods=["GET", "POST"])
+    @api["login_required"]
+    def assets():
+        _require(api, "assets")
+        if request.method == "POST":
+            _require(api, "assets", "create")
+            name = request.form.get("name", "").strip()
+            if not name:
+                flash("资产名称不能为空。", "error"); return redirect(url_for("assets"))
+            number = _next_number(api, "AS", "assets", "asset_number")
+            cursor = api["db"]().execute(
+                "insert into assets(asset_number,stable_id,name,category,acquisition_value,currency,serial_number,status,current_holder_id,service_order_id,notes,created_by,created_at,updated_at) values(?,?,?, ?,?,'USD',?,'available',null,?,?,?, ?,?)",
+                (number, os.urandom(16).hex(), name, request.form.get("category", "").strip(),
+                 _money(request.form.get("acquisition_value"), "资产价值"), request.form.get("serial_number", "").strip(),
+                 int(request.form["service_order_id"]) if request.form.get("service_order_id", "").isdigit() else None,
+                 request.form.get("notes", "").strip(), g.user["id"], api["now"](), api["now"]()),
+            )
+            asset_id = cursor.lastrowid
+            api["db"]().execute("insert into asset_events(asset_id,event_type,to_status,notes,created_by,created_at) values(?,'created','available',?,?,?)", (asset_id,"资产建档",g.user["id"],api["now"]()))
+            api["log_action"]("create", "asset", asset_id, number, name)
+            api["db"]().commit(); flash("资产已建档。", "success")
+            return redirect(url_for("asset_detail", asset_id=asset_id))
+        rows = api["db"]().execute("select a.*,u.name holder_name,s.order_number from assets a left join users u on u.id=a.current_holder_id left join service_orders s on s.id=a.service_order_id order by a.asset_number desc").fetchall()
+        orders = api["db"]().execute("select id,order_number from service_orders order by id desc limit 200").fetchall()
+        return render_template("assets.html", rows=rows, orders=orders, status_labels=ASSET_STATUS_LABELS)
+
+    @app.get("/assets/<int:asset_id>")
+    @api["login_required"]
+    def asset_detail(asset_id):
+        _require(api, "assets")
+        asset = api["db"]().execute("select a.*,u.name holder_name,s.order_number from assets a left join users u on u.id=a.current_holder_id left join service_orders s on s.id=a.service_order_id where a.id=?", (asset_id,)).fetchone()
+        if not asset: abort(404)
+        events = api["db"]().execute("select e.*,u.name creator_name,h.name holder_name from asset_events e left join users u on u.id=e.created_by left join users h on h.id=e.holder_id where e.asset_id=? order by e.id desc", (asset_id,)).fetchall()
+        photos = api["db"]().execute("select * from asset_photos where asset_id=? order by id", (asset_id,)).fetchall()
+        employees = api["db"]().execute("select id,name from users where is_active=1 order by name").fetchall()
+        return render_template("asset_detail.html", asset=asset, events=events, photos=photos, employees=employees,
+                               status_labels=ASSET_STATUS_LABELS, event_labels=ASSET_EVENT_LABELS)
+
+    @app.post("/assets/<int:asset_id>/event")
+    @api["login_required"]
+    def asset_event(asset_id):
+        _require(api, "assets", "edit")
+        asset = api["db"]().execute("select * from assets where id=?", (asset_id,)).fetchone()
+        if not asset: abort(404)
+        event = request.form.get("event_type", "")
+        mapping = {"assign":"assigned","return":"available","damaged":"damaged","lost":"lost","retire":"retired"}
+        if event not in mapping: abort(400)
+        target = mapping[event]
+        holder_id = int(request.form["holder_id"]) if event == "assign" and request.form.get("holder_id", "").isdigit() else None
+        if event == "assign" and not holder_id:
+            flash("领用时必须选择员工。", "error"); return redirect(url_for("asset_detail", asset_id=asset_id))
+        api["db"]().execute("update assets set status=?,current_holder_id=?,updated_at=? where id=?", (target,holder_id,api["now"](),asset_id))
+        api["db"]().execute("insert into asset_events(asset_id,event_type,from_status,to_status,holder_id,notes,created_by,created_at) values(?,?,?,?,?,?,?,?)", (asset_id,event,asset["status"],target,holder_id,request.form.get("notes", "").strip(),g.user["id"],api["now"]()))
+        api["log_action"](event, "asset", asset_id, asset["asset_number"], f"{asset['status']} → {target}")
+        api["db"]().commit(); flash("资产状态已更新。", "success")
+        return redirect(url_for("asset_detail", asset_id=asset_id))
+
+    @app.get("/assets/<int:asset_id>/qr")
+    @api["login_required"]
+    def asset_qr(asset_id):
+        _require(api, "assets")
+        asset = api["db"]().execute("select stable_id from assets where id=?", (asset_id,)).fetchone()
+        if not asset: abort(404)
+        import qrcode
+        target = request.url_root.rstrip("/") + url_for("asset_by_stable_id", stable_id=asset["stable_id"])
+        output = io.BytesIO(); qrcode.make(target).save(output, format="PNG"); output.seek(0)
+        return send_file(output, mimetype="image/png", download_name=f"asset-{asset_id}-qr.png")
+
+    @app.get("/a/<stable_id>")
+    @api["login_required"]
+    def asset_by_stable_id(stable_id):
+        asset = api["db"]().execute("select id from assets where stable_id=?", (stable_id,)).fetchone()
+        if not asset: abort(404)
+        return redirect(url_for("asset_detail", asset_id=asset["id"]))
+
+    @app.post("/assets/<int:asset_id>/photos")
+    @api["login_required"]
+    def upload_asset_photo(asset_id):
+        _require(api, "assets", "edit")
+        upload = request.files.get("photo")
+        if not upload or not upload.filename:
+            flash("请选择照片。", "error"); return redirect(url_for("asset_detail", asset_id=asset_id))
+        original = secure_filename(upload.filename)
+        suffix = Path(original).suffix.lower()
+        if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif"}:
+            flash("不支持的图片格式。", "error"); return redirect(url_for("asset_detail", asset_id=asset_id))
+        folder = Path(api["DATA_DIR"]) / "asset-photos" / str(asset_id); folder.mkdir(parents=True, exist_ok=True)
+        stored = os.urandom(16).hex() + suffix; upload.save(folder / stored)
+        api["db"]().execute("insert into asset_photos(asset_id,stored_filename,original_filename,created_by,created_at) values(?,?,?,?,?)", (asset_id,stored,original,g.user["id"],api["now"]()))
+        api["log_action"]("upload", "asset", asset_id, str(asset_id), f"上传照片 {original}")
+        api["db"]().commit(); flash("资产照片已上传。", "success")
+        return redirect(url_for("asset_detail", asset_id=asset_id))
+
+    @app.get("/asset-photos/<int:photo_id>")
+    @api["login_required"]
+    def asset_photo(photo_id):
+        _require(api, "assets")
+        photo = api["db"]().execute("select * from asset_photos where id=?", (photo_id,)).fetchone()
+        if not photo: abort(404)
+        return send_file(Path(api["DATA_DIR"]) / "asset-photos" / str(photo["asset_id"]) / photo["stored_filename"], download_name=photo["original_filename"])

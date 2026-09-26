@@ -10,3 +10,4 @@ import secrets
 
 os.environ.setdefault("ADMIN_EMAIL", "pytest-admin@example.invalid")
 os.environ.setdefault("ADMIN_PASSWORD", "pytest-" + secrets.token_urlsafe(24))
+os.environ.setdefault("INVOICE_TEST_SQLITE", "1")

@@ -12,9 +12,9 @@ Covered here:
    apply through docker exec psql (stubbed, never real Docker).
 2. migrations/postgresql/0274-report-workers-trip.sql contract: additive-only,
    idempotent statements, bookkeeping rows matching the reviewed manifest.
-3. debian-auto-deploy.sh wiring: the upgrade runs on every deploy attempt
-   after the backup and before the "already current" shortcut, and a failed
-   upgrade aborts the deploy.
+3. debian-auto-deploy.sh wiring: the upgrade runs from the target checkout
+   after backup/fetch (so newly shipped migrations exist) and before build;
+   a failed upgrade restores the prior application checkout.
 """
 import importlib.util
 import sys
@@ -172,18 +172,22 @@ class DeployWiringTests(unittest.TestCase):
     def setUpClass(cls):
         cls.script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
-    def test_upgrade_runs_after_backup_and_before_fetch(self):
+    def test_upgrade_runs_after_backup_and_target_checkout_before_build(self):
         backup_at = self.script.index('backup_database "$STAMP" || exit 1')
-        upgrade_at = self.script.index("upgrade_postgresql_schema || exit 1")
         fetch_at = self.script.index("git fetch --quiet origin main")
+        checkout_at = self.script.index('git reset --hard "$NEW_COMMIT"')
+        upgrade_at = self.script.index("if ! upgrade_postgresql_schema")
+        build_at = self.script.index("if build_current_version")
         self.assertLess(backup_at, upgrade_at)
-        self.assertLess(upgrade_at, fetch_at)
+        self.assertLess(fetch_at, checkout_at)
+        self.assertLess(checkout_at, upgrade_at)
+        self.assertLess(upgrade_at, build_at)
 
-    def test_upgrade_only_for_postgresql_backend(self):
-        self.assertIn('if [ "$backend" = "postgresql" ]; then\n  upgrade_postgresql_schema', self.script)
+    def test_postgresql_is_the_only_production_backend(self):
+        self.assertIn('PostgreSQL is the only supported production backend', self.script)
 
     def test_upgrade_failure_aborts_deploy(self):
-        self.assertIn("upgrade_postgresql_schema || exit 1", self.script)
+        self.assertIn("schema upgrade failed; restoring application checkout", self.script)
 
 
 if __name__ == "__main__":

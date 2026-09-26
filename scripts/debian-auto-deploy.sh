@@ -35,8 +35,8 @@ effective_data_dir() {
 }
 configure_database_backend() {
   backend="${INVOICE_DATABASE_BACKEND:-$(env_value INVOICE_DATABASE_BACKEND)}"
-  backend="${backend:-sqlite}"
-  case "$backend" in sqlite|postgresql) ;; *) log "error: unsupported database backend"; return 1 ;; esac
+  backend="${backend:-postgresql}"
+  [ "$backend" = "postgresql" ] || { log "error: PostgreSQL is the only supported production backend"; return 1; }
   actual_backend="$(docker exec invoice-tool python -c 'import os; print("postgresql" if os.environ.get("DATABASE_URL") else "sqlite")')" || return 1
   if [ "$actual_backend" != "$backend" ]; then
     log "error: configured and running database backends differ; automatic cutover is forbidden"
@@ -50,11 +50,7 @@ configure_database_backend() {
   fi
 }
 compose() {
-  if [ "$backend" = "postgresql" ]; then
-    docker compose -f "$APP_DIR/docker-compose.yml" -f "$APP_DIR/deploy/docker-compose.postgresql.yml" "$@"
-  else
-    docker compose "$@"
-  fi
+  docker compose -f "$APP_DIR/docker-compose.yml" -f "$APP_DIR/deploy/docker-compose.postgresql.yml" "$@"
 }
 normalize_path() {
   path="$1"
@@ -240,6 +236,11 @@ upgrade_postgresql_schema() {
   # nothing new to pull. Failure aborts the deploy; the database keeps the
   # verified 0252 baseline (psql runs in a single transaction).
   python3 "$APP_DIR/scripts/upgrade_postgresql.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0281.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0282.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0283.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0284.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0285.py" --database "$PG_DATABASE" || return 1
 }
 build_current_version() {
   APP_VERSION="$(tr -d '\r\n' < VERSION)"
@@ -264,24 +265,27 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 prepare_database_for_deploy || exit 1
 mkdir -p "$BACKUP_DIR"
 backup_database "$STAMP" || exit 1
-if [ "$backend" = "postgresql" ]; then
-  upgrade_postgresql_schema || exit 1
-fi
 
 git fetch --quiet origin main
 NEW_COMMIT="$(git rev-parse origin/main)"
 if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
+  upgrade_postgresql_schema || exit 1
   log "already current: $OLD_COMMIT"
   exit 0
 fi
 
 log "deploying $NEW_COMMIT"
 git reset --hard "$NEW_COMMIT"
+if ! upgrade_postgresql_schema; then
+  log "schema upgrade failed; restoring application checkout to $OLD_COMMIT"
+  git reset --hard "$OLD_COMMIT"
+  exit 1
+fi
 if build_current_version && wait_ok=0; then
   i=0
   while [ "$i" -lt 30 ]; do
     if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null; then
-      if [ "$backend" = "sqlite" ] || python3 "$APP_DIR/scripts/check_postgresql_runtime.py" --database "$PG_DATABASE"; then
+      if python3 "$APP_DIR/scripts/check_postgresql_runtime.py" --database "$PG_DATABASE"; then
         wait_ok=1; break
       fi
     fi

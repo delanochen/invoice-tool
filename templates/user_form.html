@@ -19,6 +19,19 @@
 
   <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
   <div class="erp-body">
+    {% if production_postgres and has_action_permission('employee_payments','view') %}
+      {% set finance = employee_finance_summary(user.id) %}
+      <section class="erp-panel active">
+        <div class="erp-section-title">员工财务与资产</div>
+        <div class="erp-detail-grid">
+          <p><strong>待付款</strong><span>{{ finance.pending_count }} 笔 · {{ finance.pending_total|money }}</span></p>
+          <p><strong>未结清借款</strong><span>{{ finance.advance_balance|money }}</span></p>
+          <p><strong>历史付款</strong><span>{{ finance.paid_count }} 笔 · {{ finance.paid_total|money }}</span></p>
+          <p><strong>当前持有资产</strong><span>{% for asset in finance.assets %}<a href="{{ url_for('asset_detail',asset_id=asset.id) }}">{{ asset.asset_number }} {{ asset.name }}</a>{% if not loop.last %}、{% endif %}{% else %}无{% endfor %}</span></p>
+        </div>
+        <div class="form-actions"><a class="erp-btn" href="{{ url_for('employee_payments',employee_id=user.id) }}">查看付款</a><a class="erp-btn" href="{{ url_for('employee_ledger',employee_id=user.id) }}">查看往来账</a></div>
+      </section>
+    {% endif %}
     <section class="erp-panel active">
   <form method="post" enctype="multipart/form-data" class="panel form-stack user-details-form" id="userDetailsForm">
     <label>姓名 <input name="name" value="{{ user.name }}" required></label>

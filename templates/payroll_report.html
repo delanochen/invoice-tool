@@ -26,6 +26,12 @@
       <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
       <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+      {% if production_postgres and has_action_permission('employee_payments','create') %}
+      <form method="post" action="{{ url_for('generate_payroll_payments') }}">
+        <input type="hidden" name="period_start" value="{{ period_start }}">
+        <button type="submit" class="erp-btn primary">生成付款单</button>
+      </form>
+      {% endif %}
     </div>
   </header>
 

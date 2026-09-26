@@ -1,6 +1,7 @@
 """Explicit PostgreSQL compatibility boundary for the existing SQL application.
 
-SQLite remains the default. PostgreSQL requires an independently migrated schema.
+PostgreSQL is the only production backend. SQLite is available solely through
+an explicit INVOICE_TEST_SQLITE=1 switch for the legacy isolated test suite.
 This is a bounded adapter, not a general SQLite SQL interpreter. Unsupported DDL
 and PRAGMAs fail closed. SQL literals/comments are never rewritten as SQL tokens.
 """
@@ -11,6 +12,20 @@ from datetime import date, datetime
 from decimal import Decimal
 
 SCHEMA_VERSION = '0252-compat-v2'
+REQUIRED_PRODUCTION_TABLES = {
+    'bank_accounts', 'employee_salary_agreements', 'employee_advances',
+    'employee_payment_orders', 'payment_order_sources', 'payment_order_events',
+    'employee_advance_applications', 'bank_transactions', 'assets',
+    'asset_events', 'asset_photos',
+}
+REQUIRED_PRODUCTION_COLUMNS = {
+    ('employee_payment_orders', 'external_transaction_id'),
+    ('employee_payment_orders', 'sync_source'),
+    ('employee_payment_orders', 'sync_status'),
+    ('employee_advances', 'attachment_stored_filename'),
+    ('bank_transactions', 'matched_payment_order_id'),
+    ('assets', 'stable_id'),
+}
 WRITER_LOCK = 733252001
 _PROTECTED = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*[\s\S]*?\*/")
 
@@ -18,8 +33,12 @@ _PROTECTED = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*[\s\S]*
 def postgres_enabled():
     url = os.environ.get('DATABASE_URL', '')
     if url and not url.startswith(('postgresql://', 'postgres://')):
-        raise RuntimeError('DATABASE_URL must be a PostgreSQL URL; omit it to use SQLite.')
-    return bool(url)
+        raise RuntimeError('DATABASE_URL must be a PostgreSQL URL.')
+    if url:
+        return True
+    if os.environ.get('INVOICE_TEST_SQLITE') == '1':
+        return False
+    raise RuntimeError('DATABASE_URL is required; PostgreSQL is the only production backend.')
 
 
 def protect(sql):
@@ -204,5 +223,20 @@ def verify_postgres_schema():
         row=c.raw.execute('select version from invoice_schema_version where singleton=1').fetchone()
         if not row or row[0]!=SCHEMA_VERSION:
             raise RuntimeError('PostgreSQL schema version mismatch; run the migration tool first.')
+        tables = {
+            item[0] for item in c.raw.execute(
+                "select table_name from information_schema.tables where table_schema='public'"
+            ).fetchall()
+        }
+        missing_tables = REQUIRED_PRODUCTION_TABLES - tables
+        columns = {
+            (item[0], item[1]) for item in c.raw.execute(
+                "select table_name,column_name from information_schema.columns where table_schema='public'"
+            ).fetchall()
+        }
+        missing_columns = REQUIRED_PRODUCTION_COLUMNS - columns
+        if missing_tables or missing_columns:
+            missing = sorted(missing_tables) + [f'{table}.{column}' for table,column in sorted(missing_columns)]
+            raise RuntimeError('PostgreSQL schema is missing required migrations: ' + ', '.join(missing))
     finally:
         c.close()

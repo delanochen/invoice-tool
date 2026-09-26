@@ -45,11 +45,10 @@ python3() {
                                     cwd=folder, env=env, capture_output=True, text=True)
             return result, trace.read_text() if trace.exists() else ''
 
-    def test_sqlite_keeps_default_compose(self):
+    def test_sqlite_backend_is_rejected(self):
         result, trace = self.run_shell('sqlite', 'sqlite', 'configure_database_backend && build_current_version')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('docker compose up -d --build', trace)
-        self.assertNotIn('check_postgresql_runtime', trace)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('docker compose', trace)
 
     def test_postgres_requires_overlay_and_runtime_check(self):
         result, trace = self.run_shell('postgresql', 'postgresql', 'configure_database_backend && build_current_version')
@@ -58,7 +57,7 @@ python3() {
         self.assertIn('/deploy/docker-compose.postgresql.yml up -d --build', trace)
 
     def test_backend_mismatch_stops_before_build(self):
-        for configured, running in [('sqlite', 'postgresql'), ('postgresql', 'sqlite')]:
+        for configured, running in [('postgresql', 'sqlite')]:
             result, trace = self.run_shell(configured, running, 'configure_database_backend && build_current_version')
             self.assertNotEqual(result.returncode, 0)
             self.assertNotIn('docker compose', trace)
