@@ -1,153 +1,407 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import tab_button %}
 {% block title %}员工等级 - 发票工具{% endblock %}
-{% block content %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <style>
-  .grade-workbench { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
-  @media (max-width: 900px) { .grade-workbench { grid-template-columns: minmax(0, 1fr); } }
-  .grade-list-item { display: block; padding: 10px 12px; border: 1px solid #d7dde5; border-radius: 6px; margin-bottom: 8px; text-decoration: none; color: inherit; background: #fff; }
-  .grade-list-item:hover { background: #f4f8ff; }
-  .grade-list-item.is-selected { border-color: #2b5fd9; background: #eaf1fc; }
-  .grade-list-item .grade-name-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .grade-badge { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
-  .grade-badge.ok { background: #e3f6ec; color: #027a48; }
-  .grade-badge.off { background: #eef1f5; color: #64748b; }
-  .inline-form { display: inline; }
-  .grade-version-note { margin: 4px 0 10px; }
+  /* 员工等级工作台：左侧等级树（页面内切换）+ 右侧「员工分配 / 费率版本 / 等级资料」页签。
+     等级切换是纯前端面板显隐，所以左侧条目必须是 <button data-grade-switch>，不能是 <a href>。 */
+  .erp-app .erp-nav-meta { margin: 8px 10px 0; color: var(--erp-muted); font-size: 11px; line-height: 1.4; }
+  .erp-app .grade-switch-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .erp-app .grade-off {
+    flex: 0 0 auto; padding: 0 3px; border: 1px solid #f0c48a; border-radius: 2px;
+    background: #fff4e5; color: #8a4b00; font-size: 10px; font-weight: 600;
+  }
+
+  /* 一个等级一套面板；只有 .active 的那套参与布局 */
+  .erp-app .grade-panel { display: none; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .erp-app .grade-panel.active { display: flex; }
+  .erp-app .grade-panel > .erp-tabs { flex: 0 0 auto; }
+  /* 当前面板吃掉剩余高度，内容区自己滚动（与 .erp-body > .erp-panel.active 同构） */
+  .erp-app .grade-panel > .erp-panel.active { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  .erp-app .grade-panel > .erp-panel.active > .erp-detail-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .erp-app .grade-head {
+    flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+    padding: 4px 8px; background: var(--erp-head); border-bottom: 1px solid var(--erp-line);
+  }
+  .erp-app .grade-head form { display: inline; margin: 0; }
+  .erp-app .grade-head .erp-toolbar-title { font-size: 12.5px; }
+
+  .erp-app .erp-filter .full-span { flex: 1 1 100%; }
+  .erp-app .erp-field.wide > select,
+  .erp-app .erp-field.wide > input { min-width: 300px; }
+  .erp-app .erp-section-title {
+    margin: 8px 0 4px; padding: 3px 6px; background: #eaeef4; border: 1px solid var(--erp-line-soft);
+    color: #41506a; font-size: 11.5px; font-weight: 700;
+  }
+  .erp-app .erp-section-title:first-child { margin-top: 2px; }
+  .erp-app .erp-warn {
+    margin: 6px 0; padding: 4px 8px; border: 1px solid #f0c48a; border-radius: var(--erp-radius);
+    background: #fff4e5; color: #8a4b00; font-size: 11.5px;
+  }
+
+  /* 费率读数块：紧凑字段矩阵，比表格更适合「7 项固定费率 + 来源标注」 */
+  .erp-app .rate-metrics {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 1px;
+    background: var(--erp-line-soft); border: 1px solid var(--erp-line);
+  }
+  .erp-app .rate-metric { padding: 4px 8px; background: #fff; }
+  .erp-app .rate-metric > span { display: block; color: var(--erp-muted); font-size: 10.5px; letter-spacing: .3px; }
+  .erp-app .rate-metric > strong { font-size: 13px; }
+  .erp-app .rate-metric > strong small { font-weight: 400; color: var(--erp-muted); font-size: 10.5px; }
+  .erp-app .rate-metric > em { display: block; margin-top: 1px; font-style: normal; font-size: 10.5px; }
+  .erp-app .rate-metric > em.src-version { color: #027a48; }
+  .erp-app .rate-metric > em.src-static { color: #8a4b00; }
+  .erp-app .rate-metric > em.src-missing { color: #b42318; font-weight: 700; }
+
+  .erp-app .rate-version { margin-bottom: 6px; border: 1px solid var(--erp-line); border-radius: var(--erp-radius); background: #fff; }
+  .erp-app .rate-version-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+    padding: 3px 8px; background: var(--erp-head); border-bottom: 1px solid var(--erp-line); font-size: 12px;
+  }
+  .erp-app .rate-version .rate-metrics { border: 0; }
+  .erp-app .member-add-form .erp-field { min-width: 300px; }
 </style>
-  <header class="page-header">
-    <div><p class="eyebrow">员工等级</p><h1>员工等级</h1></div>
+{% endblock %}
+
+{% block content %}
+<div class="erp-app" data-active-panel="employees">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">员工等级<small>薪酬参数 · 等级 → 员工分配 → 费率版本</small></div>
+    <span class="erp-badge">{{ grades|length }} 个等级</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      {% if can_edit %}<button type="button" class="erp-btn primary" data-dialog-open="newEmployeeGradeDialog">新增等级</button>{% endif %}
+    </div>
   </header>
 
-  <div class="grade-workbench">
-    <!-- ──────────────── 左板块：等级列表 ──────────────── -->
-    <section class="panel">
-      <div class="panel-title">
-        <span class="muted-line">{{ grades|length }} 个等级</span>
-        {% if can_edit %}<button class="small primary" type="button" data-dialog-open="newEmployeeGradeDialog">新增等级</button>{% endif %}
-      </div>
-      <div class="grade-list">
-        {% for grade in grades %}
-          {% set total, active = usage.get(grade.id, (0, 0)) %}
-          <a class="grade-list-item {% if selected and selected.id == grade.id %}is-selected{% endif %}"
-             href="{{ url_for('employee_grades', grade_id=grade.id) }}">
-            <span class="grade-name-line">
-              <strong>{{ grade.grade_name }}</strong>
-              <span class="grade-badge {{ 'ok' if grade.is_active else 'off' }}">{{ "启用" if grade.is_active else "停用" }}</span>
-            </span>
-            <span class="muted-line">{{ grade.description or "无描述" }}</span><br>
-            <span class="muted-line">{{ total }} 名员工{% if total %}（{{ active }} 名在职）{% endif %}</span>
-          </a>
-        {% else %}
-          <p class="empty">还没有员工等级。</p>
-        {% endfor %}
-      </div>
-    </section>
+  <!-- ───────────────────────────────── SidebarTree ──────────────────────── -->
+  <nav class="erp-nav no-print" aria-label="员工等级">
+    <div class="erp-nav-title">员工等级</div>
+    <ul class="erp-nav-tree">
+      {% for panel in panels %}
+        <li>
+          <button type="button"
+                  class="erp-nav-item grade-switch{% if panel.grade.id == selected.grade.id %} active{% endif %}"
+                  data-grade-switch="{{ panel.grade.id }}"
+                  aria-current="{{ 'true' if panel.grade.id == selected.grade.id else 'false' }}"
+                  title="{{ panel.grade.grade_name }}{{ '' if panel.grade.is_active else '（已停用）' }} · {{ panel.total }} 名员工">
+            <span class="grade-switch-name">{{ panel.grade.grade_name }}</span>
+            {% if not panel.grade.is_active %}<span class="grade-off">停</span>{% endif %}
+            <span class="count">{{ panel.total }}</span>
+          </button>
+        </li>
+      {% else %}
+        <li><p class="erp-nav-meta">还没有员工等级。</p></li>
+      {% endfor %}
+    </ul>
+    <p class="erp-nav-meta">{{ unassigned }} 名员工未分配等级</p>
+  </nav>
 
-    <!-- ──────────────── 右板块：选中等级的费率版本 ──────────────── -->
-    <section class="panel">
-      {% if selected %}
-        {% set total, active = usage.get(selected.id, (0, 0)) %}
-        <div class="panel-title">
-          <h2>{{ selected.grade_name }} · 结算费率版本</h2>
-          <div class="toolbar-actions">
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    {% for panel in panels %}
+      {% set grade = panel.grade %}
+      <section class="grade-panel{% if grade.id == selected.grade.id %} active{% endif %}"
+               data-grade-panel="{{ grade.id }}"
+               data-grade-url="{{ url_for('employee_grades', grade_id=grade.id) }}"
+               data-grade-name="{{ grade.grade_name }}"
+               data-grade-headcount="{{ panel.total }} 名（在职 {{ panel.active }}）"
+               data-grade-active="{{ panel.active }}"
+               data-grade-versions="{{ panel.versions|length }}"
+               data-grade-source="{{ ('版本 v' ~ panel.current_version.version_no) if panel.current_version else '静态费率' }}">
+
+        <div class="grade-head no-print">
+          <div class="erp-toolbar-title">
+            {{ grade.grade_name }}
+            <small>{{ grade.description or '无描述' }} · {{ panel.total }} 名员工（在职 {{ panel.active }}）· {{ '启用中' if grade.is_active else '已停用' }}</small>
+          </div>
+          <span class="erp-toolbar-spacer"></span>
+          <div class="erp-toolbar-group">
             {% if can_edit %}
-              <button class="small" type="button" data-dialog-open="editGradeDialog">编辑等级</button>
-              <form class="inline-form" method="post" action="{{ url_for('set_employee_grade_state', grade_id=selected.id) }}" data-confirm-state>
-                <input type="hidden" name="is_active" value="{{ '0' if selected.is_active else '1' }}">
-                <button class="small" type="submit">{{ "停用等级" if selected.is_active else "启用等级" }}</button>
+              <button type="button" class="erp-btn" data-dialog-open="editGradeDialog{{ grade.id }}">编辑等级</button>
+              <form method="post" action="{{ url_for('set_employee_grade_state', grade_id=grade.id) }}" data-confirm-state>
+                <input type="hidden" name="is_active" value="{{ '0' if grade.is_active else '1' }}">
+                <button class="erp-btn" type="submit">{{ '停用等级' if grade.is_active else '启用等级' }}</button>
               </form>
             {% endif %}
-            {% if can_delete %}<button class="danger small" type="button" id="deleteGradeButton">删除等级</button>{% endif %}
+            {% if can_delete %}
+              <form method="post" action="{{ url_for('delete_employee_grade', grade_id=grade.id) }}"
+                    onsubmit="return uiConfirm('确定删除员工等级「{{ grade.grade_name }}」吗？被员工使用的等级不能删除。')">
+                <button class="erp-btn danger" type="submit">删除等级</button>
+              </form>
+            {% endif %}
           </div>
         </div>
-        <p class="muted-line grade-version-note">
-          {{ selected.description or "无描述" }} ·
-          {{ total }} 名员工使用{% if total %}（{{ active }} 名在职）{% endif %} ·
-          {{ "启用中" if selected.is_active else "已停用" }}
-        </p>
-        <p class="muted-line grade-version-note">规则：等级被员工使用时不能删除；仍有在职员工使用时不能停用；员工全部停用后可停用等级。计算工资按工作日落在的有效期版本取费率，没有版本时用等级资料里的静态费率。</p>
 
-        {% if can_edit %}
-          <details class="panel" {% if not versions %}open{% endif %}>
-            <summary><strong>新增结算版本</strong></summary>
-            <form method="post" class="form-stack" action="{{ url_for('employee_rate_versions', grade_id=selected.id) }}">
-              <div class="form-grid two-columns">
-                <label>生效日期 <input type="date" name="effective_from" required></label>
-                <label>结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不允许与有效版本重叠。</small></label>
-                {% for key, label, unit in rate_types %}<label>{{ label }} <input type="number" name="{{ key }}" step="0.0001" min="0" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>{% endfor %}
-                <label class="full-span">备注 <textarea name="notes" rows="3"></textarea></label>
-              </div>
-              <div class="form-actions"><button class="primary" type="submit">创建新版本</button></div>
+        <nav class="erp-tabs no-print">
+          {{ tab_button('employees', '员工分配', true, panel.employees|length) }}
+          {{ tab_button('rates', '费率版本', false, panel.versions|length) }}
+          {{ tab_button('profile', '等级资料') }}
+        </nav>
+
+        <!-- ── 面板 1：该等级下的员工（可增可减） ── -->
+        <section class="erp-panel active" data-erp-panel="employees">
+          {% if can_edit %}
+            <form class="erp-filter member-add-form no-print" method="post"
+                  action="{{ url_for('update_employee_grade_members', grade_id=grade.id) }}">
+              <input type="hidden" name="action" value="add">
+              <label class="erp-field">加入员工
+                <select name="user_id" required>
+                  <option value="">请选择员工…</option>
+                  {% for candidate in panel.candidates %}
+                    <option value="{{ candidate.id }}">{{ candidate.name }}（{{ candidate.role|role_label }} · {{ candidate.current_grade_name or '未分配等级' }}）</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">加入该等级</button></div>
+              <p class="erp-filter-note">一名员工只能挂在一个等级上；从别的等级选过来会自动改挂到本等级。等级决定该员工工资计算用的费率（优先当天生效的费率版本，没有版本时用等级资料里的静态费率）。</p>
             </form>
-          </details>
-        {% endif %}
+          {% endif %}
+          <div class="erp-grid-wrap">
+            <table class="list-table erp-grid" data-grid-height="100%">
+              <thead><tr><th>姓名</th><th>角色</th><th>邮箱</th><th>手机号</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                {% for employee in panel.employees %}
+                  <tr data-row-id="{{ employee.id }}" data-row-label="{{ employee.name }} · {{ employee.email }}">
+                    <td>{{ employee.name }}</td>
+                    <td>{{ employee.role|role_label }}</td>
+                    <td>{{ employee.email }}</td>
+                    <td>{{ employee.phone or '-' }}</td>
+                    <td><span class="status {{ 'completed' if employee.is_active else 'returned' }}">{{ '在职' if employee.is_active else '停用' }}</span></td>
+                    <td>
+                      {% if can_edit %}
+                        <form method="post" action="{{ url_for('update_employee_grade_members', grade_id=grade.id) }}"
+                              onsubmit="return uiConfirm('确定把该员工移出「{{ grade.grade_name }}」吗？移出后不再按本等级费率计算工资。')">
+                          <input type="hidden" name="action" value="remove">
+                          <input type="hidden" name="user_id" value="{{ employee.id }}">
+                          <button class="erp-btn" type="submit">移出该等级</button>
+                        </form>
+                      {% else %}-{% endif %}
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="6" class="empty">该等级下还没有员工。{% if can_edit %}用上面的下拉框把员工加进来。{% endif %}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-        <h3>版本历史</h3>
-        {% for version in versions %}
-          <details {% if loop.first %}open{% endif %}>
-            <summary><strong>v{{ version.version_no }}</strong> · {{ version.effective_from }} ～ {{ version.effective_to or "长期" }} · {{ "有效" if version.status == "active" else "已停用" }}</summary>
-            <div class="table-scroll" style="margin-top:1rem"><table class="list-table compact-table"><thead><tr><th>结算项目</th><th>单位</th><th>员工结算标准</th></tr></thead><tbody>
-              {% for key, label, unit in rate_types %}{% set item = item_map.get(version.id, {}).get(key) %}<tr><td>{{ label }}</td><td>{{ unit }}</td><td>{{ item.rate|money if item else '-' }}</td></tr>{% endfor %}
-            </tbody></table></div>
-            {% if version.notes %}<p class="muted-line">{{ version.notes }}</p>{% endif %}
-          </details>
-        {% else %}
-          <p class="empty">尚未建立版本化费率；计算工资时使用等级资料中的静态费率。</p>
-        {% endfor %}
-      {% else %}
-        <p class="empty">请先在左侧新增一个员工等级。</p>
-      {% endif %}
-    </section>
+        <!-- ── 面板 2：费率与版本 ── -->
+        <section class="erp-panel" data-erp-panel="rates">
+          <div class="erp-detail-scroll">
+            <div class="erp-section-title">当前生效费率（{{ today }}）</div>
+            <p class="erp-filter-note">
+              {% if panel.current_version %}
+                生效版本 <b>v{{ panel.current_version.version_no }}</b>（{{ panel.current_version.effective_from }}{% if panel.current_version.effective_to %} ～ {{ panel.current_version.effective_to }}{% else %} 起长期有效{% endif %}）。下表即工资计算实际取值。
+              {% else %}
+                该等级没有生效的费率版本，工资计算回退到等级资料里的静态费率。下表即工资计算实际取值。
+              {% endif %}
+            </p>
+            <div class="rate-metrics">
+              {% for key, label, unit in rate_types %}
+                {% set rate = panel.rates[key] %}
+                <div class="rate-metric">
+                  <span>{{ label }}</span>
+                  <strong>{{ rate.rate|money }}<small>/{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></strong>
+                  <em class="{{ 'src-version' if rate.source == 'version' else ('src-missing' if rate.source == 'missing' else 'src-static') }}">{{ {'version':'版本费率','static':'等级静态费率','missing':'未设置'}.get(rate.source, rate.source) }}</em>
+                </div>
+              {% endfor %}
+            </div>
+            {% if panel.missing_rates %}
+              <p class="erp-warn">有 {{ panel.missing_rates|length }} 项既没有版本费率也没有静态费率，工资计算会按 0 处理，请补齐。</p>
+            {% endif %}
+
+            {% if can_edit %}
+              <form method="post" class="erp-filter" action="{{ url_for('employee_rate_versions', grade_id=grade.id) }}">
+                <label class="erp-field">生效日期 <input type="date" name="effective_from" required></label>
+                <label class="erp-field">结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不允许与有效版本重叠。</small></label>
+                {% for key, label, unit in rate_types %}
+                  <label class="erp-field">{{ label }}
+                    <input type="number" name="{{ key }}" step="0.0001" min="0" value="{{ panel.rates[key].rate }}" required>
+                    <small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small>
+                  </label>
+                {% endfor %}
+                <label class="erp-field full-span">备注 <input name="notes" placeholder="例如 2027 年调薪；新版本自动把上一个版本的结束日期收到生效日前一天"></label>
+                <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">创建新版本</button></div>
+              </form>
+            {% endif %}
+
+            <div class="erp-section-title">版本历史（{{ panel.versions|length }}）</div>
+            {% for version in panel.versions %}
+              <div class="rate-version">
+                <div class="rate-version-head">
+                  <b>v{{ version.version_no }}</b>
+                  <span>{{ version.effective_from }} ～ {{ version.effective_to or '长期' }}</span>
+                  <span class="status {{ 'completed' if version.status == 'active' else 'returned' }}">{{ '有效' if version.status == 'active' else '已停用' }}</span>
+                  {% if panel.current_version and panel.current_version.id == version.id %}<span class="erp-badge">当前生效</span>{% endif %}
+                  {% if version.notes %}<span class="erp-meta">{{ version.notes }}</span>{% endif %}
+                </div>
+                <div class="rate-metrics">
+                  {% for key, label, unit in rate_types %}
+                    {% set item = panel.item_map.get(version.id, {}).get(key) %}
+                    <div class="rate-metric">
+                      <span>{{ label }}</span>
+                      <strong>{{ item.rate|money if item else '—' }}<small>/{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></strong>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% else %}
+              <div class="erp-empty">还没有费率版本，工资按上面的等级静态费率计算。填好生效日期和各项费率即可创建第一个版本。</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <!-- ── 面板 3：等级资料 ── -->
+        <section class="erp-panel" data-erp-panel="profile">
+          <div class="erp-detail-scroll">
+            <div class="detail-grid">
+              <p><strong>等级名称</strong><span>{{ grade.grade_name }}</span></p>
+              <p><strong>状态</strong><span class="status {{ 'completed' if grade.is_active else 'returned' }}">{{ '启用' if grade.is_active else '停用' }}</span></p>
+              <p class="full-span"><strong>等级描述</strong><span>{{ grade.description or '-' }}</span></p>
+              <p><strong>员工人数</strong><span>{{ panel.total }} 名（在职 {{ panel.active }}）</span></p>
+              <p><strong>费率版本</strong><span>{{ panel.versions|length }} 个{% if panel.current_version %}（当前 v{{ panel.current_version.version_no }}）{% endif %}</span></p>
+              <p><strong>基本工资</strong><span>{{ grade.base_salary|money }}</span></p>
+              <p><strong>餐费补贴/天</strong><span>{{ grade.meal_daily_amount|money }}</span></p>
+              <p><strong>车补计算方式</strong><span>{{ '按时长' if grade.car_allowance_method == 'hourly' else '按里程' }}</span></p>
+              <p><strong>车补里程单价</strong><span>{{ grade.car_mileage_rate|money }}</span></p>
+              <p><strong>租车驾驶补贴/小时</strong><span>{{ grade.rental_driving_hourly_rate|money }}</span></p>
+              <p><strong>标准时薪</strong><span>{{ grade.standard_hourly_rate|money }}</span></p>
+              <p><strong>交通时薪</strong><span>{{ grade.transport_hourly_rate|money }}</span></p>
+              <p><strong>加班时薪</strong><span>{{ grade.overtime_hourly_rate|money }}</span></p>
+              <p><strong>假期时薪</strong><span>{{ grade.holiday_hourly_rate|money }}</span></p>
+              <p class="full-span"><strong>规则</strong><span>等级被员工使用时不能删除；仍有在职员工使用时不能停用；员工全部停用后可停用等级。计算工资按工作日落在的有效期版本取费率，没有版本时用上面的静态费率。基本工资、餐补、车补方式也在「编辑等级」里维护。</span></p>
+            </div>
+          </div>
+        </section>
+      </section>
+    {% else %}
+      <section class="erp-panel active" data-erp-panel="employees">
+        <div class="erp-empty">还没有员工等级，点右上角「新增等级」建立第一个。</div>
+      </section>
+    {% endfor %}
   </div>
 
-  {% macro grade_form(grade=None) %}
-    <form method="post" class="form-stack" action="{{ url_for('employee_grades') }}">
-      {% if grade %}<input type="hidden" name="grade_id" value="{{ grade.id }}">{% endif %}
-      <div class="form-grid two-columns">
-        <label>等级 <input name="grade_name" value="{{ grade.grade_name if grade else '' }}" required></label>
-        <label>等级描述 <input name="description" value="{{ grade.description if grade else '' }}"></label>
-        <label>基本工资 <input type="number" step="0.01" min="0" name="base_salary" value="{{ grade.base_salary if grade else 0 }}"></label>
-        <label>餐费补贴/天 <input type="number" step="0.01" min="0" name="meal_daily_amount" value="{{ grade.meal_daily_amount if grade else 0 }}"></label>
-        <label>车补计算方式
-          <select name="car_allowance_method"><option value="mileage" {% if not grade or grade.car_allowance_method != 'hourly' %}selected{% endif %}>按里程</option><option value="hourly" {% if grade and grade.car_allowance_method == 'hourly' %}selected{% endif %}>按时长</option></select>
-        </label>
-        <label>车补里程单价 <input type="number" step="0.01" min="0" name="car_mileage_rate" value="{{ grade.car_mileage_rate if grade else 0.5 }}"></label>
-        <label>租车驾驶补贴/小时 <input type="number" step="0.01" min="0" name="rental_driving_hourly_rate" value="{{ grade.rental_driving_hourly_rate if grade else 15 }}"></label>
-        <label>标准时薪 <input type="number" step="0.01" min="0" name="standard_hourly_rate" value="{{ grade.standard_hourly_rate if grade else 0 }}"></label>
-        <label>交通时薪 <input type="number" step="0.01" min="0" name="transport_hourly_rate" value="{{ grade.transport_hourly_rate if grade else 0 }}"></label>
-        <label>加班时薪 <input type="number" step="0.01" min="0" name="overtime_hourly_rate" value="{{ grade.overtime_hourly_rate if grade else 0 }}"></label>
-        <label>假期时薪 <input type="number" step="0.01" min="0" name="holiday_hourly_rate" value="{{ grade.holiday_hourly_rate if grade else 0 }}"></label>
-      </div>
-      <div class="form-actions"><button class="primary" type="submit">保存等级</button></div>
-    </form>
-  {% endmacro %}
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  {% if selected %}
+    <footer class="erp-summary">
+      <div class="erp-summary-item"><span>当前等级</span><strong data-grade-field="name">{{ selected.grade.grade_name }}</strong></div>
+      <div class="erp-summary-item"><span>该等级员工</span><strong data-grade-field="headcount">{{ selected.total }} 名（在职 {{ selected.active }}）</strong></div>
+      <div class="erp-summary-item muted"><span>费率版本</span><strong data-grade-field="versions">{{ selected.versions|length }}</strong></div>
+      <div class="erp-summary-item muted"><span>生效费率来源</span><strong data-grade-field="source">{{ ('版本 v' ~ selected.current_version.version_no) if selected.current_version else '静态费率' }}</strong></div>
+      <div class="erp-summary-item muted"><span>未分配等级</span><strong>{{ unassigned }}</strong></div>
+    </footer>
 
-  <dialog id="newEmployeeGradeDialog" class="modal-dialog">
+    <footer class="erp-status">
+      <span>等级 <b data-grade-field="name">{{ selected.grade.grade_name }}</b></span>
+      <span class="sep"></span>
+      <span>员工 <b data-grade-field="headcount">{{ selected.total }} 名（在职 {{ selected.active }}）</b></span>
+      <span class="sep"></span>
+      <span>费率版本 <b data-grade-field="versions">{{ selected.versions|length }}</b></span>
+      <span class="sep"></span>
+      <span>费率来源 <b data-grade-field="source">{{ ('版本 v' ~ selected.current_version.version_no) if selected.current_version else '静态费率' }}</b></span>
+    </footer>
+  {% endif %}
+</div>
+
+{% macro grade_form(grade=None, suffix='new') %}
+  <form method="post" class="form-stack" action="{{ url_for('employee_grades') }}">
+    {% if grade %}<input type="hidden" name="grade_id" value="{{ grade.id }}">{% endif %}
+    <div class="form-grid two-columns">
+      <label>等级 <input name="grade_name" value="{{ grade.grade_name if grade else '' }}" required></label>
+      <label>等级描述 <input name="description" value="{{ grade.description if grade else '' }}"></label>
+      <label>基本工资 <input type="number" step="0.01" min="0" name="base_salary" value="{{ grade.base_salary if grade else 0 }}"></label>
+      <label>餐费补贴/天 <input type="number" step="0.01" min="0" name="meal_daily_amount" value="{{ grade.meal_daily_amount if grade else 0 }}"></label>
+      <label>车补计算方式
+        <select name="car_allowance_method"><option value="mileage" {% if not grade or grade.car_allowance_method != 'hourly' %}selected{% endif %}>按里程</option><option value="hourly" {% if grade and grade.car_allowance_method == 'hourly' %}selected{% endif %}>按时长</option></select>
+      </label>
+      <label>车补里程单价 <input type="number" step="0.01" min="0" name="car_mileage_rate" value="{{ grade.car_mileage_rate if grade else 0.5 }}"></label>
+      <label>租车驾驶补贴/小时 <input type="number" step="0.01" min="0" name="rental_driving_hourly_rate" value="{{ grade.rental_driving_hourly_rate if grade else 15 }}"></label>
+      <label>标准时薪 <input type="number" step="0.01" min="0" name="standard_hourly_rate" value="{{ grade.standard_hourly_rate if grade else 0 }}"></label>
+      <label>交通时薪 <input type="number" step="0.01" min="0" name="transport_hourly_rate" value="{{ grade.transport_hourly_rate if grade else 0 }}"></label>
+      <label>加班时薪 <input type="number" step="0.01" min="0" name="overtime_hourly_rate" value="{{ grade.overtime_hourly_rate if grade else 0 }}"></label>
+      <label>假期时薪 <input type="number" step="0.01" min="0" name="holiday_hourly_rate" value="{{ grade.holiday_hourly_rate if grade else 0 }}"></label>
+    </div>
+    <p class="muted-line">下面几项是「没有费率版本时」工资计算用的静态费率；建议改为在「费率版本」里按生效日期维护。</p>
+    <div class="form-actions"><button class="primary" type="submit">保存等级</button></div>
+  </form>
+{% endmacro %}
+
+{% if can_edit %}
+  <dialog id="newEmployeeGradeDialog" class="modal-dialog erp-scope erp-compact">
     <div class="dialog-header"><h2>新增等级</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
     {{ grade_form() }}
   </dialog>
-
-  {% if selected and can_edit %}
-    <dialog id="editGradeDialog" class="modal-dialog">
-      <div class="dialog-header"><h2>编辑 {{ selected.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
-      {{ grade_form(selected) }}
+  {% for panel in panels %}
+    <dialog id="editGradeDialog{{ panel.grade.id }}" class="modal-dialog erp-scope erp-compact">
+      <div class="dialog-header"><h2>编辑 {{ panel.grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+      {{ grade_form(panel.grade) }}
     </dialog>
-  {% endif %}
-  <form method="post" id="deleteGradeForm" hidden></form>
+  {% endfor %}
+{% endif %}
 {% endblock %}
+
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
   <script>
     (() => {
-      const deleteButton = document.getElementById('deleteGradeButton');
-      deleteButton?.addEventListener('click', () => {
-        if (!uiConfirm('确定删除该员工等级吗？被员工使用的等级不能删除。')) return;
-        const form = document.getElementById('deleteGradeForm');
-        form.action = '{{ url_for("employee_grades") }}/{{ selected.id }}/delete';
-        form.submit();
-      });
-      document.querySelectorAll('form[data-confirm-state]').forEach((form) => {
-        form.addEventListener('submit', (event) => {
+      const app = document.querySelector('.erp-app');
+      if (!app) return;
+      const switches = [...app.querySelectorAll('[data-grade-switch]')];
+      const panels = [...app.querySelectorAll('[data-grade-panel]')];
+      if (!panels.length) return;
+
+      // 面板隐藏时 system-grid.js 的 Tabulator 量不到尺寸（行会被压成 0 高），
+      // 每次切过去都要按当前渲染宽度重算一次。
+      function redraw(panel) {
+        requestAnimationFrame(() => {
+          window.systemGrids?.instances.forEach(instance => {
+            if (instance.ready && instance.source.closest('[data-grade-panel]') === panel) instance.grid.redraw(true);
+          });
+        });
+      }
+      // 汇总栏 / 状态栏跟随当前等级（避免为了刷新这两条而重新请求页面）。
+      // 每次重新查一遍节点：erp-report.js 的「局部刷新」会整块替换 .erp-summary 的 innerHTML，
+      // 缓存下来的旧节点会变成游离节点，写进去用户看不到。
+      function syncBars(panel) {
+        document.querySelectorAll('[data-grade-field]').forEach(slot => {
+          const key = slot.dataset.gradeField;
+          const value = panel.dataset['grade' + key.charAt(0).toUpperCase() + key.slice(1)];
+          if (value !== undefined) slot.textContent = value;
+        });
+      }
+      function activate(panel) {
+        if (!panel) return;
+        panels.forEach(item => item.classList.toggle('active', item === panel));
+        switches.forEach(button => {
+          const on = button.dataset.gradeSwitch === panel.dataset.gradePanel;
+          button.classList.toggle('active', on);
+          button.setAttribute('aria-current', String(on));
+        });
+        syncBars(panel);
+        redraw(panel);
+        // 只改 URL（不导航）—— 页面不重载，工作区也不会因此多出一个标签。
+        // 地址栏变更失败不影响已经完成的切换，所以单独兜住异常。
+        if (panel.dataset.gradeUrl) {
+          try { history.replaceState(null, '', panel.dataset.gradeUrl); } catch (error) { /* 忽略：切换已完成 */ }
+        }
+      }
+      switches.forEach(button => button.addEventListener('click', () => {
+        activate(panels.find(item => item.dataset.gradePanel === button.dataset.gradeSwitch));
+      }));
+
+      const initial = panels.find(item => item.classList.contains('active')) || panels[0];
+      syncBars(initial);
+      redraw(initial);
+
+      document.querySelectorAll('form[data-confirm-state]').forEach(form => {
+        form.addEventListener('submit', event => {
           const deactivating = form.querySelector('[name="is_active"]')?.value === '0';
           if (deactivating && !uiConfirm('确定停用该等级吗？仍有在职员工使用的等级无法停用。')) {
             event.preventDefault();

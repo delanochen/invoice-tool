@@ -29,6 +29,19 @@ CONTRACT_RATE_LABELS = {key: label for key, label, _ in CONTRACT_RATE_TYPES}
 EMPLOYEE_RATE_LABELS = {key: label for key, label, _ in EMPLOYEE_RATE_TYPES}
 RATE_UNITS = {key: unit for key, _, unit in (*CONTRACT_RATE_TYPES, *EMPLOYEE_RATE_TYPES)}
 
+# 员工等级没有生效费率版本时，回退到 employee_grades 表上的静态费率列。
+# 工资计算（employee_rate）与「员工等级」页面的费率展示共用这张表，
+# 避免页面显示的费率跟真正参与计算的费率出现两套口径。
+EMPLOYEE_STATIC_RATE_COLUMNS = {
+    "regular_hours": "standard_hourly_rate",
+    "overtime_hours": "overtime_hourly_rate",
+    "holiday_hours": "holiday_hourly_rate",
+    "travel_hours": "transport_hourly_rate",
+    "public_transport_hours": "transport_hourly_rate",
+    "mileage": "car_mileage_rate",
+    "rental_drive_hours": "rental_driving_hourly_rate",
+}
+
 
 def _ensure_column(connection, table, column, definition):
     columns = {row["name"] for row in connection.execute(f"pragma table_info({table})").fetchall()}
@@ -205,15 +218,7 @@ def employee_rate(connection, user_id, work_date, rate_type):
                 "version_no": version["version_no"],
             }
 
-    fallback_columns = {
-        "regular_hours": "standard_hourly_rate",
-        "overtime_hours": "overtime_hourly_rate",
-        "holiday_hours": "holiday_hourly_rate",
-        "travel_hours": "transport_hourly_rate",
-        "public_transport_hours": "transport_hourly_rate",
-        "mileage": "car_mileage_rate",
-        "rental_drive_hours": "rental_driving_hourly_rate",
-    }
+    fallback_columns = EMPLOYEE_STATIC_RATE_COLUMNS
     column = fallback_columns.get(rate_type)
     if column and column in row.keys():
         return {
@@ -224,6 +229,43 @@ def employee_rate(connection, user_id, work_date, rate_type):
             "version_no": None,
         }
     return {"rate": 0.0, "unit": RATE_UNITS.get(rate_type, "hour"), "source": "missing", "version_id": None, "version_no": None}
+
+
+def employee_grade_rate_snapshot(connection, grade_id, work_date):
+    """员工等级在指定日期实际生效的费率快照。
+
+    口径与 employee_rate() 完全一致：先取当天生效的费率版本条目，
+    没有版本（或版本里缺该条目）时回退到等级资料里的静态费率列。
+
+    返回 {"version": row|None, "rates": {rate_type: {"rate", "unit", "source"}}}，
+    source ∈ {"version", "static", "missing"}；"missing" 表示没有版本条目、
+    静态列也没值（调用方负责提示缺费率，不要用默认价兜底）。
+    """
+    grade = connection.execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
+    if not grade:
+        return {"version": None, "rates": {}}
+    version = _version_for_day(
+        connection, "employee_rate_versions", "employee_grade_id", grade_id, work_date
+    )
+    items = {}
+    if version:
+        for item in connection.execute(
+            "select * from employee_rate_items where version_id = ?", (version["id"],)
+        ).fetchall():
+            items[item["rate_type"]] = item
+    grade_keys = set(grade.keys())
+    rates = {}
+    for key, _label, unit in EMPLOYEE_RATE_TYPES:
+        item = items.get(key)
+        if item:
+            rates[key] = {"rate": float(item["rate"] or 0), "unit": item["unit"] or unit, "source": "version"}
+            continue
+        column = EMPLOYEE_STATIC_RATE_COLUMNS.get(key)
+        if column and column in grade_keys:
+            rates[key] = {"rate": float(grade[column] or 0), "unit": unit, "source": "static"}
+        else:
+            rates[key] = {"rate": 0.0, "unit": unit, "source": "missing"}
+    return {"version": version, "rates": rates}
 
 
 def _float_form(name):

@@ -4,6 +4,37 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.301] - 2026-09-26
+
+### 新增
+- **「员工等级」页改成 ERP 风格工作台（左侧等级树 + 右侧三页签）**：右板块按等级分
+  「员工分配 / 费率版本 / 等级资料」三页，等级切换在页面内完成，不再逐个等级导航。
+- **等级下的员工分配可编辑**：新增 `POST /employee-grades/<id>/members`（`action=add|remove`），
+  面板 1 用下拉把员工加入本等级（从别的等级选过来会自动改挂，并在审计日志里记录原等级），
+  表格每行可把员工移出本等级。权限沿用 `employee_grades.edit`，同时补进
+  `required_action_for_request()` 的 endpoint 映射。
+- **「当前生效费率」直读块**：按 7 个结算项目显示工资计算当天实际取到的费率与来源
+  （`版本 vN` / `等级静态费率` / `未设置`），没有版本时不再是一片空白；既无版本费率也无静态值
+  的项目给红色提示，避免工资按 0 计算却看不出来。
+
+### 修复
+- **点员工等级会新开一个标签**：等级列表原来是 `<a href="/employee-grades?grade_id=N">`，
+  而工作区外壳（`static/workspace.js`）会把 iframe 内所有 `<a href>` 点击拦成「打开新标签」，
+  于是每看一个等级就多一个标签。现在等级条目是 `<button data-grade-switch>`，只做面板显隐，
+  选中项用 `history.replaceState` 写回地址栏（不导航）；页面里已不存在指向本页的 `<a href>`。
+- **「员工等级」页的费率与版本看起来是空的**：等级费率由「有效期版本」和「等级静态费率列」
+  两级构成，而生产库里 `employee_rate_versions` 一条都没有 —— 实际参与工资计算的是静态列
+  （`standard_hourly_rate` 等），但页面只渲染版本历史，静态费率只藏在「编辑等级」弹窗里，
+  用户看到的就是「费率和版本都没显示」。现在两级费率都在页面上直读并标注来源。
+- `rate_engine.py`：`employee_rate()` 里的静态费率回退映射抽成 `EMPLOYEE_STATIC_RATE_COLUMNS`，
+  新增 `employee_grade_rate_snapshot()` 供页面复用同一口径，避免「展示的费率」与
+  「计算用的费率」出现两套。
+
+### 测试
+- `test_employee_grades.py`：改写页面契约用例（ERP 外壳、等级切换必须是按钮、页面内不得有
+  本页链接、`data-grade-panel` 数量），新增「加入/移出等级成员」「无 edit 权限 403」
+  「静态费率回退 → 版本费率（含缺项回退）」共 5 项断言。
+
 ## [0.1.300] - 2026-09-26
 
 ### 变更

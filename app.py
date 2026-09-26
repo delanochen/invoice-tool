@@ -58,7 +58,14 @@ from customer_report_logic import (
     migrate_historical_customer_reports,
     normalize_customer_report_choice,
 )
-from rate_engine import contract_rate, employee_rate, init_rate_schema, register_rate_routes, EMPLOYEE_RATE_TYPES
+from rate_engine import (
+    contract_rate,
+    employee_grade_rate_snapshot,
+    employee_rate,
+    init_rate_schema,
+    register_rate_routes,
+    EMPLOYEE_RATE_TYPES,
+)
 from settlement_review import (
     init_settlement_review_schema,
     linked_approved_expense_rows,
@@ -3595,6 +3602,7 @@ def required_action_for_request():
         "edit_user": ("users", "edit"),
         "update_user_status": ("users", "approve"),
         "delete_user": ("users", "delete"),
+        "update_employee_grade_members": ("employee_grades", "edit"),
         "delete_user_attachment": ("users", "edit"),
         "delete_company_attachment": ("company_info", "edit"),
         "preview_knowledge_document": ("knowledge_base", "view"),
@@ -10199,52 +10207,91 @@ def employee_grade_usage(grade_id):
     return int(row["total"] or 0), int(row["active"] or 0)
 
 
-def render_employee_grades_page(selected_id=""):
-    """员工等级工作台：左板块等级列表 + 右板块选中等级的费率版本。"""
-    grades = employee_grade_options(include_inactive=True)
-    usage = {
-        row["employee_grade_id"]: (int(row["total"] or 0), int(row["active"] or 0))
-        for row in db().execute(
-            """
-            select employee_grade_id, count(*) as total,
-                   coalesce(sum(case when is_active = 1 then 1 else 0 end), 0) as active
-            from users
-            where employee_grade_id is not null
-            group by employee_grade_id
-            """
-        ).fetchall()
-    }
-    if not str(selected_id).isdigit() and grades:
-        selected_id = str(grades[0]["id"])
-    selected = None
-    versions = []
+def employee_grade_panel(grade):
+    """单个等级的面板数据：员工分配 / 费率版本 / 当前生效费率 / 等级资料。
+
+    等级切换是纯页面内行为（前端切面板），所以这里一次性把每个等级的数据都备好，
+    不依赖逐个等级各自一个 URL —— 否则点一次等级就等于打开一个新页面（工作区里表现为新标签）。
+    """
+    grade_id = grade["id"]
+    total, active = employee_grade_usage(grade_id)
+    employees = db().execute(
+        """
+        select id, name, email, role, is_active, phone
+        from users
+        where employee_grade_id = ?
+        order by is_active desc, name
+        """,
+        (grade_id,),
+    ).fetchall()
+    # 可加入本等级的员工：未分配等级的排在前面，其次是当前挂在别的等级上的
+    candidates = db().execute(
+        """
+        select users.id, users.name, users.email, users.role, users.employee_grade_id,
+               employee_grades.grade_name as current_grade_name
+        from users
+        left join employee_grades on employee_grades.id = users.employee_grade_id
+        where users.employee_grade_id is null or users.employee_grade_id != ?
+        order by (users.employee_grade_id is not null), users.name
+        """,
+        (grade_id,),
+    ).fetchall()
+    versions = db().execute(
+        "select * from employee_rate_versions where employee_grade_id = ? order by effective_from desc, version_no desc",
+        (grade_id,),
+    ).fetchall()
+    items = db().execute(
+        """
+        select employee_rate_items.* from employee_rate_items
+        join employee_rate_versions on employee_rate_versions.id = employee_rate_items.version_id
+        where employee_rate_versions.employee_grade_id = ?
+        order by employee_rate_versions.version_no desc, employee_rate_items.id
+        """,
+        (grade_id,),
+    ).fetchall()
     item_map = {}
-    if str(selected_id).isdigit():
-        selected = db().execute("select * from employee_grades where id = ?", (int(selected_id),)).fetchone()
-    if selected:
-        versions = db().execute(
-            "select * from employee_rate_versions where employee_grade_id = ? order by effective_from desc, version_no desc",
-            (selected["id"],),
-        ).fetchall()
-        items = db().execute(
-            """
-            select employee_rate_items.* from employee_rate_items
-            join employee_rate_versions on employee_rate_versions.id = employee_rate_items.version_id
-            where employee_rate_versions.employee_grade_id = ?
-            order by employee_rate_versions.version_no desc, employee_rate_items.id
-            """,
-            (selected["id"],),
-        ).fetchall()
-        for item in items:
-            item_map.setdefault(item["version_id"], {})[item["rate_type"]] = item
+    for item in items:
+        item_map.setdefault(item["version_id"], {})[item["rate_type"]] = item
+    snapshot = employee_grade_rate_snapshot(db(), grade_id, date.today().isoformat())
+    missing = [key for key, value in snapshot["rates"].items() if value["source"] == "missing"]
+    return {
+        "grade": grade,
+        "total": total,
+        "active": active,
+        "employees": employees,
+        "candidates": candidates,
+        "versions": versions,
+        "item_map": item_map,
+        "rates": snapshot["rates"],
+        "current_version": snapshot["version"],
+        "missing_rates": missing,
+    }
+
+
+def render_employee_grades_page(selected_id=""):
+    """员工等级工作台（ERP 风格）：左侧等级树 + 右侧「员工分配 / 费率版本 / 等级资料」页签。
+
+    等级切换在页面内完成：左侧是按钮 + 面板显隐，不再是逐个等级的 <a href>，
+    因此不会在工作区里打开新标签。
+    """
+    grades = employee_grade_options(include_inactive=True)
+    panels = [employee_grade_panel(grade) for grade in grades]
+    if not str(selected_id).isdigit() and panels:
+        selected_id = str(panels[0]["grade"]["id"])
+    selected = next((panel for panel in panels if str(panel["grade"]["id"]) == str(selected_id)), None)
+    if selected is None and panels:
+        selected = panels[0]
+    unassigned = db().execute(
+        "select count(*) as total from users where employee_grade_id is null"
+    ).fetchone()["total"]
     return render_template(
         "employee_grades.html",
         grades=grades,
-        usage=usage,
+        panels=panels,
         selected=selected,
-        versions=versions,
-        item_map=item_map,
+        unassigned=int(unassigned or 0),
         rate_types=EMPLOYEE_RATE_TYPES,
+        today=date.today().isoformat(),
         can_edit=has_action_permission("employee_grades", "edit"),
         can_delete=has_action_permission("employee_grades", "delete"),
     )
@@ -10367,6 +10414,49 @@ def delete_employee_grade(grade_id):
     db().commit()
     flash("员工等级已删除。", "success")
     return redirect(url_for("employee_grades"))
+
+
+@app.post("/employee-grades/<int:grade_id>/members")
+@login_required
+def update_employee_grade_members(grade_id):
+    """调整「该等级下的员工分配」：加入 / 移出。只改 users.employee_grade_id，不触碰其它资料。"""
+    if not has_action_permission("employee_grades", "edit"):
+        abort(403)
+    grade = db().execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
+    if not grade:
+        abort(404)
+    action = request.form.get("action", "add")
+    raw_user_id = (request.form.get("user_id") or "").strip()
+    if not raw_user_id.isdigit():
+        flash("请先选择一名员工。", "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+    user_id = int(raw_user_id)
+    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
+    if not user:
+        flash("员工不存在。", "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+    if action == "remove":
+        if user["employee_grade_id"] != grade_id:
+            flash(f"{user['name']} 当前不属于「{grade['grade_name']}」，无需移出。", "error")
+            return redirect(url_for("employee_grades", grade_id=grade_id))
+        db().execute("update users set employee_grade_id = null where id = ?", (user_id,))
+        log_action("update", "employee_grade", grade_id, grade["grade_name"], f"将 {user['name']} 移出该等级")
+        db().commit()
+        flash(f"已将 {user['name']} 移出「{grade['grade_name']}」。", "success")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+
+    if user["employee_grade_id"] == grade_id:
+        flash(f"{user['name']} 已经在「{grade['grade_name']}」里。", "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+    previous = db().execute(
+        "select grade_name from employee_grades where id = ?", (user["employee_grade_id"],)
+    ).fetchone() if user["employee_grade_id"] else None
+    db().execute("update users set employee_grade_id = ? where id = ?", (grade_id, user_id))
+    detail = f"将 {user['name']} 从「{previous['grade_name']}」调整到该等级" if previous else f"将 {user['name']} 加入该等级"
+    log_action("update", "employee_grade", grade_id, grade["grade_name"], detail)
+    db().commit()
+    flash(f"已将 {user['name']} 加入「{grade['grade_name']}」。", "success")
+    return redirect(url_for("employee_grades", grade_id=grade_id))
 
 
 @app.route("/payroll/subsidies", methods=["GET", "POST"])

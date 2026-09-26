@@ -171,8 +171,8 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
     def test_workbench_renders_and_old_rates_route_redirects(self):
         self.add_version('2026-09-01', None, {'regular_hours': 25})
         page = self.page(self.grade_id)
-        self.assertIn('grade-workbench', page)
-        self.assertIn('新增结算版本', page)
+        self.assertIn('data-grade-panel=', page)
+        self.assertIn('创建新版本', page)
         self.assertIn('v1', page)
         self.assertIn('2026-09-01', page)
         # 未选等级时自动选中第一个
@@ -181,6 +181,92 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         old = self.http.get(f'/employee-grades/{self.grade_id}/rates')
         self.assertEqual(old.status_code, 302)
         self.assertIn(f'grade_id={self.grade_id}', old.headers['Location'])
+
+    # ------------------------------------------- ERP 化：页面内切换不得开新标签
+    def test_grade_switching_is_in_page_and_opens_no_tab(self):
+        """等级切换必须是页面内行为。
+
+        工作区外壳（static/workspace.js）会把 iframe 里任何 <a href> 点击拦成「打开新标签」，
+        所以等级条目只能是按钮 + data-grade-switch，页面里也不能再出现带 grade_id 的链接。
+        """
+        self.assign_grade(self.fixture.people['Submitter'])
+        with self.m.app.app_context():
+            db = self.m.db()
+            db.execute("""insert into employee_grades (grade_name, description, is_active, created_at)
+                          values ('P2','二档',1,?)""", (self.m.now(),))
+            db.commit()
+        page = self.page(self.grade_id)
+        self.assertIn('class="erp-app"', page)
+        self.assertEqual(page.count('data-grade-switch='), 2)
+        self.assertEqual(page.count('data-grade-panel='), 2)
+        self.assertIn('data-grade-url="/employee-grades?grade_id=', page)
+        # 没有任何指向本页的 <a href>，否则每次点等级都会新开一个标签
+        self.assertNotIn('href="/employee-grades?grade_id=', page)
+        # 左侧等级树里的链接数为 0
+        self.assertIn('<nav class="erp-nav', page)
+        nav = page.split('<nav class="erp-nav', 1)[1].split('</nav>', 1)[0]
+        self.assertNotIn('<a ', nav)
+        self.assertIn('加入员工', page)
+        self.assertIn('移出该等级', page)
+
+    # ------------------------------------------------------ 等级下的员工分配
+    def test_add_and_remove_grade_members(self):
+        submitter = self.fixture.people['Submitter']
+        unused = self.fixture.people['Unrelated']
+        page = self.page(self.grade_id)
+        self.assertIn('未分配等级', page)
+
+        added = self.http.post(
+            f'/employee-grades/{self.grade_id}/members',
+            data={'action': 'add', 'user_id': str(unused)},
+        )
+        self.assertEqual(added.status_code, 302)
+        self.assertEqual(self.query('select employee_grade_id from users where id = ?', (unused,))[0]['employee_grade_id'],
+                         self.grade_id)
+        self.assertIn('已将 Unrelated 加入', self.page(self.grade_id))
+        # 加入后不再出现在「可加入」下拉里
+        self.assertNotIn(f'value="{unused}">Unrelated', self.page(self.grade_id))
+
+        removed = self.http.post(
+            f'/employee-grades/{self.grade_id}/members',
+            data={'action': 'remove', 'user_id': str(unused)},
+        )
+        self.assertEqual(removed.status_code, 302)
+        self.assertIsNone(self.query('select employee_grade_id from users where id = ?', (unused,))[0]['employee_grade_id'])
+        self.assertIn('已将 Unrelated 移出', self.page(self.grade_id))
+
+        # 重复加入 / 移出非本等级员工都只提示，不写库
+        self.http.post(f'/employee-grades/{self.grade_id}/members', data={'action': 'remove', 'user_id': str(submitter)})
+        self.assertIn('当前不属于', self.page(self.grade_id))
+        self.http.post(f'/employee-grades/{self.grade_id}/members', data={'action': 'add', 'user_id': 'not-a-number'})
+        self.assertIn('请先选择一名员工', self.page(self.grade_id))
+
+    def test_members_update_requires_edit_permission(self):
+        self.fixture.login('Submitter')  # employee 角色没有 employee_grades 权限
+        response = self.http.post(
+            f'/employee-grades/{self.grade_id}/members',
+            data={'action': 'add', 'user_id': str(self.fixture.people['Unrelated'])},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    # -------------------------------------- 费率展示：版本优先 + 静态回退都要显示
+    def test_rates_block_shows_static_fallback_then_version_rates(self):
+        """没有版本时也必须显示费率（工资实际取的就是它），有版本时改显示版本费率。"""
+        page = self.page(self.grade_id)
+        self.assertIn('当前生效费率', page)
+        self.assertIn('等级静态费率', page)
+        self.assertIn('$10.00', page)          # 种子等级 standard_hourly_rate = 10
+        self.assertIn('没有生效的费率版本', page)
+        self.assertIn('还没有费率版本', page)
+
+        self.add_version('2026-09-01', None, {'regular_hours': 25, 'mileage': 0.9})
+        page = self.page(self.grade_id)
+        self.assertIn('版本费率', page)
+        self.assertIn('$25.00', page)
+        self.assertIn('$0.90', page)
+        self.assertIn('生效版本', page)
+        # 版本里没给的条目仍回退静态费率，不能显示成 0
+        self.assertIn('$20.00', page)          # overtime_hourly_rate 静态值
 
 
 if __name__ == '__main__':
