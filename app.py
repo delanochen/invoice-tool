@@ -367,6 +367,7 @@ ACTION_LABELS = {
     "send": "发送",
     "pay": "核销",
     "execute": "执行",
+    "ai_review": "AI 智能审核",
 }
 
 ROLE_ACTION_PERMISSION_GROUPS = [
@@ -378,7 +379,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "service_order_calendar", "label": "工单日历", "actions": {"view": set(ROLE_OPTIONS)}},
             {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee", "external_manager"}}},
             {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
-            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"admin", "manager", "finance"}}},
+            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"admin", "manager", "finance"}, "ai_review": {"admin", "manager", "finance"}}},
             {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "reset": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
             {"key": "profitability", "label": "项目利润", "actions": {"view": {"admin", "manager", "finance"}}},
             {"key": "knowledge_base", "label": "知识库", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager"}}},
@@ -19423,7 +19424,7 @@ def expense_detail(expense_id):
     attachments_by_item = group_expense_attachments(attachments)
     # 旧数据兜底：迁移完成前仍存在的“未挂明细行”附件，顶部警告提示而不是渲染通用附件区
     unassigned_attachments = attachments_by_item.pop("", [])
-    can_review = normalized_role() in {"admin", "manager"}
+    can_review = has_action_permission("expenses", "ai_review")
     ai_review = db().execute(
         "select * from expense_ai_reviews where expense_id = ?", (expense_id,)
     ).fetchone() if can_review else None
@@ -19660,9 +19661,9 @@ def expense_ai_review(expense_id):
     """AI 智能审核意见。
 
     GET：只返回已有记录（夜间批量 worker 生成；无记录返回 status=none，不触发模型）。
-    POST：强制重新审核（同步执行，详情页「立即审核/重新审核」按钮用）。仅 admin/manager。
+    POST：强制重新审核（同步执行，详情页「立即审核/重新审核」按钮用）。需 expenses/ai_review 权限。
     """
-    if normalized_role() not in {"admin", "manager"}:
+    if not has_action_permission("expenses", "ai_review"):
         abort(403)
     expense = db().execute("select * from expenses where id = ?", (expense_id,)).fetchone()
     if not expense:
