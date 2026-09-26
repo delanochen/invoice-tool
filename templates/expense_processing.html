@@ -1,89 +1,123 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}报销处理 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">报销处理</p><h1>报销处理</h1></div>
+<div class="erp-app" data-active-panel="list">
+
+  <!-- TopToolbar -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      报销处理
+      <small>报销处理与发放</small>
+    </div>
+    <span class="erp-badge">{{ rows|length }} 张报销</span>
+    {% if pending_total %}<span class="erp-badge warn">待报销 {{ pending_total|money }}</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+    </div>
   </header>
 
-  <section class="metric-grid">
-    <article class="metric"><span>待报销合计</span><strong>{{ pending_total|money }}</strong></article>
-    <article class="metric"><span>已报销合计</span><strong>{{ paid_total|money }}</strong></article>
-  </section>
-
-  <form class="filter-bar service-filter no-print" method="get">
-    
-    <label>流程状态
-      <select name="status">
-        <option value="">全部</option>
-        {% for value, label in expense_labels.items() %}
-          <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>报销状态
-      <select name="payout_status">
-        <option value="">全部</option>
-        {% for value, label in payout_labels.items() %}
-          <option value="{{ value }}" {% if payout_status == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('expense_processing') }}'">重置</button>
-    </div>
-  </form>
-
-  <form method="post" action="{{ url_for('process_expense_action') }}" id="expenseProcessingForm" data-selectable-scope>
-    <input type="hidden" name="expense_id" data-selected-input="rowId">
-    {% if normalized_role() in ["manager", "finance"] %}
-      <div class="form-actions no-print">
-        <span class="muted-line" data-selected-label>{{ rows|length }} 张报销</span>
-        <button class="primary" type="submit" name="action" value="reimburse" data-enable-on-select disabled onclick="return window.uiConfirm ? window.uiConfirm('确认所选报销已经完成付款吗？') : confirm('确认所选报销已经完成付款吗？');">报销</button>
-      </div>
-    {% endif %}
-    <section class="panel">
-      <table class="list-table selectable-list-table" data-selectable-table>
-        <thead>
-          <tr>
-            <th>报销编号</th><th>工单</th><th>日期</th><th>报销归属员工</th><th>提交人</th><th>金额</th>
-            <th>流程状态</th><th>报销状态</th><th>发放操作人</th><th>报销时间</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
-            <tr
-              {% if normalized_role() == "admin" or (row.status == "approved" and row.payout_status != "paid") %}
-                tabindex="0"
-                data-row-id="{{ row.id }}"
-                data-row-label="{{ row.expense_number }} · {{ row.amount|money(row.currency) }}"
-              {% endif %}
-            >
-              <td>
-                {% if normalized_role() in ["admin", "manager", "finance"] or row.created_by == g.user.id or row.beneficiary_id == g.user.id %}
-                  <a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a>
-                {% else %}
-                  {{ row.expense_number }}
-                {% endif %}
-              </td>
-              <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
-              <td>{{ row.expense_date }}</td>
-              <td>{{ row.beneficiary_name or row.creator_name or "Unknown" }}</td>
-              <td>{{ row.creator_name or "Unknown" }}</td>
-              <td data-grid-currency="{{ row.currency }}">{{ row.amount|money(row.currency) }}</td>
-              <td><span class="status {{ row.status }}">{{ expense_labels[row.status] }}</span></td>
-              <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
-              <td>{{ row.reimbursed_by_name or "-" }}</td>
-              <td>{{ row.reimbursed_at|local_datetime if row.reimbursed_at else "-" }}</td>
-            </tr>
-          {% else %}
-            <tr><td colspan="10" class="empty">没有符合条件的报销。</td></tr>
+  <div class="erp-body">
+    <!-- FilterBar：与后端字段完全一致（status / payout_status） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      <label class="erp-field">流程状态
+        <select name="status">
+          <option value="">全部</option>
+          {% for value, label in expense_labels.items() %}
+            <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
-        </tbody>
-      </table>
+        </select>
+      </label>
+      <label class="erp-field">报销状态
+        <select name="payout_status">
+          <option value="">全部</option>
+          {% for value, label in payout_labels.items() %}
+            <option value="{{ value }}" {% if payout_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+
+    <!-- Panel：报销列表 + 批量报销（纵向滚动条只在表格区内出现，页面不滚动） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <form method="post" action="{{ url_for('process_expense_action') }}" id="expenseProcessingForm" data-selectable-scope
+            style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;">
+        <input type="hidden" name="expense_id" data-selected-input="rowId">
+        {% if normalized_role() in ["manager", "finance"] %}
+          <div class="erp-toolbar-group no-print" style="padding:4px 2px;flex:0 0 auto;">
+            <span class="erp-badge" data-selected-label>{{ rows|length }} 张报销</span>
+            <button class="erp-btn primary" type="submit" name="action" value="reimburse" data-enable-on-select disabled
+                    onclick="return window.uiConfirm ? window.uiConfirm('确认所选报销已经完成付款吗？') : confirm('确认所选报销已经完成付款吗？');">报销</button>
+          </div>
+        {% endif %}
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+            <thead>
+              <tr>
+                <th>报销编号</th><th>工单</th><th>日期</th><th>报销归属员工</th><th>提交人</th><th>金额</th>
+                <th>流程状态</th><th>报销状态</th><th>发放操作人</th><th>报销时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+                <tr
+                  {% if normalized_role() == "admin" or (row.status == "approved" and row.payout_status != "paid") %}
+                    tabindex="0"
+                    data-row-id="{{ row.id }}"
+                    data-row-label="{{ row.expense_number }} · {{ row.amount|money(row.currency) }}"
+                  {% endif %}
+                >
+                  <td>
+                    {% if normalized_role() in ["admin", "manager", "finance"] or row.created_by == g.user.id or row.beneficiary_id == g.user.id %}
+                      <a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a>
+                    {% else %}
+                      {{ row.expense_number }}
+                    {% endif %}
+                  </td>
+                  <td><a href="{{ url_for('service_order_detail', order_id=row.service_order_id) }}">{{ row.order_number }}</a></td>
+                  <td>{{ row.expense_date }}</td>
+                  <td>{{ row.beneficiary_name or row.creator_name or "Unknown" }}</td>
+                  <td>{{ row.creator_name or "Unknown" }}</td>
+                  <td data-grid-currency="{{ row.currency }}">{{ row.amount|money(row.currency) }}</td>
+                  <td><span class="status {{ row.status }}">{{ expense_labels[row.status] }}</span></td>
+                  <td><span class="status {{ row.payout_status }}">{{ payout_labels[row.payout_status] }}</span></td>
+                  <td>{{ row.reimbursed_by_name or "-" }}</td>
+                  <td>{{ row.reimbursed_at|local_datetime if row.reimbursed_at else "-" }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="10" class="empty">没有符合条件的报销。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
     </section>
-  </form>
+  </div>
+
+  <!-- SummaryBar -->
+  <footer class="erp-summary">
+    {{ summary_item('待报销合计', pending_total|money, 'warn') }}
+    {{ summary_item('已报销合计', paid_total|money, 'pos') }}
+    {{ summary_item('报销单数', rows|length, 'muted') }}
+  </footer>
+
+  <!-- StatusBar -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 张</span>
+    <span class="sep"></span>
+    <span>流程状态 <b>{{ expense_labels[status] if status else '全部' }}</b></span>
+    <span class="sep"></span>
+    <span>报销状态 <b>{{ payout_labels[payout_status] if payout_status else '全部' }}</b></span>
+  </footer>
+</div>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
+<script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}
