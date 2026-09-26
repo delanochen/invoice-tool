@@ -1,0 +1,13 @@
+[Unit]
+Description=Ensure invoice-tool-cloudflared stays attached to ai-net
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/ensure-ai-net-daemon.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
