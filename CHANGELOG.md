@@ -4,6 +4,39 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.309] - 2026-09-26
+
+### 修复
+- **员工报销「审核通过」后的成功提示被页面顶栏压住，只露出一圈边框。** 提示是渲染出来的，
+  层级却低了一级：它来自 `base.html` 的 `.flash-stack`，在 `styles.css` 里是
+  `position: fixed; top: 16px; right: 16px; z-index: 10` 的右上角浮层；ERP 页面顶部另有一条
+  常驻 sticky 工具栏（`erp-ui.css`：`.erp-app--flow > .erp-toolbar { position: sticky; z-index: 12 }`）。
+  两者都贴视口顶部、提示又低 2 级 → 整块被工具栏的渐变背景盖住，只剩边框露在工具栏下沿之外。
+- 修法（`erp-ui.css` 末尾，限定 `min-width: 1101px`）：ERP 页面里的提示 `z-index: 10 → 55`，
+  高于工具栏 12 / 汇总栏 9 / 状态栏 10，仍低于 `.erp-detail` 抽屉的 60/61 与 `<dialog>` 的
+  top layer（抽屉打开时提示不该盖住它）；同时 `top: 16px → 60px`，整体落到工具栏下方 ——
+  只抬层级会把提示反过来压在刷新 / 打印 / 审核通过那一排按钮上。真渲染实测工具栏底边：
+  未滚动 51px、贴顶滚动后 31px，60px 两边都让开。
+- 必须限定断点：≤1100px 时提示本来就是 `styles.css` 里的页面内横幅
+  （`.flash-stack { position: static }`），无差别覆盖会把那条移动端规则一起顶回 fixed，又会去压工具栏。
+- 影响面是所有 ERP 页面（选择器挂在 `.erp-app` 上），不只报销详情：凡是带 `.erp-app` 外壳
+  又渲染服务端 flash 的页面（保存 / 审核 / 退回 / 导入）都一起修正了。
+
+### 测试
+- 新增 `test_flash_notice_above_toolbar.py`（7 条，把 `erp-ui.css` / `styles.css` 的规则树摊平后断言）：
+  覆盖选择器挂在 `.erp-app` 上、规则必须包在带 `min-width` 的媒体查询里、提示 z-index 高于
+  所有工具栏 z-index、但仍低于 `.erp-detail` 抽屉、`top` 要让开工具栏高度（≥40px）、
+  `styles.css` 的桌面基础定义（fixed）与移动端横幅（static）都没被改坏。
+- 真渲染验证（仓库根 `_flash_probe.py`，真跑一遍「POST /expenses/<id>/approve → redirect」拿到
+  带提示的真实页面，再在 headless Chrome 里按几何取值，不靠肉眼）：修复前提示与工具栏垂直重叠
+  31px、提示矩形内 9 点采样只有 3 点可见（挡住它的是 `header.erp-toolbar` / `button.erp-btn`）；
+  修复后重叠 0px、9/9 可见，且滚动 300px 让工具栏贴到视口顶之后仍 0 重叠、9/9 可见。
+  桌面（1262px，走 fixed 浮层）与窄屏（504px，走移动端横幅）两个视口都测。
+  反向对照：把 `z-index` 退回 5、`top` 退回 16px，探针与单测都报 FAIL，证明断言不是摆设。
+- 探针脚本每次改用全新的 Chrome profile 目录：固定 `--user-data-dir` 会让 headless Chrome
+  复用磁盘缓存，改了 CSS 却量到旧样式（实测清缓存前 `z-index` 读到 10、清完立刻变 55），
+  白跑一轮还会误判成「修复无效」。
+
 ## [0.1.308] - 2026-09-26
 
 ### 变更

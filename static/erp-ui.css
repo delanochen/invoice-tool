@@ -900,3 +900,17 @@
   .service-order-map-page .map-toolbar label.map-mode-toggle { min-height: 32px; font-size: 13px; }
   .service-order-map-page .map-toolbar .multi-select summary { min-height: 32px; font-size: 13px; }
 }
+
+/* ------------------------------------------------ 服务端提示浮层（.flash-stack） */
+/* 审核通过 / 保存 / 退回后的提示由 base.html 的 .flash-stack 渲染，styles.css 里是
+   fixed top:16 right:16 z-index:10 的右上角浮层。ERP 页面顶部另有一条常驻的 sticky
+   工具栏（z-index 12），两者都贴视口顶部：提示层级低 2 级，整块被工具栏的渐变背景
+   盖住，只剩一圈边框露在工具栏下沿之外——「报销已审核通过」后就是这个症状。
+   两头都要管，否则不是被盖、就是反过来压住工具栏那一排按钮（刷新/打印/审核通过）：
+     ① z-index 抬到工具栏之上（仍低于 .erp-detail 抽屉的 60/61 与 <dialog> 的 top layer）；
+     ② 整体落到工具栏下方：工具栏未滚动时底边约 51px、贴顶滚动后约 31px，60px 两边都让开。
+   ≤1100px 时提示本就是 styles.css 里的页面内横幅（.flash-stack { position: static }），
+   所以这里必须限定 min-width，否则会连带推翻那条移动端规则。 */
+@media screen and (min-width: 1101px) {
+  body:has(.erp-app) .flash-stack { top: 60px; z-index: 55; }
+}
