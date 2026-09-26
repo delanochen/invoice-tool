@@ -202,6 +202,10 @@ CREATE TABLE IF NOT EXISTS asset_photos (
 );
 
 -- Keep the adapter's reviewed PRAGMA compatibility view aware of new objects.
+-- ON CONFLICT (table_name,name) 需要唯一约束；表的实际主键是 (table_name,cid)，
+-- 缺这条索引会让 0285 迁移在生产上以「no unique or exclusion constraint」失败。
+create unique index if not exists idx_invoice_sqlite_columns_table_name
+  on invoice_sqlite_columns(table_name, name);
 INSERT INTO invoice_sqlite_columns(table_name,cid,name,type,"notnull",dflt_value,pk)
 SELECT c.table_name,c.ordinal_position-1,c.column_name,c.data_type,
        CASE WHEN c.is_nullable='NO' THEN 1 ELSE 0 END,c.column_default,
