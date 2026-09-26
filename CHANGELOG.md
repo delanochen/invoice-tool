@@ -4,6 +4,19 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.297] - 2026-09-26
+
+### 修复
+- **ERP 报表表格行间出现双横线**：`system-grid.css` 里 `.tabulator-cell` 自带 `border-bottom`，
+  ERP 改造时又给 `.tabulator-row` 加了 `border-bottom`，而 cell 是 `inline-block` + `vertical-align: middle`、
+  高度由内容决定（实测 23px < 行高 26px），于是 cell 的底线居中浮在行底线上方 3px ——
+  两条线同时可见，且上面那条被列间缝隙切成一段段。
+  现改为横线只由 `.tabulator-row` 画一条；同时让 cell 与行内容盒等高
+  （`min-height: calc(var(--erp-row-height) - 1px)` + `box-sizing: border-box`），
+  使列竖线贯穿整行、不再在行底断开 3px。实测：cell 底线由 `1px` 变 `0px`、
+  行内横向线由 2 种变 1 种、行高保持 26px 不变。
+- 预留保护：`.grid-parent-calc`（分组小计行）的 cell 维持 32px 行高，不被上述贴合规则压扁。
+
 ## [0.1.296] - 2026-09-26
 
 ### Fixed（工单日历等页面最大化时状态栏仍被挤出屏幕）
