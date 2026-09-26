@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}工作日报查看 - 发票工具{% endblock %}
 {% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <style>
   /* Word-export-style read-only sheet: mirrors build_service_report_docx layout */
   .report-paper {
@@ -53,72 +55,61 @@
     background: #fff;
   }
   .report-paper .sign-grid td { height: 2.2rem; }
-  /* 上一个/下一个导航（仅屏幕显示，打印时隐藏） */
-  .service-report-toolbar {
-    max-width: 860px;
-    margin: 0 auto 0.8rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-  }
-  .service-report-nav, .service-report-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .service-report-toolbar a.button-link,
-  .service-report-toolbar button {
-    display: inline-block;
-    box-sizing: border-box;
-    padding: 0.4rem 0.75rem;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    background: #fff;
-    color: #0f767e;
-    font-size: 0.86rem;
-    line-height: 1.2;
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .service-report-toolbar a.button-link:hover { background: #f1f5f9; }
-  .service-report-toolbar button[disabled] {
-    color: #b8c0cc;
-    background: #f8fafc;
-    border-color: #e2e8f0;
-    cursor: not-allowed;
-  }
+  /* 正文纸张在 ERP 内容区里居中留白。 */
+  .erp-app .erp-detail-scroll > .report-paper { margin: 10px auto 24px; }
+  /* 工具栏里的「上一个 / 下一个」是链接，按 ERP 按钮外观对齐。 */
+  .erp-app .service-report-nav { display: inline-flex; align-items: center; gap: 4px; }
+  .erp-app .erp-toolbar a.erp-btn { display: inline-flex; align-items: center; text-decoration: none; }
   @media print {
     .no-print { display: none !important; }
     .report-paper { border: none; max-width: none; padding: 0; }
     body { background: #fff; }
+    /* 纸张要完整跨页输出，不能在内容区被裁掉。 */
+    .erp-app .erp-detail-scroll { overflow: visible !important; max-height: none !important; }
   }
 </style>
 {% endblock %}
 {% block content %}
-<div class="no-print service-report-toolbar">
-  <div class="service-report-nav">
-    {% if adjacent_reports.previous %}
-    <a class="button-link" href="{{ url_for('view_service_report', report_id=adjacent_reports.previous) }}">← 上一个</a>
-    {% else %}
-    <button type="button" disabled title="已经是第一个日报">← 上一个</button>
-    {% endif %}
-    {% if adjacent_reports.next %}
-    <a class="button-link" href="{{ url_for('view_service_report', report_id=adjacent_reports.next) }}">下一个 →</a>
-    {% else %}
-    <button type="button" disabled title="已经是最后一个日报">下一个 →</button>
-    {% endif %}
-  </div>
-  <div class="service-report-actions">
-    {% if can_export %}
-    <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
-      <button type="submit">导出 Word</button>
-    </form>
-    {% endif %}
-    <button type="button" onclick="window.print()">打印</button>
-  </div>
-</div>
+{% set ns = namespace(photos=0) %}
+{% for section in photo_sections %}{% set ns.photos = ns.photos + section.photos|length %}{% endfor %}
+<div class="erp-app erp-compact" data-active-panel="paper">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      现场服务日报
+      <small>{{ order.client_name }}{% if order.client_order_number %} · {{ order.client_order_number }}{% endif %}</small>
+    </div>
+    <span class="erp-badge">{{ report.report_date }}</span>
+    <span class="erp-badge">服务人员 {{ workers|length }} 人</span>
+    <span class="erp-toolbar-spacer"></span>
+    {# 契约：test_service_report_navigation 依赖 <div class="service-report-nav"> 及其中的上一/下一个链接顺序 #}
+    <div class="service-report-nav">
+      {% if adjacent_reports.previous %}
+      <a class="erp-btn" href="{{ url_for('view_service_report', report_id=adjacent_reports.previous) }}">← 上一个</a>
+      {% else %}
+      <button class="erp-btn" type="button" disabled title="已经是第一个日报">← 上一个</button>
+      {% endif %}
+      {% if adjacent_reports.next %}
+      <a class="erp-btn" href="{{ url_for('view_service_report', report_id=adjacent_reports.next) }}">下一个 →</a>
+      {% else %}
+      <button class="erp-btn" type="button" disabled title="已经是最后一个日报">下一个 →</button>
+      {% endif %}
+    </div>
+    <div class="erp-toolbar-group">
+      {% if can_export %}
+      <form method="post" action="{{ url_for('export_service_report', report_id=report.id) }}">
+        <button class="erp-btn primary" type="submit">导出 Word</button>
+      </form>
+      {% endif %}
+      <button class="erp-btn" type="button" onclick="window.print()">打印</button>
+    </div>
+  </header>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="paper">
+      <div class="erp-detail-scroll">
 
 <div class="report-paper">
   <h1 class="report-title">现场服务日报</h1>
@@ -219,5 +210,30 @@
     <tr><td>报告人签字：</td><td>现场服务人员：</td></tr>
     <tr><td>报告时间：{{ report.report_date or "" }}</td><td>公司：{{ company.name }}</td></tr>
   </table>
+</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary no-print">
+    {{ summary_item('服务人员', workers|length ~ ' 人', 'muted') }}
+    {{ summary_item('服务工时', (report.total_service_hours|hours) ~ ' h') }}
+    {{ summary_item('交通时长', (report.travel_hours|hours) ~ ' h') }}
+    {{ summary_item('自驾里程', (report.driving_miles or 0) ~ ' 英里') }}
+    {{ summary_item('现场照片', ns.photos ~ ' 张', 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status no-print">
+    <span>工单 <b>{{ order.client_order_number or '-' }}</b></span>
+    <span class="sep"></span>
+    <span>业主 <b>{{ order.buyer_owner or '-' }}</b></span>
+    <span class="sep"></span>
+    <span>报告日期 <b>{{ report.report_date }}</b></span>
+    <span class="sep"></span>
+    <span>机柜编号 <b>{{ report.cabinet_number or '-' }}</b></span>
+    <span class="erp-status-version">v{{ app_version }}</span>
+  </footer>
 </div>
 {% endblock %}

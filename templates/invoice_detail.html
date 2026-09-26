@@ -1,13 +1,35 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import tab_button, summary_item %}
 {% block title %}{{ invoice.invoice_number }} - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 发票正文是 A4 版心纸张（.invoice-paper 自带白底/边框/居中），这里只把它摆进 ERP 内容区。 */
+  .erp-app .erp-detail-scroll > .invoice-paper { margin: 10px auto 24px; }
+  .erp-app .erp-detail-scroll > .panel { margin: 10px; }
+  .erp-app .attachment-panel { padding: 10px; }
+  /* 打印：正文面板要完整跨页输出（erp-ui.css 已隐藏工具栏/页签/状态栏、并放行 .erp-panel）。 */
+  @media print {
+    .erp-app .erp-panel.no-print { display: none !important; }
+    .erp-app .erp-detail-scroll, .erp-app .table-scroll { overflow: visible !important; max-height: none !important; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-  <header class="page-header no-print">
-    <div>
-      <p class="eyebrow">Invoice</p>
-      <h1>{{ invoice.invoice_number }} <span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></h1>
-      <p class="muted-line">内部记录：开票人 {{ creator.name if creator else "Unknown" }}</p>
+<div class="erp-app erp-compact" data-active-panel="paper">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ invoice.invoice_number }}
+      <small>{{ labels[invoice.status] }} · 开票人 {{ creator.name if creator else "Unknown" }}</small>
     </div>
-    <div class="actions">
+    <span class="erp-badge">{{ invoice.currency }} {{ totals.total|money(invoice.currency) }}</span>
+    <span class="erp-badge">附件 {{ attachments|length }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
       <button onclick="window.print()">发票预览</button>
       <button type="button" onclick="window.location.href='{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}'">导出发票</button>
       <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button type="submit">导出 ZIP</button></form>
@@ -41,6 +63,17 @@
       {% endif %}
     </div>
   </header>
+
+  <!-- ───────────────────────────────── TabWorkspace ─────────────────────── -->
+  <nav class="erp-tabs no-print" aria-label="发票视图">
+    {{ tab_button('paper', '发票正文', active=true) }}
+    {{ tab_button('attachments', '附件清单', count=attachments|length) }}
+  </nav>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="paper">
+      <div class="erp-detail-scroll">
 
   {% if g.user.role == "admin" and not invoice.paid_at and invoice.status != "draft" %}
     <dialog id="adminStatusDialog" class="modal no-print">
@@ -153,10 +186,15 @@
       </section>
     </div>
   </article>
+      </div>
+    </section>
 
-  <section class="panel attachment-panel attachment-download-scope no-print">
-    <div class="panel-title"><h2>附件清单</h2>{% if attachments %}<button class="small" type="button" data-download-all-attachments>下载全部附件</button>{% endif %}</div>
-    <table class="list-table attachment-table">
+    <!-- ── 面板 2：附件清单 ── -->
+    <section class="erp-panel no-print" data-erp-panel="attachments">
+      <div class="erp-detail-scroll">
+        <div class="attachment-panel attachment-download-scope">
+          <div class="panel-title"><h2>附件清单</h2>{% if attachments %}<button class="small" type="button" data-download-all-attachments>下载全部附件</button>{% endif %}</div>
+          <table class="list-table attachment-table erp-grid">
       <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
       <tbody>
         {% for attachment in attachments %}
@@ -196,7 +234,36 @@
       <p id="detailAttachmentStatus" class="muted-line" aria-live="polite">请选择要保存的附件。</p>
       <button id="saveDetailAttachmentsBtn" class="primary" type="submit" disabled>保存附件</button>
     </form>
-  </section>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary no-print">
+    {{ summary_item('明细行数', items|length, 'muted') }}
+    {{ summary_item('小计', totals.subtotal|money(invoice.currency)) }}
+    {{ summary_item('税额', totals.tax|money(invoice.currency)) }}
+    {{ summary_item('应收合计', totals.total|money(invoice.currency), 'pos') }}
+    {{ summary_item('附件', attachments|length, 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status no-print">
+    <span>发票 <b>{{ invoice.invoice_number }}</b></span>
+    <span class="sep"></span>
+    <span>客户 <b>{{ client.name }}</b></span>
+    <span class="sep"></span>
+    <span>开票日 <b>{{ invoice.issue_date }}</b></span>
+    <span class="sep"></span>
+    <span>到期日 <b>{{ invoice.due_date }}</b></span>
+    <span class="sep"></span>
+    <span>币种 <b>{{ invoice.currency }}</b></span>
+    <span class="erp-status-version">v{{ app_version }}</span>
+  </footer>
+</div>
+
   <script src="{{ url_for('static', filename='invoice-detail.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

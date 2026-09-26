@@ -1,8 +1,56 @@
 {% extends "base.html" %}
 {% block title %}系统设置 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .table-toolbar { display:flex; justify-content:flex-end; margin-bottom:0.5rem; }
+  .table-toolbar button { font-size:13px; }
+  .row-actions { white-space:nowrap; }
+  .row-actions button { font-size:12px; padding:2px 8px; margin-right:4px; }
+  .llm-test-result { display:block; font-size:12px; margin-top:2px; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:1000; }
+  .modal-overlay[hidden] { display:none; }
+  .modal-box { background:#fff; border-radius:8px; padding:1.25rem 1.5rem; width:min(480px, 92vw); box-shadow:0 10px 30px rgba(0,0,0,.25); }
+  .modal-box h3 { margin-top:0; }
+  .modal-box label { display:block; margin-bottom:0.6rem; }
+  .modal-box input[type=text], .modal-box input[type=password], .modal-box input[type=number] { width:100%; }
+  .modal-box .inline-check { display:flex; align-items:center; gap:6px; }
+  .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:1rem; }
+  .btn-plain { background:#f0f0f0; border:1px solid #ccc; border-radius:4px; padding:5px 14px; cursor:pointer; }
+  .btn-plain:hover { background:#e2e2e2; }
+  /* ERP 外壳内的分组表单：保持原有 2 列分节版式，只收紧间距。 */
+  .erp-app--flow .settings-layout { gap: 10px; border: 0; border-radius: 0; padding: 10px; background: transparent; }
+  .erp-app--flow .settings-layout > .form-stack { gap: 8px; align-content: start; padding: 8px 10px; border: 1px solid var(--erp-line); border-radius: 3px; background: #fff; }
+  .erp-app--flow .settings-layout > .form-stack h2 { margin: 0; font-size: 12.5px; color: var(--erp-accent); }
+  .erp-app--flow .settings-layout > .full-span { grid-column: 1 / -1; }
+  .erp-app--flow .settings-layout label { font-size: 12px; }
+  .erp-app--flow .settings-layout textarea { font-family: inherit; }
+</style>
+{% endblock %}
+
 {% block content %}
-  <header class="page-header"><div><p class="eyebrow">系统设置</p><h1>系统设置</h1></div></header>
-  <form method="post" class="panel settings-layout">
+<div class="erp-app erp-app--flow erp-compact" data-active-panel="settings">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar">
+    <div class="erp-toolbar-title">系统设置<small>收款 · 邮件 · 站点地图 · 现场水印 · 智能审核 · 大模型</small></div>
+    <span class="erp-badge">{{ llm_configs|length }} 个大模型配置</span>
+    {% if ai_review_enabled %}
+      <span class="erp-badge">智能审核 启用 · {{ ai_review_time }}</span>
+    {% else %}
+      <span class="erp-badge warn">智能审核 停用</span>
+    {% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="submit" class="erp-btn primary" form="settingsForm">保存系统设置</button>
+    </div>
+  </header>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="settings">
+  <form method="post" class="panel settings-layout" id="settingsForm">
     <section class="form-stack">
       <h2>收款信息</h2>
       <label>付款方式 <input name="payment_method" value="{{ payment.method }}"></label>
@@ -119,27 +167,26 @@
           </div>
         </div>
       </div>
-    </section>    <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
+    </section>
+    <div class="full-span form-actions"><button class="primary" type="submit">保存系统设置</button></div>
   </form>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>大模型配置 <b>{{ llm_configs|length }}</b> 个</span>
+    <span class="sep"></span>
+    <span>智能审核 <b>{{ '已启用' if ai_review_enabled else '已停用' }}</b></span>
+    <span class="sep"></span>
+    <span>执行时间 <b>{{ ai_review_time }}</b></span>
+    <span class="sep"></span>
+    <span>巡检周期 <b>{{ inspection_cycle_days }}</b> 天</span>
+  </footer>
+</div>
 {% endblock %}
+
 {% block scripts %}
-  <style>
-    .table-toolbar { display:flex; justify-content:flex-end; margin-bottom:0.5rem; }
-    .table-toolbar button { font-size:13px; }
-    .row-actions { white-space:nowrap; }
-    .row-actions button { font-size:12px; padding:2px 8px; margin-right:4px; }
-    .llm-test-result { display:block; font-size:12px; margin-top:2px; }
-    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:1000; }
-    .modal-overlay[hidden] { display:none; }
-    .modal-box { background:#fff; border-radius:8px; padding:1.25rem 1.5rem; width:min(480px, 92vw); box-shadow:0 10px 30px rgba(0,0,0,.25); }
-    .modal-box h3 { margin-top:0; }
-    .modal-box label { display:block; margin-bottom:0.6rem; }
-    .modal-box input[type=text], .modal-box input[type=password], .modal-box input[type=number] { width:100%; }
-    .modal-box .inline-check { display:flex; align-items:center; gap:6px; }
-    .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:1rem; }
-    .btn-plain { background:#f0f0f0; border:1px solid #ccc; border-radius:4px; padding:5px 14px; cursor:pointer; }
-    .btn-plain:hover { background:#e2e2e2; }
-  </style>
   <script>
     (() => {
       const form = document.querySelector("form.settings-layout");
