@@ -1,88 +1,106 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}站点 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
 {% block content %}
   {% set can_create = has_action_permission("buyers", "create") %}
   {% set can_edit = has_action_permission("buyers", "edit") %}
   {% set can_delete = has_action_permission("buyers", "delete") %}
-  <header class="page-header">
-    <div><p class="eyebrow">Sites</p><h1>站点资料</h1></div>
-  </header>
-
-  <form class="panel filter-bar no-print" method="get">
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="direction" value="{{ direction }}">
-    <label>查找站点 <input name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、邮箱、规模、地址或配套机厂家"></label>
-    <div class="filter-actions">
-      <button type="submit">查找</button>
-      <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">重置</button>
-    </div>
-  </form>
-
-  <section class="panel buyer-list-panel" data-selectable-scope>
-    <div class="panel-title">
-      <h2>站点列表</h2>
-      <div class="toolbar-actions" data-selection-toolbar>
-        {% if can_create %}<button class="small" type="button" data-dialog-open="importBuyerDialog">导入站点</button><button class="small primary" type="button" data-dialog-open="newBuyerDialog">新增站点</button>{% endif %}
-        <span class="muted-line" data-selected-label>{{ buyers|length }} 个站点</span>
-        {% if can_edit %}<button class="small" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
-        {% if can_delete %}<form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
-          <button class="danger small" type="submit" disabled>删除</button>
-        </form>{% endif %}
+  <div class="erp-app" data-active-panel="list">
+    <header class="erp-toolbar no-print">
+      <div class="erp-toolbar-title">站点资料<small>基础数据 · 站点</small></div>
+      <span class="erp-badge">{{ buyers|length }} 个站点</span>
+      <span class="erp-toolbar-spacer"></span>
+      <div class="erp-toolbar-group">
+        <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+        <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+        <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+        {% if can_create %}
+          <button type="button" class="erp-btn" data-dialog-open="importBuyerDialog">导入站点</button>
+          <button type="button" class="erp-btn primary" data-dialog-open="newBuyerDialog">新增站点</button>
+        {% endif %}
       </div>
+    </header>
+
+    <div class="erp-body">
+      <form class="erp-filter no-print" method="get" data-erp-filter>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="direction" value="{{ direction }}">
+        <label class="erp-field">查找站点 <input type="search" name="q" value="{{ q or '' }}" placeholder="编号、站点名称、业主、联系人、邮箱、规模、地址或配套机厂家"></label>
+      </form>
+
+      <section class="erp-panel active" data-erp-panel="list" data-selectable-scope>
+        <div class="erp-toolbar-group no-print" style="padding:4px 2px;flex:0 0 auto;" data-selection-toolbar>
+          <span class="erp-badge" data-selected-label>{{ buyers|length }} 个站点</span>
+          {% if can_edit %}<button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
+          {% if can_delete %}<form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个站点吗？已有工单的站点不会被删除。');">
+            <button class="erp-btn" type="submit" disabled>删除</button>
+          </form>{% endif %}
+        </div>
+        {% macro sortable_th(key, label) -%}
+          {% set next_direction = 'desc' if sort == key and direction == 'asc' else 'asc' %}
+          <th>
+            <a class="sortable-heading {{ 'active' if sort == key else '' }}" href="{{ url_for('buyers', q=q, sort=key, direction=next_direction) }}">
+              {{ label }}{% if sort == key %}<span>{{ '↑' if direction == 'asc' else '↓' }}</span>{% endif %}
+            </a>
+          </th>
+        {%- endmacro %}
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+            <thead>
+              <tr>
+                {{ sortable_th("buyer_number", "编号") }}
+                {{ sortable_th("country_name", "国家") }}
+                {{ sortable_th("name", "站点名称") }}
+                {{ sortable_th("owner_name", "业主") }}
+                {{ sortable_th("contact_name", "联系人") }}
+                {{ sortable_th("contact_details", "联系方式") }}
+                {{ sortable_th("email", "电子邮箱地址") }}
+                {{ sortable_th("site_size", "规模") }}
+                {{ sortable_th("equipment_manufacturer", "配套机厂家") }}
+                {{ sortable_th("detailed_address", "详细地址") }}
+              </tr>
+            </thead>
+            <tbody>
+              {% for buyer in buyers %}
+                <tr
+                  {% if can_edit or can_delete %}
+                    tabindex="0"
+                    data-row-id="{{ buyer.id }}"
+                    data-row-label="{{ buyer.buyer_number }} · {{ buyer.name }}"
+                  {% endif %}
+                  {% if can_edit %}data-edit-target="editBuyer{{ buyer.id }}"{% endif %}
+                  {% if can_delete %}data-delete-url="{{ url_for('delete_buyer', buyer_id=buyer.id) }}"{% endif %}
+                >
+                  <td>{{ buyer.buyer_number }}</td>
+                  <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
+                  <td>{{ buyer.name }}</td>
+                  <td>{{ buyer.owner_name or "-" }}</td>
+                  <td>{{ buyer.contact_name or "-" }}</td>
+                  <td>{{ buyer.contact_details or "-" }}</td>
+                  <td>{{ buyer.email or "-" }}</td>
+                  <td>{{ buyer.site_size or "-" }}</td>
+                  <td>{{ buyer.equipment_manufacturer or "-" }}</td>
+                  <td>{{ buyer.detailed_address or "-" }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
-    {% macro sortable_th(key, label) -%}
-      {% set next_direction = 'desc' if sort == key and direction == 'asc' else 'asc' %}
-      <th>
-        <a class="sortable-heading {{ 'active' if sort == key else '' }}" href="{{ url_for('buyers', q=q, sort=key, direction=next_direction) }}">
-          {{ label }}{% if sort == key %}<span>{{ '↑' if direction == 'asc' else '↓' }}</span>{% endif %}
-        </a>
-      </th>
-    {%- endmacro %}
-    <div class="wide-table-scroll" id="buyersTableScroll">
-      <table class="list-table selectable-list-table" data-selectable-table>
-        <thead>
-          <tr>
-            {{ sortable_th("buyer_number", "编号") }}
-            {{ sortable_th("country_name", "国家") }}
-            {{ sortable_th("name", "站点名称") }}
-            {{ sortable_th("owner_name", "业主") }}
-            {{ sortable_th("contact_name", "联系人") }}
-            {{ sortable_th("contact_details", "联系方式") }}
-            {{ sortable_th("email", "电子邮箱地址") }}
-            {{ sortable_th("site_size", "规模") }}
-            {{ sortable_th("equipment_manufacturer", "配套机厂家") }}
-            {{ sortable_th("detailed_address", "详细地址") }}
-          </tr>
-        </thead>
-        <tbody>
-          {% for buyer in buyers %}
-            <tr
-              {% if can_edit or can_delete %}
-                tabindex="0"
-                data-row-id="{{ buyer.id }}"
-                data-row-label="{{ buyer.buyer_number }} · {{ buyer.name }}"
-              {% endif %}
-              {% if can_edit %}data-edit-target="editBuyer{{ buyer.id }}"{% endif %}
-              {% if can_delete %}data-delete-url="{{ url_for('delete_buyer', buyer_id=buyer.id) }}"{% endif %}
-            >
-              <td>{{ buyer.buyer_number }}</td>
-              <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
-              <td>{{ buyer.name }}</td>
-              <td>{{ buyer.owner_name or "-" }}</td>
-              <td>{{ buyer.contact_name or "-" }}</td>
-              <td>{{ buyer.contact_details or "-" }}</td>
-              <td>{{ buyer.email or "-" }}</td>
-              <td>{{ buyer.site_size or "-" }}</td>
-              <td>{{ buyer.equipment_manufacturer or "-" }}</td>
-              <td>{{ buyer.detailed_address or "-" }}</td>
-            </tr>
-          {% else %}
-            <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
+
+    <footer class="erp-summary">
+      {{ summary_item('站点数', buyers|length, 'muted') }}
+    </footer>
+    <footer class="erp-status">
+      <span>记录 <b>{{ buyers|length }}</b> 条</span>
+    </footer>
+  </div>
 
   {% if can_create %}<dialog id="importBuyerDialog" class="modal-dialog">
     <form method="post" action="{{ url_for('import_buyers') }}" enctype="multipart/form-data" class="form-stack">
@@ -244,6 +262,7 @@
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
   <script>
     (() => {
       const importResultDialog = document.getElementById("buyerImportResultDialog");

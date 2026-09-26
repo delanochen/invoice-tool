@@ -1,36 +1,61 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}工单类型 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">工单类型</p><h1>工单类型</h1></div>
-  </header>
+  <div class="erp-app" data-active-panel="list">
+    <header class="erp-toolbar no-print">
+      <div class="erp-toolbar-title">工单类型<small>基础数据 · 工单类型</small></div>
+      <span class="erp-badge">{{ work_order_types|length }} 个类型</span>
+      <span class="erp-toolbar-spacer"></span>
+      <div class="erp-toolbar-group">
+        <button type="button" class="erp-btn primary" data-dialog-open="newWorkOrderTypeDialog">新增工单类型</button>
+      </div>
+    </header>
 
-  <section class="panel">
-    <div class="panel-title"><span class="muted-line">{{ work_order_types|length }} 个类型</span><button class="small primary" type="button" data-dialog-open="newWorkOrderTypeDialog">新增工单类型</button></div>
-    <table class="list-table">
-      <thead><tr><th>编码</th><th>名称</th><th>说明</th><th>状态</th><th>操作</th></tr></thead>
-      <tbody>
-        {% for item in work_order_types %}
-          <tr>
-            <td>{{ item.code }}</td>
-            <td>{{ item.name }}</td>
-            <td>{{ item.description or "-" }}</td>
-            <td>{{ "启用" if item.is_active else "停用" }}</td>
-            <td>
-              <div class="row-actions">
-                <button class="small" type="button" data-dialog-open="editWorkOrderType{{ item.id }}">编辑</button>
-                <form method="post" action="{{ url_for('delete_work_order_type', type_id=item.id) }}" onsubmit="return confirm('确定删除这个工单类型吗？');">
-                  <button class="danger small" type="submit">删除</button>
-                </form>
-              </div>
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="5" class="empty">还没有工单类型。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+    <div class="erp-body">
+      <section class="erp-panel active" data-erp-panel="list">
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid">
+            <thead>
+              <tr>
+                <th>编码</th><th>名称</th><th>说明</th><th>状态</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in work_order_types %}
+                <tr>
+                  <td>{{ item.code }}</td>
+                  <td>{{ item.name }}</td>
+                  <td>{{ item.description or "-" }}</td>
+                  <td>{{ "启用" if item.is_active else "停用" }}</td>
+                  <td>
+                    <div class="row-actions">
+                      <button class="small" type="button" data-dialog-open="editWorkOrderType{{ item.id }}">编辑</button>
+                      <form method="post" action="{{ url_for('delete_work_order_type', type_id=item.id) }}" onsubmit="return confirm('确定删除这个工单类型吗？');">
+                        <button class="danger small" type="submit">删除</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="5" class="empty">还没有工单类型。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <footer class="erp-summary">
+      {{ summary_item('类型数', work_order_types|length, 'muted') }}
+    </footer>
+    <footer class="erp-status">
+      <span>记录 <b>{{ work_order_types|length }}</b> 条</span>
+    </footer>
+  </div>
 
   <dialog id="newWorkOrderTypeDialog" class="modal-dialog">
     <form method="post" class="form-stack">

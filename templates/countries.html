@@ -1,33 +1,56 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}国家配置 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Countries</p><h1>国家配置</h1></div>
-    <button class="primary" type="button" data-dialog-open="countryDialog">新增国家</button>
-  </header>
+  <div class="erp-app" data-active-panel="list">
+    <header class="erp-toolbar no-print">
+      <div class="erp-toolbar-title">国家配置<small>基础数据 · 国家</small></div>
+      <span class="erp-badge">{{ countries|length }} 个国家</span>
+      <span class="erp-toolbar-spacer"></span>
+      <div class="erp-toolbar-group">
+        <button type="button" class="erp-btn primary" data-dialog-open="countryDialog">新增国家</button>
+      </div>
+    </header>
 
-  <section class="panel">
-    <table class="list-table">
-      <thead><tr><th>代码</th><th>区域代码</th><th>当前语言名称</th><th>翻译</th><th>状态</th><th>排序</th><th>操作</th></tr></thead>
-      <tbody>
-        {% for country in countries %}
-          <tr>
-            <td>{{ country.code }}</td>
-            <td>{{ country.region_code }}</td>
-            <td>{{ country.region_name }} · {{ country.name }}</td>
-            <td>
-              {% for translation in translations[country.code] %}
-                <div>{{ translation.language_code }}：{{ translation.region_name }} · {{ translation.name }}</div>
+    <div class="erp-body">
+      <section class="erp-panel active" data-erp-panel="list">
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid">
+            <thead>
+              <tr><th>代码</th><th>区域代码</th><th>当前语言名称</th><th>翻译</th><th>状态</th><th>排序</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {% for country in countries %}
+                <tr>
+                  <td>{{ country.code }}</td>
+                  <td>{{ country.region_code }}</td>
+                  <td>{{ country.region_name }} · {{ country.name }}</td>
+                  <td>
+                    {% for translation in translations[country.code] %}
+                      <div>{{ translation.language_code }}：{{ translation.region_name }} · {{ translation.name }}</div>
+                    {% endfor %}
+                  </td>
+                  <td>{{ "启用" if country.is_active else "停用" }}</td>
+                  <td>{{ country.sort_order }}</td>
+                  <td><button class="small" type="button" data-dialog-open="country{{ country.code }}">编辑</button></td>
+                </tr>
               {% endfor %}
-            </td>
-            <td>{{ "启用" if country.is_active else "停用" }}</td>
-            <td>{{ country.sort_order }}</td>
-            <td><button class="small" type="button" data-dialog-open="country{{ country.code }}">编辑</button></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <footer class="erp-summary">
+      {{ summary_item('国家数', countries|length, 'muted') }}
+    </footer>
+    <footer class="erp-status">
+      <span>记录 <b>{{ countries|length }}</b> 条</span>
+    </footer>
+  </div>
 
   {% macro country_form(country=None) %}
     <form method="post" class="form-stack">

@@ -1,63 +1,83 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}用户 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='user-details.css', v=app_version) }}">
+{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Users</p><h1>用户管理</h1></div>
-  </header>
-
-  <section class="panel users-panel" data-selectable-scope>
-    <div class="panel-title">
-      <div class="toolbar-actions" data-selection-toolbar>
+  <div class="erp-app" data-active-panel="list">
+    <header class="erp-toolbar no-print">
+      <div class="erp-toolbar-title">用户管理<small>基础数据 · 用户</small></div>
+      <span class="erp-badge">{{ users|length }} 个用户</span>
+      <span class="erp-toolbar-spacer"></span>
+      <div class="erp-toolbar-group">
         {% if can_assign %}
-          <button class="small primary" type="button" data-dialog-open="newUserDialog">新增用户</button>
-        {% endif %}
-        <span class="muted-line" data-selected-label>{{ users|length }} 个用户</span>
-        <button class="small" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>
-        {% if can_approve %}
-          <form method="post" data-row-action-form="statusUrl">
-            <input type="hidden" name="is_active" data-selected-input="statusValue">
-            <button class="small" type="submit" data-row-action="statusUrl" disabled>停用</button>
-          </form>
-        {% endif %}
-        {% if can_manage %}
-          <form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个用户吗？');">
-            <button class="danger small" type="submit" disabled>删除</button>
-          </form>
+          <button type="button" class="erp-btn primary" data-dialog-open="newUserDialog">新增用户</button>
         {% endif %}
       </div>
+    </header>
+
+    <div class="erp-body">
+      <section class="erp-panel active" data-erp-panel="list" data-selectable-scope>
+        <div class="erp-toolbar-group no-print" style="padding:4px 2px;flex:0 0 auto;" data-selection-toolbar>
+          <span class="erp-badge" data-selected-label>{{ users|length }} 个用户</span>
+          <button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>
+          {% if can_approve %}
+            <form method="post" data-row-action-form="statusUrl">
+              <input type="hidden" name="is_active" data-selected-input="statusValue">
+              <button class="erp-btn" type="submit" data-row-action="statusUrl" disabled>停用</button>
+            </form>
+          {% endif %}
+          {% if can_manage %}
+            <form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个用户吗？');">
+              <button class="erp-btn" type="submit" disabled>删除</button>
+            </form>
+          {% endif %}
+        </div>
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid users-table selectable-list-table" data-selectable-table>
+            <thead>
+              <tr><th>姓名</th><th>手机号</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th></tr>
+            </thead>
+            <tbody>
+              {% for user in users %}
+                <tr
+                  tabindex="0"
+                  data-row-id="{{ user.id }}"
+                  data-row-label="{{ user.name }} · {{ user.email }}"
+                  data-edit-target="{% if can_manage or user.id == g.user.id or is_external_manager() %}editUser{{ user.id }}{% endif %}"
+                  data-status-url="{% if can_approve and normalized_role(user.role) in ['employee', 'external_employee'] %}{{ url_for('update_user_status', user_id=user.id) }}{% endif %}"
+                  data-status-value="{{ 0 if user.is_active else 1 }}"
+                  data-status-url-label="{{ '停用' if user.is_active else '批准启用' }}"
+                  data-delete-url="{% if can_manage %}{{ url_for('delete_user', user_id=user.id) }}{% endif %}"
+                >
+                  <td>{{ user.name }}</td><td>{{ user.phone or "-" }}</td>
+                  <td>{{ user.email }}</td>
+                  <td>{{ user.role|role_label }}</td>
+                  <td>{{ user.employee_grade_name or "-" }}</td>
+                  <td><span class="status {{ 'completed' if user.is_active else 'returned' }}">{{ "启用" if user.is_active else "停用" }}</span></td>
+                  <td>{{ user.region_name }} / {{ user.country_name }}</td>
+                  <td>{{ user.client_name or "-" }}</td>
+                  <td>{{ user_attachments[user.id]|length }}</td>
+                  <td>{{ user.created_at[:10] }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="10" class="empty">还没有用户。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
-    <div class="wide-table-scroll">
-    <table class="list-table users-table selectable-list-table" data-selectable-table>
-      <thead><tr><th>姓名</th><th>手机号</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th></tr></thead>
-      <tbody>
-        {% for user in users %}
-          <tr
-            tabindex="0"
-            data-row-id="{{ user.id }}"
-            data-row-label="{{ user.name }} · {{ user.email }}"
-            data-edit-target="{% if can_manage or user.id == g.user.id or is_external_manager() %}editUser{{ user.id }}{% endif %}"
-            data-status-url="{% if can_approve and normalized_role(user.role) in ['employee', 'external_employee'] %}{{ url_for('update_user_status', user_id=user.id) }}{% endif %}"
-            data-status-value="{{ 0 if user.is_active else 1 }}"
-            data-status-url-label="{{ '停用' if user.is_active else '批准启用' }}"
-            data-delete-url="{% if can_manage %}{{ url_for('delete_user', user_id=user.id) }}{% endif %}"
-          >
-            <td>{{ user.name }}</td><td>{{ user.phone or "-" }}</td>
-            <td>{{ user.email }}</td>
-            <td>{{ user.role|role_label }}</td>
-            <td>{{ user.employee_grade_name or "-" }}</td>
-            <td><span class="status {{ 'completed' if user.is_active else 'returned' }}">{{ "启用" if user.is_active else "停用" }}</span></td>
-            <td>{{ user.region_name }} / {{ user.country_name }}</td>
-            <td>{{ user.client_name or "-" }}</td>
-            <td>{{ user_attachments[user.id]|length }}</td>
-            <td>{{ user.created_at[:10] }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="10" class="empty">还没有用户。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    </div>
-  </section>
+
+    <footer class="erp-summary">
+      {{ summary_item('用户数', users|length, 'muted') }}
+    </footer>
+    <footer class="erp-status">
+      <span>记录 <b>{{ users|length }}</b> 条</span>
+    </footer>
+  </div>
 
   {% if can_assign %}
     <dialog id="newUserDialog" class="modal-dialog">
@@ -297,5 +317,3 @@
   <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
   <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260710-users-v1') }}"></script>
 {% endblock %}
-
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='user-details.css', v=app_version) }}">{% endblock %}

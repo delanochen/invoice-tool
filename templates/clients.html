@@ -1,64 +1,86 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}客户 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Clients</p><h1>客户资料</h1></div>
-  </header>
-
-  {% if not is_external_manager() %}
-    <form class="panel filter-bar no-print" method="get">
-      <label>查找客户 <input name="q" value="{{ q or '' }}" placeholder="客户编号、公司名称、简称、联系人或邮箱"></label>
-      <div class="filter-actions">
-        <button type="submit">查找</button>
-        <button type="button" onclick="window.location.href='{{ url_for('clients') }}'">重置</button>
+  <div class="erp-app" data-active-panel="list">
+    <header class="erp-toolbar no-print">
+      <div class="erp-toolbar-title">客户资料<small>基础数据 · 客户</small></div>
+      <span class="erp-badge">{{ clients|length }} 个客户</span>
+      <span class="erp-toolbar-spacer"></span>
+      <div class="erp-toolbar-group">
+        {% if not is_external_manager() %}
+          <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+          <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+          <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+          <button type="button" class="erp-btn primary" data-dialog-open="newClientDialog">新增客户</button>
+        {% endif %}
       </div>
-    </form>
-  {% endif %}
+    </header>
 
-  <section class="panel">
-    <div class="panel-title"><span class="muted-line">{{ clients|length }} 个客户</span>{% if not is_external_manager() %}<button class="small primary" type="button" data-dialog-open="newClientDialog">新增客户</button>{% endif %}</div>
-    <table class="list-table">
-      <thead>
-        <tr>
-          <th>编号</th>
-          <th>公司名称</th>
-          <th>简称</th>
-          <th>联系人</th>
-          <th>邮箱</th>
-          <th>国家/地区</th>
-          <th>账期方案</th>
-          <th>地址</th>
-          {% if not is_external_manager() %}<th>操作</th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for client in clients %}
-          <tr>
-            <td>{{ client.client_number }}</td>
-            <td>{{ client.name }}</td>
-            <td>{{ client.short_name }}</td>
-            <td>{{ client.contact_name or "-" }}</td>
-            <td>{{ client.email or "-" }}</td>
-            <td>{{ client.country or "-" }}</td>
-            <td>{{ client.payment_term_name or "Net 30" }}</td>
-            <td>{{ client.address or "-" }}</td>
-            {% if not is_external_manager() %}
-              <td>
-                <div class="row-actions">
-                  <button class="small" type="button" data-dialog-open="editClient{{ client.id }}">编辑</button>
-                  <form method="post" action="{{ url_for('delete_client', client_id=client.id) }}" onsubmit="return confirm('确定删除这个客户吗？已有发票的客户不会被删除。');">
-                    <button class="danger small" type="submit">删除</button>
-                  </form>
-                </div>
-              </td>
-            {% endif %}
-          </tr>
-        {% else %}
-          <tr><td colspan="{% if not is_external_manager() %}9{% else %}8{% endif %}" class="empty">没有符合条件的客户。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+    <div class="erp-body">
+      {% if not is_external_manager() %}
+        <form class="erp-filter no-print" method="get" data-erp-filter>
+          <label class="erp-field">查找客户 <input type="search" name="q" value="{{ q or '' }}" placeholder="客户编号、公司名称、简称、联系人或邮箱"></label>
+        </form>
+      {% endif %}
+
+      <section class="erp-panel active" data-erp-panel="list">
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid">
+            <thead>
+              <tr>
+                <th>编号</th>
+                <th>公司名称</th>
+                <th>简称</th>
+                <th>联系人</th>
+                <th>邮箱</th>
+                <th>国家/地区</th>
+                <th>账期方案</th>
+                <th>地址</th>
+                {% if not is_external_manager() %}<th>操作</th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for client in clients %}
+                <tr>
+                  <td>{{ client.client_number }}</td>
+                  <td>{{ client.name }}</td>
+                  <td>{{ client.short_name }}</td>
+                  <td>{{ client.contact_name or "-" }}</td>
+                  <td>{{ client.email or "-" }}</td>
+                  <td>{{ client.country or "-" }}</td>
+                  <td>{{ client.payment_term_name or "Net 30" }}</td>
+                  <td>{{ client.address or "-" }}</td>
+                  {% if not is_external_manager() %}
+                    <td>
+                      <div class="row-actions">
+                        <button class="small" type="button" data-dialog-open="editClient{{ client.id }}">编辑</button>
+                        <form method="post" action="{{ url_for('delete_client', client_id=client.id) }}" onsubmit="return confirm('确定删除这个客户吗？已有发票的客户不会被删除。');">
+                          <button class="danger small" type="submit">删除</button>
+                        </form>
+                      </div>
+                    </td>
+                  {% endif %}
+                </tr>
+              {% else %}
+                <tr><td colspan="{% if not is_external_manager() %}9{% else %}8{% endif %}" class="empty">没有符合条件的客户。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <footer class="erp-summary">
+      {{ summary_item('客户数', clients|length, 'muted') }}
+    </footer>
+    <footer class="erp-status">
+      <span>记录 <b>{{ clients|length }}</b> 条</span>
+    </footer>
+  </div>
 
   {% if not is_external_manager() %}
     <dialog id="newClientDialog" class="modal-dialog">
@@ -116,4 +138,5 @@
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

@@ -1,51 +1,71 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}厂家 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
 {% block content %}
   {% set can_create = has_action_permission("manufacturers", "create") %}
   {% set can_edit = has_action_permission("manufacturers", "edit") %}
   {% set can_delete = has_action_permission("manufacturers", "delete") %}
-  <header class="page-header">
-    <div><p class="eyebrow">Manufacturers</p><h1>厂家资料</h1></div>
-  </header>
+  <div class="erp-app" data-active-panel="list">
+    <header class="erp-toolbar no-print">
+      <div class="erp-toolbar-title">厂家资料<small>基础数据 · 厂家</small></div>
+      <span class="erp-badge">{{ manufacturers|length }} 个厂家</span>
+      <span class="erp-toolbar-spacer"></span>
+      <div class="erp-toolbar-group">
+        <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+        <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+        <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+        {% if can_create %}<button type="button" class="erp-btn primary" data-dialog-open="newManufacturerDialog">新增厂家</button>{% endif %}
+      </div>
+    </header>
 
-  <form class="panel filter-bar no-print" method="get">
-    <label>查找厂家 <input name="q" value="{{ q or '' }}" placeholder="编号或名称"></label>
-    <div class="filter-actions">
-      <button type="submit">查找</button>
-      <button type="button" onclick="window.location.href='{{ url_for('manufacturers') }}'">重置</button>
+    <div class="erp-body">
+      <form class="erp-filter no-print" method="get" data-erp-filter>
+        <label class="erp-field">查找厂家 <input type="search" name="q" value="{{ q or '' }}" placeholder="编号或名称"></label>
+      </form>
+
+      <section class="erp-panel active" data-erp-panel="list">
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid">
+            <thead>
+              <tr>
+                <th>厂家编号</th>
+                <th>厂家名称</th>
+                {% if can_edit or can_delete %}<th>操作</th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for manufacturer in manufacturers %}
+                <tr>
+                  <td>{{ manufacturer.manufacturer_number }}</td>
+                  <td>{{ manufacturer.name }}</td>
+                  {% if can_edit or can_delete %}<td>
+                    <div class="row-actions">
+                      {% if can_edit %}<button class="small" type="button" data-dialog-open="editManufacturer{{ manufacturer.id }}">编辑</button>{% endif %}
+                      {% if can_delete %}<form method="post" action="{{ url_for('delete_manufacturer', manufacturer_id=manufacturer.id) }}" onsubmit="return confirm('确定删除这个厂家吗？已有站点的厂家不会被删除。');">
+                        <button class="danger small" type="submit">删除</button>
+                      </form>{% endif %}
+                    </div>
+                  </td>{% endif %}
+                </tr>
+              {% else %}
+                <tr><td colspan="{{ 3 if can_edit or can_delete else 2 }}" class="empty">还没有厂家资料。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
-  </form>
 
-  <section class="panel">
-    <div class="panel-title"><span class="muted-line">{{ manufacturers|length }} 个厂家</span>{% if can_create %}<button class="small primary" type="button" data-dialog-open="newManufacturerDialog">新增厂家</button>{% endif %}</div>
-    <table class="list-table">
-      <thead>
-        <tr>
-          <th>厂家编号</th>
-          <th>厂家名称</th>
-          {% if can_edit or can_delete %}<th>操作</th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for manufacturer in manufacturers %}
-          <tr>
-            <td>{{ manufacturer.manufacturer_number }}</td>
-            <td>{{ manufacturer.name }}</td>
-            {% if can_edit or can_delete %}<td>
-              <div class="row-actions">
-                {% if can_edit %}<button class="small" type="button" data-dialog-open="editManufacturer{{ manufacturer.id }}">编辑</button>{% endif %}
-                {% if can_delete %}<form method="post" action="{{ url_for('delete_manufacturer', manufacturer_id=manufacturer.id) }}" onsubmit="return confirm('确定删除这个厂家吗？已有站点的厂家不会被删除。');">
-                  <button class="danger small" type="submit">删除</button>
-                </form>{% endif %}
-              </div>
-            </td>{% endif %}
-          </tr>
-        {% else %}
-          <tr><td colspan="{{ 3 if can_edit or can_delete else 2 }}" class="empty">还没有厂家资料。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+    <footer class="erp-summary">
+      {{ summary_item('厂家数', manufacturers|length, 'muted') }}
+    </footer>
+    <footer class="erp-status">
+      <span>记录 <b>{{ manufacturers|length }}</b> 条</span>
+    </footer>
+  </div>
 
   {% if can_create %}<dialog id="newManufacturerDialog" class="modal-dialog">
     <form method="post" class="form-stack">
@@ -79,4 +99,5 @@
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}
