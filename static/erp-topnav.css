@@ -63,23 +63,38 @@
   border-bottom: 1px solid #9aa7bb;
 }
 
-/* ── 一级菜单（details）── */
-#topnav .nav-group { position: relative; height: 24px; margin: 0; }
+/* ── 一级菜单（details）──
+   注意：styles.css 里的 .nav-group / .nav-submenu / .nav-subgroup 是给旧「左侧深色
+   sidebar」写的，含 padding-top:8px、border-top 分隔线、summary::after 的 ">" 箭头、
+   margin-top:6px 等。这些必须在此逐条显式清零——否则菜单栏 24px 装不下被下推的内容，
+   #topnav 的底边框会横穿文字，看起来像「一条线挡住字」。 */
+#topnav .nav-group {
+  position: relative;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
 #topnav .nav-group > summary {
   list-style: none;
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: flex-start;  /* 清掉旧 sidebar 的 space-between：窄屏压缩时不会把图标与文字拉开 */
   gap: 5px;
   height: 24px;
   padding: 0 9px;
   font-size: 12px;
   color: #22303f;
   border: 1px solid transparent;
+  border-radius: 0;
   user-select: none;
   white-space: nowrap;
 }
 #topnav .nav-group > summary::-webkit-details-marker { display: none; }
+/* 清掉旧 sidebar 的 ">" 折叠箭头（一级菜单只靠下拉面板表达，无需箭头） */
+#topnav .nav-group > summary::after { content: none; }
 #topnav .nav-group > summary svg { flex: 0 0 auto; width: 13px; height: 13px; opacity: .7; }
 #topnav .nav-group > summary:hover svg,
 #topnav .nav-group.active > summary svg,
@@ -108,6 +123,8 @@
   top: 100%;
   left: 0;
   min-width: 190px;
+  margin: 0;             /* 清掉旧 sidebar 的 margin-top:6px —— 面板须紧贴菜单栏，
+                            否则中间那条缝会让鼠标「掉出」菜单，hover 收起会误触发 */
   background: #fff;
   border: 1px solid #8a94a6;
   border-radius: 0;
@@ -155,7 +172,7 @@
 }
 
 /* ── 二级（薪酬参数等）：级联向右弹出的子菜单 ── */
-#topnav .nav-subgroup { position: relative; }
+#topnav .nav-subgroup { position: relative; margin: 0; }
 #topnav .nav-subgroup > summary {
   list-style: none;
   cursor: pointer;
@@ -165,6 +182,7 @@
   padding: 3px 16px 3px 22px;
   font-size: 12px;
   color: #22303f;
+  border-radius: 0;
   user-select: none;
   white-space: nowrap;
 }
@@ -175,7 +193,9 @@
   padding-left: 10px;
   color: #8a94a6;
   font-size: 8px;
+  font-weight: 400;
   line-height: 1;
+  transform: none;   /* 清掉旧 sidebar 的 rotate(90deg)：级联箭头恒指右，展开也不翻转 */
 }
 #topnav .nav-subgroup > summary:hover,
 #topnav .nav-subgroup[open] > summary { background: #1d4ed8; color: #fff; }
@@ -280,6 +300,18 @@
     border: 0;
     font-size: 13px;
   }
+  /* 抽屉里一级菜单补一个展开指示（桌面端菜单条不显示箭头） */
+  #topnav .nav-group > summary::after {
+    content: '▼';
+    margin-left: auto;
+    padding-left: 10px;
+    color: #8a94a6;
+    font-size: 8px;
+    font-weight: 400;
+    line-height: 1;
+    transform: none;
+  }
+  #topnav .nav-group[open] > summary::after { content: '▲'; }
   #topnav .nav-group.active > summary,
   #topnav .nav-group[open] > summary { background: #dbe6fb; color: #12305f; }
   #topnav .nav-submenu {

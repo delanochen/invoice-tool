@@ -4,6 +4,21 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.295] - 2026-09-26
+
+### Fixed（菜单栏有一条线横穿文字）
+- 根因：`styles.css` 里的 `.nav-group` / `.nav-submenu` / `.nav-subgroup` 是给旧「左侧深色 sidebar」写的，`erp-topnav.css` 上一轮只覆盖了 `margin`，没覆盖 `padding`。残留的 `padding-top: 8px` 把菜单内容整体下推，24px 的菜单栏装不下 → `#topnav` 的底边框正好落在文字中下部，看起来像「一条线挡住字」。
+- 修复：`#topnav .nav-group` 显式 `padding: 0; margin: 0; border: 0; border-radius: 0`，一级 `summary` 同样清零 `border-radius` 并 `justify-content: flex-start`（清掉 `space-between`，窄屏压缩时不会把图标与文字拉开）。
+- 顺带清掉同一批旧规则的三处残留：一级菜单 `summary::after` 的 `">"` 折叠箭头（`content: none`）、`.nav-submenu` 的 `margin-top: 6px`（面板与菜单栏之间多一条缝，鼠标划过会「掉出」菜单）、`.nav-subgroup[open] summary::after` 的 `rotate(90deg)`（级联 ▶ 展开后被转成 ▼，现恒指右）。
+
+### Fixed（鼠标移开菜单不收起）
+- 新增 C/S 收合行为：鼠标离开整个菜单区域（含下拉面板，面板是 `#topnav` 后代故不会误触发）后 260ms 自动收起全部菜单；短延时用于兜住「菜单栏 → 面板」的移动过程。`matchMedia('(hover: hover)')` 保护，触屏不受影响。
+- `closeAll()` 现在连二级 `.nav-subgroup[open]` 一起复位，下次打开不残留上次展开的层级；点菜单栏空白处也会收起；键盘 Tab 走出菜单范围同样收起。
+- 移动端抽屉里一级菜单补 ▼/▲ 展开指示（桌面菜单条不显示箭头）。
+
+### Notes
+- 验证方式：用系统 Chrome headless 渲染真实 `styles.css` + `erp-topnav.css` + 照抄 base.html 的 DOM，由页面内脚本测量 `getBoundingClientRect` 与 `getComputedStyle` 并输出断言（旧规则残留是否为 0、菜单项是否溢出菜单栏 24px、面板与菜单栏是否零缝隙、mouseleave 后 `open` 计数），900px 与 500px 两种宽度均通过。
+
 ## [0.1.294] - 2026-09-26
 
 ### Fixed（ERP 页面状态栏被挤出屏幕）

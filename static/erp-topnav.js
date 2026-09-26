@@ -1,7 +1,7 @@
 /* ============================================================
-   ERP 顶部菜单交互（v0.1.294）
-   C/S 客户端行为：单开下拉、打开后悬浮即切换到相邻菜单、方向键/Enter/Esc
-   键盘操作、点击外部收起、移动端汉堡抽屉
+   ERP 顶部菜单交互（v0.1.295）
+   C/S 客户端行为：单开下拉、打开后悬浮即切换到相邻菜单、鼠标移开自动收起、
+   方向键/Enter/Esc 键盘操作、点击外部收起、移动端汉堡抽屉
    ============================================================ */
 (function () {
   'use strict';
@@ -11,17 +11,24 @@
   function allGroups() {
     return Array.prototype.slice.call(nav.querySelectorAll('.nav-group'));
   }
+  // 收起时连二级（.nav-subgroup）一起复位，下次打开不会残留上次展开的层级
   function closeAll() {
-    allGroups().forEach(function (g) { if (g.open) g.open = false; });
+    Array.prototype.forEach.call(
+      nav.querySelectorAll('.nav-group[open], .nav-subgroup[open]'),
+      function (el) { el.open = false; }
+    );
   }
   function summaryOf(group) {
     return group ? group.querySelector(':scope > summary') : null;
   }
 
-  // 点击一级菜单：只开当前组，关掉其他组
+  // 点击一级菜单：只开当前组，关掉其他组；点菜单栏空白处收起
   nav.addEventListener('click', function (e) {
     var group = e.target.closest('.nav-group');
-    if (!group) return;
+    if (!group) {           // 菜单栏上的空白区域
+      closeAll();
+      return;
+    }
     if (e.target.closest('summary')) {
       allGroups().forEach(function (g) {
         if (g !== group && g.open) g.open = false;
@@ -39,6 +46,26 @@
     allGroups().forEach(function (g) { if (g !== group && g.open) g.open = false; });
     group.open = true;
   });
+
+  // 鼠标移开整个菜单区域（含下拉面板）后自动收起。
+  // 下拉面板是 nav 的后代，鼠标在其上不会触发 mouseleave；260ms 的短延时用于兜住
+  // 「菜单栏 → 面板」的移动过程，避免菜单刚打开就被收掉。
+  if (window.matchMedia && window.matchMedia('(hover: hover)').matches) {
+    var closeTimer = null;
+    function cancelAutoClose() {
+      if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    }
+    nav.addEventListener('mouseenter', cancelAutoClose);
+    nav.addEventListener('mousemove', cancelAutoClose);
+    nav.addEventListener('mouseleave', function () {
+      cancelAutoClose();
+      closeTimer = setTimeout(function () { closeTimer = null; closeAll(); }, 260);
+    });
+    // 键盘/Tab 走到菜单之外时同样收起
+    nav.addEventListener('focusout', function (e) {
+      if (!nav.contains(e.relatedTarget)) closeAll();
+    });
+  }
 
   // 键盘操作：↓ 打开并聚焦首项、← → 在顶级菜单间移动、Esc 收起
   nav.addEventListener('keydown', function (e) {
