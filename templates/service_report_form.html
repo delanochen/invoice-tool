@@ -196,16 +196,29 @@
         <button type="button" id="deleteServiceWorkerRow" disabled>删除行</button>
       </div>
       <div class="table-scroll">
-        <table class="list-table compact-table selectable-list-table" id="serviceWorkersTable">
-          <thead><tr><th>人员</th><th>员工出发地</th><th>出行方式</th><th>行程类型</th><th>里程</th><th>交通时长</th><th>公共交通时长</th></tr></thead>
+        <table class="list-table compact-table selectable-list-table" id="serviceWorkersTable" data-grid-filler="1">
+          {# 列宽由 data-grid-width 交给 system-grid.js 固定（Tabulator 镜像的列宽与源表
+             nth-child 无关，必须这样传）。「员工出发地」放在三个短枚举之后并放宽到 440px——
+             地址文本最长，原来 200px 会被截断；「里程 / 交通时长 / 公共交通时长」收窄
+             （都是数字，不需要那么宽）。data-grid-filler 让末尾多一条空列吸收剩余空间，
+             否则 fitDataStretch 会把剩余空间全给最后一列，宽屏下会把某列撑到 1000px 以上。 #}
+          <thead><tr>
+            <th data-grid-width="130">人员</th>
+            <th data-grid-width="115">出行方式</th>
+            <th data-grid-width="105">行程类型</th>
+            <th data-grid-width="440">员工出发地</th>
+            <th data-grid-width="95">里程</th>
+            <th data-grid-width="95">交通时长</th>
+            <th data-grid-width="150">公共交通时长</th>
+          </tr></thead>
           <tbody>
             {% for worker in worker_rows %}
               {% set worker_trip = worker.trip_type or 'round_trip' %}
               <tr tabindex="0" aria-selected="false">
                 <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}" {% if worker.id == user.id %}selected{% endif %}>{{ user.name }}</option>{% endfor %}</select></td>
-                <td><input name="worker_origin" value="{{ worker.origin_address or '' }}" placeholder="留空则由辅助填写取员工主数据地址"></td>
                 <td><select name="worker_travel_mode"><option value="self_drive" {% if worker.travel_mode in ['self_drive', 'legacy'] %}selected{% endif %}>自驾</option><option value="rental_drive" {% if worker.travel_mode == 'rental_drive' %}selected{% endif %}>租车驾驶</option><option value="flight" {% if worker.travel_mode == 'flight' %}selected{% endif %}>飞机</option><option value="following" {% if worker.travel_mode == 'following' %}selected{% endif %}>随行</option></select></td>
                 <td><select name="worker_trip_type"><option value="round_trip" {% if worker_trip == 'round_trip' %}selected{% endif %}>往返</option><option value="one_way" {% if worker_trip == 'one_way' %}selected{% endif %}>单程</option></select></td>
+                <td><input name="worker_origin" value="{{ worker.origin_address or '' }}" placeholder="留空则由辅助填写取员工主数据地址"></td>
                 <td><input type="number" step="any" min="0" name="worker_driving_miles" value="{{ worker.driving_miles or 0 }}"></td>
                 <td><input type="number" step="any" min="0" name="worker_travel_hours" value="{{ worker.travel_hours if worker.travel_hours is not none else report.travel_hours or 0 }}"></td>
                 <td><input type="number" step="any" min="0" name="worker_public_transport_hours" value="{{ worker.public_transport_hours if worker.public_transport_hours is not none else report.public_transport_hours or 0 }}"></td>
@@ -216,9 +229,9 @@
       </div>
       <template id="serviceWorkerRowTemplate"><tr tabindex="0" aria-selected="false">
         <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}">{{ user.name }}</option>{% endfor %}</select></td>
-        <td><input name="worker_origin" placeholder="留空则由辅助填写取员工主数据地址"></td>
         <td><select name="worker_travel_mode"><option value="self_drive">自驾</option><option value="rental_drive">租车驾驶</option><option value="flight">飞机</option><option value="following">随行</option></select></td>
         <td><select name="worker_trip_type"><option value="round_trip">往返</option><option value="one_way">单程</option></select></td>
+        <td><input name="worker_origin" placeholder="留空则由辅助填写取员工主数据地址"></td>
         <td><input type="number" step="any" min="0" name="worker_driving_miles"></td>
         <td><input type="number" step="any" min="0" name="worker_travel_hours"></td>
         <td><input type="number" step="any" min="0" name="worker_public_transport_hours"></td>

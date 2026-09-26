@@ -6,7 +6,11 @@
  *       DataGrid / SummaryBar / StatusBar / MobileWorkOrderCard /
  *       WorkOrderDetailPanel
  * ========================================================================== */
-.erp-app {
+/* ERP 视觉令牌。.erp-app 是完整外壳（网格 + 工具栏 + 汇总栏 + 状态栏）；
+   .erp-scope 只借令牌、不带任何布局，供「不适合套网格外壳」的页面使用
+   （如站点地图：地图要吃掉全部剩余高度，只把工具栏与筛选条 ERP 化）。 */
+.erp-app,
+.erp-scope {
   --erp-bg: #f1f3f6;
   --erp-panel: #ffffff;
   --erp-ink: #1f2733;
@@ -23,6 +27,8 @@
   --erp-foot: #eef1f5;
   --erp-radius: 2px;
   --erp-row-height: 26px;
+}
+.erp-app {
   color: var(--erp-ink);
   background: var(--erp-bg);
   border: 1px solid var(--erp-line);
@@ -439,7 +445,12 @@
 .erp-app .system-grid .tabulator-row.tabulator-group { background: #eef2f7; font-size: 11.5px; }
 .erp-app .system-grid .status { border-radius: 2px; padding: 0 5px; font-size: 11px; font-weight: 700; }
 .erp-app .system-grid a { color: var(--erp-accent); font-weight: 600; }
-.erp-app .system-grid .tabulator-col-resize-handle { border-right: 1px dotted #9aa7bb; }
+/* 列宽拖拽手柄：Tabulator 在表头和每一行的 cell 里都插了一个 .tabulator-col-resize-handle
+   （6px 宽的透明条，用来拖拽列宽）。ERP 之前给它加了一条常显的 dotted 边框，而它落在
+   相邻 cell 的 border-right 右边 3px 处 → 每个列边界都变成两条竖线（用户反馈「线都是双线」）。
+   改成平时透明、悬停才显形：既不画假线，又保留"这里能拖"的可发现性。 */
+.erp-app .system-grid .tabulator-col-resize-handle { border-right: 1px dotted transparent; }
+.erp-app .system-grid .tabulator-col-resize-handle:hover { border-right-color: #9aa7bb; }
 
 /* 原生表格（JS 不可用 / 打印时的退化显示），保持高密度 ERP 观感 */
 .erp-grid {
@@ -780,4 +791,101 @@
   .erp-grid-wrap { height: auto; border: 0; overflow: visible; }
   .erp-app .system-grid { display: none !important; }
   .erp-app .erp-grid.grid-source { display: table !important; }
+}
+
+/* ==========================================================================
+ * 站点地图：工具栏 + 筛选条（ERP 紧凑风）
+ * 地图页不套 .erp-app 网格外壳——地图要吃掉全部剩余高度；只在工具栏与筛选条上
+ * 用 .erp-scope 借令牌，把控件密度对齐 .erp-filter / .erp-field（26px 控件、
+ * 2px 圆角、12px 字号），取代原来 38~42px 高、6px 圆角的 Web 风控件。
+ * ========================================================================== */
+.service-order-map-page .erp-toolbar {
+  /* .erp-app 网格里 .erp-toolbar 带 grid-area: toolbar；地图页的 .main 也是 grid
+     （grid-template-rows: auto auto minmax(0,1fr)），残留的 grid-area 会生成隐式
+     行列、把工具栏甩到页面底部。这里必须显式清零。 */
+  grid-area: auto;
+  position: static;
+  margin-bottom: 6px;
+  border: 1px solid var(--erp-line);
+  border-radius: var(--erp-radius);
+}
+.service-order-map-page .erp-toolbar .erp-badge strong { font-size: 12px; color: var(--erp-ink); }
+.erp-map-progress { color: var(--erp-muted); font-size: 11px; }
+.erp-map-progress:not(:empty)::before { content: "·"; margin: 0 6px; color: var(--erp-line); }
+
+/* ---- FilterBar：一行放得下，控件 26px ---- */
+.service-order-map-page .map-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 6px;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  background: var(--erp-head);
+  border: 1px solid var(--erp-line);
+  border-radius: var(--erp-radius);
+}
+.service-order-map-page .map-toolbar .map-search-field { flex: 1 1 240px; min-width: 168px; max-width: none; }
+.service-order-map-page .map-toolbar .map-search-field input {
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid #a9b4c5;
+  border-radius: var(--erp-radius);
+  font-size: 12px;
+}
+.service-order-map-page .map-toolbar .map-filter-select { flex: 0 1 148px; min-width: 112px; max-width: 168px; }
+.service-order-map-page .map-toolbar .multi-select summary {
+  justify-content: space-between;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid #a9b4c5;
+  border-radius: var(--erp-radius);
+  font-size: 12px;
+}
+/* 折叠箭头改成 ERP/C-S 惯例的实心小三角，不再用旋转的 ">" */
+.service-order-map-page .map-toolbar .multi-select summary::after {
+  content: "▾";
+  transform: none;
+  font-size: 9px;
+  line-height: 1;
+}
+.service-order-map-page .map-toolbar .multi-select[open] summary { border-color: var(--erp-accent); }
+.service-order-map-page .map-toolbar .multi-select summary.has-active-filter {
+  border-color: var(--erp-accent);
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent);
+}
+.service-order-map-page .map-toolbar .multi-select-menu {
+  top: calc(100% + 2px);
+  gap: 1px;
+  padding: 3px;
+  border-radius: var(--erp-radius);
+  box-shadow: 3px 3px 6px rgba(15, 23, 42, .22);
+}
+.service-order-map-page .map-toolbar .multi-select-menu label {
+  gap: 6px;
+  padding: 3px 5px;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 400;
+}
+.service-order-map-page .map-toolbar .multi-select-menu label:hover { background: var(--erp-hover); }
+.service-order-map-page .map-toolbar .multi-select-menu input { width: 13px; height: 13px; }
+.service-order-map-page .map-toolbar label.map-mode-toggle {
+  min-height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--erp-line);
+  border-radius: var(--erp-radius);
+  font-size: 12px;
+  color: var(--erp-ink);
+  background: #fff;
+}
+
+/* 窄屏：筛选项各占一整行、控件放大到 32px（触屏），与 ERP 移动端密度一致 */
+@media (max-width: 640px) {
+  .service-order-map-page .map-toolbar .map-search-field,
+  .service-order-map-page .map-toolbar .map-filter-select { flex: 1 1 100%; min-width: 0; max-width: none; }
+  .service-order-map-page .map-toolbar .map-search-field input,
+  .service-order-map-page .map-toolbar label.map-mode-toggle { min-height: 32px; font-size: 13px; }
+  .service-order-map-page .map-toolbar .multi-select summary { min-height: 32px; font-size: 13px; }
 }

@@ -227,9 +227,21 @@
     const host = app.parentElement || document.body;
     const reserve = parseFloat(window.getComputedStyle(host).paddingBottom) || 0;
     const top = app.getBoundingClientRect().top + window.scrollY;
-    const available = Math.floor(window.innerHeight - top - reserve);
-    // min-height: 360px（erp-ui.css）保证矮窗口下不至于压成一条
-    if (available > 0) app.style.height = `${Math.max(available, 360)}px`;
+    // 用 clientHeight 而不是 innerHeight：出现横向滚动条时 innerHeight 会把滚动条那十几像素
+    // 也算进"可用高度"，app 底部会被状态栏压在滚动条下面。
+    const viewportH = document.documentElement.clientHeight || window.innerHeight;
+    const available = Math.floor(viewportH - top - reserve);
+    // 必须精确贴合可用高度，不能再设下限：
+    // 原来写 Math.max(available, 360)，而 CSS 里 .erp-app 又有 min-height: 360px。
+    // 窗口（或工作区 iframe）可用高度一旦小于 360px——小屏笔记本、缩小窗口、
+    // 浏览器 125%/150% 缩放下很容易发生——app 会被硬撑到 360px，多出来的部分
+    // 正好把底部的汇总栏与状态栏顶到屏幕外，用户看到的就是"汇总行看不到了"。
+    // 汇总栏/状态栏常驻的优先级高于"别压成一条"，所以这里按实际可用高度贴合，
+    // 同时把 min-height 清零（内联样式覆盖 CSS），让 body 行自己压缩、内容区内滚。
+    if (available > 0) {
+      app.style.height = `${available}px`;
+      app.style.minHeight = '0';
+    }
   }
   fitViewport();
   window.addEventListener('resize', () => requestAnimationFrame(fitViewport));

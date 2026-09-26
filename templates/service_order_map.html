@@ -1,15 +1,20 @@
 {% extends "base.html" %}
 {% block title %}站点地图 - 发票工具{% endblock %}
 {% block body_class %}service-order-map-page{% endblock %}
-{% block head %}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">站点地图</p><h1>站点地图</h1></div>
-    <div class="actions">
-      <button type="button" onclick="window.location.href='{{ url_for('service_orders') }}'">工单列表</button>
+  {# 地图页不套 .erp-app 网格外壳（地图要吃掉全部剩余高度），
+     只给工具栏与筛选条加 .erp-scope 借 ERP 令牌。#}
+  <header class="erp-toolbar erp-scope no-print">
+    <div class="erp-toolbar-title">站点地图<small>服务工单站点分布</small></div>
+    <span class="erp-badge" title="已定位 / 全部站点"><strong id="visibleOrderCount">0</strong> / <span id="totalOrderCount">{{ map_buyers|length }}</span></span>
+    <span id="geocodeProgress" class="erp-map-progress" aria-live="polite"></span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_orders') }}'">工单列表</button>
     </div>
   </header>
-  <div class="map-toolbar no-print">
+  <div class="map-toolbar erp-scope no-print">
     <div class="map-search-field">
       <input id="mapSearch" aria-label="关键词" placeholder="站点编号、站点名称、业主、厂家、联系人、邮箱或地址">
     </div>
@@ -37,10 +42,6 @@
       <input type="checkbox" id="staticModeToggle">
       <span>静态模式</span>
     </label>
-    <div class="map-summary" aria-live="polite">
-      <strong id="visibleOrderCount">0</strong><span>/</span><span id="totalOrderCount">{{ map_buyers|length }}</span>
-      <span id="geocodeProgress"></span>
-    </div>
   </div>
   <section class="service-map-layout">
     <div id="serviceOrderMap" class="service-order-map" aria-label="站点地图"></div>

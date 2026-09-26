@@ -47,15 +47,25 @@
       this.host = document.createElement('div'); this.shell.append(this.tools, this.host); source.before(this.shell);
       if(source.classList.contains('service-orders-table')) this.shell.classList.add('service-orders-grid');
       this.data = this.read();
-      const columns = this.headers.map((title, index) => ({
-        title, field:`c${index}`, minWidth:85, width: /备注|说明|附件|工作内容/.test(title) ? 240 : undefined,
-        widthGrow: /备注|说明/.test(title) ? 2 : 1,
-        headerSort: true, variableHeight:true,
-        sorter: (a,b) => this.money[index] ? this.numeric(a)-this.numeric(b) : String(a).localeCompare(String(b), undefined, {numeric:true}),
-        hozAlign: this.money[index] ? 'right' : 'left',
-        formatter: cell => this.mirror(this.rows.get(cell.getData()._id)?.cells[index], cell),
-        ...(this.money[index] ? {bottomCalc:(values, data) => total(data.map(row => row[`m${index}`])), bottomCalcFormatter:'textarea'} : {}),
-      }));
+      const columns = this.headers.map((title, index) => {
+        // 列宽提示：源表 <th data-grid-width="440"> 直传给 Tabulator。
+        // 镜像出来的列宽跟源表 CSS 里那些 nth-child 规则一点关系都没有，只能这样传。
+        // 不传的话 fitDataStretch 会把各列摊成差不多宽：像「员工出发地」这种长文本列
+        // 被压到只剩几十像素，「里程 / 交通时长」这种短数字列反倒各占 200px。
+        // 注意别指望 widthGrow——fitDataStretch 的实现根本不看它，它只把剩余空间整块
+        // 丢给最后一列（想让某列保持声明宽度，就用下面的 data-grid-filler 造一条空列垫底）。
+        const headCell = source.tHead.rows[0].cells[index] || {};
+        const fixedWidth = parseInt(headCell.dataset ? (headCell.dataset.gridWidth || '') : '', 10);
+        return {
+          title, field:`c${index}`, minWidth:85,
+          width: fixedWidth || (/备注|说明|附件|工作内容/.test(title) ? 240 : undefined),
+          headerSort: true, variableHeight:true,
+          sorter: (a,b) => this.money[index] ? this.numeric(a)-this.numeric(b) : String(a).localeCompare(String(b), undefined, {numeric:true}),
+          hozAlign: this.money[index] ? 'right' : 'left',
+          formatter: cell => this.mirror(this.rows.get(cell.getData()._id)?.cells[index], cell),
+          ...(this.money[index] ? {bottomCalc:(values, data) => total(data.map(row => row[`m${index}`])), bottomCalcFormatter:'textarea'} : {}),
+        };
+      });
       if (this.money.some(Boolean) && !this.money[0]) columns[0].bottomCalc = () => t('小计 / 合计');
       const groupedColumns = [];
       columns.forEach((column, index) => {
@@ -66,6 +76,18 @@
         else groupedColumns.push({_group:group, title:t(group), columns:[column]});
       });
       groupedColumns.forEach(column => delete column._group);
+      // Opt-in 末尾填充列：源表上写 data-grid-filler。
+      // fitDataStretch 的分配规则是「各列按声明宽度排好，剩余空间整块给最后一列」，
+      // 所以只要让最后一列是个空列，前面每一列就能精确保持 data-grid-width 声明的宽度，
+      // 而不会被剩余空间撑开（宽屏下「员工出发地」会被撑到 1000px 以上）。
+      // 必须等分组跑完再追加：分组循环按下标取源表 tHead 的单元格，填充列在源表里没有
+      // 对应的 <th>，提前 push 会让 cells[index] 取到 undefined 而整张网格初始化失败。
+      if (source.dataset.gridFiller) {
+        groupedColumns.push({
+          title:'', field:'__filler', widthGrow:1, minWidth:0, headerSort:false, editable:false,
+          formatter: () => '',
+        });
+      }
       // Opt-in frozen header / fixed body height. Set `data-grid-height="100%"`
       // (or any CSS height) on the source table; without it the grid keeps the
       // legacy behaviour of growing with the page.

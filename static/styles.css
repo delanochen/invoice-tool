@@ -1535,22 +1535,28 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .fuel-vehicle-field[hidden] { display: none; }
 .fuel-vehicle-field select { width: 100%; }
 .required-mark { color: #d92d20; font-style: normal; }
+/* 列宽按「当前列序」写：人员 / 出行方式 / 行程类型 / 员工出发地 / 里程 / 交通时长 / 公共交通时长。
+   改列序时这两块必须一起改——nth-child 认的是位置，不是列名，列一挪宽度就悄悄串位了。
+   这里的值与模板里 th 的 data-grid-width 一一对应（镜像表格读的是后者，本块只服务
+   未启用镜像时的原生表格）。 */
 #serviceWorkersTable {
-  min-width: 980px;
+  min-width: 1130px;
   table-layout: fixed;
 }
 #serviceWorkersTable th:nth-child(1),
-#serviceWorkersTable td:nth-child(1) { width: 180px; }
+#serviceWorkersTable td:nth-child(1) { width: 130px; }
 #serviceWorkersTable th:nth-child(2),
-#serviceWorkersTable td:nth-child(2) { width: 120px; }
+#serviceWorkersTable td:nth-child(2) { width: 115px; }
 #serviceWorkersTable th:nth-child(3),
-#serviceWorkersTable td:nth-child(3),
+#serviceWorkersTable td:nth-child(3) { width: 105px; }
 #serviceWorkersTable th:nth-child(4),
-#serviceWorkersTable td:nth-child(4),
+#serviceWorkersTable td:nth-child(4) { width: 440px; }
 #serviceWorkersTable th:nth-child(5),
-#serviceWorkersTable td:nth-child(5) { width: 105px; }
+#serviceWorkersTable td:nth-child(5),
 #serviceWorkersTable th:nth-child(6),
-#serviceWorkersTable td:nth-child(6) { width: 360px; }
+#serviceWorkersTable td:nth-child(6) { width: 95px; }
+#serviceWorkersTable th:nth-child(7),
+#serviceWorkersTable td:nth-child(7) { width: 150px; }
 #serviceWorkersTable input,
 #serviceWorkersTable select {
   width: 100%;
