@@ -76,6 +76,7 @@ from settlement_review import (
     selected_expense_total,
 )
 from profitability import init_profitability_schema, register_profitability_routes
+from employee_finance import ensure_expense_payment_order, register_employee_finance_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
 import llm_config
@@ -325,6 +326,24 @@ MENU_PERMISSION_GROUPS = [
         ],
     },
     {
+        "label": "财务管理",
+        "items": [
+            {"key": "finance_overview", "label": "财务总览", "roles": {"admin", "manager", "finance"}},
+            {"key": "employee_payments", "label": "员工付款中心", "roles": {"admin", "manager", "finance"}},
+            {"key": "bank_accounts", "label": "银行账户", "roles": {"admin", "finance"}},
+            {"key": "bank_transactions", "label": "银行流水", "roles": {"admin", "finance"}},
+            {"key": "employee_advances", "label": "员工借款", "roles": {"admin", "manager", "finance"}},
+            {"key": "employee_ledger", "label": "员工往来账", "roles": {"admin", "manager", "finance"}},
+            {"key": "bank_reconciliation", "label": "银行对账", "roles": {"admin", "finance"}},
+        ],
+    },
+    {
+        "label": "资产管理",
+        "items": [
+            {"key": "assets", "label": "资产档案", "roles": {"admin", "manager", "finance"}},
+        ],
+    },
+    {
         "label": "基础数据",
         "items": [
             {"key": "clients", "label": "客户", "roles": {"admin", "manager", "finance", "external_manager"}},
@@ -379,6 +398,7 @@ ACTION_LABELS = {
     "pay": "核销",
     "execute": "执行",
     "ai_review": "AI 智能审核",
+    "reconcile": "对账",
 }
 
 ROLE_ACTION_PERMISSION_GROUPS = [
@@ -423,6 +443,19 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "database_console", "label": "数据库工具", "actions": {"view": {"admin"}, "execute": {"admin"}}},
             {"key": "payment_terms", "label": "账期管理", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "audit_logs", "label": "操作日志", "actions": {"view": {"admin", "manager", "finance"}}},
+        ],
+    },
+    {
+        "label": "财务与资产",
+        "items": [
+            {"key": "finance_overview", "label": "财务总览", "actions": {"view": {"admin", "manager", "finance"}}},
+            {"key": "employee_payments", "label": "员工付款单", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "approve": {"admin", "manager", "finance"}, "pay": {"admin", "finance"}, "reconcile": {"admin", "finance"}}},
+            {"key": "employee_advances", "label": "员工借款", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "finance"}}},
+            {"key": "bank_accounts", "label": "银行账户", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
+            {"key": "bank_transactions", "label": "银行流水", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
+            {"key": "employee_ledger", "label": "员工往来账", "actions": {"view": {"admin", "manager", "finance"}}},
+            {"key": "bank_reconciliation", "label": "银行对账", "actions": {"view": {"admin", "finance"}, "edit": {"admin", "finance"}}},
+            {"key": "assets", "label": "资产档案", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin"}}},
         ],
     },
 ]
@@ -8401,6 +8434,7 @@ def inject_globals():
         "supported_languages": SUPPORTED_LANGUAGES,
         "can_manage_company_info": can_manage_company_info,
         "app_version": APP_VERSION,
+        "production_postgres": postgres_enabled(),
     }
 
 
@@ -10258,6 +10292,20 @@ def employee_grade_panel(grade):
     item_map = {}
     for item in items:
         item_map.setdefault(item["version_id"], {})[item["rate_type"]] = item
+    # 现存数据里可能仍有有效期互相重叠的版本（重叠校验上线前的遗留），直接摆到页面上
+    # 让用户用「编辑」修掉 —— 编辑保存时会被重叠校验拦住，直到改到不重叠为止。
+    # 取价规则：重叠期间按生效日期较晚的版本算（_version_for_day 的 order by）。
+    active_versions = [v for v in versions if v["status"] == "active"]
+    overlapping_versions = []
+    for index, left in enumerate(active_versions):
+        for right in active_versions[index + 1:]:
+            left_end = left["effective_to"] or "9999-12-31"
+            right_end = right["effective_to"] or "9999-12-31"
+            if left["effective_from"] <= right_end and right["effective_from"] <= left_end:
+                overlapping_versions.append(
+                    f"v{left['version_no']}（{left['effective_from']} ～ {left['effective_to'] or '长期'}）"
+                    f"与 v{right['version_no']}（{right['effective_from']} ～ {right['effective_to'] or '长期'}）"
+                )
     snapshot = employee_grade_rate_snapshot(db(), grade_id, date.today().isoformat())
     missing = [key for key, value in snapshot["rates"].items() if value["source"] == "missing"]
     # 费率为 0 有两种来源：列里就是 0（新建等级默认值），或版本里明确写了 0。
@@ -10279,6 +10327,7 @@ def employee_grade_panel(grade):
         "current_version": snapshot["version"],
         "missing_rates": missing,
         "zero_rate_labels": zero_labels,
+        "overlapping_versions": overlapping_versions,
         "rates_all_zero": len(zero_labels) == len(snapshot["rates"]),
     }
 
@@ -19756,6 +19805,10 @@ def approve_expense(expense_id):
         exclude_user_ids={expense["created_by"], expense_beneficiary_id(expense), g.user["id"]},
     )
     log_action("approve", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
+    # Approval now creates the accounts-payable document while preserving the
+    # expense's existing review and profitability semantics.
+    if postgres_enabled():
+        ensure_expense_payment_order(globals(), expense_id)
     db().commit()
     flash("报销已审核通过。", "success")
     return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -21468,6 +21521,7 @@ register_rate_routes(app, globals())
 register_settlement_review_routes(app, globals())
 register_profitability_routes(app, globals())
 register_travel_tools_routes(app, globals())
+register_employee_finance_routes(app, globals())
 
 
 if __name__ == "__main__":

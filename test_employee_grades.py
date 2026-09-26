@@ -82,11 +82,15 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
     def add_version(self, effective_from, effective_to, rates):
         with self.m.app.app_context():
             db = self.m.db()
+            next_no = db.execute(
+                'select coalesce(max(version_no), 0) + 1 as value from employee_rate_versions where employee_grade_id = ?',
+                (self.grade_id,),
+            ).fetchone()[0]
             version_id = db.execute(
                 """insert into employee_rate_versions
                    (employee_grade_id, version_no, effective_from, effective_to, status, notes, created_by, created_at, updated_at)
-                   values (?, 1, ?, ?, 'active', '', ?, ?, ?)""",
-                (self.grade_id, effective_from, effective_to, self.fixture.people['Manager'],
+                   values (?, ?, ?, ?, 'active', '', ?, ?, ?)""",
+                (self.grade_id, next_no, effective_from, effective_to, self.fixture.people['Manager'],
                  self.m.now(), self.m.now()),
             ).lastrowid
             for key, value in rates.items():
@@ -606,6 +610,96 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertEqual(items['regular_hours'], 31)
         self.assertEqual(items['mileage'], 1.2)
         self.assertEqual(items['overtime_hours'], 0)
+
+    # ------------------------------------------- 费率版本可编辑（历史版本除外）
+    def edit_version(self, version_id, **overrides):
+        data = {
+            'effective_from': '2026-10-01', 'effective_to': '',
+            'regular_hours': '26', 'overtime_hours': '41', 'holiday_hours': '61',
+            'travel_hours': '8', 'public_transport_hours': '6', 'mileage': '0.95',
+            'rental_drive_hours': '19', 'notes': '修正',
+        }
+        data.update(overrides)
+        return self.http.post(f'/employee-grades/{self.grade_id}/rates/{version_id}/edit', data=data)
+
+    def test_edit_version_updates_dates_rates_and_notes(self):
+        version_id = self.add_version('2026-10-01', None, {'regular_hours': 25, 'mileage': 0.9})
+        response = self.edit_version(version_id, effective_from='2026-10-05', effective_to='2027-09-30')
+        self.assertEqual(response.status_code, 302)
+        version = self.query('select * from employee_rate_versions where id = ?', (version_id,))[0]
+        self.assertEqual(version['effective_from'], '2026-10-05')
+        self.assertEqual(version['effective_to'], '2027-09-30')
+        self.assertEqual(version['notes'], '修正')
+        items = self.version_items(version_id)
+        self.assertEqual(items['regular_hours'], 26)
+        self.assertEqual(items['mileage'], 0.95)
+        # 页面上能看到「编辑」按钮与对应弹窗
+        page = self.page(self.grade_id)
+        self.assertIn(f'data-dialog-open="editRateVersionDialog{version_id}"', page)
+
+    def test_edit_version_payroll_lookup_follows_new_values(self):
+        """编辑版本后，工资取价要按修正后的费率/有效期走。"""
+        version_id = self.add_version('2026-09-01', None, {'regular_hours': 25, 'mileage': 0.9})
+        # 默认编辑表单会把生效期改到 10-01（未来），这里明确保持 09-01 起生效
+        self.edit_version(version_id, effective_from='2026-09-01', regular_hours='40')
+        with self.m.app.app_context():
+            snapshot = self.m.employee_grade_rate_snapshot(self.m.db(), self.grade_id, date.today().isoformat())
+        self.assertEqual(snapshot['version']['id'], version_id)
+        self.assertEqual(snapshot['rates']['regular_hours']['rate'], 40)
+
+    def test_edit_rejects_overlapping_range_and_keeps_old_values(self):
+        first = self.add_version('2026-01-01', '2026-06-30', {'regular_hours': 25})
+        second = self.add_version('2026-07-01', None, {'regular_hours': 30})
+        # 把 v1 改成与 v2 重叠 → 拒绝，数据不动
+        self.edit_version(first, effective_to='2026-12-31')
+        self.assertIn('重叠', self.page(self.grade_id))
+        version = self.query('select * from employee_rate_versions where id = ?', (first,))[0]
+        self.assertEqual(version['effective_to'], '2026-06-30')
+        self.assertEqual(self.version_items(first)['regular_hours'], 25)
+        self.assertEqual(self.version_items(second)['regular_hours'], 30)
+
+    def test_historical_version_is_read_only(self):
+        """有效期已整体结束的版本不允许编辑/停用，页面上也不出按钮。"""
+        past = self.add_version('2026-01-01', '2026-01-31', {'regular_hours': 25})
+        before = self.query('select * from employee_rate_versions where id = ?', (past,))[0]
+        self.edit_version(past)
+        self.assertIn('历史版本，不允许修改', self.page(self.grade_id))
+        self.http.post(f'/employee-grades/{self.grade_id}/rates/{past}/state', data={'target': 'inactive'})
+        self.assertIn('历史版本，不允许修改', self.page(self.grade_id))
+        after = self.query('select * from employee_rate_versions where id = ?', (past,))[0]
+        for column in ('effective_from', 'effective_to', 'notes', 'status'):
+            self.assertEqual(after[column], before[column], column)
+        # 页面上历史版本没有「编辑」按钮，当前版本有
+        current = self.add_version(date.today().isoformat(), None, {'regular_hours': 30})
+        page = self.page(self.grade_id)
+        self.assertNotIn(f'editRateVersionDialog{past}"', page)
+        self.assertIn(f'editRateVersionDialog{current}"', page)
+
+    def test_deactivate_then_reactivate_version(self):
+        version_id = self.add_version(date.today().isoformat(), None, {'regular_hours': 25})
+        self.http.post(f'/employee-grades/{self.grade_id}/rates/{version_id}/state', data={'target': 'inactive'})
+        version = self.query('select * from employee_rate_versions where id = ?', (version_id,))[0]
+        self.assertEqual(version['status'], 'inactive')
+        # 停用后取价退回静态费率
+        with self.m.app.app_context():
+            snapshot = self.m.employee_grade_rate_snapshot(self.m.db(), self.grade_id, date.today().isoformat())
+        self.assertIsNone(snapshot['version'])
+        # 重新启用成功；再插一条重叠版本后，重新启用被拦
+        self.http.post(f'/employee-grades/{self.grade_id}/rates/{version_id}/state', data={'target': 'active'})
+        self.assertEqual(self.query('select status from employee_rate_versions where id = ?', (version_id,))[0]['status'], 'active')
+        self.http.post(f'/employee-grades/{self.grade_id}/rates/{version_id}/state', data={'target': 'inactive'})
+        self.add_version('2026-01-01', None, {'regular_hours': 99})
+        self.http.post(f'/employee-grades/{self.grade_id}/rates/{version_id}/state', data={'target': 'active'})
+        self.assertIn('重叠', self.page(self.grade_id))
+        self.assertEqual(self.query('select status from employee_rate_versions where id = ?', (version_id,))[0]['status'], 'inactive')
+
+    def test_page_warns_about_existing_overlapping_versions(self):
+        """重叠校验上线前的存量重叠版本要在页面上亮出来。"""
+        self.add_version('2026-01-01', None, {'regular_hours': 25})
+        self.add_version('2026-03-01', None, {'regular_hours': 30})
+        page = self.page(self.grade_id)
+        self.assertIn('有效期互相重叠', page)
+        self.assertIn('请点对应版本的「编辑」修正', page)
 
 
 if __name__ == '__main__':

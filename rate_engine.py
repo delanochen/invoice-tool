@@ -327,6 +327,40 @@ def _validate_dates(effective_from, effective_to):
             raise ValueError("结束日期不能早于生效日期。")
 
 
+def _ensure_version_is_current(version):
+    """历史版本（有效期已整体结束）不允许修改或停用。
+
+    历史版本是过往工资的取价依据，改它等于改历史口径；需要纠正时新建一条版本，
+    把错的那段有效期收掉即可。
+    """
+    if version["effective_to"] and version["effective_to"] < date.today().isoformat():
+        raise ValueError("该版本的有效期已结束，属于历史版本，不允许修改或停用；需要纠正请新建版本。")
+
+
+def _validate_range_against_versions(connection, table, owner_column, owner_id, exclude_id, effective_from, effective_to):
+    """编辑 / 重新启用已有版本时的有效期校验：除自身外不得与任何有效版本重叠。
+
+    与 _prepare_new_version_range 的区别：那条是「新建时自动收拢上一版本」，
+    这条是「改历史」——只能拒绝，绝不能顺手改别人的有效期。
+    返回归一化后的 effective_to（供更新语句复用）。
+    """
+    start_day = date.fromisoformat(effective_from)
+    end_day = date.fromisoformat(effective_to) if effective_to else None
+    versions = connection.execute(
+        f"select * from {table} where {owner_column} = ? and status = 'active' and id != ?",
+        (owner_id, exclude_id),
+    ).fetchall()
+    for version in versions:
+        other_start = date.fromisoformat(version["effective_from"])
+        other_end = date.fromisoformat(version["effective_to"]) if version["effective_to"] else date.max
+        if other_start <= (end_day or date.max) and start_day <= other_end:
+            raise ValueError(
+                f"有效期与版本 v{version['version_no']}"
+                f"（{version['effective_from']} ～ {version['effective_to'] or '长期'}）重叠。"
+            )
+    return effective_to
+
+
 def _prepare_new_version_range(connection, table, owner_column, owner_id, effective_from, effective_to):
     """Insert a new effective-dated version without destroying historical lookup.
 
@@ -523,6 +557,92 @@ def register_rate_routes(app, api):
             api["log_action"]("create", "employee_rate_version", version_id, f"{grade['grade_name']} v{next_no}", f"生效：{effective_from} 至 {effective_to or '长期'}")
             api["db"]().commit()
             flash("员工结算费率版本已创建。", "success")
+        except ValueError as error:
+            api["db"]().rollback()
+            flash(str(error), "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+
+    def _load_grade_version(grade_id, version_id):
+        """取属于该等级的一条版本；不存在或不属于该等级一律 404。"""
+        if not api["has_action_permission"]("employee_grades", "view"):
+            abort(403)
+        grade = api["db"]().execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
+        if not grade:
+            abort(404)
+        version = api["db"]().execute(
+            "select * from employee_rate_versions where id = ? and employee_grade_id = ?",
+            (version_id, grade_id),
+        ).fetchone()
+        if not version:
+            abort(404)
+        if not api["has_action_permission"]("employee_grades", "edit"):
+            abort(403)
+        return grade, version
+
+    @app.post("/employee-grades/<int:grade_id>/rates/<int:version_id>/edit")
+    @api["login_required"]
+    def edit_employee_rate_version(grade_id, version_id):
+        """编辑已有费率版本的生效期 / 费率 / 备注。
+
+        profit_ledger 落账时存的是当时的计算结果（cost/profit 数值），版本 id 只是
+        溯源标注，所以修正版本不会改写历史工资记录；修改会进操作日志。
+        """
+        grade, version = _load_grade_version(grade_id, version_id)
+        try:
+            _ensure_version_is_current(version)
+            effective_from = request.form.get("effective_from", "").strip()
+            effective_to = request.form.get("effective_to", "").strip() or None
+            _validate_dates(effective_from, effective_to)
+            rates = {key: _float_form(key) for key, _label, _unit in EMPLOYEE_RATE_TYPES}
+            effective_to = _validate_range_against_versions(
+                api["db"](), "employee_rate_versions", "employee_grade_id", grade_id,
+                version_id, effective_from, effective_to,
+            )
+            api["db"]().execute(
+                "update employee_rate_versions set effective_from = ?, effective_to = ?, notes = ?, updated_at = ? where id = ?",
+                (effective_from, effective_to, request.form.get("notes", "").strip(), api["now"](), version_id),
+            )
+            for key, _label, _unit in EMPLOYEE_RATE_TYPES:
+                api["db"]().execute(
+                    "update employee_rate_items set rate = ? where version_id = ? and rate_type = ?",
+                    (rates[key], version_id, key),
+                )
+            api["log_action"](
+                "update", "employee_rate_version", version_id, f"{grade['grade_name']} v{version['version_no']}",
+                f"编辑：生效 {effective_from} 至 {effective_to or '长期'}",
+            )
+            api["db"]().commit()
+            flash(f"费率版本 v{version['version_no']} 已更新。", "success")
+        except ValueError as error:
+            api["db"]().rollback()
+            flash(str(error), "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+
+    @app.post("/employee-grades/<int:grade_id>/rates/<int:version_id>/state")
+    @api["login_required"]
+    def employee_rate_version_state(grade_id, version_id):
+        """停用 / 启用费率版本：填错的版本停用后可以重建，不必带着错数据算工资。"""
+        grade, version = _load_grade_version(grade_id, version_id)
+        target = "inactive" if version["status"] == "active" else "active"
+        try:
+            _ensure_version_is_current(version)
+            if target == "active":
+                # 重新启用等同放回有效期表，必须先确认与其它有效版本不重叠
+                _validate_range_against_versions(
+                    api["db"](), "employee_rate_versions", "employee_grade_id", grade_id,
+                    version_id, version["effective_from"], version["effective_to"],
+                )
+            api["db"]().execute(
+                "update employee_rate_versions set status = ?, updated_at = ? where id = ?",
+                (target, api["now"](), version_id),
+            )
+            action = "停用" if target == "inactive" else "启用"
+            api["log_action"](
+                "update", "employee_rate_version", version_id,
+                f"{grade['grade_name']} v{version['version_no']}", f"{action}费率版本",
+            )
+            api["db"]().commit()
+            flash(f"费率版本 v{version['version_no']} 已{action}。", "success")
         except ValueError as error:
             api["db"]().rollback()
             flash(str(error), "error")

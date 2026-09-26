@@ -62,6 +62,8 @@
     padding: 3px 8px; background: var(--erp-head); border-bottom: 1px solid var(--erp-line); font-size: 12px;
   }
   .erp-app .rate-version .rate-metrics { border: 0; }
+  .erp-app .rate-version-head form { display: inline; margin: 0; }
+  .erp-app .rate-version-head .erp-btn { min-height: 22px; padding: 1px 8px; font-size: 11px; }
   .erp-app .member-add-form .erp-field { min-width: 300px; }
   /* 局部刷新期间禁掉重复点击（XHR 往返只有几十毫秒，但连点会发出第二次请求） */
   .erp-app form[data-member-form][aria-busy="true"] { opacity: .55; pointer-events: none; }
@@ -196,6 +198,9 @@
             {% elif panel.zero_rate_labels %}
               <p class="erp-warn">{{ panel.zero_rate_labels|length }} 项当前费率为 0（{{ panel.zero_rate_labels|join('、') }}），工资会按 0 计算；请确认无误，或先在下面填一份真实费率。</p>
             {% endif %}
+            {% if panel.overlapping_versions %}
+              <p class="erp-warn">以下版本的有效期互相重叠（重叠期间工资按生效日期较晚的版本取值），请点对应版本的「编辑」修正：{{ panel.overlapping_versions|join('；') }}。</p>
+            {% endif %}
 
             {% if can_edit %}
               <div class="erp-section-title">按当前费率建版本</div>
@@ -222,7 +227,7 @@
               </form>
             {% endif %}
 
-            <div class="erp-section-title">版本历史（{{ panel.versions|length }}）</div>
+            <div class="erp-section-title">版本历史（{{ panel.versions|length }}）<small>费率填错了？直接点「编辑」修正，或「停用」后重建；修正不会改写已落账的历史工资。</small></div>
             {% for version in panel.versions %}
               <div class="rate-version">
                 <div class="rate-version-head">
@@ -231,6 +236,16 @@
                   <span class="status {{ 'completed' if version.status == 'active' else 'returned' }}">{{ '有效' if version.status == 'active' else '已停用' }}</span>
                   {% if panel.current_version and panel.current_version.id == version.id %}<span class="erp-badge">当前生效</span>{% endif %}
                   {% if version.notes %}<span class="erp-meta">{{ version.notes }}</span>{% endif %}
+                  <span class="erp-toolbar-spacer"></span>
+                  {# 历史版本（有效期已整体结束）只读：是过往工资的取价依据，不允许改 #}
+                  {% set version_editable = not version.effective_to or version.effective_to >= today %}
+                  {% if can_edit and version_editable %}
+                    <button type="button" class="erp-btn" data-dialog-open="editRateVersionDialog{{ version.id }}">编辑</button>
+                    <form method="post" action="{{ url_for('employee_rate_version_state', grade_id=grade.id, version_id=version.id) }}" data-confirm-version-state>
+                      <input type="hidden" name="target" value="{{ 'inactive' if version.status == 'active' else 'active' }}">
+                      <button class="erp-btn" type="submit">{{ '停用' if version.status == 'active' else '启用' }}</button>
+                    </form>
+                  {% endif %}
                 </div>
                 <div class="rate-metrics">
                   {% for key, label, unit in rate_types %}
@@ -330,6 +345,27 @@
       <div class="dialog-header"><h2>编辑 {{ panel.grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
       {{ grade_form(panel.grade) }}
     </dialog>
+    {% for version in panel.versions %}
+      {% if not version.effective_to or version.effective_to >= today %}
+      <dialog id="editRateVersionDialog{{ version.id }}" class="modal-dialog erp-scope erp-compact">
+        <div class="dialog-header"><h2>编辑费率版本 v{{ version.version_no }} · {{ panel.grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+        {% set version_items = panel.item_map.get(version.id, {}) %}
+        <form method="post" class="form-stack" action="{{ url_for('edit_employee_rate_version', grade_id=panel.grade.id, version_id=version.id) }}">
+          <div class="form-grid two-columns">
+            <label>生效日期 <input type="date" name="effective_from" value="{{ version.effective_from }}" required></label>
+            <label>结束日期 <input type="date" name="effective_to" value="{{ version.effective_to or '' }}"><small>留空表示持续有效；不能与其他有效版本重叠。</small></label>
+            {% for key, label, unit in rate_types %}
+              {% set item = version_items.get(key) %}
+              <label>{{ label }} <input type="number" step="0.0001" min="0" name="{{ key }}" value="{{ item.rate if item else 0 }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
+            {% endfor %}
+            <label class="full-span">备注 <input name="notes" value="{{ version.notes or '' }}"></label>
+          </div>
+          <p class="muted-line">修改会记入操作日志；已按旧费率落账的历史工资不受影响（落账存的是当时的计算结果）。</p>
+          <div class="form-actions"><button class="primary" type="submit">保存版本</button></div>
+        </form>
+      </dialog>
+      {% endif %}
+    {% endfor %}
   {% endfor %}
 {% endif %}
 {% endblock %}
@@ -501,6 +537,18 @@
         form.addEventListener('submit', event => {
           const deactivating = form.querySelector('[name="is_active"]')?.value === '0';
           if (deactivating && !uiConfirm('确定停用该等级吗？仍有在职员工使用的等级无法停用。')) {
+            event.preventDefault();
+          }
+        });
+      });
+
+      // 费率版本停用：当前生效的那条停用后工资会退回静态费率，必须提醒
+      document.querySelectorAll('form[data-confirm-version-state]').forEach(form => {
+        form.addEventListener('submit', event => {
+          if (form.querySelector('[name="target"]')?.value !== 'inactive') return;
+          const head = form.closest('.rate-version-head');
+          const isCurrent = head && head.querySelector('.erp-badge');
+          if (isCurrent && !uiConfirm('停用后该等级暂时没有生效版本，工资将按「等级静态费率」计算。确定停用吗？')) {
             event.preventDefault();
           }
         });
