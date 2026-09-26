@@ -169,6 +169,79 @@ class ExpenseAiReviewTest(unittest.TestCase):
         self.assertIn("same sha256", sent)
 
 
+    # ------------------------- 疑点附件点开后走哪条路（统一弹窗 vs 新开标签页）
+    def add_attachment(self, filename, content_type):
+        stored = filename
+        with self.m.app.app_context():
+            db = self.m.db()
+            attachment_id = db.execute(
+                "insert into expense_attachments (expense_id,expense_item_key,original_filename,stored_filename,content_type,uploaded_by,uploaded_at)"
+                " values (?, 'line-1', ?, ?, ?, ?, ?)",
+                (self.expense_id, filename, stored, content_type, self.admin_id, self.m.now()),
+            ).lastrowid
+            path = os.path.join(self.m.EXPENSE_ATTACHMENTS_DIR, str(self.expense_id), stored)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+            db.commit()
+        return attachment_id
+
+    def seed_duplicate_check(self, current_id, matched_id):
+        with self.m.app.app_context():
+            db = self.m.db()
+            db.execute(
+                "insert into expense_duplicate_checks (expense_id, attachment_id, matched_expense_id,"
+                " matched_attachment_id, risk_level, score, reasons, review_status, created_at, updated_at)"
+                " values (?, ?, ?, ?, 'high', 100, '同一份文件的 sha256', 'pending', ?, ?)",
+                (self.expense_id, current_id, self.expense_id, matched_id, self.m.now(), self.m.now()),
+            )
+            db.commit()
+
+    def duplicate_panel(self, page):
+        """只取「重复附件检查」这一节 —— 整页别处也有 data-image-preview（报销明细里的缩略图），
+        不限定范围会把「别的面板本来就该弹窗」当成这里的证据。"""
+        start = page.index("重复附件检查")
+        return page[start:page.index("</section>", start)]
+
+    def test_suspicious_image_attachments_open_shared_preview_dialog(self):
+        """疑点里的图片附件必须走系统统一预览弹窗（data-image-preview），不能新开页面。"""
+        matched_id = self.add_attachment("matched.png", "image/png")
+        self.seed_duplicate_check(self.attachment_id, matched_id)
+        self.login(self.admin_id)
+        panel = self.duplicate_panel(self.http.get(f"/expenses/{self.expense_id}").get_data(as_text=True))
+        # 每个图片附件两处可点（缩略图 + 文件名），2 个附件 = 4 处 —— 与「报销明细」里的
+        # attachment_list 宏一致：点缩略图或点文件名都弹同一个预览窗。
+        self.assertEqual(panel.count("data-image-preview"), 4)
+        self.assertIn(f'href="/expense-attachments/{self.attachment_id}"', panel)
+        self.assertIn(f'href="/expense-attachments/{matched_id}"', panel)
+        self.assertNotIn('target="_blank"', panel)
+        # 图片旁边给缩略图（和「报销明细」里的附件一个样子），点缩略图同样弹窗
+        self.assertEqual(panel.count('class="inline-thumb"'), 2)
+        self.assertIn('data-preview-name="receipt.png"', panel)
+        self.assertIn('data-preview-name="matched.png"', panel)
+
+    def test_suspicious_non_image_attachment_keeps_new_tab(self):
+        """非图片（PDF/Word/Excel）仍旧新开标签页 —— 弹窗里只有一个 <img>，装不下它们。"""
+        current_id = self.add_attachment("invoice.pdf", "application/pdf")
+        matched_id = self.add_attachment("invoice-copy.pdf", "application/pdf")
+        self.seed_duplicate_check(current_id, matched_id)
+        self.login(self.admin_id)
+        panel = self.duplicate_panel(self.http.get(f"/expenses/{self.expense_id}").get_data(as_text=True))
+        self.assertNotIn("data-image-preview", panel)
+        self.assertNotIn("inline-thumb", panel)
+        self.assertEqual(panel.count('target="_blank"'), 2)
+        self.assertIn(f'href="/expense-attachments/{current_id}"', panel)
+
+    def test_duplicate_checks_query_carries_attachment_content_type(self):
+        """模板要按 content_type 决定走弹窗还是新开页，查询必须把它带出来。"""
+        self.seed_duplicate_check(self.attachment_id, self.attachment_id)
+        with self.m.app.app_context():
+            check = self.m.expense_duplicate_checks(self.expense_id)[0]
+        self.assertEqual(check["attachment_content_type"], "image/png")
+        self.assertEqual(check["matched_attachment_content_type"], "image/png")
+        self.assertEqual(check["attachment_name"], "receipt.png")
+        self.assertEqual(check["matched_attachment_name"], "receipt.png")
+
     def test_worker_pending_selection_and_settings(self):
         import ai_review_worker
 

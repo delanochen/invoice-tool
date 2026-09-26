@@ -7640,7 +7640,9 @@ def expense_duplicate_checks(expense_id):
         """
         select checks.*, matched.expense_number as matched_expense_number,
                current_attachment.original_filename as attachment_name,
+               current_attachment.content_type as attachment_content_type,
                matched_attachment.original_filename as matched_attachment_name,
+               matched_attachment.content_type as matched_attachment_content_type,
                reviewer.name as reviewer_name
         from expense_duplicate_checks checks
         join expenses matched on matched.id = checks.matched_expense_id

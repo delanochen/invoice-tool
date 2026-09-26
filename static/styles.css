@@ -30,11 +30,55 @@ input, textarea, select {
   background: #fff;
   color: var(--ink);
 }
+/* 文件选择控件：把浏览器原生的 ::file-selector-button 做成系统按钮的样子。
+   为什么要自己上样式：ui-i18n.js 在 language === 'zh-CN' 时**直接 return**（整段翻译与
+   「替换原生控件」的逻辑都不执行），所以中文用户看到的就是浏览器原生控件 ——
+   一个 260px 宽、自带浅色小按钮和文字的可疑盒子，和旁边系统自己的按钮完全不是一种风格
+   （用户报过「里程佐证」那一块：原生控件 + 全宽系统按钮 并列，像两个产品）。
+   尺寸对齐 .small 按钮：32px 高 / 13px 字 / 6px 圆角，颜色沿用 --line / --ink / --muted。
+   注意：标准选择器与 ::-webkit-* 必须**分两条规则**写 —— 写进同一个选择器列表时，
+   Firefox 解析不了 ::-webkit-* 会把整条规则一起丢掉。 */
 input[type="file"] {
   width: auto;
-  max-width: 260px;
-  padding: 7px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
 }
+input[type="file"]::file-selector-button {
+  min-height: 32px;
+  margin: 0 10px 0 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+input[type="file"]::-webkit-file-upload-button {
+  min-height: 32px;
+  margin: 0 10px 0 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover { background: #f8fafc; }
+input[type="file"]::-webkit-file-upload-button:hover { background: #f8fafc; }
+input[type="file"]:focus-visible::file-selector-button,
+input[type="file"]:focus-visible::-webkit-file-upload-button {
+  outline: 2px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 2px;
+}
+input[type="file"]:disabled { cursor: not-allowed; opacity: 0.45; }
 textarea { resize: vertical; }
 button, .button {
   appearance: none;
@@ -1414,6 +1458,9 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .file-picker-row small {
   color: var(--muted);
 }
+/* 行内所有元素按同一基线居中，别让 .muted-line 自带的 8px 上边距把状态文字顶下去 */
+.file-picker-row .muted-line { margin: 0; }
+.file-picker-row input[type="file"] { min-width: 0; }
 .selected-attachment-panel {
   display: grid;
   gap: 8px;

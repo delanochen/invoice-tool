@@ -36,6 +36,20 @@
       {% endif %}
     </span>
   {% endmacro %}
+  {# 疑点附件：和本页「报销明细」里的附件同一套规矩 —— 图片走系统统一预览弹窗
+     （data-image-preview，由 attachment-preview.js 接管，缩略图与文件名都可点），
+     非图片（PDF/Word/Excel）才新开标签页：弹窗里只有一个 <img>，装不下 Word。
+     原来两个链接都是 target="_blank"，点一下整页跳走、看完还要按返回 ——
+     审核员本来就是要「对着两对附件比一比」，来回跳页把动作切碎了。
+     注：表格会被 system-grid.js 镜像成 Tabulator，镜像按 innerHTML 复制并转发点击，
+     所以这里只认 HTML 属性（data-image-preview / href），不要在脚本里绑事件。 #}
+  {% macro suspect_attachment(href, name, content_type, extra_class='') %}
+    {%- set is_image = is_image_attachment(content_type, name) -%}
+    {%- if is_image %}
+    <a class="suspect-thumb-link" href="{{ href }}" data-image-preview data-preview-name="{{ name }}" title="预览 {{ name }}"><img class="inline-thumb" src="{{ href }}" alt="{{ name }}"></a>
+    {%- endif %}
+    <a{% if extra_class %} class="{{ extra_class }}"{% endif %} href="{{ href }}"{% if is_image %} data-image-preview data-preview-name="{{ name }}"{% else %} target="_blank" rel="noopener"{% endif %}>{{ name }}</a>
+  {% endmacro %}
 
 {# 展示层改造：所有 ID（#runAiReviewBtn / #aiReviewBody / #returnExpenseDialog /
    #interpretationDialog …）与 data-* 钩子保持原样，后端逻辑未改动。
@@ -153,14 +167,14 @@
                 {% for check in duplicate_checks %}
                   <tr>
                     <td><strong>{{ "高" if check.risk_level == "high" else "中" }} · {{ check.score }}</strong></td>
-                    <td><a href="{{ url_for('preview_expense_attachment', attachment_id=check.attachment_id) }}" target="_blank">{{ check.attachment_name }}</a></td>
+                    <td>{{ suspect_attachment(url_for('preview_expense_attachment', attachment_id=check.attachment_id), check.attachment_name, check.attachment_content_type) }}</td>
                     <td>
                       {% if check.expense_id == check.matched_expense_id %}
                         <span>本报销单内的另一附件</span><br>
                       {% else %}
                       <a href="{{ url_for('expense_detail', expense_id=check.matched_expense_id) }}">{{ check.matched_expense_number }}</a><br>
                       {% endif %}
-                      <a class="muted-line" href="{{ url_for('preview_expense_attachment', attachment_id=check.matched_attachment_id) }}" target="_blank">{{ check.matched_attachment_name }}</a>
+                      {{ suspect_attachment(url_for('preview_expense_attachment', attachment_id=check.matched_attachment_id), check.matched_attachment_name, check.matched_attachment_content_type, 'muted-line') }}
                     </td>
                     <td>{{ check.reasons }}</td>
                     <td>

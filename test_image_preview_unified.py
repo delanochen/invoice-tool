@@ -152,5 +152,89 @@ class ServiceReportPreviewDelegationContract(unittest.TestCase):
         self.assertEqual(self.js.count("openNasPhotoPreview(image)"), 3, "定义 + 两个调用点（浏览器网格/已选照片）都应保留")
 
 
+class SuspiciousAttachmentPreviewContract(unittest.TestCase):
+    """报销审核「重复附件检查」里的疑点附件：必须走共享预览弹窗，而不是新开标签页。
+
+    原来两个链接都写死 target="_blank"：点一下整页跳走、看完还得按返回 —— 而审核员本来
+    就是要「把可疑附件和命中记录对着比一比」，来回跳页把这个动作切碎了。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = read("templates", "expense_detail.html")
+        cls.app = read("app.py")
+
+    def test_01_both_cells_go_through_the_shared_macro(self):
+        # 「当前附件」与「匹配记录」两列都走 suspect_attachment()，宏内部按 is_image_attachment
+        # 分流；只要有人在行内重新写 target="_blank"，图片附件就又变成新开页。
+        self.assertEqual(self.html.count("{{ suspect_attachment("), 2)
+        self.assertIn("{% macro suspect_attachment(href, name, content_type, extra_class='') %}", self.html)
+        block = self.html.split("{% macro suspect_attachment(")[1].split("{% endmacro %}")[0]
+        self.assertIn("is_image_attachment(content_type, name)", block)
+        self.assertIn("data-image-preview", block)
+        self.assertIn('target="_blank"', block)
+        self.assertIn("inline-thumb", block)      # 图片旁边给缩略图，和「报销明细」一个样子
+
+    def test_02_query_carries_attachment_content_type(self):
+        # 没有 content_type 就无法判断该弹窗还是该新开页（回到按扩展名猜的脆弱老路）
+        query = self.app.split("def expense_duplicate_checks(")[1].split(").fetchall()")[0]
+        self.assertIn("current_attachment.content_type as attachment_content_type", query)
+        self.assertIn("matched_attachment.content_type as matched_attachment_content_type", query)
+
+
+class MileageUploadRowContract(unittest.TestCase):
+    """日报「里程佐证」：文件选择控件与「自动生成里程佐证」按钮要同一行、同一风格。
+
+    背景：ui-i18n.js 在 `language === 'zh-CN'` 时**直接 return**（整段翻译与「替换原生控件」
+    的逻辑都不跑），所以中文用户看到的就是浏览器原生控件。原来它与那个按钮都是 .form-field
+    （display:grid）的直接子元素，于是各自拉满一整行 —— 一个原生小盒子 + 一个全宽系统按钮，
+    两种风格并列（用户报过「这两个风格不一致」）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.html = read("templates", "service_report_form.html")
+        cls.css = read("static", "styles.css")
+        cls.pending = read("static", "pending-attachments.js")
+
+    def test_01_picker_and_generate_button_share_a_row(self):
+        block = self.html.split('class="file-picker-row"')[1].split("</div>")[0]
+        self.assertIn('name="mileage_proof_attachments"', block)
+        self.assertIn('id="generateMileageEvidenceBtn"', block)
+        self.assertIn('id="mileageEvidenceStatus"', block)
+
+    def test_02_wrapper_is_the_anchor_pending_attachments_expects(self):
+        # pending-attachments.js 用 input.closest("label, .file-picker-row") 当插入锚点：
+        # 换掉这个类，「待上传附件」预览面板会被插进行内，把这一行撑坏。
+        self.assertIn('input.closest("label, .file-picker-row")', self.pending)
+
+    def test_03_native_file_button_restyled_like_system_button(self):
+        # 中文环境下没人替我们替换控件，外观只能靠这条伪元素规则；尺寸对齐 .small 按钮
+        block = self.css.split('input[type="file"]::file-selector-button {')[1].split("}")[0]
+        self.assertIn("min-height: 32px", block)
+        self.assertIn("padding: 0 10px", block)
+        self.assertIn("border: 1px solid var(--line)", block)
+        self.assertIn("border-radius: 6px", block)
+        self.assertIn("font-size: 13px", block)
+
+    def test_04_already_hidden_pickers_keep_winning(self):
+        """已经用 opacity/尺寸把原生控件藏起来的包装器必须继续胜出。
+
+        `.photo-local-picker input[type=file]` 与基础规则 `input[type="file"]` 同优先级
+        （都是 0,1,1），靠**文档顺序**决胜负 —— 隐藏规则必须排在后面。
+        （移动打卡页的 .camera-button 是独立页面：只加载 mobile-clock-in.css、不引 styles.css，
+        所以本次改动碰不到它。）
+        """
+        self.assertLess(
+            self.css.index('input[type="file"] {'),
+            self.css.index(".photo-local-picker input[type=file]"),
+            "隐藏规则必须排在基础规则之后，否则原生控件会重新冒出来",
+        )
+        self.assertIn(".native-photo-picker input[type=file]", read("static", "field-work.css"))
+        clock_in = read("templates", "mobile_clock_in.html")
+        self.assertIn("mobile-clock-in.css", clock_in)
+        self.assertNotIn("styles.css", clock_in)
+
+
 if __name__ == "__main__":
     unittest.main()

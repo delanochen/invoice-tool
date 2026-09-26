@@ -591,6 +591,13 @@
 }
 .erp-compact textarea { height: auto; min-height: 54px; }
 .erp-compact input[type="file"] { height: auto; min-height: 26px; padding: 3px 5px; max-width: 100%; }
+/* 紧凑弹窗里的「选择文件」按钮按紧凑刻度缩一档（styles.css 里默认是 32px，对齐 .small） */
+.erp-compact input[type="file"]::file-selector-button,
+.erp-compact input[type="file"]::-webkit-file-upload-button {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
 .erp-compact input[type="checkbox"],
 .erp-compact input[type="radio"] { width: 14px; height: 14px; min-height: 0; margin: 0; }
 .erp-compact button,

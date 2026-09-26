@@ -340,19 +340,25 @@
       <h2>里程佐证</h2>
       <div class="form-field">
         <span class="field-label">上传里程佐证</span>
-        <input type="file" name="mileage_proof_attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
-        <button
-          type="button"
-          class="small"
-          id="generateMileageEvidenceBtn"
-          {% if is_edit %}
-            data-generate-url="{{ url_for('generate_service_report_mileage_evidence', report_id=report.id) }}"
-          {% else %}
-            disabled
-            title="保存日报后即可生成里程佐证"
-          {% endif %}
-        >自动生成里程佐证</button>
-        <span id="mileageEvidenceStatus" class="muted-line"></span>
+        {# 文件选择控件与「自动生成」按钮放同一行（.file-picker-row 是仓库既有行容器，
+           pending-attachments.js 也认它当插入锚点，预览面板才会落在行下面而不是行里面）。
+           原来是 grid 直接子元素，每个都拉满整行 —— 于是「原生文件控件」和「系统按钮」
+           两个不同风格各自占一整行，看起来不像一家的东西。 #}
+        <div class="file-picker-row">
+          <input type="file" name="mileage_proof_attachments" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+          <button
+            type="button"
+            class="small"
+            id="generateMileageEvidenceBtn"
+            {% if is_edit %}
+              data-generate-url="{{ url_for('generate_service_report_mileage_evidence', report_id=report.id) }}"
+            {% else %}
+              disabled
+              title="保存日报后即可生成里程佐证"
+            {% endif %}
+          >自动生成里程佐证</button>
+          <span id="mileageEvidenceStatus" class="muted-line"></span>
+        </div>
         <small>支持 Word、Excel、PDF、图片，可多选。不会放入工作日报 Word，会在生成发票时作为发票附件带出。自动生成按员工清单的出发地与行程类型拿 Google 路线；随行不生成，出发地或行程类型变了会重新生成。</small>
       </div>
       {% set mileage_proofs = attachments.mileage_proof %}
