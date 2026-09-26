@@ -1,241 +1,372 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item, tab_button %}
 {% block title %}{{ order.order_number }} - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">工单</p>
-      <h1>{{ order.order_number }}</h1>
-      <p class="muted-line">{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</p>
+{# 工单详情：数据全部来自 app.py service_order_detail()。只读详情 + 各子表用顶部页签切换。 #}
+<div class="erp-app" data-active-panel="info">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ order.order_number }}
+      <small>{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</small>
     </div>
-    <div class="actions">
-      <a class="button" href="{{ url_for('download_service_order_attachments', order_id=order.id) }}">批量下载附件</a>
+    <span class="status {{ 'completed' if order.status == 'closed' else 'draft' }}">{{ "已关闭" if order.status == "closed" else "进行中" }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('download_service_order_attachments', order_id=order.id) }}'">批量下载附件</button>
       {% if has_menu_permission("field_work") %}
-        <a class="button" href="{{ url_for('field_work', order_id=order.id) }}">工单拍照</a>
-        <a class="button" href="{{ url_for('field_photo_query', order_id=order.id) }}">照片台账</a>
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('field_work', order_id=order.id) }}'">工单拍照</button>
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('field_photo_query', order_id=order.id) }}'">照片台账</button>
       {% endif %}
       {% if not (normalized_role() in ["employee", "external_employee", "external_manager"] and order.status == "closed") %}
-        <button type="button" onclick="window.location.href='{{ url_for('edit_service_order', order_id=order.id) }}'">
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('edit_service_order', order_id=order.id) }}'">
           {% if is_external_manager() or is_external_employee() %}修改开始日期{% else %}编辑工单{% endif %}
         </button>
       {% endif %}
       {% if invoices and can_view_invoices() %}
-        <button type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=invoices[0].id) }}'">查看发票</button>
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=invoices[0].id) }}'">查看发票</button>
       {% elif can_create_invoice() and customer_reimbursement and customer_reimbursement.status == "approved" %}
-        <button type="button" onclick="window.location.href='{{ url_for('new_invoice', service_order_id=order.id, customer_reimbursement_id=customer_reimbursement.id) }}'">生成发票</button>
+        <button type="button" class="erp-btn primary" onclick="window.location.href='{{ url_for('new_invoice', service_order_id=order.id, customer_reimbursement_id=customer_reimbursement.id) }}'">生成发票</button>
       {% endif %}
       {% if can_create_service_report(order) %}
-        <button class="primary" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
-        <button type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>
+        <button type="button" class="erp-btn primary" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+        <button type="button" class="erp-btn" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos</button>
       {% endif %}
       {% if can_create_expense() %}
-        <button type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增报销</button>
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增报销</button>
       {% endif %}
       {% if can_delete_order %}
-        <form method="post" action="{{ url_for('delete_service_order', order_id=order.id) }}" onsubmit="return uiConfirm('确定删除工单 {{ order.order_number }} 吗？'){% if photo_summary.nonempty %} && uiConfirm('照片目录不为空（共 {{ photo_summary.file_count }} 个文件）。确定永久清理整个目录吗？此操作无法撤销。'){% endif %};">
+        <form method="post" action="{{ url_for('delete_service_order', order_id=order.id) }}" style="display:inline;"
+              onsubmit="return uiConfirm('确定删除工单 {{ order.order_number }} 吗？'){% if photo_summary.nonempty %} && uiConfirm('照片目录不为空（共 {{ photo_summary.file_count }} 个文件）。确定永久清理整个目录吗？此操作无法撤销。'){% endif %};">
           {% if photo_summary.nonempty %}<input type="hidden" name="confirm_photo_cleanup" value="yes">{% endif %}
-          <button class="danger" type="submit">删除工单</button>
+          <button class="erp-btn danger" type="submit">删除工单</button>
         </form>
       {% endif %}
     </div>
   </header>
-  <section class="panel">
-    <div class="detail-grid">
-      <p><strong>客户</strong><span>{{ order.billing_client_name or "未关联" }}</span></p>
-      <p><strong>合同</strong><span>
-        {% if order.contract_id %}
-          {% if can_view_contracts() %}
-            <a href="{{ url_for('contract_detail', contract_id=order.contract_id) }}">{{ order.contract_number }} · {{ order.contract_title }}</a>
-          {% else %}
-            {{ order.contract_number }} · {{ order.contract_title }}
-          {% endif %}
-        {% else %}
-          未关联
-        {% endif %}
-      </span></p>
-      <p><strong>站点名称</strong><span>{{ order.client_name }}</span></p>
-      <p><strong>业主</strong><span>{{ order.buyer_owner or "-" }}</span></p>
-      <p><strong>规模</strong><span>{{ order.buyer_site_size or "-" }}</span></p>
-      <p><strong>配套机厂家</strong><span>{{ order.buyer_equipment_manufacturer or "-" }}</span></p>
-      <p><strong>工单类型</strong><span>{{ order.work_order_type_name or "-" }}</span></p>
-      <p><strong>区域</strong><span>{{ order.region_name or order.region_code }}</span></p>
-      <p><strong>国家</strong><span>{{ order.country_name or order.country_code }}</span></p>
-      <p><strong>开始日期</strong><span>{{ order.start_date or "未维护" }}</span></p>
-      <p><strong>联系人</strong><span>{{ order.buyer_contact_name or "-" }}</span></p>
-      <p><strong>联系方式</strong><span>{{ order.buyer_contact_details or "-" }}</span></p>
-      <p><strong>电子邮箱地址</strong><span>{{ order.buyer_email or "-" }}</span></p>
-      <p><strong>服务订单号码</strong><span>{{ order.client_order_number }}</span></p>
-      <p class="full-span"><strong>服务现场地址</strong><span>{{ order.site_address }}</span></p>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    <nav class="erp-tabs no-print">
+      {{ tab_button('info', '工单信息', true) }}
+      {{ tab_button('reports', '工作日报', false, reports|length) }}
+      {% if not is_external_manager() and not is_external_employee() %}
+        {{ tab_button('expenses', '员工报销', false, expenses|length) }}
+      {% endif %}
+      {% if can_view_customer_reimbursement() %}
+        {{ tab_button('settlement', '工单结算', false) }}
+      {% endif %}
       {% if can_view_invoices() %}
-        <p><strong>开票状态</strong><span class="status {% if invoices %}completed{% else %}draft{% endif %}">{% if invoices %}已开票{% else %}未开票{% endif %}</span></p>
+        {{ tab_button('invoices', '关联发票', false, invoices|length) }}
       {% endif %}
-      <p><strong>工单状态</strong><span>{{ "已关闭" if order.status == "closed" else "进行中" }}</span></p>
-    </div>
-  </section>
-  <section class="panel" data-selectable-scope>
-    <div class="panel-title">
-      <h2>工作日报</h2>
-      <div class="toolbar-actions">
+    </nav>
+
+    <!-- Panel 1：工单信息 -->
+    <section class="erp-panel active" data-erp-panel="info">
+      <div class="erp-detail-scroll">
+        <div class="detail-grid">
+          <p><strong>客户</strong><span>{{ order.billing_client_name or "未关联" }}</span></p>
+          <p><strong>合同</strong><span>
+            {% if order.contract_id %}
+              {% if can_view_contracts() %}
+                <a href="{{ url_for('contract_detail', contract_id=order.contract_id) }}">{{ order.contract_number }} · {{ order.contract_title }}</a>
+              {% else %}
+                {{ order.contract_number }} · {{ order.contract_title }}
+              {% endif %}
+            {% else %}
+              未关联
+            {% endif %}
+          </span></p>
+          <p><strong>站点名称</strong><span>{{ order.client_name }}</span></p>
+          <p><strong>业主</strong><span>{{ order.buyer_owner or "-" }}</span></p>
+          <p><strong>规模</strong><span>{{ order.buyer_site_size or "-" }}</span></p>
+          <p><strong>配套机厂家</strong><span>{{ order.buyer_equipment_manufacturer or "-" }}</span></p>
+          <p><strong>工单类型</strong><span>{{ order.work_order_type_name or "-" }}</span></p>
+          <p><strong>区域</strong><span>{{ order.region_name or order.region_code }}</span></p>
+          <p><strong>国家</strong><span>{{ order.country_name or order.country_code }}</span></p>
+          <p><strong>开始日期</strong><span>{{ order.start_date or "未维护" }}</span></p>
+          <p><strong>联系人</strong><span>{{ order.buyer_contact_name or "-" }}</span></p>
+          <p><strong>联系方式</strong><span>{{ order.buyer_contact_details or "-" }}</span></p>
+          <p><strong>电子邮箱地址</strong><span>{{ order.buyer_email or "-" }}</span></p>
+          <p><strong>服务订单号码</strong><span>{{ order.client_order_number }}</span></p>
+          <p class="full-span"><strong>服务现场地址</strong><span>{{ order.site_address }}</span></p>
+          {% if can_view_invoices() %}
+            <p><strong>开票状态</strong><span class="status {% if invoices %}completed{% else %}draft{% endif %}">{% if invoices %}已开票{% else %}未开票{% endif %}</span></p>
+          {% endif %}
+          <p><strong>工单状态</strong><span>{{ "已关闭" if order.status == "closed" else "进行中" }}</span></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 2：工作日报 -->
+    <section class="erp-panel" data-erp-panel="reports" data-selectable-scope>
+      <div class="erp-toolbar-group no-print" style="padding:0 0 5px;flex:0 0 auto;">
+        {% set report_summary %}{{ reports|length }} 份日报{% endset %}
+        <span class="erp-badge" data-selected-label>{{ report_summary|trim }}</span>
         {% if can_create_service_report(order) %}
-          <button class="small" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
-          <button class="small" type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos 分享链接</button>
+          <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id) }}'">新增日报</button>
+          <button class="erp-btn" type="button" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos</button>
         {% endif %}
-        <button class="small" type="button" data-row-action="viewUrl" disabled>查看</button>
-        <button class="small" type="button" data-row-action="editUrl" disabled>编辑</button>
-        {% if can_create_service_report(order) %}<button class="small" type="button" data-row-action="copyUrl" disabled>复制日报</button>{% endif %}
-        <form method="post" data-row-action-form="exportUrl">
-          <button class="small" type="submit" disabled>导出 Word</button>
+        <button class="erp-btn" type="button" data-row-action="viewUrl" disabled>查看</button>
+        <button class="erp-btn" type="button" data-row-action="editUrl" disabled>编辑</button>
+        {% if can_create_service_report(order) %}<button class="erp-btn" type="button" data-row-action="copyUrl" disabled>复制日报</button>{% endif %}
+        <form method="post" data-row-action-form="exportUrl" style="display:inline">
+          <button class="erp-btn" type="submit" disabled>导出 Word</button>
         </form>
-        <form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这份工作日报吗？照片和配件记录也会一起删除。');">
-          <button class="danger small" type="submit" disabled>删除</button>
+        <form method="post" data-row-action-form="deleteUrl" style="display:inline" onsubmit="return confirm('确定删除这份工作日报吗？照片和配件记录也会一起删除。');">
+          <button class="erp-btn danger" type="submit" disabled>删除</button>
         </form>
       </div>
-    </div>
-    <table class="list-table selectable-list-table" data-selectable-table>
-      <thead><tr><th>报告日期</th><th>实际日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th></tr></thead>
-      <tbody>
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+          <thead><tr><th>报告日期</th><th>实际日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th></tr></thead>
+          <tbody>
+            {% for report in reports %}
+              {% set can_open_report = is_external_manager() or (not is_external_employee() or report.created_by == g.user.id) %}
+              {% set can_delete_report = report.created_by == g.user.id or normalized_role() in ["admin", "manager"] %}
+              <tr
+                tabindex="0"
+                data-row-id="{{ report.id }}"
+                data-row-label="{{ report.report_date }} · {{ report.worker_names or '-' }}"
+                data-view-url="{{ url_for('view_service_report', report_id=report.id) }}"
+                data-edit-url="{% if can_open_report and not is_external_manager() %}{{ url_for('edit_service_report', report_id=report.id) }}{% endif %}"
+                data-copy-url="{% if can_open_report and can_create_service_report(order) %}{{ url_for('new_service_report', order_id=order.id, copy_from=report.id) }}{% endif %}"
+                data-export-url="{{ url_for('export_service_report', report_id=report.id) }}"
+                data-delete-url="{% if can_delete_report %}{{ url_for('delete_service_report', report_id=report.id) }}{% endif %}"
+              >
+                <td>{{ report.report_date }}</td>
+                <td>{{ report.actual_work_date or report.report_date }}</td>
+                <td>{{ report.creator_name or "-" }}</td>
+                <td>{{ report.worker_names or "-" }}</td>
+                <td>{{ report.total_service_hours|hours }}</td>
+                <td>{{ report.travel_hours|hours }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="empty">还没有工作日报。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="erp-cards">
         {% for report in reports %}
-          {% set can_open_report = is_external_manager() or (not is_external_employee() or report.created_by == g.user.id) %}
-          {% set can_delete_report = report.created_by == g.user.id or normalized_role() in ["admin", "manager"] %}
-          <tr
-            tabindex="0"
-            data-row-id="{{ report.id }}"
-            data-row-label="{{ report.report_date }} · {{ report.worker_names or '-' }}"
-            data-view-url="{{ url_for('view_service_report', report_id=report.id) }}"
-            data-edit-url="{% if can_open_report and not is_external_manager() %}{{ url_for('edit_service_report', report_id=report.id) }}{% endif %}"
-            data-copy-url="{% if can_open_report and can_create_service_report(order) %}{{ url_for('new_service_report', order_id=order.id, copy_from=report.id) }}{% endif %}"
-            data-export-url="{{ url_for('export_service_report', report_id=report.id) }}"
-            data-delete-url="{% if can_delete_report %}{{ url_for('delete_service_report', report_id=report.id) }}{% endif %}"
-          >
-            <td>{{ report.report_date }}</td>
-            <td>{{ report.actual_work_date or report.report_date }}</td>
-            <td>{{ report.creator_name or "-" }}</td>
-            <td>{{ report.worker_names or "-" }}</td>
-            <td>{{ report.total_service_hours|hours }}</td>
-            <td>{{ report.travel_hours|hours }}</td>
-          </tr>
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ report.report_date }}</span>
+              <span class="erp-card-customer">{{ report.worker_names or '-' }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>实际 {{ report.actual_work_date or report.report_date }}</span>
+              <span>工时 {{ report.total_service_hours|hours }}</span>
+              <span>交通 {{ report.travel_hours|hours }}</span>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('view_service_report', report_id=report.id) }}">查看日报</a>
+            </div>
+          </article>
         {% else %}
-          <tr><td colspan="6" class="empty">还没有工作日报。</td></tr>
+          <div class="erp-empty">还没有工作日报。</div>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
-  {% if not is_external_manager() and not is_external_employee() %}
-  <section class="panel" data-selectable-scope>
-    <div class="panel-title">
-      <h2>员工报销</h2>
-      <div class="toolbar-actions">
+      </div>
+    </section>
+
+    <!-- Panel 3：员工报销 -->
+    {% if not is_external_manager() and not is_external_employee() %}
+    <section class="erp-panel" data-erp-panel="expenses" data-selectable-scope>
+      <div class="erp-toolbar-group no-print" style="padding:0 0 5px;flex:0 0 auto;">
         {% set expense_summary %}{{ expenses|length }} 张报销 · 合计 {{ expense_total|money(expense_currency) }}{% endset %}
-        <span class="muted-line" data-selected-label data-selected-summary="{{ expense_summary|trim }}">{{ expense_summary|trim }}</span>
+        <span class="erp-badge" data-selected-label>{{ expense_summary|trim }}</span>
         {% if can_create_expense() %}
-          <button class="small" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
+          <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
         {% endif %}
-        <button class="small" type="button" data-row-action="detailUrl" disabled>查看</button>
+        <button class="erp-btn" type="button" data-row-action="detailUrl" disabled>查看</button>
       </div>
-    </div>
-    <table class="list-table selectable-list-table" data-selectable-table>
-      <thead><tr><th>报销编号</th><th>项目</th><th>费用日期</th><th>报销归属员工</th><th>提交人</th><th>金额</th><th>状态</th></tr></thead>
-      <tbody>
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+          <thead><tr><th>报销编号</th><th>项目</th><th>费用日期</th><th>报销归属员工</th><th>提交人</th><th>金额</th><th>状态</th></tr></thead>
+          <tbody>
+            {% for expense in expenses %}
+              <tr
+                tabindex="0"
+                data-row-id="{{ expense.id }}"
+                data-row-label="{{ expense.expense_number }} · {{ expense.amount|money(expense.currency) }}"
+                data-detail-url="{{ url_for('expense_detail', expense_id=expense.id) }}"
+              >
+                <td>{{ expense.expense_number }}</td>
+                <td>{{ expense.project }}</td>
+                <td>{{ expense.expense_date }}</td>
+                <td>{{ expense.beneficiary_name or expense.creator_name or "Unknown" }}</td>
+                <td>{{ expense.creator_name or "Unknown" }}</td>
+                <td data-grid-currency="{{ expense.currency }}">{{ expense.amount|money(expense.currency) }}</td>
+                <td><span class="status {{ expense.status }}">{{ expense_labels[expense.status] }}</span></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="empty">这个工单还没有员工报销。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="erp-cards">
         {% for expense in expenses %}
-          <tr
-            tabindex="0"
-            data-row-id="{{ expense.id }}"
-            data-row-label="{{ expense.expense_number }} · {{ expense.amount|money(expense.currency) }}"
-            data-detail-url="{{ url_for('expense_detail', expense_id=expense.id) }}"
-          >
-            <td>{{ expense.expense_number }}</td>
-            <td>{{ expense.project }}</td>
-            <td>{{ expense.expense_date }}</td>
-            <td>{{ expense.beneficiary_name or expense.creator_name or "Unknown" }}</td>
-            <td>{{ expense.creator_name or "Unknown" }}</td>
-            <td data-grid-currency="{{ expense.currency }}">{{ expense.amount|money(expense.currency) }}</td>
-            <td><span class="status {{ expense.status }}">{{ expense_labels[expense.status] }}</span></td>
-          </tr>
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ expense.expense_number }}</span>
+              <span class="erp-card-customer">{{ expense.project }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ expense.expense_date }}</span>
+              <span>{{ expense.amount|money(expense.currency) }}</span>
+              <span class="status {{ expense.status }}">{{ expense_labels[expense.status] }}</span>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('expense_detail', expense_id=expense.id) }}">查看报销</a>
+            </div>
+          </article>
         {% else %}
-          <tr><td colspan="7" class="empty">这个工单还没有员工报销。</td></tr>
+          <div class="erp-empty">这个工单还没有员工报销。</div>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
-  {% endif %}
-  {% if can_view_customer_reimbursement() %}
-    <section class="panel">
-      <div class="panel-title">
-        <h2>工单结算</h2>
-        {% if customer_reimbursement or can_manage_customer_reimbursement() %}
-          <button class="small" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">
-            {% if can_manage_customer_reimbursement() %}{% if customer_reimbursement %}编辑工单结算{% else %}生成工单结算{% endif %}{% else %}查看工单结算{% endif %}
-          </button>
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Panel 4：工单结算 -->
+    {% if can_view_customer_reimbursement() %}
+    <section class="erp-panel" data-erp-panel="settlement">
+      <div class="erp-detail-scroll">
+        {% if customer_reimbursement %}
+          <div class="erp-toolbar-group no-print" style="padding:0 0 6px;flex:0 0 auto;">
+            {% if can_manage_customer_reimbursement() %}
+              <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">{% if customer_reimbursement %}编辑工单结算{% else %}生成工单结算{% endif %}</button>
+            {% endif %}
+            <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
+            <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_excel', reimbursement_id=customer_reimbursement.id) }}'">导出 Excel</button>
+          </div>
+          <div class="erp-source-metrics">
+            <div class="erp-source-metric"><span>工时费小计</span><strong>{{ customer_reimbursement.labor_total|money }}</strong></div>
+            <div class="erp-source-metric"><span>差旅费小计</span><strong>{{ customer_reimbursement.travel_total|money }}</strong></div>
+            <div class="erp-source-metric"><span>里程费小计</span><strong>{{ customer_reimbursement.mileage_total|money }}</strong></div>
+          </div>
+          <div class="erp-detail-metrics">
+            <div><span>合计</span><strong>{{ customer_reimbursement.total_amount|money }}</strong></div>
+          </div>
+        {% else %}
+          <div class="erp-empty">还没有工单结算。生成后可补充住宿、交通费、英里数和附件。</div>
+          {% if can_manage_customer_reimbursement() %}
+            <div class="erp-toolbar-group no-print" style="padding:8px 0 0;">
+              <button class="erp-btn primary" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">生成工单结算</button>
+            </div>
+          {% endif %}
         {% endif %}
       </div>
-      {% if customer_reimbursement %}
-        <div class="metric-grid">
-          <div class="metric"><span>工时费小计</span><strong>{{ customer_reimbursement.labor_total|money }}</strong></div>
-          <div class="metric"><span>差旅费小计</span><strong>{{ customer_reimbursement.travel_total|money }}</strong></div>
-          <div class="metric"><span>里程费小计</span><strong>{{ customer_reimbursement.mileage_total|money }}</strong></div>
-          <div class="metric"><span>合计</span><strong>{{ customer_reimbursement.total_amount|money }}</strong></div>
-        </div>
-        <div class="row-actions">
-          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
-          <button class="small" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_excel', reimbursement_id=customer_reimbursement.id) }}'">导出 Excel</button>
-        </div>
-      {% else %}
-        <p class="empty">还没有工单结算。生成后可补充住宿、交通费、英里数和附件。</p>
-      {% endif %}
     </section>
-  {% endif %}
-  {% if can_view_invoices() %}
-    <section class="panel" data-selectable-scope>
-      <div class="panel-title">
-        <h2>关联发票</h2>
-        <div class="toolbar-actions">
-          <span class="muted-line" data-selected-label>{{ invoices|length }} 张发票</span>
-          <button class="small" type="button" data-row-action="detailUrl" disabled>预览发票</button>
-          <button class="small" type="button" data-row-action="pdfUrl" disabled>导出发票</button>
-          <form method="post" data-row-action-form="zipUrl">
-            <button class="small" type="submit" disabled>导出 ZIP</button>
-          </form>
-        </div>
+    {% endif %}
+
+    <!-- Panel 5：关联发票 -->
+    {% if can_view_invoices() %}
+    <section class="erp-panel" data-erp-panel="invoices" data-selectable-scope>
+      <div class="erp-toolbar-group no-print" style="padding:0 0 5px;flex:0 0 auto;">
+        <span class="erp-badge" data-selected-label>{{ invoices|length }} 张发票</span>
+        <button class="erp-btn" type="button" data-row-action="detailUrl" disabled>预览发票</button>
+        <button class="erp-btn" type="button" data-row-action="pdfUrl" disabled>导出发票</button>
+        <form method="post" data-row-action-form="zipUrl" style="display:inline">
+          <button class="erp-btn" type="submit" disabled>导出 ZIP</button>
+        </form>
       </div>
-      <table class="list-table selectable-list-table" data-selectable-table>
-        <thead><tr><th>发票编号</th><th>客户</th><th>日期</th><th>状态</th></tr></thead>
-        <tbody>
-          {% for invoice in invoices %}
-            <tr
-              tabindex="0"
-              data-row-id="{{ invoice.id }}"
-              data-row-label="{{ invoice.invoice_number }} · {{ invoice.client_name }}"
-              data-detail-url="{{ url_for('invoice_detail', invoice_id=invoice.id) }}"
-              data-pdf-url="{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}"
-              data-zip-url="{{ url_for('export_invoice', invoice_id=invoice.id) }}"
-            >
-              <td>{{ invoice.invoice_number }}</td>
-              <td>{{ invoice.client_name }}</td>
-              <td>{{ invoice.issue_date }}</td>
-              <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
-            </tr>
-          {% else %}
-            <tr><td colspan="4" class="empty">这个工单还没有关联发票。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+          <thead><tr><th>发票编号</th><th>客户</th><th>日期</th><th>状态</th></tr></thead>
+          <tbody>
+            {% for invoice in invoices %}
+              <tr
+                tabindex="0"
+                data-row-id="{{ invoice.id }}"
+                data-row-label="{{ invoice.invoice_number }} · {{ invoice.client_name }}"
+                data-detail-url="{{ url_for('invoice_detail', invoice_id=invoice.id) }}"
+                data-pdf-url="{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}"
+                data-zip-url="{{ url_for('export_invoice', invoice_id=invoice.id) }}"
+              >
+                <td>{{ invoice.invoice_number }}</td>
+                <td>{{ invoice.client_name }}</td>
+                <td>{{ invoice.issue_date }}</td>
+                <td><span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="empty">这个工单还没有关联发票。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="erp-cards">
+        {% for invoice in invoices %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ invoice.invoice_number }}</span>
+              <span class="erp-card-customer">{{ invoice.client_name }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ invoice.issue_date }}</span>
+              <span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">发票详情</a>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">这个工单还没有关联发票。</div>
+        {% endfor %}
+      </div>
     </section>
-  {% endif %}
-  {% if can_create_service_report(order) %}
-    <dialog id="googlePhotosImportDialog" class="modal">
-      <form method="post" action="{{ url_for('import_google_photos_for_service_order', order_id=order.id) }}" class="form-stack">
-        <h2>导入 Google Photos 分享链接</h2>
-        <label>分享链接
-          <input name="google_photos_url" type="url" placeholder="https://photos.app.goo.gl/..." required>
-        </label>
-        <p class="muted-line">仅支持无需登录即可访问的 Google Photos 分享链接。导入完成后会邮件和系统消息通知你。</p>
-        <div class="form-actions">
-          <button type="button" onclick="document.querySelector('#googlePhotosImportDialog').close()">取消</button>
-          <button class="primary" type="submit">开始导入</button>
-        </div>
-      </form>
-    </dialog>
-  {% endif %}
+    {% endif %}
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('工作日报', reports|length ~ ' 份', 'muted') }}
+    {% if not is_external_manager() and not is_external_employee() %}
+      {{ summary_item('员工报销', expenses|length ~ ' 张', 'muted') }}
+    {% endif %}
+    {% if can_view_customer_reimbursement() %}
+      {{ summary_item('工单结算', customer_reimbursement.total_amount|money if customer_reimbursement else '-') }}
+    {% endif %}
+    {% if can_view_invoices() %}
+      {{ summary_item('关联发票', invoices|length ~ ' 张', 'muted') }}
+    {% endif %}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>工单 <b>{{ order.order_number }}</b></span>
+    <span class="sep"></span>
+    <span>客户 <b>{{ order.client_name }}</b></span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ "已关闭" if order.status == "closed" else "进行中" }}</b></span>
+    <span class="sep"></span>
+    <span>类型 <b>{{ order.work_order_type_name or "-" }}</b></span>
+  </footer>
+</div>
+
+{% if can_create_service_report(order) %}
+  <dialog id="googlePhotosImportDialog" class="modal">
+    <form method="post" action="{{ url_for('import_google_photos_for_service_order', order_id=order.id) }}" class="form-stack">
+      <h2>导入 Google Photos 分享链接</h2>
+      <label>分享链接
+        <input name="google_photos_url" type="url" placeholder="https://photos.app.goo.gl/..." required>
+      </label>
+      <p class="muted-line">仅支持无需登录即可访问的 Google Photos 分享链接。导入完成后会邮件和系统消息通知你。</p>
+      <div class="form-actions">
+        <button type="button" onclick="document.querySelector('#googlePhotosImportDialog').close()">取消</button>
+        <button class="primary" type="submit">开始导入</button>
+      </div>
+    </form>
+  </dialog>
+{% endif %}
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
 {% endblock %}
