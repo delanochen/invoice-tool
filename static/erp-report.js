@@ -176,6 +176,64 @@
   document.querySelectorAll('[data-erp-detail-close]').forEach(button => button.addEventListener('click', closeDetail));
   document.addEventListener('keydown', event => { if (event.key === 'Escape') closeDetail(); });
 
+  /* ---------------- 数据刷新：只刷表格与汇总栏，不整页 reload ---------------- */
+  // 整页 reload 会丢掉网格的滚动位置、列宽/列显隐、表内搜索词，肉眼看还是全页白一下。
+  // 这里拉取当前 URL 的新 HTML，只把「非可编辑」网格的源表主体换掉——
+  // system-grid 的 MutationObserver 会随之驱动镜像 replaceData（保留排序 / 表内搜索 / 滚动）；
+  // 汇总栏与工具栏徽标和表格同源，一并换掉，避免「表新数旧」。
+  // 任何一步不合预期（离线、登录态失效、服务端改了表头结构）都退回整页 reload 兜底。
+  let refreshing = false;
+  async function refreshData() {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const response = await fetch(location.href, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      if (!doc.querySelector('.erp-app')) throw new Error('响应不含 ERP 外壳（登录态可能失效）');
+      const cellText = cell => (cell?.textContent || '').trim();
+      const freshTables = [...doc.querySelectorAll('table')];
+      const liveTables = [...document.querySelectorAll('table')];
+      let refreshed = 0;
+      freshTables.forEach(freshTable => {
+        // 对位：优先 id，否则按「全页第 N 张表」。新文档里没有 grid-source class（那是 JS 构建后才加的）。
+        const source = (freshTable.id && document.getElementById(freshTable.id))
+          || liveTables[freshTables.indexOf(freshTable)];
+        if (!source || source.closest('.system-grid')) return;
+        const instance = window.systemGrids?.instances.get(source);
+        if (!instance?.ready) return;   // 未被网格接管（初始化失败退化为原生表格）的不动
+        if (instance.editable) return;  // 可编辑表格：源表里可能有未提交的输入，整表替换会丢
+        const freshHead = [...(freshTable.tHead?.rows[0]?.cells || [])];
+        const liveHead = [...(source.tHead?.rows[0]?.cells || [])];
+        if (freshHead.length !== liveHead.length
+            || freshHead.some((cell, i) => cellText(cell) !== cellText(liveHead[i]))) {
+          throw new Error('表头结构变化，退回整页刷新');
+        }
+        source.replaceChildren(
+          document.importNode(freshTable.tHead, true),
+          ...[...freshTable.tBodies].map(body => document.importNode(body, true)),
+        );
+        refreshed += 1;
+      });
+      if (!refreshed) throw new Error('没有可局部刷新的网格');
+      const swap = selector => {
+        const live = app.querySelector(selector);
+        const fresh = doc.querySelector(selector);
+        if (live && fresh && live.innerHTML !== fresh.innerHTML) live.innerHTML = fresh.innerHTML;
+      };
+      swap('.erp-summary');
+      app.querySelectorAll('.erp-toolbar .erp-badge').forEach((badge, index) => {
+        const fresh = doc.querySelectorAll('.erp-toolbar .erp-badge')[index];
+        if (fresh && badge.textContent !== fresh.textContent) badge.textContent = fresh.textContent;
+      });
+    } catch (error) {
+      console.warn('局部刷新失败，退回整页刷新', error);
+      window.location.reload();
+    } finally {
+      refreshing = false;
+    }
+  }
+
   /* --------------------------------------------------------- Toolbar */
   const form = app.querySelector('[data-erp-filter]');
   app.querySelectorAll('[data-erp-action]').forEach(button => {
@@ -193,7 +251,7 @@
           });
           form?.requestSubmit();
           break;
-        case 'refresh': window.location.reload(); break;
+        case 'refresh': refreshData(); break;
         case 'print': window.print(); break;
         case 'export': {
           if (typeof window.downloadVisibleReport === 'function') window.downloadVisibleReport(button);
