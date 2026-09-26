@@ -4,6 +4,52 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.306] - 2026-09-26
+
+### 变更
+- **日报「里程佐证」上传区：文件选择控件与「自动生成里程佐证」按钮统一成一种风格，同一行排。**
+  原来两者都是 `.form-field`（`display:grid`）的直接子元素，于是各自拉满一整行：一个浏览器
+  原生文件控件 + 一个全宽系统按钮，两种风格并列。现在塞进仓库既有的行容器 `.file-picker-row`
+  （`pending-attachments.js` 也用它当插入锚点，所以「待上传附件」预览面板会落在行下面而不是行里面），
+  两个控件同高 32px、左边对齐、间距 10px。
+- **文件选择控件全站统一外观。** `input[type=file]` 的原生 `::file-selector-button` 做成系统
+  `.small` 按钮的样子（32px 高 / 13px 字 / 6px 圆角 / 1px 边框 / 白底），输入框本身去掉边框
+  与背景、只留灰色文件名文字。起因是 `ui-i18n.js` 在 `language === 'zh-CN'` 时**直接 return** ——
+  中文环境下那套「藏掉原生控件 + 自造按钮」的逻辑根本不执行，页面里显示的就是浏览器原生控件
+  （260px 宽、自带浅色小按钮的盒子）。现在中文用户看到的效果，与非中文环境下 `ui-i18n.js`
+  造出来的 `.translated-file-control`（`button.small` + 灰色文件名）一致。
+  标准选择器与 `::-webkit-file-upload-button` 分成两条规则写：写进同一个选择器列表时，
+  Firefox 解析不了 `::-webkit-*` 会把整条规则一起丢掉。
+- ERP 紧凑弹窗（`.erp-compact`）里的文件按钮按紧凑刻度缩一档（26px / 12px），与弹窗内其它控件同密度。
+
+### 修复
+- **报销审核「重复附件检查」里的疑点附件改为弹窗预览，不再新开页面。**
+  原来「当前附件」与「匹配记录」两个链接都写死 `target="_blank"`：点一下整页跳走、看完还得按返回 ——
+  而审核员本来就是要「把可疑附件与命中记录对着比一比」，来回跳页把动作切碎了。现在与系统其它地方
+  （本页「报销明细」、发票与日报附件）同一套规矩：图片走 `#imageAttachmentPreviewDialog` 统一弹窗
+  （`data-image-preview`，缩略图与文件名都可点，旁边给 48px 缩略图），非图片（PDF/Word/Excel）
+  仍新开标签页 —— 弹窗里只有一个 `<img>`，装不下它们。
+  为此 `expense_duplicate_checks()` 补出 `attachment_content_type` /
+  `matched_attachment_content_type`：不带上 content_type 就只能按扩展名猜。
+  表格会被 `system-grid.js` 镜像成 Tabulator，所以只认 HTML 属性（`data-image-preview` / `href`），
+  镜像按 `innerHTML` 复制并转发点击，不在脚本里绑事件。
+
+### 测试
+- `test_image_preview_unified.py` 新增两个契约类：疑点附件的两个单元格必须走 `suspect_attachment()`
+  宏（图片 `data-image-preview`、非图片 `target="_blank"`）、查询必须带出 content_type；
+  里程佐证的文件控件与「自动生成」按钮必须同处 `.file-picker-row`（换掉这个类预览面板会被插进行内）、
+  原生按钮的伪元素样式必须对齐 `.small`、已隐藏原生控件的包装器仍要靠文档顺序胜出
+  （`.photo-local-picker input[type=file]` 必须排在基础规则之后）。
+- `test_expense_ai_review.py` 新增 3 条：图片疑点渲染出 4 处可点（2 个附件 × 缩略图/文件名）
+  且无 `target="_blank"`、PDF 疑点恰好 2 处 `target="_blank"` 且无 `data-image-preview`、
+  查询带出 content_type。
+- 无头真渲染：日报编辑页量到文件控件与按钮 `topDiff 0 / heightDiff 0 / gap 10`，
+  `::file-selector-button` 与 `.small` 按钮的 min-height/padding/border/radius/背景/字号/颜色逐项相同，
+  另用一张对照预览页确认 6 种上传控件上下文（行容器 / 紧凑选择器 / label 内 / 表单字段 /
+  表单网格 / ERP 紧凑弹窗）外观一致、3 种已隐藏原生控件的包装器仍看不到多余控件；
+  报销详情页点镜像里的疑点缩略图 → `clickDefaultPrevented=true`、
+  `#imageAttachmentPreviewDialog.open=true`、`docRuns=1`（文档未重载）。
+
 ## [0.1.305] - 2026-09-26
 
 ### 变更
