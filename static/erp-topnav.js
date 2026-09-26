@@ -41,7 +41,15 @@
   // C/S 客户端惯例：已经打开某个菜单时，鼠标划过相邻菜单直接切换过去
   nav.addEventListener('mouseover', function (e) {
     var group = e.target.closest('.nav-group');
-    if (!group || group.open) return;
+    if (!group) {
+      // 划过菜单栏上的「直接入口」（消息）：它没有下拉可切，把已打开的面板收起来
+      if (e.target.closest('.nav-entry') &&
+          allGroups().some(function (g) { return g.open; })) {
+        closeAll();
+      }
+      return;
+    }
+    if (group.open) return;
     if (!allGroups().some(function (g) { return g.open; })) return; // 没打开任何菜单时不自动弹
     allGroups().forEach(function (g) { if (g !== group && g.open) g.open = false; });
     group.open = true;
@@ -67,30 +75,46 @@
     });
   }
 
+  // ←/→ 的行走序列 = 一级菜单组 + 菜单栏上的直接入口（消息）。
+  // v0.1.307 起「消息」不再是 .nav-group（没有下拉面板），不把它算进序列的话，
+  // 键盘走遍整条菜单栏时会漏掉它。
+  function stops() {
+    return Array.prototype.slice.call(nav.querySelectorAll('.nav-group, .nav-entry'));
+  }
+
   // 键盘操作：↓ 打开并聚焦首项、← → 在顶级菜单间移动、Esc 收起
   nav.addEventListener('keydown', function (e) {
-    var group = e.target.closest('.nav-group');
-    if (!group) return;
-    var groups = allGroups();
-    var index = groups.indexOf(group);
+    var stop = e.target.closest('.nav-group, .nav-entry');
+    if (!stop) return;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      var list = stops();
+      var at = list.indexOf(stop);
+      var next = list[(at + (e.key === 'ArrowRight' ? 1 : list.length - 1)) % list.length];
+      closeAll();
+      if (next.classList.contains('nav-entry')) {   // 直接入口没有面板可开，聚焦即止
+        next.focus();
+        return;
+      }
+      next.open = true;
+      var focusTarget = summaryOf(next);
+      if (focusTarget) focusTarget.focus();
+      return;
+    }
+    // 消息入口没有下拉：↓/Enter/空格 都交回浏览器（Enter 就是跟随链接跳转）
+    if (stop.classList.contains('nav-entry')) return;
+
+    var group = stop;
 
     if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
       if (!group.open) {
         e.preventDefault();
-        groups.forEach(function (g) { if (g !== group) g.open = false; });
+        closeAll();
         group.open = true;
         var first = group.querySelector('.nav-submenu a, .nav-submenu summary');
         if (first) first.focus();
       }
-      return;
-    }
-    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-      e.preventDefault();
-      var next = groups[(index + (e.key === 'ArrowRight' ? 1 : groups.length - 1)) % groups.length];
-      groups.forEach(function (g) { if (g !== next) g.open = false; });
-      next.open = true;
-      var target = summaryOf(next);
-      if (target) target.focus();
       return;
     }
     if (e.key === 'Escape') {

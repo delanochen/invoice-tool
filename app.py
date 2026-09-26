@@ -297,7 +297,6 @@ MENU_PERMISSION_GROUPS = [
             {"key": "service_order_calendar", "label": "工单日历", "roles": set(ROLE_OPTIONS)},
             {"key": "expense_processing", "label": "报销处理", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "new_invoice", "label": "新建发票", "roles": {"manager", "finance"}},
-            {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
         ],
     },
     {
@@ -354,6 +353,10 @@ MENU_PERMISSION_GROUPS = [
         "items": [
             {"key": "payment_terms", "label": "账期管理", "roles": {"admin", "finance"}},
             {"key": "system_settings", "label": "系统设置", "roles": {"admin"}},
+            # 消息在 UI 上已从「主菜单」下拉剥离、成为菜单栏上紧跟系统配置的一级入口，
+            # 这里的分组只是权限配置页的分类，跟着 UI 位置走，免得两边对不上。
+            # 它的默认角色仍是全部角色（不是管理项，只是位置在系统配置后面）。
+            {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
         ],
     },
 ]

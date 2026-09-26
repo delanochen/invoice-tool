@@ -193,9 +193,21 @@ function translateMessageValue(value) {
   return translated;
 }
 
-function messageNavText(count) {
+// v0.1.307：消息从「主菜单」下拉提升为菜单栏上的一级入口，未读数显示为红底徽标，
+// 而不是在「消息」二字后面缀一个 "(2)"。data-message-nav 因此挂在**徽标** <span> 上：
+// 它的兄弟节点是图标与「消息」文字，对父级 <a> 做 textContent = 会把图标一起抹掉。
+//   count > 0 → 写数字（>99 收敛成 99+）并去掉 hidden
+//   count = 0 → 清空文本并加 hidden（CSS 里 .nav-badge[hidden] 显式 display:none，
+//               因为 .nav-badge 自己设了 display:inline-flex，会盖掉 UA 的 [hidden] 规则）
+function paintMessageNav(count) {
+  const badge = document.querySelector("[data-message-nav]");
+  if (!badge) return;
+  const safe = Math.max(0, count);
+  badge.dataset.unreadCount = String(safe);
+  badge.textContent = safe > 99 ? "99+" : safe ? String(safe) : "";
+  badge.hidden = !safe;
   const label = messageText("消息");
-  return count ? `${label} (${count})` : label;
+  badge.setAttribute("aria-label", safe ? `${label}（${safe} 条未读）` : label);
 }
 
 function translateMessages() {
@@ -204,8 +216,7 @@ function translateMessages() {
   });
   const navigation = document.querySelector("[data-message-nav]");
   if (navigation) {
-    const count = Math.max(0, Number.parseInt(navigation.dataset.unreadCount || "0", 10));
-    navigation.textContent = messageNavText(count);
+    paintMessageNav(Math.max(0, Number.parseInt(navigation.dataset.unreadCount || "0", 10)));
   }
 }
 
@@ -213,8 +224,7 @@ function updateUnreadNavigation() {
   const navigation = document.querySelector("[data-message-nav]");
   if (!navigation) return;
   const count = Math.max(0, Number.parseInt(navigation.dataset.unreadCount || "0", 10) - 1);
-  navigation.dataset.unreadCount = String(count);
-  navigation.textContent = messageNavText(count);
+  paintMessageNav(count);
 }
 
 document.querySelectorAll("[data-message-link]").forEach((link) => {

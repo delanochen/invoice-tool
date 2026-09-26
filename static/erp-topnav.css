@@ -8,6 +8,11 @@
      · 子菜单级联向右弹出（▶），菜单内分隔线
    ============================================================ */
 
+/* ── 导航图标 sprite 容器（v0.1.307）──
+   必须留在文档流里但不能占位：用 position:absolute + 0 尺寸，**不要用 display:none**
+   —— display:none 的容器里的 <symbol> 在部分浏览器（旧 Safari）无法被 <use> 引用。 */
+.nav-icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
 /* ── 顶部条 ── */
 .topbar {
   position: relative;
@@ -117,6 +122,62 @@
 }
 #topnav .nav-group[open] > summary svg { color: #fff; }
 
+/* ── 菜单栏上的「直接入口」（消息，v0.1.307）──
+   它不是 <details>（没有下拉面板），点击直接跳转，所以样式与 .nav-group > summary
+   对齐（同 24px 高度 / 同 padding / 同 hover 与按下配色），单独写一套。
+   注意外层不叫 .nav-group —— erp-topnav.js 的 hover 切换只看 .nav-group。 */
+#topnav .nav-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 12px;
+  color: #22303f;
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  white-space: nowrap;
+}
+#topnav .nav-entry:hover { background: #cfe0fb; border-color: #7a9fe0; color: #12305f; }
+#topnav .nav-entry.active,
+#topnav .nav-entry[aria-current="page"] {
+  background: #1d4ed8;
+  border-color: #153fb0;
+  color: #fff;
+  font-weight: 600;
+}
+#topnav .nav-entry svg { flex: 0 0 auto; width: 13px; height: 13px; opacity: .7; }
+#topnav .nav-entry:hover svg,
+#topnav .nav-entry.active svg,
+#topnav .nav-entry[aria-current="page"] svg { opacity: 1; }
+
+/* ── 未读消息徽标 ──
+   位置在「消息」文字后面，红底白字，0 条时整个元素由模板加 hidden 不渲染。 */
+#topnav .nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 15px;
+  height: 15px;
+  margin-left: 2px;
+  padding: 0 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #c0271f;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+/* 当前就在消息页时一级入口是深蓝底，红徽标会糊掉 → 换成白底蓝字 */
+#topnav .nav-entry.active .nav-badge,
+#topnav .nav-entry[aria-current="page"] .nav-badge { background: #fff; color: #153fb0; }
+/* 必须显式写：.nav-badge 自己设了 display:inline-flex，与 UA 样式表的 [hidden]{display:none}
+   同特异性(0,1,0)，作者样式优先 → 不写这条 hidden 会失效，0 条时留一个空心红点。 */
+#topnav .nav-badge[hidden] { display: none; }
+
 /* ── 下拉面板：直角、细边框、硬阴影 ── */
 #topnav .nav-submenu {
   position: absolute;
@@ -138,13 +199,32 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 3px 16px 3px 22px;
+  padding: 3px 16px 3px 20px;
   border-radius: 0;
   font-size: 12px;
   color: #22303f;
   text-decoration: none;
   white-space: nowrap;
 }
+/* 二/三级子菜单项前面的小图标（v0.1.307）。
+   形状全在 base.html 的 sprite 里，这里只给尺寸与描边 —— fill/stroke 都是可继承属性，
+   写在 <use> 的宿主 <svg> 上会继承进 symbol 内容，所以 symbol 里不用重复声明。 */
+#topnav .nav-item-icon {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .7;   /* 与一级菜单 .nav-group > summary svg 的 .7 对齐 */
+}
+#topnav .nav-submenu a:hover .nav-item-icon,
+#topnav .nav-submenu a.active .nav-item-icon,
+#topnav .nav-submenu a[aria-current="page"] .nav-item-icon,
+#topnav .nav-subgroup > summary:hover .nav-item-icon,
+#topnav .nav-subgroup[open] > summary .nav-item-icon { opacity: 1; }
 #topnav .nav-submenu a:hover { background: #1d4ed8; color: #fff; }
 #topnav .nav-submenu a.active,
 #topnav .nav-submenu a[aria-current="page"] {
@@ -163,10 +243,10 @@
   background: #1d4ed8;
 }
 #topnav .nav-submenu a { position: relative; }
-/* 菜单分隔线 */
+/* 菜单分隔线：左边缘与图标对齐（图标从 20px 起，见 .nav-submenu a 的 padding-left） */
 #topnav .nav-submenu hr {
   height: 0;
-  margin: 3px 2px;
+  margin: 3px 4px 3px 20px;
   border: 0;
   border-top: 1px solid #dfe4ea;
 }
@@ -179,7 +259,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 16px 3px 22px;
+  padding: 3px 16px 3px 20px;
   font-size: 12px;
   color: #22303f;
   border-radius: 0;
@@ -331,4 +411,8 @@
   }
   #topnav .nav-subgroup > summary::after { content: '▼'; }
   #topnav .nav-submenu a { padding: 6px 10px; font-size: 13px; }
+  /* 抽屉里的行高更松，图标跟着放大一档才不会显得太小 */
+  #topnav .nav-entry { height: auto; min-height: 30px; padding: 6px 10px; font-size: 13px; }
+  #topnav .nav-entry svg,
+  #topnav .nav-item-icon { width: 15px; height: 15px; }
 }

@@ -37,6 +37,52 @@
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}" data-grid-user="{{ g.user.id if g.user else '' }}">
+    {# 导航图标 sprite（v0.1.307）：二/三级子菜单前面那个小图标。
+       全部菜单项共用这一份 24 格线性图标，stroke / fill 由 .nav-item-icon 的 CSS 统一给，
+       symbol 里只写形状 —— 否则每个 <a> 都要内联一份 svg，一处改字形要改几十处。
+       注意是 symbol + <use>（不是 display:none 的 div 包 svg）：symbol 本身不渲染，
+       被 <use> 引用时容器隐藏不影响绘制。 #}
+    <svg class="nav-icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="ni-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+      <symbol id="ni-field" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.7-.3-.3-2.7z"/></symbol>
+      <symbol id="ni-contract" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M8.5 15.5c1.5-2.2 3-2.2 4.5 0"/></symbol>
+      <symbol id="ni-order" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 11h6M9 15h4"/></symbol>
+      <symbol id="ni-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+      <symbol id="ni-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></symbol>
+      <symbol id="ni-expense" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/></symbol>
+      <symbol id="ni-receipt" viewBox="0 0 24 24"><path d="M5 3h14v18l-3.5-2-3.5 2-3.5-2L5 21z"/><path d="M9 8h6M9 12h6"/></symbol>
+      <symbol id="ni-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></symbol>
+      <symbol id="ni-certificate" viewBox="0 0 24 24"><circle cx="12" cy="9" r="5"/><path d="M9 13.5 8 21l4-2 4 2-1-7.5"/></symbol>
+      <symbol id="ni-clients" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5"/><path d="M17 5.2a3 3 0 0 1 0 5.6"/><path d="M18 14.6c2.4.6 4 2.1 4 5.4"/></symbol>
+      <symbol id="ni-buyer" viewBox="0 0 24 24"><path d="M12 21s7-6 7-11a7 7 0 1 0-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+      <symbol id="ni-invoice" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></symbol>
+      <symbol id="ni-invoice-query" viewBox="0 0 24 24"><path d="M5 3h9l4 4v6"/><path d="M5 3v18h6"/><circle cx="16.5" cy="16.5" r="3.5"/><path d="m19 19 2 2"/></symbol>
+      <symbol id="ni-settle" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8v3H8z"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01M16 17.5h.01"/></symbol>
+      <symbol id="ni-profit" viewBox="0 0 24 24"><path d="M4 18l6-6 3.5 3.5L20 9"/><path d="M15 9h5v5"/></symbol>
+      <symbol id="ni-report" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 12h6M9 16h6"/></symbol>
+      <symbol id="ni-audit" viewBox="0 0 24 24"><path d="M4 6h10M4 12h10M4 18h6"/><path d="m14 17 2.5 2.5L21 15"/></symbol>
+      <symbol id="ni-hours" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/></symbol>
+      <symbol id="ni-payroll" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 10h4.2a1.9 1.9 0 0 1 0 3.8H10.3a1.9 1.9 0 0 0 0 3.8h4.2"/></symbol>
+      <symbol id="ni-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/></symbol>
+      <symbol id="ni-params" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="1.8"/><circle cx="15" cy="12" r="1.8"/><circle cx="7" cy="17" r="1.8"/></symbol>
+      <symbol id="ni-grade" viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M5 20v-4h4v4M10.5 20V10h4v10M16 20V4h4v16"/></symbol>
+      <symbol id="ni-subsidy" viewBox="0 0 24 24"><path d="M9 3h6l2 4H7z"/><path d="M7 7h10v12a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></symbol>
+      <symbol id="ni-ai" viewBox="0 0 24 24"><path d="M12 3.5 13.9 9.6 20 11.5 13.9 13.4 12 19.5 10.1 13.4 4 11.5 10.1 9.6z"/><path d="M18.5 3v3M17 4.5h3"/></symbol>
+      <symbol id="ni-travel" viewBox="0 0 24 24"><path d="M21 4 3 11l7 2.5L12.5 21z"/><path d="m10 13.5 11-9.5"/></symbol>
+      <symbol id="ni-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H17v18H6.5A2.5 2.5 0 0 1 4 18.5z"/><path d="M8 3v18"/></symbol>
+      <symbol id="ni-assistant" viewBox="0 0 24 24"><path d="M20 12a7 7 0 0 1-7 7H8.5L4 21.5 5.2 17A7 7 0 0 1 13 5a7 7 0 0 1 7 7z"/><path d="M9.5 12h.01M13 12h.01M16.5 12h.01"/></symbol>
+      <symbol id="ni-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+      <symbol id="ni-factory" viewBox="0 0 24 24"><path d="M3 21V10l5 3V10l5 3V8l8 5v8z"/><path d="M3 21h18"/><path d="M7 21v-3M12 21v-3M17 21v-3"/></symbol>
+      <symbol id="ni-owner" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M10 21v-6h4v6"/></symbol>
+      <symbol id="ni-company" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="1"/><path d="M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1"/><path d="M12 2v2"/></symbol>
+      <symbol id="ni-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.5 3.8 5.6 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.6-3.8-9S9.5 5.5 12 3z"/></symbol>
+      <symbol id="ni-project" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="ni-tag" viewBox="0 0 24 24"><path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/></symbol>
+      <symbol id="ni-permission" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+      <symbol id="ni-terms" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="12" cy="15.5" r="2.5"/></symbol>
+      <symbol id="ni-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></symbol>
+      <symbol id="ni-mail" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+    </svg>
     {% set active_endpoint = request.endpoint or "" %}
     {% if g.user %}
       <header class="topbar no-print">
@@ -60,50 +106,51 @@
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
         {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions"] %}
-        {% macro nav_link(endpoint, label, endpoints=None, attrs="") -%}
+        {% macro nav_icon(name) -%}
+          {%- if name -%}<svg class="nav-item-icon" aria-hidden="true" focusable="false"><use href="#ni-{{ name }}"></use></svg>{%- endif -%}
+        {%- endmacro %}
+        {% macro nav_link(endpoint, label, endpoints=None, attrs="", icon="") -%}
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
-          <a href="{{ url_for(endpoint) }}" class="translatable-text {{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
+          <a href="{{ url_for(endpoint) }}" class="translatable-text {{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ nav_icon(icon) }}{{ label }}</a>
         {%- endmacro %}
         <nav id="topnav">
-          {% set main_endpoints = ["field_work", "field_photo_query", "user_certificate_query", "dashboard", "contracts", "new_contract", "contract_detail", "edit_contract", "service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report", "service_order_calendar", "service_order_map", "expense_processing", "expense_detail", "new_expense", "edit_expense", "messages", "clients", "buyers", "users"] %}
+          {% set main_endpoints = ["field_work", "field_photo_query", "user_certificate_query", "dashboard", "contracts", "new_contract", "contract_detail", "edit_contract", "service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report", "service_order_calendar", "service_order_map", "expense_processing", "expense_detail", "new_expense", "edit_expense", "clients", "buyers", "users"] %}
+          {# v0.1.307: messages 不再属于主菜单组 —— 消息提升为菜单栏上的一级入口（见 nav 末尾），
+             访问消息页时高亮的是那个入口，不是「主菜单」。 #}
           <details class="nav-group main-group {{ 'active' if active_endpoint in main_endpoints else '' }}" {% if active_endpoint in main_endpoints %}open{% endif %}>
             <summary accesskey="m"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>主菜单<span class="nav-key">(<u>M</u>)</span></summary>
             <div class="nav-submenu">
               {% if is_external_manager() %}
-                {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}{{ nav_link("clients", "客户信息") }}{% endif %}
-                {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}{{ nav_link("buyers", "站点") }}{% endif %}
+                {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}{{ nav_link("clients", "客户信息", icon="clients") }}{% endif %}
+                {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}{{ nav_link("buyers", "站点", icon="buyer") }}{% endif %}
               {% elif is_external_employee() %}
                 {% if has_menu_permission("user_certificate_query") and has_action_permission("users", "view") %}
-                  {{ nav_link("user_certificate_query", "员工证书查询") }}
+                  {{ nav_link("user_certificate_query", "员工证书查询", icon="certificate") }}
                 {% endif %}
               {% else %}
                 {% if has_menu_permission("field_work") and has_action_permission("service_orders", "view") %}
-                  {{ nav_link("field_work", "现场工作", ["field_work", "field_photo_query"]) }}
+                  {{ nav_link("field_work", "现场工作", ["field_work", "field_photo_query"], icon="field") }}
                 {% endif %}
                 {% if has_menu_permission("dashboard") and can_view_invoices() and not is_external_manager() %}
-                  {{ nav_link("dashboard", "概览") }}
+                  {{ nav_link("dashboard", "概览", icon="dashboard") }}
                 {% endif %}
                 {% if has_menu_permission("contracts") and can_view_contracts() %}
-                  {{ nav_link("contracts", "合同", contract_endpoints) }}
+                  {{ nav_link("contracts", "合同", contract_endpoints, icon="contract") }}
                 {% endif %}
                 {% if has_menu_permission("service_orders") %}
-                  {{ nav_link("service_orders", "工单", order_endpoints) }}
+                  {{ nav_link("service_orders", "工单", order_endpoints, icon="order") }}
                 {% endif %}
                 {% if has_menu_permission("service_order_calendar") and has_action_permission("service_order_calendar", "view") %}
-                  {{ nav_link("service_order_calendar", "工单日历", order_calendar_endpoints) }}
+                  {{ nav_link("service_order_calendar", "工单日历", order_calendar_endpoints, icon="calendar") }}
                 {% endif %}
                 {% if has_menu_permission("service_order_map") and not is_external_employee() %}
-                  {{ nav_link("service_order_map", "站点地图", map_endpoints) }}
+                  {{ nav_link("service_order_map", "站点地图", map_endpoints, icon="map") }}
                 {% endif %}
                 {% if has_menu_permission("expense_processing") and not is_external_manager() and not is_external_employee() %}
-                  {{ nav_link("expense_processing", "报销处理", expense_processing_endpoints) }}
+                  {{ nav_link("expense_processing", "报销处理", expense_processing_endpoints, icon="expense") }}
                 {% endif %}
               {% endif %}
-              {% if (is_external_manager() or is_external_employee()) and has_menu_permission("users") %}{{ nav_link("users", "我的资料") }}{% endif %}
-              {% if has_menu_permission("messages") %}
-                <hr>
-                {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
-              {% endif %}
+              {% if (is_external_manager() or is_external_employee()) and has_menu_permission("users") %}{{ nav_link("users", "我的资料", icon="user") }}{% endif %}
             </div>
           </details>
           {% set show_reports_menu =
@@ -124,27 +171,27 @@
             <summary accesskey="r"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7M3 20h18"/></svg>报表<span class="nav-key">(<u>R</u>)</span></summary>
             <div class="nav-submenu">
               {% if has_menu_permission("user_certificate_query") and has_action_permission("users", "view") %}
-                {{ nav_link("user_certificate_query", "员工证书查询") }}
+                {{ nav_link("user_certificate_query", "员工证书查询", icon="certificate") }}
               {% endif %}
               {% if has_menu_permission("invoices") and can_view_invoices() %}
-                {{ nav_link("invoices", "发票查询") }}
+                {{ nav_link("invoices", "发票查询", icon="invoice") }}
               {% endif %}
               {% if has_menu_permission("invoice_query") and can_view_invoices() %}
-                {{ nav_link("invoice_query", "发票明细查询") }}
+                {{ nav_link("invoice_query", "发票明细查询", icon="invoice-query") }}
               {% endif %}
               {% if has_menu_permission("customer_reimbursement_query") and can_view_customer_reimbursement() %}
-                {{ nav_link("customer_reimbursement_query", "工单结算报表") }}
+                {{ nav_link("customer_reimbursement_query", "工单结算报表", icon="settle") }}
               {% endif %}
               {% if has_menu_permission("profitability") and has_action_permission("profitability", "view") and not is_external_manager() %}
-                {{ nav_link("profitability_report", "项目利润") }}
+                {{ nav_link("profitability_report", "项目利润", icon="profit") }}
               {% endif %}
-              {% if has_menu_permission("service_report_query") or (is_external_manager() and has_action_permission("service_reports", "view")) %}{{ nav_link("service_report_query", "日报查询") }}{% endif %}
+              {% if has_menu_permission("service_report_query") or (is_external_manager() and has_action_permission("service_reports", "view")) %}{{ nav_link("service_report_query", "日报查询", icon="report") }}{% endif %}
                 {% if not is_external_manager() %}
-                {% if has_menu_permission("buyer_query") %}{{ nav_link("buyer_query", "站点查询") }}{% endif %}
-                {% if has_menu_permission("service_order_query") %}{{ nav_link("service_order_query", "工单查询") }}{% endif %}
-                {% if has_menu_permission("expense_query") %}{{ nav_link("expense_query", "报销明细查询") }}{% endif %}
+                {% if has_menu_permission("buyer_query") %}{{ nav_link("buyer_query", "站点查询", icon="buyer") }}{% endif %}
+                {% if has_menu_permission("service_order_query") %}{{ nav_link("service_order_query", "工单查询", icon="order") }}{% endif %}
+                {% if has_menu_permission("expense_query") %}{{ nav_link("expense_query", "报销明细查询", icon="receipt") }}{% endif %}
                 {% if has_menu_permission("audit_log_report") and can_view_audit_logs() %}
-                  {{ nav_link("audit_log_report", "操作日志") }}
+                  {{ nav_link("audit_log_report", "操作日志", icon="audit") }}
                 {% endif %}
               {% endif %}
             </div>
@@ -164,17 +211,17 @@
               <summary accesskey="p"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 10h4.2a1.9 1.9 0 0 1 0 3.8H10.3a1.9 1.9 0 0 0 0 3.8h4.2"/></svg>薪酬管理<span class="nav-key">(<u>P</u>)</span></summary>
               <div class="nav-submenu">
                 {% if show_payroll_reports %}
-                  {% if has_menu_permission("labor_hours_report") and can_view_labor_payroll_reports() %}{{ nav_link("labor_hours_report", "工时统计") }}{% endif %}
-                  {% if has_menu_permission("payroll_report") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_report", "薪酬统计") }}{% endif %}
-                  {% if has_menu_permission("payroll_report") and has_action_permission("payroll_report", "view") %}{{ nav_link("payroll_detail_report", "薪酬明细报表") }}{% endif %}
-                  {% if has_menu_permission("payroll_calendar") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_calendar", "薪酬日历") }}{% endif %}
+                  {% if has_menu_permission("labor_hours_report") and can_view_labor_payroll_reports() %}{{ nav_link("labor_hours_report", "工时统计", icon="hours") }}{% endif %}
+                  {% if has_menu_permission("payroll_report") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_report", "薪酬统计", icon="payroll") }}{% endif %}
+                  {% if has_menu_permission("payroll_report") and has_action_permission("payroll_report", "view") %}{{ nav_link("payroll_detail_report", "薪酬明细报表", icon="table") }}{% endif %}
+                  {% if has_menu_permission("payroll_calendar") and can_view_labor_payroll_reports() %}{{ nav_link("payroll_calendar", "薪酬日历", icon="calendar") }}{% endif %}
                 {% endif %}
                 {% if show_payroll_parameters %}
                   <details class="nav-subgroup {{ 'active' if active_endpoint in payroll_parameter_endpoints else '' }}" {% if active_endpoint in payroll_parameter_endpoints %}open{% endif %}>
-                    <summary>薪酬参数</summary>
+                    <summary>{{ nav_icon("params") }}薪酬参数</summary>
                     <div class="nav-submenu">
-                      {% if has_menu_permission("employee_grades") and can_manage_employee_grades() %}{{ nav_link("employee_grades", "员工等级") }}{% endif %}
-                      {% if has_menu_permission("payroll_subsidies") and can_manage_employee_grades() %}{{ nav_link("payroll_subsidies", "补贴参数") }}{% endif %}
+                      {% if has_menu_permission("employee_grades") and can_manage_employee_grades() %}{{ nav_link("employee_grades", "员工等级", icon="grade") }}{% endif %}
+                      {% if has_menu_permission("payroll_subsidies") and can_manage_employee_grades() %}{{ nav_link("payroll_subsidies", "补贴参数", icon="subsidy") }}{% endif %}
                     </div>
                   </details>
                 {% endif %}
@@ -193,19 +240,19 @@
             <summary accesskey="t"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.7-.3-.3-2.7z"/></svg>实用工具<span class="nav-key">(<u>T</u>)</span></summary>
             <div class="nav-submenu">
               {% if has_menu_permission("ai_daily_report") and is_internal_user() %}
-                {{ nav_link("ai_daily_report_drafts_page", "AI 日报审查", ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page"]) }}
+                {{ nav_link("ai_daily_report_drafts_page", "AI 日报审查", ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page"], icon="ai") }}
               {% endif %}
               {% if has_menu_permission("travel_tools") and is_internal_user() %}
-                {{ nav_link("travel_tools_page", "出行工具") }}
+                {{ nav_link("travel_tools_page", "出行工具", icon="travel") }}
               {% endif %}
               {% if has_menu_permission("knowledge_base") and has_action_permission("knowledge_base", "view") %}
-                {{ nav_link("knowledge_base", "知识库", knowledge_base_endpoints) }}
+                {{ nav_link("knowledge_base", "知识库", knowledge_base_endpoints, icon="book") }}
               {% endif %}
               {% if has_menu_permission("ai_assistant") and has_action_permission("ai_assistant", "view") %}
-                {{ nav_link("ai_assistant", "智能助手", ai_assistant_endpoints) }}
+                {{ nav_link("ai_assistant", "智能助手", ai_assistant_endpoints, icon="assistant") }}
               {% endif %}
               {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}
-                {{ nav_link("database_console", "数据库工具") }}
+                {{ nav_link("database_console", "数据库工具", icon="database") }}
               {% endif %}
             </div>
           </details>
@@ -227,32 +274,32 @@
               <summary accesskey="d"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>基础数据<span class="nav-key">(<u>D</u>)</span></summary>
               <div class="nav-submenu">
                 {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}
-                  {{ nav_link("clients", "客户") }}
+                  {{ nav_link("clients", "客户", icon="clients") }}
                 {% endif %}
                 {% if has_menu_permission("owners") and has_action_permission("owners", "view") %}
-                  {{ nav_link("owners", "业主") }}
+                  {{ nav_link("owners", "业主", icon="owner") }}
                 {% endif %}
                 {% if has_menu_permission("manufacturers") and has_action_permission("manufacturers", "view") %}
-                  {{ nav_link("manufacturers", "厂家") }}
+                  {{ nav_link("manufacturers", "厂家", icon="factory") }}
                 {% endif %}
                 {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}
-                  {{ nav_link("buyers", "站点") }}
+                  {{ nav_link("buyers", "站点", icon="buyer") }}
                 {% endif %}
                 {% if has_menu_permission("work_order_types") and has_action_permission("work_order_types", "view") %}
-                  {{ nav_link("work_order_types", "工单类型") }}
+                  {{ nav_link("work_order_types", "工单类型", icon="tag") }}
                 {% endif %}
                 {% if has_menu_permission("projects") and has_action_permission("projects", "view") %}
-                  {{ nav_link("projects", "项目") }}
+                  {{ nav_link("projects", "项目", icon="project") }}
                 {% endif %}
                 {% if has_menu_permission("countries") and has_action_permission("countries", "view") %}
-                  {{ nav_link("countries", "国家") }}
+                  {{ nav_link("countries", "国家", icon="globe") }}
                 {% endif %}
                 {% if has_menu_permission("company_info") and has_action_permission("company_info", "view") %}
-                  {{ nav_link("company_info", "公司信息") }}
+                  {{ nav_link("company_info", "公司信息", icon="company") }}
                 {% endif %}
                 {% if has_menu_permission("users") and has_action_permission("users", "view") %}
                   <hr>
-                  {{ nav_link("users", "用户") }}
+                  {{ nav_link("users", "用户", icon="user") }}
                 {% endif %}
               </div>
             </details>
@@ -266,12 +313,33 @@
               <details class="nav-group {{ 'active' if active_endpoint in system_config_endpoints else '' }}" {% if active_endpoint in system_config_endpoints %}open{% endif %}>
                 <summary accesskey="s"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>系统配置<span class="nav-key">(<u>S</u>)</span></summary>
                 <div class="nav-submenu">
-                  {% if normalized_role() == "admin" %}{{ nav_link("menu_permissions", "权限管理") }}{% endif %}
-                  {% if has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view") %}{{ nav_link("payment_terms", "账期管理") }}{% endif %}
-                  {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}{{ nav_link("system_settings", "系统设置") }}{% endif %}
+                  {% if normalized_role() == "admin" %}{{ nav_link("menu_permissions", "权限管理", icon="permission") }}{% endif %}
+                  {% if has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view") %}{{ nav_link("payment_terms", "账期管理", icon="terms") }}{% endif %}
+                  {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}{{ nav_link("system_settings", "系统设置", icon="settings") }}{% endif %}
                 </div>
               </details>
             {% endif %}
+          {% endif %}
+          {% if has_menu_permission("messages") %}
+            {# v0.1.307: 消息从「主菜单」下拉里剥出来，作为菜单栏上的一级入口放在系统配置之后。
+               未读数用红底徽标显示（0 条时整个徽标不渲染），比在文字后面缀 "(2)" 更像客户端。
+               注意 data-message-nav 挂在**徽标**上而不是整个 <a> 上：messages.js 会做
+               `element.textContent = ...`，挂在 <a> 上会把里面的图标一起抹掉。
+               徽标必须自带 [hidden] 规则 —— 它设了 display:inline-flex，而 UA 样式表里
+               [hidden]{display:none} 与 .nav-badge 同特异性，作者样式会赢，hidden 会失效。 #}
+            <a class="nav-entry nav-entry-message{{ ' active' if active_endpoint == 'messages' else '' }}"
+               href="{{ url_for('messages') }}"
+               {% if active_endpoint == 'messages' %}aria-current="page"{% endif %}
+               title="消息{{ '（' ~ unread_message_count ~ ' 条未读）' if unread_message_count else '' }}">
+              {{ nav_icon("mail") }}
+              <span class="nav-entry-label translatable-text">消息</span>
+              {% if unread_message_count %}
+                <span class="nav-badge" data-message-nav data-unread-count="{{ unread_message_count }}"
+                      aria-label="未读消息 {{ unread_message_count }} 条">{{ unread_message_count if unread_message_count < 100 else '99+' }}</span>
+              {% else %}
+                <span class="nav-badge" data-message-nav data-unread-count="0" hidden></span>
+              {% endif %}
+            </a>
           {% endif %}
         </nav>
         <div class="topbar-right" id="topbar-account">
