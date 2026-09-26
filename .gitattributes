@@ -1,3 +1,6 @@
 *.sh text eol=lf
+# systemd unit 必须 LF：CRLF 会让 systemd 把 \r 当成值的一部分
+*.service text eol=lf
+*.timer text eol=lf
 deploy/authorized_keys.invoice text eol=lf
 deploy/docker-compose.postgresql.yml text eol=lf
