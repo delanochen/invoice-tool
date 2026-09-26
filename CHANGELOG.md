@@ -4,6 +4,46 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.303] - 2026-09-26
+
+### 变更
+- **全站业务页面 ERP 化收口（15 页）**：把仓库里尚未套 ERP 外壳的桌面业务页统一改成
+  `static/erp-ui.css` 的 ERP 工作台版式（顶部工具栏 + 页签/筛选条 + 内容区内部滚动 +
+  底部汇总栏 + 状态栏），与「国家配置 / 员工等级」等既有 ERP 页观感一致。
+  模板改动一律只动版式与容器层级，**表单字段名、`name`、元素 `id`、`data-*` 钩子、
+  条件渲染分支全部保持原样**，前端脚本无需改动。
+  - 概览（`dashboard`）：指标磁贴改自研紧凑 `.dash-metrics`，图表区两列，
+    项目筛选并入图表标题栏。
+  - 账期管理、公司信息、数据库工具、薪酬日历、权限管理、知识库、智能助手。
+  - 发票详情：「发票正文 / 附件清单」两页签，正文纸张居中留在内容区，附件表走 `erp-grid`。
+  - 日报查看：工具栏承载「上一个 / 下一个 / 导出 Word / 打印」，纸张进内容区并保留打印样式。
+  - 系统设置：超长表单改用 `--flow` 变体（整页滚动，工具栏与状态栏 sticky），
+    原有「收款信息 / 邮件发送」两列分节版式保留。
+  - 出行工具、AI 日报审查中心、AI 日报 Draft 详情：重 JS 驱动页面，仅换外壳与密度，
+    分页控件从列表下方挪进状态栏常驻。
+  - 错误页：错误面板套 ERP 外壳，操作按钮回到左对齐（原全局 `.actions` 把它推到右侧）。
+
+### 修复
+- **页签 / 筛选条挂在 `.erp-app` 下会被挤出正常位置**：`.erp-app` 是具名区域网格
+  （toolbar / nav / body / summary / status），不带 `grid-area` 的直接子元素会被自动
+  放进 summary 行 —— 表现为页签掉到状态栏下方、内容区出现大片空洞。已按 `erp-ui.css`
+  既有约定（`.erp-body > .erp-tabs` / `.erp-body > .erp-filter`）把它们移进 `.erp-body`。
+  受影响页面：发票详情（页签）、AI 日报审查中心（筛选条）。
+
+### 测试
+- 无头真渲染 + 页面内几何断言覆盖全部 15 页：新增「游离网格项」（`strayChildren`）
+  与右溢出（`overflowRight`）检测，两者在所有页面均为空，`.erp-app` 落在视口内，
+  状态栏贴住视口底；`--flow` 页（系统设置）保持整页滚动且工具栏/状态栏 sticky。
+- 本次新增的页面级契约：`service_report_navigation` 依赖的 `<div class="service-report-nav">`
+  容器与其中「上一个 / 下一个」的链接顺序、禁用文案原样保留（未改测试）。
+
+### 未纳入（非页面素材，故不套外壳）
+- 手机端独立 PWA 页：`field_work`、`mobile_clock_in`、`mobile_app_install`（各自 `<!doctype html>`，
+  不继承 `base.html`，自带底部 tab 栏与 manifest，ERP 桌面外壳不适用）。
+- 登录前页面：`login`、`register`（在进入工作区外壳之前渲染）。
+- 独立打印文档与邮件正文：`invoice_export`（A4 打印版 `@page`）、`email_invoice`（邮件正文片段）。
+- 片段/宏与外壳本身：`report_multiselect`、`_photo_thumbs`、`base`、`workspace`。
+
 ## [0.1.302] - 2026-09-26
 
 ### 修复
