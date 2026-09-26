@@ -10358,7 +10358,10 @@ def employee_grades():
             db().rollback()
             flash("员工等级名称已存在。", "error")
         return redirect(url_for("employee_grades", grade_id=grade_id or ""))
-    return render_employee_grades_page()
+    # 必须把 ?grade_id 传进去：等级切换是用 history.replaceState 写地址栏的（不导航），
+    # 页面刷新、以及 erp-report.js 的「局部刷新」（fetch(location.href)）都要靠它还原选中等级；
+    # 上面各 POST 分支也都是 redirect(..., grade_id=...) 回到原等级。
+    return render_employee_grades_page(request.args.get("grade_id", ""))
 
 
 @app.post("/employee-grades/<int:grade_id>/state")
@@ -16810,6 +16813,17 @@ def service_orders():
     if buyer_id.isdigit():
         clauses.append("service_orders.buyer_id = ?")
         params.append(int(buyer_id))
+        # 带 buyer_id 过滤时把站点名传给模板：工作区标签页标题取自页面 <title>，
+        # 不传的话「业主查询 → 工单查看」打开的标签和菜单里的「工单」标签
+        # 都叫「工单」，用户分不清哪个是哪个（也无法靠标题区分）。
+        buyer_row = db().execute(
+            "select buyers.name, coalesce(owners.name, buyers.owner) as owner_name"
+            " from buyers left join owners on owners.id = buyers.owner_id where buyers.id = ?",
+            (int(buyer_id),),
+        ).fetchone()
+        buyer_name = (buyer_row["name"] or buyer_row["owner_name"] or "") if buyer_row else ""
+    else:
+        buyer_name = ""
     rows = db().execute(
         f"""
         select service_orders.*,
@@ -16836,7 +16850,7 @@ def service_orders():
         """,
         params,
     ).fetchall()
-    return render_template("service_orders.html", orders=rows, q=q, buyer_id=buyer_id)
+    return render_template("service_orders.html", orders=rows, q=q, buyer_id=buyer_id, buyer_name=buyer_name)
 
 
 @app.route("/service-orders/calendar")

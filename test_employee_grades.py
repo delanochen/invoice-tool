@@ -209,6 +209,42 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertIn('加入员工', page)
         self.assertIn('移出该等级', page)
 
+    def test_selected_grade_query_param_is_honoured(self):
+        """?grade_id=N 必须真的选中那个等级。
+
+        等级切换是 history.replaceState 写地址栏（不导航），所以「刷新页面」和
+        erp-report.js 的「局部刷新」（fetch(location.href)）都只能靠这个参数还原选中项；
+        加入/移出成员后的 redirect(..., grade_id=...) 也依赖它回到原等级。
+        早期 GET 分支是无参调用 render_employee_grades_page()，参数被静默丢掉 →
+        刷新后总回到第一个等级，汇总栏与用户看到的等级还对不上。
+        """
+        with self.m.app.app_context():
+            db = self.m.db()
+            second = db.execute("""insert into employee_grades
+                (grade_name, description, is_active, created_at) values ('P2','二档',1,?)""",
+                (self.m.now(),)).lastrowid
+            db.commit()
+
+        def active_grade_id(html):
+            tail = html.split('class="grade-panel active"', 1)[1]
+            return tail.split('data-grade-panel="', 1)[1].split('"', 1)[0]
+
+        self.assertEqual(active_grade_id(self.page(second)), str(second))
+        self.assertIn('<strong data-grade-field="name">P2</strong>', self.page(second))
+        # 不带参数时回退到第一个等级（保持既有行为）
+        self.assertEqual(
+            active_grade_id(self.http.get('/employee-grades').get_data(as_text=True)),
+            str(self.grade_id),
+        )
+        # 加入成员后的跳转要带上刚才操作的等级，否则会「跳回第一个等级」
+        response = self.http.post(
+            f'/employee-grades/{second}/members',
+            data={'action': 'add', 'user_id': str(self.fixture.people['Unrelated'])},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith(f'grade_id={second}'),
+                        response.headers['Location'])
+
     # ------------------------------------------------------ 等级下的员工分配
     def test_add_and_remove_grade_members(self):
         submitter = self.fixture.people['Submitter']

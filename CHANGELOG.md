@@ -29,11 +29,17 @@
 - `rate_engine.py`：`employee_rate()` 里的静态费率回退映射抽成 `EMPLOYEE_STATIC_RATE_COLUMNS`，
   新增 `employee_grade_rate_snapshot()` 供页面复用同一口径，避免「展示的费率」与
   「计算用的费率」出现两套。
+- **选中等级的 `?grade_id` 被 GET 分支丢掉**：`/employee-grades` 的 GET 走的是无参
+  `render_employee_grades_page()`，查询参数被静默忽略 → 刷新后总回到第一个等级，加入/移出
+  员工后的 `redirect(..., grade_id=...)` 也白跳，而且 `erp-report.js` 的「局部刷新」是用
+  `fetch(location.href)` 重取汇总栏的，会把当前等级的汇总刷成第一个等级的数字（表新数旧）。
+  现在 GET 会把 `grade_id` 传进渲染。
 
 ### 测试
 - `test_employee_grades.py`：改写页面契约用例（ERP 外壳、等级切换必须是按钮、页面内不得有
   本页链接、`data-grade-panel` 数量），新增「加入/移出等级成员」「无 edit 权限 403」
-  「静态费率回退 → 版本费率（含缺项回退）」共 5 项断言。
+  「静态费率回退 → 版本费率（含缺项回退）」「`?grade_id` 选中对应等级且成员操作后跳回该等级」
+  共 6 项断言。
 
 ## [0.1.300] - 2026-09-26
 
