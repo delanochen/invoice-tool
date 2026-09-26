@@ -1,15 +1,26 @@
 {# ==========================================================================
    可复用 ERP UI 宏（第一阶段：项目利润报表）
    配套样式：static/erp-ui.css    配套脚本：static/erp-report.js
-   用法：{% from "erp_ui.html" import status_pill, summary_item, nav_item, tab_button, order_card %}
+   用法：{% from "erp_ui.html" import status_pill, completeness_pill, summary_item, nav_item, tab_button, order_card %}
    ========================================================================== #}
 
-{# 工单状态标签：缺费率 > 客户已确认 > 结算中 > 预计 #}
+{# 工单状态标签：缺费率 > 客户已确认 > 结算中 > 预计
+   这条口径回答的是「业务确认进度」（甲方是否已确认金额，见 profitability.py: _line_status），
+   需要调用方把真实 statuses 传进来。只想知道「数据齐不齐」请用 completeness_pill。 #}
 {% macro status_pill(incomplete, statuses) -%}
 {%- if incomplete -%}<span class="status returned">缺 {{ incomplete }} 条费率</span>
 {%- elif statuses|length and statuses[0] == 'client_confirmed' and statuses|unique|list|length == 1 -%}<span class="status completed">客户已确认</span>
 {%- elif 'settlement_in_progress' in statuses -%}<span class="status submitted">结算中</span>
 {%- else -%}<span class="status draft">预计</span>
+{%- endif -%}
+{%- endmacro %}
+
+{# 完整性标签：只回答「该分组的数据是否齐备」，用于汇总表的「完整性」列。
+   与 status_pill 的客户确认状态是两套口径：工单仍在进行中、只要费率填全了也会显示「完整」，
+   这是预期行为，不代表甲方已确认金额。 #}
+{% macro completeness_pill(incomplete) -%}
+{%- if incomplete -%}<span class="status returned">缺 {{ incomplete }} 条费率</span>
+{%- else -%}<span class="status completed">完整</span>
 {%- endif -%}
 {%- endmacro %}
 

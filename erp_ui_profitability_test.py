@@ -185,8 +185,9 @@ setTimeout(function () {
         check("汇总合计行存在", "合计（3 个工单）" in html)
         check("空利润率未除零", ".00%" in html and "$0.00" in html)
 
-        # 组件挂载点
-        for marker in ("erp-toolbar", "erp-nav", "erp-tabs", "erp-body", "erp-summary", "erp-status", "erp-card", "erp-detail"):
+        # 组件挂载点。注意：项目利润页用页签（erp-tabs）导航、没有 SidebarTree，
+        # 所以这里不再断言 .erp-nav（该断言已过期，见 erp_ui.html 顶部说明）。
+        for marker in ("erp-toolbar", "erp-tabs", "erp-body", "erp-summary", "erp-status", "erp-card", "erp-detail"):
             check(f"组件 {marker} 已渲染", f'class="{marker}' in html)
 
         check("筛选表单保留后端字段名", 'name="start_date"' in html and 'name="end_date"' in html
@@ -214,6 +215,31 @@ setTimeout(function () {
             ctx = dict(context); ctx["group_by"] = mode
             html2 = render_template("profitability.html", **ctx)
             check(f"group_by={mode} 正常渲染", label in html2)
+
+        # 回归：汇总表「完整性」列只表达数据齐备程度，与客户确认状态无关。
+        # 背景：该列原先写成 status_pill(0, ['client_confirmed'])，即只要没有缺费率就无条件
+        # 显示绿色「客户已确认」——进行中的工单（甲方尚未确认金额、工单还没置 closed）也会中招，
+        # 与列名「完整性」及业务口径都不符。现改为「完整 / 缺 N 条费率」两态。
+        def summary_panel(source):
+            start = source.find('data-erp-panel="summary"')
+            if start < 0:
+                return ""
+            return source[start:source.find("</section>", start)]
+
+        day_ctx = dict(context); day_ctx["group_by"] = "day"
+        day_panel = summary_panel(render_template("profitability.html", **day_ctx))
+        check("按日汇总面板已渲染", bool(day_panel))
+        check("完整性列：费率齐全显示「完整」", ">完整</span>" in day_panel)
+        check("完整性列不再冒充「客户已确认」", "客户已确认" not in day_panel)
+        check("完整性列不再显示业务状态「结算中/预计」",
+              "结算中" not in day_panel and ">预计</span>" not in day_panel)
+
+        gap_ctx = dict(context)
+        gap_ctx["group_by"] = "day"
+        gap_ctx["rows"] = [dict(context["rows"][0], incomplete=2)]
+        gap_panel = summary_panel(render_template("profitability.html", **gap_ctx))
+        check("完整性列：缺费率显示「缺 2 条费率」",
+              "缺 2 条费率" in gap_panel and ">完整</span>" not in gap_panel)
 
         # 空数据
         empty_ctx = dict(context)

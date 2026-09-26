@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "erp_ui.html" import status_pill, summary_item, tab_button, order_card %}
+{% from "erp_ui.html" import status_pill, completeness_pill, summary_item, tab_button, order_card %}
 {% block title %}项目利润 - 发票工具{% endblock %}
 
 {% block head %}
@@ -237,7 +237,7 @@
               <td class="num">{{ row.profit|money }}</td>
               <td class="num">{{ '%.2f%%'|format(row.margin) }}</td>
               <td class="num">{{ row.line_count }}</td>
-              <td>{% if row.incomplete %}{{ status_pill(row.incomplete, []) }}{% else %}{{ status_pill(0, ['client_confirmed']) }}{% endif %}</td>
+              <td>{{ completeness_pill(row.incomplete) }}</td>
             </tr>
           {% else %}
             <tr><td colspan="7" class="empty">当前筛选范围还没有可核算的项目利润数据。</td></tr>

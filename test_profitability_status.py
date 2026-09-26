@@ -293,6 +293,25 @@ def test_expense_lines_filter_by_employee():
     conn.close()
 
 
+def test_profitability_summary_panel_shows_completeness_not_client_status():
+    """汇总表「完整性」列只表达数据齐备程度（完整 / 缺 N 条费率），不再冒充客户确认状态。
+
+    回归：这一列曾写成 status_pill(0, ['client_confirmed'])，即只要当天没有缺费率就无条件
+    显示绿色「客户已确认」——工单还在进行中（甲方尚未确认金额、工单没置 closed）也会中招，
+    与列名「完整性」以及 _line_status 的业务口径都不符。
+    """
+    from pathlib import Path
+
+    macros = Path("templates/erp_ui.html").read_text(encoding="utf-8")
+    assert "macro completeness_pill" in macros
+    assert ">完整</span>" in macros
+
+    html = Path("templates/profitability.html").read_text(encoding="utf-8")
+    assert "{{ completeness_pill(row.incomplete) }}" in html
+    # 汇总表不再硬编码 client_confirmed；利润明细面板那一处用的是真实 line.status，属正常
+    assert html.count("status_pill(0, ['client_confirmed'])") == 1
+
+
 def test_profitability_template_has_employee_filter():
     from pathlib import Path
 
