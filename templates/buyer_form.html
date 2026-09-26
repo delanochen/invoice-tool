@@ -1,60 +1,94 @@
 {% extends "base.html" %}
 {% block title %}编辑站点 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Sites</p><h1>编辑站点</h1></div>
-    <button type="button" onclick="window.location.href='{{ url_for('buyers') }}'">返回站点列表</button>
+{# 录入页紧凑化：字段名 / name / 选项值全部保持原样，只改版式密度。 #}
+<div class="erp-app erp-app--flow erp-compact">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      编辑站点
+      <small>{{ buyer.buyer_number }} · {{ buyer.name }}</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('buyers') }}'">返回站点列表</button>
+      <button type="submit" class="erp-btn primary" form="buyerForm">保存修改</button>
+    </div>
   </header>
-  <form method="post" class="panel form-stack narrow-form">
-    {% if not is_external_manager() %}
-      <label>所属客户
-        <select name="client_id">
-          <option value="">未指定</option>
-          {% for client in clients %}
-            <option value="{{ client.id }}" {% if buyer.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    {% endif %}
-    <label>编号 <input name="buyer_number" value="{{ buyer.buyer_number }}" required></label>
-    <label>国家
-      <select name="country_code" required>
-        {% for country in countries %}
-          <option value="{{ country.code }}" {% if (buyer.country_code or 'US') == country.code %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>站点名称 <input name="name" value="{{ buyer.name }}" required></label>
-    <label>业主
-      <select name="owner_id">
-        {% for owner in owners %}
-          <option value="{{ owner.id }}" {% if buyer.owner_id == owner.id %}selected{% endif %}>{{ owner.owner_number }} · {{ owner.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
-    <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
-    <label>电子邮箱地址 <input type="email" name="email" value="{{ buyer.email or '' }}"></label>
-    <label>规模 <input name="site_size" value="{{ buyer.site_size or '' }}"></label>
-    <label>详细地址 <textarea name="detailed_address" rows="5" required>{{ buyer.detailed_address or '' }}</textarea></label>
-    <label>经纬度坐标
-      <input name="coordinates" value="{% if buyer.manual_coordinates and buyer.latitude is not none and buyer.longitude is not none %}{{ buyer.latitude }}, {{ buyer.longitude }}{% endif %}" placeholder="从 Google 地图粘贴，例如：33.3252078, -112.7639562">
-      <small>
-        {% if buyer.manual_coordinates %}当前为手工坐标，自动定位不会覆盖。{% elif buyer.latitude is not none and buyer.longitude is not none %}当前自动坐标：{{ buyer.latitude }}, {{ buyer.longitude }}。粘贴新坐标即可改为手工维护。{% else %}尚无坐标；可直接粘贴 Google 地图坐标，也可留空由系统自动定位。{% endif %}
-        {% if buyer.latitude is not none and buyer.longitude is not none %}<a href="https://www.google.com/maps?q={{ buyer.latitude }},{{ buyer.longitude }}" target="_blank" rel="noopener">在 Google 地图中验证</a>{% endif %}
-      </small>
-    </label>
-    {% if buyer.manual_coordinates %}
-      <label class="checkbox-line"><input type="checkbox" name="clear_manual_coordinates" value="1"> 清除手工坐标并恢复自动定位</label>
-    {% endif %}
-    <label>配套机厂家
-      <select name="manufacturer_id">
-        <option value="">未指定</option>
-        {% for manufacturer in manufacturers %}
-          <option value="{{ manufacturer.id }}" {% if buyer.manufacturer_id == manufacturer.id %}selected{% endif %}>{{ manufacturer.manufacturer_number }} · {{ manufacturer.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
-  </form>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <form method="post" class="panel form-stack narrow-form" id="buyerForm">
+        {% if not is_external_manager() %}
+          <label>所属客户
+            <select name="client_id">
+              <option value="">未指定</option>
+              {% for client in clients %}
+                <option value="{{ client.id }}" {% if buyer.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        {% endif %}
+        <label>编号 <input name="buyer_number" value="{{ buyer.buyer_number }}" required></label>
+        <label>国家
+          <select name="country_code" required>
+            {% for country in countries %}
+              <option value="{{ country.code }}" {% if (buyer.country_code or 'US') == country.code %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>站点名称 <input name="name" value="{{ buyer.name }}" required></label>
+        <label>业主
+          <select name="owner_id">
+            {% for owner in owners %}
+              <option value="{{ owner.id }}" {% if buyer.owner_id == owner.id %}selected{% endif %}>{{ owner.owner_number }} · {{ owner.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>联系人 <input name="contact_name" value="{{ buyer.contact_name or '' }}"></label>
+        <label>联系方式 <input name="contact_details" value="{{ buyer.contact_details or '' }}"></label>
+        <label>电子邮箱地址 <input type="email" name="email" value="{{ buyer.email or '' }}"></label>
+        <label>规模 <input name="site_size" value="{{ buyer.site_size or '' }}"></label>
+        <label>详细地址 <textarea name="detailed_address" rows="5" required>{{ buyer.detailed_address or '' }}</textarea></label>
+        <label>经纬度坐标
+          <input name="coordinates" value="{% if buyer.manual_coordinates and buyer.latitude is not none and buyer.longitude is not none %}{{ buyer.latitude }}, {{ buyer.longitude }}{% endif %}" placeholder="从 Google 地图粘贴，例如：33.3252078, -112.7639562">
+          <small>
+            {% if buyer.manual_coordinates %}当前为手工坐标，自动定位不会覆盖。{% elif buyer.latitude is not none and buyer.longitude is not none %}当前自动坐标：{{ buyer.latitude }}, {{ buyer.longitude }}。粘贴新坐标即可改为手工维护。{% else %}尚无坐标；可直接粘贴 Google 地图坐标，也可留空由系统自动定位。{% endif %}
+            {% if buyer.latitude is not none and buyer.longitude is not none %}<a href="https://www.google.com/maps?q={{ buyer.latitude }},{{ buyer.longitude }}" target="_blank" rel="noopener">在 Google 地图中验证</a>{% endif %}
+          </small>
+        </label>
+        {% if buyer.manual_coordinates %}
+          <label class="checkbox-line"><input type="checkbox" name="clear_manual_coordinates" value="1"> 清除手工坐标并恢复自动定位</label>
+        {% endif %}
+        <label>配套机厂家
+          <select name="manufacturer_id">
+            <option value="">未指定</option>
+            {% for manufacturer in manufacturers %}
+              <option value="{{ manufacturer.id }}" {% if buyer.manufacturer_id == manufacturer.id %}selected{% endif %}>{{ manufacturer.manufacturer_number }} · {{ manufacturer.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
+      </form>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>站点 <b>{{ buyer.buyer_number }}</b></span>
+    <span class="sep"></span>
+    <span>坐标 <b>{% if buyer.manual_coordinates %}手工维护{% elif buyer.latitude is not none %}自动定位{% else %}未设置{% endif %}</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

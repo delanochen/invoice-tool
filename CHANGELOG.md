@@ -4,6 +4,33 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.294] - 2026-09-26
+
+### Fixed（ERP 页面状态栏被挤出屏幕）
+- 根因：`--flow` 页面（工单日历等）里 `.erp-summary` / `.erp-status` 是 **grid item**，它们的包含块就是自己所在的网格行（行高 == 自身高度），`position: sticky; bottom: 0` 没有可移动空间 → 内容一高（6 周的月历、最大化后仍超高的窗口）汇总栏与状态栏就被顶到屏幕外，只能滚到底才看得到。
+- 修复：`erp-app--flow` 改回 `display: block`，工具栏 / 汇总栏 / 状态栏成为长文档里的普通块，sticky 才真正贴住视口常驻（工具栏粘顶、汇总栏与状态栏粘底）。
+- 另外 `erp-report.js` 新增 `fitViewport()`：不再依赖写死的 `--erp-offset`（菜单高度 / main 内边距 / 工作区 iframe 高度任一变化都会让它失真，偏差为正时底部溢出视口），改为按实际可用高度精确赋值，并监听 resize / ResizeObserver 重算。
+- 右下角浮动版本号移入 ERP 状态栏最右（C/S 客户端惯例），不再压住状态栏右端。
+
+### Changed（顶部菜单改 C/S 客户端观感）
+- 顶栏拆成两行：上排标题栏（品牌 / 语言 / 用户 / 退出，30px），下排菜单栏（24px 细条，浅灰渐变 + 1px 分隔线）。
+- 菜单项 12px、直角无圆角；悬浮浅蓝高亮 + 描边，打开时深蓝底白字呈「按下」态；下拉面板直角、1px 边框、硬阴影（3px 3px 6px），整行深蓝高亮。
+- 一级菜单带下划线访问键：`主菜单(M) 报表(R) 薪酬管理(P) 实用工具(T) 基础数据(D) 系统配置(S)`（Alt+字母），子菜单内 `薪酬参数` 改为向右级联弹出并带 ▶ 箭头，菜单内支持分隔线，当前页菜单项左侧带选中圆点。
+- 交互向客户端靠拢：已打开某菜单时鼠标划过相邻菜单直接切换；支持 ↓ / ← / → / Enter / Esc 键盘操作；移动端抽屉与 `#topnav a` 钩子保持原样（workspace.js 依赖）。
+
+### Changed（A 组报表页 ERP 风格改造）
+- 改为 `.erp-app` 体系（工具栏 / 筛选区 / DataGrid / SummaryBar / StatusBar / 手机端卡片）：`/service-orders` 工单主列表、`/reports/payroll` 薪酬统计、`/reports/payroll-details` 薪酬明细、`/reports/labor-hours` 工时统计、`/reports/field-photos` 工单照片台账、`/reports/field-repairs` 设备维修清单、`/messages` 消息。
+- `/expenses/<id>` 报销详情与结算前审核改为 `erp-app--flow`：内容高度不定，整页滚动但工具栏 / 汇总栏 / 状态栏常驻。
+- 以上页面均为**展示层改造**，筛选字段名、批量下载/删除所需的 `data-*` 与 ID、`messages.js` / `photo-ledger.js` / `repair-delete.js` 依赖全部保持原样，后端逻辑未改动。
+- 附带修正：移动端隐藏桌面网格的规则改为 `.erp-app:has(.erp-cards)`——没有卡片承载数据的页面（照片台账等）不再整张表凭空消失。
+
+### Changed（录入型页面紧凑化）
+- `erp-ui.css` 新增 `.erp-compact` 层：26px 控件、2px 圆角、12px 字号、5px 行距、面板 9px 内边距，把 styles.css 的大间距版式压成客户端密度；规则限定在 `.erp-compact` 内，不影响其它页面。
+- 应用到工单 / 发票 / 报销 / 工单结算 / 用户 / 客户 / 站点 / 项目 / 工单类型 / 补贴参数等录入页：统一 ERP 工具栏（返回 / 保存 / 提交 / 删除）+ 底部状态栏，字段名与 `name` 全部保持原样。
+
+### Fixed
+- 薪酬明细报表手机端卡片「补贴类」金额 `a + b + c|money` 过滤器优先级错误（TypeError: float + str），改为先求和再格式化。
+
 ## [0.1.280] - 2026-09-24
 
 ### Changed（日报「读取」维修清单改进）

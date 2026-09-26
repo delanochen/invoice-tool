@@ -1,6 +1,7 @@
 /* ============================================================
-   ERP 顶部菜单交互（v0.1.287）
-   单开下拉、点击外部关闭、移动端汉堡抽屉
+   ERP 顶部菜单交互（v0.1.294）
+   C/S 客户端行为：单开下拉、打开后悬浮即切换到相邻菜单、方向键/Enter/Esc
+   键盘操作、点击外部收起、移动端汉堡抽屉
    ============================================================ */
 (function () {
   'use strict';
@@ -12,6 +13,9 @@
   }
   function closeAll() {
     allGroups().forEach(function (g) { if (g.open) g.open = false; });
+  }
+  function summaryOf(group) {
+    return group ? group.querySelector(':scope > summary') : null;
   }
 
   // 点击一级菜单：只开当前组，关掉其他组
@@ -25,6 +29,48 @@
       return; // 原生 details 继续 toggle 当前组
     }
     if (e.target.closest('a')) closeAll();
+  });
+
+  // C/S 客户端惯例：已经打开某个菜单时，鼠标划过相邻菜单直接切换过去
+  nav.addEventListener('mouseover', function (e) {
+    var group = e.target.closest('.nav-group');
+    if (!group || group.open) return;
+    if (!allGroups().some(function (g) { return g.open; })) return; // 没打开任何菜单时不自动弹
+    allGroups().forEach(function (g) { if (g !== group && g.open) g.open = false; });
+    group.open = true;
+  });
+
+  // 键盘操作：↓ 打开并聚焦首项、← → 在顶级菜单间移动、Esc 收起
+  nav.addEventListener('keydown', function (e) {
+    var group = e.target.closest('.nav-group');
+    if (!group) return;
+    var groups = allGroups();
+    var index = groups.indexOf(group);
+
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      if (!group.open) {
+        e.preventDefault();
+        groups.forEach(function (g) { if (g !== group) g.open = false; });
+        group.open = true;
+        var first = group.querySelector('.nav-submenu a, .nav-submenu summary');
+        if (first) first.focus();
+      }
+      return;
+    }
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      var next = groups[(index + (e.key === 'ArrowRight' ? 1 : groups.length - 1)) % groups.length];
+      groups.forEach(function (g) { if (g !== next) g.open = false; });
+      next.open = true;
+      var target = summaryOf(next);
+      if (target) target.focus();
+      return;
+    }
+    if (e.key === 'Escape') {
+      group.open = false;
+      var back = summaryOf(group);
+      if (back) back.focus();
+    }
   });
 
   // 点击导航以外的区域：收起所有下拉

@@ -1,11 +1,26 @@
 {% extends "base.html" %}
 {% block title %}编辑用户 - 发票工具{% endblock %}
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">Users</p><h1>编辑用户</h1></div>
-    <button type="button" onclick="window.location.href='{{ url_for('users') }}'">返回用户列表</button>
+{# 录入页紧凑化：字段名 / name / data-* 全部保持原样，用户相关 JS 不受影响。 #}
+<div class="erp-app erp-app--flow erp-compact">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      编辑用户
+      <small>{{ user.name }} · {{ user.email }}</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('users') }}'">返回用户列表</button>
+      <button type="submit" class="erp-btn primary" form="userDetailsForm">保存修改</button>
+    </div>
   </header>
-  <form method="post" enctype="multipart/form-data" class="panel form-stack user-details-form">
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active">
+  <form method="post" enctype="multipart/form-data" class="panel form-stack user-details-form" id="userDetailsForm">
     <label>姓名 <input name="name" value="{{ user.name }}" required></label>
     <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
     <label>手机号 <input type="tel" name="phone" value="{{ user.phone or '' }}" autocomplete="tel" placeholder="例如 +1 713 555 1234"></label>
@@ -150,11 +165,27 @@
     {% endif %}
     <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
   </form>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>用户 <b>{{ user.name }}</b></span>
+    <span class="sep"></span>
+    <span>角色 <b>{{ user.role|role_label }}</b></span>
+    <span class="sep"></span>
+    <span>等级 <b>{{ user.employee_grade_name or '-' }}</b></span>
+  </footer>
+</div>
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='user-address.js', v='20260706-user-address-v1') }}"></script>
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
   <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}
 
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='user-details.css', v=app_version) }}">{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='user-details.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}

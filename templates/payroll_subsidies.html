@@ -1,29 +1,66 @@
 {% extends "base.html" %}
 {% block title %}补贴参数 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header"><div><p class="eyebrow">Payroll</p><h1>补贴参数</h1></div></header>
+{# 参数录入页紧凑化：字段名 / name 全部保持原样。 #}
+<div class="erp-app erp-app--flow erp-compact">
 
-  <form method="post" class="panel payroll-subsidy-form">
-    <label>工资周期开始日期
-      <input type="date" name="cycle_start" value="{{ settings.cycle_start }}">
-    </label>
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      补贴参数
+      <small>薪酬参数 · 影响所有统计周期</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="submit" class="erp-btn primary" form="payrollSubsidyForm">保存</button>
+    </div>
+  </header>
 
-    <fieldset class="plain-fieldset full">
-      <legend>报告撰写费</legend>
-      <label>每份日报金额
-        <input type="number" step="0.01" min="0" name="report_writing_fee" value="{{ settings.report_writing_fee }}">
-      </label>
-      <p class="muted">按工作日报中“是否填写客户日报”为“是”时选择的员工统计，每份日报计一次。</p>
-    </fieldset>
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <form method="post" class="panel payroll-subsidy-form" id="payrollSubsidyForm">
+        <label>工资周期开始日期
+          <input type="date" name="cycle_start" value="{{ settings.cycle_start }}">
+        </label>
 
-    <fieldset class="plain-fieldset full">
-      <legend>住宿报销</legend>
-      <label>单次报销上限
-        <input type="number" step="0.01" min="0" name="lodging_limit" value="{{ settings.lodging_limit }}">
-      </label>
-      <p class="muted">0 表示不限制。</p>
-    </fieldset>
+        <fieldset class="plain-fieldset full">
+          <legend>报告撰写费</legend>
+          <label>每份日报金额
+            <input type="number" step="0.01" min="0" name="report_writing_fee" value="{{ settings.report_writing_fee }}">
+          </label>
+          <p class="muted">按工作日报中“是否填写客户日报”为“是”时选择的员工统计，每份日报计一次。</p>
+        </fieldset>
 
-    <div class="form-actions full"><button type="submit">保存</button></div>
-  </form>
+        <fieldset class="plain-fieldset full">
+          <legend>住宿报销</legend>
+          <label>单次报销上限
+            <input type="number" step="0.01" min="0" name="lodging_limit" value="{{ settings.lodging_limit }}">
+          </label>
+          <p class="muted">0 表示不限制。</p>
+        </fieldset>
+
+        <div class="form-actions full"><button type="submit">保存</button></div>
+      </form>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>周期开始 <b>{{ settings.cycle_start }}</b></span>
+    <span class="sep"></span>
+    <span>报告撰写费 <b>{{ settings.report_writing_fee }}</b></span>
+    <span class="sep"></span>
+    <span>住宿上限 <b>{{ settings.lodging_limit }}</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

@@ -1,69 +1,142 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}薪酬统计报表 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header"><div><p class="eyebrow">Reports</p><h1>薪酬统计报表</h1></div></header>
-  <form class="filter-bar service-filter no-print" method="get">
-    <label>开始日期 <input type="date" required name="period_start" value="{{ period_start }}"></label>
-    <label>结束日期 <input type="date" required name="period_end" value="{{ period_end }}"></label>
-    <label>发薪日期 <input type="date" value="{{ pay_date }}" readonly></label>
-    {% if can_filter_workers %}
-    <label>人员 <select name="worker_id"><option value="">全部人员</option>
-      {% for worker in workers %}<option value="{{ worker.id }}" {% if worker_id == worker.id|string %}selected{% endif %}>{{ worker.name }}</option>{% endfor %}
-    </select></label>
-    {% endif %}
-    <div class="filter-actions">
-      <button type="submit">查询</button>
-      <button type="button" onclick="window.location.href='{{ url_for('payroll_report') }}'">本期</button>
+{# 只读报表：数据来自 app.py payroll_report()，这里只做展示层，不改动任何后端逻辑。 #}
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      薪酬统计报表
+      <small>按统计周期汇总 · 一位员工一行</small>
     </div>
-  </form>
+    <span class="erp-badge">{{ rows|length }} 人</span>
+    <span class="erp-badge">{{ period_start }} ~ {{ period_end }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('payroll_report') }}'">本期</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
 
-  <section class="metric-grid">
-    <div class="panel metric"><span>基本工资</span><strong>{{ totals.base_salary|money }}</strong></div>
-    <div class="panel metric"><span>标准工资</span><strong>{{ totals.standard_pay|money }}</strong></div>
-    <div class="panel metric"><span>交通工资</span><strong>{{ totals.transport_pay|money }}</strong></div>
-    <div class="panel metric"><span>加班工资</span><strong>{{ totals.overtime_pay|money }}</strong></div>
-    <div class="panel metric"><span>假期工资</span><strong>{{ totals.holiday_pay|money }}</strong></div>
-    <div class="panel metric"><span>补贴</span><strong>{{ totals.subsidy_total|money }}</strong></div>
-    <div class="panel metric"><span>合计工资</span><strong>{{ totals.total_pay|money }}</strong></div>
-  </section>
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    <!-- FilterBar：字段名与后端一致（period_start / period_end / worker_id） -->
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      <label class="erp-field">开始日期 <input type="date" required name="period_start" value="{{ period_start }}"></label>
+      <label class="erp-field">结束日期 <input type="date" required name="period_end" value="{{ period_end }}"></label>
+      <label class="erp-field">发薪日期 <input type="date" value="{{ pay_date }}" readonly></label>
+      {% if can_filter_workers %}
+        <label class="erp-field">人员
+          <select name="worker_id">
+            <option value="">全部人员</option>
+            {% for worker in workers %}<option value="{{ worker.id }}" {% if worker_id == worker.id|string %}selected{% endif %}>{{ worker.name }}</option>{% endfor %}
+          </select>
+        </label>
+      {% endif %}
+    </form>
 
-  <section class="panel">
-    <table class="list-table">
-      <thead>
-        <tr>
-          <th>员工</th><th>员工等级</th><th>基本工资</th>
-          <th>出勤天数</th><th>里程</th>
-          <th>标准工时</th><th>标准工资</th>
-          <th data-column-group="交通工时">随行时长</th><th data-column-group="交通工时">租车驾驶时长</th><th data-column-group="交通工资">随行补贴</th><th data-column-group="交通工资">租车驾驶补贴</th>
-          <th>加班工时</th><th>加班工资</th>
-          <th>假期工时</th><th>假期工资</th>
-          <th>自驾车补</th><th>补贴</th>
-          <th>合计工资</th>
-        </tr>
-      </thead>
-      <tbody>
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead>
+            <tr>
+              <th>员工</th><th>员工等级</th><th>基本工资</th>
+              <th>出勤天数</th><th>里程</th>
+              <th>标准工时</th><th>标准工资</th>
+              <th data-column-group="交通工时">随行时长</th><th data-column-group="交通工时">租车驾驶时长</th><th data-column-group="交通工资">随行补贴</th><th data-column-group="交通工资">租车驾驶补贴</th>
+              <th>加班工时</th><th>加班工资</th>
+              <th>假期工时</th><th>假期工资</th>
+              <th>自驾车补</th><th>补贴</th>
+              <th>合计工资</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ row.worker_name }}</td>
+                <td>{{ row.grade_name }}</td>
+                <td>{{ row.base_salary|money }}</td>
+                <td>{{ row.attendance_days }}</td>
+                <td>{{ "%.1f"|format(row.driving_miles) }}</td>
+                <td>{{ row.standard_hours|hours }}</td>
+                <td>{{ row.standard_pay|money }}</td>
+                <td>{{ row.following_travel_hours|hours }}</td><td>{{ row.rental_driving_hours|hours }}</td><td>{{ row.following_allowance|money }}</td><td>{{ row.rental_driving_allowance|money }}</td>
+                <td>{{ row.overtime_hours|hours }}</td>
+                <td>{{ row.overtime_pay|money }}</td>
+                <td>{{ row.holiday_hours|hours }}</td>
+                <td>{{ row.holiday_pay|money }}</td>
+                <td>{{ row.self_drive_allowance|money }}</td>
+                <td>{{ row.subsidy_total|money }}</td>
+                <td>{{ row.total_pay|money }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="18" class="empty">所选日期范围内没有薪酬记录。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
         {% for row in rows %}
-          <tr>
-            <td>{{ row.worker_name }}</td>
-            <td>{{ row.grade_name }}</td>
-            <td>{{ row.base_salary|money }}</td>
-            <td>{{ row.attendance_days }}</td>
-            <td>{{ "%.1f"|format(row.driving_miles) }}</td>
-            <td>{{ row.standard_hours|hours }}</td>
-            <td>{{ row.standard_pay|money }}</td>
-            <td>{{ row.following_travel_hours|hours }}</td><td>{{ row.rental_driving_hours|hours }}</td><td>{{ row.following_allowance|money }}</td><td>{{ row.rental_driving_allowance|money }}</td>
-            <td>{{ row.overtime_hours|hours }}</td>
-            <td>{{ row.overtime_pay|money }}</td>
-            <td>{{ row.holiday_hours|hours }}</td>
-            <td>{{ row.holiday_pay|money }}</td>
-            <td>{{ row.self_drive_allowance|money }}</td>
-            <td>{{ row.subsidy_total|money }}</td>
-            <td>{{ row.total_pay|money }}</td>
-          </tr>
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.worker_name }}</span>
+              <span class="erp-card-customer">{{ row.grade_name }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>出勤 {{ row.attendance_days }} 天</span>
+              <span>里程 {{ "%.1f"|format(row.driving_miles) }}</span>
+              <span>标准工时 {{ row.standard_hours|hours }}</span>
+            </div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>基本工资</span><strong>{{ row.base_salary|money }}</strong></div>
+              <div class="erp-card-metric"><span>标准工资</span><strong>{{ row.standard_pay|money }}</strong></div>
+              <div class="erp-card-metric"><span>补贴</span><strong>{{ row.subsidy_total|money }}</strong></div>
+              <div class="erp-card-metric"><span>合计工资</span><strong class="pos">{{ row.total_pay|money }}</strong></div>
+            </div>
+          </article>
         {% else %}
-          <tr><td colspan="18" class="empty">所选日期范围内没有薪酬记录。</td></tr>
+          <div class="erp-empty">所选日期范围内没有薪酬记录。</div>
         {% endfor %}
-      </tbody>
-    </table>
-  </section>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('人数', rows|length, 'muted') }}
+    {{ summary_item('基本工资', totals.base_salary|money) }}
+    {{ summary_item('标准工资', totals.standard_pay|money) }}
+    {{ summary_item('交通工资', totals.transport_pay|money) }}
+    {{ summary_item('加班工资', totals.overtime_pay|money) }}
+    {{ summary_item('假期工资', totals.holiday_pay|money) }}
+    {{ summary_item('补贴', totals.subsidy_total|money) }}
+    {{ summary_item('合计工资', totals.total_pay|money, 'pos') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>统计周期 <b>{{ period_start }} ~ {{ period_end }}</b></span>
+    <span class="sep"></span>
+    <span>发薪日期 <b>{{ pay_date }}</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

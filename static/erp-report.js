@@ -209,6 +209,39 @@
     });
   });
 
+  /* -------------------------------------- 视口自适应：StatusBar 不被挤出屏幕 */
+  // CSS 的 height: calc(100vh - var(--erp-offset)) 用的是写死的偏移量；顶部菜单高度、
+  // main 内边距、工作区 iframe 高度任一变化（窗口最大化/还原、换页面、出现提示条）
+  // 都会让偏移量失真，.erp-app 底部溢出视口 → 汇总栏/状态栏落到屏幕外。
+  // 这里按「实际可用高度」精确赋值，并在窗口/容器尺寸变化时重算。
+  function fitViewport() {
+    if (app.classList.contains('erp-app--flow')) {
+      app.style.height = '';
+      return;
+    }
+    const host = app.parentElement || document.body;
+    const reserve = parseFloat(window.getComputedStyle(host).paddingBottom) || 0;
+    const top = app.getBoundingClientRect().top + window.scrollY;
+    const available = Math.floor(window.innerHeight - top - reserve);
+    // min-height: 360px（erp-ui.css）保证矮窗口下不至于压成一条
+    if (available > 0) app.style.height = `${Math.max(available, 360)}px`;
+  }
+  fitViewport();
+  window.addEventListener('resize', () => requestAnimationFrame(fitViewport));
+  if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(fitViewport)).observe(document.documentElement);
+
+  /* --------------------------------- 版本号并入 StatusBar（C/S 客户端观感） */
+  // 右下角浮标会压住状态栏右端；ERP 客户端惯例是把版本放在状态栏最右。
+  const versionBadge = document.querySelector('.app-version');
+  const statusBar = app.querySelector('.erp-status');
+  if (versionBadge && statusBar && !statusBar.querySelector('.erp-status-version')) {
+    const slot = document.createElement('span');
+    slot.className = 'erp-status-version';
+    slot.textContent = versionBadge.textContent.trim();
+    statusBar.appendChild(slot);
+    versionBadge.style.display = 'none';
+  }
+
   /* -------------------------------------------- StatusBar 记录数同步 */
   // system-grid.js 在本脚本之后才构建 Tabulator，因此要等 .grid-count 出现。
   const countTarget = app.querySelector('[data-erp-count]');

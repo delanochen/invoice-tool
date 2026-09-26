@@ -1,107 +1,118 @@
 /* ============================================================
-   ERP 顶部菜单导航（v0.1.287）
-   覆盖 styles.css 的左侧 sidebar 布局 → 顶部水平菜单 + 下拉
+   ERP 顶部菜单导航（v0.1.294）
+   覆盖 styles.css 的左侧 sidebar 布局 → C/S 客户端式「标题栏 + 菜单栏」
+   观感要点:
+     · 两行：上排标题栏（品牌 / 语言 / 用户 / 退出），下排菜单栏（24px 细条）
+     · 直角、细边框、12px 字号、无圆角下拉、硬阴影（传统 Windows / ERP 客户端）
+     · 菜单项带下划线访问键（Alt+M 等）、悬浮即高亮、打开时呈「按下」态
+     · 子菜单级联向右弹出（▶），菜单内分隔线
    ============================================================ */
 
 /* ── 顶部条 ── */
 .topbar {
   position: relative;
   z-index: 100;
-  background: #fff;
-  border-bottom: 1px solid #dfe4ea;
-  box-shadow: 0 1px 4px rgba(23, 43, 77, .06);
+  background: linear-gradient(180deg, #fbfcfd 0%, #eceff4 100%);
+  border-bottom: 1px solid #9aa7bb;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .6) inset;
 }
+/* 标题栏 + 菜单栏两行：brand 与右侧账号同排，菜单栏独占第二行。
+   用 order/flex-wrap 实现，无需改动 base.html 的 DOM 结构。 */
 .topbar-inner {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 52px;
-  padding: 0 12px;
-  max-width: 1600px;
-  margin: 0 auto;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0;
+  height: auto;
+  padding: 0;
+  max-width: none;
 }
 .topbar-brand {
+  order: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-right: 14px;
-  margin-right: 2px;
-  border-right: 1px solid #e5e9ee;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  margin-right: 0;
+  border-right: 0;
   flex: 0 0 auto;
   min-width: 0;
 }
-.topbar-brand img { width: 30px; height: 30px; border-radius: 6px; }
+.topbar-brand img { width: 20px; height: 20px; border-radius: 3px; }
 .topbar-name {
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 700;
   color: #1c2b3a;
   white-space: nowrap;
 }
 .topbar .mobile-menu-toggle { display: none; }
 
-/* ── 水平菜单容器 ── */
+/* ── 菜单栏（第二行，24px 细条）── */
 #topnav {
+  order: 3;
+  flex: 0 0 100%;
   display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 1 1 auto;
+  align-items: stretch;
+  gap: 0;
   min-width: 0;
-  height: 52px;
+  height: 24px;
   overflow: visible;
+  background: linear-gradient(180deg, #f6f7f9 0%, #e9edf2 100%);
+  border-top: 1px solid #dfe4ea;
+  border-bottom: 1px solid #9aa7bb;
 }
 
 /* ── 一级菜单（details）── */
-#topnav .nav-group { position: relative; height: 52px; margin: 0; }
+#topnav .nav-group { position: relative; height: 24px; margin: 0; }
 #topnav .nav-group > summary {
   list-style: none;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 52px;
-  padding: 0 11px;
-  font-size: 13px;
-  color: #3d4c5c;
-  border-bottom: 2px solid transparent;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 12px;
+  color: #22303f;
+  border: 1px solid transparent;
   user-select: none;
+  white-space: nowrap;
 }
 #topnav .nav-group > summary::-webkit-details-marker { display: none; }
-#topnav .nav-group > summary svg { flex: 0 0 auto; opacity: .72; transition: opacity .12s ease, color .12s ease; }
+#topnav .nav-group > summary svg { flex: 0 0 auto; width: 13px; height: 13px; opacity: .7; }
 #topnav .nav-group > summary:hover svg,
 #topnav .nav-group.active > summary svg,
 #topnav .nav-group[open] > summary svg { opacity: 1; }
-#topnav .nav-group > summary::after {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-right: 1.6px solid #8a94a6;
-  border-bottom: 1.6px solid #8a94a6;
-  transform: rotate(45deg) translateY(-3px);
-  transition: transform .15s ease;
-  display: inline-block;
-  margin-left: 2px;
+/* 访问键：C/S 客户端惯例「文件(F)」，Alt+字母 直接打开 */
+#topnav .nav-group > summary .nav-key { margin-left: 3px; }
+#topnav .nav-group > summary u { text-decoration: underline; text-underline-offset: 1px; }
+#topnav .nav-group > summary:hover {
+  background: #cfe0fb;
+  border-color: #7a9fe0;
+  color: #12305f;
 }
-#topnav .nav-group[open] > summary::after { transform: rotate(-135deg) translateY(-1px); }
-#topnav .nav-group > summary:hover { color: #2f5aa8; background: #f6f9fd; }
+/* 打开时呈「按下」态：深蓝底白字，与下拉面板的高亮同色系 */
 #topnav .nav-group.active > summary,
 #topnav .nav-group[open] > summary {
-  color: #2f5aa8;
-  border-bottom-color: #2f5aa8;
+  background: #1d4ed8;
+  border-color: #153fb0;
+  color: #fff;
   font-weight: 600;
-  background: #f2f7fd;
 }
+#topnav .nav-group[open] > summary svg { color: #fff; }
 
-/* ── 下拉面板 ── */
+/* ── 下拉面板：直角、细边框、硬阴影 ── */
 #topnav .nav-submenu {
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 224px;
+  min-width: 190px;
   background: #fff;
-  border: 1px solid #d5dde6;
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(20, 40, 70, .13);
-  padding: 5px;
+  border: 1px solid #8a94a6;
+  border-radius: 0;
+  box-shadow: 3px 3px 6px rgba(15, 23, 42, .28);
+  padding: 2px;
   display: none;
   z-index: 120;
 }
@@ -110,89 +121,113 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 8px;
-  border-radius: 5px;
-  font-size: 12.5px;
-  color: #3d4c5c;
+  padding: 3px 16px 3px 22px;
+  border-radius: 0;
+  font-size: 12px;
+  color: #22303f;
   text-decoration: none;
   white-space: nowrap;
 }
-#topnav .nav-submenu a:hover { background: #eef2f7; color: #1c2b3a; }
+#topnav .nav-submenu a:hover { background: #1d4ed8; color: #fff; }
 #topnav .nav-submenu a.active,
 #topnav .nav-submenu a[aria-current="page"] {
-  background: #eaf0fa;
-  color: #2f5aa8;
+  background: #dbe6fb;
+  color: #12305f;
   font-weight: 600;
 }
+/* 当前项左侧「选中标记」——传统客户端菜单用小圆点/勾表示所在模块 */
+#topnav .nav-submenu a[aria-current="page"]::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #1d4ed8;
+}
+#topnav .nav-submenu a { position: relative; }
+/* 菜单分隔线 */
+#topnav .nav-submenu hr {
+  height: 0;
+  margin: 3px 2px;
+  border: 0;
+  border-top: 1px solid #dfe4ea;
+}
 
-/* ── 二级（薪酬参数等）── */
+/* ── 二级（薪酬参数等）：级联向右弹出的子菜单 ── */
 #topnav .nav-subgroup { position: relative; }
 #topnav .nav-subgroup > summary {
   list-style: none;
   cursor: pointer;
-  padding: 6px 9px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #8a94a6;
-  letter-spacing: .5px;
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 3px 16px 3px 22px;
+  font-size: 12px;
+  color: #22303f;
   user-select: none;
+  white-space: nowrap;
 }
 #topnav .nav-subgroup > summary::-webkit-details-marker { display: none; }
 #topnav .nav-subgroup > summary::after {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-right: 1.5px solid #8a94a6;
-  border-bottom: 1.5px solid #8a94a6;
-  transform: rotate(45deg);
+  content: '▶';
   margin-left: auto;
-  transition: transform .15s ease;
+  padding-left: 10px;
+  color: #8a94a6;
+  font-size: 8px;
+  line-height: 1;
 }
-#topnav .nav-subgroup[open] > summary::after { transform: rotate(-135deg); }
+#topnav .nav-subgroup > summary:hover,
+#topnav .nav-subgroup[open] > summary { background: #1d4ed8; color: #fff; }
+#topnav .nav-subgroup[open] > summary::after,
+#topnav .nav-subgroup > summary:hover::after { color: #fff; }
 #topnav .nav-subgroup > .nav-submenu {
   display: none;
-  position: static;
-  box-shadow: none;
-  border: 0;
+  position: absolute;
+  top: -3px;
+  left: 100%;
+  min-width: 150px;
+  box-shadow: 3px 3px 6px rgba(15, 23, 42, .28);
+  border: 1px solid #8a94a6;
   border-radius: 0;
-  padding: 0 0 2px 10px;
-  min-width: 0;
+  padding: 2px;
+  background: #fff;
 }
 #topnav .nav-subgroup[open] > .nav-submenu { display: block; }
 
 /* ── 右侧：语言 / 用户 / 退出 ── */
 .topbar-right {
+  order: 2;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-left: 12px;
-  border-left: 1px solid #e5e9ee;
-  margin-left: 4px;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  margin-left: auto;
+  border-left: 0;
 }
-.topbar-user { font-size: 12.5px; color: #3d4c5c; white-space: nowrap; }
+.topbar-user { font-size: 12px; color: #3d4c5c; white-space: nowrap; }
 .topbar-logout {
-  font-size: 12px;
-  color: #7b8794;
-  background: #f1f3f6;
-  border: 1px solid #dfe4ea;
-  border-radius: 5px;
-  padding: 4px 10px;
+  font-size: 11.5px;
+  color: #3d4c5c;
+  background: linear-gradient(180deg, #ffffff 0%, #eef1f5 100%);
+  border: 1px solid #b6c0cd;
+  border-radius: 2px;
+  padding: 2px 9px;
   text-decoration: none;
   white-space: nowrap;
 }
-.topbar-logout:hover { color: #2f5aa8; border-color: #dbe6f7; }
+.topbar-logout:hover { background: linear-gradient(180deg, #f7faff 0%, #e2e9f3 100%); border-color: #8a94a6; }
 .topbar-right .sidebar-language-form { margin: 0; }
 .topbar-right .sidebar-language {
-  font-size: 12px;
-  padding: 4px 6px;
-  border: 1px solid #dfe4ea;
-  border-radius: 5px;
+  font-size: 11.5px;
+  padding: 2px 4px;
+  border: 1px solid #b6c0cd;
+  border-radius: 2px;
   background: #fff;
   color: #3d4c5c;
+  width: auto;
 }
 
 /* ── 主内容区：取消左侧留白 ── */
@@ -200,19 +235,28 @@
 
 /* ── 移动端（≤760px）：汉堡 + 纵向抽屉 ── */
 @media (max-width: 760px) {
-  .topbar-inner { height: auto; flex-wrap: wrap; padding: 8px 12px; gap: 6px; }
-  .topbar-brand { border-right: 0; padding-right: 0; width: 100%; justify-content: space-between; }
+  .topbar-inner { padding: 0; }
+  /* 品牌占满第一行剩余宽度，汉堡按钮（margin-left:auto）才能靠右 */
+  .topbar-brand { flex: 1 1 auto; height: 40px; padding: 0 10px; justify-content: flex-start; }
   .topbar .mobile-menu-toggle {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 13px;
-    padding: 5px 10px;
-    border: 1px solid #dfe4ea;
-    border-radius: 6px;
-    background: #f6f8fa;
+    min-height: 26px;
+    font-size: 12px;
+    padding: 3px 9px;
+    border: 1px solid #b6c0cd;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #ffffff 0%, #eef1f5 100%);
     color: #3d4c5c;
     cursor: pointer;
+    margin-left: auto;
+  }
+  .topbar-right {
+    order: 2;
+    height: 40px;
+    flex: 0 0 auto;
+    justify-content: flex-end;
   }
   #topnav {
     display: none;
@@ -222,9 +266,8 @@
     flex-direction: column;
     align-items: stretch;
     background: #fff;
-    border: 1px solid #e5e9ee;
-    border-radius: 8px;
-    padding: 6px;
+    border-top: 1px solid #9aa7bb;
+    padding: 4px;
     max-height: 60dvh;
     overflow-y: auto;
   }
@@ -232,27 +275,28 @@
   #topnav .nav-group { height: auto; margin: 0; }
   #topnav .nav-group > summary {
     height: auto;
-    padding: 8px 10px;
-    border-bottom: 0;
-    border-radius: 6px;
+    min-height: 30px;
+    padding: 6px 10px;
+    border: 0;
+    font-size: 13px;
   }
-  #topnav .nav-group.active > summary { background: #eaf0fa; }
+  #topnav .nav-group.active > summary,
+  #topnav .nav-group[open] > summary { background: #dbe6fb; color: #12305f; }
   #topnav .nav-submenu {
     position: static;
     display: block;
     box-shadow: none;
     border: 0;
-    border-radius: 0;
-    padding: 0 0 4px 8px;
+    padding: 0 0 4px 10px;
     min-width: 0;
   }
-  .topbar-right {
-    order: 6;
-    flex: 0 0 100%;
-    border-left: 0;
-    margin-left: 0;
-    padding-left: 0;
-    justify-content: flex-end;
-    flex-wrap: wrap;
+  #topnav .nav-subgroup > .nav-submenu {
+    position: static;
+    display: block;
+    box-shadow: none;
+    border: 0;
+    min-width: 0;
   }
+  #topnav .nav-subgroup > summary::after { content: '▼'; }
+  #topnav .nav-submenu a { padding: 6px 10px; font-size: 13px; }
 }

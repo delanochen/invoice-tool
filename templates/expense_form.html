@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}报销 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
   {% macro attachment_cards(attachment_list) %}
     {% for attachment in attachment_list %}
@@ -17,92 +22,114 @@
       </div>
     {% endfor %}
   {% endmacro %}
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">Expense</p>
-      <h1>{% if is_edit %}编辑报销{% else %}新建报销{% endif %}</h1>
-      <p class="muted-line">{{ order.order_number }} · {{ order.client_name }}</p>
+
+{# 录入页紧凑化：字段名 / name / 表单 ID / data-* 全部保持原样，expense-form.js 不受影响。 #}
+<div class="erp-app erp-app--flow erp-compact">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {% if is_edit %}编辑报销{% else %}新建报销{% endif %}
+      <small>{{ order.order_number }} · {{ order.client_name }}</small>
     </div>
-    <div class="actions">
-      <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
+    <span class="erp-badge">{{ expense.expense_number }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
       {% if is_edit %}
-        <button class="danger" type="submit" form="deleteExpenseForm" onclick="return confirm('确定删除这张报销单吗？');">删除</button>
+        <button class="erp-btn" type="submit" form="deleteExpenseForm" onclick="return confirm('确定删除这张报销单吗？');">删除</button>
       {% endif %}
-      <button type="submit" form="expenseForm" name="action" value="save" data-expense-submit>保存</button>
-      <button class="primary" type="submit" form="expenseForm" name="action" value="submit" data-expense-submit>提交经理审核</button>
+      <button type="submit" class="erp-btn" form="expenseForm" name="action" value="save" data-expense-submit>保存</button>
+      <button type="submit" class="erp-btn primary" form="expenseForm" name="action" value="submit" data-expense-submit>提交经理审核</button>
     </div>
   </header>
-  <form method="post" enctype="multipart/form-data" class="panel form-stack expense-form" id="expenseForm">
-    <input type="hidden" name="save_token" value="{{ save_token }}">
-    <div class="form-grid expense-header-fields">
-      <label>报销归属员工
-        <select name="beneficiary_id" required>
-          {% for person in beneficiaries %}
-            <option value="{{ person.id }}" {% if person.id == expense.beneficiary_id %}selected{% endif %}>{{ person.name }}{% if not person.is_active %}（已停用）{% endif %}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>报销编号 <input value="{{ expense.expense_number }}" readonly></label>
-      <label>费用日期 <input type="date" name="expense_date" value="{{ expense.expense_date }}" required></label>
-    </div>
-    <h2>报销明细</h2>
-    <div class="line-table-wrap">
-    <table class="list-table line-entry-table">
-      <thead><tr><th>员工报销项目</th><th>金额（USD）</th><th>明细说明</th><th>附件</th><th>操作</th></tr></thead>
-      <tbody id="expenseItems">
-      {% set rows = form_items if form_items else [{}] %}
-      {% for item in rows %}
-        {% set line_key = item.line_key or ('line-' ~ save_token ~ '-' ~ loop.index) %}
-        <tr class="expense-item-row">
-          <td>
-            <input type="hidden" name="item_line_key" value="{{ line_key }}">
-            <select name="project_id" class="expense-project-select" aria-label="员工报销项目" required>
-              <option value="">选择员工报销项目</option>
-              {% for project in expense_projects %}
-                <option value="{{ project.id }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.name }}{% if not project.is_active %}（已停用）{% endif %}</option>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <form method="post" enctype="multipart/form-data" class="panel form-stack expense-form" id="expenseForm">
+        <input type="hidden" name="save_token" value="{{ save_token }}">
+        <div class="form-grid expense-header-fields">
+          <label>报销归属员工
+            <select name="beneficiary_id" required>
+              {% for person in beneficiaries %}
+                <option value="{{ person.id }}" {% if person.id == expense.beneficiary_id %}selected{% endif %}>{{ person.name }}{% if not person.is_active %}（已停用）{% endif %}</option>
               {% endfor %}
             </select>
-            <label class="fuel-vehicle-field" hidden>
-              <span>加油车辆 <em class="required-mark">*</em></span>
-              <select name="fuel_vehicle_type" aria-label="加油车辆类型">
-                <option value="">请选择车辆类型</option>
-                <option value="personal" {% if item.fuel_vehicle_type == 'personal' %}selected{% endif %}>个人／自有车辆（仅员工报销）</option>
-                <option value="rental" {% if item.fuel_vehicle_type == 'rental' %}selected{% endif %}>租赁车辆（可计入工单结算）</option>
-              </select>
-            </label>
-          </td>
-          <td>
-            <input type="number" step="0.01" min="0.01" name="item_amount" value="{{ item.amount or '' }}" placeholder="金额（USD）" aria-label="金额" required>
-            <small class="lodging-limit-warning" hidden></small>
-          </td>
-          <td><input name="item_description" value="{{ item.description or '' }}" placeholder="明细说明" aria-label="明细说明"></td>
-          <td class="expense-line-attachments-cell">
-            {{ attachment_cards(attachments_by_item.get(line_key, [])) }}
-            <label class="compact-file-picker">
-              <span>添加附件</span>
-              <input type="file" name="item_attachments_{{ line_key }}" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
-            </label>
-          </td>
-          <td><button type="button" class="ghost remove-expense-item">删除</button></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <div class="expense-items-footer">
-      <button type="button" class="ghost" id="addExpenseItem">添加员工报销项目</button>
-      <strong>合计：<span id="expenseTotal">{{ expense.amount or 0 }}</span> USD</strong>
-    </div>
-    <input type="hidden" name="currency" value="USD">
-    <label>报销单说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
-    <p class="muted-line">附件请添加到对应的员工报销明细行（「添加附件」），不挂明细行的附件无法保存。</p>
-  </form>
-  {% if is_edit %}
-    <form id="deleteExpenseForm" method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}"></form>
-    {% for attachment in attachments %}
-      <form id="deleteExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('delete_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');"></form>
-    {% endfor %}
-  {% endif %}
+          </label>
+          <label>报销编号 <input value="{{ expense.expense_number }}" readonly></label>
+          <label>费用日期 <input type="date" name="expense_date" value="{{ expense.expense_date }}" required></label>
+        </div>
+        <h2>报销明细</h2>
+        <div class="line-table-wrap">
+        <table class="list-table line-entry-table">
+          <thead><tr><th>员工报销项目</th><th>金额（USD）</th><th>明细说明</th><th>附件</th><th>操作</th></tr></thead>
+          <tbody id="expenseItems">
+          {% set rows = form_items if form_items else [{}] %}
+          {% for item in rows %}
+            {% set line_key = item.line_key or ('line-' ~ save_token ~ '-' ~ loop.index) %}
+            <tr class="expense-item-row">
+              <td>
+                <input type="hidden" name="item_line_key" value="{{ line_key }}">
+                <select name="project_id" class="expense-project-select" aria-label="员工报销项目" required>
+                  <option value="">选择员工报销项目</option>
+                  {% for project in expense_projects %}
+                    <option value="{{ project.id }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.name }}{% if not project.is_active %}（已停用）{% endif %}</option>
+                  {% endfor %}
+                </select>
+                <label class="fuel-vehicle-field" hidden>
+                  <span>加油车辆 <em class="required-mark">*</em></span>
+                  <select name="fuel_vehicle_type" aria-label="加油车辆类型">
+                    <option value="">请选择车辆类型</option>
+                    <option value="personal" {% if item.fuel_vehicle_type == 'personal' %}selected{% endif %}>个人／自有车辆（仅员工报销）</option>
+                    <option value="rental" {% if item.fuel_vehicle_type == 'rental' %}selected{% endif %}>租赁车辆（可计入工单结算）</option>
+                  </select>
+                </label>
+              </td>
+              <td>
+                <input type="number" step="0.01" min="0.01" name="item_amount" value="{{ item.amount or '' }}" placeholder="金额（USD）" aria-label="金额" required>
+                <small class="lodging-limit-warning" hidden></small>
+              </td>
+              <td><input name="item_description" value="{{ item.description or '' }}" placeholder="明细说明" aria-label="明细说明"></td>
+              <td class="expense-line-attachments-cell">
+                {{ attachment_cards(attachments_by_item.get(line_key, [])) }}
+                <label class="compact-file-picker">
+                  <span>添加附件</span>
+                  <input type="file" name="item_attachments_{{ line_key }}" accept=".doc,.docx,.xls,.xlsx,.pdf,image/*" multiple>
+                </label>
+              </td>
+              <td><button type="button" class="ghost remove-expense-item">删除</button></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        <div class="expense-items-footer">
+          <button type="button" class="ghost" id="addExpenseItem">添加员工报销项目</button>
+          <strong>合计：<span id="expenseTotal">{{ expense.amount or 0 }}</span> USD</strong>
+        </div>
+        <input type="hidden" name="currency" value="USD">
+        <label>报销单说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
+        <p class="muted-line">附件请添加到对应的员工报销明细行（「添加附件」），不挂明细行的附件无法保存。</p>
+      </form>
+      {% if is_edit %}
+        <form id="deleteExpenseForm" method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}"></form>
+        {% for attachment in attachments %}
+          <form id="deleteExpenseAttachment{{ attachment.id }}" method="post" action="{{ url_for('delete_expense_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('确定删除这个附件吗？');"></form>
+        {% endfor %}
+      {% endif %}
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>报销单 <b>{{ expense.expense_number }}</b></span>
+    <span class="sep"></span>
+    <span>合计 <b><span id="expenseStatusBarTotal">{{ expense.amount or 0 }}</span> USD</b></span>
+    <span class="sep"></span>
+    <span>费用日期 <b>{{ expense.expense_date }}</b></span>
+  </footer>
+</div>
   <script>
     window.expenseProjects = [
       {% for project in expense_projects %}
@@ -112,4 +139,14 @@
     window.expenseLodgingLimit = {{ lodging_reimbursement_limit()|tojson }};
   </script>
   <script src="{{ url_for('static', filename='expense-form.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+  <script>
+    // 状态栏合计与表单内合计保持同步（只读镜像，不参与计算）
+    (() => {
+      const source = document.getElementById('expenseTotal');
+      const mirror = document.getElementById('expenseStatusBarTotal');
+      if (!source || !mirror) return;
+      new MutationObserver(() => { mirror.textContent = source.textContent; }).observe(source, {childList: true, characterData: true, subtree: true});
+    })();
+  </script>
 {% endblock %}

@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}工单结算 - {{ order.order_number }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
+{# 录入页紧凑化：字段名 / name / 表单 ID / data-* 全部保持原样，
+   customer-reimbursement.js 与 expense-sources.js 不受影响。 #}
+<div class="erp-app erp-app--flow erp-compact">
   {# 单元格展示「实际生效金额」：手动调整值优先，否则回落到报销来源金额。
      隐藏域回传 auto_*，供后端还原「来源 + 人工调整量」，保存时不会冲掉手改值。 #}
   {% macro expense_amount_cell(item, field_name, readonly=False) %}
@@ -336,6 +344,18 @@
       ></form>
     {% endfor %}
   {% endif %}
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>工单 <b>{{ order.order_number }}</b></span>
+    <span class="sep"></span>
+    <span>结算单 <b>{{ reimbursement.reimbursement_number }}</b></span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ customer_reimbursement_labels[reimbursement.status] }}</b></span>
+    <span class="sep"></span>
+    <span>结算合计 <b>{{ totals.total|money }}</b></span>
+  </footer>
+</div>
 {% endblock %}
 {% block scripts %}
   <script>
@@ -347,4 +367,5 @@
   <script src="{{ url_for('static', filename='customer-reimbursement.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='expense-sources.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

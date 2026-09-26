@@ -1,25 +1,91 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}消息 - 发票工具{% endblock %}
-{% block content %}
-  <header class="page-header"><div><p class="eyebrow">Messages</p><h1>消息</h1></div></header>
-  <section class="panel">
-    <table class="list-table">
-      <thead><tr><th>标题</th><th>内容</th><th>时间</th><th>状态</th></tr></thead>
-      <tbody>
-        {% for message in messages %}
-          <tr class="{% if not message.is_read %}message-unread{% endif %}" data-message-row data-is-read="{{ 1 if message.is_read else 0 }}">
-            <td><a href="{{ url_for('message_detail', message_id=message.id) }}" data-message-link data-message-title>{{ message.title }}</a></td>
-            <td data-message-body>{{ message.body }}</td>
-            <td>{{ message.created_at|local_datetime }}</td>
-            <td data-message-status>{{ "已读" if message.is_read else "未读" }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="4" class="empty">暂无消息。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 {% endblock %}
+
+{% block content %}
+{# 展示层改造：data-message-* 钩子与 messages.js 全部保持原样，
+   后端消息列表与已读逻辑未改动。 #}
+{% set unread = messages|rejectattr('is_read')|list|length %}
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      消息
+      <small>系统通知 · 按时间倒序</small>
+    </div>
+    <span class="erp-badge">{{ messages|length }} 条</span>
+    {% if unread %}<span class="erp-badge warn">未读 {{ unread }}</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead><tr><th>标题</th><th>内容</th><th>时间</th><th>状态</th></tr></thead>
+          <tbody>
+            {% for message in messages %}
+              <tr class="{% if not message.is_read %}message-unread{% endif %}" data-message-row data-is-read="{{ 1 if message.is_read else 0 }}">
+                <td><a href="{{ url_for('message_detail', message_id=message.id) }}" data-message-link data-message-title>{{ message.title }}</a></td>
+                <td data-message-body>{{ message.body }}</td>
+                <td>{{ message.created_at|local_datetime }}</td>
+                <td data-message-status>{{ "已读" if message.is_read else "未读" }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="empty">暂无消息。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for message in messages %}
+          <article class="erp-card {% if message.is_read %}pos{% else %}warn{% endif %}">
+            <div class="erp-card-head">
+              <span class="erp-card-code" data-message-title>{{ message.title }}</span>
+              <span data-message-status>{{ "已读" if message.is_read else "未读" }}</span>
+            </div>
+            <div class="erp-card-sub"><span>{{ message.created_at|local_datetime }}</span></div>
+            <div class="erp-cert-file" data-message-body>{{ message.body }}</div>
+            <div class="erp-card-foot">
+              <a class="erp-btn primary" data-message-link href="{{ url_for('message_detail', message_id=message.id) }}">查看</a>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">暂无消息。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('消息数', messages|length, 'muted') }}
+    {{ summary_item('未读', unread, 'warn' if unread else 'muted') }}
+    {{ summary_item('已读', messages|length - unread, 'pos') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ messages|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>未读 <b>{{ unread }}</b> 条</span>
+  </footer>
+</div>
+{% endblock %}
+
 {% block scripts %}
   <script src="{{ url_for('static', filename='messages.js', v='20260624-i18n-v1') }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

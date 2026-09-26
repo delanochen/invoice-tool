@@ -1,15 +1,32 @@
 {% extends "base.html" %}
 {% block title %}{{ form_title or "新建发票" }} - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-  <header class="page-header">
-    <div><p class="eyebrow">{% if is_edit %}Edit{% else %}Create{% endif %}</p><h1>{{ form_title or "新建发票" }}</h1></div>
-    <div class="actions">
+{# 录入页紧凑化：字段名 / name / 表单 ID / data-* 全部保持原样，invoice-form.js 不受影响。 #}
+<div class="erp-app erp-app--flow erp-compact">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ form_title or "新建发票" }}
+      <small>{% if is_edit %}{{ defaults.invoice_number }}{% else %}新建发票{% endif %}</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
       {% if is_edit and (g.user.role in ["admin", "manager"] or defaults.created_by == g.user.id) %}
-        <button class="danger" type="submit" form="deleteInvoiceForm" onclick="return confirm('确定删除这张发票吗？');">删除发票</button>
+        <button class="erp-btn" type="submit" form="deleteInvoiceForm" onclick="return confirm('确定删除这张发票吗？');">删除发票</button>
       {% endif %}
-      <button class="primary" type="submit" form="invoiceForm" name="action" value="save" data-invoice-submit>保存发票</button>
+      <button type="submit" class="erp-btn primary" form="invoiceForm" name="action" value="save" data-invoice-submit>保存发票</button>
     </div>
   </header>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active">
   <form method="post" enctype="multipart/form-data" class="panel invoice-form" id="invoiceForm">
     <input type="hidden" name="save_token" value="{{ save_token }}">
     {% if defaults.customer_reimbursement_id %}
@@ -177,5 +194,20 @@
     <script src="{{ url_for('static', filename='invoice-detail.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
   {% endif %}
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>发票 <b>{{ defaults.invoice_number }}</b></span>
+    <span class="sep"></span>
+    <span>开票日期 <b>{{ defaults.issue_date }}</b></span>
+    <span class="sep"></span>
+    <span>到期日期 <b>{{ defaults.due_date }}</b></span>
+    <span class="sep"></span>
+    <span>货币 <b>{{ defaults.currency or 'USD' }}</b></span>
+  </footer>
+</div>
   <script src="{{ url_for('static', filename='invoice-form.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

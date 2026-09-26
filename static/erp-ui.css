@@ -67,11 +67,20 @@
    注意 content 区不再内部滚动，避免出现「页面滚动条 + 内容滚动条」两层。 */
 .erp-app--flow,
 .workspace-embedded .erp-app--flow {
+  /* 关键：--flow 必须放弃 grid，改回 block。
+     作为 grid item 时，.erp-summary / .erp-status 的包含块就是自己所在的网格行
+     （行高 == 自身高度），sticky 没有可移动空间 → 内容一高（6 周的月历、
+     最大化后仍然超高的窗口）汇总栏与状态栏就被顶到屏幕外，只能滚动到底才看得到。
+     变成 block 之后它们是长文档里的普通块，包含块是整个 .erp-app，
+     sticky bottom 才能真正贴住视口底部常驻。 */
+  display: block;
   height: auto;
   min-height: 0;
   overflow: visible;
-  grid-template-rows: auto auto auto auto;
 }
+.erp-app--flow > .erp-toolbar { position: sticky; top: 0; z-index: 12; }
+.erp-app--flow > .erp-summary { position: sticky; bottom: 22px; z-index: 9; }
+.erp-app--flow > .erp-status { position: sticky; bottom: 0; z-index: 10; }
 .erp-app--flow .erp-body { overflow: visible; }
 .erp-app--flow .erp-body > .erp-panel.active { flex: 0 0 auto; }
 /* 必须比基础规则 .erp-body > .erp-panel.active > .erp-calendar-scroll（0,4,0）更特异，
@@ -502,6 +511,13 @@
 }
 .erp-status .sep { width: 1px; align-self: stretch; background: var(--erp-line); }
 .erp-status b { color: var(--erp-ink); }
+/* 版本号由 erp-report.js 从右下角浮标搬进状态栏（C/S 客户端惯例：状态栏最右） */
+.erp-status .erp-status-version {
+  margin-left: auto;
+  padding-left: 6px;
+  border-left: 1px solid var(--erp-line);
+  color: var(--erp-muted);
+}
 
 /* ----------------------------------------------- 详情字段区（合同/工单详情） */
 /* 覆盖 styles.css 的 .detail-grid（gap 14px）：ERP 页面字段行距收紧，矮窗口一屏可见 */
@@ -509,6 +525,97 @@
 .erp-app .detail-grid p { gap: 1px; }
 .erp-app .detail-grid strong { font-size: 12px; }
 .erp-app .detail-grid p span { font-size: 12.5px; }
+
+/* ------------------------------------------------- 紧凑录入层（.erp-compact） */
+/* 表单页 / 详情页专用：把 styles.css 的「大间距 + 40px 控件 + 大圆角」压成
+   C/S 客户端密度（26px 控件、2px 圆角、12px 字号、5px 行距），
+   一屏能放下更多字段。规则全部限定在 .erp-compact 内，不影响其它页面。 */
+.erp-compact .panel,
+.erp-compact .login-card { padding: 9px 12px; margin-bottom: 8px; border-radius: var(--erp-radius); }
+.erp-compact .page-header {
+  padding: 5px 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--erp-line);
+  background: linear-gradient(180deg, #f8fafc 0%, #e6ebf2 100%);
+  gap: 8px;
+}
+.erp-compact .page-header h1 { margin: 0; font-size: 15px; letter-spacing: .2px; }
+.erp-compact .eyebrow { font-size: 11px; margin: 0 0 2px; }
+.erp-compact .muted-line { font-size: 11.5px; }
+.erp-compact h1 { font-size: 15px; }
+.erp-compact h2 { font-size: 13px; }
+.erp-compact h3 { font-size: 12.5px; }
+.erp-compact label,
+.erp-compact .field-label { gap: 3px; font-size: 12px; color: #3c4759; }
+.erp-compact input,
+.erp-compact select,
+.erp-compact textarea {
+  min-height: 26px;
+  height: 26px;
+  padding: 2px 5px;
+  border: 1px solid #a9b4c5;
+  border-radius: var(--erp-radius);
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--erp-ink);
+  background: #fff;
+}
+.erp-compact textarea { height: auto; min-height: 54px; }
+.erp-compact input[type="file"] { height: auto; min-height: 26px; padding: 3px 5px; max-width: 100%; }
+.erp-compact input[type="checkbox"],
+.erp-compact input[type="radio"] { width: 14px; height: 14px; min-height: 0; margin: 0; }
+.erp-compact button,
+.erp-compact .button {
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid var(--erp-line);
+  border-radius: var(--erp-radius);
+  background: linear-gradient(180deg, #ffffff 0%, #eef1f5 100%);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.erp-compact button:hover,
+.erp-compact .button:hover { background: linear-gradient(180deg, #f7faff 0%, #e2e9f3 100%); }
+.erp-compact .primary { border-color: #2b5fd9; background: linear-gradient(180deg, #4a7cf0 0%, #2b5fd9 100%); color: #fff; }
+.erp-compact .danger { border-color: #fecdca; background: #fff1f0; color: var(--danger); }
+.erp-compact .form-grid { gap: 5px 16px; }
+.erp-compact .form-stack { gap: 8px; }
+.erp-compact .settings-layout,
+.erp-compact .attachment-grid { gap: 8px 16px; }
+.erp-compact .full { margin-top: 8px; }
+.erp-compact .subsection,
+.erp-compact .permission-section-title { margin-top: 10px; padding-top: 7px; }
+.erp-compact .detail-grid { gap: 5px 28px; }
+.erp-compact .detail-grid p { gap: 1px; }
+.erp-compact .detail-grid strong { font-size: 12px; }
+.erp-compact .detail-grid p span { font-size: 12.5px; }
+.erp-compact .list-table,
+.erp-compact .invoice-table,
+.erp-compact .spreadsheet-table { font-size: 12px; }
+.erp-compact .list-table th,
+.erp-compact .list-table td,
+.erp-compact .invoice-table th,
+.erp-compact .invoice-table td,
+.erp-compact .spreadsheet-table th,
+.erp-compact .spreadsheet-table td { padding: 3px 6px; min-width: 84px; }
+.erp-compact .list-table input,
+.erp-compact .list-table select,
+.erp-compact .spreadsheet-table input,
+.erp-compact .spreadsheet-table select { min-height: 22px; height: 24px; padding: 1px 4px; font-size: 12px; font-family: inherit; }
+.erp-compact .panel-title { margin-bottom: 4px; }
+.erp-compact .toolbar-actions { gap: 4px; }
+.erp-compact .filter-bar { gap: 5px 8px; margin-bottom: 8px; }
+.erp-compact .filter-bar label { font-size: 12px; }
+.erp-compact .actions,
+.erp-compact .form-actions { gap: 5px; }
+.erp-compact .row-actions { gap: 4px; }
+.erp-compact .status { border-radius: 2px; padding: 1px 6px; font-size: 11px; }
+.erp-compact .file-list li,
+.erp-compact .selected-attachment-item { padding: 5px 8px; font-size: 12px; }
+.erp-compact .check-chip { padding: 3px 8px; font-size: 12px; }
+.erp-compact .modal { padding: 14px; }
+.erp-compact .modal-header { margin-bottom: 10px; }
+.erp-compact .modal-header h2 { font-size: 15px; }
 
 /* -------------------------------------------------- MobileWorkOrderCard */
 .erp-cards { display: none; flex-direction: column; gap: 6px; }
@@ -555,9 +662,10 @@
 .erp-empty { padding: 20px; text-align: center; color: var(--erp-muted); }
 @media (max-width: 1024px) {
   .erp-cards { display: flex; }
-  /* 只隐藏工单汇总的桌面网格（其数据由卡片承载）；
-     利润明细 / 汇总面板继续使用 system-grid 的 Tabulator 表格。 */
-  .erp-grid-wrap { display: none !important; }
+  /* 只在「有卡片承载数据」的页面隐藏桌面网格（数据由卡片呈现）。
+     没有 .erp-cards 的页面（照片台账、各类明细表）必须继续显示表格，
+     否则移动端整张表会凭空消失。 */
+  .erp-app:has(.erp-cards) .erp-grid-wrap { display: none !important; }
 }
 
 /* ---------------------------------------------------- WorkOrderDetailPanel */

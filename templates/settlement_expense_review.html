@@ -1,119 +1,152 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}结算前审核 - {{ order.order_number }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
-<header class="page-header">
-  <div>
-    <p class="eyebrow">工单结算 · 结算前审核</p>
-    <h1>{{ order.order_number }}</h1>
-    <p class="muted-line">先选择本次需要传入客户结算的员工报销明细。未审核明细会显示，但不能进入最终结算。</p>
-  </div>
-  <div class="actions">
-    <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
-    {% if reimbursement %}<button type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">返回结算草稿</button>{% endif %}
-  </div>
-</header>
+{# 展示层改造：勾选框、金额统计脚本依赖的 ID 与 class 全部保持原样，后端逻辑未改动。
+   走 erp-app--flow：候选池行数不定，整页滚动，工具栏与汇总/状态栏 sticky 常驻。 #}
+{% set pending_total = (candidates|rejectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum) %}
+<div class="erp-app erp-app--flow erp-compact" data-active-panel="review">
 
-{% if missing_rate_summary %}
-<section class="panel">
-  <div class="flash error">
-    <strong>⚠ 客户费率未配置</strong>（来源：合同费率版本）——
-    {% for rate_date, labels in missing_rate_summary.items() %}
-      {{ rate_date }}：{{ labels|join("、") }}{% if not loop.last %}；{% endif %}
-    {% endfor %}
-    。请先在对应合同的「费率版本」中配置，否则相关结算金额会按 0 计算且无法保存。
-  </div>
-</section>
-{% endif %}
-
-<form method="post" id="settlementExpenseReviewForm" class="form-stack">
-  <section class="panel">
-    <div class="panel-title">
-      <div>
-        <h2>住宿额度</h2>
-        <span class="muted-line">合同规则：实报实销，上限按人晚计算。实际金额低于上限时，上限不是可直接结算金额。</span>
-      </div>
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      结算前审核
+      <small>{{ order.order_number }} · 选择本次传入客户结算的报销明细</small>
     </div>
-    <div class="metric-grid">
-      <div class="metric">
-        <span>住宿人晚</span>
-        <strong><input id="lodgingPersonNights" name="lodging_person_nights" type="number" min="0" step="1" value="{{ person_nights }}" style="width:7rem"></strong>
-        <small>系统根据工作日期估算：{{ default_person_nights }} 人晚，可人工修正</small>
-      </div>
-      <div class="metric"><span>合同住宿上限</span><strong id="lodgingRate" data-value="{{ lodging_rate.rate }}">{{ lodging_rate.rate|money }} / 人晚</strong><small>{{ '合同费率版本 v' ~ lodging_rate.version_no if lodging_rate.version_no else '旧规则回退值' }}</small></div>
-      <div class="metric"><span>本次最高额度</span><strong id="lodgingCap">{{ summary.lodging_cap|money }}</strong></div>
-      <div class="metric"><span>当前勾选住宿</span><strong id="selectedLodging">{{ summary.selected_lodging|money }}</strong></div>
-      <div class="metric"><span>未使用额度</span><strong id="unusedLodgingCap">{{ summary.unused_lodging_cap|money }}</strong><small>仅提示，不会自动补齐</small></div>
+    <span class="erp-badge">{{ candidates|length }} 条候选</span>
+    {% if pending_total %}<span class="erp-badge warn">未审核 {{ pending_total|money }}</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
+      {% if reimbursement %}<button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">返回结算草稿</button>{% endif %}
+      <button type="submit" class="erp-btn" form="settlementExpenseReviewForm" name="action" value="cancel">取消生成工单结算</button>
+      <button type="submit" class="erp-btn primary" form="settlementExpenseReviewForm" name="action" value="generate">{{ '更新结算草稿' if reimbursement else '生成工单结算草稿' }}</button>
     </div>
-  </section>
+  </header>
 
-  <section class="panel">
-    <div class="panel-title">
-      <div>
-        <h2>报销候选池</h2>
-        <span class="muted-line">Approved 可选择；Pending / Submitted / Returned 仅用于提醒你是否还有真实费用尚未完成审核。</span>
-      </div>
-      <div class="toolbar-actions">
-        <button type="button" class="small" id="selectAllApproved">全选可结算</button>
-        <button type="button" class="small" id="clearSelections">全部取消</button>
-      </div>
-    </div>
-
-    {% for group in candidates|groupby('group_label') %}
-      {% set group_rows = group.list %}
-      <div class="settlement-expense-group" data-expense-group="{{ group.grouper }}">
-        <div class="panel-title compact-title">
-          <h3>{{ group.grouper }}</h3>
-          <span class="muted-line">
-            已审核 {{ (group_rows|selectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }} ·
-            未审核 {{ (group_rows|rejectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }} ·
-            已选 <strong data-group-selected-total>{{ (group_rows|selectattr('selected')|map(attribute='amount')|sum)|money }}</strong>
-          </span>
-        </div>
-        <div class="table-scroll">
-          <table class="list-table compact-table">
-            <thead>
-              <tr><th>选择</th><th>状态</th><th>报销编号</th><th>员工</th><th>日期</th><th>项目</th><th>说明</th><th>车辆类型</th><th>金额</th></tr>
-            </thead>
-            <tbody>
-            {% for row in group_rows %}
-              <tr class="{% if not row.eligible %}muted-row{% endif %}">
-                <td>
-                  {% if row.selectable %}
-                    <input class="settlement-expense-checkbox" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" data-amount="{{ row.amount }}" data-group="{{ row.group_label }}" data-lodging="{{ 'true' if row.settlement_field == 'lodging' else 'false' }}" {% if row.selected %}checked{% endif %}>
-                  {% else %}
-                    <input type="checkbox" disabled title="{{ '尚未审核通过' if row.eligible else '按当前合同规则不进入客户实报实销' }}">
-                  {% endif %}
-                </td>
-                <td><span class="status {{ row.status }}">{{ row.status }}</span></td>
-                <td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}" target="_blank">{{ row.expense_number }}</a></td>
-                <td>{{ row.worker_name or '-' }}</td>
-                <td>{{ row.expense_date }}</td>
-                <td>{{ row.project_name }}</td>
-                <td>{{ row.description or '-' }}</td>
-                <td>{{ row.fuel_vehicle_type or '-' }}</td>
-                <td>{{ row.amount|money }}</td>
-              </tr>
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="review">
+      <form method="post" id="settlementExpenseReviewForm" class="form-stack">
+        {% if missing_rate_summary %}
+        <section class="panel">
+          <div class="flash error">
+            <strong>⚠ 客户费率未配置</strong>（来源：合同费率版本）——
+            {% for rate_date, labels in missing_rate_summary.items() %}
+              {{ rate_date }}：{{ labels|join("、") }}{% if not loop.last %}；{% endif %}
             {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    {% else %}
-      <p class="empty">这个工单还没有员工报销明细。仍可继续生成仅包含工时/里程的工单结算。</p>
-    {% endfor %}
-  </section>
+            。请先在对应合同的「费率版本」中配置，否则相关结算金额会按 0 计算且无法保存。
+          </div>
+        </section>
+        {% endif %}
 
-  <section class="panel">
-    <div class="metric-grid">
-      <div class="metric"><span>本次选择报销合计</span><strong id="selectedExpenseTotal">$0.00</strong></div>
-      <div class="metric"><span>未审核候选</span><strong>{{ (candidates|rejectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }}</strong><small>这些不会进入本次结算</small></div>
-    </div>
-    <div class="form-actions">
-      <button type="submit" name="action" value="cancel">取消生成工单结算</button>
-      <button class="primary" type="submit" name="action" value="generate">{{ '更新结算草稿' if reimbursement else '生成工单结算草稿' }}</button>
-    </div>
-  </section>
-</form>
+        <section class="panel">
+          <div class="panel-title">
+            <div>
+              <h2>住宿额度</h2>
+              <span class="muted-line">合同规则：实报实销，上限按人晚计算。实际金额低于上限时，上限不是可直接结算金额。</span>
+            </div>
+          </div>
+          <div class="metric-grid">
+            <div class="metric">
+              <span>住宿人晚</span>
+              <strong><input id="lodgingPersonNights" name="lodging_person_nights" type="number" min="0" step="1" value="{{ person_nights }}" style="width:7rem"></strong>
+              <small>系统根据工作日期估算：{{ default_person_nights }} 人晚，可人工修正</small>
+            </div>
+            <div class="metric"><span>合同住宿上限</span><strong id="lodgingRate" data-value="{{ lodging_rate.rate }}">{{ lodging_rate.rate|money }} / 人晚</strong><small>{{ '合同费率版本 v' ~ lodging_rate.version_no if lodging_rate.version_no else '旧规则回退值' }}</small></div>
+            <div class="metric"><span>本次最高额度</span><strong id="lodgingCap">{{ summary.lodging_cap|money }}</strong></div>
+            <div class="metric"><span>当前勾选住宿</span><strong id="selectedLodging">{{ summary.selected_lodging|money }}</strong></div>
+            <div class="metric"><span>未使用额度</span><strong id="unusedLodgingCap">{{ summary.unused_lodging_cap|money }}</strong><small>仅提示，不会自动补齐</small></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">
+            <div>
+              <h2>报销候选池</h2>
+              <span class="muted-line">Approved 可选择；Pending / Submitted / Returned 仅用于提醒你是否还有真实费用尚未完成审核。</span>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" class="small" id="selectAllApproved">全选可结算</button>
+              <button type="button" class="small" id="clearSelections">全部取消</button>
+            </div>
+          </div>
+
+          {% for group in candidates|groupby('group_label') %}
+            {% set group_rows = group.list %}
+            <div class="settlement-expense-group" data-expense-group="{{ group.grouper }}">
+              <div class="panel-title compact-title">
+                <h3>{{ group.grouper }}</h3>
+                <span class="muted-line">
+                  已审核 {{ (group_rows|selectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }} ·
+                  未审核 {{ (group_rows|rejectattr('status', 'equalto', 'approved')|map(attribute='amount')|sum)|money }} ·
+                  已选 <strong data-group-selected-total>{{ (group_rows|selectattr('selected')|map(attribute='amount')|sum)|money }}</strong>
+                </span>
+              </div>
+              <div class="table-scroll">
+                <table class="list-table compact-table">
+                  <thead>
+                    <tr><th>选择</th><th>状态</th><th>报销编号</th><th>员工</th><th>日期</th><th>项目</th><th>说明</th><th>车辆类型</th><th>金额</th></tr>
+                  </thead>
+                  <tbody>
+                  {% for row in group_rows %}
+                    <tr class="{% if not row.eligible %}muted-row{% endif %}">
+                      <td>
+                        {% if row.selectable %}
+                          <input class="settlement-expense-checkbox" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" data-amount="{{ row.amount }}" data-group="{{ row.group_label }}" data-lodging="{{ 'true' if row.settlement_field == 'lodging' else 'false' }}" {% if row.selected %}checked{% endif %}>
+                        {% else %}
+                          <input type="checkbox" disabled title="{{ '尚未审核通过' if row.eligible else '按当前合同规则不进入客户实报实销' }}">
+                        {% endif %}
+                      </td>
+                      <td><span class="status {{ row.status }}">{{ row.status }}</span></td>
+                      <td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}" target="_blank">{{ row.expense_number }}</a></td>
+                      <td>{{ row.worker_name or '-' }}</td>
+                      <td>{{ row.expense_date }}</td>
+                      <td>{{ row.project_name }}</td>
+                      <td>{{ row.description or '-' }}</td>
+                      <td>{{ row.fuel_vehicle_type or '-' }}</td>
+                      <td>{{ row.amount|money }}</td>
+                    </tr>
+                  {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {% else %}
+            <p class="empty">这个工单还没有员工报销明细。仍可继续生成仅包含工时/里程的工单结算。</p>
+          {% endfor %}
+        </section>
+
+        <section class="panel">
+          <div class="metric-grid">
+            <div class="metric"><span>本次选择报销合计</span><strong id="selectedExpenseTotal">$0.00</strong></div>
+            <div class="metric"><span>未审核候选</span><strong>{{ pending_total|money }}</strong><small>这些不会进入本次结算</small></div>
+          </div>
+        </section>
+      </form>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('候选条数', candidates|length, 'muted') }}
+    {{ summary_item('未审核候选', pending_total|money, 'warn' if pending_total else 'muted') }}
+    {{ summary_item('住宿上限', lodging_rate.rate|money ~ ' / 人晚', 'muted') }}
+    {{ summary_item('住宿人晚', person_nights, 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>工单 <b>{{ order.order_number }}</b></span>
+    <span class="sep"></span>
+    <span>未审核明细会显示，但不能进入最终结算</span>
+  </footer>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -151,4 +184,5 @@
   refresh();
 })();
 </script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

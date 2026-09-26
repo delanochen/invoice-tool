@@ -1,5 +1,11 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
 {% block title %}{{ expense.expense_number }} - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
 {% block content %}
   {% macro attachment_list(attachment_list) %}
     {% for attachment in attachment_list %}
@@ -30,13 +36,22 @@
       {% endif %}
     </span>
   {% endmacro %}
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">Expense</p>
-      <h1>{{ expense.expense_number }} <span class="status {{ expense.status }}">{{ labels[expense.status] }}</span></h1>
-      <p class="muted-line"><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a> · {{ order.client_name }}</p>
+
+{# 展示层改造：所有 ID（#runAiReviewBtn / #aiReviewBody / #returnExpenseDialog /
+   #interpretationDialog …）与 data-* 钩子保持原样，后端逻辑未改动。
+   走 erp-app--flow：明细高度不固定，整页滚动，工具栏与汇总/状态栏 sticky 常驻。 #}
+<div class="erp-app erp-app--flow erp-compact" data-active-panel="detail">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ expense.expense_number }}
+      <small>{{ order.order_number }} · {{ order.client_name }}</small>
     </div>
-    <div class="actions">
+    <span class="erp-badge">{{ labels[expense.status] }}</span>
+    <span class="erp-badge">{{ expense_payout_labels[expense.payout_status] }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
       {% if normalized_role() == "admin" %}
         <form method="post" action="{{ url_for('process_expense_action') }}">
           <input type="hidden" name="expense_id" value="{{ expense.id }}">
@@ -45,175 +60,207 @@
         </form>
       {% endif %}
       {% if expense.status in ["draft", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
-        <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_expense', expense_id=expense.id) }}'">编辑</button>
+        <button class="erp-btn primary" type="button" onclick="window.location.href='{{ url_for('edit_expense', expense_id=expense.id) }}'">编辑</button>
       {% endif %}
       {% if can_delete %}
-        <form method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}" onsubmit="return confirm('确定删除这张报销单吗？');"><button class="danger" type="submit">删除</button></form>
+        <form method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}" onsubmit="return confirm('确定删除这张报销单吗？');"><button class="erp-btn" type="submit">删除</button></form>
       {% endif %}
       {% if expense.status == "submitted" and has_action_permission("expenses", "approve") %}
-        <form method="post" action="{{ url_for('approve_expense', expense_id=expense.id) }}"><button class="primary" type="submit">审核通过</button></form>
-        <button class="danger" type="button" onclick="document.querySelector('#returnExpenseDialog').showModal()">退回</button>
+        <form method="post" action="{{ url_for('approve_expense', expense_id=expense.id) }}"><button class="erp-btn primary" type="submit">审核通过</button></form>
+        <button class="erp-btn" type="button" onclick="document.querySelector('#returnExpenseDialog').showModal()">退回</button>
       {% endif %}
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
     </div>
   </header>
-  {% if expense.status == "submitted" and has_action_permission("expenses", "approve") %}
-    <dialog id="returnExpenseDialog" class="modal">
-      <form method="post" action="{{ url_for('return_expense', expense_id=expense.id) }}" class="form-stack">
-        <h2>退回报销</h2>
-        <label>退回原因 <textarea name="return_reason" rows="5" required></textarea></label>
-        <div class="form-actions">
-          <button type="button" onclick="document.querySelector('#returnExpenseDialog').close()">取消</button>
-          <button class="danger" type="submit">确认退回</button>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="detail">
+      {% if expense.status == "submitted" and has_action_permission("expenses", "approve") %}
+        <dialog id="returnExpenseDialog" class="modal">
+          <form method="post" action="{{ url_for('return_expense', expense_id=expense.id) }}" class="form-stack">
+            <h2>退回报销</h2>
+            <label>退回原因 <textarea name="return_reason" rows="5" required></textarea></label>
+            <div class="form-actions">
+              <button type="button" onclick="document.querySelector('#returnExpenseDialog').close()">取消</button>
+              <button class="danger" type="submit">确认退回</button>
+            </div>
+          </form>
+        </dialog>
+      {% endif %}
+      {% if can_review %}
+      <section class="panel" id="aiReviewSection">
+        <div class="panel-title">
+          <h2>智能审核意见
+            {% if ai_review and ai_review.status == 'done' %}
+              {% if ai_review.conclusion == '通过' %}
+                <span class="status approved">{{ ai_review.conclusion }}</span>
+              {% elif ai_review.conclusion == '需人工复核' %}
+                <span class="status submitted">{{ ai_review.conclusion }}</span>
+              {% else %}
+                <span class="status returned">{{ ai_review.conclusion }}</span>
+              {% endif %}
+            {% endif %}
+          </h2>
+          <div class="toolbar-actions">
+            <button class="small" type="button" id="runAiReviewBtn"
+                    data-ai-review-url="{{ url_for('expense_ai_review', expense_id=expense.id) }}">
+              {% if ai_review and ai_review.status == 'done' %}重新审核{% elif ai_review and ai_review.status == 'failed' %}重试{% else %}立即审核{% endif %}
+            </button>
+          </div>
         </div>
-      </form>
-    </dialog>
-  {% endif %}
-  {% if can_review %}
-  <section class="panel" id="aiReviewSection">
-    <div class="panel-title">
-      <h2>智能审核意见
-        {% if ai_review and ai_review.status == 'done' %}
-          {% if ai_review.conclusion == '通过' %}
-            <span class="status approved">{{ ai_review.conclusion }}</span>
-          {% elif ai_review.conclusion == '需人工复核' %}
-            <span class="status submitted">{{ ai_review.conclusion }}</span>
+        <div id="aiReviewBody">
+          {% if ai_review and ai_review.status == 'done' %}
+            <p class="muted-line">模型 {{ ai_review.model }} · {{ ai_review.updated_at|local_datetime }}</p>
+            <div style="white-space:pre-wrap; line-height:1.6;">{{ ai_review.content }}</div>
+          {% elif ai_review and ai_review.status == 'failed' %}
+            <div class="flash error">AI 审核失败：{{ ai_review.error }}。可点「重试」，或直接人工审核（AI 意见不阻塞审核流程）。</div>
           {% else %}
-            <span class="status returned">{{ ai_review.conclusion }}</span>
+            <p class="muted-line">该报销将在下次定时审核中生成意见（默认每天 03:00）；也可以点「立即审核」手动生成。</p>
           {% endif %}
-        {% endif %}
-      </h2>
-      <div class="toolbar-actions">
-        <button class="small" type="button" id="runAiReviewBtn"
-                data-ai-review-url="{{ url_for('expense_ai_review', expense_id=expense.id) }}">
-          {% if ai_review and ai_review.status == 'done' %}重新审核{% elif ai_review and ai_review.status == 'failed' %}重试{% else %}立即审核{% endif %}
-        </button>
-      </div>
-    </div>
-    <div id="aiReviewBody">
-      {% if ai_review and ai_review.status == 'done' %}
-        <p class="muted-line">模型 {{ ai_review.model }} · {{ ai_review.updated_at|local_datetime }}</p>
-        <div style="white-space:pre-wrap; line-height:1.6;">{{ ai_review.content }}</div>
-      {% elif ai_review and ai_review.status == 'failed' %}
-        <div class="flash error">AI 审核失败：{{ ai_review.error }}。可点「重试」，或直接人工审核（AI 意见不阻塞审核流程）。</div>
-      {% else %}
-        <p class="muted-line">该报销将在下次定时审核中生成意见（默认每天 03:00）；也可以点「立即审核」手动生成。</p>
+        </div>
+      </section>
       {% endif %}
-    </div>
-  </section>
-  {% endif %}
-  <section class="panel">
-    <div class="detail-grid">
-      <p><strong>报销总额</strong><span>{{ expense.amount|money(expense.currency) }}</span></p>
-      <p><strong>费用日期</strong><span>{{ expense.expense_date }}</span></p>
-      <p><strong>报销归属员工</strong><span>{{ beneficiary.name if beneficiary else "Unknown" }}</span></p>
-      <p><strong>提交人</strong><span>{{ creator.name if creator else "Unknown" }}</span></p>
-      <p><strong>审核人</strong><span>{{ reviewer.name if reviewer else "-" }}</span></p>
-      <p><strong>审核时间</strong><span>{{ expense.reviewed_at|local_datetime if expense.reviewed_at else "-" }}</span></p>
-      <p><strong>报销状态</strong><span class="status {{ expense.payout_status }}">{{ expense_payout_labels[expense.payout_status] }}</span></p>
-      <p><strong>发放操作人</strong><span>{{ reimburser.name if reimburser else "-" }}</span></p>
-      <p><strong>报销时间</strong><span>{{ expense.reimbursed_at|local_datetime if expense.reimbursed_at else "-" }}</span></p>
-      <p class="full-span"><strong>说明</strong><span>{{ expense.description or "-" }}</span></p>
-      {% if expense.return_reason %}
-        <p class="full-span"><strong>退回原因</strong><span>{{ expense.return_reason }}</span></p>
+      <section class="panel">
+        <div class="detail-grid">
+          <p><strong>报销总额</strong><span>{{ expense.amount|money(expense.currency) }}</span></p>
+          <p><strong>费用日期</strong><span>{{ expense.expense_date }}</span></p>
+          <p><strong>报销归属员工</strong><span>{{ beneficiary.name if beneficiary else "Unknown" }}</span></p>
+          <p><strong>提交人</strong><span>{{ creator.name if creator else "Unknown" }}</span></p>
+          <p><strong>审核人</strong><span>{{ reviewer.name if reviewer else "-" }}</span></p>
+          <p><strong>审核时间</strong><span>{{ expense.reviewed_at|local_datetime if expense.reviewed_at else "-" }}</span></p>
+          <p><strong>报销状态</strong><span class="status {{ expense.payout_status }}">{{ expense_payout_labels[expense.payout_status] }}</span></p>
+          <p><strong>发放操作人</strong><span>{{ reimburser.name if reimburser else "-" }}</span></p>
+          <p><strong>报销时间</strong><span>{{ expense.reimbursed_at|local_datetime if expense.reimbursed_at else "-" }}</span></p>
+          <p class="full-span"><strong>说明</strong><span>{{ expense.description or "-" }}</span></p>
+          {% if expense.return_reason %}
+            <p class="full-span"><strong>退回原因</strong><span>{{ expense.return_reason }}</span></p>
+          {% endif %}
+        </div>
+      </section>
+      {% if duplicate_checks and normalized_role() in ["admin", "manager"] %}
+        <section class="panel">
+          <div class="panel-title">
+            <h2>重复附件检查</h2>
+            <span class="status returned">{{ duplicate_checks|length }} 项疑点</span>
+          </div>
+          <p class="muted-line">系统根据文件内容、图片相似度、金额、日期、员工和费用项目筛查。结果仅供审核，需人工确认。</p>
+          <div class="table-scroll">
+            <table class="list-table">
+              <thead><tr><th>风险</th><th>当前附件</th><th>匹配记录</th><th>判断依据</th><th>智能复核</th><th>处理</th></tr></thead>
+              <tbody>
+                {% for check in duplicate_checks %}
+                  <tr>
+                    <td><strong>{{ "高" if check.risk_level == "high" else "中" }} · {{ check.score }}</strong></td>
+                    <td><a href="{{ url_for('preview_expense_attachment', attachment_id=check.attachment_id) }}" target="_blank">{{ check.attachment_name }}</a></td>
+                    <td>
+                      {% if check.expense_id == check.matched_expense_id %}
+                        <span>本报销单内的另一附件</span><br>
+                      {% else %}
+                      <a href="{{ url_for('expense_detail', expense_id=check.matched_expense_id) }}">{{ check.matched_expense_number }}</a><br>
+                      {% endif %}
+                      <a class="muted-line" href="{{ url_for('preview_expense_attachment', attachment_id=check.matched_attachment_id) }}" target="_blank">{{ check.matched_attachment_name }}</a>
+                    </td>
+                    <td>{{ check.reasons }}</td>
+                    <td>
+                      {% if check.deepseek_analysis %}{{ check.deepseek_analysis }}
+                      {% elif check.deepseek_error %}<span class="muted-line">智能复核未完成：{{ check.deepseek_error }}</span>
+                      {% else %}<span class="muted-line">确定性规则已足够，或智能助手未启用。</span>{% endif %}
+                    </td>
+                    <td>
+                      {% if check.review_status == "pending" %}
+                        <div class="row-actions">
+                          <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="confirmed"><button class="danger small" type="submit">确认重复</button></form>
+                          <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="not_duplicate"><button class="small" type="submit">不是重复</button></form>
+                          <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="legal_split"><button class="small" type="submit">合法分摊</button></form>
+                        </div>
+                      {% else %}
+                        <span class="status approved">
+                          {% if check.review_status == "confirmed" %}确认重复{% elif check.review_status == "legal_split" %}合法分摊{% else %}不是重复{% endif %}
+                        </span>
+                        {% if check.reviewer_name %}<small class="muted-line">{{ check.reviewer_name }}</small>{% endif %}
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
       {% endif %}
-    </div>
-  </section>
-  {% if duplicate_checks and normalized_role() in ["admin", "manager"] %}
-    <section class="panel">
-      <div class="panel-title">
-        <h2>重复附件检查</h2>
-        <span class="status returned">{{ duplicate_checks|length }} 项疑点</span>
-      </div>
-      <p class="muted-line">系统根据文件内容、图片相似度、金额、日期、员工和费用项目筛查。结果仅供审核，需人工确认。</p>
-      <div class="table-scroll">
+      <section class="panel">
+        <h2>报销明细</h2>
         <table class="list-table">
-          <thead><tr><th>风险</th><th>当前附件</th><th>匹配记录</th><th>判断依据</th><th>智能复核</th><th>处理</th></tr></thead>
+          <thead><tr><th>员工报销项目</th><th>明细说明</th><th>金额</th><th>对应附件</th></tr></thead>
           <tbody>
-            {% for check in duplicate_checks %}
+            {% for item in items %}
               <tr>
-                <td><strong>{{ "高" if check.risk_level == "high" else "中" }} · {{ check.score }}</strong></td>
-                <td><a href="{{ url_for('preview_expense_attachment', attachment_id=check.attachment_id) }}" target="_blank">{{ check.attachment_name }}</a></td>
                 <td>
-                  {% if check.expense_id == check.matched_expense_id %}
-                    <span>本报销单内的另一附件</span><br>
-                  {% else %}
-                  <a href="{{ url_for('expense_detail', expense_id=check.matched_expense_id) }}">{{ check.matched_expense_number }}</a><br>
-                  {% endif %}
-                  <a class="muted-line" href="{{ url_for('preview_expense_attachment', attachment_id=check.matched_attachment_id) }}" target="_blank">{{ check.matched_attachment_name }}</a>
-                </td>
-                <td>{{ check.reasons }}</td>
-                <td>
-                  {% if check.deepseek_analysis %}{{ check.deepseek_analysis }}
-                  {% elif check.deepseek_error %}<span class="muted-line">智能复核未完成：{{ check.deepseek_error }}</span>
-                  {% else %}<span class="muted-line">确定性规则已足够，或智能助手未启用。</span>{% endif %}
-                </td>
-                <td>
-                  {% if check.review_status == "pending" %}
-                    <div class="row-actions">
-                      <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="confirmed"><button class="danger small" type="submit">确认重复</button></form>
-                      <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="not_duplicate"><button class="small" type="submit">不是重复</button></form>
-                      <form method="post" action="{{ url_for('review_expense_duplicate_check', check_id=check.id) }}"><input type="hidden" name="review_status" value="legal_split"><button class="small" type="submit">合法分摊</button></form>
-                    </div>
-                  {% else %}
-                    <span class="status approved">
-                      {% if check.review_status == "confirmed" %}确认重复{% elif check.review_status == "legal_split" %}合法分摊{% else %}不是重复{% endif %}
-                    </span>
-                    {% if check.reviewer_name %}<small class="muted-line">{{ check.reviewer_name }}</small>{% endif %}
+                  {{ item.project }}
+                  {% if item.fuel_vehicle_type == "rental" %}
+                    <small class="muted-line">租赁车辆 · 审核通过后计入工单结算</small>
+                  {% elif item.fuel_vehicle_type == "personal" %}
+                    <small class="muted-line">个人／自有车辆 · 仅员工报销</small>
                   {% endif %}
                 </td>
+                <td>{{ item.description or "-" }}</td>
+                <td data-grid-currency="{{ expense.currency }}">{{ item.amount|money(expense.currency) }}</td>
+                <td class="expense-line-attachments-cell">{{ attachment_list(attachments_by_item.get(item.line_key, [])) }}</td>
               </tr>
+            {% else %}
+              <tr><td colspan="4" class="empty">没有报销明细。</td></tr>
             {% endfor %}
           </tbody>
+          <tfoot><tr class="report-total"><td colspan="2">合计</td><td data-grid-currency="{{ expense.currency }}">{{ expense.amount|money(expense.currency) }}</td><td></td></tr></tfoot>
         </table>
-      </div>
+      </section>
+      {% if unassigned_attachments %}
+      <section class="panel">
+        <div class="flash error">
+          有 <strong>{{ unassigned_attachments|length }}</strong> 个附件未挂到明细行（历史数据）：
+          {% for attachment in unassigned_attachments %}{{ attachment.original_filename }}{% if not loop.last %}、{% endif %}{% endfor %}。
+          请等待数据迁移完成，或联系管理员处理。
+        </div>
+      </section>
+      {% endif %}
     </section>
-  {% endif %}
-  <section class="panel">
-    <h2>报销明细</h2>
-    <table class="list-table">
-      <thead><tr><th>员工报销项目</th><th>明细说明</th><th>金额</th><th>对应附件</th></tr></thead>
-      <tbody>
-        {% for item in items %}
-          <tr>
-            <td>
-              {{ item.project }}
-              {% if item.fuel_vehicle_type == "rental" %}
-                <small class="muted-line">租赁车辆 · 审核通过后计入工单结算</small>
-              {% elif item.fuel_vehicle_type == "personal" %}
-                <small class="muted-line">个人／自有车辆 · 仅员工报销</small>
-              {% endif %}
-            </td>
-            <td>{{ item.description or "-" }}</td>
-            <td data-grid-currency="{{ expense.currency }}">{{ item.amount|money(expense.currency) }}</td>
-            <td class="expense-line-attachments-cell">{{ attachment_list(attachments_by_item.get(item.line_key, [])) }}</td>
-          </tr>
-        {% else %}
-          <tr><td colspan="4" class="empty">没有报销明细。</td></tr>
-        {% endfor %}
-      </tbody>
-      <tfoot><tr class="report-total"><td colspan="2">合计</td><td data-grid-currency="{{ expense.currency }}">{{ expense.amount|money(expense.currency) }}</td><td></td></tr></tfoot>
-    </table>
-  </section>
-  {% if unassigned_attachments %}
-  <section class="panel">
-    <div class="flash error">
-      有 <strong>{{ unassigned_attachments|length }}</strong> 个附件未挂到明细行（历史数据）：
-      {% for attachment in unassigned_attachments %}{{ attachment.original_filename }}{% if not loop.last %}、{% endif %}{% endfor %}。
-      请等待数据迁移完成，或联系管理员处理。
-    </div>
-  </section>
-  {% endif %}
+  </div>
 
-  <dialog id="interpretationDialog" class="modal-dialog">
-    <div class="dialog-header">
-      <h2>附件智能解读</h2>
-      <button class="small" type="button" id="closeInterpretationDialog">关闭</button>
-    </div>
-    <p class="muted-line" id="interpretationMeta"></p>
-    <div id="interpretationContent" style="white-space:pre-wrap; line-height:1.6; max-height:60vh; overflow:auto;"></div>
-  </dialog>
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('报销总额', expense.amount|money(expense.currency), 'muted') }}
+    {{ summary_item('明细条数', items|length, 'muted') }}
+    {{ summary_item('流程状态', labels[expense.status], 'muted') }}
+    {{ summary_item('发放状态', expense_payout_labels[expense.payout_status], 'warn' if expense.payout_status != 'reimbursed' else 'pos') }}
+    {% if duplicate_checks and normalized_role() in ["admin", "manager"] %}
+      {{ summary_item('重复疑点', duplicate_checks|length, 'warn') }}
+    {% endif %}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>单号 <b>{{ expense.expense_number }}</b></span>
+    <span class="sep"></span>
+    <span>费用日期 <b>{{ expense.expense_date }}</b></span>
+    <span class="sep"></span>
+    <span>报销归属 <b>{{ beneficiary.name if beneficiary else "-" }}</b></span>
+    <span class="sep"></span>
+    <span>审核人 <b>{{ reviewer.name if reviewer else "-" }}</b></span>
+  </footer>
+</div>
+
+<dialog id="interpretationDialog" class="modal-dialog">
+  <div class="dialog-header">
+    <h2>附件智能解读</h2>
+    <button class="small" type="button" id="closeInterpretationDialog">关闭</button>
+  </div>
+  <p class="muted-line" id="interpretationMeta"></p>
+  <div id="interpretationContent" style="white-space:pre-wrap; line-height:1.6; max-height:60vh; overflow:auto;"></div>
+</dialog>
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
   <script>
     (() => {
       const runButton = document.getElementById("runAiReviewBtn");
