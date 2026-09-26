@@ -1,0 +1,45 @@
+{# ==========================================================================
+   员工等级「员工分配」面板的可复用片段。
+   同一份 HTML 有两个消费方：
+     1) 整页渲染     templates/employee_grades.html
+     2) 局部刷新片段 app.py: employee_grade_member_fragments（「加入/移出该等级」的 XHR 回包）
+   所以必须抽成宏。两处各写一遍的话，迟早会出现「局部刷新回传的行和服务端渲染的行
+   长得不一样」——这类不一致只有用户点下去才会暴露。
+   ========================================================================== #}
+
+{# 该等级下的员工行；没有员工时给一行空态提示（占满 6 列）。
+   移出按钮的确认文案走 data-member-confirm（原来是 inline onsubmit）：XHR 化之后
+   提交由脚本拦截，inline handler 会被 preventDefault 掉，确认框也就弹不出来了。 #}
+{% macro member_rows(panel, can_edit) -%}
+{% for employee in panel.employees %}
+  <tr data-row-id="{{ employee.id }}" data-row-label="{{ employee.name }} · {{ employee.email }}">
+    <td>{{ employee.name }}</td>
+    <td>{{ employee.role|role_label }}</td>
+    <td>{{ employee.email }}</td>
+    <td>{{ employee.phone or '-' }}</td>
+    <td><span class="status {{ 'completed' if employee.is_active else 'returned' }}">{{ '在职' if employee.is_active else '停用' }}</span></td>
+    <td>
+      {% if can_edit %}
+        <form method="post" class="member-remove-form" data-member-form
+              data-member-confirm="确定把该员工移出「{{ panel.grade.grade_name }}」吗？移出后不再按本等级费率计算工资。"
+              action="{{ url_for('update_employee_grade_members', grade_id=panel.grade.id) }}">
+          <input type="hidden" name="action" value="remove">
+          <input type="hidden" name="user_id" value="{{ employee.id }}">
+          <button class="erp-btn" type="submit">移出该等级</button>
+        </form>
+      {% else %}-{% endif %}
+    </td>
+  </tr>
+{% else %}
+  <tr><td colspan="6" class="empty">该等级下还没有员工。{% if can_edit %}用上面的下拉框把员工加进来。{% endif %}</td></tr>
+{% endfor %}
+{%- endmacro %}
+
+{# 「加入该等级」下拉的候选。占位项一起渲染：前端是整体替换 innerHTML 的，
+   占位项留在这里，脚本就不必知道它的文案（也就不会漏掉 i18n 之外的硬编码）。 #}
+{% macro candidate_options(panel) -%}
+<option value="">请选择员工…</option>
+{% for candidate in panel.candidates %}
+  <option value="{{ candidate.id }}">{{ candidate.name }}（{{ candidate.role|role_label }} · {{ candidate.current_grade_name or '未分配等级' }}）</option>
+{% endfor %}
+{%- endmacro %}

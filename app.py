@@ -10460,47 +10460,120 @@ def delete_employee_grade(grade_id):
     return redirect(url_for("employee_grades"))
 
 
+def is_member_ajax_request():
+    """「员工分配」的这次提交是否要求局部刷新。
+
+    只有带 X-Requested-With 的 XHR 才拿片段；普通表单提交（既有测试、不支持 fetch
+    的环境）仍旧 302 跳转 —— 保留这条路径，页面功能不依赖前端脚本。
+    """
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+def employee_grade_member_fragments(grade_ids, message="", category="success"):
+    """「加入/移出该等级」局部刷新的回包：受影响等级的成员行 / 候选下拉 / 各计数点。
+
+    回「受影响的两个等级」而不是只回目标等级：页面里所有等级同处一页，把员工从
+    等级 A 改挂到等级 B 会同时改变 A 的成员表与候选下拉；只刷 B 的话，用户切回 A
+    会看到「表格里还挂着他、下拉里又能把他加进来」的旧数据。
+
+    只回片段、不回整页 HTML：整页替换会把 Tabulator 的镜像 shell 一起换掉
+    （镜像与源表是兄弟节点），重建网格要丢列宽 / 排序 / 表内搜索词 —— 那是
+    「整页白一下」之外另一笔不该付的代价。
+    """
+    grades = {int(grade["id"]): grade for grade in employee_grade_options(include_inactive=True)}
+    can_edit = has_action_permission("employee_grades", "edit")
+    panels = []
+    seen = set()
+    for raw_id in grade_ids:
+        try:
+            member_grade_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if member_grade_id in seen:
+            continue
+        seen.add(member_grade_id)
+        grade = grades.get(member_grade_id)
+        if grade is None:
+            continue
+        panel = employee_grade_panel(grade)
+        panels.append({
+            "id": member_grade_id,
+            "total": panel["total"],
+            "active": panel["active"],
+            "headcount": f"{panel['total']} 名（在职 {panel['active']}）",
+            "headline": f"{panel['total']} 名员工（在职 {panel['active']}）",
+            "nav_title": f"{grade['grade_name']}{'' if grade['is_active'] else '（已停用）'} · {panel['total']} 名员工",
+            "rows_html": render_template(
+                "employee_grade_member_frag.html", part="rows", panel=panel, can_edit=can_edit
+            ),
+            "options_html": render_template(
+                "employee_grade_member_frag.html", part="options", panel=panel
+            ),
+        })
+    unassigned = int(db().execute(
+        "select count(*) as total from users where employee_grade_id is null"
+    ).fetchone()["total"] or 0)
+    return jsonify({
+        "ok": True,
+        "message": message,
+        "category": category,
+        "panels": panels,
+        "unassigned": unassigned,
+        "unassigned_text": f"{unassigned} 名员工未分配等级",
+    })
+
+
 @app.post("/employee-grades/<int:grade_id>/members")
 @login_required
 def update_employee_grade_members(grade_id):
-    """调整「该等级下的员工分配」：加入 / 移出。只改 users.employee_grade_id，不触碰其它资料。"""
+    """调整「该等级下的员工分配」：加入 / 移出。只改 users.employee_grade_id，不触碰其它资料。
+
+    两个出口：XHR 提交只回局部刷新片段（页面不重载，见 employee_grade_member_fragments），
+    普通提交仍是 flash + 302 回该等级 —— 后者是既有契约（Location 要带 grade_id）。
+    """
     if not has_action_permission("employee_grades", "edit"):
         abort(403)
     grade = db().execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
     if not grade:
         abort(404)
+
+    def finish(ok, message, affected=()):
+        if is_member_ajax_request():
+            if not ok:
+                return jsonify({"ok": False, "message": message, "category": "error"})
+            return employee_grade_member_fragments(affected, message=message, category="success")
+        flash(message, "success" if ok else "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+
     action = request.form.get("action", "add")
     raw_user_id = (request.form.get("user_id") or "").strip()
     if not raw_user_id.isdigit():
-        flash("请先选择一名员工。", "error")
-        return redirect(url_for("employee_grades", grade_id=grade_id))
+        return finish(False, "请先选择一名员工。")
     user_id = int(raw_user_id)
     user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
     if not user:
-        flash("员工不存在。", "error")
-        return redirect(url_for("employee_grades", grade_id=grade_id))
+        return finish(False, "员工不存在。")
     if action == "remove":
         if user["employee_grade_id"] != grade_id:
-            flash(f"{user['name']} 当前不属于「{grade['grade_name']}」，无需移出。", "error")
-            return redirect(url_for("employee_grades", grade_id=grade_id))
+            return finish(False, f"{user['name']} 当前不属于「{grade['grade_name']}」，无需移出。")
         db().execute("update users set employee_grade_id = null where id = ?", (user_id,))
         log_action("update", "employee_grade", grade_id, grade["grade_name"], f"将 {user['name']} 移出该等级")
         db().commit()
-        flash(f"已将 {user['name']} 移出「{grade['grade_name']}」。", "success")
-        return redirect(url_for("employee_grades", grade_id=grade_id))
+        return finish(True, f"已将 {user['name']} 移出「{grade['grade_name']}」。", [grade_id])
 
     if user["employee_grade_id"] == grade_id:
-        flash(f"{user['name']} 已经在「{grade['grade_name']}」里。", "error")
-        return redirect(url_for("employee_grades", grade_id=grade_id))
+        return finish(False, f"{user['name']} 已经在「{grade['grade_name']}」里。")
+    previous_grade_id = user["employee_grade_id"]
     previous = db().execute(
-        "select grade_name from employee_grades where id = ?", (user["employee_grade_id"],)
-    ).fetchone() if user["employee_grade_id"] else None
+        "select grade_name from employee_grades where id = ?", (previous_grade_id,)
+    ).fetchone() if previous_grade_id else None
     db().execute("update users set employee_grade_id = ? where id = ?", (grade_id, user_id))
     detail = f"将 {user['name']} 从「{previous['grade_name']}」调整到该等级" if previous else f"将 {user['name']} 加入该等级"
     log_action("update", "employee_grade", grade_id, grade["grade_name"], detail)
     db().commit()
-    flash(f"已将 {user['name']} 加入「{grade['grade_name']}」。", "success")
-    return redirect(url_for("employee_grades", grade_id=grade_id))
+    # 改挂过来的员工同时改变了原等级的成员表与候选下拉，两个等级都要回片段
+    return finish(True, f"已将 {user['name']} 加入「{grade['grade_name']}」。",
+                  [grade_id, previous_grade_id])
 
 
 @app.route("/payroll/subsidies", methods=["GET", "POST"])

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "erp_ui.html" import tab_button %}
+{% from "employee_grade_member_parts.html" import member_rows, candidate_options %}
 {% block title %}员工等级 - 发票工具{% endblock %}
 
 {% block head %}
@@ -62,6 +63,8 @@
   }
   .erp-app .rate-version .rate-metrics { border: 0; }
   .erp-app .member-add-form .erp-field { min-width: 300px; }
+  /* 局部刷新期间禁掉重复点击（XHR 往返只有几十毫秒，但连点会发出第二次请求） */
+  .erp-app form[data-member-form][aria-busy="true"] { opacity: .55; pointer-events: none; }
 </style>
 {% endblock %}
 
@@ -98,7 +101,7 @@
         <li><p class="erp-nav-meta">还没有员工等级。</p></li>
       {% endfor %}
     </ul>
-    <p class="erp-nav-meta">{{ unassigned }} 名员工未分配等级</p>
+    <p class="erp-nav-meta" data-unassigned-meta>{{ unassigned }} 名员工未分配等级</p>
   </nav>
 
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
@@ -110,6 +113,7 @@
                data-grade-url="{{ url_for('employee_grades', grade_id=grade.id) }}"
                data-grade-name="{{ grade.grade_name }}"
                data-grade-headcount="{{ panel.total }} 名（在职 {{ panel.active }}）"
+               data-grade-headline="{{ panel.total }} 名员工（在职 {{ panel.active }}）"
                data-grade-active="{{ panel.active }}"
                data-grade-versions="{{ panel.versions|length }}"
                data-grade-source="{{ ('版本 v' ~ panel.current_version.version_no) if panel.current_version else '静态费率' }}">
@@ -117,7 +121,7 @@
         <div class="grade-head no-print">
           <div class="erp-toolbar-title">
             {{ grade.grade_name }}
-            <small>{{ grade.description or '无描述' }} · {{ panel.total }} 名员工（在职 {{ panel.active }}）· {{ '启用中' if grade.is_active else '已停用' }}</small>
+            <small>{{ grade.description or '无描述' }} · <span data-grade-headline>{{ panel.total }} 名员工（在职 {{ panel.active }}）</span> · {{ '启用中' if grade.is_active else '已停用' }}</small>
           </div>
           <span class="erp-toolbar-spacer"></span>
           <div class="erp-toolbar-group">
@@ -146,15 +150,12 @@
         <!-- ── 面板 1：该等级下的员工（可增可减） ── -->
         <section class="erp-panel active" data-erp-panel="employees">
           {% if can_edit %}
-            <form class="erp-filter member-add-form no-print" method="post"
+            <form class="erp-filter member-add-form no-print" method="post" data-member-form
                   action="{{ url_for('update_employee_grade_members', grade_id=grade.id) }}">
               <input type="hidden" name="action" value="add">
               <label class="erp-field">加入员工
                 <select name="user_id" required>
-                  <option value="">请选择员工…</option>
-                  {% for candidate in panel.candidates %}
-                    <option value="{{ candidate.id }}">{{ candidate.name }}（{{ candidate.role|role_label }} · {{ candidate.current_grade_name or '未分配等级' }}）</option>
-                  {% endfor %}
+                  {{ candidate_options(panel) }}
                 </select>
               </label>
               <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">加入该等级</button></div>
@@ -164,29 +165,7 @@
           <div class="erp-grid-wrap">
             <table class="list-table erp-grid" data-grid-height="100%">
               <thead><tr><th>姓名</th><th>角色</th><th>邮箱</th><th>手机号</th><th>状态</th><th>操作</th></tr></thead>
-              <tbody>
-                {% for employee in panel.employees %}
-                  <tr data-row-id="{{ employee.id }}" data-row-label="{{ employee.name }} · {{ employee.email }}">
-                    <td>{{ employee.name }}</td>
-                    <td>{{ employee.role|role_label }}</td>
-                    <td>{{ employee.email }}</td>
-                    <td>{{ employee.phone or '-' }}</td>
-                    <td><span class="status {{ 'completed' if employee.is_active else 'returned' }}">{{ '在职' if employee.is_active else '停用' }}</span></td>
-                    <td>
-                      {% if can_edit %}
-                        <form method="post" action="{{ url_for('update_employee_grade_members', grade_id=grade.id) }}"
-                              onsubmit="return uiConfirm('确定把该员工移出「{{ grade.grade_name }}」吗？移出后不再按本等级费率计算工资。')">
-                          <input type="hidden" name="action" value="remove">
-                          <input type="hidden" name="user_id" value="{{ employee.id }}">
-                          <button class="erp-btn" type="submit">移出该等级</button>
-                        </form>
-                      {% else %}-{% endif %}
-                    </td>
-                  </tr>
-                {% else %}
-                  <tr><td colspan="6" class="empty">该等级下还没有员工。{% if can_edit %}用上面的下拉框把员工加进来。{% endif %}</td></tr>
-                {% endfor %}
-              </tbody>
+              <tbody>{{ member_rows(panel, can_edit) }}</tbody>
             </table>
           </div>
         </section>
@@ -307,7 +286,7 @@
       <div class="erp-summary-item"><span>该等级员工</span><strong data-grade-field="headcount">{{ selected.total }} 名（在职 {{ selected.active }}）</strong></div>
       <div class="erp-summary-item muted"><span>费率版本</span><strong data-grade-field="versions">{{ selected.versions|length }}</strong></div>
       <div class="erp-summary-item muted"><span>生效费率来源</span><strong data-grade-field="source">{{ ('版本 v' ~ selected.current_version.version_no) if selected.current_version else '静态费率' }}</strong></div>
-      <div class="erp-summary-item muted"><span>未分配等级</span><strong>{{ unassigned }}</strong></div>
+      <div class="erp-summary-item muted"><span>未分配等级</span><strong data-unassigned-count>{{ unassigned }}</strong></div>
     </footer>
 
     <footer class="erp-status">
@@ -408,6 +387,115 @@
       const initial = panels.find(item => item.classList.contains('active')) || panels[0];
       syncBars(initial);
       redraw(initial);
+
+      /* ───────────────── 员工分配：只刷表格，不整页 reload ───────────────── */
+      // 「加入该等级 / 移出该等级」原先是表单 POST + 302 跳转：整个页面（工作区 iframe）
+      // 白一下重画，和这次操作无关的东西也跟着重画。现在走 XHR，服务端只回「受影响等级」的
+      // 成员行 / 候选下拉 / 各计数点，这里按 data-grade-panel 对位替换。
+      // 表格镜像不需要重建：system-grid.js 用 MutationObserver 盯着源表，
+      // tbody 一变就自己 replaceData（列宽/排序/表内搜索词都还在）。
+      function notify(message, category) {
+        if (!message) return;
+        let stack = document.querySelector('.flash-stack');
+        if (!stack) {
+          stack = document.createElement('div');
+          stack.className = 'flash-stack no-print';
+          document.body.appendChild(stack);
+        }
+        const node = document.createElement('div');
+        node.className = `flash ${category === 'error' ? 'error' : 'success'}`;
+        node.setAttribute('role', 'alert');
+        const text = document.createElement('span');
+        text.className = 'flash-message';
+        text.textContent = message;
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'flash-close';
+        close.setAttribute('aria-label', '关闭提示');
+        close.textContent = '×';
+        close.addEventListener('click', () => node.remove());
+        node.append(text, close);
+        stack.appendChild(node);
+        // 与整页刷新时的 flash 不同，这里没有导航会把它带走，自己退场
+        setTimeout(() => node.remove(), 6000);
+      }
+
+      function applyMemberFragments(payload) {
+        (payload.panels || []).forEach(item => {
+          const gradePanel = app.querySelector(`[data-grade-panel="${item.id}"]`);
+          if (!gradePanel) return;
+          const tbody = gradePanel.querySelector('[data-erp-panel="employees"] table tbody');
+          if (tbody) tbody.innerHTML = item.rows_html;
+          const select = gradePanel.querySelector('.member-add-form select[name="user_id"]');
+          if (select) {
+            select.innerHTML = item.options_html;   // 片段自带占位项
+            select.value = '';
+          }
+          // 等级计数四处同源：面板 dataset（汇总栏/状态栏读它）、等级标题小字、页签、左侧树
+          gradePanel.dataset.gradeHeadcount = item.headcount;
+          gradePanel.dataset.gradeActive = String(item.active);
+          const headline = gradePanel.querySelector('[data-grade-headline]');
+          if (headline) headline.textContent = item.headline;
+          const tabCount = gradePanel.querySelector('[data-erp-tab="employees"] .count');
+          if (tabCount) tabCount.textContent = String(item.total);
+          const navButton = app.querySelector(`[data-grade-switch="${item.id}"]`);
+          if (navButton) {
+            const navCount = navButton.querySelector('.count');
+            if (navCount) navCount.textContent = String(item.total);
+            if (item.nav_title) navButton.title = item.nav_title;
+          }
+        });
+        const meta = app.querySelector('[data-unassigned-meta]');
+        if (meta && payload.unassigned_text) meta.textContent = payload.unassigned_text;
+        const unassigned = app.querySelector('[data-unassigned-count]');
+        if (unassigned && payload.unassigned !== undefined) unassigned.textContent = String(payload.unassigned);
+        // 汇总栏 / 状态栏读的是面板 dataset，dataset 改完要按「当前等级」重算一次
+        syncBars(app.querySelector('[data-grade-panel].active') || panels[0]);
+      }
+
+      async function submitMemberForm(form) {
+        if (form.getAttribute('aria-busy') === 'true') return;   // 连点防护
+        form.setAttribute('aria-busy', 'true');
+        // 端点必须用 getAttribute('action') 读：表单里有 <input name="action" value="add">，
+        // 表单控件的命名访问会**遮蔽** HTMLFormElement.action，form.action 拿到的是那个
+        // <input> 元素 —— fetch 会把它当相对 URL（请求 /[object HTMLInputElement]），
+        // 必然 404 → 落进下面的兜底 form.submit()，症状就是「点了还是整页刷新」。
+        // 同类的坑还有 name="method"/"target"/"submit"，这里一并按属性读取。
+        const endpoint = form.getAttribute('action') || location.href;
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {'X-Requested-With': 'XMLHttpRequest'},
+            body: new FormData(form),
+            credentials: 'same-origin',
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = await response.json();
+          if (!payload.ok) { notify(payload.message, 'error'); return; }
+          applyMemberFragments(payload);
+          notify(payload.message, payload.category);
+        } catch (error) {
+          // 兜底：退回原生提交（整页刷新）。策略与 erp-report.js 的「局部刷新失败就整页
+          // reload」一致 —— 局部刷新再怎么出问题，也不能让功能本身变慢或变没。
+          // 走原型方法而不是 form.submit()：后者同样会被 name="submit" 的控件遮蔽。
+          console.warn('员工分配局部刷新失败，退回整页提交', error);
+          form.removeAttribute('aria-busy');
+          HTMLFormElement.prototype.submit.call(form);
+          return;
+        }
+        form.removeAttribute('aria-busy');
+      }
+
+      // 委托到 .erp-app：表格镜像里点的「移出该等级」按钮，真正提交的是隐藏源表里的那个
+      // form（镜像只做转发），所以监听必须挂在共同的祖先上，不能逐个 form 绑。
+      app.addEventListener('submit', event => {
+        const form = event.target.closest('form[data-member-form]');
+        if (!form) return;
+        event.preventDefault();   // 必须同步拦下：后面要 await，晚了表单已经提交走了
+        const confirmText = form.dataset.memberConfirm;
+        if (confirmText && !(window.uiConfirm ? window.uiConfirm(confirmText) : window.confirm(confirmText))) return;
+        submitMemberForm(form);
+      });
 
       document.querySelectorAll('form[data-confirm-state]').forEach(form => {
         form.addEventListener('submit', event => {

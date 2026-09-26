@@ -1,0 +1,9 @@
+{# ==========================================================================
+   「加入/移出该等级」的局部刷新片段（app.py: employee_grade_member_fragments）。
+   只渲染「会被替换的那一小块」，不含外壳、不含工具栏与网格镜像 ——
+   前端按 data-grade-panel 对位塞回去，页面不重载。
+     part="rows"    → 成员表 tbody 里的行
+     part="options" → 「加入该等级」下拉的候选 option 列表
+   ========================================================================== #}
+{% from "employee_grade_member_parts.html" import member_rows, candidate_options %}
+{%- if part == 'rows' %}{{ member_rows(panel, can_edit) }}{% else %}{{ candidate_options(panel) }}{% endif -%}

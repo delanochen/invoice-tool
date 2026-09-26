@@ -9,6 +9,7 @@
   「按当前费率建版本」把当前生效费率原样固化成一条版本。
 """
 import importlib.util
+import re
 import shutil
 import tempfile
 import unittest
@@ -219,8 +220,11 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
             db.commit()
         page = self.page(self.grade_id)
         self.assertIn('class="erp-app"', page)
-        self.assertEqual(page.count('data-grade-switch='), 2)
-        self.assertEqual(page.count('data-grade-panel='), 2)
+        # 数元素、不数全文：页内脚本里也有 [data-grade-switch="…"] / [data-grade-panel="…"]
+        # 这类选择器字面量，直接 count 会把脚本算进来（脚本里多写一个选择器就假失败）。
+        markup = re.sub(r'<script\b.*?</script>', '', page, flags=re.S)
+        self.assertEqual(markup.count('data-grade-switch='), 2)
+        self.assertEqual(markup.count('data-grade-panel='), 2)
         self.assertIn('data-grade-url="/employee-grades?grade_id=', page)
         # 没有任何指向本页的 <a href>，否则每次点等级都会新开一个标签
         self.assertNotIn('href="/employee-grades?grade_id=', page)
@@ -306,6 +310,136 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
             data={'action': 'add', 'user_id': str(self.fixture.people['Unrelated'])},
         )
         self.assertEqual(response.status_code, 403)
+
+    # --------------------------------- 员工分配：局部刷新（不整页跳转 / 不整页白一下）
+    def test_member_add_ajax_returns_only_fragments(self):
+        """「加入该等级」的 XHR 提交只回片段：成员行 / 候选下拉 / 计数，不带外壳。
+
+        整页 302 会让工作区 iframe 白一下重画，用户看到的就是「整个页面都刷新」。
+        所以页面上的加入/移出改走 XHR；普通表单提交仍必须是 302（上一条用例钉着）。
+        """
+        unused = self.fixture.people['Unrelated']
+        response = self.http.post(
+            f'/employee-grades/{self.grade_id}/members',
+            data={'action': 'add', 'user_id': str(unused)},
+            headers={'X-Requested-With': 'XMLHttpRequest'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['ok'])
+        self.assertIn('已将 Unrelated 加入', payload['message'])
+        self.assertEqual([panel['id'] for panel in payload['panels']], [self.grade_id])
+        panel = payload['panels'][0]
+        self.assertEqual(panel['total'], 1)
+        self.assertEqual(panel['headcount'], '1 名（在职 1）')
+        self.assertEqual(panel['headline'], '1 名员工（在职 1）')
+        # 只回「被替换的那一小块」：带 <table>/外壳就变成变相整页替换，网格会被重建
+        self.assertNotIn('<table', panel['rows_html'])
+        self.assertNotIn('erp-toolbar', panel['rows_html'])
+        self.assertNotIn('<script', panel['rows_html'])
+        # 新成员进了成员表，且从候选里消失 —— 否则下拉里还能再把同一个人选一次
+        self.assertIn('<td>Unrelated</td>', panel['rows_html'])
+        self.assertNotIn(f'value="{unused}"', panel['options_html'])
+        self.assertIn('<option value="">请选择员工…</option>', panel['options_html'])
+        # 未分配数：加入后少一个，前端状态栏/左侧树直接用它
+        self.assertEqual(payload['unassigned'], self.query(
+            'select count(*) as total from users where employee_grade_id is null')[0]['total'])
+        self.assertIn('名员工未分配等级', payload['unassigned_text'])
+        # XHR 不写 flash：写了会积在 session 里，直到下一次整页刷新才莫名其妙冒出来
+        self.assertNotIn('已将 Unrelated 加入', self.page(self.grade_id))
+
+    def test_member_transfer_returns_fragments_for_both_grades(self):
+        """把员工从等级 A 改挂到等级 B：A 与 B 的片段都要回。
+
+        页面里所有等级同处一页，只刷目标等级的话，用户切回 A 会看到
+        「成员表里还挂着他、候选下拉里又能把他加进来」的旧数据。
+        """
+        submitter = self.fixture.people['Submitter']
+        self.assign_grade(submitter)
+        with self.m.app.app_context():
+            db = self.m.db()
+            second = db.execute(
+                """insert into employee_grades (grade_name, description, is_active, created_at)
+                   values ('P2','二档',1,?)""", (self.m.now(),)).lastrowid
+            db.commit()
+
+        payload = self.http.post(
+            f'/employee-grades/{second}/members',
+            data={'action': 'add', 'user_id': str(submitter)},
+            headers={'X-Requested-With': 'XMLHttpRequest'},
+        ).get_json()
+        panels = {panel['id']: panel for panel in payload['panels']}
+        self.assertEqual(set(panels), {self.grade_id, second})
+        # 新等级：人进了成员表、候选里没有他
+        self.assertIn('<td>Submitter</td>', panels[second]['rows_html'])
+        self.assertNotIn(f'value="{submitter}"', panels[second]['options_html'])
+        # 原等级：人出了成员表（回退到空态行）、候选里能把他加回来
+        self.assertNotIn('<td>Submitter</td>', panels[self.grade_id]['rows_html'])
+        self.assertIn('该等级下还没有员工', panels[self.grade_id]['rows_html'])
+        self.assertIn(f'value="{submitter}"', panels[self.grade_id]['options_html'])
+        self.assertEqual(panels[self.grade_id]['total'], 0)
+        self.assertEqual(panels[second]['total'], 1)
+
+    def test_member_remove_ajax_returns_fragments(self):
+        """「移出该等级」同样只回片段（这一条同时钉住移除路径的文案与空态）。"""
+        submitter = self.fixture.people['Submitter']
+        self.assign_grade(submitter)
+        payload = self.http.post(
+            f'/employee-grades/{self.grade_id}/members',
+            data={'action': 'remove', 'user_id': str(submitter)},
+            headers={'X-Requested-With': 'XMLHttpRequest'},
+        ).get_json()
+        self.assertTrue(payload['ok'])
+        self.assertIn('已将 Submitter 移出', payload['message'])
+        panel = payload['panels'][0]
+        self.assertEqual(panel['total'], 0)
+        self.assertIn('该等级下还没有员工', panel['rows_html'])
+        self.assertIn(f'value="{submitter}"', panel['options_html'])
+        self.assertIsNone(self.query(
+            'select employee_grade_id from users where id = ?', (submitter,))[0]['employee_grade_id'])
+
+    def test_member_ajax_error_only_returns_message(self):
+        """XHR 出错只回消息、不回片段：库里什么都没变，前端没理由去改 DOM。"""
+        for data, expected in (
+            ({'action': 'add', 'user_id': 'not-a-number'}, '请先选择一名员工'),
+            ({'action': 'remove', 'user_id': str(self.fixture.people['Submitter'])}, '当前不属于'),  # 移出非本等级员工
+        ):
+            with self.subTest(expected=expected):
+                response = self.http.post(
+                    f'/employee-grades/{self.grade_id}/members', data=data,
+                    headers={'X-Requested-With': 'XMLHttpRequest'},
+                )
+                self.assertEqual(response.status_code, 200)
+                payload = response.get_json()
+                self.assertFalse(payload['ok'])
+                self.assertIn(expected, payload['message'])
+                self.assertNotIn('panels', payload)
+                self.assertNotIn('已将', self.page(self.grade_id))   # 出错不写 flash
+
+    def test_member_ajax_endpoint_is_read_from_attribute(self):
+        """XHR 端点必须用 getAttribute('action') 读，**不能**用 form.action。
+
+        表单里有 <input name="action" value="add">（还有 name="user_id"），表单控件的命名
+        访问会遮蔽 HTMLFormElement.action —— form.action 拿到的是那个 <input> 元素，
+        fetch 会把它当相对 URL（实际请求 /[object HTMLInputElement]），必然失败并落进
+        「退回整页提交」的兜底分支，症状与改造前一模一样：点一下整个页面刷新。
+        兜底提交同理不能用 form.submit()（会被 name="submit" 的控件遮蔽）。
+        """
+        page = self.page(self.grade_id)
+        self.assertIn('name="action"', page)              # 遮蔽的来源就在页面上
+        # 断言只作用于「员工分配局部刷新」那一段脚本：整页里 base.html 的语言切换器本来就有
+        # onchange="this.form.submit()"，对整份 HTML 做字符串否定会被这段无关代码误伤
+        # （踩过：断言报 form.submit() unexpectedly found，实际找到的是语言切换器）。
+        blocks = [body for body in re.findall(r'<script\b[^>]*>(.*?)</script>', page, flags=re.S)
+                  if 'submitMemberForm' in body]
+        self.assertEqual(len(blocks), 1, '应当恰好有一段负责员工分配局部刷新的脚本')
+        # 剥掉行首 // 注释再断言：注释里就是拿这两个写法当反面教材的（本仓约定注释即契约）。
+        code = '\n'.join(line for line in blocks[0].splitlines()
+                         if not line.lstrip().startswith('//'))
+        self.assertIn("form.getAttribute('action')", code)
+        self.assertIn('HTMLFormElement.prototype.submit.call(form)', code)
+        self.assertNotIn('fetch(form.action', code)
+        self.assertNotIn('form.submit()', code)
 
     # -------------------------------------- 费率展示：版本优先 + 静态回退都要显示
     def test_rates_block_shows_static_fallback_then_version_rates(self):
