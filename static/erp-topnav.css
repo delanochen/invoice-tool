@@ -66,6 +66,10 @@
   user-select: none;
 }
 #topnav .nav-group > summary::-webkit-details-marker { display: none; }
+#topnav .nav-group > summary svg { flex: 0 0 auto; opacity: .72; transition: opacity .12s ease, color .12s ease; }
+#topnav .nav-group > summary:hover svg,
+#topnav .nav-group.active > summary svg,
+#topnav .nav-group[open] > summary svg { opacity: 1; }
 #topnav .nav-group > summary::after {
   content: '';
   width: 8px;
@@ -92,12 +96,12 @@
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 222px;
+  min-width: 224px;
   background: #fff;
   border: 1px solid #d5dde6;
-  border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(20, 40, 70, .14);
-  padding: 6px;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(20, 40, 70, .13);
+  padding: 5px;
   display: none;
   z-index: 120;
 }
@@ -105,9 +109,9 @@
 #topnav .nav-submenu a {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 9px;
-  border-radius: 6px;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 5px;
   font-size: 12.5px;
   color: #3d4c5c;
   text-decoration: none;

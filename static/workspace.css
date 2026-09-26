@@ -9,12 +9,13 @@
 .workspace-tab { position: relative; display: flex; align-items: center; flex-shrink: 0; height: 28px; border: 0; border-radius: 0; color: #667085; }
 .workspace-tab::after { content: ''; position: absolute; right: 0; top: 7px; bottom: 7px; width: 1px; background: #dce2e7; }
 .workspace-tab:hover { background: #e8eef1; }
-.workspace-tab.active { color: var(--accent-strong); background: #fff; box-shadow: inset 0 -2px var(--accent); }
+.workspace-tab.active { color: var(--accent-strong); background: #fff; border-top: 2px solid var(--accent); box-shadow: inset 0 -2px var(--accent); height: 26px; }
 .workspace-tab.active::after { display: none; }
 .workspace-tab button { min-height: 0; border: 0; border-radius: 0; background: transparent; white-space: nowrap; font-size: 12px; font-weight: 400; color: inherit; }
 .workspace-tab [role=tab] { height: 28px; line-height: 28px; padding: 0 5px 0 8px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; display: block; text-align: left; }
-.workspace-tab.active [role=tab] { font-weight: 600; }
-.workspace-tab .workspace-close { width: 17px; height: 19px; margin-right: 3px; padding: 0; border-radius: 3px; font-size: 14px; line-height: 1; color: #8893a1; }
+.workspace-tab.active [role=tab] { font-weight: 600; height: 26px; line-height: 26px; }
+.workspace-tab .workspace-close { width: 17px; height: 19px; margin-right: 3px; padding: 0; border-radius: 3px; font-size: 14px; line-height: 1; color: #8893a1; opacity: 0; transition: opacity .12s ease, color .12s ease, background .12s ease; }
+.workspace-tab:hover .workspace-close, .workspace-tab.active .workspace-close, .workspace-tab:focus-within .workspace-close { opacity: 1; }
 .workspace-tab .workspace-close:hover { color: #344054; background: #dfe7ec; }
 .workspace-toolbar > button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; height: 22px; min-height: 0; padding: 0 6px; border: 0; background: transparent; border-radius: 4px; font-size: 11px; font-weight: 400; color: #667085; }
 .workspace-toolbar > button:hover { background: #e2e9ed; color: #344054; }
