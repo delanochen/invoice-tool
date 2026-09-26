@@ -119,6 +119,25 @@ class CustomerReimbursementMroTest(unittest.TestCase):
             self.assertEqual(rows[1], (1, 'Worker', '2026-08-12', 1, 2, 0, 0, 0, 70, 10, 0, 0, 0, 0, 0, 0, 0, 3, 87))
             response.close()
 
+    def test_settlement_form_page_renders_for_existing_settlement(self):
+        """工单结算表单页必须能正常渲染（回归：v0.1.310 状态栏引用了不存在的
+        reimbursement.reimbursement_number 字段，sqlite Row 取列失败直接 500，
+        「生成工单结算草稿」后跳回表单页时用户看到 500 报错页）。"""
+        with self.module.app.app_context():
+            self.module.db().execute(
+                "update service_orders set start_date = '2026-08-01' where id = ?", (self.order_id,)
+            )
+            self.module.db().commit()
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as session:
+                session['user_id'] = self.user_id
+            response = client.get(f'/service-orders/{self.order_id}/customer-reimbursement')
+            self.assertEqual(response.status_code, 200)
+            page = response.get_data(as_text=True)
+            # 状态栏的结算单标识用工单内序号 #<id>，不能引用不存在的列
+            self.assertIn(f'结算单 <b>#{self.reimbursement_id}</b>', page)
+            self.assertNotIn('reimbursement_number', page)
+
     def test_auto_expense_source_snapshot_matches_amount(self):
         import json
         with self.module.app.app_context():

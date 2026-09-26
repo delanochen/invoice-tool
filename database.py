@@ -68,6 +68,18 @@ def translate_sql(sql, bound=False):
     return restore(masked, escape_percent=bound)
 
 
+class MissingRowColumnError(KeyError, ValueError):
+    """按列名取值但行里没有这一列。
+
+    同时继承 KeyError 与 ValueError：
+    - KeyError（LookupError）让 Jinja 把模板里对缺失列的访问按 undefined 渲染，
+      与 SQLite 测试环境的 sqlite3.Row（缺列抛 IndexError）行为一致——
+      v0.1.310 的「生成工单结算草稿」500 就是模板引用了不存在的列，
+      SQLite 测试渲染成空串没被发现、PostgreSQL 生产直接 500。
+    - ValueError 保持旧的兼容面（历史上有代码按 ValueError 捕获）。
+    """
+
+
 class Row:
     def __init__(self, names, values):
         self._names = names
@@ -81,7 +93,11 @@ class Row:
     def __getitem__(self, key):
         if isinstance(key, (int,slice)): return self._values[key]
         # sqlite3.Row returns the first column when duplicate labels exist.
-        return self._values[self._names.index(key)]
+        try:
+            index = self._names.index(key)
+        except ValueError:
+            raise MissingRowColumnError(key) from None
+        return self._values[index]
     def __iter__(self): return iter(self._values)
     def __len__(self): return len(self._values)
 

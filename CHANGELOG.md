@@ -4,6 +4,20 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.312] - 2026-09-26
+
+### 修复
+- **「生成工单结算草稿」后打开工单结算页 500（生产故障）。**
+  - 根因：v0.1.308 ERP 化时状态栏写了 `reimbursement.reimbursement_number`，但
+    `customer_reimbursements` 表没有这一列；SQLite 测试环境（sqlite3.Row 缺列抛
+    IndexError，Jinja 按 undefined 渲染空串）测不出来，PostgreSQL 生产（自定义 Row
+    缺列抛 ValueError，Jinja 不捕获）直接 500。状态栏改用工单内序号 `#<id>`。
+  - 加固 `database.py`：自定义 Row 缺列改抛 `MissingRowColumnError(KeyError, ValueError)`
+    ——KeyError 让 Jinja 与 SQLite 测试一致按 undefined 渲染（模板错列不再 500），
+    ValueError 保持旧兼容面。新增契约测试 `test_row_missing_column_contract.py`。
+  - 新增回归测试：工单结算表单页对已存在的结算单必须 200 渲染（此前无任何测试
+    覆盖该页面）。
+
 ## [0.1.311] - 2026-09-26
 
 ### 修复
