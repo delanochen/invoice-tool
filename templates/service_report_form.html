@@ -1,4 +1,83 @@
 {% extends "base.html" %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+/* 工作日报表单页：ERP 化紧凑密度（仅本页生效） */
+.page-header {
+  padding: 5px 10px;
+  border-bottom: 1px solid #c2cad6;
+  background: linear-gradient(180deg, #f8fafc 0%, #e6ebf2 100%);
+  gap: 8px;
+}
+.page-header h1 { font-size: 14px; margin: 0; letter-spacing: .2px; }
+.page-header .eyebrow { font-size: 11px; color: #64748b; margin: 0; }
+.page-header .muted-line { font-size: 11px; color: #64748b; }
+.page-header .actions { gap: 4px; }
+.page-header .actions .button,
+.page-header .actions button {
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid #c2cad6;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ffffff 0%, #eef1f5 100%);
+  color: #1f2733;
+  font-size: 12px;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.page-header .actions .button:hover,
+.page-header .actions button:hover { background: linear-gradient(180deg, #f7faff 0%, #e2e9f3 100%); }
+.page-header .actions button:disabled { opacity: .55; cursor: default; }
+.page-header .actions .primary,
+.page-header .actions .erp-btn.primary { border-color: #2b5fd9; background: linear-gradient(180deg, #4a7cf0 0%, #2b5fd9 100%); color: #fff; }
+.service-report-form.panel { padding: 9px 12px; }
+.service-report-form .form-grid { gap: 5px 16px; }
+.service-report-form .form-grid label { font-size: 12px; color: #3c4759; gap: 3px; }
+.service-report-form .form-grid input,
+.service-report-form .form-grid select {
+  min-height: 24px;
+  height: 26px;
+  padding: 2px 5px;
+  border: 1px solid #a9b4c5;
+  border-radius: 2px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #1f2733;
+  background: #fff;
+}
+.service-report-form .time-select select { min-height: 24px; height: 26px; padding: 1px 4px; font-size: 12px; }
+.service-report-form .subsection { margin-top: 10px; padding-top: 7px; }
+.service-report-form .subsection h2 { font-size: 13px; margin: 0 0 5px; }
+.service-report-form .panel-title { margin-bottom: 4px; }
+.service-report-form .panel-title h2 { font-size: 13px; }
+.service-report-form .table-toolbar { gap: 6px; padding: 4px 0; }
+.service-report-form .table-toolbar button {
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid #c2cad6;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ffffff 0%, #eef1f5 100%);
+  font-size: 12px;
+  cursor: pointer;
+}
+.service-report-form .table-toolbar button:disabled { opacity: .55; cursor: default; }
+.service-report-form .list-table { font-size: 12px; }
+.service-report-form .list-table th,
+.service-report-form .list-table td { padding: 3px 6px; }
+.service-report-form .list-table input,
+.service-report-form .list-table select {
+  min-height: 22px;
+  height: 24px;
+  padding: 1px 4px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.service-report-form .form-field .field-label { font-size: 12px; }
+.service-report-form textarea { font-size: 12px; }
+.service-report-form .photo-source-actions .button { min-height: 24px; padding: 2px 9px; font-size: 12px; }
+</style>
+{% endblock %}
 {% block title %}工作日报 - 发票工具{% endblock %}
 {% block content %}
   <header class="page-header">
@@ -30,7 +109,7 @@
         </form>
       {% endif %}
       {% if can_edit_report %}<button type="button" id="assistFillBtn" title="按报告日期自动匹配照片、进出场时间、员工出发地与里程">辅助填写</button>{% endif %}
-      {% if can_edit_report %}<button class="primary" type="submit" form="serviceReportForm" id="saveServiceReport">保存</button>{% endif %}
+      {% if can_edit_report %}<button class="erp-btn primary" type="submit" form="serviceReportForm" id="saveServiceReport">保存</button>{% endif %}
     </div>
   </header>
   {% if source_report %}<p class="muted-line">已复制 {{ source_report.report_date }} 的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。</p>{% endif %}
