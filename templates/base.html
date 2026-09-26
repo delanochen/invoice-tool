@@ -67,7 +67,7 @@
         <nav id="topnav">
           {% set main_endpoints = ["field_work", "field_photo_query", "user_certificate_query", "dashboard", "contracts", "new_contract", "contract_detail", "edit_contract", "service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report", "service_order_calendar", "service_order_map", "expense_processing", "expense_detail", "new_expense", "edit_expense", "messages", "clients", "buyers", "users"] %}
           <details class="nav-group main-group {{ 'active' if active_endpoint in main_endpoints else '' }}" {% if active_endpoint in main_endpoints %}open{% endif %}>
-            <summary>主菜单</summary>
+            <summary><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>主菜单</summary>
             <div class="nav-submenu">
               {% if is_external_manager() %}
                 {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}{{ nav_link("clients", "客户信息") }}{% endif %}
@@ -120,7 +120,7 @@
           %}
           {% if show_reports_menu and not is_external_employee() %}
           <details class="nav-group {{ 'active' if active_endpoint in report_endpoints else '' }}" {% if active_endpoint in report_endpoints %}open{% endif %}>
-            <summary>报表</summary>
+            <summary><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7M3 20h18"/></svg>报表</summary>
             <div class="nav-submenu">
               {% if has_menu_permission("user_certificate_query") and has_action_permission("users", "view") %}
                 {{ nav_link("user_certificate_query", "员工证书查询") }}
@@ -160,7 +160,7 @@
           %}
           {% if show_payroll_reports or show_payroll_parameters %}
             <details class="nav-group {{ 'active' if active_endpoint in payroll_endpoints else '' }}" {% if active_endpoint in payroll_endpoints %}open{% endif %}>
-              <summary>薪酬管理</summary>
+              <summary><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 10h4.2a1.9 1.9 0 0 1 0 3.8H10.3a1.9 1.9 0 0 0 0 3.8h4.2"/></svg>薪酬管理</summary>
               <div class="nav-submenu">
                 {% if show_payroll_reports %}
                   {% if has_menu_permission("labor_hours_report") and can_view_labor_payroll_reports() %}{{ nav_link("labor_hours_report", "工时统计") }}{% endif %}
@@ -189,7 +189,7 @@
           %}
           {% if show_utility_menu %}
           <details class="nav-group {{ 'active' if active_endpoint in utility_endpoints else '' }}" {% if active_endpoint in utility_endpoints %}open{% endif %}>
-            <summary>实用工具</summary>
+            <summary><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.7-.3-.3-2.7z"/></svg>实用工具</summary>
             <div class="nav-submenu">
               {% if has_menu_permission("ai_daily_report") and is_internal_user() %}
                 {{ nav_link("ai_daily_report_drafts_page", "AI 日报审查", ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page"]) }}
@@ -223,7 +223,7 @@
             %}
             {% if show_basic_data %}
             <details class="nav-group {{ 'active' if active_endpoint in basic_data_endpoints else '' }}" {% if active_endpoint in basic_data_endpoints %}open{% endif %}>
-              <summary>基础数据</summary>
+              <summary><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>基础数据</summary>
               <div class="nav-submenu">
                 {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}
                   {{ nav_link("clients", "客户") }}
@@ -262,7 +262,7 @@
             %}
             {% if show_system_config %}
               <details class="nav-group {{ 'active' if active_endpoint in system_config_endpoints else '' }}" {% if active_endpoint in system_config_endpoints %}open{% endif %}>
-                <summary>系统配置</summary>
+                <summary><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>系统配置</summary>
                 <div class="nav-submenu">
                   {% if normalized_role() == "admin" %}{{ nav_link("menu_permissions", "权限管理") }}{% endif %}
                   {% if has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view") %}{{ nav_link("payment_terms", "账期管理") }}{% endif %}

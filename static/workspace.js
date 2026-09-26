@@ -10,7 +10,7 @@
       return url.pathname + url.search + url.hash;
     } catch { return null; }
   };
-  const key = value => { const url = new URL(value, location.origin); return url.pathname; };
+  const key = value => { const url = new URL(value, location.origin); return url.pathname + url.search; };
   function paint(tab) {
     tab.button.textContent = (tab.dirty ? '● ' : '') + tab.title;
     tab.button.title = tab.title + (tab.dirty ? '（有未保存内容）' : '');
@@ -28,7 +28,7 @@
     history.replaceState(null, '', '/workspace#' + encodeURIComponent(tab.url));
     document.title = tab.title + ' - 工作区';
     tab.node.scrollIntoView({block: 'nearest', inline: 'nearest'});
-    document.querySelectorAll('.sidebar nav a').forEach(link => {
+    document.querySelectorAll('#topnav a').forEach(link => {
       const match = key(link.href) === key(tab.url);
       link.classList.toggle('active', match);
       if (match) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
@@ -114,7 +114,7 @@
     node.append(button, closeButton); bar.append(node); tabs.push(tab); paint(tab);
     frame.src = url; pages.append(frame); activate(tab);
   }
-  document.querySelectorAll('.sidebar nav a').forEach(link => link.addEventListener('click', event => {
+  document.querySelectorAll('#topnav a').forEach(link => link.addEventListener('click', event => {
     if (event.ctrlKey || event.metaKey || event.shiftKey || link.target) return;
     if (/^\/field\/?$/.test(new URL(link.href).pathname)) { event.preventDefault(); window.open(link.href, '_blank', 'noopener'); return; }
     event.preventDefault(); open(link.href, link.textContent.trim());
