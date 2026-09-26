@@ -79,7 +79,7 @@
   overflow: visible;
 }
 .erp-app--flow > .erp-toolbar { position: sticky; top: 0; z-index: 12; }
-.erp-app--flow > .erp-summary { position: sticky; bottom: 22px; z-index: 9; }
+.erp-app--flow > .erp-summary { position: sticky; bottom: var(--erp-status-h, 22px); z-index: 9; }
 .erp-app--flow > .erp-status { position: sticky; bottom: 0; z-index: 10; }
 .erp-app--flow .erp-body { overflow: visible; }
 .erp-app--flow .erp-body > .erp-panel.active { flex: 0 0 auto; }
@@ -469,7 +469,9 @@
   flex-wrap: wrap;
   align-items: stretch;
   position: sticky;
-  bottom: 22px;
+  /* 状态栏实测高度由 erp-report.js 写入 --erp-status-h（字体/内容不同会差几像素，
+     写死 22px 会让汇总栏与状态栏重叠）。 */
+  bottom: var(--erp-status-h, 22px);
   z-index: 9;
   background: var(--erp-foot);
   border-top: 1px solid var(--erp-line);
@@ -503,6 +505,7 @@
   position: sticky;
   bottom: 0;
   z-index: 10;
+  min-height: 22px;   /* 与 --erp-status-h 的兜底值一致，无 JS 时汇总栏也不会压住状态栏 */
   padding: 2px 8px;
   background: linear-gradient(180deg, #e7ebf1 0%, #dde3ea 100%);
   border-top: 1px solid var(--erp-line);

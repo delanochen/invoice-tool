@@ -215,6 +215,11 @@
   // 都会让偏移量失真，.erp-app 底部溢出视口 → 汇总栏/状态栏落到屏幕外。
   // 这里按「实际可用高度」精确赋值，并在窗口/容器尺寸变化时重算。
   function fitViewport() {
+    // 汇总栏的 sticky bottom 需要状态栏的真实高度（写死 22px 会与 20px 左右的实际高度差几像素 → 两条栏重叠）
+    const statusBarEl = app.querySelector('.erp-status');
+    if (statusBarEl) {
+      document.documentElement.style.setProperty('--erp-status-h', `${statusBarEl.offsetHeight}px`);
+    }
     if (app.classList.contains('erp-app--flow')) {
       app.style.height = '';
       return;
@@ -240,6 +245,7 @@
     slot.textContent = versionBadge.textContent.trim();
     statusBar.appendChild(slot);
     versionBadge.style.display = 'none';
+    fitViewport();   // 版本号入栏后状态栏高度可能变化，重算 --erp-status-h
   }
 
   /* -------------------------------------------- StatusBar 记录数同步 */

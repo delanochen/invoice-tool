@@ -4,6 +4,32 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.296] - 2026-09-26
+
+### Fixed（工单日历等页面最大化时状态栏仍被挤出屏幕）
+- 上一版修的是 iframe **内部**的 sticky（`--flow` 改 `display: block`），但没查外壳：`workspace.css` 里
+  `.workspace-shell > .main { height: 100% }` 让 `.main` 取满 `100dvh`，却忽略了它上面还有个顶栏 →
+  顶栏 + 100dvh 比视口高出一个顶栏高度，**iframe 底部（ERP 汇总栏 / 状态栏所在）被推出屏幕外**。
+  实测：顶栏 55 + main 548 = 603 vs 视口 548 → 溢出 55px；iframe 底 − 视口底 = +55px。
+- 修复：`.workspace-shell` 改 `display: flex; flex-direction: column`，顶栏 `flex: 0 0 auto`，
+  `.main` 改 `flex: 1 1 auto; min-height: 0`（去掉 `height: 100%`），高度由 flex 分配。
+  实测修复后：顶栏 + main = 548 vs 视口 548 → 溢出 0.0px；iframe 底 − 视口底 = 0.0px；iframe 高度 519 → 464。
+- 起因说明：顶栏从单行改成「30px 标题栏 + 24px 菜单栏」后高 55px，把这个一直存在的溢出放大成肉眼可见的
+  「状态栏消失」，所以看起来像是菜单改动的副作用。
+
+### Fixed（汇总栏与状态栏重叠 2.2px）
+- `.erp-summary { position: sticky; bottom: 22px }` 的 22px 是写死的，而 `.erp-status` 实际高 19.8px
+  （padding 2px + 11px 字号），未滚动时两条栏重叠 2.2px、滚动到底又贴合，观感不一致。
+- 修复：`erp-report.js` 的 `fitViewport()` 里把状态栏实测高度写入 `--erp-status-h`，CSS 改用
+  `bottom: var(--erp-status-h, 22px)`；`.erp-status` 加 `min-height: 22px` 与兜底值对齐（无 JS 时也不重叠）。
+  实测：汇总栏底 − 状态栏顶 = 0.0px，状态栏高 22px 与兜底值匹配。
+
+### Notes
+- 验证方式：从真实请求 dump 出 `/workspace` 外壳页 + `/service-orders/calendar` 页面（临时脚本 + 测试数据库），
+  外壳里塞入指向日历页的 iframe，用 Chrome headless 渲染后由页面脚本把测量结果 POST 回本地服务器：
+  外壳层断言 `iframe 底 − 视口底`、`顶栏 + main vs 视口`；iframe 内断言汇总栏 / 状态栏位置。
+  增量 `test_workspace.py`、`test_formal_report_link.py`、菜单与 ERP 相关用例 103 passed。
+
 ## [0.1.295] - 2026-09-26
 
 ### Fixed（菜单栏有一条线横穿文字）
