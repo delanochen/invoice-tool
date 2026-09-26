@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% from "erp_ui.html" import summary_item %}
-{% block title %}工单 - 发票工具{% endblock %}
+{# 标题带过滤上下文：工作区标签页名取自 <title>（workspace.js 会剥掉「 - 发票工具」后缀）。
+   「业主查询 → 工单查看」打开的 /service-orders?buyer_id=N 和菜单「工单」打开的
+   /service-orders 是两个 URL，工作区不去重；标题不带上下文时两个标签都叫「工单」。 #}
+{% block title %}工单{% if buyer_name %} · {{ buyer_name }}{% elif q %} · 关键词 {{ q }}{% endif %} - 发票工具{% endblock %}
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
@@ -22,7 +25,7 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       工单
-      <small>进行中的服务工单 · 按创建时间倒序</small>
+      <small>进行中的服务工单 · 按创建时间倒序{% if buyer_name %} · 站点「{{ buyer_name }}」{% endif %}</small>
     </div>
     <span class="erp-badge">{{ orders|length }} 个工单</span>
     <span class="erp-badge warn">待核销 {{ orders|length - ns.paid }}</span>
@@ -144,6 +147,7 @@
     <span>记录 <b data-erp-count>{{ orders|length }}</b> 条</span>
     <span class="sep"></span>
     <span>状态 <b>进行中</b></span>
+    {% if buyer_name %}<span class="sep"></span><span>站点 <b>{{ buyer_name }}</b></span>{% endif %}
     {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
   </footer>
 </div>
