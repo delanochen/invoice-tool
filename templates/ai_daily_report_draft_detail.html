@@ -1,33 +1,181 @@
 {% extends "base.html" %}
 {% block title %}AI 日报 Draft 详情 - 发票工具{% endblock %}
-{% block content %}
-<header class="page-header">
-  <div>
-    <p class="eyebrow">AI Daily Report</p>
-    <h1 id="draftTitle">Draft 详情</h1>
-    <p class="muted-line" id="draftSubtitle">加载中...</p>
-  </div>
-  <div class="actions" id="draftActions">
-    <!-- Actions populated by JS -->
-  </div>
-</header>
 
-<!-- One-sentence chat update -->
-<div id="chatPanel" class="panel" style="margin-bottom:1rem;">
-  <h3 style="margin-top:0;">一句话修改日报</h3>
-  <p class="muted-line" style="font-size:0.85rem;">直接用自然语言修改本日报，例如：「把张三的出发地点改成 Hobbs, NM」「张三改成乘车」「张三改成单程」「增加更换 A313 的 2 号保险丝」。</p>
-  <div style="display:flex; gap:0.5rem; align-items:flex-start;">
-    <textarea id="chatInput" rows="2" placeholder="输入修改内容，例如：把张三的出发地点改成…" style="flex:1; padding:0.5rem; resize:vertical;"></textarea>
-    <button type="button" id="chatSubmit" class="primary" style="white-space:nowrap;">发送</button>
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 全部区块都由 ai-daily-report-review.js 填充，这里只调外壳与密度，ID 一律不动。 */
+  .erp-app .erp-toolbar #draftActions { display: flex; gap: 4px; }
+  .erp-app .erp-toolbar #draftActions button {
+    min-height: 24px; padding: 2px 9px; font-size: 12px; border-radius: var(--erp-radius);
+  }
+  /* 一句话修改：常驻在内容区顶部的命令条，不随正文滚走。 */
+  .erp-app .erp-body > #chatPanel,
+  .erp-app .erp-body > #statusBanner { flex: 0 0 auto; }
+  .erp-app #chatPanel {
+    margin: 0; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--erp-line);
+    border-radius: 0; background: var(--erp-head);
+  }
+  .erp-app #chatPanel h3 { margin: 0 0 2px; font-size: 12.5px; }
+  .erp-app #chatPanel .erp-command-row { display: flex; gap: 6px; align-items: flex-start; }
+  .erp-app #chatPanel #chatInput {
+    flex: 1 1 auto; min-height: 44px; padding: 4px 6px; font: inherit; font-size: 12.5px;
+    border: 1px solid #a9b4c5; border-radius: var(--erp-radius); resize: vertical;
+  }
+  .erp-app #chatPanel #chatSubmit { white-space: nowrap; min-height: 26px; padding: 2px 12px; font-size: 12px; }
+  .erp-app #statusBanner { margin: 0; border-radius: 0; }
+  /* 15 个审阅区块：保持原有单列竖排，只收紧间距与标题。 */
+  .erp-app .review-grid { gap: 8px; padding: 8px 10px; }
+  .erp-app .review-grid > .panel { padding: 8px 10px; border-radius: 3px; }
+  .erp-app .review-grid > .panel h2 { margin: 0 0 6px; font-size: 12.5px; color: var(--erp-accent); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="erp-app erp-compact" data-active-panel="review">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar">
+    <div class="erp-toolbar-title">
+      <span id="draftTitle">Draft 详情</span>
+      <small id="draftSubtitle">加载中...</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group" id="draftActions">
+      <!-- 操作按钮由脚本按状态填充 -->
+    </div>
+  </header>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+
+    <!-- 一句话修改日报（命令条，常驻） -->
+    <section id="chatPanel" class="no-print">
+      <h3>一句话修改日报</h3>
+      <p class="erp-filter-note" style="margin:0 0 4px;">直接用自然语言修改本日报，例如：「把张三的出发地点改成 Hobbs, NM」「张三改成乘车」「张三改成单程」「增加更换 A313 的 2 号保险丝」。</p>
+      <div class="erp-command-row">
+        <textarea id="chatInput" rows="2" placeholder="输入修改内容，例如：把张三的出发地点改成…"></textarea>
+        <button type="button" id="chatSubmit" class="primary">发送</button>
+      </div>
+      <p id="chatError" class="erp-filter-note" style="color:#b42318; display:none; margin:4px 0 0;"></p>
+    </section>
+
+    <!-- Status Banner -->
+    <div id="statusBanner" class="flash" style="display:none;"></div>
+
+    <section class="erp-panel active" data-erp-panel="review">
+      <div class="erp-detail-scroll">
+        <div class="review-grid" style="display:grid; grid-template-columns: 1fr; gap:1rem;">
+
+          <!-- Basic Info -->
+          <section class="panel">
+            <h2>基本信息</h2>
+            <div id="basicInfo" class="muted-line">加载中...</div>
+          </section>
+
+          <!-- Workers & Travel -->
+          <section class="panel">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <h2 style="margin:0;">工作人员与出行</h2>
+              <button type="button" id="addWorkerBtn" class="secondary" style="display:none;">添加工作人员</button>
+            </div>
+            <div id="workersSection">加载中...</div>
+          </section>
+
+          <!-- Mileage Evidence -->
+          <section class="panel">
+            <h2>里程佐证</h2>
+            <div id="mileageEvidenceSection">加载中...</div>
+          </section>
+
+          <!-- Arrival / Departure Timeline -->
+          <section class="panel">
+            <h2>到达 / 离场时间</h2>
+            <div id="timelineSection">加载中...</div>
+          </section>
+
+          <!-- Safety Photo -->
+          <section class="panel">
+            <h2>安全自检照片</h2>
+            <div id="safetyPhotoSection">加载中...</div>
+          </section>
+
+          <!-- Service Photos -->
+          <section class="panel">
+            <h2>施工照片</h2>
+            <div id="servicePhotosSection">加载中...</div>
+          </section>
+
+          <!-- Arrival Photo -->
+          <section class="panel">
+            <h2>进场照片</h2>
+            <div id="arrivalPhotoSection">加载中...</div>
+          </section>
+
+          <!-- Departure Photo -->
+          <section class="panel">
+            <h2>离场照片</h2>
+            <div id="departurePhotoSection">加载中...</div>
+          </section>
+
+          <!-- Work Items -->
+          <section class="panel">
+            <h2>施工内容</h2>
+            <div id="workItemsSection">加载中...</div>
+          </section>
+
+          <!-- Verification Checklist -->
+          <section class="panel">
+            <h2>验证清单</h2>
+            <div id="verificationSection">加载中...</div>
+          </section>
+
+          <!-- Phase 7 Validation Result -->
+          <section class="panel">
+            <h2>校验结果 (Phase 7)</h2>
+            <div id="validationSection">加载中...</div>
+          </section>
+
+          <!-- Phase 8 Attachment Preparation -->
+          <section class="panel">
+            <h2>附件准备 (Phase 8)</h2>
+            <div id="attachmentPrepSection">加载中...</div>
+          </section>
+
+          <!-- Phase 9 Formal Save -->
+          <section class="panel">
+            <h2>正式保存 (Phase 9)</h2>
+            <div id="formalSaveSection">加载中...</div>
+          </section>
+
+          <!-- AI Provenance -->
+          <section class="panel">
+            <h2>AI / 用户来源</h2>
+            <div id="provenanceSection">加载中...</div>
+          </section>
+
+          <!-- Audit -->
+          <section class="panel">
+            <h2>审计记录</h2>
+            <div id="auditSection">加载中...</div>
+          </section>
+
+        </div>
+      </div>
+    </section>
   </div>
-  <p id="chatError" class="muted-line" style="display:none; color:#c0392b; margin-bottom:0;"></p>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>Draft <b id="draftStatusId">{{ draft_id }}</b></span>
+    <span class="sep"></span>
+    <span>数据源 <b>/api/ai/daily-report</b></span>
+    <span class="erp-status-version">v{{ app_version }}</span>
+  </footer>
 </div>
 
-<!-- Status Banner -->
-<div id="statusBanner" class="flash" style="display:none; margin-bottom:1rem;"></div>
-
 <!-- 409 Conflict Dialog -->
-<div id="conflictDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center;">
+<div id="conflictDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
   <div class="panel" style="max-width:500px; margin:1rem;">
     <h3>Draft 已被更新</h3>
     <p>此 Draft 已在其他页面或操作中被修改。你的当前修改尚未保存。</p>
@@ -56,7 +204,7 @@
 </div>
 
 <!-- Verification Override Dialog -->
-<div id="overrideDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center;">
+<div id="overrideDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
   <div class="panel" style="max-width:500px; margin:1rem;">
     <h3>确认覆盖验证警告</h3>
     <p>以下字段仍需要确认：</p>
@@ -67,103 +215,6 @@
       <button type="button" id="overrideCancel" class="secondary">取消</button>
     </div>
   </div>
-</div>
-
-<div class="review-grid" style="display:grid; grid-template-columns: 1fr; gap:1rem;">
-
-  <!-- Basic Info -->
-  <section class="panel">
-    <h2>基本信息</h2>
-    <div id="basicInfo" class="muted-line">加载中...</div>
-  </section>
-
-  <!-- Workers & Travel -->
-  <section class="panel">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2 style="margin:0;">工作人员与出行</h2>
-      <button type="button" id="addWorkerBtn" class="secondary" style="display:none;">添加工作人员</button>
-    </div>
-    <div id="workersSection">加载中...</div>
-  </section>
-
-  <!-- Mileage Evidence -->
-  <section class="panel">
-    <h2>里程佐证</h2>
-    <div id="mileageEvidenceSection">加载中...</div>
-  </section>
-
-  <!-- Arrival / Departure Timeline -->
-  <section class="panel">
-    <h2>到达 / 离场时间</h2>
-    <div id="timelineSection">加载中...</div>
-  </section>
-
-  <!-- Safety Photo -->
-  <section class="panel">
-    <h2>安全自检照片</h2>
-    <div id="safetyPhotoSection">加载中...</div>
-  </section>
-
-  <!-- Service Photos -->
-  <section class="panel">
-    <h2>施工照片</h2>
-    <div id="servicePhotosSection">加载中...</div>
-  </section>
-
-  <!-- Arrival Photo -->
-  <section class="panel">
-    <h2>进场照片</h2>
-    <div id="arrivalPhotoSection">加载中...</div>
-  </section>
-
-  <!-- Departure Photo -->
-  <section class="panel">
-    <h2>离场照片</h2>
-    <div id="departurePhotoSection">加载中...</div>
-  </section>
-
-  <!-- Work Items -->
-  <section class="panel">
-    <h2>施工内容</h2>
-    <div id="workItemsSection">加载中...</div>
-  </section>
-
-  <!-- Verification Checklist -->
-  <section class="panel">
-    <h2>验证清单</h2>
-    <div id="verificationSection">加载中...</div>
-  </section>
-
-  <!-- Phase 7 Validation Result -->
-  <section class="panel">
-    <h2>校验结果 (Phase 7)</h2>
-    <div id="validationSection">加载中...</div>
-  </section>
-
-  <!-- Phase 8 Attachment Preparation -->
-  <section class="panel">
-    <h2>附件准备 (Phase 8)</h2>
-    <div id="attachmentPrepSection">加载中...</div>
-  </section>
-
-  <!-- Phase 9 Formal Save -->
-  <section class="panel">
-    <h2>正式保存 (Phase 9)</h2>
-    <div id="formalSaveSection">加载中...</div>
-  </section>
-
-  <!-- AI Provenance -->
-  <section class="panel">
-    <h2>AI / 用户来源</h2>
-    <div id="provenanceSection">加载中...</div>
-  </section>
-
-  <!-- Audit -->
-  <section class="panel">
-    <h2>审计记录</h2>
-    <div id="auditSection">加载中...</div>
-  </section>
-
 </div>
 {% endblock %}
 

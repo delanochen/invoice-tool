@@ -1,58 +1,87 @@
 {% extends "base.html" %}
 {% block title %}AI 日报审查中心 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 列表由 ai-daily-report-drafts.js 异步填充 .draft-card，这里只把容器接进 ERP 内容区。 */
+  .erp-app .erp-detail-scroll > #draftsLoading,
+  .erp-app .erp-detail-scroll > #draftsError { margin: 8px 10px; }
+  .erp-app .erp-detail-scroll > #draftsContainer { padding: 8px 10px 0; }
+  /* 分页放进状态栏：翻页控件常驻底部，不随列表滚走。 */
+  .erp-app .erp-status #pagination { display: flex; gap: 6px; align-items: center; }
+  .erp-app .erp-status #pagination .muted-line { font-size: 11px; }
+  /* 弹层（新建 / 冲突）保持原 fixed 覆盖层行为。 */
+  .erp-app .draft-modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); align-items: center; justify-content: center; }
+</style>
+{% endblock %}
+
 {% block content %}
-<header class="page-header">
-  <div>
-    <p class="eyebrow">AI Daily Report</p>
-    <h1>日报审查中心</h1>
-    <p class="muted-line">审查和确认 AI 自动生成的日报 Draft。确认后才会进入正式日报流程。</p>
-  </div>
-  <div class="actions">
-    <button type="button" id="newDraftBtn" class="primary">新建智能日报</button>
-    <button type="button" id="refreshDrafts" class="secondary">刷新列表</button>
-  </div>
-</header>
+<div class="erp-app erp-compact" data-active-panel="drafts">
 
-<!-- Filters -->
-<section class="panel">
-  <div class="filter-bar" style="display:flex; gap:1rem; flex-wrap:wrap; align-items:end;">
-    <div>
-      <label for="filterStatus">状态</label>
-      <select id="filterStatus">
-        <option value="">全部</option>
-        <option value="draft">Draft（编辑中）</option>
-        <option value="confirmed">Confirmed（已确认）</option>
-        <option value="cancelled">Cancelled（已取消）</option>
-        <option value="saved">Saved（已保存）</option>
-      </select>
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar">
+    <div class="erp-toolbar-title">日报审查中心<small>AI Daily Report · 审查并确认 AI 生成的日报 Draft</small></div>
+    <span class="erp-badge">确认后才进入正式日报流程</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" id="newDraftBtn" class="primary">新建智能日报</button>
+      <button type="button" id="refreshDrafts" class="secondary">刷新列表</button>
     </div>
-    <div>
-      <label for="filterDateFrom">日期从</label>
-      <input type="date" id="filterDateFrom">
-    </div>
-    <div>
-      <label for="filterDateTo">日期至</label>
-      <input type="date" id="filterDateTo">
-    </div>
-    <div>
-      <label for="filterOrder">工单号</label>
-      <input type="text" id="filterOrder" placeholder="SO-XXXXXX">
-    </div>
-    <button type="button" id="applyFilters" class="primary">应用筛选</button>
-    <button type="button" id="clearFilters" class="secondary">清除</button>
-  </div>
-</section>
+  </header>
 
-<!-- Draft List -->
-<section class="panel">
-  <div id="draftsLoading" class="muted-line" style="padding:1rem;">加载中...</div>
-  <div id="draftsError" class="flash error" style="display:none;"></div>
-  <div id="draftsContainer"></div>
-  <div id="pagination" style="margin-top:1rem; display:flex; gap:0.5rem; align-items:center;"></div>
-</section>
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  {# 筛选条必须是 .erp-body 的直接子级（erp-ui.css 靠 `.erp-body > .erp-filter` 给 flex:0 0 auto）；
+     挂在 .erp-app 下会变成游离网格项，被自动放进 summary 行，正文区出现空洞。 #}
+  <div class="erp-body">
+    <div class="erp-filter" id="draftFilterBar">
+      <div class="erp-field">
+        <label for="filterStatus">状态</label>
+        <select id="filterStatus">
+          <option value="">全部</option>
+          <option value="draft">Draft（编辑中）</option>
+          <option value="confirmed">Confirmed（已确认）</option>
+          <option value="cancelled">Cancelled（已取消）</option>
+          <option value="saved">Saved（已保存）</option>
+        </select>
+      </div>
+      <div class="erp-field">
+        <label for="filterDateFrom">日期从</label>
+        <input type="date" id="filterDateFrom">
+      </div>
+      <div class="erp-field">
+        <label for="filterDateTo">日期至</label>
+        <input type="date" id="filterDateTo">
+      </div>
+      <div class="erp-field">
+        <label for="filterOrder">工单号</label>
+        <input type="text" id="filterOrder" placeholder="SO-XXXXXX">
+      </div>
+      <div class="erp-filter-actions">
+        <button type="button" id="applyFilters" class="primary">应用筛选</button>
+        <button type="button" id="clearFilters" class="secondary">清除</button>
+      </div>
+    </div>
+
+    <section class="erp-panel active" data-erp-panel="drafts">
+      <div class="erp-detail-scroll">
+        <div id="draftsLoading" class="muted-line" style="padding:1rem;">加载中...</div>
+        <div id="draftsError" class="flash error" style="display:none;"></div>
+        <div id="draftsContainer"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>数据源 <b>/api/ai/daily-report</b></span>
+    <span class="sep"></span>
+    <div id="pagination"></div>
+  </footer>
+</div>
 
 <!-- New Draft Dialog -->
-<div id="newDraftDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1001; align-items:center; justify-content:center;">
+<div id="newDraftDialog" class="modal draft-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1001; align-items:center; justify-content:center;">
   <div class="panel" style="max-width:560px; margin:1rem; width:100%;">
     <h3>新建智能日报</h3>
     <p class="muted-line">选择工单和日报日期，创建后进入 Draft 详情继续完善（照片、里程、校验、确认、正式保存）。</p>
@@ -79,7 +108,7 @@
 </div>
 
 <!-- 409 Conflict Dialog -->
-<div id="conflictDialog" class="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center;">
+<div id="conflictDialog" class="modal draft-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
   <div class="panel" style="max-width:500px; margin:1rem;">
     <h3>Draft 已被更新</h3>
     <p>此 Draft 已在其他页面或操作中被修改。你的当前修改尚未保存。</p>

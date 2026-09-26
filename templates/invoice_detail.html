@@ -64,14 +64,15 @@
     </div>
   </header>
 
-  <!-- ───────────────────────────────── TabWorkspace ─────────────────────── -->
-  <nav class="erp-tabs no-print" aria-label="发票视图">
-    {{ tab_button('paper', '发票正文', active=true) }}
-    {{ tab_button('attachments', '附件清单', count=attachments|length) }}
-  </nav>
-
   <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  {# 页签必须是 .erp-body 的直接子级（erp-ui.css 靠 `.erp-body > .erp-tabs` 给 flex:0 0 auto）；
+     挂在 .erp-app 下会变成游离网格项、被自动放进 summary 行，页签会掉到状态栏下方。 #}
   <div class="erp-body">
+    <nav class="erp-tabs no-print" aria-label="发票视图">
+      {{ tab_button('paper', '发票正文', active=true) }}
+      {{ tab_button('attachments', '附件清单', count=attachments|length) }}
+    </nav>
+
     <section class="erp-panel active" data-erp-panel="paper">
       <div class="erp-detail-scroll">
 

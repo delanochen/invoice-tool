@@ -1,45 +1,69 @@
 {% extends "base.html" %}
 {% block title %}出行工具 - 发票工具{% endblock %}
-{% block content %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <style>
-  .tt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .tt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
   @media (max-width: 1100px) { .tt-grid { grid-template-columns: 1fr; } }
-  .tt-panel { background: var(--panel-bg, #fff); border: 1px solid var(--border, #e3e6ea); border-radius: 12px; padding: 18px 20px; }
-  .tt-panel h2 { margin: 0 0 12px; font-size: 16px; }
-  .tt-panel .tt-hint { color: #8a6d3b; background: #fdf6e3; border: 1px solid #f0e0b0; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-bottom: 12px; }
-  .tt-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; }
-  .tt-field input, .tt-field select, .tt-field textarea { padding: 7px 9px; border: 1px solid var(--border, #d6dade); border-radius: 8px; font-size: 14px; }
-  .tt-row { display: flex; gap: 10px; }
+  .tt-panel { background: #fff; border: 1px solid var(--erp-line); border-radius: 3px; padding: 8px 10px; }
+  .tt-panel h2 { margin: 0 0 8px; font-size: 12.5px; color: var(--erp-accent); }
+  .tt-panel .tt-hint { color: #8a4b00; background: #fff4e5; border: 1px solid #f0c48a; border-radius: 2px; padding: 5px 7px; font-size: 11.5px; margin-bottom: 8px; }
+  .tt-field { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; font-size: 11.5px; color: #47536a; }
+  .tt-field input, .tt-field select, .tt-field textarea {
+    padding: 3px 6px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius);
+    font: inherit; font-size: 12.5px; background: #fff; color: var(--erp-ink);
+  }
+  .tt-row { display: flex; gap: 8px; }
   .tt-row > * { flex: 1; }
-  .tt-stop-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .tt-stop-row { display: flex; gap: 6px; margin-bottom: 6px; }
   .tt-stop-row input { flex: 1; }
   .tt-stop-row button { flex: 0 0 auto; }
-  .tt-actions { display: flex; gap: 10px; margin-top: 6px; }
-  .tt-result { margin-top: 16px; }
-  .tt-result img { width: 100%; max-width: 680px; border: 1px solid var(--border, #d6dade); border-radius: 8px; }
-  .tt-error { color: #b3261e; background: #fdecea; border: 1px solid #f5c6c0; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 12px; display: none; }
-  .tt-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
-  .tt-table th, .tt-table td { border-bottom: 1px solid var(--border, #e3e6ea); padding: 6px 8px; text-align: left; }
-  .tt-table th { color: #5f6672; font-weight: 600; }
+  .tt-actions { display: flex; gap: 6px; margin-top: 4px; }
+  .tt-result { margin-top: 10px; }
+  .tt-result img { width: 100%; max-width: 680px; border: 1px solid var(--erp-line); border-radius: 3px; }
+  .tt-error { color: #b42318; background: #fdecea; border: 1px solid #f5c6c0; border-radius: 2px; padding: 5px 7px; font-size: 11.5px; margin-top: 8px; display: none; }
+  .tt-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 8px; }
+  .tt-table th, .tt-table td { border-bottom: 1px solid var(--erp-line-soft); padding: 3px 6px; text-align: left; }
+  .tt-table th { color: var(--erp-muted); font-weight: 600; }
   .tt-total { font-weight: 700; }
-  .tt-hotel-card { border: 1px solid var(--border, #e3e6ea); border-radius: 10px; padding: 12px 14px; margin-top: 12px; font-size: 14px; }
-  .tt-hotel-card .tt-hotel-name { font-size: 16px; font-weight: 700; }
-  .tt-hotel-card .tt-meta { color: #5f6672; font-size: 13px; margin-top: 4px; }
-  .tt-download { display: inline-block; margin-top: 8px; }
-  .tt-spin { display: none; margin-top: 10px; color: #5f6672; font-size: 13px; }
-  .tt-detail { font-size: 13px; color: #5f6672; margin-top: 6px; line-height: 1.7; }
+  .tt-hotel-card { border: 1px solid var(--erp-line); border-radius: 3px; padding: 8px 10px; margin-top: 8px; font-size: 12.5px; }
+  .tt-hotel-card .tt-hotel-name { font-size: 14px; font-weight: 700; }
+  .tt-hotel-card .tt-meta { color: var(--erp-muted); font-size: 11.5px; margin-top: 3px; }
+  .tt-download { display: inline-block; margin-top: 6px; font-size: 12px; }
+  .tt-spin { display: none; margin-top: 6px; color: var(--erp-muted); font-size: 11.5px; }
+  .tt-detail { font-size: 11.5px; color: var(--erp-muted); margin-top: 5px; line-height: 1.6; }
+  /* 说明文字改成 ERP 备注行，不再占据正文首屏。 */
+  .erp-app .tt-intro { margin: 0; padding: 6px 10px; border-bottom: 1px solid var(--erp-line); background: var(--erp-head); font-size: 11.5px; color: #47536a; }
+  .erp-app .erp-body > .tt-intro { flex: 0 0 auto; }
+  .erp-app .erp-detail-scroll > .tt-grid { padding: 10px; }
+  .erp-app .tt-panel button { min-height: 24px; padding: 2px 9px; font-size: 12px; border-radius: var(--erp-radius); }
 </style>
+{% endblock %}
+{% block content %}
+<div class="erp-app erp-compact" data-active-panel="tools">
 
-<header class="page-header">
-  <div><p class="eyebrow">出行工具</p><h1>出行工具</h1></div>
-</header>
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar">
+    <div class="erp-toolbar-title">出行工具<small>Google Routes / Static Maps / Places</small></div>
+    {% if keys_ready.routes and keys_ready.static_maps and keys_ready.places %}
+      <span class="erp-badge">API Key 已就绪</span>
+    {% else %}
+      <span class="erp-badge warn">缺少 API Key</span>
+    {% endif %}
+    <span class="erp-badge">2 个工具</span>
+    <span class="erp-toolbar-spacer"></span>
+  </header>
 
-<p style="font-size:13px;color:#5f6672;">
-  复用智能日报的 Google 路线 / 静态地图能力：① 起点、终点、中间停靠点生成路线地图佐证；② 已知终点、总距离与大概方位时，在推算出的起点附近随机找一家宾馆并验证实际驾车距离。
-  所有 Google 调用在服务端完成，API Key 不会暴露给浏览器。
-</p>
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <p class="tt-intro no-print">
+      复用智能日报的 Google 路线 / 静态地图能力：① 起点、终点、中间停靠点生成路线地图佐证；② 已知终点、总距离与大概方位时，在推算出的起点附近随机找一家宾馆并验证实际驾车距离。
+      所有 Google 调用在服务端完成，API Key 不会暴露给浏览器。
+    </p>
+    <section class="erp-panel active" data-erp-panel="tools">
+      <div class="erp-detail-scroll">
 {% if not keys_ready.routes or not keys_ready.static_maps or not keys_ready.places %}
-<div class="tt-hint" style="max-width:900px;margin-bottom:14px;">
+<div class="tt-hint" style="margin:10px 10px 0;">
   ⚠️ 尚未配置的 Key：
   {% if not keys_ready.routes %}Google Routes{% endif %}
   {% if not keys_ready.static_maps %} / Static Maps{% endif %}
@@ -138,6 +162,20 @@
       <p class="tt-detail" id="hotelSummary"></p>
     </div>
   </section>
+</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status no-print">
+    <span>Routes <b>{{ '就绪' if keys_ready.routes else '未配置' }}</b></span>
+    <span class="sep"></span>
+    <span>Static Maps <b>{{ '就绪' if keys_ready.static_maps else '未配置' }}</b></span>
+    <span class="sep"></span>
+    <span>Places <b>{{ '就绪' if keys_ready.places else '未配置' }}</b></span>
+    <span class="erp-status-version">v{{ app_version }}</span>
+  </footer>
 </div>
 
 <script>
