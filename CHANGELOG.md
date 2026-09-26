@@ -4,6 +4,34 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.308] - 2026-09-26
+
+### 变更
+- **工单列表页在「日报」列后新增「工单结算」列：该工单有工单结算单就打勾，没有就留空。**
+  数据来自 `service_orders()` 查询里新加的相关子查询 `settlement_count`
+  （`select count(*) from customer_reimbursements where service_order_id = service_orders.id`）——
+  不再 join 那张一对多的表：多 join 一张只会让 group by 的行集膨胀，`report_count` /
+  `invoice_count` 这些计数得重新核对，而这一列只想表达「有 / 无」。
+- 列宽用 `data-grid-width="85"` 钉死。镜像表格的列宽跟源表 CSS 的 `nth-child` 一点关系都没有，
+  而 `fitDataStretch` 会把没声明宽度的列摊开 —— 一个只放对勾的列被撑成一大片很浪费。
+  85 正是 `system-grid.js` 的 `minWidth` 下限，再小也会被抬回来。
+- 手机端卡片同步加「结算」项（有 → ✓；无 → 本页惯用的 `—`，卡片一行三个 metric 空着太别扭）。
+- 对勾样式写在 `erp-ui.css`（`.erp-app .settlement-tick`，`color: var(--ok, #027a48)`）：
+  镜像网格只复制单元格的 innerHTML，span 上的 class 会一并带过去，所以源表与镜像共用一条规则。
+- 该列跟随「工单结算」查看权限（`can_view_customer_reimbursement()`），与同页「发票 / 已核销」列
+  的 `can_view_invoices()` 门控保持同一口径。空状态 `colspan` 改为按实际列数计算（`grid_columns`），
+  不再写死 11 / 13 —— 这页的可选列已经有两组，写死迟早对不上。
+
+### 测试
+- 新增 `test_service_orders_settlement_column.py`（5 条，真渲染 `/service-orders` 后按列取值）：
+  列序（「日报」→「工单结算」→「配套机厂家」）、有结算单的行打勾、没有的行是空串、
+  每一行的格数与表头列数相等、无结算查看权限时整列不出现。
+- 真渲染（headless Chrome + 页面内几何取值，不只截图）：镜像表头列序正确、列宽 85
+  （1920 宽下仍是 85，没被 `fitDataStretch` 摊开）、对勾最终色 `rgb(2, 122, 72)` 且字重 700、
+  有 / 无结算单的工单该格分别是 `✓` / 空串、源表与镜像逐行逐格文本完全一致（加列最常见的
+  翻车是列串位）。另做反向对照证明断言有效：把 `{% if order.settlement_count %}` 换成
+  `{% if false %}` 时探针确实报 FAIL。截图两张：列表页表格列、手机端卡片。
+
 ## [0.1.307] - 2026-09-26
 
 ### 变更

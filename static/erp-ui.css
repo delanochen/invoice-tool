@@ -485,6 +485,10 @@
 .erp-grid td.empty { text-align: center; color: var(--erp-muted); padding: 16px; }
 .erp-grid tfoot td { background: var(--erp-total); font-weight: 700; border-top: 1px solid var(--erp-line); }
 .erp-grid .row-actions { display: flex; gap: 4px; }
+/* 工单列表「工单结算」列：有结算单打勾，没有留空（不写占位符）。
+   镜像网格只复制单元格的 innerHTML，span 上的这个 class 会一并带过去，
+   所以这一条同时作用于源表和 Tabulator 镜像。 */
+.erp-app .settlement-tick { color: var(--ok, #027a48); font-weight: 700; }
 /* Tabulator 启用后隐藏原生表（system-grid 自带 .grid-source 规则，此处兜底） */
 @media screen { .erp-app .erp-grid.grid-source { display: none !important; } }
 

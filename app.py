@@ -16953,7 +16953,11 @@ def service_orders():
                contracts.contract_number,
                count(distinct service_reports.id) as report_count,
                count(distinct invoices.id) as invoice_count,
-               count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count
+               count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count,
+               -- 是否已有工单结算单：用相关子查询，不再 join 一张一对多的表，
+               -- 免得 group by 行集膨胀（列表页「工单结算」列只表达有/无）。
+               (select count(*) from customer_reimbursements
+                 where customer_reimbursements.service_order_id = service_orders.id) as settlement_count
         from service_orders
         left join clients on clients.id = service_orders.client_id
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
