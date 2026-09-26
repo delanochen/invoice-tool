@@ -1389,7 +1389,11 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .status.pending { background: #fff7e6; color: #9a6700; }
 .status.paid { background: #ecfdf3; color: var(--ok); }
 .status.void { background: #fff4ed; color: var(--warn); }
-.flash-stack { position: fixed; top: 16px; right: 16px; z-index: 10; display: grid; gap: 8px; max-width: 420px; }
+/* 服务端提示浮层：位置见 static/flash-notice.js（把 --flash-top 设成顶部常驻栏底边 + 8px）。
+   top 用变量而不是写死值 —— 工具栏高度随页面/窗口宽度变化，写死不是被盖就是反过来压住它。
+   z-index 45：高于所有贴顶常驻栏（erp-toolbar 12、窄屏 erp-nav 40、erp-status 10），
+   低于 .erp-detail 抽屉的 60/61 与顶层 <dialog>（提示不该盖住抽屉/弹窗）。 */
+.flash-stack { position: fixed; top: var(--flash-top, 16px); right: 16px; z-index: 45; display: grid; gap: 8px; max-width: 420px; }
 .flash { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #fff; display: flex; align-items: flex-start; gap: 10px; }
 .flash-message { flex: 1; line-height: 1.4; }
 .flash-close { background: none; border: none; font-size: 18px; line-height: 1; cursor: pointer; color: inherit; opacity: 0.6; padding: 0 2px; flex-shrink: 0; }
@@ -3087,7 +3091,11 @@ body.service-order-map-page {
   .sidebar:not(.menu-open) nav,
   .sidebar:not(.menu-open) .user-box { display: none; }
   .sidebar.menu-open nav { margin-top: 16px; }
-  .flash-stack { position: static; margin-bottom: 16px; }
+  /* 窄屏：提示是页面内横幅（占位、不遮内容）。用 sticky 而不是 static ——
+     页面一旦滚动，sticky 顶栏会从上方压过来，static 的横幅会被它整条盖住
+     （用户截图里就是这种：提示只剩最后一行文字露在工具栏下面）。
+     top 用 --flash-top，滚动时正好停在工具栏下方。 */
+  .flash-stack { position: sticky; top: var(--flash-top, 0px); margin-bottom: 16px; }
   body.service-order-map-page { grid-template-rows: auto minmax(0, 1fr); }
 }
 
