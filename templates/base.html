@@ -30,6 +30,7 @@
       <link rel="stylesheet" href="{{ url_for('static', filename='workspace.css', v=app_version) }}">
     {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=app_version) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='erp-topnav.css', v=app_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tabulator/tabulator.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='system-grid.css', v=app_version) }}">
     <script src="{{ url_for('static', filename='grid-bootstrap.js', v=app_version) }}"></script>
@@ -38,18 +39,13 @@
   <body class="{% block body_class %}{% endblock %}" data-grid-user="{{ g.user.id if g.user else '' }}">
     {% set active_endpoint = request.endpoint or "" %}
     {% if g.user %}
-      <aside class="sidebar no-print">
-        <div class="sidebar-head">
-          <div class="brand">
+      <header class="topbar no-print">
+        <div class="topbar-inner">
+          <div class="topbar-brand">
             <img src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
-            <span>Prasinos Power</span>
-            <button type="button" class="mobile-menu-toggle" aria-expanded="false" aria-controls="sidebar-navigation sidebar-account"><span aria-hidden="true">☰</span> <span>菜单</span></button>
+            <span class="topbar-name">Prasinos Power</span>
+            <button type="button" class="mobile-menu-toggle" aria-expanded="false" aria-controls="topnav topbar-account"><span aria-hidden="true">☰</span> <span>菜单</span></button>
           </div>
-          <div class="sidebar-identity">
-            <span class="sidebar-user-name">{{ g.user.name }}</span>
-            <a class="sidebar-logout" href="{{ url_for('logout') }}">退出</a>
-          </div>
-        </div>
         {% set contract_endpoints = ["contracts", "new_contract", "contract_detail", "edit_contract"] %}
         {% set order_endpoints = ["service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report"] %}
         {% set order_calendar_endpoints = ["service_order_calendar"] %}
@@ -68,31 +64,47 @@
           {% set targets = endpoints if endpoints is not none else [endpoint] %}
           <a href="{{ url_for(endpoint) }}" class="translatable-text {{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ label }}</a>
         {%- endmacro %}
-        <nav id="sidebar-navigation">
-          {% if has_menu_permission("field_work") and has_action_permission("service_orders", "view") %}
-            {{ nav_link("field_work", "现场工作", ["field_work", "field_photo_query"]) }}
-          {% endif %}
-          {% if is_external_employee() and has_menu_permission("user_certificate_query") and has_action_permission("users", "view") %}
-            {{ nav_link("user_certificate_query", "员工证书查询") }}
-          {% endif %}
-          {% if has_menu_permission("dashboard") and can_view_invoices() and not is_external_manager() %}
-            {{ nav_link("dashboard", "概览") }}
-          {% endif %}
-          {% if has_menu_permission("contracts") and can_view_contracts() %}
-            {{ nav_link("contracts", "合同", contract_endpoints) }}
-          {% endif %}
-          {% if has_menu_permission("service_orders") %}
-            {{ nav_link("service_orders", "工单", order_endpoints) }}
-          {% endif %}
-          {% if has_menu_permission("service_order_calendar") and has_action_permission("service_order_calendar", "view") %}
-            {{ nav_link("service_order_calendar", "工单日历", order_calendar_endpoints) }}
-          {% endif %}
-          {% if has_menu_permission("service_order_map") and not is_external_employee() %}
-            {{ nav_link("service_order_map", "站点地图", map_endpoints) }}
-          {% endif %}
-          {% if has_menu_permission("expense_processing") and not is_external_manager() and not is_external_employee() %}
-            {{ nav_link("expense_processing", "报销处理", expense_processing_endpoints) }}
-          {% endif %}
+        <nav id="topnav">
+          {% set main_endpoints = ["field_work", "field_photo_query", "user_certificate_query", "dashboard", "contracts", "new_contract", "contract_detail", "edit_contract", "service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report", "service_order_calendar", "service_order_map", "expense_processing", "expense_detail", "new_expense", "edit_expense", "messages", "clients", "buyers", "users"] %}
+          <details class="nav-group main-group {{ 'active' if active_endpoint in main_endpoints else '' }}" {% if active_endpoint in main_endpoints %}open{% endif %}>
+            <summary>主菜单</summary>
+            <div class="nav-submenu">
+              {% if is_external_manager() %}
+                {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}{{ nav_link("clients", "客户信息") }}{% endif %}
+                {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}{{ nav_link("buyers", "站点") }}{% endif %}
+              {% elif is_external_employee() %}
+                {% if has_menu_permission("user_certificate_query") and has_action_permission("users", "view") %}
+                  {{ nav_link("user_certificate_query", "员工证书查询") }}
+                {% endif %}
+              {% else %}
+                {% if has_menu_permission("field_work") and has_action_permission("service_orders", "view") %}
+                  {{ nav_link("field_work", "现场工作", ["field_work", "field_photo_query"]) }}
+                {% endif %}
+                {% if has_menu_permission("dashboard") and can_view_invoices() and not is_external_manager() %}
+                  {{ nav_link("dashboard", "概览") }}
+                {% endif %}
+                {% if has_menu_permission("contracts") and can_view_contracts() %}
+                  {{ nav_link("contracts", "合同", contract_endpoints) }}
+                {% endif %}
+                {% if has_menu_permission("service_orders") %}
+                  {{ nav_link("service_orders", "工单", order_endpoints) }}
+                {% endif %}
+                {% if has_menu_permission("service_order_calendar") and has_action_permission("service_order_calendar", "view") %}
+                  {{ nav_link("service_order_calendar", "工单日历", order_calendar_endpoints) }}
+                {% endif %}
+                {% if has_menu_permission("service_order_map") and not is_external_employee() %}
+                  {{ nav_link("service_order_map", "站点地图", map_endpoints) }}
+                {% endif %}
+                {% if has_menu_permission("expense_processing") and not is_external_manager() and not is_external_employee() %}
+                  {{ nav_link("expense_processing", "报销处理", expense_processing_endpoints) }}
+                {% endif %}
+              {% endif %}
+              {% if (is_external_manager() or is_external_employee()) and has_menu_permission("users") %}{{ nav_link("users", "我的资料") }}{% endif %}
+              {% if has_menu_permission("messages") %}
+                {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
+              {% endif %}
+            </div>
+          </details>
           {% set show_reports_menu =
             (has_menu_permission("invoices") and can_view_invoices())
             or (has_menu_permission("invoice_query") and can_view_invoices())
@@ -167,9 +179,6 @@
                 {% endif %}
               </div>
             </details>
-          {% endif %}
-          {% if has_menu_permission("messages") %}
-            {{ nav_link("messages", "消息" ~ (" (" ~ unread_message_count ~ ")" if unread_message_count else ""), None, 'data-message-nav data-unread-count="' ~ unread_message_count ~ '"') }}
           {% endif %}
           {% set show_utility_menu =
             (has_menu_permission("ai_daily_report") and is_internal_user())
@@ -261,15 +270,9 @@
                 </div>
               </details>
             {% endif %}
-          {% else %}
-            {% if is_external_manager() %}
-              {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}{{ nav_link("clients", "客户信息") }}{% endif %}
-              {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}{{ nav_link("buyers", "站点") }}{% endif %}
-            {% endif %}
-            {% if has_menu_permission("users") %}{{ nav_link("users", "我的资料") }}{% endif %}
           {% endif %}
         </nav>
-        <div class="user-box" id="sidebar-account">
+        <div class="topbar-right" id="topbar-account">
           <form method="post" action="{{ url_for('switch_language') }}" class="sidebar-language-form">
             <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
             <select class="sidebar-language" name="language" aria-label="语言" onchange="this.form.submit()">
@@ -278,8 +281,11 @@
               {% endfor %}
             </select>
           </form>
+          <span class="topbar-user">{{ g.user.name }}</span>
+          <a class="topbar-logout" href="{{ url_for('logout') }}">退出</a>
         </div>
-      </aside>
+        </div>
+      </header>
     {% endif %}
     <main class="{% if g.user %}main{% else %}auth-main{% endif %}">
       {% with messages = get_flashed_messages(with_categories=true) if not g.user or request.headers.get('Sec-Fetch-Dest') != 'document' or request.endpoint == 'workspace' else [] %}
@@ -315,6 +321,7 @@
     <script>document.querySelectorAll('thead th').forEach(cell => { cell.dataset.gridLabel = cell.textContent.trim(); });</script>
     <script src="{{ url_for('static', filename='ui-i18n.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='navigation.js', v=app_version) }}"></script>
+    <script src="{{ url_for('static', filename='erp-topnav.js', v=app_version) }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='attachment-preview.css', v=app_version) }}">
     <script src="{{ url_for('static', filename='attachment-preview.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='pending-attachments.js', v=app_version) }}"></script>
