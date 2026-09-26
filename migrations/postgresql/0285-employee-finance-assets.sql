@@ -219,3 +219,13 @@ WHERE c.table_schema='public' AND c.table_name IN (
   'bank_transactions','assets','asset_events','asset_photos'
 )
 ON CONFLICT (table_name,name) DO NOTHING;
+
+-- Internal employees may view their own payment orders. Row-level ownership is
+-- enforced by the application; these grants only make the menu/page reachable.
+INSERT INTO role_menu_permissions(role,menu_key,is_enabled,updated_by,updated_at)
+VALUES ('employee','employee_payments',1,NULL,to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+ON CONFLICT (role,menu_key) DO UPDATE SET is_enabled=1,updated_by=NULL,updated_at=excluded.updated_at;
+
+INSERT INTO role_action_permissions(role,resource_key,action_key,is_enabled,updated_by,updated_at)
+VALUES ('employee','employee_payments','view',1,NULL,to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+ON CONFLICT (role,resource_key,action_key) DO UPDATE SET is_enabled=1,updated_by=NULL,updated_at=excluded.updated_at;

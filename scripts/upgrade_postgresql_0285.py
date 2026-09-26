@@ -30,9 +30,13 @@ def schema_ready(container, database):
         "select (select count(*) from information_schema.tables where table_schema='public' "
         f"and table_name in ({names})) || '|' || "
         "(select count(*) from information_schema.columns where table_schema='public' "
-        "and table_name='employee_advances' and column_name='attachment_stored_filename')",
+        "and table_name='employee_advances' and column_name='attachment_stored_filename') || '|' || "
+        "(select count(*) from role_menu_permissions where role='employee' "
+        "and menu_key='employee_payments' and is_enabled=1) || '|' || "
+        "(select count(*) from role_action_permissions where role='employee' "
+        "and resource_key='employee_payments' and action_key='view' and is_enabled=1)",
     )
-    return result.returncode == 0 and result.stdout.strip() == f"{len(TABLES)}|1"
+    return result.returncode == 0 and result.stdout.strip() == f"{len(TABLES)}|1|1|1"
 
 
 def main():

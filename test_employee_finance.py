@@ -2,13 +2,41 @@ import unittest
 from decimal import Decimal
 from pathlib import Path
 
-from employee_finance import PAYMENT_STATUS_LABELS, payment_amounts, payment_transition_target
+from flask import Flask, g
+from werkzeug.exceptions import Forbidden
+
+from employee_finance import (
+    PAYMENT_STATUS_LABELS,
+    _can_view_all_payments,
+    _require_payment_access,
+    payment_amounts,
+    payment_transition_target,
+)
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 class EmployeeFinanceDomainTest(unittest.TestCase):
+    def test_payment_visibility_is_self_only_for_employee(self):
+        app = Flask(__name__)
+        with app.test_request_context():
+            g.user = {"id": 7, "role": "employee"}
+            api = {"normalized_role": lambda: g.user["role"]}
+            self.assertFalse(_can_view_all_payments(api))
+            _require_payment_access(api, {"employee_id": 7})
+            with self.assertRaises(Forbidden):
+                _require_payment_access(api, {"employee_id": 8})
+
+    def test_management_roles_can_view_all_employee_payments(self):
+        app = Flask(__name__)
+        for role in ("admin", "finance", "manager"):
+            with app.test_request_context():
+                g.user = {"id": 7, "role": role}
+                api = {"normalized_role": lambda: g.user["role"]}
+                self.assertTrue(_can_view_all_payments(api))
+                _require_payment_access(api, {"employee_id": 8})
+
     def test_payment_amount_formula(self):
         self.assertEqual(
             payment_amounts("1000.005", "125.00", "-25.25"),
@@ -79,6 +107,20 @@ class PostgreSQLFinanceMigrationTest(unittest.TestCase):
         module = (ROOT / "employee_finance.py").read_text(encoding="utf-8")
         self.assertIn('url_for("asset_by_stable_id", stable_id=asset["stable_id"])', module)
         self.assertNotIn('url_for("asset_by_stable_id", employee', module)
+
+    def test_employee_self_service_permission_is_seeded(self):
+        self.assertIn("('employee','employee_payments',1", self.sql)
+        self.assertIn("('employee','employee_payments','view',1", self.sql)
+        module = (ROOT / "employee_finance.py").read_text(encoding="utf-8")
+        self.assertIn('clauses.append("p.employee_id=?")', module)
+        self.assertIn('payment["employee_id"] != g.user["id"]', module)
+        self.assertIn('method_labels=PAYMENT_METHOD_LABELS, can_view_all=can_view_all', module)
+        template = (ROOT / "templates" / "employee_payments.html").read_text(encoding="utf-8")
+        self.assertIn("{% if can_view_all %}<label>员工", template)
+        self.assertIn("{% if has_action_permission('employee_payments','create') %}", template)
+        runner = (ROOT / "scripts" / "upgrade_postgresql_0285.py").read_text(encoding="utf-8")
+        self.assertIn('employee_payments\' and is_enabled=1', runner)
+        self.assertIn('f"{len(TABLES)}|1|1|1"', runner)
 
 
 if __name__ == "__main__":

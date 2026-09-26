@@ -168,6 +168,22 @@ class MenuConfigurablePermissionTest(unittest.TestCase):
         self.assertIn("reset", actions)
         self.assertEqual(self.module.ACTION_LABELS["reset"], "修改状态")
 
+    def test_employee_payment_defaults_allow_self_service_view_only(self):
+        defaults = self.module.DEFAULT_ACTION_ROLES
+        self.assertEqual(
+            defaults[("employee_payments", "view")],
+            {"admin", "manager", "finance", "employee"},
+        )
+        for action in ("create", "edit", "approve", "pay", "reconcile"):
+            self.assertNotIn("employee", defaults[("employee_payments", action)])
+        payment_menu = next(
+            item
+            for group in self.module.MENU_PERMISSION_GROUPS
+            for item in group["items"]
+            if item["key"] == "employee_payments"
+        )
+        self.assertEqual(payment_menu["roles"], {"admin", "manager", "finance", "employee"})
+
     # ─── 发票删除 ───────────────────────────────────────────────────────────
 
     def test_invoice_delete_follows_menu_configuration(self):

@@ -82,6 +82,15 @@ def _require(api, resource, action="view"):
         abort(403)
 
 
+def _can_view_all_payments(api):
+    return api["normalized_role"]() in {"admin", "manager", "finance"}
+
+
+def _require_payment_access(api, payment):
+    if not _can_view_all_payments(api) and payment["employee_id"] != g.user["id"]:
+        abort(403)
+
+
 def _next_number(api, prefix, table, column):
     api["lock_number_allocation"](api["db"]())
     stamp = date.today().strftime("%y%m")
@@ -265,25 +274,34 @@ def register_employee_finance_routes(app, api):
         status = request.args.get("status", "")
         employee_id = request.args.get("employee_id", "")
         clauses, params = ["1=1"], []
+        can_view_all = _can_view_all_payments(api)
+        if not can_view_all:
+            clauses.append("p.employee_id=?")
+            params.append(g.user["id"])
         if status in PAYMENT_STATUS_LABELS:
             clauses.append("p.status=?"); params.append(status)
-        if employee_id.isdigit():
+        if can_view_all and employee_id.isdigit():
             clauses.append("p.employee_id=?"); params.append(int(employee_id))
+        elif not can_view_all:
+            employee_id = str(g.user["id"])
         rows = api["db"]().execute(
             f"""select p.*,u.name employee_name,b.account_name from employee_payment_orders p
             join users u on u.id=p.employee_id left join bank_accounts b on b.id=p.bank_account_id
             where {' and '.join(clauses)} order by p.created_at desc,p.id desc""", params
         ).fetchall()
-        employees = api["db"]().execute("select id,name from users where role in ('employee','manager','finance','admin') order by name").fetchall()
-        accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
-        advances = _advance_balances(api, int(employee_id) if employee_id.isdigit() else None)
+        employees = (
+            api["db"]().execute("select id,name from users where role in ('employee','manager','finance','admin') order by name").fetchall()
+            if can_view_all else api["db"]().execute("select id,name from users where id=?", (g.user["id"],)).fetchall()
+        )
+        accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall() if can_view_all else []
+        advances = _advance_balances(api, int(employee_id) if employee_id.isdigit() else None) if can_view_all else []
         agreements = api["db"]().execute(
             "select s.*,u.name employee_name from employee_salary_agreements s join users u on u.id=s.employee_id order by s.is_active desc,s.effective_from desc"
-        ).fetchall()
+        ).fetchall() if can_view_all else []
         return render_template("employee_payments.html", rows=rows, employees=employees, accounts=accounts,
                                advances=advances, agreements=agreements, status=status, employee_id=employee_id,
                                status_labels=PAYMENT_STATUS_LABELS, type_labels=PAYMENT_TYPE_LABELS,
-                               method_labels=PAYMENT_METHOD_LABELS)
+                               method_labels=PAYMENT_METHOD_LABELS, can_view_all=can_view_all)
 
     @app.post("/employee-payments/create")
     @api["login_required"]
@@ -385,6 +403,7 @@ def register_employee_finance_routes(app, api):
     def employee_payment_detail(payment_id):
         _require(api, "employee_payments")
         payment = _payment_order(api, payment_id)
+        _require_payment_access(api, payment)
         sources = api["db"]().execute("select * from payment_order_sources where payment_order_id=? order by id", (payment_id,)).fetchall()
         events = api["db"]().execute(
             "select e.*,u.name creator_name from payment_order_events e left join users u on u.id=e.created_by where e.payment_order_id=? order by e.id",
@@ -403,6 +422,7 @@ def register_employee_finance_routes(app, api):
     @api["login_required"]
     def transition_employee_payment(payment_id):
         payment = _payment_order(api, payment_id)
+        _require_payment_access(api, payment)
         action = request.form.get("action", "")
         transitions = {
             "submit": ("draft", "pending_review", "edit"),
