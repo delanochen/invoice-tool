@@ -4,6 +4,44 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.305] - 2026-09-26
+
+### 变更
+- **员工等级「员工分配」：加入 / 移出该等级改为局部刷新，不再整页跳转。**
+  原来是一次表单 POST + 302，整个工作区 iframe 白一下重画，和这次操作无关的左侧等级树、
+  其它等级面板、滚动位置都跟着重画。现在走 XHR：服务端只回**受影响等级**（把员工从等级 A
+  改挂到等级 B 时是 A + B 两个）的成员表行、可加入候选下拉、以及各计数点，页面脚本按
+  `data-grade-panel` 对位替换。表格镜像由 `system-grid.js` 的 MutationObserver 自己跟进
+  （源表 tbody 一变就 replaceData），**不重建网格** —— 列宽、排序、表内搜索词都不丢。
+- 只回受影响的两个等级而不是只回目标等级：页面里所有等级同处一页，只刷目标等级的话，
+  用户切回原等级会看到「成员表里还挂着他、候选下拉里又能把他加进来」的旧数据。
+- 成员行与候选下拉抽成宏（`templates/employee_grade_member_parts.html`），整页渲染与
+  局部刷新共用同一份 HTML —— 两处各写一遍迟早会漂移，而这类不一致只有用户点下去才暴露。
+- 移出按钮的确认文案从 inline `onsubmit` 挪到 `data-member-confirm`：提交被脚本接管后
+  inline handler 会被 preventDefault 掉，确认框也就弹不出来了。
+- 局部刷新期间用 `aria-busy` 挡重复提交；操作失败时只提示，不改动页面上的数据。
+
+### 修复
+- **XHR 端点不能用 `form.action` 读。** 表单里有 `<input name="action" value="add">`，
+  表单控件的命名访问会覆盖 `HTMLFormElement.action` —— `form.action` 拿到的是那个
+  `<input>` 元素，`fetch` 会把它当相对 URL（实际请求 `/[object HTMLInputElement]`），
+  必然失败并落进「退回整页提交」的兜底分支，症状与改造前一模一样：**点一下还是整个页面刷新**。
+  改用 `form.getAttribute('action')`。兜底提交同理改用
+  `HTMLFormElement.prototype.submit.call(form)`（`form.submit()` 会被 `name="submit"` 的控件遮蔽）。
+- 这个 bug 是真渲染验证抓出来的：页面上真的点、真的发请求，「fetch 的 URL 是
+  `[object HTMLInputElement]`」一眼可见，靠读代码是看不出来的。
+
+### 测试
+- `test_employee_grades.py` 新增 5 条：XHR 回包只含片段（不带 `<table>`/外壳）、改挂时
+  回两个等级的片段（原等级要能把他加回来）、移出回包、出错只回消息且不写 flash、
+  端点必须按属性读取而不是 `form.action`。
+- 修正一处脆弱断言：等级切换用例原来用全文 `count('data-grade-switch=')`，页内脚本里的
+  选择器字面量也会被数进去（脚本里多写一个选择器就假失败），改成剥掉 `<script>` 后再计数。
+- 无头真渲染（真实点击 + 真实 XHR 往返，本地假后端回一份真实后端产出的回包）：加入、
+  移出、合成事件三条路径都断言没有发生原生提交、文档未被重新加载（sessionStorage 运行
+  计数为 1），并逐项核对成员行数、候选数、页签计数、左侧树计数、标题小字、汇总栏 /
+  状态栏、Tabulator 镜像行数是否同步。
+
 ## [0.1.304] - 2026-09-26
 
 ### 变更
