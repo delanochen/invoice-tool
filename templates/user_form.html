@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}编辑用户 - 发票工具{% endblock %}
 {% block content %}
-{# 录入页紧凑化：字段名 / name / data-* 全部保持原样，用户相关 JS 不受影响。 #}
-<div class="erp-app erp-app--flow erp-compact">
+{# ERP 化（v0.1.323）：流式外壳内全部换成 ERP 令牌布局——节标题用真实的 erp-detail-section-title，
+   字段进页面级两列网格；去掉悬空类（erp-section-title/erp-detail-grid 无 CSS 定义）与底部旧
+   .form-actions 保存按钮（工具栏「保存修改」经 form 属性提交）。
+   字段名 / name / data-* / 三个页面 JS（地址/工单授权/附件）的钩子全部保持原样。 #}
+<div class="erp-app erp-app--flow erp-compact user-form-app">
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
@@ -10,8 +13,10 @@
       编辑用户
       <small>{{ user.name }} · {{ user.email }}</small>
     </div>
+    <span class="erp-badge">{{ user.role|role_label }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
       <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('users') }}'">返回用户列表</button>
       <button type="submit" class="erp-btn primary" form="userDetailsForm">保存修改</button>
     </div>
@@ -22,162 +27,172 @@
     {% if production_postgres and has_action_permission('employee_payments','view') %}
       {% set finance = employee_finance_summary(user.id) %}
       <section class="erp-panel active">
-        <div class="erp-section-title">员工财务与资产</div>
-        <div class="erp-detail-grid">
+        <div class="erp-detail-section-title">员工财务与资产</div>
+        <div class="user-fact-grid">
           <p><strong>待付款</strong><span>{{ finance.pending_count }} 笔 · {{ finance.pending_total|money }}</span></p>
           <p><strong>未结清借款</strong><span>{{ finance.advance_balance|money }}</span></p>
           <p><strong>历史付款</strong><span>{{ finance.paid_count }} 笔 · {{ finance.paid_total|money }}</span></p>
           <p><strong>当前持有资产</strong><span>{% for asset in finance.assets %}<a href="{{ url_for('asset_detail',asset_id=asset.id) }}">{{ asset.asset_number }} {{ asset.name }}</a>{% if not loop.last %}、{% endif %}{% else %}无{% endfor %}</span></p>
         </div>
-        <div class="form-actions"><a class="erp-btn" href="{{ url_for('employee_payments',employee_id=user.id) }}">查看付款</a><a class="erp-btn" href="{{ url_for('employee_ledger',employee_id=user.id) }}">查看往来账</a></div>
+        <div class="user-fact-actions">
+          <a class="erp-btn" href="{{ url_for('employee_payments',employee_id=user.id) }}">查看付款</a>
+          <a class="erp-btn" href="{{ url_for('employee_ledger',employee_id=user.id) }}">查看往来账</a>
+        </div>
       </section>
     {% endif %}
     <section class="erp-panel active">
-  <form method="post" enctype="multipart/form-data" class="panel form-stack user-details-form" id="userDetailsForm">
-    <label>姓名 <input name="name" value="{{ user.name }}" required></label>
-    <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
-    <label>手机号 <input type="tel" name="phone" value="{{ user.phone or '' }}" autocomplete="tel" placeholder="例如 +1 713 555 1234"></label>
-    <label><span>地址 <span class="required-mark">*</span></span>
-      <textarea name="address" rows="2" data-user-address {% if requires_user_address(user.role) %}required{% endif %}>{{ user.address or "" }}</textarea>
-    </label>
-    {% if can_manage %}
-      <label>角色
-        <select name="role">
-          {% for value, label in role_options.items() %}
-            <option value="{{ value }}" {% if normalized_role(user.role) == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>外部用户对应客户
-        <select name="client_id">
-          <option value="">不绑定</option>
-          {% for client in clients %}
-            <option value="{{ client.id }}" {% if user.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      {% if can_assign and normalized_role(user.role) == "external_employee" %}
-      <fieldset class="plain-fieldset">
-        <legend>外部员工工单授权</legend>
-        <label>工单状态
-          <select data-order-status-filter="userFormOrders">
-            <option value="open" selected>未关闭</option>
-            <option value="closed">已关闭</option>
-            <option value="all">全部</option>
-          </select>
-        </label>
-        <div class="assignment-table-wrap">
-          <table class="list-table assignment-table" id="userFormOrders">
-            <thead><tr><th>选择</th><th>工单编号</th><th>站点</th><th>状态</th></tr></thead>
-            <tbody>
-              {% for order in service_orders %}
-                <tr data-order-status="{{ order.status }}">
-                  <td><input type="checkbox" name="service_order_id" value="{{ order.id }}" {% if order.id in selected_order_ids %}checked{% endif %}></td>
-                  <td>{{ order.order_number }}</td>
-                  <td>{{ order.client_name }}</td>
-                  <td>{{ "已关闭" if order.status == "closed" else "未关闭" }}</td>
-                </tr>
-              {% endfor %}
-              <tr data-filter-empty hidden><td colspan="4" class="empty">当前状态下没有工单。</td></tr>
-            </tbody>
-          </table>
+      <form method="post" enctype="multipart/form-data" class="user-details-form" id="userDetailsForm">
+        <div class="erp-detail-section-title">基本资料</div>
+        <div class="user-field-grid">
+          <label>姓名 <input name="name" value="{{ user.name }}" required></label>
+          <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
+          <label>手机号 <input type="tel" name="phone" value="{{ user.phone or '' }}" autocomplete="off" placeholder="例如 +1 713 555 1234"></label>
+          <label class="full-span"><span>地址 <span class="required-mark">*</span></span>
+            <textarea name="address" rows="2" data-user-address {% if requires_user_address(user.role) %}required{% endif %}>{{ user.address or "" }}</textarea>
+          </label>
         </div>
-      </fieldset>
-      {% endif %}
-    {% else %}
-      <label>角色 <input value="{{ user.role|role_label }}" readonly></label>
-    {% endif %}
-    {% if can_assign %}
-      <label>国家与区域
-        <select name="country_code" required>
-          {% for country in countries %}
-            <option value="{{ country.code }}" {% if user.country_code == country.code %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    {% else %}
-      <label>国家代码 <input value="{{ user.region_code }} · {{ user.country_code }}" readonly></label>
-    {% endif %}
-    <label>默认语言
-      <select name="default_language">
-        {% for code, language in supported_languages.items() %}
-          <option value="{{ code }}" {% if (user.default_language or 'zh-CN') == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    {% if can_manage %}
-      <label>员工等级
-        <select name="employee_grade_id">
-          <option value="">未指定</option>
-          {% for grade in employee_grades %}
-            <option value="{{ grade.id }}" {% if user.employee_grade_id == grade.id %}selected{% endif %}>{{ grade.grade_name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    {% else %}
-      <label>员工等级 <input value="{{ user.employee_grade_name or '-' }}" readonly></label>
-    {% endif %}
-    {% if can_assign and normalized_role(user.role) == "external_employee" and not can_manage %}
-      <fieldset class="plain-fieldset">
-        <legend>外部员工工单授权</legend>
-        <label>工单状态
-          <select data-order-status-filter="userFormExternalOrders">
-            <option value="open" selected>未关闭</option>
-            <option value="closed">已关闭</option>
-            <option value="all">全部</option>
-          </select>
-        </label>
-        <div class="assignment-table-wrap">
-          <table class="list-table assignment-table" id="userFormExternalOrders">
-            <thead><tr><th>选择</th><th>工单编号</th><th>站点</th><th>状态</th></tr></thead>
-            <tbody>
-              {% for order in service_orders %}
-                <tr data-order-status="{{ order.status }}">
-                  <td><input type="checkbox" name="service_order_id" value="{{ order.id }}" {% if order.id in selected_order_ids %}checked{% endif %}></td>
-                  <td>{{ order.order_number }}</td>
-                  <td>{{ order.client_name }}</td>
-                  <td>{{ "已关闭" if order.status == "closed" else "未关闭" }}</td>
-                </tr>
+
+        <div class="erp-detail-section-title">账号与区域</div>
+        <div class="user-field-grid">
+          {% if can_manage %}
+            <label>角色
+              <select name="role">
+                {% for value, label in role_options.items() %}
+                  <option value="{{ value }}" {% if normalized_role(user.role) == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>外部用户对应客户
+              <select name="client_id">
+                <option value="">不绑定</option>
+                {% for client in clients %}
+                  <option value="{{ client.id }}" {% if user.client_id == client.id %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% else %}
+            <label>角色 <input value="{{ user.role|role_label }}" readonly></label>
+          {% endif %}
+          {% if can_assign %}
+            <label>国家与区域
+              <select name="country_code" required>
+                {% for country in countries %}
+                  <option value="{{ country.code }}" {% if user.country_code == country.code %}selected{% endif %}>{{ country.region_name }} · {{ country.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% else %}
+            <label>国家代码 <input value="{{ user.region_code }} · {{ user.country_code }}" readonly></label>
+          {% endif %}
+          <label>默认语言
+            <select name="default_language">
+              {% for code, language in supported_languages.items() %}
+                <option value="{{ code }}" {% if (user.default_language or 'zh-CN') == code %}selected{% endif %}>{{ language.flag }} {{ language.label }}</option>
               {% endfor %}
-              <tr data-filter-empty hidden><td colspan="4" class="empty">当前状态下没有工单。</td></tr>
-            </tbody>
-          </table>
+            </select>
+          </label>
+          {% if can_manage %}
+            <label>员工等级
+              <select name="employee_grade_id">
+                <option value="">未指定</option>
+                {% for grade in employee_grades %}
+                  <option value="{{ grade.id }}" {% if user.employee_grade_id == grade.id %}selected{% endif %}>{{ grade.grade_name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% else %}
+            <label>员工等级 <input value="{{ user.employee_grade_name or '-' }}" readonly></label>
+          {% endif %}
+          <label>新密码 <input type="password" name="password" minlength="8" placeholder="留空则不修改密码"></label>
+          <label class="full-span">新增附件 <input type="file" name="attachments" multiple></label>
         </div>
-      </fieldset>
-    {% endif %}
-    <label>新密码 <input type="password" name="password" minlength="8" placeholder="留空则不修改密码"></label>
-    <label>新增附件 <input type="file" name="attachments" multiple></label>
-    {% if attachments %}
-      <section class="subsection" data-user-attachments>
-        <h3>已保存附件</h3>
-        <p class="empty" data-attachment-empty hidden>暂无附件。</p>
-        {% for attachment in attachments %}
-          <div class="attachment-row" data-attachment-row>
-            <a
-              href="{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}"
-              {% if (attachment.content_type or '').startswith('image/') %}
-                data-image-preview
-                data-preview-name="{{ attachment.original_filename }}"
-              {% else %}
-                target="_blank"
-              {% endif %}
-            >
-              {% if (attachment.content_type or '').startswith('image/') %}
-                <img class="inline-thumb" src="{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
-              {% endif %}
-              {{ attachment.original_filename }}
-            </a>
-            <button
-              class="danger small"
-              type="button"
-              data-delete-user-attachment="{{ url_for('delete_user_attachment', attachment_id=attachment.id) }}"
-            >删除</button>
-          </div>
-        {% endfor %}
-      </section>
-    {% endif %}
-    <div class="form-actions"><button class="primary" type="submit">保存修改</button></div>
-  </form>
+
+        {% if can_assign and normalized_role(user.role) == "external_employee" and can_manage %}
+          <div class="erp-detail-section-title">外部员工工单授权</div>
+          <fieldset class="plain-fieldset full-span-block">
+            <label>工单状态
+              <select data-order-status-filter="userFormOrders">
+                <option value="open" selected>未关闭</option>
+                <option value="closed">已关闭</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <div class="assignment-table-wrap">
+              <table class="list-table assignment-table" id="userFormOrders">
+                <thead><tr><th>选择</th><th>工单编号</th><th>站点</th><th>状态</th></tr></thead>
+                <tbody>
+                  {% for order in service_orders %}
+                    <tr data-order-status="{{ order.status }}">
+                      <td><input type="checkbox" name="service_order_id" value="{{ order.id }}" {% if order.id in selected_order_ids %}checked{% endif %}></td>
+                      <td>{{ order.order_number }}</td>
+                      <td>{{ order.client_name }}</td>
+                      <td>{{ "已关闭" if order.status == "closed" else "未关闭" }}</td>
+                    </tr>
+                  {% endfor %}
+                  <tr data-filter-empty hidden><td colspan="4" class="empty">当前状态下没有工单。</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </fieldset>
+        {% elif can_assign and normalized_role(user.role) == "external_employee" and not can_manage %}
+          <div class="erp-detail-section-title">外部员工工单授权</div>
+          <fieldset class="plain-fieldset full-span-block">
+            <label>工单状态
+              <select data-order-status-filter="userFormExternalOrders">
+                <option value="open" selected>未关闭</option>
+                <option value="closed">已关闭</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <div class="assignment-table-wrap">
+              <table class="list-table assignment-table" id="userFormExternalOrders">
+                <thead><tr><th>选择</th><th>工单编号</th><th>站点</th><th>状态</th></tr></thead>
+                <tbody>
+                  {% for order in service_orders %}
+                    <tr data-order-status="{{ order.status }}">
+                      <td><input type="checkbox" name="service_order_id" value="{{ order.id }}" {% if order.id in selected_order_ids %}checked{% endif %}></td>
+                      <td>{{ order.order_number }}</td>
+                      <td>{{ order.client_name }}</td>
+                      <td>{{ "已关闭" if order.status == "closed" else "未关闭" }}</td>
+                    </tr>
+                  {% endfor %}
+                  <tr data-filter-empty hidden><td colspan="4" class="empty">当前状态下没有工单。</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </fieldset>
+        {% endif %}
+
+        {% if attachments %}
+          <div class="erp-detail-section-title">已保存附件</div>
+          <section class="subsection" data-user-attachments>
+            <p class="empty" data-attachment-empty hidden>暂无附件。</p>
+            {% for attachment in attachments %}
+              <div class="attachment-row" data-attachment-row>
+                <a
+                  href="{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}"
+                  {% if (attachment.content_type or '').startswith('image/') %}
+                    data-image-preview
+                    data-preview-name="{{ attachment.original_filename }}"
+                  {% else %}
+                    target="_blank"
+                  {% endif %}
+                >
+                  {% if (attachment.content_type or '').startswith('image/') %}
+                    <img class="inline-thumb" src="{{ url_for('preview_user_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+                  {% endif %}
+                  {{ attachment.original_filename }}
+                </a>
+                <button
+                  class="danger small"
+                  type="button"
+                  data-delete-user-attachment="{{ url_for('delete_user_attachment', attachment_id=attachment.id) }}"
+                >删除</button>
+              </div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      </form>
     </section>
   </div>
 
@@ -201,4 +216,98 @@
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='user-details.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 编辑用户页 ERP 化：样式全部限定 .user-form-app 页面级作用域——user-details.css 与
+     「编辑用户弹窗」（另一工作流）共用，这里不动全局。 */
+  .user-form-app .erp-panel { padding: 8px 10px; }
+
+  /* user-details.css 的 .user-details-form 是两列 grid，其 full-span 白名单
+     （fieldset/section/.form-actions/label:has…）不含本页新增的直接子元素——
+     在此补齐，防止节标题/字段网格交替落入左右两列（与弹窗共用该文件，只能页面级覆盖）。 */
+  .user-form-app .user-details-form > .erp-detail-section-title,
+  .user-form-app .user-details-form > .user-field-grid { grid-column: 1 / -1; }
+
+  /* 财务事实格（仿 .erp-source-metrics 令牌） */
+  .user-form-app .user-fact-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    margin: 6px 0 8px;
+    background: var(--erp-line-soft);
+    border: 1px solid var(--erp-line);
+  }
+  .user-form-app .user-fact-grid p {
+    margin: 0;
+    padding: 5px 8px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+  }
+  .user-form-app .user-fact-grid strong { font-weight: 600; color: var(--erp-muted); font-size: 11px; }
+  .user-form-app .user-fact-grid a { color: var(--erp-accent); }
+  .user-form-app .user-fact-actions { display: flex; gap: 8px; }
+
+  /* 两列字段网格 */
+  .user-form-app .user-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    padding: 8px 2px 4px;
+  }
+  .user-form-app .user-field-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    color: #3c4759;
+    margin: 0;
+  }
+  .user-form-app .user-field-grid input,
+  .user-form-app .user-field-grid select,
+  .user-form-app .user-field-grid textarea { width: 100%; }
+  .user-form-app .user-field-grid input[readonly] { background: #f4f6f9; color: var(--erp-muted); }
+  .user-form-app .full-span { grid-column: 1 / -1; }
+
+  /* 工单授权 fieldset */
+  .user-form-app .full-span-block { margin: 4px 0 2px; }
+  .user-form-app .plain-fieldset {
+    border: 1px solid var(--erp-line);
+    border-radius: var(--erp-radius);
+    padding: 8px;
+    background: #fff;
+  }
+  .user-form-app .plain-fieldset > label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #3c4759;
+  }
+  .user-form-app .assignment-table-wrap {
+    margin-top: 6px;
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--erp-line-soft);
+  }
+
+  /* 附件行 */
+  .user-form-app .subsection p.empty { margin: 2px 0; color: var(--erp-muted); font-size: 12px; }
+  .user-form-app .attachment-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 8px;
+    border: 1px solid var(--erp-line-soft);
+    border-radius: var(--erp-radius);
+    margin-bottom: 4px;
+    background: #fff;
+    font-size: 12px;
+  }
+  .user-form-app .attachment-row:hover { background: var(--erp-hover); }
+  .user-form-app .attachment-row a { color: var(--erp-accent); display: inline-flex; align-items: center; gap: 6px; }
+  .user-form-app .inline-thumb { width: 26px; height: 26px; object-fit: cover; border: 1px solid var(--erp-line); }
+</style>
 {% endblock %}
