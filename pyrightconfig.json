@@ -1,6 +1,6 @@
 {
-  // 基线说明：本仓库为无类型注解的历史 Flask 代码，DB 访问统一走 sqlite3.Row /
-  // 自研 PostgreSQLConnection，取值在类型系统里都是 Any，会连带放大成大量误报。
+  // 基线说明：本仓库为无类型注解的历史 Flask 代码，DB 访问统一走
+  // PostgreSQLConnection，取值在类型系统里都是 Any，会连带放大成大量误报。
   // 这里只保留“能抓真实运行时缺陷”的规则，关掉由动态取值 / 第三方类型桩引起的噪音。
   "typeCheckingMode": "standard",
   "exclude": [
@@ -21,7 +21,7 @@
     "_*.py",
     "_*.html"
   ],
-  // sqlite3.Row 取值 / Jinja globals 赋值 / reportlab、PIL 类型桩造成的误报
+  // 数据库 Row 取值 / Jinja globals 赋值 / reportlab、PIL 类型桩造成的误报
   "reportArgumentType": false,
   "reportAttributeAccessIssue": false,
   "reportCallIssue": false,

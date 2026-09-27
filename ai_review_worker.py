@@ -9,12 +9,11 @@ records are not retried automatically.
 """
 import os
 import re
-import sqlite3
 import time
 from datetime import datetime, timedelta
 
 import ai_review
-from database import PostgreSQLConnection, postgres_enabled
+from database import PostgreSQLConnection
 
 POLL_SECONDS = max(30, int(os.environ.get("AI_REVIEW_POLL_SECONDS", "300")))
 BATCH_LIMIT = max(1, int(os.environ.get("AI_REVIEW_BATCH_LIMIT", "100")))
@@ -27,12 +26,7 @@ def log(message):
 
 
 def open_connection():
-    if postgres_enabled():
-        return PostgreSQLConnection()
-    connection = sqlite3.connect(os.path.join(DATA_DIR, "invoices.db"))
-    connection.row_factory = sqlite3.Row
-    connection.execute("pragma foreign_keys = on")
-    return connection
+    return PostgreSQLConnection()
 
 
 def setting_value(connection, key, default=""):

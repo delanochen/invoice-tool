@@ -2,13 +2,11 @@
 """Row 缺失列的异常契约（回归 v0.1.311 前「生成工单结算草稿」生产 500）。
 
 背景：模板引用了不存在的列 `reimbursement.reimbursement_number`。
-- SQLite 测试环境用 sqlite3.Row，缺列抛 IndexError（LookupError），Jinja 按
-  undefined 渲染成空串 → 测试全绿。
-- PostgreSQL 生产用自定义 Row，缺列抛 ValueError → Jinja 不捕获 → 500。
-两种环境行为不一致，测试永远发现不了这类模板 bug。
+- 旧测试 Row 缺列抛 LookupError，Jinja 按 undefined 渲染成空串。
+- PostgreSQL Row 曾抛 ValueError，Jinja 不捕获 → 500。
 
 修复：自定义 Row 缺列改抛 MissingRowColumnError(KeyError, ValueError)：
-- KeyError 让 Jinja 按 undefined 渲染，与 SQLite 测试一致，不再 500；
+- KeyError 让 Jinja 按 undefined 渲染，不再 500；
 - ValueError 保持旧兼容面。
 """
 import importlib.util

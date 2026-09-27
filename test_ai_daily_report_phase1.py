@@ -519,7 +519,8 @@ class AIDailyReportPhase1Test(unittest.TestCase):
         with self.module.app.app_context():
             conn = self.module.db()
             tables = [r["name"] for r in conn.execute(
-                "select name from sqlite_master where type='table'"
+                "select table_name as name from information_schema.tables "
+                "where table_schema='public' and table_type='BASE TABLE'"
             ).fetchall()]
             self.assertIn("ai_daily_report_drafts", tables)
             self.assertIn("ai_daily_report_actions", tables)
@@ -528,13 +529,19 @@ class AIDailyReportPhase1Test(unittest.TestCase):
     def test_draft_version_column_exists(self):
         with self.module.app.app_context():
             conn = self.module.db()
-            cols = [r["name"] for r in conn.execute("pragma table_info(ai_daily_report_drafts)").fetchall()]
+            cols = [r["name"] for r in conn.execute(
+                "select column_name as name from information_schema.columns "
+                "where table_schema='public' and table_name='ai_daily_report_drafts'"
+            ).fetchall()]
             self.assertIn("draft_version", cols)
 
     def test_service_reports_audit_columns_exist(self):
         with self.module.app.app_context():
             conn = self.module.db()
-            cols = [r["name"] for r in conn.execute("pragma table_info(service_reports)").fetchall()]
+            cols = [r["name"] for r in conn.execute(
+                "select column_name as name from information_schema.columns "
+                "where table_schema='public' and table_name='service_reports'"
+            ).fetchall()]
             for col in ["ai_generated", "arrival_time_source", "departure_time_source",
                         "arrival_photo_relative_path", "arrival_photo_hash",
                         "departure_photo_relative_path", "departure_photo_hash", "ai_draft_id"]:

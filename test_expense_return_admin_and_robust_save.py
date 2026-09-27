@@ -118,47 +118,6 @@ class AdminReturnExpenseTest(ExpenseReturnAdminTestBase):
             ).fetchone()["status"]
         self.assertEqual(status, "returned")
 
-    def test_migration_uses_sentinel_and_respects_manual_revoke(self):
-        module = self.module
-        with module.app.app_context():
-            connection = module.db()
-            # 模拟老库：行已固化关闭、哨兵不存在 → 迁移应开启
-            connection.execute("delete from settings where key = 'expense_approve_admin_v1'")
-            connection.execute(
-                """
-                update role_action_permissions set is_enabled = 0
-                where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
-                """
-            )
-            connection.commit()
-            module.migrate_admin_expense_approve(connection)
-            connection.commit()
-            enabled = connection.execute(
-                """
-                select is_enabled from role_action_permissions
-                where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
-                """
-            ).fetchone()["is_enabled"]
-            self.assertEqual(enabled, 1)
-            # 管理员事后手动关闭 + 哨兵已在 → 重启迁移不得再打开
-            connection.execute(
-                """
-                update role_action_permissions set is_enabled = 0
-                where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
-                """
-            )
-            connection.commit()
-            module.migrate_admin_expense_approve(connection)
-            connection.commit()
-            still_disabled = connection.execute(
-                """
-                select is_enabled from role_action_permissions
-                where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
-                """
-            ).fetchone()["is_enabled"]
-            self.assertEqual(still_disabled, 0)
-
-
 class RobustExpenseSaveTest(ExpenseReturnAdminTestBase):
     def _make_expense(self):
         module = self.module

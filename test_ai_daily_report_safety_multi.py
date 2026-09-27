@@ -9,7 +9,6 @@ Covers:
 import hashlib
 import json
 import os
-import sqlite3
 import sys
 import unittest
 from datetime import datetime
@@ -29,6 +28,7 @@ from ai_daily_report.daily_report_service import DailyReportService  # noqa: E40
 from ai_daily_report.schemas import collect_safety_photos  # noqa: E402
 from ai_daily_report.validation_engine import ValidationEngine  # noqa: E402
 from ai_daily_report.preview_aggregation import PreviewAggregationService  # noqa: E402
+from database import PostgreSQLConnection  # noqa: E402
 
 
 def _pid(seed: str) -> str:
@@ -87,31 +87,33 @@ def _draft_data(photos=None, selected_service=None, safety=None, safety_list=Non
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.db = sqlite3.connect(":memory:")
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("""create table ai_daily_report_drafts (
-            id integer primary key,
-            service_order_id integer,
-            report_date text,
-            status text,
-            draft_version integer,
-            created_by integer,
-            draft_data text,
-            created_at text,
-            updated_at text,
-            verification_required integer default 0,
-            verification_fields text default ''
-        )""")
+        self.db = PostgreSQLConnection()
+        test_key = self.id().rsplit('.', 1)[-1]
+        self.user_id = self.db.execute(
+            "insert into users(name,email,password_hash,role,created_at) values(?,?,?,?,?)",
+            ("Safety test admin", f"safety-{test_key}@example.invalid", "unused", "admin", datetime.now().isoformat()),
+        ).lastrowid
+        self.order_id = self.db.execute(
+            """
+            insert into service_orders (
+                order_number, client_name, site_address, client_order_number,
+                created_by, created_at
+            ) values (?, 'Safety multi', 'Test site', 'SAFETY-MULTI', ?, ?)
+            """,
+            (f"SAFETY-{test_key}", self.user_id, datetime.now().isoformat()),
+        ).lastrowid
         self.db.commit()
-        self.svc = DailyReportService(self.db, lambda: datetime.now().isoformat(), 1, "Admin")
+        self.svc = DailyReportService(
+            self.db, lambda: datetime.now().isoformat(), self.user_id, "Admin"
+        )
 
     def tearDown(self):
         self.db.close()
 
     def _insert_draft(self, data, draft_id=1):
         self.db.execute(
-            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, 31, '2026-09-14', 'draft', 1, 1, ?, ?, ?)",
-            (draft_id, json.dumps(data), datetime.now().isoformat(), datetime.now().isoformat()),
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, '2026-09-14', 'draft', 1, ?, ?, ?, ?)",
+            (draft_id, self.order_id, self.user_id, json.dumps(data), datetime.now().isoformat(), datetime.now().isoformat()),
         )
         self.db.commit()
 
@@ -260,24 +262,44 @@ class TestPreviewSafetyMulti(Base):
 
 
 class TestDraftHardDelete(Base):
-    def _create_child_tables(self):
-        self.db.execute("create table ai_daily_report_actions (id integer primary key, draft_id integer, action_id text)")
-        self.db.execute("create table ai_daily_report_attachment_manifests (id integer primary key, manifest_id text, draft_id integer)")
-        self.db.execute("create table ai_daily_report_prepared_assets (id integer primary key, manifest_id text)")
-        self.db.execute("create table ai_daily_report_manifest_sources (id integer primary key, manifest_id text)")
-        self.db.execute("create table ai_daily_report_manifest_roles (id integer primary key, manifest_id text)")
-        self.db.execute("create table ai_daily_report_formal_commits (id integer primary key, draft_id integer)")
-        self.db.commit()
-
     def test_14_physical_delete_removes_draft_and_children(self):
-        self._create_child_tables()
         self._insert_draft(_draft_data(photos=[_photo("s1")]))
-        self.db.execute("insert into ai_daily_report_actions (draft_id, action_id) values (1, 'a1')")
-        self.db.execute("insert into ai_daily_report_attachment_manifests (manifest_id, draft_id) values ('m1', 1)")
-        self.db.execute("insert into ai_daily_report_prepared_assets (manifest_id) values ('m1')")
-        self.db.execute("insert into ai_daily_report_manifest_sources (manifest_id) values ('m1')")
-        self.db.execute("insert into ai_daily_report_manifest_roles (manifest_id) values ('m1')")
-        self.db.execute("insert into ai_daily_report_formal_commits (draft_id) values (1)")
+        self.db.execute(
+            "insert into ai_daily_report_actions "
+            "(draft_id,action_id,action_version,intent,action_payload,executed_at,executed_by) "
+            "values (1,'a1',1,'test','{}',?,?)",
+            (datetime.now().isoformat(), self.user_id),
+        )
+        self.db.execute(
+            "insert into ai_daily_report_attachment_manifests "
+            "(manifest_id,draft_id,draft_version,service_order_id,report_date,manifest_version,"
+            "validation_fingerprint,draft_data_hash,manifest_fingerprint,expected_plan,created_by,created_at,updated_at) "
+            "values ('m1',1,1,?,'2026-09-14',1,'vf','dh','mf','{}',?,?,?)",
+            (self.order_id, self.user_id, datetime.now().isoformat(), datetime.now().isoformat()),
+        )
+        self.db.execute(
+            "insert into ai_daily_report_prepared_assets "
+            "(asset_id,manifest_id,prepared_relative_path,prepared_sha256,content_type,file_size,prepared_at) "
+            "values ('asset1','m1','test.jpg','sha','image/jpeg',1,?)",
+            (datetime.now().isoformat(),),
+        )
+        self.db.execute(
+            "insert into ai_daily_report_manifest_sources "
+            "(source_id,manifest_id,source_type,source_identity,source_relative_path,source_sha256) "
+            "values ('source1','m1','photo','photo:1','test.jpg','sha')"
+        )
+        self.db.execute(
+            "insert into ai_daily_report_manifest_roles "
+            "(manifest_id,source_id,role_type,category,visibility,purpose) "
+            "values ('m1','source1','evidence','safety','internal','test')"
+        )
+        self.db.execute(
+            "insert into ai_daily_report_formal_commits "
+            "(commit_id,draft_id,manifest_id,draft_version,validation_fingerprint,manifest_fingerprint,"
+            "manifest_snapshot,fields_provenance,created_by,started_at,updated_at) "
+            "values ('commit1',1,'m1',1,'vf','mf','{}','{}',?,?,?)",
+            (self.user_id, datetime.now().isoformat(), datetime.now().isoformat()),
+        )
         self.db.commit()
 
         self.svc.delete_draft(1)

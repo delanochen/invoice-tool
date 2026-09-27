@@ -116,7 +116,7 @@ class ReimbursementExpenseDisplayTest(unittest.TestCase):
     def _recalc(self, rows=None):
         """重算结算合计并提交。
 
-        每个 app context 拿到的是独立 SQLite 连接，测试读取时必须 commit，
+        每个 app context 拿到的是独立 PostgreSQL 连接，测试读取时必须 commit，
         否则后续 context 看不到这次写入。
         """
         with self.module.app.app_context():
@@ -307,8 +307,7 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
     def setUp(self):
         with self.module.app.app_context():
             db = self.module.db()
-            # 关闭 FK 检查，避免删除顺序（或上轮遗留孤立行）触发约束失败。
-            db.execute("PRAGMA foreign_keys=OFF")
+            # PG 模式外键常开；下面按依赖顺序删除，无需关闭 FK 检查。
             so_row = db.execute("select id from service_orders where order_number='SO-PLANA'").fetchone()
             so_id = so_row[0] if so_row else None
             if so_id is not None:
@@ -350,7 +349,6 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
                 "'2026-09-15T12:00:00')",
                 (order_id, user_id),
             ).lastrowid
-            db.execute("PRAGMA foreign_keys=ON")
             db.commit()
             self.user_id = user_id
             self.order_id = order_id

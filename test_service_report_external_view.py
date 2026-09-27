@@ -98,7 +98,7 @@ class ServiceReportExternalViewTest(unittest.TestCase):
             conn = self.module.db()
             admin_id = conn.execute("select id from users where role='admin' limit 1").fetchone()["id"]
             conn.execute(
-                "insert or replace into role_action_permissions (role, resource_key, action_key, is_enabled, updated_by, updated_at) values (?, 'service_reports', ?, ?, ?, '2026-09-17T00:00:00')",
+                "insert into role_action_permissions (role, resource_key, action_key, is_enabled, updated_by, updated_at) values (?, 'service_reports', ?, ?, ?, '2026-09-17T00:00:00') on conflict (role, resource_key, action_key) do update set is_enabled = excluded.is_enabled, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
                 (role, action_key, is_enabled, admin_id),
             )
             conn.commit()

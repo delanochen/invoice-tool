@@ -24,22 +24,25 @@ Prasinos Power 内部使用的 Flask 业务平台，整合客户、合同、工�
 
 ```text
 应用代码       /opt/invoice-tool
-SQLite及附件   /srv/invoice-tool/data
+业务附件       /srv/invoice-tool/data
 工单照片       /srv/invoice-tool/shared-photos
-部署备份       /srv/invoice-tool/backups
+PostgreSQL卷    invoice-tool-postgresql-data
+数据库备份     /srv/invoice-tool/backups/*.dump
 容器端口       127.0.0.1:8088 → container:8000
 公网入口       Cloudflare Tunnel → invoice.prasinospower.com
 ```
 
-Docker Compose 运行三个服务：
+Docker Compose 由基础文件与 `deploy/docker-compose.postgresql.yml` 共同启动：
 
 - `invoice-tool`：Flask/Gunicorn Web 应用。
 - `invoice-tool-photo-worker`：照片整理、缩略图和重复文件处理。
+- `invoice-tool-ai-interpret` / `invoice-tool-ai-review`：AI 附件解读与审核后台任务。
+- `invoice-tool-postgres`：唯一数据库服务，仅连接内部 Docker 网络，不发布主机端口。
 - `invoice-tool-cloudflared`：HTTPS 公网隧道，不直接暴露 Debian 的应用端口。
 
 `invoice-tool-deploy.timer` 定期检查 GitHub `main` 分支。检测到新提交后，部署脚本会：
 
-1. 在线备份 SQLite 数据库。
+1. 使用 `pg_dump` 生成 PostgreSQL custom-format 备份并验证归档目录。
 2. 将代码更新到指定 Git 提交。
 3. 重新构建并启动容器。
 4. 执行 HTTP 健康检查。
@@ -55,7 +58,7 @@ Debian 使用本仓库专用的 GitHub Deploy Key 拉取代码，不需要保存
 /bin/sh scripts/security-baseline.sh
 ```
 
-脚本从自身位置推导项目目录，并优先使用环境变量、现有 `.env` 和 `docker-compose.yml`；不预设固定 NAS 路径。它检查 Git revision、Compose 配置、SQLite `integrity_check`（数据库以只读方式打开）、数据目录和照片目录的状态/大小，以及 Docker 实际 bind mount 的 `host source -> container destination`，特别检查 `/app/data` 和 `/app/shared-photos`。输出区分 `PASS`、`WARNING` 和 `FAIL`；未执行的检查必须明确显示为 `WARNING`。脚本不修改数据库、附件、`.env` 或容器配置。
+脚本从自身位置推导项目目录，并优先使用环境变量、现有 `.env` 和 `docker-compose.yml`。它以只读方式核验 PostgreSQL 数据库名、运行角色、schema 版本、权限与外键状态，并检查 Git revision、Compose 配置、附件/照片目录及 Docker bind mount。输出区分 `PASS`、`WARNING` 和 `FAIL`；脚本不修改数据库、附件、`.env` 或容器配置。
 
 部署或迁移前确认数据库与附件备份位置，并记录 Git revision。失败时恢复对应的代码 revision 和备份；在回滚验证完成前，不要删除旧目录或覆盖数据库。
 ## 配置与启动
@@ -64,7 +67,7 @@ Debian 使用本仓库专用的 GitHub Deploy Key 拉取代码，不需要保存
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+docker compose -f docker-compose.yml -f deploy/docker-compose.postgresql.yml up -d --build
 ```
 
 主要环境变量：
@@ -74,6 +77,10 @@ SECRET_KEY=
 ADMIN_EMAIL=
 ADMIN_PASSWORD=
 CLOUDFLARE_TUNNEL_TOKEN=
+POSTGRES_DATABASE=invoice_production
+POSTGRES_VOLUME=invoice-tool-postgresql-data
+POSTGRES_APP_ENV_FILE=/absolute/private/path/invoice-app.env
+POSTGRES_OWNER_PASSWORD_FILE=/absolute/private/path/postgres-owner-password
 DATA_HOST_DIR=/srv/invoice-tool/data
 SHARED_PHOTOS_HOST_DIR=/srv/invoice-tool/shared-photos
 GOOGLE_MAPS_BROWSER_API_KEY=
@@ -84,7 +91,9 @@ SMTP、公司资料、水印时间调整密码和业务参数在系统设置页�
 
 ## 数据与照片
 
-SQLite、业务附件和照片都保存在 Debian 的持久化目录中。删除或重新构建容器不会删除 `/srv/invoice-tool` 中的数据。
+PostgreSQL 是生产、预发布、开发和测试的唯一数据库后端。数据库文件位于专用 Docker volume；业务附件和照片保存在 Debian 持久化目录。删除或重建应用容器不会删除数据库卷或 `/srv/invoice-tool` 中的业务文件。
+
+数据库连接、迁移、备份恢复和测试隔离约束见 [`docs/database-architecture.md`](docs/database-architecture.md)。
 
 现场照片保存结构：
 
@@ -98,9 +107,9 @@ SQLite、业务附件和照片都保存在 Debian 的持久化目录中。删除
 
 照片先在手机 IndexedDB 中保存为待上传草稿，点击完成后上传。锁屏、关闭页面或断网时上传可能暂停，重新打开 PWA 并联网后可以继续。
 
-## 历史/兼容说明
+## 历史说明
 
-当前生产环境为 Debian `/opt` + `/srv` 架构。仓库仍保留部分 NAS、Volume1/Volume2 兼容或迁移逻辑；这些旧 NAS 逻辑不是当前 Debian 新部署的默认流程。
+当前生产环境为 Debian `/opt` + `/srv` 架构，运行时不支持 SQLite 或旧 NAS 部署路径。`CHANGELOG.md` 与 PostgreSQL 切换记录保留历史事实，不代表仍可选择旧数据库后端。
 ## 地图
 
 未配置 Google Maps 密钥时，系统使用 OpenStreetMap、U.S. Census Geocoder 和 Nominatim。配置浏览器及 Geocoding API Key 后，工单地图切换到 Google 地图。
@@ -108,9 +117,9 @@ SQLite、业务附件和照片都保存在 Debian 的持久化目录中。删除
 ## 验证
 
 ```bash
-python -m unittest discover -s . -p "test_*.py" -v
+python -m pytest -q
 ```
 
-测试使用隔离数据库和临时文件目录，覆盖权限、审批、工单、报销、结算、工资、照片上传、离线元数据、归档和自动部署安全检查。PWA 相机、定位和主屏幕安装仍需在 iPhone/Android 真机上验证。
+数据库测试只允许连接专用 PostgreSQL `invoice_test`，测试守卫会拒绝其他数据库名。测试覆盖权限、审批、工单、报销、结算、工资、照片上传、离线元数据、归档和自动部署安全检查。PWA 相机、定位和主屏幕安装仍需在 iPhone/Android 真机上验证。
 
 现场工作实现细节见 [`FIELD_WORK.md`](FIELD_WORK.md)。

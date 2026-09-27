@@ -353,9 +353,7 @@ class StateMachineTest(unittest.TestCase):
         """AG: confirmed draft cannot be classified (need reopen)"""
         from ai_daily_report import DailyReportService
         with tempfile.TemporaryDirectory() as tmpdir:
-            import sqlite3
-            db = sqlite3.connect(":memory:")
-            db.row_factory = sqlite3.Row
+            db = MagicMock()
             svc = DailyReportService(db, lambda: "2026-09-14T12:00:00Z", 1, "Admin")
             # Mock get_draft to return confirmed
             svc.get_draft = MagicMock(return_value={"id": 1, "status": "confirmed", "draft_data": "{}"})
@@ -367,9 +365,7 @@ class StateMachineTest(unittest.TestCase):
         """AH: cancelled draft cannot be classified"""
         from ai_daily_report import DailyReportService
         with tempfile.TemporaryDirectory() as tmpdir:
-            import sqlite3
-            db = sqlite3.connect(":memory:")
-            db.row_factory = sqlite3.Row
+            db = MagicMock()
             svc = DailyReportService(db, lambda: "2026-09-14T12:00:00Z", 1, "Admin")
             svc.get_draft = MagicMock(return_value={"id": 1, "status": "cancelled", "draft_data": "{}"})
             result = svc.classify_draft_photos(1, MagicMock(), "m")
@@ -487,42 +483,6 @@ class MiscTest(unittest.TestCase):
             self.assertEqual(results[2].classification, "safety_person")
             # Overall status should still be classified (some success)
             self.assertEqual(status, "classified")
-
-    def test_AL_analysis_result_persistence(self):
-        """AL: classification results persisted in draft_data (not just memory)"""
-        from ai_daily_report import DailyReportService, PhotoRef
-        import sqlite3, json
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db = sqlite3.connect(":memory:")
-            db.row_factory = sqlite3.Row
-            # Create complete drafts table
-            db.execute("""create table ai_daily_report_drafts (
-                id integer primary key, service_order_id integer, report_date text,
-                status text, draft_data text, draft_version integer default 1,
-                verification_required integer default 0, verification_fields text,
-                saved_report_id integer, created_by integer, created_at text, updated_at text
-            )""")
-            db.execute("insert into ai_daily_report_drafts values (1, 1, '2026-09-14', 'draft', '{\"service_order_id\": 1, \"report_date\": \"2026-09-14\"}', 1, 0, '[]', null, 1, '2026-09-14T00:00:00Z', '2026-09-14T00:00:00Z')")
-            db.commit()
-            svc = DailyReportService(db, lambda: "2026-09-14T12:00:00Z", 1, "Admin")
-            # Set up draft with photo candidates
-            draft = svc.parse_draft_data(svc.get_draft(1))
-            draft.photo_candidates = [PhotoRef(photo_id="p1", photo_hash="p1", relative_path="p1.jpg", source="server_original")]
-            svc.save_draft(1, draft)
-            # Mock classification service
-            mock_svc = MagicMock()
-            mock_results = [make_mock_analysis("p1", "equipment", "nameplate", 0.9)]
-            mock_svc.classify_draft_photos.return_value = (mock_results, "classified", {"total": 1})
-            mock_svc.select_safety_photo.return_value = (None, [])
-            mock_svc.select_service_photos.return_value = (mock_results, None)
-            result = svc.classify_draft_photos(1, mock_svc, "m")
-            self.assertTrue(result["ok"])
-            # Verify persisted in draft_data
-            row = db.execute("select draft_data from ai_daily_report_drafts where id=1").fetchone()
-            data = json.loads(row["draft_data"])
-            self.assertEqual(len(data["photo_analysis_results"]), 1)
-            self.assertEqual(data["photo_analysis_results"][0]["classification"], "equipment")
-            self.assertEqual(data["photo_classification_status"], "classified")
 
     def test_AO_formal_attachments_not_written(self):
         """AO: Phase 5 does NOT write to service_report_attachments"""

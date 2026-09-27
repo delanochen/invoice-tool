@@ -1031,7 +1031,7 @@ class Phase7TestBase(unittest.TestCase):
         draft_data["workers"][0]["name"] = "Ethan P7"
         draft_data["workers"][0]["destination"] = "123 Site Ave, Spring, TX 77386"
         db.execute(
-            "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (200, 200, "2026-09-14", "draft", 1, 201, json.dumps(draft_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
         )
         # Draft with WARNING (high mileage)
@@ -1043,7 +1043,7 @@ class Phase7TestBase(unittest.TestCase):
         warn_data["workers"][0]["reported_miles"] = 600.0
         warn_data["workers"][0]["one_way_miles"] = 300.0
         db.execute(
-            "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (201, 200, "2026-09-14", "draft", 1, 201, json.dumps(warn_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
         )
         # Confirmed draft
@@ -1051,12 +1051,12 @@ class Phase7TestBase(unittest.TestCase):
         confirmed_data["confirmed_by"] = 200
         confirmed_data["confirmed_at"] = "2026-09-14T12:00:00Z"
         db.execute(
-            "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (202, 200, "2026-09-14", "confirmed", 1, 201, json.dumps(confirmed_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
         )
         # Cancelled draft
         db.execute(
-            "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (203, 200, "2026-09-14", "cancelled", 1, 201, json.dumps(warn_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
         )
         db.commit()
@@ -1165,7 +1165,7 @@ class TestAcknowledgeAPI(Phase7TestBase):
             err_data["workers"][0]["user_id"] = 201
             err_data["arrival_time"] = None
             db.execute(
-                "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (210, 200, "2026-09-14", "draft", 1, 201, json.dumps(err_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
             )
             db.commit()

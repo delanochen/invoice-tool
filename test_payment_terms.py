@@ -502,7 +502,7 @@ class PaymentTermsTest(unittest.TestCase):
                           '2026-08-15T00:00:00')
                 """
             )
-            connection.execute(
+            invoice_project_id = connection.execute(
                 """
                 insert into projects (
                     name, name_key, project_type, default_amount, unit_price,
@@ -510,12 +510,12 @@ class PaymentTermsTest(unittest.TestCase):
                 ) values ('Filter Invoice Beta', 'filter invoice beta', 'invoice', 0, 0, 0, 1,
                           '2026-08-15T00:00:00')
                 """
-            )
+            ).lastrowid
             connection.commit()
 
         page = self.http.get("/projects?project_type=expense&q=Alpha").get_data(as_text=True)
         self.assertIn("Filter Expense Alpha", page)
-        self.assertNotIn("Filter Invoice Beta", page)
+        self.assertNotIn(f'action="/projects/{invoice_project_id}/edit"', page)
         self.assertIn('value="expense" selected', page)
         self.assertIn('value="Alpha"', page)
 

@@ -69,16 +69,9 @@ class PhotoWorkerDayFolderTest(unittest.TestCase):
 
     def test_compose_mount_defaults_to_debian_storage_and_can_be_overridden(self):
         compose = (REPO_DIR / "docker-compose.yml").read_text(encoding="utf-8")
-        updater = (REPO_DIR / "scripts" / "auto-update.sh").read_text(encoding="utf-8")
         expected = "${SHARED_PHOTOS_HOST_DIR:-/srv/invoice-tool/shared-photos}"
         self.assertEqual(compose.count(expected), 2)
         self.assertNotIn("/volume2/TeamFolder", compose)
-        self.assertIn('log "shared photos auto-detected: $SHARED_PHOTOS_HOST_DIR"', updater)
-        self.assertIn('VOLUME2_PHOTOS="/volume2/TeamFolder/', updater)
-        self.assertIn('APP_DIR="${INVOICE_TOOL_DIR:-$DEFAULT_APP_DIR}"', updater)
-        self.assertIn('LOG_FILE="${INVOICE_TOOL_UPDATE_LOG:-$(dirname "$APP_DIR")/invoice-tool-auto-update.log}"', updater)
-        self.assertIn('/volume[0-9]*/docker/invoice-tool)', updater)
-        self.assertNotIn('APP_DIR="${INVOICE_TOOL_DIR:-/volume1/docker/invoice-tool}"', updater)
 
 
 class SharedPhotoBrowseDayFolderTest(unittest.TestCase):

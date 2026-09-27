@@ -47,7 +47,6 @@ class StaffSearchTests(unittest.TestCase):
         import app as app_module
         cls.app_module = app_module
         app_module.DATA_DIR = cls.temp_dir
-        app_module.DB_PATH = os.path.join(cls.temp_dir, "invoices.db")
         app_module.ATTACHMENTS_DIR = os.path.join(cls.temp_dir, "attachments")
         app_module.REPORT_ATTACHMENTS_DIR = os.path.join(
             cls.temp_dir, "service-report-attachments"
@@ -99,7 +98,7 @@ class StaffSearchTests(unittest.TestCase):
             "verification_fields": [],
         }
         db.execute(
-            "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (draft_id, 500, "2026-09-19", status, draft_version, 500, json.dumps(draft_data), "2026-09-19T00:00:00Z", "2026-09-19T00:00:00Z"),
         )
         db.commit()

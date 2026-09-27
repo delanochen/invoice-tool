@@ -102,7 +102,10 @@ class PhotoDiscoveryServiceTest(unittest.TestCase):
         make_test_jpeg(outside / "evil.jpg", color=(1, 2, 3))
         link_dir = self.shared_root / "SO-LINK" / "pictures" / "2026-09-14"
         link_dir.mkdir(parents=True)
-        (link_dir / "evil.jpg").symlink_to(outside / "evil.jpg")
+        try:
+            (link_dir / "evil.jpg").symlink_to(outside / "evil.jpg")
+        except OSError as error:
+            self.skipTest(f"symlink creation unavailable: {error}")
         svc = self._make_service()
         # The symlink file should be detected but path resolution should catch escape
         photos, _, _ = svc.discover_photos("SO-LINK", "2026-09-14")

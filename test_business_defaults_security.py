@@ -80,6 +80,10 @@ class BusinessDefaultsSecurityTest(unittest.TestCase):
             }
         )
         with module.app.app_context():
+            module.db().execute(
+                "delete from settings where key in ('company_name','payment_bank_name','payment_account_number','smtp_host')"
+            )
+            module.db().commit()
             self.assertEqual(module.get_company_profile()["name"], "Configured Company")
             self.assertEqual(module.get_payment_instructions()["bank_name"], "Configured Bank")
             self.assertEqual(module.get_payment_instructions()["account_number"], "configured-account")

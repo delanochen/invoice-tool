@@ -112,10 +112,9 @@ class Phase8TestBase(unittest.TestCase):
 
         import app as app_module
         cls.app_module = app_module
-        # Isolate storage to the temp dir (DATA_DIR/DB_PATH/SHARED_PHOTOS_DIR
+        # Isolate file storage to the temp dir (DATA_DIR/SHARED_PHOTOS_DIR
         # are module constants; env vars alone are NOT enough after import)
         app_module.DATA_DIR = cls.temp_dir
-        app_module.DB_PATH = os.path.join(cls.temp_dir, "invoices.db")
         app_module.ATTACHMENTS_DIR = os.path.join(cls.temp_dir, "attachments")
         app_module.REPORT_ATTACHMENTS_DIR = os.path.join(cls.temp_dir, "service-report-attachments")
         app_module.SHARED_PHOTOS_DIR = cls.shared_dir

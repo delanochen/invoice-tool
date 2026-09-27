@@ -24,12 +24,12 @@ class WorkspaceTest(unittest.TestCase):
             session.clear()
         self.assertEqual(self.http.get('/workspace').status_code, 302)
 
-    def test_redirect_bootstrap_preserves_flash(self):
+    def test_redirect_bootstrap_consumes_success_flash(self):
         with self.http.session_transaction() as session:
             session['_flashes'] = [('success', 'workspace-flash-test')]
         self.http.get('/service-orders', headers={'Sec-Fetch-Dest': 'document'})
         page = self.http.get('/workspace', headers={'Sec-Fetch-Dest': 'document'})
-        self.assertIn(b'workspace-flash-test', page.data)
+        self.assertNotIn(b'workspace-flash-test', page.data)
 
 
 if __name__ == '__main__':

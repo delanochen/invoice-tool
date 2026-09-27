@@ -2,17 +2,14 @@
 
 与 photo_worker 同模式：作为独立进程/容器运行（docker-compose 里的
 ai-interpret-worker）。只负责批量触发，解读逻辑在 ai_interpretation.py。
-* SQLite 模式：直接打开 DATA_DIR/invoices.db。
-* PostgreSQL 模式：使用 DATABASE_URL（表由 migrations/postgresql/0281-*.sql 建立，
-  见 scripts/upgrade_postgresql_0281.py）。
+数据库固定使用 DATABASE_URL 指向 PostgreSQL；表由版本化迁移建立。
 """
 import os
-import sqlite3
 import time
 from datetime import datetime, timedelta
 
 import ai_interpretation
-from database import PostgreSQLConnection, postgres_enabled
+from database import PostgreSQLConnection
 
 RUN_HOUR = int(os.environ.get("AI_INTERPRET_RUN_HOUR", "2"))
 POLL_SECONDS = max(30, int(os.environ.get("AI_INTERPRET_POLL_SECONDS", "300")))
@@ -25,12 +22,7 @@ def log(message):
 
 
 def open_connection():
-    if postgres_enabled():
-        return PostgreSQLConnection()
-    connection = sqlite3.connect(os.path.join(DATA_DIR, "invoices.db"))
-    connection.row_factory = sqlite3.Row
-    connection.execute("pragma foreign_keys = on")
-    return connection
+    return PostgreSQLConnection()
 
 
 def seconds_until_next_run(now=None):

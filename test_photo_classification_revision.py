@@ -17,7 +17,6 @@ Covers the sealed photo-classification revision:
 import hashlib
 import json
 import os
-import sqlite3
 import sys
 import unittest
 from datetime import datetime
@@ -34,6 +33,7 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from ai_daily_report.daily_report_service import DailyReportService, DraftVersionConflict  # noqa: E402
+from database import PostgreSQLConnection  # noqa: E402
 
 
 def _pid(seed: str) -> str:
@@ -98,23 +98,25 @@ def _draft_data(photos=None, arrival=None, departure=None, selected_service=None
 
 class RevisionTestBase(unittest.TestCase):
     def setUp(self):
-        self.db = sqlite3.connect(":memory:")
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("""create table ai_daily_report_drafts (
-            id integer primary key,
-            service_order_id integer,
-            report_date text,
-            status text,
-            draft_version integer,
-            created_by integer,
-            draft_data text,
-            created_at text,
-            updated_at text,
-            verification_required integer default 0,
-            verification_fields text default ''
-        )""")
+        self.db = PostgreSQLConnection()
+        test_key = self.id().rsplit('.', 1)[-1]
+        self.user_id = self.db.execute(
+            "insert into users(name,email,password_hash,role,created_at) values(?,?,?,?,?)",
+            ("Photo revision admin", f"photo-{test_key}@example.invalid", "unused", "admin", datetime.now().isoformat()),
+        ).lastrowid
+        self.order_id = self.db.execute(
+            """
+            insert into service_orders (
+                order_number, client_name, site_address, client_order_number,
+                created_by, created_at
+            ) values (?, 'Photo revision', 'Test site', 'PHOTO-REV', ?, ?)
+            """,
+            (f"PHOTO-{test_key}", self.user_id, datetime.now().isoformat()),
+        ).lastrowid
         self.db.commit()
-        self.svc = DailyReportService(self.db, lambda: datetime.now().isoformat(), 1, "Admin")
+        self.svc = DailyReportService(
+            self.db, lambda: datetime.now().isoformat(), self.user_id, "Admin"
+        )
 
     def tearDown(self):
         self.db.close()
@@ -124,7 +126,7 @@ class RevisionTestBase(unittest.TestCase):
             "insert into ai_daily_report_drafts "
             "(id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) "
             "values (?,?,?,?,?,?,?,?,?)",
-            (draft_id, 31, "2026-09-14", status, version, 1, json.dumps(data), "now", "now"),
+            (draft_id, self.order_id, "2026-09-14", status, version, self.user_id, json.dumps(data), "now", "now"),
         )
         return cur.lastrowid
 

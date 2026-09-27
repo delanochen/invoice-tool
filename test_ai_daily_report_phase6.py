@@ -119,7 +119,7 @@ class Phase6TestBase(unittest.TestCase):
             "evidence_records": [],
         }
         db.execute(
-            "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (100, 100, "2026-09-14", "draft", 1, 101, json.dumps(draft_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
         )
 
@@ -128,7 +128,7 @@ class Phase6TestBase(unittest.TestCase):
         confirmed_data["confirmed_by"] = 100
         confirmed_data["confirmed_at"] = "2026-09-14T12:00:00Z"
         db.execute(
-            "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (101, 100, "2026-09-14", "confirmed", 1, 101, json.dumps(confirmed_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
         )
 
@@ -178,7 +178,7 @@ class TestAuthorizationHelpers(Phase6TestBase):
                 "verification_fields": [],
             }
             db.execute(
-                "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (99, 100, "2026-09-14", "draft", 1, 101, json.dumps(other_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
             )
             db.commit()
@@ -270,7 +270,7 @@ class TestIDORProtection(Phase6TestBase):
                 "verification_fields": [],
             }
             db.execute(
-                "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (50, 100, "2026-09-14", "draft", 1, 101, json.dumps(other_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
             )
             db.commit()
@@ -280,6 +280,21 @@ class TestIDORProtection(Phase6TestBase):
 
     def test_employee_cannot_update_other_draft(self):
         self._login(102)  # 张三
+        # 每测试隔离（PG 基线恢复）下不再依赖上一个测试创建的 draft 50，自建一份
+        with self.app.app_context():
+            db = self.app_module.db()
+            other_data = {
+                "service_order_id": 100,
+                "report_date": "2026-09-14",
+                "workers": [{"user_id": 101, "name": "Ethan"}],
+                "verification_required": False,
+                "verification_fields": [],
+            }
+            db.execute(
+                "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (50, 100, "2026-09-14", "draft", 1, 101, json.dumps(other_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
+            )
+            db.commit()
         csrf = self._get_csrf()
         resp = self.client.post(
             "/api/ai/daily-report/draft/50/update-worker",
@@ -409,7 +424,7 @@ class TestConfirmDraftOnly(Phase6TestBase):
                 "ai_generated": True,
             }
             db.execute(
-                "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (200, 100, "2026-09-14", "draft", 1, 100, json.dumps(fresh_data), "2026-09-14T00:00:00Z", "2026-09-14T00:00:00Z"),
             )
             db.commit()
@@ -589,7 +604,7 @@ class TestWorkerParticipantAuthorization(Phase6TestBase):
                 "verification_fields": [],
             }
             db.execute(
-                "insert or replace into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "insert into ai_daily_report_drafts (id, service_order_id, report_date, status, draft_version, created_by, draft_data, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (110, 100, "2026-09-15", "draft", 1, 101, json.dumps(draft_data), "2026-09-15T00:00:00Z", "2026-09-15T00:00:00Z"),
             )
             db.commit()

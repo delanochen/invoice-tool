@@ -22,7 +22,7 @@ class DeploymentBackendTests(unittest.TestCase):
             stubs = '''
 docker() {
   printf 'docker %s\\n' "$*" >> "$TRACE"
-  if [ "$1" = exec ]; then printf '%s\\n' "$RUNNING"; return 0; fi
+  if [ "$1" = exec ]; then [ "$RUNNING" = postgresql ]; return; fi
   if [ "$1" = compose ] && [ "$FAIL_BUILD" = 1 ]; then return 7; fi
 }
 python3() {
@@ -45,8 +45,8 @@ python3() {
                                     cwd=folder, env=env, capture_output=True, text=True)
             return result, trace.read_text() if trace.exists() else ''
 
-    def test_sqlite_backend_is_rejected(self):
-        result, trace = self.run_shell('sqlite', 'sqlite', 'configure_database_backend && build_current_version')
+    def test_non_postgresql_backend_is_rejected(self):
+        result, trace = self.run_shell('unsupported', 'missing', 'configure_database_backend && build_current_version')
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn('docker compose', trace)
 
@@ -56,11 +56,10 @@ python3() {
         self.assertIn('check_postgresql_runtime.py --database invoice', trace)
         self.assertIn('/deploy/docker-compose.postgresql.yml up -d --build', trace)
 
-    def test_backend_mismatch_stops_before_build(self):
-        for configured, running in [('postgresql', 'sqlite')]:
-            result, trace = self.run_shell(configured, running, 'configure_database_backend && build_current_version')
-            self.assertNotEqual(result.returncode, 0)
-            self.assertNotIn('docker compose', trace)
+    def test_missing_runtime_database_url_stops_before_build(self):
+        result, trace = self.run_shell('postgresql', 'missing', 'configure_database_backend && build_current_version')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('docker compose', trace)
 
     def test_invalid_runtime_stops_before_build(self):
         result, trace = self.run_shell('postgresql', 'postgresql', 'configure_database_backend && build_current_version', fail_runtime=True)

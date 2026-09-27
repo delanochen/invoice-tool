@@ -8,8 +8,13 @@ import re
 import secrets
 import shutil
 import smtplib
-import sqlite3
-from database import PostgreSQLConnection, postgres_enabled, verify_postgres_schema, lock_number_allocation
+from database import (
+    DatabaseError,
+    IntegrityError,
+    PostgreSQLConnection,
+    verify_postgres_schema,
+    lock_number_allocation,
+)
 import tempfile
 import threading
 import time
@@ -52,7 +57,7 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from pypdf import PdfReader
 from image_processing import compress_image
-from field_work import init_field_schema, register_field_routes
+from field_work import register_field_routes
 from staff_reports import register_staff_reports
 from customer_report_logic import (
     migrate_historical_customer_reports,
@@ -62,20 +67,18 @@ from rate_engine import (
     contract_rate,
     employee_grade_rate_snapshot,
     employee_rate,
-    init_rate_schema,
     register_rate_routes,
     EMPLOYEE_RATE_LABELS,
     EMPLOYEE_RATE_TYPES,
 )
 from settlement_review import (
-    init_settlement_review_schema,
     linked_approved_expense_rows,
     register_settlement_review_routes,
     selected_expense_count,
     selected_expense_item_ids,
     selected_expense_total,
 )
-from profitability import init_profitability_schema, register_profitability_routes
+from profitability import register_profitability_routes
 from employee_finance import cancel_expense_payment_order, ensure_expense_payment_order, register_employee_finance_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
@@ -137,7 +140,6 @@ from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("INVOICE_DATA_DIR", os.path.join(BASE_DIR, "data"))
-DB_PATH = os.path.join(DATA_DIR, "invoices.db")
 ATTACHMENTS_DIR = os.path.join(DATA_DIR, "attachments")
 CONTRACT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "contract-attachments")
 REPORT_ATTACHMENTS_DIR = os.path.join(DATA_DIR, "service-report-attachments")
@@ -554,23 +556,6 @@ CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
     "Mileage Reimbursement": "mileage_total",
 }
 
-# expense_settlement_invoice_map 种子数据（员工报销项目全名 → 结算字段 → 发票项目名）。
-# 建表/补种子用 insert or ignore：唯一键冲突时跳过，绝不覆盖已有行。
-# 工时人工、里程补贴不是员工报销项目，不走这张表。
-EXPENSE_SETTLEMENT_INVOICE_SEEDS = (
-    # MRO 的发票项目以 merge_mro_project_aliases 合并后的规范全名为准
-    ("MRO Supplies配件及耗材费", "other", "MRO Supplies配件及耗材费"),
-    ("Client Entertainment Expenses客户招待费", "other", "Other"),
-    ("Express Delivery Fees快递费", "other", "Express Delivery Fees"),
-    ("Accommodation/Lodging住宿费", "lodging", "Travel Expenses Reimbursement"),
-    ("Airfare机票费", "airfare", "Travel Expenses Reimbursement"),
-    ("Car Rental Fee租车费用", "rental_car", "Travel Expenses Reimbursement"),
-    ("Checked Baggage Fee行李费", "baggage", "Travel Expenses Reimbursement"),
-    ("Fuel Expenses燃油费", "fuel", "Travel Expenses Reimbursement"),
-    ("Parking Charge停车费", "parking", "Travel Expenses Reimbursement"),
-    ("Taxi Fare / Ride-Hailing Fare打车费", "taxi", "Travel Expenses Reimbursement"),
-)
-
 # 工单结算里映射可指向的金额字段（expense_settlement_invoice_map.settlement_field 值域）
 SETTLEMENT_EXPENSE_FIELD_LABELS = {
     "lodging": "住宿费",
@@ -642,16 +627,7 @@ def db():
         os.makedirs(CUSTOMER_REIMBURSEMENT_DIR, exist_ok=True)
         os.makedirs(COMPANY_ATTACHMENT_DIR, exist_ok=True)
         os.makedirs(USER_ATTACHMENT_DIR, exist_ok=True)
-        if postgres_enabled():
-            g.db = PostgreSQLConnection()
-            return g.db
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        # SQLite does not enforce declared foreign keys unless every connection
-        # enables them.  Without this, a parent work order can disappear while
-        # daily reports and expenses remain as inaccessible orphan records.
-        g.db.execute("PRAGMA foreign_keys = ON")
-        g.db.execute("PRAGMA busy_timeout = 5000")
+        g.db = PostgreSQLConnection()
     return g.db
 
 
@@ -671,29 +647,15 @@ def verify_data_directory_identity():
         raise RuntimeError(
             "Refusing to start: the mounted data directory identity does not match."
         )
-    if postgres_enabled():
-        identity_db = PostgreSQLConnection()
-        try:
-            identity_row = identity_db.execute("select value from settings where key = 'production_database_identity'").fetchone()
-        finally:
-            identity_db.close()
-        if not identity_row or identity_row[0] != DATA_DIRECTORY_IDENTITY:
-            raise RuntimeError("Protected PostgreSQL database identity mismatch.")
-        return
-    if not os.path.isfile(DB_PATH) or os.path.getsize(DB_PATH) < 4096:
-        raise RuntimeError("Refusing to start: the protected production database is missing or empty.")
+    identity_db = PostgreSQLConnection()
     try:
-        identity_db = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
         identity_row = identity_db.execute(
             "select value from settings where key = 'production_database_identity'"
         ).fetchone()
+    finally:
         identity_db.close()
-    except sqlite3.Error as error:
-        raise RuntimeError(
-            "Refusing to start: the protected production database identity cannot be read."
-        ) from error
     if not identity_row or identity_row[0] != DATA_DIRECTORY_IDENTITY:
-        raise RuntimeError("Refusing to start: the protected production database identity is incorrect.")
+        raise RuntimeError("Protected PostgreSQL database identity mismatch.")
 
 
 # MRO 项目合并后的规范全名：裸名（MRO Supplies / MroSupplies）一律归到它名下。
@@ -785,12 +747,6 @@ def close_db(error=None):
         connection.close()
 
 
-def ensure_column(connection, table, column, definition):
-    columns = {row["name"] for row in connection.execute(f"pragma table_info({table})").fetchall()}
-    if column not in columns:
-        connection.execute(f"alter table {table} add column {column} {definition}")
-
-
 def reset_ai_drafts_for_deleted_service_report(connection, report_id):
     """Make AI drafts reusable after their generated formal report is deleted."""
     rows = connection.execute(
@@ -821,1631 +777,41 @@ def reset_ai_drafts_for_deleted_service_report(connection, report_id):
     return len(draft_ids)
 
 
-def repair_orphaned_ai_daily_report_drafts(connection):
-    """Repair historical saved drafts whose formal report no longer exists."""
-    rows = connection.execute(
-        """
-        select id from ai_daily_report_drafts
-        where status = 'saved'
-          and (saved_report_id is null or not exists (
-              select 1 from service_reports where id = ai_daily_report_drafts.saved_report_id
-          ))
-        """
-    ).fetchall()
-    draft_ids = [int(row[0]) for row in rows]
-    if not draft_ids:
-        return 0
-    placeholders = ",".join("?" for _ in draft_ids)
-    connection.execute(
-        f"delete from ai_daily_report_formal_commits where draft_id in ({placeholders})",
-        draft_ids,
-    )
-    connection.execute(
-        f"""
-        update ai_daily_report_drafts
-        set status = 'draft', saved_report_id = null,
-            draft_version = draft_version + 1, updated_at = ?
-        where id in ({placeholders})
-        """,
-        [now(), *draft_ids],
-    )
-    return len(draft_ids)
+def ensure_postgres_admin():
+    """PostgreSQL 模式下沿用 init_db 的管理员引导语义（fail-closed）。
 
-
-def init_db():
-    if postgres_enabled():
-        verify_postgres_schema()
-        return
+    库里已有管理员时是空操作（每次启动一次 SELECT）；全新 PG 部署或灾备
+    恢复后没有管理员时，按 ADMIN_EMAIL / ADMIN_PASSWORD 引导，凭据缺失、
+    为空、为默认密码、或邮箱已属于普通用户时拒绝启动。
+    """
     with app.app_context():
         connection = db()
-        connection.executescript(
-            """
-            create table if not exists users (
-                id integer primary key autoincrement,
-                name text not null,
-                email text not null unique,
-                password_hash text not null,
-                role text not null default 'user',
-                address text not null default '',
-                phone text not null default '',
-                phone_verified integer not null default 0,
-                phone_verified_at text,
-                default_language text not null default 'zh-CN',
-                preferred_communication_language text not null default 'zh-CN',
-                communication_languages text not null default 'zh-CN',
-                employee_grade_id integer,
-                client_id integer,
-                created_at text not null,
-                foreign key(employee_grade_id) references employee_grades(id),
-                foreign key(client_id) references clients(id)
-            );
-
-            create table if not exists employee_grades (
-                id integer primary key autoincrement,
-                grade_name text not null unique,
-                description text not null default '',
-                base_salary real not null default 0,
-                meal_daily_amount real not null default 0,
-                car_allowance_method text not null default 'mileage',
-                car_mileage_rate real not null default 0.5,
-                car_hourly_rate real not null default 10,
-                rental_driving_hourly_rate real not null default 15,
-                standard_hourly_rate real not null default 0,
-                transport_hourly_rate real not null default 0,
-                overtime_hourly_rate real not null default 0,
-                holiday_hourly_rate real not null default 0,
-                is_active integer not null default 1,
-                created_at text not null
-            );
-
-            create table if not exists clients (
-                id integer primary key autoincrement,
-                client_number text not null unique,
-                name text not null,
-                short_name text not null,
-                contact_name text,
-                email text,
-                address text,
-                country text not null default 'China',
-                payment_term_id integer,
-                created_at text not null
-            );
-
-            create table if not exists payment_terms (
-                id integer primary key autoincrement,
-                name text not null unique,
-                rule_type text not null default 'fixed_days',
-                fixed_days integer not null default 30,
-                cutoff_day integer,
-                due_day integer,
-                before_due_months integer not null default 1,
-                after_due_months integer not null default 2,
-                notes text,
-                is_active integer not null default 1,
-                created_at text not null,
-                updated_at text not null
-            );
-
-            create table if not exists owners (
-                id integer primary key autoincrement,
-                owner_number text not null unique,
-                name text not null,
-                created_at text not null
-            );
-
-            create table if not exists manufacturers (
-                id integer primary key autoincrement,
-                manufacturer_number text not null unique,
-                name text not null,
-                created_at text not null
-            );
-
-            create table if not exists projects (
-                id integer primary key autoincrement,
-                name text not null,
-                name_key text,
-                project_type text not null default 'invoice',
-                default_amount real not null default 0,
-                unit_price real not null default 0,
-                tax_rate real not null default 0,
-                is_active integer not null default 1,
-                created_at text not null
-            );
-
-            create table if not exists contracts (
-                id integer primary key autoincrement,
-                contract_number text not null unique,
-                client_id integer not null,
-                contract_type text not null,
-                title text not null,
-                status text not null default 'draft',
-                signed_date text,
-                start_date text,
-                end_date text,
-                currency text not null default 'USD',
-                amount real,
-                payment_terms text,
-                rate_card text,
-                project_name text,
-                notes text,
-                created_by integer not null,
-                created_at text not null,
-                updated_at text not null,
-                foreign key(client_id) references clients(id),
-                foreign key(created_by) references users(id)
-            );
-
-            create table if not exists contract_attachments (
-                id integer primary key autoincrement,
-                contract_id integer not null,
-                original_filename text not null,
-                stored_filename text not null,
-                content_type text,
-                uploaded_by integer not null,
-                uploaded_at text not null,
-                foreign key(contract_id) references contracts(id) on delete cascade,
-                foreign key(uploaded_by) references users(id)
-            );
-
-            create table if not exists invoices (
-                id integer primary key autoincrement,
-                invoice_number text not null unique,
-                client_id integer not null,
-                issue_date text not null,
-                due_date text not null,
-                currency text not null default 'USD',
-                notes text,
-                status text not null default 'submitted',
-                return_reason text,
-                sent_at text,
-                paid_at text,
-                payment_amount real,
-                payment_note text,
-                created_by integer not null,
-                created_at text not null,
-                foreign key(client_id) references clients(id),
-                foreign key(created_by) references users(id)
-            );
-
-            create table if not exists invoice_items (
-                id integer primary key autoincrement,
-                invoice_id integer not null,
-                project_id integer not null,
-                description text not null,
-                amount real not null,
-                tax_rate real not null default 0,
-                foreign key(invoice_id) references invoices(id) on delete cascade,
-                foreign key(project_id) references projects(id)
-            );
-
-            create table if not exists invoice_attachments (
-                id integer primary key autoincrement,
-                invoice_id integer not null,
-                original_filename text not null,
-                stored_filename text not null,
-                content_type text,
-                uploaded_by integer not null,
-                uploaded_at text not null,
-                foreign key(invoice_id) references invoices(id) on delete cascade,
-                foreign key(uploaded_by) references users(id)
-            );
-
-            create table if not exists invoice_save_tokens (
-                token text primary key,
-                invoice_id integer,
-                created_at text not null,
-                foreign key(invoice_id) references invoices(id) on delete cascade
-            );
-
-            create table if not exists messages (
-                id integer primary key autoincrement,
-                user_id integer not null,
-                title text not null,
-                body text not null,
-                link text,
-                is_read integer not null default 0,
-                created_at text not null,
-                foreign key(user_id) references users(id)
-            );
-
-            create table if not exists settings (
-                key text primary key,
-                value text not null
-            );
-
-            create table if not exists llm_configs (
-                id integer primary key autoincrement,
-                name text not null,
-                base_url text not null default '',
-                api_key text not null default '',
-                model text not null default '',
-                supports_vision integer not null default 0,
-                timeout_seconds integer not null default 300,
-                enabled integer not null default 1,
-                notes text not null default '',
-                created_at text not null,
-                updated_at text not null
-            );
-
-            create table if not exists knowledge_documents (
-                id integer primary key autoincrement,
-                title text not null,
-                category text not null default '其他',
-                description text not null default '',
-                original_filename text not null,
-                stored_filename text not null unique,
-                content_type text not null default 'application/pdf',
-                file_size integer not null default 0,
-                uploaded_by integer,
-                uploaded_at text not null,
-                updated_at text not null,
-                foreign key(uploaded_by) references users(id) on delete set null
-            );
-
-            create table if not exists knowledge_document_versions (
-                id integer primary key autoincrement,
-                document_id integer not null,
-                version_number integer not null,
-                original_filename text not null,
-                stored_filename text not null unique,
-                file_size integer not null default 0,
-                extracted_text text not null default '',
-                change_note text not null default '',
-                uploaded_by integer,
-                uploaded_at text not null,
-                unique(document_id, version_number),
-                foreign key(document_id) references knowledge_documents(id) on delete cascade,
-                foreign key(uploaded_by) references users(id) on delete set null
-            );
-
-            create table if not exists role_menu_permissions (
-                role text not null,
-                menu_key text not null,
-                is_enabled integer not null default 1,
-                updated_by integer,
-                updated_at text not null,
-                primary key(role, menu_key),
-                foreign key(updated_by) references users(id) on delete set null
-            );
-
-            create table if not exists role_action_permissions (
-                role text not null,
-                resource_key text not null,
-                action_key text not null,
-                is_enabled integer not null default 1,
-                updated_by integer,
-                updated_at text not null,
-                primary key(role, resource_key, action_key),
-                foreign key(updated_by) references users(id) on delete set null
-            );
-
-            create table if not exists countries (
-                code text primary key,
-                region_code text not null,
-                is_active integer not null default 1,
-                sort_order integer not null default 0,
-                created_at text not null
-            );
-
-            create table if not exists country_translations (
-                country_code text not null,
-                language_code text not null,
-                name text not null,
-                region_name text not null,
-                primary key(country_code, language_code),
-                foreign key(country_code) references countries(code) on delete cascade
-            );
-
-            create table if not exists company_attachments (
-                id integer primary key autoincrement,
-                original_filename text not null,
-                stored_filename text not null,
-                content_type text,
-                uploaded_by integer not null,
-                uploaded_at text not null,
-                foreign key(uploaded_by) references users(id)
-            );
-
-            create table if not exists user_attachments (
-                id integer primary key autoincrement,
-                user_id integer not null,
-                original_filename text not null,
-                stored_filename text not null,
-                content_type text,
-                uploaded_by integer not null,
-                uploaded_at text not null,
-                foreign key(user_id) references users(id) on delete cascade,
-                foreign key(uploaded_by) references users(id)
-            );
-
-            create table if not exists user_service_orders (
-                user_id integer not null,
-                service_order_id integer not null,
-                assigned_by integer not null,
-                assigned_at text not null,
-                primary key(user_id, service_order_id),
-                foreign key(user_id) references users(id) on delete cascade,
-                foreign key(service_order_id) references service_orders(id) on delete cascade,
-                foreign key(assigned_by) references users(id)
-            );
-
-            create table if not exists buyers (
-                id integer primary key autoincrement,
-                buyer_number text not null unique,
-                country text,
-                country_code text not null default 'US',
-                name text not null,
-                owner text,
-                manufacturer_id integer,
-                contact_name text,
-                contact_details text,
-                email text,
-                site_size text,
-                detailed_address text,
-                equipment_manufacturer text,
-                latitude real,
-                longitude real,
-                geocode_address text,
-                geocode_status text not null default 'pending',
-                geocode_attempted_at text,
-                geocode_version text,
-                manual_coordinates integer not null default 0,
-                created_at text not null
-            );
-
-            create table if not exists clock_in_photos (
-                id integer primary key autoincrement,
-                buyer_id integer not null,
-                user_id integer not null,
-                captured_at text not null,
-                server_received_at text not null,
-                time_offset_minutes integer not null default 0,
-                latitude real not null,
-                longitude real not null,
-                location_accuracy real,
-                relative_path text not null unique,
-                original_filename text not null,
-                foreign key(buyer_id) references buyers(id),
-                foreign key(user_id) references users(id)
-            );
-
-            create table if not exists work_order_types (
-                id integer primary key autoincrement,
-                code text not null unique,
-                name text not null,
-                description text,
-                is_active integer not null default 1,
-                created_at text not null
-            );
-
-            create table if not exists service_orders (
-                id integer primary key autoincrement,
-                order_number text not null unique,
-                client_id integer,
-                manufacturer_id integer,
-                client_name text not null,
-                site_address text not null,
-                client_order_number text not null,
-                status text not null default 'open',
-                created_by integer not null,
-                created_at text not null,
-                foreign key(client_id) references clients(id),
-                foreign key(created_by) references users(id)
-            );
-
-            create table if not exists service_reports (
-                id integer primary key autoincrement,
-                service_order_id integer not null,
-                report_date text not null,
-                actual_work_date text not null,
-                total_service_hours real not null default 0,
-                travel_hours real not null default 0,
-                public_transport_hours real not null default 0,
-                driving_miles real not null default 0,
-                mileage_billing_method text not null default 'per_person',
-                departure_address text,
-                site_address text,
-                total_time text,
-                cabinet_number text,
-                arrival_time text,
-                departure_time text,
-                service_description text,
-                report_writer_id integer,
-                created_by integer not null,
-                created_at text not null,
-                updated_at text not null,
-                foreign key(service_order_id) references service_orders(id) on delete cascade,
-                foreign key(created_by) references users(id),
-                foreign key(report_writer_id) references users(id)
-            );
-
-            create table if not exists service_report_workers (
-                id integer primary key autoincrement,
-                report_id integer not null,
-                user_id integer not null,
-                driving_miles real not null default 0,
-                travel_mode text not null default 'legacy',
-                travel_hours real,
-                public_transport_hours real,
-                work_description text not null default '',
-                foreign key(report_id) references service_reports(id) on delete cascade,
-                foreign key(user_id) references users(id)
-            );
-
-            create table if not exists email_delivery_logs (
-                id integer primary key autoincrement,
-                entity_type text not null,
-                entity_id integer not null,
-                recipient text not null default '',
-                subject text not null default '',
-                sent_by integer,
-                sent_by_name text not null default '',
-                sent_at text not null,
-                is_legacy integer not null default 0,
-                source_audit_log_id integer unique,
-                foreign key(sent_by) references users(id) on delete set null,
-                foreign key(source_audit_log_id) references audit_logs(id) on delete set null
-            );
-
-            create index if not exists idx_email_delivery_entity
-            on email_delivery_logs(entity_type, entity_id, sent_at);
-
-            create table if not exists audit_logs (
-                id integer primary key autoincrement,
-                user_id integer,
-                user_name text not null,
-                action text not null,
-                entity_type text not null,
-                entity_id integer,
-                entity_label text not null,
-                summary text,
-                created_at text not null,
-                foreign key(user_id) references users(id) on delete set null
-            );
-
-            create table if not exists service_report_saved_parts (
-                id integer primary key autoincrement,
-                report_id integer not null,
-                part_number text,
-                part_name text,
-                quantity text,
-                status text,
-                sort_order integer not null default 0,
-                foreign key(report_id) references service_reports(id) on delete cascade
-            );
-
-            create table if not exists service_report_replaced_parts (
-                id integer primary key autoincrement,
-                report_id integer not null,
-                part_number text,
-                part_name text,
-                old_serial_number text,
-                new_serial_number text,
-                quantity text,
-                sort_order integer not null default 0,
-                foreign key(report_id) references service_reports(id) on delete cascade
-            );
-
-            create table if not exists service_report_attachments (
-                id integer primary key autoincrement,
-                report_id integer not null,
-                category text not null,
-                original_filename text not null,
-                stored_filename text not null,
-                content_type text,
-                uploaded_by integer not null,
-                uploaded_at text not null,
-                foreign key(report_id) references service_reports(id) on delete cascade,
-                foreign key(uploaded_by) references users(id)
-            );
-
-            create table if not exists service_report_save_tokens (
-                token text primary key,
-                report_id integer,
-                created_at text not null,
-                foreign key(report_id) references service_reports(id) on delete cascade
-            );
-
-            create table if not exists expenses (
-                id integer primary key autoincrement,
-                service_order_id integer not null,
-                expense_number text not null unique,
-                project_id integer,
-                project text not null,
-                expense_date text not null,
-                amount real not null default 0,
-                currency text not null default 'USD',
-                description text,
-                status text not null default 'draft',
-                return_reason text,
-                reviewed_by integer,
-                reviewed_at text,
-                created_by integer not null,
-                created_at text not null,
-                updated_at text not null,
-                foreign key(service_order_id) references service_orders(id) on delete cascade,
-                foreign key(project_id) references projects(id),
-                foreign key(created_by) references users(id),
-                foreign key(reviewed_by) references users(id)
-            );
-
-            create table if not exists expense_items (
-                id integer primary key autoincrement,
-                expense_id integer not null,
-                line_key text,
-                project_id integer not null,
-                project text not null,
-                amount real not null default 0,
-                description text,
-                fuel_vehicle_type text,
-                sort_order integer not null default 0,
-                foreign key(expense_id) references expenses(id) on delete cascade,
-                foreign key(project_id) references projects(id)
-            );
-
-            create table if not exists expense_save_tokens (
-                token text primary key,
-                expense_id integer,
-                created_at text not null,
-                foreign key(expense_id) references expenses(id) on delete cascade
-            );
-
-            create table if not exists expense_attachments (
-                id integer primary key autoincrement,
-                expense_id integer not null,
-                expense_item_key text,
-                original_filename text not null,
-                stored_filename text not null,
-                content_type text,
-                uploaded_by integer not null,
-                uploaded_at text not null,
-                foreign key(expense_id) references expenses(id) on delete cascade,
-                foreign key(uploaded_by) references users(id)
-            );
-
-            create table if not exists expense_attachment_interpretations (
-                id integer primary key autoincrement,
-                attachment_id integer not null unique,
-                model text not null default '',
-                status text not null default 'pending',
-                content text not null default '',
-                error text not null default '',
-                created_at text not null,
-                updated_at text not null,
-                foreign key(attachment_id) references expense_attachments(id) on delete cascade
-            );
-
-            create index if not exists idx_expense_interpretations_status
-                on expense_attachment_interpretations(status);
-
-            create table if not exists expense_ai_reviews (
-                id integer primary key autoincrement,
-                expense_id integer not null unique,
-                status text not null default 'pending',
-                conclusion text not null default '',
-                content text not null default '',
-                model text not null default '',
-                error text not null default '',
-                created_at text not null,
-                updated_at text not null,
-                foreign key(expense_id) references expenses(id) on delete cascade
-            );
-
-            create index if not exists idx_expense_ai_reviews_status
-                on expense_ai_reviews(status);
-
-            create table if not exists expense_duplicate_checks (
-                id integer primary key autoincrement,
-                expense_id integer not null,
-                attachment_id integer not null,
-                matched_expense_id integer not null,
-                matched_attachment_id integer not null,
-                risk_level text not null,
-                score integer not null default 0,
-                reasons text not null default '',
-                deepseek_analysis text,
-                deepseek_error text,
-                review_status text not null default 'pending',
-                reviewed_by integer,
-                reviewed_at text,
-                created_at text not null,
-                updated_at text not null,
-                foreign key(expense_id) references expenses(id) on delete cascade,
-                foreign key(attachment_id) references expense_attachments(id) on delete cascade,
-                foreign key(matched_expense_id) references expenses(id) on delete cascade,
-                foreign key(matched_attachment_id) references expense_attachments(id) on delete cascade,
-                foreign key(reviewed_by) references users(id),
-                unique(expense_id, attachment_id, matched_attachment_id)
-            );
-
-            create table if not exists customer_reimbursements (
-                id integer primary key autoincrement,
-                service_order_id integer not null,
-                file_name text not null,
-                stored_filename text not null,
-                status text not null default 'draft',
-                return_reason text,
-                reviewed_by integer,
-                reviewed_at text,
-                labor_total real not null default 0,
-                lodging_total real not null default 0,
-                travel_total real not null default 0,
-                mileage_total real not null default 0,
-                mro_supplies_total real not null default 0,
-                rental_fuel_total real not null default 0,
-                expense_transfer_cutoff_at text,
-                total_amount real not null default 0,
-                invoice_id integer,
-                created_by integer not null,
-                created_at text not null,
-                foreign key(service_order_id) references service_orders(id) on delete cascade,
-                foreign key(invoice_id) references invoices(id) on delete set null,
-                foreign key(created_by) references users(id),
-                foreign key(reviewed_by) references users(id)
-            );
-
-            create table if not exists customer_reimbursement_items (
-                id integer primary key autoincrement,
-                customer_reimbursement_id integer not null,
-                source_report_id integer,
-                source_worker_user_id integer,
-                worker_name text not null,
-                project_date text not null,
-                standard_hours real not null default 0,
-                transport_hours real not null default 0,
-                overtime_hours real not null default 0,
-                holiday_hours real not null default 0,
-                standard_rate real not null default 0,
-                transport_rate real not null default 0,
-                overtime_rate real not null default 0,
-                holiday_rate real not null default 0,
-                labor_total real not null default 0,
-                lodging real not null default 0,
-                airfare real not null default 0,
-                baggage real not null default 0,
-                rental_car real not null default 0,
-                fuel real not null default 0,
-                parking real not null default 0,
-                taxi real not null default 0,
-                auto_lodging real not null default 0,
-                auto_airfare real not null default 0,
-                auto_baggage real not null default 0,
-                auto_rental_car real not null default 0,
-                auto_fuel real not null default 0,
-                auto_parking real not null default 0,
-                auto_taxi real not null default 0,
-                auto_other real not null default 0,
-                miles real not null default 0,
-                mileage_rate real not null default 0,
-                mileage_total real not null default 0,
-                other real not null default 0,
-                total real not null default 0,
-                sort_order integer not null default 0,
-                foreign key(customer_reimbursement_id) references customer_reimbursements(id) on delete cascade
-            );
-
-            create table if not exists customer_reimbursement_attachments (
-                id integer primary key autoincrement,
-                customer_reimbursement_id integer not null,
-                original_filename text not null,
-                stored_filename text not null,
-                content_type text,
-                source_expense_attachment_id integer,
-                uploaded_by integer not null,
-                uploaded_at text not null,
-                foreign key(customer_reimbursement_id) references customer_reimbursements(id) on delete cascade,
-                foreign key(uploaded_by) references users(id)
-            );
-            """
-        )
-        ensure_column(connection, "expenses", "beneficiary_id", "integer references users(id)")
-        init_field_schema(connection)
-        init_rate_schema(connection)
-        init_settlement_review_schema(connection)
-        init_profitability_schema(connection)
-        connection.execute("update expenses set beneficiary_id = created_by where beneficiary_id is null")
-        connection.execute("create index if not exists idx_expenses_beneficiary on expenses(beneficiary_id)")
-        ensure_column(connection, "invoices", "service_order_id", "integer")
-        ensure_column(connection, "service_orders", "contract_id", "integer")
-        ensure_column(connection, "users", "is_active", "integer not null default 1")
-        ensure_column(connection, "users", "region_code", "text not null default 'americas'")
-        ensure_column(connection, "users", "country_code", "text not null default 'US'")
-        ensure_column(connection, "users", "employee_grade_id", "integer")
-        ensure_column(connection, "users", "address", "text not null default ''")
-        ensure_column(connection, "users", "phone", "text not null default ''")
-        ensure_column(connection, "users", "phone_verified", "integer not null default 0")
-        ensure_column(connection, "users", "phone_verified_at", "text")
-        ensure_column(connection, "users", "default_language", "text not null default 'zh-CN'")
-        ensure_column(connection, "users", "preferred_communication_language", "text not null default 'zh-CN'")
-        ensure_column(connection, "users", "communication_languages", "text not null default 'zh-CN'")
-        existing_grade_columns = {
-            row["name"] for row in connection.execute("pragma table_info(employee_grades)").fetchall()
-        }
-        ensure_column(connection, "employee_grades", "description", "text not null default ''")
-        ensure_column(connection, "employee_grades", "meal_daily_amount", "real not null default 0")
-        ensure_column(connection, "employee_grades", "car_allowance_method", "text not null default 'mileage'")
-        ensure_column(connection, "employee_grades", "car_mileage_rate", "real not null default 0.5")
-        ensure_column(connection, "employee_grades", "car_hourly_rate", "real not null default 10")
-        ensure_column(connection, "employee_grades", "rental_driving_hourly_rate", "real not null default 15")
-        ensure_column(connection, "customer_reimbursement_items", "public_transport_hours", "real not null default 0")
-        ensure_column(connection, "customer_reimbursement_items", "public_transport_rate", "real not null default 0")
-        if "car_mileage_rate" not in existing_grade_columns:
-            legacy_rate = connection.execute(
-                "select value from settings where key = 'payroll_car_mileage_rate'"
-            ).fetchone()
-            connection.execute(
-                "update employee_grades set car_allowance_method = 'mileage', car_mileage_rate = ?, car_hourly_rate = 10",
-                (to_float(legacy_rate["value"]) if legacy_rate else 0.5,),
+        if connection.execute(
+            "select id from users where role = 'admin' limit 1"
+        ).fetchone():
+            return
+        admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+        admin_password = os.environ.get("ADMIN_PASSWORD", "")
+        if not admin_email:
+            raise RuntimeError(
+                "Refusing to initialize administrator: ADMIN_EMAIL is required."
             )
-        ensure_column(connection, "service_reports", "report_writer_id", "integer")
-        ensure_column(connection, "service_reports", "mileage_billing_method", "text not null default 'per_person'")
-        ensure_column(connection, "service_report_workers", "travel_mode", "text not null default 'legacy'")
-        ensure_column(connection, "service_report_workers", "travel_hours", "real")
-        ensure_column(connection, "service_report_workers", "public_transport_hours", "real")
-        ensure_column(connection, "service_report_workers", "work_description", "text not null default ''")
-        ensure_column(connection, "knowledge_documents", "is_pinned", "integer not null default 0")
-        ensure_column(connection, "knowledge_documents", "expires_on", "text")
-        ensure_column(connection, "knowledge_documents", "view_count", "integer not null default 0")
-        ensure_column(connection, "knowledge_documents", "download_count", "integer not null default 0")
-        ensure_column(connection, "knowledge_documents", "search_text", "text not null default ''")
-        ensure_column(connection, "knowledge_documents", "text_indexed_at", "text")
-        ensure_column(connection, "knowledge_documents", "current_version", "integer not null default 1")
-        connection.execute(
-            """
-            insert or ignore into knowledge_document_versions (
-                document_id, version_number, original_filename, stored_filename,
-                file_size, extracted_text, change_note, uploaded_by, uploaded_at
+        if not admin_password:
+            raise RuntimeError(
+                "Refusing to initialize administrator: ADMIN_PASSWORD is required."
             )
-            select id, current_version, original_filename, stored_filename,
-                   file_size, search_text, '初始版本', uploaded_by, uploaded_at
-            from knowledge_documents
-            """
-        )
-        unindexed_documents = connection.execute(
-            "select id, stored_filename, current_version from knowledge_documents where text_indexed_at is null"
-        ).fetchall()
-        for document in unindexed_documents:
-            pdf_path = os.path.join(KNOWLEDGE_BASE_DIR, document["stored_filename"])
-            extracted_text = extract_knowledge_pdf_text(pdf_path) if os.path.isfile(pdf_path) else ""
-            indexed_at = now()
-            connection.execute(
-                "update knowledge_documents set search_text = ?, text_indexed_at = ? where id = ?",
-                (extracted_text, indexed_at, document["id"]),
+        if admin_password == "change-me-now":
+            raise RuntimeError(
+                "Refusing to initialize administrator: a secure ADMIN_PASSWORD is required."
             )
-            connection.execute(
-                """
-                update knowledge_document_versions set extracted_text = ?
-                where document_id = ? and version_number = ?
-                """,
-                (extracted_text, document["id"], document["current_version"]),
+        if connection.execute(
+            "select id from users where lower(email) = ? limit 1",
+            (admin_email,),
+        ).fetchone():
+            raise RuntimeError(
+                "Refusing to initialize administrator: ADMIN_EMAIL already belongs to an existing user."
             )
-        ensure_column(connection, "service_reports", "actual_work_date", "text")
-        ensure_column(connection, "service_report_workers", "driving_miles", "real not null default 0")
-        connection.execute(
-            "update service_reports set actual_work_date = report_date where trim(coalesce(actual_work_date, '')) = ''"
-        )
-        connection.execute(
-            """
-            update service_reports
-            set actual_work_date = '2026-06-24'
-            where report_date = '2026-07-01'
-              and (trim(coalesce(actual_work_date, '')) = '' or actual_work_date = report_date)
-            """
-        )
-        connection.execute(
-            """
-            update service_reports
-            set actual_work_date = '2026-06-25'
-            where report_date = '2026-07-02'
-              and (trim(coalesce(actual_work_date, '')) = '' or actual_work_date = report_date)
-            """
-        )
-        ensure_column(connection, "projects", "project_type", "text not null default 'invoice'")
-        ensure_column(connection, "projects", "name_key", "text")
-        ensure_column(connection, "projects", "unit_price", "real not null default 0")
-        ensure_column(connection, "customer_reimbursements", "status", "text not null default 'draft'")
-        ensure_column(connection, "customer_reimbursements", "return_reason", "text")
-        ensure_column(connection, "customer_reimbursements", "reviewed_by", "integer")
-        ensure_column(connection, "customer_reimbursements", "reviewed_at", "text")
-        ensure_column(connection, "customer_reimbursements", "mro_supplies_total", "real not null default 0")
-        ensure_column(connection, "customer_reimbursements", "rental_fuel_total", "real not null default 0")
-        ensure_column(connection, "customer_reimbursements", "expense_transfer_cutoff_at", "text")
-        for column_name in (
-            "auto_lodging", "auto_airfare", "auto_baggage", "auto_rental_car",
-            "auto_fuel", "auto_parking", "auto_taxi", "auto_other",
-        ):
-            ensure_column(connection, "customer_reimbursement_items", column_name, "real not null default 0")
-        ensure_column(connection, "customer_reimbursement_items", "source_report_id", "integer")
-        ensure_column(connection, "customer_reimbursement_items", "source_worker_user_id", "integer")
-        ensure_column(connection, "expense_items", "fuel_vehicle_type", "text")
-        ensure_column(connection, "customer_reimbursement_items", "auto_expense_sources", "text not null default '{}'")
-        ensure_column(connection, "expense_items", "line_key", "text")
-        ensure_column(connection, "expense_attachments", "expense_item_key", "text")
-        ensure_column(connection, "expense_attachments", "file_sha256", "text")
-        ensure_column(connection, "expense_attachments", "image_dhash", "text")
-        connection.execute(
-            "create index if not exists idx_expense_attachments_sha256 on expense_attachments(file_sha256)"
-        )
-        connection.execute(
-            "create index if not exists idx_expense_duplicate_checks_expense on expense_duplicate_checks(expense_id)"
-        )
-        connection.execute(
-            "update expense_items set line_key = 'item-' || id where coalesce(trim(line_key), '') = ''"
-        )
-        connection.execute(
-            """
-            update expense_items
-            set fuel_vehicle_type = 'personal'
-            where coalesce(trim(fuel_vehicle_type), '') = ''
-              and (
-                lower(project) like '%fuel%' or lower(project) like '%gas%'
-                or project like '%油费%' or project like '%加油%'
-              )
-            """
-        )
-        ensure_column(connection, "customer_reimbursement_attachments", "source_expense_attachment_id", "integer")
-        connection.execute(
-            """
-            create unique index if not exists idx_customer_reimbursement_attachment_expense_source
-            on customer_reimbursement_attachments(source_expense_attachment_id)
-            where source_expense_attachment_id is not null
-            """
-        )
-        ensure_column(connection, "expenses", "project_id", "integer")
-        ensure_column(connection, "expenses", "payout_status", "text not null default 'pending'")
-        ensure_column(connection, "expenses", "reimbursed_by", "integer")
-        ensure_column(connection, "expenses", "reimbursed_at", "text")
-        ensure_column(connection, "service_orders", "latitude", "real")
-        ensure_column(connection, "service_orders", "longitude", "real")
-        ensure_column(connection, "service_orders", "geocode_address", "text")
-        ensure_column(connection, "service_orders", "geocode_status", "text not null default 'pending'")
-        ensure_column(connection, "service_orders", "geocode_attempted_at", "text")
-        ensure_column(connection, "service_orders", "geocode_version", "text")
-        ensure_column(connection, "buyers", "manual_coordinates", "integer not null default 0")
-        ensure_column(connection, "service_orders", "buyer_id", "integer")
-        ensure_column(connection, "service_orders", "client_id", "integer")
-        ensure_column(connection, "service_orders", "manufacturer_id", "integer")
-        ensure_column(connection, "buyers", "manufacturer_id", "integer")
-        migrate_historical_customer_reports(connection, now(), app.logger)
-        ensure_column(connection, "service_orders", "buyer_contact_name", "text")
-        ensure_column(connection, "service_orders", "buyer_contact_details", "text")
-        ensure_column(connection, "service_orders", "start_date", "text")
-        ensure_column(connection, "service_orders", "work_order_type_id", "integer")
-        ensure_column(connection, "service_orders", "region_code", "text not null default 'americas'")
-        ensure_column(connection, "service_orders", "country_code", "text not null default 'US'")
-        ensure_column(connection, "buyers", "client_id", "integer")
-        ensure_column(connection, "clients", "payment_term_id", "integer")
-        # ─── AI Daily Report (Phase 1+) ───────────────────────────────────
-        # FK strategy (Phase 1 decision):
-        #   ai_daily_report_actions.draft_id  -> ai_daily_report_drafts.id  (Phase 2)
-        #   ai_daily_report_actions.executed_by -> users.id                   (Phase 2)
-        #   ai_daily_report_drafts.saved_report_id -> service_reports.id      (Phase 9, Confirm & Save)
-        # Reason for deferral: SQLite cannot add FK constraints via ALTER TABLE;
-        #   adding them now requires table rebuild. Application layer currently
-        #   guarantees integrity via: (1) get_draft() existence check before
-        #   recording actions; (2) executed_by always set from session user_id;
-        #   (3) saved_report_id only written by formal save flow in Phase 9.
-        connection.execute(
-            """
-            create table if not exists ai_daily_report_drafts (
-                id integer primary key autoincrement,
-                service_order_id integer not null,
-                report_date text not null,
-                draft_data text not null,
-                status text not null default 'draft',
-                draft_version integer not null default 1,
-                conversation_context text,  -- Phase 2: max 6 rounds, 2000 chars/round, not sent to DeepSeek
-                ai_model text,
-                ai_confidence real,
-                verification_required integer not null default 0,
-                verification_fields text,
-                created_by integer not null,
-                created_at text not null,
-                updated_at text not null,
-                saved_report_id integer,
-                foreign key(service_order_id) references service_orders(id) on delete cascade,
-                foreign key(created_by) references users(id)
-            )
-            """
-        )
-        ensure_column(connection, "ai_daily_report_drafts", "draft_version", "integer not null default 1")
-        connection.execute(
-            "create index if not exists idx_ai_draft_order_date on ai_daily_report_drafts(service_order_id, report_date)"
-        )
-        connection.execute(
-            """
-            create table if not exists ai_daily_report_actions (
-                id integer primary key autoincrement,
-                draft_id integer not null,
-                action_id text not null,
-                action_version integer not null,
-                intent text not null,
-                action_payload text not null,
-                ai_generated integer not null default 1,
-                executed_at text not null,
-                executed_by integer not null,
-                result text,
-                unique(draft_id, action_id),
-                foreign key(draft_id) references ai_daily_report_drafts(id) on delete cascade
-            )
-            """
-        )
-        connection.execute(
-            "create index if not exists idx_ai_actions_draft on ai_daily_report_actions(draft_id)"
-        )
-        connection.execute(
-            """
-            create table if not exists ai_photo_analysis (
-                id integer primary key autoincrement,
-                photo_path text not null,
-                photo_hash text not null,
-                analysis_model text not null,
-                analysis_version integer not null,
-                classification text not null,
-                sub_category text,
-                confidence real not null default 0,
-                description text,
-                equipment_id text,
-                capture_time text,
-                analyzed_at text not null,
-                unique(photo_path, photo_hash, analysis_model, analysis_version)
-            )
-            """
-        )
-        # service_reports audit fields for AI-generated arrivals/departures
-        # ─── Phase 8: Attachment Manifest (frozen preparation layer) ──────
-        # Four-layer model (sealed design):
-        #   Manifest -> ManifestSource (provenance) -> PreparedAsset (physical)
-        #            -> ManifestRole (business role)
-        # Phase 8 never writes service_reports / service_report_workers /
-        # service_report_attachments; Phase 9 consumes a ready manifest only.
-        connection.execute(
-            """
-            create table if not exists ai_daily_report_attachment_manifests (
-                id integer primary key autoincrement,
-                manifest_id text not null unique,
-                draft_id integer not null,
-                draft_version integer not null,
-                service_order_id integer not null,
-                report_date text not null,
-                manifest_version integer not null,
-                validation_fingerprint text not null,
-                draft_data_hash text not null,
-                photo_set_fingerprint text,
-                status text not null default 'preparing',
-                manifest_fingerprint text not null,
-                expected_plan text not null,
-                created_by integer not null,
-                created_at text not null,
-                updated_at text not null,
-                unique(draft_id, draft_version, validation_fingerprint, manifest_fingerprint),
-                foreign key(draft_id) references ai_daily_report_drafts(id) on delete cascade
-            )
-            """
-        )
-        connection.execute(
-            """
-            create table if not exists ai_daily_report_prepared_assets (
-                id integer primary key autoincrement,
-                asset_id text not null unique,
-                manifest_id text not null,
-                prepared_relative_path text not null,
-                prepared_sha256 text not null,
-                content_type text not null,
-                file_size integer not null,
-                integrity_status text not null default 'verified',
-                prepared_at text not null,
-                unique(manifest_id, prepared_sha256),
-                foreign key(manifest_id) references ai_daily_report_attachment_manifests(manifest_id) on delete cascade
-            )
-            """
-        )
-        connection.execute(
-            """
-            create table if not exists ai_daily_report_manifest_sources (
-                id integer primary key autoincrement,
-                source_id text not null unique,
-                manifest_id text not null,
-                source_type text not null,
-                source_identity text not null,
-                source_photo_id text,
-                source_evidence_id text,
-                source_relative_path text not null,
-                source_sha256 text not null,
-                asset_id text,
-                provider text,
-                provider_content text,
-                compliance_review_required integer not null default 0,
-                compliance_status text not null default 'na',
-                unique(manifest_id, source_identity),
-                foreign key(manifest_id) references ai_daily_report_attachment_manifests(manifest_id) on delete cascade
-            )
-            """
-        )
-        # Compliance review audit trail (Phase 9 Final Release Gate 6): who /
-        # when reviewed each compliance-required source. Idempotent for the
-        # already-deployed Phase 8 production schema.
-        ensure_column(connection, "ai_daily_report_manifest_sources", "compliance_reviewed_by", "integer")
-        ensure_column(connection, "ai_daily_report_manifest_sources", "compliance_reviewed_at", "text")
-        connection.execute(
-            """
-            create table if not exists ai_daily_report_manifest_roles (
-                id integer primary key autoincrement,
-                manifest_id text not null,
-                source_id text not null,
-                role_type text not null,
-                category text not null,
-                visibility text not null,
-                purpose text not null,
-                materialization_required integer not null default 1,
-                sort_order integer not null default 0,
-                unique(manifest_id, role_type, source_id),
-                foreign key(manifest_id) references ai_daily_report_attachment_manifests(manifest_id) on delete cascade,
-                foreign key(source_id) references ai_daily_report_manifest_sources(source_id) on delete cascade
-            )
-            """
-        )
-        connection.execute(
-            "create index if not exists idx_ai_manifest_draft on ai_daily_report_attachment_manifests(draft_id, status)"
-        )
-        connection.execute(
-            "create index if not exists idx_ai_manifest_source on ai_daily_report_manifest_sources(manifest_id)"
-        )
-        connection.execute(
-            "create index if not exists idx_ai_manifest_asset on ai_daily_report_prepared_assets(manifest_id)"
-        )
-        connection.execute(
-            """
-            create table if not exists ai_daily_report_formal_commits (
-                id integer primary key autoincrement,
-                commit_id text not null unique,
-                draft_id integer not null unique,
-                manifest_id text not null,
-                draft_version integer not null,
-                validation_fingerprint text not null,
-                manifest_fingerprint text not null,
-                manifest_snapshot text not null,
-                fields_provenance text not null,
-                service_report_id integer,
-                status text not null default 'committing',
-                failure_code text,
-                formal_files text not null default '{}',
-                created_by integer not null,
-                started_at text not null,
-                committed_at text,
-                updated_at text,
-                unique(draft_id, manifest_fingerprint),
-                foreign key(draft_id) references ai_daily_report_drafts(id) on delete cascade
-            )
-            """
-        )
-        connection.execute(
-            "create index if not exists idx_ai_formal_commit_draft on ai_daily_report_formal_commits(draft_id, status)"
-        )
-        connection.execute(
-            "create index if not exists idx_ai_formal_commit_report on ai_daily_report_formal_commits(service_report_id)"
-        )
-        repair_orphaned_ai_daily_report_drafts(connection)
-        ensure_column(connection, "service_reports", "ai_generated", "integer not null default 0")
-        ensure_column(connection, "service_reports", "arrival_time_source", "text")
-        ensure_column(connection, "service_reports", "departure_time_source", "text")
-        ensure_column(connection, "service_reports", "arrival_photo_relative_path", "text")
-        ensure_column(connection, "service_reports", "arrival_photo_hash", "text")
-        ensure_column(connection, "service_reports", "departure_photo_relative_path", "text")
-        ensure_column(connection, "service_reports", "departure_photo_hash", "text")
-        ensure_column(connection, "service_reports", "ai_draft_id", "integer")
-        # v0.1.243 backfill: early AI-generated reports stored ISO photo-timeline
-        # timestamps in arrival_time/departure_time; normalize them to 'HH:MM'
-        # so the report form/view/Word export bind correctly.
         try:
-            from ai_daily_report.formal_save import normalize_report_time
-            for column in ("arrival_time", "departure_time"):
-                rows = connection.execute(
-                    f"select id, {column} as raw_time from service_reports "
-                    f"where {column} is not null and instr({column}, 'T') > 0"
-                ).fetchall()
-                for row in rows:
-                    normalized = normalize_report_time(row["raw_time"])
-                    if normalized:
-                        connection.execute(
-                            f"update service_reports set {column} = ? where id = ?",
-                            (normalized, row["id"]),
-                        )
-        except Exception:
-            pass
-        # v0.1.274 工作日报辅助填写：员工清单补「出发地 + 行程类型」，
-        # 并新增里程佐证记录表（用于判断地址变更后是否需要重新生成佐证）。
-        ensure_column(connection, "service_report_workers", "origin_address", "text not null default ''")
-        ensure_column(connection, "service_report_workers", "trip_type", "text not null default 'round_trip'")
-        connection.execute(
-            """
-            create table if not exists service_report_mileage_evidence (
-                id integer primary key autoincrement,
-                report_id integer not null,
-                worker_user_id integer not null,
-                route_fingerprint text not null,
-                origin_address text not null default '',
-                destination_address text not null default '',
-                trip_type text not null default 'round_trip',
-                distance_meters real,
-                duration_seconds integer,
-                one_way_miles real,
-                reported_miles real,
-                attachment_id integer,
-                status text not null default 'success',
-                generated_by integer,
-                generated_at text not null,
-                unique(report_id, worker_user_id),
-                foreign key(report_id) references service_reports(id) on delete cascade
-            )
-            """
-        )
-        connection.execute(
-            "create index if not exists idx_sr_mileage_evidence_report on service_report_mileage_evidence(report_id)"
-        )
-        connection.execute(
-            """
-            create table if not exists payment_terms (
-                id integer primary key autoincrement,
-                name text not null unique,
-                rule_type text not null default 'fixed_days',
-                fixed_days integer not null default 30,
-                cutoff_day integer,
-                due_day integer,
-                before_due_months integer not null default 1,
-                after_due_months integer not null default 2,
-                notes text,
-                is_active integer not null default 1,
-                created_at text not null,
-                updated_at text not null
-            )
-            """
-        )
-        default_payment_term = connection.execute(
-            "select id from payment_terms where name = ?",
-            ("Net 30",),
-        ).fetchone()
-        if not default_payment_term:
-            cursor = connection.execute(
-                """
-                insert into payment_terms (
-                    name, rule_type, fixed_days, before_due_months, after_due_months,
-                    notes, is_active, created_at, updated_at
-                ) values (?, 'fixed_days', 30, 1, 2, ?, 1, ?, ?)
-                """,
-                ("Net 30", "开票日起30天到期", now(), now()),
-            )
-            default_payment_term_id = cursor.lastrowid
-        else:
-            default_payment_term_id = default_payment_term["id"]
-        connection.execute(
-            """
-            insert or ignore into payment_terms (
-                name, rule_type, fixed_days, cutoff_day, due_day,
-                before_due_months, after_due_months, notes, is_active, created_at, updated_at
-            ) values (?, 'monthly_cutoff', 30, 20, 19, 1, 2, ?, 1, ?, ?)
-            """,
-            (
-                "20日截止、次月19日付款",
-                "每月20日为包含当天的截止日；21日起进入下一账期",
-                now(),
-                now(),
-            ),
-        )
-        connection.execute(
-            "update clients set payment_term_id = ? where payment_term_id is null",
-            (default_payment_term_id,),
-        )
-        ensure_column(connection, "buyers", "owner", "text")
-        ensure_column(connection, "buyers", "owner_id", "integer")
-        ensure_column(connection, "buyers", "manufacturer_id", "integer")
-        ensure_column(connection, "buyers", "email", "text")
-        ensure_column(connection, "buyers", "site_size", "text")
-        ensure_column(connection, "buyers", "country_code", "text not null default 'US'")
-        site_country_migration = connection.execute(
-            "select value from settings where key = ?",
-            ("buyers_country_code_v1",),
-        ).fetchone()
-        if not site_country_migration:
-            connection.execute("update buyers set country_code = 'US', country = 'US'")
-            connection.execute(
-                "update buyers set country_code = 'CA', country = 'CA' where buyer_number = 'BUY00017'"
-            )
-            connection.execute(
-                "insert or replace into settings (key, value) values (?, ?)",
-                ("buyers_country_code_v1", now()),
-            )
-        merge_mro_project_aliases(connection)
-        try:
-            merge_duplicate_projects(connection)
-        except sqlite3.Error:
-            app.logger.exception("Failed to merge duplicate projects during startup.")
-        connection.execute("drop index if exists idx_projects_type_name_unique")
-        existing_owner_names = [
-            row["owner"]
-            for row in connection.execute(
-                """
-                select distinct trim(owner) as owner
-                from buyers
-                where trim(coalesce(owner, '')) != ''
-                  and owner_id is null
-                order by trim(owner)
-                """
-            ).fetchall()
-        ]
-        next_owner_sequence = connection.execute("select coalesce(max(id), 0) + 1 as value from owners").fetchone()["value"]
-        for owner_name in DEFAULT_OWNER_NAMES:
-            if connection.execute(
-                "select 1 from owners where lower(trim(name)) = lower(trim(?))",
-                (owner_name,),
-            ).fetchone():
-                continue
-            while True:
-                owner_number = f"OWN{next_owner_sequence:05d}"
-                next_owner_sequence += 1
-                if not connection.execute("select id from owners where owner_number = ?", (owner_number,)).fetchone():
-                    break
-            connection.execute(
-                "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
-                (owner_number, owner_name, now()),
-            )
-        next_manufacturer_sequence = connection.execute(
-            "select coalesce(max(id), 0) + 1 as value from manufacturers"
-        ).fetchone()["value"]
-        for manufacturer_name in DEFAULT_MANUFACTURER_NAMES:
-            if connection.execute(
-                "select 1 from manufacturers where lower(trim(name)) = lower(trim(?))",
-                (manufacturer_name,),
-            ).fetchone():
-                continue
-            while True:
-                manufacturer_number = f"MFG{next_manufacturer_sequence:05d}"
-                next_manufacturer_sequence += 1
-                if not connection.execute(
-                    "select id from manufacturers where manufacturer_number = ?",
-                    (manufacturer_number,),
-                ).fetchone():
-                    break
-            connection.execute(
-                "insert into manufacturers (manufacturer_number, name, created_at) values (?, ?, ?)",
-                (manufacturer_number, manufacturer_name, now()),
-            )
-        connection.execute(
-            """
-            update buyers
-            set manufacturer_id = (
-                select manufacturers.id
-                from manufacturers
-                where lower(trim(manufacturers.name)) = lower(trim(buyers.equipment_manufacturer))
-                limit 1
-            )
-            where manufacturer_id is null
-              and trim(coalesce(equipment_manufacturer, '')) != ''
-              and exists (
-                select 1 from manufacturers
-                where lower(trim(manufacturers.name)) = lower(trim(buyers.equipment_manufacturer))
-              )
-            """
-        )
-        connection.execute(
-            """
-            update service_orders
-            set manufacturer_id = (
-                select buyers.manufacturer_id
-                from buyers
-                where buyers.id = service_orders.buyer_id
-            )
-            where manufacturer_id is null
-              and exists (
-                select 1 from buyers
-                where buyers.id = service_orders.buyer_id
-                  and buyers.manufacturer_id is not null
-              )
-            """
-        )
-        for owner_name in existing_owner_names:
-            existing_owner = connection.execute(
-                "select id from owners where lower(trim(name)) = lower(trim(?))",
-                (owner_name,),
-            ).fetchone()
-            if existing_owner:
-                owner_id = existing_owner["id"]
-            else:
-                while True:
-                    owner_number = f"OWN{next_owner_sequence:05d}"
-                    next_owner_sequence += 1
-                    if not connection.execute("select id from owners where owner_number = ?", (owner_number,)).fetchone():
-                        break
-                cursor = connection.execute(
-                    "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
-                    (owner_number, owner_name, now()),
-                )
-                owner_id = cursor.lastrowid
-            connection.execute(
-                "update buyers set owner_id = ? where owner_id is null and lower(trim(owner)) = lower(trim(?))",
-                (owner_id, owner_name),
-            )
-        for site_name, owner_name in DEFAULT_SITE_OWNER_NAMES.items():
-            owner = connection.execute(
-                "select id, name from owners where lower(trim(name)) = lower(trim(?))",
-                (owner_name,),
-            ).fetchone()
-            if owner:
-                connection.execute(
-                    """
-                    update buyers
-                    set owner_id = ?, owner = ?
-                    where lower(trim(name)) = lower(trim(?))
-                    """,
-                    (owner["id"], owner["name"], site_name),
-                )
-        unknown_owner_row = connection.execute("select id, name from owners where name = ?", ("未知",)).fetchone()
-        if unknown_owner_row:
-            connection.execute(
-                """
-                update buyers
-                set owner_id = ?, owner = ?
-                where owner_id is null
-                   or trim(coalesce(owner, '')) = ''
-                """,
-                (unknown_owner_row["id"], unknown_owner_row["name"]),
-            )
-        connection.execute(
-            "update users set region_code = 'americas', country_code = 'US' "
-            "where trim(coalesce(region_code, '')) = '' or trim(coalesce(country_code, '')) = ''"
-        )
-        connection.execute(
-            "update service_orders set region_code = 'americas', country_code = 'US' "
-            "where trim(coalesce(region_code, '')) = '' or trim(coalesce(country_code, '')) = ''"
-        )
-        connection.execute(
-            """
-            update buyers
-            set client_id = (select id from clients where client_number = '00001' limit 1)
-            where client_id is null
-              and exists (select 1 from clients where client_number = '00001')
-            """
-        )
-        connection.execute(
-            """
-            update service_orders
-            set client_id = (
-                select clients.id
-                from clients
-                where lower(trim(clients.name)) = lower(trim(service_orders.client_name))
-                   or lower(trim(clients.short_name)) = lower(trim(service_orders.client_name))
-                order by clients.id
-                limit 1
-            )
-            where client_id is null
-            """
-        )
-        connection.execute(
-            """
-            update service_orders
-            set client_id = (
-                select id from clients where client_number = '00001' limit 1
-            )
-            where client_id is null
-              and exists (select 1 from clients where client_number = '00001')
-            """
-        )
-        existing_buyer_names = {
-            row["name"].strip().casefold(): row["id"]
-            for row in connection.execute("select id, name from buyers").fetchall()
-            if row["name"] and row["name"].strip()
-        }
-        next_buyer_sequence = connection.execute("select coalesce(max(id), 0) + 1 as value from buyers").fetchone()["value"]
-        legacy_orders = connection.execute(
-            """
-            select id, client_name, site_address
-            from service_orders
-            where buyer_id is null and trim(coalesce(client_name, '')) != ''
-            order by id
-            """
-        ).fetchall()
-        for legacy_order in legacy_orders:
-            buyer_name = legacy_order["client_name"].strip()
-            buyer_id = existing_buyer_names.get(buyer_name.casefold())
-            if not buyer_id:
-                while True:
-                    buyer_number = f"BUY{next_buyer_sequence:05d}"
-                    next_buyer_sequence += 1
-                    if not connection.execute(
-                        "select id from buyers where buyer_number = ?",
-                        (buyer_number,),
-                    ).fetchone():
-                        break
-                cursor = connection.execute(
-                    """
-                    insert into buyers (
-                        buyer_number, country, country_code, name, detailed_address, created_at
-                    ) values (?, 'US', 'US', ?, ?, ?)
-                    """,
-                    (buyer_number, buyer_name, legacy_order["site_address"], now()),
-                )
-                buyer_id = cursor.lastrowid
-                existing_buyer_names[buyer_name.casefold()] = buyer_id
-            connection.execute(
-                "update service_orders set buyer_id = ? where id = ?",
-                (buyer_id, legacy_order["id"]),
-            )
-        connection.execute(
-            """
-            insert into expense_items (expense_id, project_id, project, amount, description, sort_order)
-            select expenses.id, expenses.project_id, expenses.project, expenses.amount, expenses.description, 0
-            from expenses
-            where expenses.project_id is not null
-              and not exists (
-                  select 1 from expense_items where expense_items.expense_id = expenses.id
-              )
-            """
-        )
-        connection.execute(
-            """
-            update customer_reimbursements
-            set mro_supplies_total = coalesce((
-                    select sum(expense_items.amount)
-                    from expenses
-                    join expense_items on expense_items.expense_id = expenses.id
-                    left join projects on projects.id = expense_items.project_id
-                    where expenses.service_order_id = customer_reimbursements.service_order_id
-                      and expenses.status = 'approved'
-                      and coalesce(projects.name_key, lower(trim(expense_items.project))) = 'mro supplies'
-                ), 0)
-            where not exists (
-                select 1
-                from customer_reimbursement_items
-                where customer_reimbursement_items.customer_reimbursement_id = customer_reimbursements.id
-                  and (
-                    coalesce(auto_lodging, 0) + coalesce(auto_airfare, 0)
-                    + coalesce(auto_baggage, 0) + coalesce(auto_rental_car, 0)
-                    + coalesce(auto_fuel, 0) + coalesce(auto_parking, 0)
-                    + coalesce(auto_taxi, 0) + coalesce(auto_other, 0)
-                  ) > 0
-            )
-            """
-        )
-        # 老数据一次性修补：把 mro_supplies_total 并入 total_amount。
-        # 注意：现行口径（customer_reimbursement_totals）MRO 已通过 auto_other 计入
-        # item["total"]，total_amount 不应再加 mro_supplies_total。此 SQL 仅针对
-        # 尚无 auto_* 来源行的历史库生效，非现行计算逻辑。
-        connection.execute(
-            """
-            update customer_reimbursements
-            set total_amount = coalesce(labor_total, 0) + coalesce(travel_total, 0)
-                + coalesce(mileage_total, 0) + coalesce(mro_supplies_total, 0)
-            """
-        )
-        connection.execute(
-            """
-            delete from messages
-            where title = '发票已确认完成'
-              and exists (
-                  select 1 from messages as reviewed
-                  where reviewed.user_id = messages.user_id
-                    and reviewed.link = messages.link
-                    and reviewed.title = '发票已审核完成'
-              )
-            """
-        )
-        connection.execute(
-            """
-            update messages
-            set title = '发票已审核完成',
-                body = replace(body, '已由经理确认完成', '已审核完成')
-            where title = '发票已确认完成'
-            """
-        )
-        connection.execute(
-            """
-            update customer_reimbursements
-            set status = 'approved'
-            where invoice_id is not null and status != 'approved'
-            """
-        )
-        connection.execute(
-            """
-            update invoices
-            set status = 'completed', return_reason = null
-            where status in ('submitted', 'returned')
-            """
-        )
-        connection.execute("update users set role = 'external_manager' where role = 'external'")
-        connection.execute(
-            """
-            update users
-            set name = '陈永明'
-            where name like '陈永%' and instr(name, '�') > 0
-            """
-        )
-        connection.execute(
-            """
-            update customer_reimbursement_items
-            set worker_name = '陈永明'
-            where worker_name like '陈永%' and instr(worker_name, '�') > 0
-            """
-        )
-        seed_customer_reimbursement_projects(connection)
-        seed_countries(connection)
-        seed_settings(connection)
-        email_delivery_history_migration = connection.execute(
-            "select value from settings where key = ?",
-            ("email_delivery_history_v1",),
-        ).fetchone()
-        if not email_delivery_history_migration:
-            connection.execute(
-                """
-                insert into email_delivery_logs (
-                    entity_type, entity_id, recipient, subject, sent_by_name, sent_at, is_legacy
-                )
-                select 'invoice', invoices.id, coalesce(clients.email, ''),
-                       'Invoice ' || invoices.invoice_number, '历史记录', invoices.sent_at, 1
-                from invoices
-                left join clients on clients.id = invoices.client_id
-                where trim(coalesce(invoices.sent_at, '')) != ''
-                """
-            )
-            connection.execute(
-                """
-                insert or ignore into email_delivery_logs (
-                    entity_type, entity_id, recipient, subject, sent_by, sent_by_name,
-                    sent_at, source_audit_log_id
-                )
-                select 'customer_reimbursement', audit_logs.entity_id, coalesce(audit_logs.summary, ''),
-                       audit_logs.entity_label, audit_logs.user_id, audit_logs.user_name,
-                       audit_logs.created_at, audit_logs.id
-                from audit_logs
-                where audit_logs.action = 'send'
-                  and audit_logs.entity_type = 'customer_reimbursement'
-                  and audit_logs.entity_id is not null
-                """
-            )
-            connection.execute(
-                "insert into settings (key, value) values (?, ?)",
-                ("email_delivery_history_v1", now()),
-            )
-        historical_paid_date_migration = connection.execute(
-            "select value from settings where key = ?",
-            ("payroll_historical_paid_date_20260705_v1",),
-        ).fetchone()
-        if not historical_paid_date_migration:
-            connection.execute(
-                "insert or replace into settings (key, value) values (?, ?)",
-                ("payroll_historical_paid_date", "2026-07-05"),
-            )
-            connection.execute(
-                "insert or replace into settings (key, value) values (?, ?)",
-                ("payroll_cycle_start", "2026-07-06"),
-            )
-            connection.execute(
-                "insert into settings (key, value) values (?, ?)",
-                ("payroll_historical_paid_date_20260705_v1", now()),
-            )
-        seed_role_permissions(connection)
-        migrate_admin_expense_approve(connection)
-        if not connection.execute("select id from users where role = 'admin' limit 1").fetchone():
-            admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
-            admin_password = os.environ.get("ADMIN_PASSWORD", "")
-            if not admin_email:
-                raise RuntimeError(
-                    "Refusing to initialize administrator: ADMIN_EMAIL is required."
-                )
-            if not admin_password:
-                raise RuntimeError(
-                    "Refusing to initialize administrator: ADMIN_PASSWORD is required."
-                )
-            if admin_password == "change-me-now":
-                raise RuntimeError(
-                    "Refusing to initialize administrator: a secure ADMIN_PASSWORD is required."
-                )
-            if connection.execute(
-                "select id from users where lower(email) = ? limit 1",
-                (admin_email,),
-            ).fetchone():
-                raise RuntimeError(
-                    "Refusing to initialize administrator: ADMIN_EMAIL already belongs to an existing user."
-                )
             connection.execute(
                 """
                 insert into users (name, email, password_hash, role, created_at)
@@ -2453,77 +819,21 @@ def init_db():
                 """,
                 ("Admin", admin_email, generate_password_hash(admin_password), now()),
             )
-        connection.commit()
+            connection.commit()
+        except IntegrityError:
+            # 多 worker 并发启动：另一个进程已插入管理员，视为成功
+            if connection.execute(
+                "select id from users where role = 'admin' limit 1"
+            ).fetchone():
+                return
+            raise
 
 
-def seed_countries(connection):
-    countries = [
-        (
-            "US",
-            "americas",
-            10,
-            {
-                "zh-CN": ("美国", "美洲"),
-                "en": ("United States", "Americas"),
-                "nl": ("Verenigde Staten", "Amerika"),
-                "de": ("Vereinigte Staaten", "Amerika"),
-                "es": ("Estados Unidos", "América"),
-            },
-        ),
-        (
-            "CN",
-            "asia",
-            20,
-            {
-                "zh-CN": ("中国", "亚洲"),
-                "en": ("China", "Asia"),
-                "nl": ("China", "Azië"),
-                "de": ("China", "Asien"),
-                "es": ("China", "Asia"),
-            },
-        ),
-        (
-            "CA",
-            "americas",
-            25,
-            {
-                "zh-CN": ("加拿大", "美洲"),
-                "en": ("Canada", "Americas"),
-                "nl": ("Canada", "Amerika"),
-                "de": ("Kanada", "Amerika"),
-                "es": ("Canadá", "América"),
-            },
-        ),
-        (
-            "NL",
-            "europe",
-            30,
-            {
-                "zh-CN": ("荷兰", "欧洲"),
-                "en": ("Netherlands", "Europe"),
-                "nl": ("Nederland", "Europa"),
-                "de": ("Niederlande", "Europa"),
-                "es": ("Países Bajos", "Europa"),
-            },
-        ),
-    ]
-    for code, region_code, sort_order, translations in countries:
-        connection.execute(
-            """
-            insert or ignore into countries (code, region_code, is_active, sort_order, created_at)
-            values (?, ?, 1, ?, ?)
-            """,
-            (code, region_code, sort_order, now()),
-        )
-        for language_code, (name, region_name) in translations.items():
-            connection.execute(
-                """
-                insert or ignore into country_translations
-                    (country_code, language_code, name, region_name)
-                values (?, ?, ?, ?)
-                """,
-                (code, language_code, name, region_name),
-            )
+def init_db():
+    """Validate the migrated PostgreSQL schema and bootstrap its first admin."""
+    verify_postgres_schema()
+    ensure_postgres_admin()
+    return
 
 
 def current_language():
@@ -2655,95 +965,6 @@ def report_location_filters(table_alias="service_orders"):
         seen_regions.add(country["region_code"])
         regions.append({"code": country["region_code"], "name": country["region_name"]})
     return region_code, country_code, countries, regions, clauses, params
-
-
-def seed_settings(connection):
-    defaults = {}
-    for key, value in DEFAULT_COMPANY_PROFILE.items():
-        defaults[f"company_{key}"] = value
-    for key, value in DEFAULT_PAYMENT_INSTRUCTIONS.items():
-        defaults[f"payment_{key}"] = value
-    for key, value in DEFAULT_SMTP_SETTINGS.items():
-        defaults[f"smtp_{key}"] = value
-    defaults["invoice_terms"] = DEFAULT_INVOICE_TERMS
-    defaults["google_maps_browser_api_key"] = GOOGLE_MAPS_BROWSER_API_KEY_ENV
-    defaults["google_geocoding_api_key"] = GOOGLE_GEOCODING_API_KEY_ENV
-    defaults["google_routes_api_key"] = GOOGLE_ROUTES_API_KEY_ENV
-    defaults["google_static_maps_api_key"] = GOOGLE_STATIC_MAPS_API_KEY_ENV
-    defaults["google_places_api_key"] = GOOGLE_PLACES_API_KEY_ENV
-    defaults["deepseek_enabled"] = "false"
-    defaults["deepseek_api_key"] = DEEPSEEK_API_KEY_ENV
-    defaults["deepseek_model"] = "deepseek-flash"
-    defaults["deepseek_vision_model"] = DEEPSEEK_VISION_MODEL_ENV
-    defaults["vision_external_api_enabled"] = "true" if VISION_EXTERNAL_API_ENABLED_ENV else "false"
-    defaults["vision_max_image_bytes"] = str(VISION_MAX_IMAGE_BYTES_ENV)
-    defaults["payroll_cycle_start"] = "2026-07-06"
-    defaults["payroll_car_allowance_method"] = "daily"
-    defaults["payroll_car_daily_amount"] = "60"
-    defaults["payroll_car_mileage_rate"] = "0.5"
-    defaults["payroll_meal_allowance_method"] = "daily"
-    defaults["payroll_meal_daily_amount"] = "50"
-    defaults["payroll_report_writing_fee"] = "20"
-    defaults["payroll_lodging_limit"] = "0"
-    defaults["payroll_historical_paid_date"] = "2026-07-05"
-    defaults["inspection_warning_days"] = "150"
-    defaults["inspection_cycle_days"] = "180"
-    for key, value in defaults.items():
-        connection.execute(
-            "insert or ignore into settings (key, value) values (?, ?)",
-            (key, value),
-        )
-
-
-def seed_role_permissions(connection):
-    timestamp = now()
-    for menu_key, roles in DEFAULT_MENU_ROLES.items():
-        for role in ROLE_OPTIONS:
-            connection.execute(
-                """
-                insert or ignore into role_menu_permissions (
-                    role, menu_key, is_enabled, updated_by, updated_at
-                ) values (?, ?, ?, null, ?)
-                """,
-                (role, menu_key, 1 if role in roles else 0, timestamp),
-            )
-    for (resource_key, action_key), roles in DEFAULT_ACTION_ROLES.items():
-        for role in ROLE_OPTIONS:
-            connection.execute(
-                """
-                insert or ignore into role_action_permissions (
-                    role, resource_key, action_key, is_enabled, updated_by, updated_at
-                ) values (?, ?, ?, ?, null, ?)
-                """,
-                (role, resource_key, action_key, 1 if role in roles else 0, timestamp),
-            )
-
-
-def migrate_admin_expense_approve(connection):
-    """一次性数据迁移：报销审核（通过/退回）默认对 admin 开放。
-
-    seed_role_permissions 只用 insert or ignore，老库中已固化的
-    (admin, expenses, approve, is_enabled=0) 行不会被默认值变化刷新，
-    导致管理员在报销详情页点「退回」被集中路由闸门拦下（403）。
-    用 settings 哨兵保证只跑一次：管理员之后手动关闭不会被重启覆盖。
-    """
-    sentinel = connection.execute(
-        "select value from settings where key = ?", ("expense_approve_admin_v1",)
-    ).fetchone()
-    if sentinel:
-        return
-    connection.execute(
-        """
-        update role_action_permissions
-        set is_enabled = 1, updated_at = ?
-        where role = 'admin' and resource_key = 'expenses' and action_key = 'approve'
-        """,
-        (now(),),
-    )
-    connection.execute(
-        "insert into settings (key, value) values (?, ?)",
-        ("expense_approve_admin_v1", now()),
-    )
 
 
 def get_setting(key, default=""):
@@ -3149,7 +1370,7 @@ def can_view_ai_daily_report_draft(user, draft_row):
     - external users: cannot view
 
     Args:
-        user: current user (sqlite3.Row or dict)
+        user: current database row or dict
         draft_row: draft database row (must include created_by, draft_data)
 
     Returns:
@@ -3158,7 +1379,7 @@ def can_view_ai_daily_report_draft(user, draft_row):
     if not user or not draft_row:
         return False
 
-    # Convert sqlite3.Row to dict if needed
+    # Convert database row to dict if needed
     if hasattr(user, "keys"):
         user = dict(user)
     if hasattr(draft_row, "keys"):
@@ -3199,7 +1420,7 @@ def can_edit_ai_daily_report_draft(user, draft_row):
     - Draft must be in 'draft' status (confirmed/cancelled/saved are read-only)
 
     Args:
-        user: current user (sqlite3.Row or dict)
+        user: current database row or dict
         draft_row: draft database row
 
     Returns:
@@ -3208,7 +1429,7 @@ def can_edit_ai_daily_report_draft(user, draft_row):
     if not user or not draft_row:
         return False
 
-    # Convert sqlite3.Row to dict if needed
+    # Convert database row to dict if needed
     if hasattr(user, "keys"):
         user = dict(user)
     if hasattr(draft_row, "keys"):
@@ -3297,14 +1518,15 @@ def ai_daily_report_draft_list_filters(user):
     - employee: see drafts they created OR where they are listed as a worker (by user_id)
     - external users: see nothing
 
-    Worker matching uses SQLite JSON1 json_each to check draft_data.workers[].user_id.
+    Worker matching uses PostgreSQL jsonb_array_elements to check
+    draft_data.workers[].user_id.
     This is stable identity matching (user_id), NOT name matching, to prevent
     same-name employees from gaining unauthorized access.
     """
     if not user:
         return ["1=0"], []
 
-    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    # Convert database row to dict (row objects do not support attribute access)
     if hasattr(user, "keys"):
         user = dict(user)
 
@@ -3317,11 +1539,11 @@ def ai_daily_report_draft_list_filters(user):
 
     # Employee sees drafts they created OR where they are a worker (by stable user_id)
     if role == "employee":
-        # Use SQLite JSON1 json_each to check workers[].user_id
+        # PostgreSQL jsonb: expand workers[] and match user_id as text.
         # This prevents same-name employees from gaining access (name-based matching is unsafe)
         worker_clause = """EXISTS (
-            SELECT 1 FROM json_each(ai_daily_report_drafts.draft_data, '$.workers') w
-            WHERE json_extract(w.value, '$.user_id') = ?
+            SELECT 1 FROM jsonb_array_elements(ai_daily_report_drafts.draft_data::jsonb -> 'workers') w
+            WHERE w.value ->> 'user_id' = ?::text
         )"""
         return [f"(created_by = ? OR {worker_clause})"], [user_id, user_id]
 
@@ -3869,7 +2091,7 @@ def sql_statement_kind(sql):
 
 
 def is_read_sql(sql):
-    return sql_statement_kind(sql) in {"select", "with", "pragma", "explain"}
+    return sql_statement_kind(sql) in {"select", "with", "explain"}
 
 
 def client_order_number_warning(customer_name, client_order_number):
@@ -5329,63 +3551,6 @@ def order_photo_status(order_dir):
     }
 
 
-def seed_customer_reimbursement_projects(connection):
-    # 只补建缺失的项目记录；已存在的记录（含 unit_price）绝不覆盖，
-    # 否则重启会把数据库里维护的客户费率改回代码默认值。
-    for name in CUSTOMER_REIMBURSEMENT_PROJECTS:
-        row = connection.execute(
-            "select id from projects where name_key = ? and project_type = 'customer_expense'",
-            (project_name_key(name),),
-        ).fetchone()
-        if row:
-            continue
-        connection.execute(
-            """
-            insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-            values (?, ?, 'customer_expense', 0, 0, 0, 1, ?)
-            """,
-            (name, project_name_key(name), now()),
-        )
-    invoice_names = set(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS) | {
-        row[2] for row in EXPENSE_SETTLEMENT_INVOICE_SEEDS
-    }
-    for name in sorted(invoice_names):
-        row = connection.execute(
-            "select id from projects where name_key = ? and project_type = 'invoice'",
-            (project_name_key(name),),
-        ).fetchone()
-        if row:
-            continue
-        connection.execute(
-            """
-            insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-            values (?, ?, 'invoice', 0, 0, 0, 1, ?)
-            """,
-            (name, project_name_key(name), now()),
-        )
-    # 员工报销项目 → 结算字段 → 发票项目 的可维护映射表（种子 insert or ignore）
-    connection.execute(
-        """
-        create table if not exists expense_settlement_invoice_map (
-            id integer primary key autoincrement,
-            expense_project_name text not null unique,
-            settlement_field text not null,
-            invoice_project_name text not null,
-            created_at text not null
-        )
-        """
-    )
-    for expense_name, settlement_field, invoice_name in EXPENSE_SETTLEMENT_INVOICE_SEEDS:
-        connection.execute(
-            """
-            insert or ignore into expense_settlement_invoice_map
-                (expense_project_name, settlement_field, invoice_project_name, created_at)
-            values (?, ?, ?, ?)
-            """,
-            (expense_name, settlement_field, invoice_name, now()),
-        )
-
-
 def save_shared_report_photo(report_id, relative_path, category):
     source_path = resolve_shared_photo(relative_path, require_file=True)
     order_number, _ = report_storage_context(report_id)
@@ -6007,7 +4172,7 @@ def excessive_following_mileage_rows(order_id, threshold=500):
 
 
 def _row_field(row, key, default=0):
-    """读取结算明细行的字段，兼容 dict 与 sqlite3.Row（后者没有 .get）。"""
+    """读取结算明细行的字段，兼容 dict 与数据库 Row（后者没有 .get）。"""
     try:
         value = row[key]
     except (KeyError, IndexError, TypeError):
@@ -6058,7 +4223,7 @@ def expense_settlement_invoice_mapping():
     MRO 的发票项目在读取时归一为规范全名：迁移 0282 早期种子写的是裸名
     'MRO Supplies'，而升级脚本按「表已存在即跳过」执行，跑过旧版 0282 的库
     不会再补这一行（PostgreSQL 尤其如此，init_db 在 PG 上直接返回、不跑种子）。
-    所以修正放在读取侧，SQLite / PostgreSQL 两个栈都生效。
+    所以修正放在读取侧，不改写历史映射数据。
     """
     rows = db().execute(
         "select expense_project_name, settlement_field, invoice_project_name from expense_settlement_invoice_map"
@@ -6151,9 +4316,7 @@ def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
 
 
 def _reimbursement_date_key(value):
-    """双栈归一：SQLite 存文本 '2026-09-18'，PostgreSQL 经 psycopg 回传
-    datetime/date，``str()`` 得 '2026-09-18 00:00:00'。两者作匹配键不等 →
-    生产环境翻倍更严重。统一归一成 'YYYY-MM-DD' 字符串。"""
+    """将 psycopg 日期/时间值统一为 'YYYY-MM-DD' 结算匹配键。"""
     if value is None:
         return ""
     if isinstance(value, (datetime, date)):
@@ -6606,7 +4769,7 @@ def copy_file_to_customer_reimbursement_attachment(
                 now(),
             ),
         )
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         # 唯一索引 idx_customer_reimbursement_attachment_expense_source：
         # 并发同步已复制过同一来源附件，视为已处理而非错误。
         try:
@@ -6614,7 +4777,7 @@ def copy_file_to_customer_reimbursement_attachment(
         except FileNotFoundError:
             pass
         return False
-    except sqlite3.Error:
+    except DatabaseError:
         try:
             os.remove(destination_path)
         except FileNotFoundError:
@@ -8446,7 +6609,7 @@ def inject_globals():
         "supported_languages": SUPPORTED_LANGUAGES,
         "can_manage_company_info": can_manage_company_info,
         "app_version": APP_VERSION,
-        "production_postgres": postgres_enabled(),
+        "production_postgres": True,
     }
 
 
@@ -8585,7 +6748,7 @@ def register():
             db().commit()
             flash("注册成功，请等待管理员或经理批准启用。", "success")
             return redirect(url_for("login"))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             flash("这个邮箱已经注册。", "error")
     return render_template("register.html", countries=country_rows())
 
@@ -8822,7 +6985,7 @@ def new_contract():
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("合同编号已经存在，请更换合同编号。", "error")
     defaults = dict(request.form) if request.method == "POST" else {
@@ -8930,7 +7093,7 @@ def edit_contract(contract_id):
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("合同编号已经存在，请更换合同编号。", "error")
     attachments = db().execute(
@@ -9187,7 +7350,7 @@ def payment_terms():
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("账期名称已经存在。", "error")
         return redirect(url_for("payment_terms"))
@@ -9234,7 +7397,7 @@ def edit_payment_term(payment_term_id):
     except ValueError as error:
         db().rollback()
         flash(str(error), "error")
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         db().rollback()
         flash("账期名称已经存在。", "error")
     return redirect(url_for("payment_terms"))
@@ -9319,7 +7482,7 @@ def clients():
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             flash("客户编号重复，请重试。", "error")
         return redirect(url_for("clients"))
     q = request.args.get("q", "").strip()
@@ -9401,7 +7564,7 @@ def edit_client(client_id):
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("edit_client", client_id=client_id))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             flash("客户编号重复，请换一个编号。", "error")
             return redirect(url_for("edit_client", client_id=client_id))
         return redirect(url_for("clients"))
@@ -9447,7 +7610,7 @@ def owners():
             )
             db().commit()
             flash("业主已创建。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("业主编号重复，请重试。", "error")
         return redirect(url_for("owners"))
@@ -9494,7 +7657,7 @@ def edit_owner(owner_id):
         )
         db().commit()
         flash("业主资料已更新。", "success")
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         db().rollback()
         flash("业主编号重复，请换一个编号。", "error")
     return redirect(url_for("owners"))
@@ -9545,7 +7708,7 @@ def manufacturers():
             )
             db().commit()
             flash("厂家已创建。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("厂家编号重复，请重试。", "error")
         return redirect(url_for("manufacturers"))
@@ -9592,7 +7755,7 @@ def edit_manufacturer(manufacturer_id):
         )
         db().commit()
         flash("厂家资料已更新。", "success")
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         db().rollback()
         flash("厂家编号重复，请换一个编号。", "error")
     return redirect(url_for("manufacturers"))
@@ -9705,7 +7868,7 @@ def buyers():
             )
             db().commit()
             flash("站点已创建。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("站点编号重复，请重试。", "error")
         return redirect(url_for("buyers"))
@@ -9813,7 +7976,7 @@ def import_buyers():
     except ValueError as error:
         db().rollback()
         flash(str(error), "error")
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         db().rollback()
         flash("导入失败：站点编号或业主编号冲突，请检查导入文件后重试。", "error")
     return redirect(url_for("buyers"))
@@ -9943,7 +8106,7 @@ def edit_buyer(buyer_id):
             db().commit()
             flash("站点资料已更新。", "success")
             return redirect(url_for("buyers"))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("站点编号重复，请换一个编号。", "error")
     clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
@@ -10000,7 +8163,7 @@ def work_order_types():
             )
             db().commit()
             flash("工单类型已创建。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("工单类型编码重复。", "error")
         return redirect(url_for("work_order_types"))
@@ -10033,7 +8196,7 @@ def edit_work_order_type(type_id):
             db().commit()
             flash("工单类型已更新。", "success")
             return redirect(url_for("work_order_types"))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("工单类型编码重复。", "error")
     return render_template("work_order_type_form.html", work_order_type=work_order_type)
@@ -10078,7 +8241,7 @@ def projects():
                 flash(f"报销项目「{expense_name}」已有映射，请先删除旧行再新增。", "error")
             else:
                 # id 显式生成：PG 端该表 id 序列与种子行（migration 0282）未同步，
-                # nextval 会撞已有 id；max(id)+1 在 SQLite/PG 下语义一致。
+                # nextval 会撞已有种子 id；使用 max(id)+1 保持现有分配语义。
                 db().execute(
                     "insert into expense_settlement_invoice_map (id, expense_project_name, settlement_field, invoice_project_name, created_at) "
                     "values ((select coalesce(max(id), 0) + 1 from expense_settlement_invoice_map), ?, ?, ?, ?)",
@@ -10121,7 +8284,7 @@ def projects():
             )
             db().commit()
             flash("项目已创建。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("同一项目类型下已存在同名项目，不能重复创建。", "error")
         return redirect(url_for("projects"))
@@ -10210,7 +8373,7 @@ def edit_project(project_id):
             )
             db().commit()
             flash("项目已更新。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("同一项目类型下已存在同名项目，不能重复保存。", "error")
         return redirect(url_for("projects"))
@@ -10506,7 +8669,7 @@ def employee_grades():
                 log_action("create", "employee_grade", cursor.lastrowid, grade_name, "新增员工等级")
             db().commit()
             flash("员工等级已保存。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("员工等级名称已存在。", "error")
         return redirect(url_for("employee_grades", grade_id=grade_id or ""))
@@ -10558,7 +8721,7 @@ def delete_employee_grade(grade_id):
         detail = f"其中 {active} 名在职" if active else "对应员工均已停用"
         flash(f"该等级仍被 {total} 名员工使用（{detail}），不能删除；请先把这些员工调整到其它等级。", "error")
         return redirect(url_for("employee_grades", grade_id=grade_id))
-    # 显式清理费率版本与明细，不依赖外键级联（SQLite/PostgreSQL 行为一致）
+    # 显式清理费率版本与明细，不依赖外键级联。
     db().execute(
         "delete from employee_rate_items where version_id in (select id from employee_rate_versions where employee_grade_id = ?)",
         (grade_id,),
@@ -10786,7 +8949,7 @@ def users():
                 )
             db().commit()
             flash("用户已创建。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("这个邮箱已经存在。", "error")
         except ValueError as error:
@@ -10997,7 +9160,7 @@ def edit_user(user_id):
                 )
             db().commit()
             flash("用户资料已更新。", "success")
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("这个邮箱已经存在。", "error")
             return redirect(url_for("edit_user", user_id=user_id))
@@ -12717,7 +10880,7 @@ def ai_daily_report_confirm(draft_id):
     # Note: confirm is a Phase 1 API called by AI Assistant,
     # so authorization is not enforced here to avoid breaking existing integrations.
     user = g.user
-    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    # Convert database Row to dict (Row does not support attribute access)
     if hasattr(user, "keys"):
         user = dict(user)
     user_id = user.get("id", "")
@@ -12913,7 +11076,7 @@ def ai_daily_report_cancel(draft_id):
         })
 
     user = g.user
-    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    # Convert database Row to dict (Row does not support attribute access)
     if hasattr(user, "keys"):
         user = dict(user)
     user_id = user.get("id", "")
@@ -12957,7 +11120,7 @@ def ai_daily_report_delete(draft_id):
         return jsonify({"ok": False, "error": "已正式保存的日报不能删除"}), 409
 
     user = g.user
-    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    # Convert database Row to dict (Row does not support attribute access)
     if hasattr(user, "keys"):
         user = dict(user)
     user_id = user.get("id", "")
@@ -13008,7 +11171,7 @@ def ai_daily_report_reopen(draft_id):
     # Note: reopen is a Phase 1 API called by AI Assistant,
     # so authorization is not enforced here to avoid breaking existing integrations.
     user = g.user
-    # Convert sqlite3.Row to dict (sqlite3.Row does NOT support attribute access)
+    # Convert database Row to dict (Row does not support attribute access)
     if hasattr(user, "keys"):
         user = dict(user)
     user_id = user.get("id", "")
@@ -14107,8 +12270,8 @@ def ai_daily_report_update_worker(draft_id):
 def _fold_staff_query(text: str) -> str:
     """Casefold + strip diacritics for tolerant staff matching.
 
-    SQLite LIKE does no Unicode folding, so searching "Antonio" would never
-    match a stored "Ant\u00f3nio". Folding both sides fixes that (v0.1.255).
+    SQL equality does not provide the required Unicode folding, so searching
+    "Antonio" would not match a stored "Ant\u00f3nio". Fold both sides.
     """
     import unicodedata
     decomposed = unicodedata.normalize("NFKD", text or "")
@@ -14664,25 +12827,36 @@ def database_console():
                         )
                         db().commit()
                         flash("SQL 已执行。", "success")
-                except sqlite3.Error as error:
+                except DatabaseError as error:
                     db().rollback()
                     flash(f"SQL 执行失败：{error}", "error")
     tables = db().execute(
         """
-        select name, type
-        from sqlite_master
-        where type in ('table', 'view') and name not like 'sqlite_%'
+        select table_name as name,
+               case table_type when 'VIEW' then 'view' else 'table' end as type
+        from information_schema.tables
+        where table_schema = 'public'
         order by type, name
         """
     ).fetchall()
     table_dictionary = []
     for table in tables:
-        quoted_name = '"' + table["name"].replace('"', '""') + '"'
         table_dictionary.append(
             {
                 "name": table["name"],
                 "type": table["type"],
-                "columns": db().execute(f"pragma table_info({quoted_name})").fetchall(),
+                "columns": db().execute(
+                    """
+                    select ordinal_position - 1 as cid, column_name as name,
+                           data_type as type,
+                           case is_nullable when 'NO' then 1 else 0 end as notnull,
+                           column_default as dflt_value, 0 as pk
+                    from information_schema.columns
+                    where table_schema = 'public' and table_name = ?
+                    order by ordinal_position
+                    """,
+                    (table["name"],),
+                ).fetchall(),
             }
         )
     return render_template(
@@ -16871,12 +15045,11 @@ def process_expense_action():
     action = request.form.get("action", "")
     if action != "reset_workflow" or normalized_role() != "admin":
         abort(403)
-    if postgres_enabled():
-        try:
-            cancel_expense_payment_order(globals(), expense_id)
-        except ValueError as error:
-            flash(str(error), "error")
-            return redirect(url_for("expense_detail", expense_id=expense_id))
+    try:
+        cancel_expense_payment_order(globals(), expense_id)
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("expense_detail", expense_id=expense_id))
     db().execute(
         """
         update expenses
@@ -19717,7 +17890,7 @@ def expense_detail(expense_id):
     payment_order = db().execute(
         "select id,payment_number,status from employee_payment_orders where source_key=?",
         (f"expense:{expense_id}",),
-    ).fetchone() if postgres_enabled() else None
+    ).fetchone()
     attachments = get_expense_attachments(expense_id)
     attachments_by_item = group_expense_attachments(attachments)
     # 旧数据兜底：迁移完成前仍存在的“未挂明细行”附件，顶部警告提示而不是渲染通用附件区
@@ -19830,7 +18003,7 @@ def approve_expense(expense_id):
     log_action("approve", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
     # Approval now creates the accounts-payable document while preserving the
     # expense's existing review and profitability semantics.
-    payment_id = ensure_expense_payment_order(globals(), expense_id) if postgres_enabled() else None
+    payment_id = ensure_expense_payment_order(globals(), expense_id)
     db().commit()
     flash("报销已审核通过，员工付款单已自动生成。" if payment_id else "报销已审核通过。", "success")
     return redirect(url_for("expense_detail", expense_id=expense_id))
@@ -19869,8 +18042,8 @@ def delete_expense(expense_id):
         abort(403)
     shutil.rmtree(expense_attachment_dir(expense_id), ignore_errors=True)
     try:
-        # 依赖行必须逐个显式删除：SQLite 的外键带 on delete cascade，但 PostgreSQL
-        # 生产库不一定有，漏掉任何一张（尤其「重复报销检查」里被别人 matched_expense_id
+        # 依赖行逐个显式删除，不依赖外键级联；漏掉任何一张（尤其
+        # 「重复报销检查」里被别人 matched_expense_id
         # 指到这条报销的记录）就会在 delete 时抛外键错误，用户只看到 500。
         db().execute(
             "delete from expense_duplicate_checks where expense_id = ? or matched_expense_id = ?",
@@ -20071,10 +18244,10 @@ def transfer_expense_attachment(attachment_id):
             f"报销：{expense['expense_number']}；工单结算：{reimbursement['file_name']}",
         )
         db().commit()
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         db().rollback()
         return finish_transfer("该附件已经传递到工单结算。")
-    except (OSError, sqlite3.Error, ValueError) as error:
+    except (OSError, DatabaseError, ValueError) as error:
         db().rollback()
         app.logger.exception("Failed to transfer expense attachment %s", attachment_id)
         return finish_transfer(str(error) or "附件传递失败，请稍后重试。", "error")
@@ -20233,7 +18406,7 @@ def new_invoice():
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("new_invoice"))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("保存发票时发生数据库冲突，请重新提交。", "error")
             return redirect(url_for("new_invoice"))
@@ -20369,7 +18542,7 @@ def create_invoice_from_form(save_token=None):
                 ),
             )
             break
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             invoice_number = next_invoice_number()
     if cursor is None:
         raise RuntimeError("Unable to generate a unique invoice number.")
@@ -20441,7 +18614,7 @@ def edit_invoice(invoice_id):
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             db().rollback()
             flash("发票编号已经存在，请更换一个发票编号后再保存。", "error")
             return redirect(url_for("edit_invoice", invoice_id=invoice_id))

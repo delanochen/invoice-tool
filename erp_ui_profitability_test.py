@@ -60,7 +60,6 @@ def main():
     os.environ["DATA_DIR"] = temp_dir
     import app as app_module
     app_module.DATA_DIR = temp_dir
-    app_module.DB_PATH = os.path.join(temp_dir, "invoices.db")
     Path(temp_dir).mkdir(parents=True, exist_ok=True)
     app_module.app.config["TESTING"] = True
 

@@ -1,5 +1,5 @@
-# Opt-in overlay only. Do not enable before frozen-data migration and acceptance.
-# Run from the repository root with both -f files; paths resolve from that root.
+# Required PostgreSQL service overlay. Run from the repository root with both
+# Compose files; paths resolve from that root. SQLite is not supported.
 services:
   invoice-tool:
     env_file:

@@ -163,7 +163,13 @@ class LedgerPhotoTypeEditApiTest(unittest.TestCase):
 
     def test_ledger_page_renders_editable_select(self):
         self.upload()
-        resp = self.http.get("/reports/field-photos")
+        with self.module.app.app_context():
+            self.module.db().execute(
+                "update users set role = 'admin' where id = ?",
+                (self.fixture.people["Submitter"],),
+            )
+            self.module.db().commit()
+        resp = self.http.get("/reports/field-photos?equipment_number=BESB-2B6-1")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("photo-type-select", resp.text)
         self.assertIn("data-photo-id", resp.text)

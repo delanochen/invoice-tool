@@ -32,42 +32,6 @@ EDITABLE_PHOTO_TYPES = ('equipment', 'arrival', 'departure', 'safety')
 
 
 
-def init_field_schema(connection):
-    connection.executescript('''
-        create table if not exists field_photos (
-            id integer primary key autoincrement,
-            client_id text not null,
-            order_id integer not null references service_orders(id) on delete cascade,
-            user_id integer not null references users(id),
-            captured_at text not null, received_at text not null,
-            capture_date text not null, timezone_name text not null,
-            latitude real not null, longitude real not null, accuracy real not null,
-            location_note text not null default '', note text not null default '',
-            source text not null, relative_path text not null unique,
-            content_hash text not null, bytes integer not null,
-            unique(user_id, client_id)
-        );
-        create index if not exists idx_field_photos_order_date on field_photos(order_id, capture_date);
-        create index if not exists idx_field_photos_user on field_photos(user_id);
-    ''')
-    columns = {row[1] for row in connection.execute('pragma table_info(field_photos)')}
-    for name in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers', 'equipment_session', 'photo_type',
-                 'watermark_at', 'watermark_source', 'batch_id', 'technician_name', 'capture_date_source'):
-        if name not in columns:
-            connection.execute(f"alter table field_photos add column {name} text not null default ''")
-    connection.execute("update field_photos set watermark_source = 'system' where watermark_source = ''")
-    if 'technician_user_id' not in columns:
-        connection.execute('alter table field_photos add column technician_user_id integer')
-    if 'location_verified' not in columns:
-        connection.execute('alter table field_photos add column location_verified integer not null default 1')
-    for row in connection.execute('select id, position_number, container_number from field_photos').fetchall():
-        position = (row[1] or '').strip().upper()
-        container = (row[2] or '').strip().upper()
-        if position != row[1] or container != row[2]:
-            connection.execute('update field_photos set position_number = ?, container_number = ? where id = ?',
-                               (position, container, row[0]))
-
-
 def group_repair_photos(photos):
     """把设备类现场照片归并成「设备维修清单」行（与 /reports/field-repairs 同口径）。
 

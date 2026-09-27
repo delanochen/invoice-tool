@@ -39,7 +39,6 @@ class WorkerManagementTest(unittest.TestCase):
         import app as app_module
         cls.app_module = app_module
         app_module.DATA_DIR = cls.temp_dir
-        app_module.DB_PATH = os.path.join(cls.temp_dir, "invoices.db")
         app_module.ATTACHMENTS_DIR = os.path.join(cls.temp_dir, "attachments")
         app_module.REPORT_ATTACHMENTS_DIR = os.path.join(cls.temp_dir, "service-report-attachments")
         app_module.SHARED_PHOTOS_DIR = os.environ["SHARED_PHOTOS_DIR"]

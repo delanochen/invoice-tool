@@ -142,7 +142,7 @@ class AttachmentManifestService:
     """Build, persist, materialize and query Attachment Manifests (Phase 8).
 
     Args:
-        db_connection: Flask/SQLite connection with execute() (dict rows).
+        db_connection: PostgreSQL adapter connection with execute() (dict-like rows).
         shared_photos_root: absolute path to shared-photos root.
         data_dir: absolute DATA_DIR (staging lives under
                   <data_dir>/ai-daily-report-drafts/<draft_id>/prepared/).

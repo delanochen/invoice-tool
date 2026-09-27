@@ -292,12 +292,11 @@ class AIDailyReportPhase3BTest(unittest.TestCase):
         """AE. File write failure -> safe handling, no crash"""
         evidence_svc, _ = self._make_services()
         worker = self._make_worker()
-        # Use a read-only path to simulate write failure
-        evidence_svc.draft_evidence_root = Path("/dev/null")
-        record = evidence_svc.generate_evidence(
-            worker, draft_id=11, service_order_id=self.order["id"],
-            report_date="2026-09-14", generated_by=self.admin_id,
-        )
+        with patch.object(evidence_svc, "_save_evidence_image", side_effect=OSError("disk full")):
+            record = evidence_svc.generate_evidence(
+                worker, draft_id=11, service_order_id=self.order["id"],
+                report_date="2026-09-14", generated_by=self.admin_id,
+            )
         self.assertEqual(record.evidence_status, "failed")
         self.assertIn("evidence_write", record.error)
 
@@ -751,7 +750,10 @@ class AIDailyReportPhase3BTest(unittest.TestCase):
         draft_dir = self.evidence_root / "999" / "mileage"
         draft_dir.mkdir(parents=True, exist_ok=True)
         symlink_path = draft_dir / "escape_link"
-        symlink_path.symlink_to("/tmp")
+        try:
+            symlink_path.symlink_to(Path(self.temp_dir.name))
+        except OSError as error:
+            self.skipTest(f"symlink creation unavailable: {error}")
         with self.assertRaises(PathSafetyError):
             evidence_svc._safe_evidence_path(999, "escape_link/file.png")
         # Cleanup

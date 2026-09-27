@@ -133,32 +133,18 @@ else
     fi
 fi
 
-section "Database integrity"
-if [ -z "$DATA_DIR" ]; then
-    warning "DATA_HOST_DIR is not set in the environment or .env; database integrity check was not executed"
-elif [ ! -f "$DATA_DIR/invoices.db" ]; then
-    fail "database is missing: $DATA_DIR/invoices.db"
+section "PostgreSQL runtime"
+PG_DATABASE="${POSTGRES_DATABASE:-$(env_value POSTGRES_DATABASE)}"
+if [ -z "$PG_DATABASE" ]; then
+    fail "POSTGRES_DATABASE is not configured"
 elif command -v python3 >/dev/null 2>&1; then
-    if python3 - "$DATA_DIR/invoices.db" <<'PY'
-import sqlite3
-import sys
-
-path = sys.argv[1]
-db = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
-try:
-    result = db.execute("PRAGMA integrity_check").fetchone()[0]
-    print("database_integrity: " + result)
-    raise SystemExit(0 if result == "ok" else 1)
-finally:
-    db.close()
-PY
-    then
-        pass "SQLite integrity_check returned ok (read-only connection)"
+    if python3 "$SCRIPT_DIR/check_postgresql_runtime.py" --database "$PG_DATABASE"; then
+        pass "PostgreSQL identity, schema, role and grants verified read-only"
     else
-        fail "SQLite integrity_check did not return ok"
+        fail "PostgreSQL runtime verification failed"
     fi
 else
-    warning "python3 is unavailable; database integrity check was not executed"
+    warning "python3 is unavailable; PostgreSQL runtime verification was not executed"
 fi
 
 section "Data and attachment paths"
@@ -262,7 +248,9 @@ else
 fi
 
 for key_file in "$COMPOSE_FILE" "$ENV_FILE" "$APP_DIR/VERSION" \
-    "$SCRIPT_DIR/auto-update.sh" "$SCRIPT_DIR/migrate-to-volume2.sh"; do
+    "$APP_DIR/deploy/docker-compose.postgresql.yml" \
+    "$SCRIPT_DIR/debian-auto-deploy.sh" "$SCRIPT_DIR/check_postgresql_runtime.py" \
+    "$SCRIPT_DIR/backup_postgresql.py"; do
     if [ -f "$key_file" ]; then
         pass "key file present: $key_file"
     else

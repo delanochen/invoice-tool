@@ -83,7 +83,12 @@ class WorkOrderContextService:
 
         # Check if service_orders has assigned_user_id or similar
         cols = [r["name"] for r in self.db.execute(
-            "pragma table_info(service_orders)"
+            """
+            select column_name as name
+            from information_schema.columns
+            where table_schema = 'public' and table_name = 'service_orders'
+            order by ordinal_position
+            """
         ).fetchall()]
 
         if "assigned_user_id" in cols:
@@ -101,7 +106,11 @@ class WorkOrderContextService:
 
         # Check for order_technicians junction table
         tables = [r["name"] for r in self.db.execute(
-            "select name from sqlite_master where type='table'"
+            """
+            select table_name as name
+            from information_schema.tables
+            where table_schema = 'public' and table_type = 'BASE TABLE'
+            """
         ).fetchall()]
 
         if "service_order_technicians" in tables:

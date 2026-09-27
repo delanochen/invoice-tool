@@ -62,7 +62,7 @@
       <ul class="console-notes">
         <li>每次只执行一条 SQL。查询最多显示前 500 行；新增、修改、删除或结构变更需要勾选确认。</li>
         <li>支持多表 JOIN 查询，例如：select service_orders.order_number, invoices.invoice_number from service_orders left join invoices on invoices.service_order_id = service_orders.id limit 20</li>
-        <li>数据更改请使用单条 SQLite 语句，例如 update / delete 配合 where exists 或子查询。</li>
+        <li>数据更改请使用单条 PostgreSQL 语句，例如 update / delete 配合 where exists 或子查询。</li>
       </ul>
     </section>
 

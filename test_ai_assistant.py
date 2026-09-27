@@ -91,9 +91,16 @@ class AiAssistantTest(unittest.TestCase):
 
     def test_chat_executes_only_whitelisted_read_tool(self):
         with self.module.app.app_context():
-            self.module.set_setting("deepseek_enabled", "true")
-            self.module.set_setting("deepseek_api_key", "test-key")
+            config_id = self.module.db().execute(
+                "insert into llm_configs "
+                "(name,base_url,api_key,model,supports_vision,timeout_seconds,enabled,notes,created_at,updated_at) "
+                "values ('DeepSeek test','https://api.deepseek.com','test-key','deepseek-chat',false,300,true,'',?,?)",
+                (self.module.now(), self.module.now()),
+            ).lastrowid
+            self.module.set_setting("llm_scene_daily_intent", str(config_id))
             self.module.db().commit()
+            self.assertEqual(self.module.get_setting("llm_scene_daily_intent"), str(config_id))
+            self.assertEqual(self.module.llm_config.get_config(self.module.db(), "daily_intent")["api_key"], "test-key")
         tool_reply = {
             "role": "assistant",
             "content": None,
@@ -143,7 +150,13 @@ class AiAssistantTest(unittest.TestCase):
 
     def test_connection_test_returns_readable_api_error(self):
         with self.module.app.app_context():
-            self.module.set_setting("deepseek_api_key", "test-key")
+            config_id = self.module.db().execute(
+                "insert into llm_configs "
+                "(name,base_url,api_key,model,supports_vision,timeout_seconds,enabled,notes,created_at,updated_at) "
+                "values ('DeepSeek test','https://api.deepseek.com','test-key','deepseek-chat',false,300,true,'',?,?)",
+                (self.module.now(), self.module.now()),
+            ).lastrowid
+            self.module.set_setting("llm_scene_daily_intent", str(config_id))
             self.module.db().execute("update users set role = 'admin' where id = ?", (self.user_id,))
             self.module.db().commit()
         with patch.object(self.module, "call_deepseek_chat", side_effect=RuntimeError("DeepSeek 账户余额不足")):

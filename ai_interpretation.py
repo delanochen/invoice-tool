@@ -5,8 +5,7 @@
 * 图片走多模态消息（base64 data URL）；PDF 先用 pypdf 提取文本再发给模型。
 * 解读结果落库 expense_attachment_interpretations（一附件一行，unique(attachment_id)），
   「未解读过」= 无记录或 status='failed'。Web 端按钮与凌晨 2 点的批量 worker
-  （ai_interpret_worker.py）共用本模块；建表由 app.init_db（SQLite）或
-  migrations/postgresql/0281-*.sql（PostgreSQL）负责。
+  （ai_interpret_worker.py）共用本模块；建表由版本化 PostgreSQL migration 负责。
 """
 import base64
 import json

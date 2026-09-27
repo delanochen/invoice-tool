@@ -183,23 +183,6 @@ class ExpenseOnBehalfTest(unittest.TestCase):
             self.assertIsNone(self.app.db().execute('select id from expenses where id=?',(expense['id'],)).fetchone())
             self.assertFalse((Path(self.app.EXPENSE_ATTACHMENTS_DIR) / str(expense['id'])).exists())
 
-    def test_legacy_migration_is_repeatable_and_preserves_delegation(self):
-        expense=self.create(action='save')
-        with self.app.app.app_context():
-            db=self.app.db()
-            db.execute('drop index idx_expenses_beneficiary')
-            db.execute('alter table expenses drop column beneficiary_id')
-            db.commit()
-        self.app.init_db()
-        with self.app.app.app_context():
-            db=self.app.db()
-            self.assertEqual(db.execute('select beneficiary_id from expenses').fetchone()[0],self.people['Submitter'])
-            db.execute('update expenses set beneficiary_id=?',(self.people['Beneficiary'],))
-            db.commit()
-        self.app.init_db()
-        with self.app.app.app_context():
-            self.assertEqual(self.app.db().execute('select beneficiary_id from expenses').fetchone()[0],self.people['Beneficiary'])
-
     def test_disabled_existing_recipient_can_be_retained_and_locked_expense_cannot_change(self):
         expense=self.create(action='save')
         with self.app.app.app_context():

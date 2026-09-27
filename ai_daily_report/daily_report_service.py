@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
+from database import OperationalError
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
@@ -1031,12 +1031,12 @@ class DailyReportService:
                 self.db.execute("delete from ai_daily_report_manifest_sources where manifest_id = ?", (manifest_id,))
                 self.db.execute("delete from ai_daily_report_prepared_assets where manifest_id = ?", (manifest_id,))
             self.db.execute("delete from ai_daily_report_attachment_manifests where draft_id = ?", (draft_id,))
-        except sqlite3.OperationalError:
+        except OperationalError:
             pass  # child tables absent (minimal in-memory DB)
         try:
             self.db.execute("delete from ai_daily_report_actions where draft_id = ?", (draft_id,))
             self.db.execute("delete from ai_daily_report_formal_commits where draft_id = ?", (draft_id,))
-        except sqlite3.OperationalError:
+        except OperationalError:
             pass
         self.db.execute("delete from ai_daily_report_drafts where id = ?", (draft_id,))
 

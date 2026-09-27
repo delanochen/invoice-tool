@@ -89,9 +89,16 @@ class ExpenseInterpretationTest(unittest.TestCase):
     def test_model_choice_mapping_uses_settings(self):
         with self.m.app.app_context():
             db = self.m.db()
-            db.execute("insert into settings (key, value) values ('ai_interpret_model_choice', 'qwen9b')")
-            db.execute("insert into settings (key, value) values ('ai_interpret_model_qwen9b', 'qwen3:8b')")
+            config_id = db.execute(
+                "insert into llm_configs "
+                "(name,base_url,api_key,model,supports_vision,timeout_seconds,enabled,notes,created_at,updated_at) "
+                "values ('Qwen test','http://localhost:11434/v1','','qwen3:8b',true,300,true,'',?,?)",
+                (self.m.now(), self.m.now()),
+            ).lastrowid
+            self.m.set_setting("llm_scene_attachment_interpret", str(config_id))
             db.commit()
+            self.assertEqual(self.m.get_setting("llm_scene_attachment_interpret"), str(config_id))
+            self.assertEqual(self.m.llm_config.get_config(self.m.db(), "attachment_interpret")["model"], "qwen3:8b")
             settings = ai_interpretation.effective_settings(self.m.db())
         self.assertEqual(settings["model"], "qwen3:8b")
 

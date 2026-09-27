@@ -1,13 +1,13 @@
-"""Explicit PostgreSQL compatibility boundary for the existing SQL application.
+"""PostgreSQL connection boundary for the existing SQL application.
 
-PostgreSQL is the only production backend. SQLite is available solely through
-an explicit INVOICE_TEST_SQLITE=1 switch for the legacy isolated test suite.
-This is a bounded adapter, not a general SQLite SQL interpreter. Unsupported DDL
-and PRAGMAs fail closed. SQL literals/comments are never rewritten as SQL tokens.
+PostgreSQL is the only supported backend in every environment.  The adapter
+still translates a reviewed subset of the application's historical SQL syntax;
+that translation is part of the active PostgreSQL path, not a second database
+backend. Unsupported DDL and schema introspection fail closed. SQL
+literals/comments are never rewritten as SQL tokens.
 """
 import os
 import re
-import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -34,11 +34,25 @@ def postgres_enabled():
     url = os.environ.get('DATABASE_URL', '')
     if url and not url.startswith(('postgresql://', 'postgres://')):
         raise RuntimeError('DATABASE_URL must be a PostgreSQL URL.')
-    if url:
-        return True
-    if os.environ.get('INVOICE_TEST_SQLITE') == '1':
-        return False
-    raise RuntimeError('DATABASE_URL is required; PostgreSQL is the only production backend.')
+    if not url:
+        raise RuntimeError('DATABASE_URL is required; PostgreSQL is the only supported backend.')
+    return True
+
+
+class DatabaseError(Exception):
+    """Base exception exposed by the PostgreSQL application adapter."""
+
+
+class IntegrityError(DatabaseError):
+    """A PostgreSQL constraint rejected a statement."""
+
+
+class OperationalError(DatabaseError):
+    """A PostgreSQL statement or connection operation failed."""
+
+
+class NotSupportedError(DatabaseError):
+    """The application requested SQL outside the reviewed PostgreSQL subset."""
 
 
 def protect(sql):
@@ -57,14 +71,15 @@ def translate_sql(sql, bound=False):
     masked = re.sub(r'\bgroup_concat\s*\(', 'string_agg(', masked, flags=re.I)
     for old,new in [('date','invoice_sqlite_date'),('datetime','invoice_sqlite_datetime'),('julianday','invoice_sqlite_julianday'),('instr','strpos'),('ifnull','coalesce')]:
         masked = re.sub(r'\b'+old+r'\s*\(', new+'(', masked, flags=re.I)
-    masked = re.sub(r'\bsqlite_master\b', 'invoice_sqlite_master', masked, flags=re.I)
+    # SQLite 会话内自增游标：identity 插入在会话内调用 nextval，lastval() 等价。
+    masked = re.sub(r'\blast_insert_rowid\s*\(\s*\)', 'lastval()', masked, flags=re.I)
     masked = re.sub(r'\b([a-zA-Z_][\w.]*)\s+collate\s+nocase\b', r'lower(\1)', masked, flags=re.I)
     # C collation gives the ASCII case folding used by default SQLite LIKE.
     masked = re.sub(r'\b(not\s+)?like\b', lambda m: 'COLLATE "C" '+('NOT ' if m[1] else '')+'ILIKE', masked, flags=re.I)
     def glob(m):
         literal = restore(m[1])
         if not re.fullmatch(r"'(?:[A-Z]|\[0-9\])+'", literal):
-            raise sqlite3.NotSupportedError('Unreviewed GLOB expression')
+            raise NotSupportedError('Unreviewed GLOB expression')
         return "~ '^"+literal[1:-1]+"$'"
     masked = re.sub(r'\bglob\s+(__sql_literal_\d+__)', glob, masked, flags=re.I)
     if re.match(r'insert\s+or\s+ignore\b', masked, re.I):
@@ -74,11 +89,11 @@ def translate_sql(sql, bound=False):
         m = re.match(r'insert\s+or\s+replace\s+into\s+(\w+)\s*\(([^)]+)\)', masked, re.I)
         keys = {'settings':['key'], 'ai_photo_analysis':['photo_path','photo_hash','analysis_model','analysis_version']}
         if not m or m[1].lower() not in keys:
-            raise sqlite3.NotSupportedError('Unreviewed REPLACE target')
+            raise NotSupportedError('Unreviewed REPLACE target')
         columns = [c.strip() for c in m[2].split(',')]
         target = keys[m[1].lower()]
         if any(not re.fullmatch(r'\w+', c) for c in columns) or not set(target) <= set(columns):
-            raise sqlite3.NotSupportedError('Unreviewed REPLACE columns')
+            raise NotSupportedError('Unreviewed REPLACE columns')
         masked = re.sub(r'insert\s+or\s+replace', 'insert', masked, count=1, flags=re.I)
         masked += ' ON CONFLICT ('+','.join(target)+') DO UPDATE SET '+','.join(c+'=excluded.'+c for c in columns if c not in target)
     # psycopg's percent escaping also applies inside literals when params bind.
@@ -151,7 +166,10 @@ class PostgreSQLConnection:
         self.raw=psycopg.connect(url or os.environ['DATABASE_URL'], autocommit=True, cursor_factory=psycopg.ClientCursor,
             connect_timeout=10, application_name='invoice-tool', options='-c timezone=UTC -c lock_timeout=15000 -c statement_timeout=60000')
         self._locked=False
-        self.identities={r[0]:r[1] for r in self.raw.execute("select table_name,column_name from information_schema.columns where table_schema='public' and is_identity='YES'")}
+        self.identities={r[0]:r[1] for r in self.raw.execute(
+            "select table_name,column_name from information_schema.columns "
+            "where table_schema='public' and (is_identity='YES' or column_default like 'nextval(%')"
+        )}
     @property
     def in_transaction(self): return self.raw.info.transaction_status != self.driver.pq.TransactionStatus.IDLE
     def begin_write(self):
@@ -168,11 +186,9 @@ class PostgreSQLConnection:
             self.begin_write()
             return Cursor(self.raw.execute('select 1 where false'))
         if kind=='pragma':
-            match=re.fullmatch(r'pragma\s+table_info\(\s*"?(\w+)"?\s*\)\s*;?',sql.strip(),re.I)
-            if not match: raise sqlite3.NotSupportedError('SQLite PRAGMA is unavailable on PostgreSQL')
-            return Cursor(self.raw.execute('select cid,name,type,"notnull",dflt_value,pk from invoice_sqlite_columns where table_name=%s order by cid',(match[1],)))
+            raise NotSupportedError('PRAGMA is unavailable on PostgreSQL')
         if kind not in {'select','with','insert','update','delete','explain','savepoint','release','rollback'}:
-            raise sqlite3.NotSupportedError('Schema changes require the PostgreSQL migration tool')
+            raise NotSupportedError('Schema changes require the PostgreSQL migration tool')
         writing=kind in {'insert','update','delete'} or (kind=='with' and re.search(r'\b(insert|update|delete)\b',masked,re.I))
         if writing: self.begin_write()
         translated=translate_sql(sql, params is not None)
@@ -192,14 +208,14 @@ class PostgreSQLConnection:
             if savepoint:
                 self.raw.execute('ROLLBACK TO SAVEPOINT invoice_statement')
                 self.raw.execute('RELEASE SAVEPOINT invoice_statement')
-            cls=sqlite3.IntegrityError if isinstance(error,self.driver.IntegrityError) else sqlite3.OperationalError
+            cls=IntegrityError if isinstance(error,self.driver.IntegrityError) else OperationalError
             raise cls(str(error)) from error
     def executemany(self,sql,items):
         result=None
         for params in items: result=self.execute(sql,params)
         return result
     def executescript(self,sql):
-        raise sqlite3.NotSupportedError('Run versioned PostgreSQL migrations before application startup')
+        raise NotSupportedError('Run versioned PostgreSQL migrations before application startup')
     def commit(self):
         self.raw.commit()
         self._locked=False

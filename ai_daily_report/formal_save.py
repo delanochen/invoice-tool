@@ -404,7 +404,7 @@ class FormalSaveService:
     """Phase 9 transactional commit engine.
 
     Args:
-        db: active sqlite3 connection (same per-request connection as app.db()).
+        db: active PostgreSQL adapter connection (same per-request connection as app.db()).
         data_dir: DATA_DIR (prepared assets + evidence live under it).
         report_attachments_dir: REPORT_ATTACHMENTS_DIR (formal attachments).
         user_id: authenticated Formal Save actor.

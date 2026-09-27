@@ -114,7 +114,6 @@ class Phase9TestBase(unittest.TestCase):
         import app as app_module
         cls.app_module = app_module
         app_module.DATA_DIR = cls.temp_dir
-        app_module.DB_PATH = os.path.join(cls.temp_dir, "invoices.db")
         app_module.ATTACHMENTS_DIR = os.path.join(cls.temp_dir, "attachments")
         app_module.REPORT_ATTACHMENTS_DIR = os.path.join(cls.temp_dir, "service-report-attachments")
         app_module.SHARED_PHOTOS_DIR = cls.shared_dir
@@ -1053,16 +1052,9 @@ class TestFormalSaveApi(Phase9TestBase):
         def worker():
             conn = None
             try:
-                import sqlite3 as _s
                 from ai_daily_report.formal_save import FormalSaveService
-                from database import postgres_enabled, PostgreSQLConnection
-                if postgres_enabled():
-                    conn = PostgreSQLConnection()
-                else:
-                    conn = _s.connect(self.app_module.DB_PATH, timeout=30)
-                    conn.row_factory = _s.Row
-                    conn.execute("PRAGMA busy_timeout = 30000")
-                    conn.execute("PRAGMA foreign_keys = ON")
+                from database import PostgreSQLConnection
+                conn = PostgreSQLConnection()
                 from ai_daily_report.attachment_manifest import AttachmentManifestService
                 manifest_svc = AttachmentManifestService(
                     conn, self.shared_dir, self.temp_dir, 400,

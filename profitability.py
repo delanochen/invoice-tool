@@ -17,48 +17,6 @@ def _money_float(value):
     return float(_money(value))
 
 
-def init_profitability_schema(connection):
-    """Create the snapshot ledger now; Phase 1 UI uses live estimated lines.
-
-    The table is intentionally additive and does not rewrite historical source data.
-    A later lock/finalize action can persist the exact live lines into this ledger.
-    """
-    connection.executescript(
-        """
-        create table if not exists profit_ledger (
-            id integer primary key autoincrement,
-            work_date text not null,
-            service_order_id integer not null,
-            employee_id integer,
-            category text not null,
-            item_type text not null,
-            quantity real not null default 0,
-            unit text not null default '',
-            client_rate_snapshot real not null default 0,
-            employee_rate_snapshot real not null default 0,
-            revenue real not null default 0,
-            cost real not null default 0,
-            profit real not null default 0,
-            contract_rate_version_id integer,
-            employee_rate_version_id integer,
-            source_type text not null,
-            source_id integer,
-            source_line_id integer,
-            allocation_method text not null default 'direct',
-            calculation_status text not null default 'estimated',
-            calculation_version integer not null default 1,
-            created_at text not null,
-            foreign key(service_order_id) references service_orders(id) on delete cascade,
-            foreign key(employee_id) references users(id),
-            foreign key(contract_rate_version_id) references contract_rate_versions(id),
-            foreign key(employee_rate_version_id) references employee_rate_versions(id)
-        );
-        create index if not exists idx_profit_ledger_date on profit_ledger(work_date);
-        create index if not exists idx_profit_ledger_order on profit_ledger(service_order_id, work_date);
-        """
-    )
-
-
 def _parse_day(value):
     try:
         return date.fromisoformat(str(value or "")[:10])

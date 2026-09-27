@@ -37,17 +37,14 @@ configure_database_backend() {
   backend="${INVOICE_DATABASE_BACKEND:-$(env_value INVOICE_DATABASE_BACKEND)}"
   backend="${backend:-postgresql}"
   [ "$backend" = "postgresql" ] || { log "error: PostgreSQL is the only supported production backend"; return 1; }
-  actual_backend="$(docker exec invoice-tool python -c 'import os; print("postgresql" if os.environ.get("DATABASE_URL") else "sqlite")')" || return 1
-  if [ "$actual_backend" != "$backend" ]; then
-    log "error: configured and running database backends differ; automatic cutover is forbidden"
+  if ! docker exec invoice-tool python -c 'import os,sys; sys.exit(0 if os.environ.get("DATABASE_URL", "").startswith(("postgresql://", "postgres://")) else 1)'; then
+    log "error: running application is not configured for PostgreSQL"
     return 1
   fi
-  if [ "$backend" = "postgresql" ]; then
-    PG_DATABASE="${POSTGRES_DATABASE:-$(env_value POSTGRES_DATABASE)}"
-    [ -n "$PG_DATABASE" ] || { log "error: PostgreSQL database name is required"; return 1; }
-    [ -f "$APP_DIR/deploy/docker-compose.postgresql.yml" ] || return 1
-    python3 "$APP_DIR/scripts/check_postgresql_runtime.py" --database "$PG_DATABASE" || return 1
-  fi
+  PG_DATABASE="${POSTGRES_DATABASE:-$(env_value POSTGRES_DATABASE)}"
+  [ -n "$PG_DATABASE" ] || { log "error: PostgreSQL database name is required"; return 1; }
+  [ -f "$APP_DIR/deploy/docker-compose.postgresql.yml" ] || return 1
+  python3 "$APP_DIR/scripts/check_postgresql_runtime.py" --database "$PG_DATABASE" || return 1
 }
 compose() {
   docker compose -f "$APP_DIR/docker-compose.yml" -f "$APP_DIR/deploy/docker-compose.postgresql.yml" "$@"
@@ -120,113 +117,12 @@ prepare_database_for_deploy() {
     log "error: actual /app/data source mismatch: $actual_dir"
     return 1
   fi
-  if [ "$backend" = "postgresql" ]; then
-    return 0
-  fi
-  database="$actual_dir/invoices.db"
-  if [ ! -f "$database" ] || [ ! -s "$database" ]; then
-    log "error: production database is missing or empty: $database"
-    return 1
-  fi
-  if ! compose exec -T invoice-tool python - "$database" <<'PY'
-import sqlite3
-import sys
-
-db = sqlite3.connect("file:/app/data/invoices.db?mode=ro", uri=True)
-try:
-    result = db.execute("PRAGMA integrity_check").fetchone()[0]
-    print("database_integrity: " + result)
-    raise SystemExit(0 if result == "ok" else 1)
-finally:
-    db.close()
-PY
-  then
-    log "error: production database integrity check failed"
-    return 1
-  fi
-  BACKUP_SOURCE_DIR="$actual_dir"
   return 0
 }
 backup_database() {
   stamp="$1"
-  if [ "$backend" = "postgresql" ]; then
-    python3 "$APP_DIR/scripts/backup_postgresql.py" --container invoice-tool-postgres \
-      --database "$PG_DATABASE" --output "$BACKUP_DIR/invoices-$stamp.dump"
-    return $?
-  fi
-  temp_path="$(mktemp "$BACKUP_SOURCE_DIR/.pre-deploy-$stamp.XXXXXX.db")" || {
-    log "error: unable to allocate a temporary database backup"
-    return 1
-  }
-  trap 'rm -f "$temp_path"; cleanup' EXIT INT TERM
-  if ! compose exec -T invoice-tool python - "$(basename "$temp_path")" <<'PY'
-import sqlite3
-import sys
-
-target_name = sys.argv[1]
-source = sqlite3.connect("file:/app/data/invoices.db?mode=ro", uri=True)
-target = sqlite3.connect("/app/data/" + target_name)
-try:
-    source.backup(target)
-    target.commit()
-    integrity = target.execute("PRAGMA integrity_check").fetchone()[0]
-    if integrity != "ok":
-        raise SystemExit("backup integrity check failed: " + integrity)
-finally:
-    source.close()
-    target.close()
-PY
-  then
-    log "error: database backup or backup integrity check failed"
-    rm -f "$temp_path"
-    return 1
-  fi
-  backup_path="$BACKUP_DIR/invoices-$stamp.db"
-  if [ -e "$backup_path" ]; then
-    log "error: refusing to overwrite existing database backup: $backup_path"
-    rm -f "$temp_path"
-    return 1
-  fi
-  mv -n "$temp_path" "$backup_path" || {
-    log "error: unable to move database backup into place"
-    rm -f "$temp_path"
-    return 1
-  }
-  if [ -e "$temp_path" ]; then
-    log "error: refusing to overwrite existing database backup: $backup_path"
-    rm -f "$temp_path"
-    return 1
-  fi
-  if [ ! -s "$backup_path" ]; then
-    log "error: database backup is missing or empty"
-    rm -f "$backup_path"
-    return 1
-  fi
-  if command -v python3 >/dev/null 2>&1; then
-    if ! python3 - "$backup_path" <<'PY'
-import sqlite3
-import sys
-
-path = sys.argv[1]
-db = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
-try:
-    result = db.execute("PRAGMA integrity_check").fetchone()[0]
-    raise SystemExit(0 if result == "ok" else 1)
-finally:
-    db.close()
-PY
-    then
-      log "error: final database backup integrity check failed"
-      rm -f "$backup_path"
-      return 1
-    fi
-  else
-    log "error: python3 is unavailable for final database backup integrity check"
-    rm -f "$backup_path"
-    return 1
-  fi
-  trap cleanup EXIT INT TERM
-  return 0
+  python3 "$APP_DIR/scripts/backup_postgresql.py" --container invoice-tool-postgres \
+    --database "$PG_DATABASE" --output "$BACKUP_DIR/invoices-$stamp.dump"
 }
 upgrade_postgresql_schema() {
   # Additive, idempotent schema upgrade for PostgreSQL. Runs on EVERY deploy
