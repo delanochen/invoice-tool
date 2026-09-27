@@ -284,11 +284,14 @@
     }
     const host = app.parentElement || document.body;
     const reserve = parseFloat(window.getComputedStyle(host).paddingBottom) || 0;
-    const top = app.getBoundingClientRect().top + window.scrollY;
-    // 用 clientHeight 而不是 innerHeight：出现横向滚动条时 innerHeight 会把滚动条那十几像素
-    // 也算进"可用高度"，app 底部会被状态栏压在滚动条下面。
-    const viewportH = document.documentElement.clientHeight || window.innerHeight;
-    const available = Math.floor(viewportH - top - reserve);
+    const rectTop = app.getBoundingClientRect().top;
+    // iOS Safari/PWA 的地址栏、底部工具栏和软键盘会改变“视觉视口”，但不一定同步改变
+    // documentElement.clientHeight。优先使用 VisualViewport，避免 ERP 外壳被浏览器 UI 截断。
+    const visualViewport = window.visualViewport;
+    const viewportTop = visualViewport ? visualViewport.offsetTop : 0;
+    const viewportH = visualViewport?.height || document.documentElement.clientHeight || window.innerHeight;
+    const topInsideViewport = Math.max(0, rectTop - viewportTop);
+    const available = Math.floor(viewportH - topInsideViewport - reserve);
     // 必须精确贴合可用高度，不能再设下限：
     // 原来写 Math.max(available, 360)，而 CSS 里 .erp-app 又有 min-height: 360px。
     // 窗口（或工作区 iframe）可用高度一旦小于 360px——小屏笔记本、缩小窗口、
@@ -302,7 +305,12 @@
     }
   }
   fitViewport();
-  window.addEventListener('resize', () => requestAnimationFrame(fitViewport));
+  const scheduleViewportFit = () => requestAnimationFrame(fitViewport);
+  window.addEventListener('resize', scheduleViewportFit);
+  // Safari 收起/展开地址栏时通常只触发 visualViewport 事件；scroll 事件覆盖地址栏动画
+  // 改变 offsetTop、但布局视口尺寸暂时不变的阶段。
+  window.visualViewport?.addEventListener('resize', scheduleViewportFit);
+  window.visualViewport?.addEventListener('scroll', scheduleViewportFit);
   if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(fitViewport)).observe(document.documentElement);
 
   /* --------------------------------- 版本号并入 StatusBar（C/S 客户端观感） */

@@ -94,15 +94,23 @@
 .erp-app--flow .erp-body > .erp-panel.active > .erp-calendar-scroll,
 .erp-app--flow .erp-body > .erp-panel.active > .erp-detail-scroll { flex: 0 0 auto; overflow: visible; }
 @media (max-width: 1024px) {
-  .erp-app {
+  /* 移动端仍保持 ERP 的“固定外壳 + 中间区域滚动”模型。
+     之前这里改成 height:auto / overflow:visible，导致卡片或表格把整个文档撑长，
+     iOS 上手指滑动时自然滚动的是页面而不是数据区。 */
+  .erp-app:not(.erp-app--flow) {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "toolbar" "body" "nav" "summary" "status";
-    grid-template-rows: none;
-    height: auto;
+    grid-template-rows: auto minmax(0, 1fr) 0 auto auto;
     min-height: 0;
-    overflow: visible;
+    overflow: hidden;
     padding-bottom: 8px;
   }
+  .erp-app:not(.erp-app--flow):not(:has(> .erp-nav)) {
+    grid-template-areas: "toolbar" "body" "summary" "status";
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+  }
+  .erp-app:not(.erp-app--flow) .erp-body,
+  .erp-app:not(.erp-app--flow) .erp-body > .erp-panel.active { overflow: hidden; }
 }
 
 /* ------------------------------------------------------------- TopToolbar */
@@ -241,7 +249,7 @@
   }
   .erp-nav-item.active { background: #e4edfb; border: 0; border-top: 2px solid #2b5fd9; }
   .erp-nav-item .count { display: none; }
-  .erp-app { padding-bottom: 64px; }
+  .erp-app:has(> .erp-nav) { padding-bottom: 64px; }
 }
 
 /* ---------------------------------------------------------- TabWorkspace */
@@ -706,6 +714,21 @@
      没有 .erp-cards 的页面（照片台账、各类明细表）必须继续显示表格，
      否则移动端整张表会凭空消失。 */
   .erp-app:has(.erp-cards) .erp-grid-wrap { display: none !important; }
+  /* 卡片页、普通滚动表和 Tabulator 都把触摸手势留在数据区。
+     不拦截 touchmove，避免破坏输入控件、缩放和 iOS 边缘返回手势。 */
+  .erp-app:not(.erp-app--flow) .erp-cards {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .erp-app:not(.erp-app--flow) .erp-cards,
+  .erp-app:not(.erp-app--flow) .table-scroll,
+  .erp-app:not(.erp-app--flow) .erp-detail-scroll,
+  .erp-app:not(.erp-app--flow) .erp-calendar-scroll,
+  .erp-app:not(.erp-app--flow) .tabulator-tableholder {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* ---------------------------------------------------- WorkOrderDetailPanel */
