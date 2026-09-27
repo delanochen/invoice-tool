@@ -199,7 +199,7 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.add_version('2026-09-01', None, {'regular_hours': 25})
         page = self.page(self.grade_id)
         self.assertIn('data-grade-panel=', page)
-        self.assertIn('创建新版本', page)
+        self.assertIn('新增版本', page)
         self.assertIn('v1', page)
         self.assertIn('2026-09-01', page)
         # 未选等级时自动选中第一个
@@ -445,24 +445,21 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertNotIn('fetch(form.action', code)
         self.assertNotIn('form.submit()', code)
 
-    # -------------------------------------- 费率展示：版本优先 + 静态回退都要显示
+    # -------------------------------------- 费率展示：直接管理版本
     def test_rates_block_shows_static_fallback_then_version_rates(self):
-        """没有版本时也必须显示费率（工资实际取的就是它），有版本时改显示版本费率。"""
+        """费率页不再展示独立当前费率块，只展示版本和新增入口。"""
         page = self.page(self.grade_id)
-        self.assertIn('当前生效费率', page)
-        self.assertIn('等级静态费率', page)
-        self.assertIn('$10.00', page)          # 种子等级 standard_hourly_rate = 10
-        self.assertIn('没有生效的费率版本', page)
+        self.assertNotIn('当前生效费率（', page)
+        self.assertIn('新增版本', page)
         self.assertIn('还没有费率版本', page)
 
         self.add_version('2026-09-01', None, {'regular_hours': 25, 'mileage': 0.9})
         page = self.page(self.grade_id)
-        self.assertIn('版本费率', page)
         self.assertIn('$25.00', page)
         self.assertIn('$0.90', page)
-        self.assertIn('生效版本', page)
-        # 版本里没给的条目仍回退静态费率，不能显示成 0
-        self.assertIn('$20.00', page)          # overtime_hourly_rate 静态值
+        self.assertIn('当前生效', page)
+        self.assertIn('复制', page)
+        self.assertIn('删除', page)
 
     # --------------------------- 费率只在「费率版本」里维护（弹窗不再有费率字段）
     def edit_dialog_html(self):
@@ -485,13 +482,14 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertIn('name="meal_daily_amount"', dialog)
         self.assertIn('name="car_allowance_method"', dialog)
 
-        # 费率入口都还在「费率版本」页签：手动表单 + 一键固化
+        # 费率入口统一在「费率版本」页签的新增弹窗，不再另放当前费率/一键固化板块
         page = self.page(self.grade_id)
         for field in EMPLOYEE_RATE_FIELDS:
             self.assertIn(f'name="{field}"', page, field)
-        self.assertIn('name="rate_source" value="current"', page)
-        self.assertIn('创建新版本', page)
-        self.assertIn('按当前费率建版本', page)
+        self.assertIn(f'id="newRateVersionDialog{self.grade_id}"', page)
+        self.assertIn('创建版本', page)
+        self.assertNotIn('name="rate_source" value="current"', page)
+        self.assertNotIn('按当前费率建版本', page)
 
     def test_saving_grade_without_rate_fields_keeps_static_rates(self):
         """保存等级必须保留库里已有的静态费率。
@@ -610,6 +608,50 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertEqual(items['regular_hours'], 31)
         self.assertEqual(items['mileage'], 1.2)
         self.assertEqual(items['overtime_hours'], 0)
+
+    def test_version_can_be_copied_with_new_effective_dates(self):
+        source_id = self.add_version('2026-01-01', '2026-06-30', {
+            'regular_hours': 37, 'overtime_hours': 51, 'mileage': 1.15,
+        })
+        response = self.http.post(f'/employee-grades/{self.grade_id}/rates', data={
+            'copy_version_id': str(source_id),
+            'effective_from': '2026-07-01',
+            'effective_to': '',
+            'notes': '',
+        })
+        self.assertEqual(response.status_code, 302)
+        versions = self.query(
+            'select * from employee_rate_versions where employee_grade_id=? order by version_no',
+            (self.grade_id,),
+        )
+        self.assertEqual(len(versions), 2)
+        self.assertEqual(versions[1]['notes'], '复制自 v1')
+        copied = self.version_items(versions[1]['id'])
+        self.assertEqual(copied['regular_hours'], 37)
+        self.assertEqual(copied['overtime_hours'], 51)
+        self.assertEqual(copied['mileage'], 1.15)
+
+    def test_version_can_be_deleted_with_its_items(self):
+        version_id = self.add_version('2026-01-01', '2026-01-31', {'regular_hours': 25})
+        response = self.http.post(
+            f'/employee-grades/{self.grade_id}/rates/{version_id}/delete'
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.query(
+            'select count(*) as n from employee_rate_versions where id=?', (version_id,)
+        )[0]['n'], 0)
+        self.assertEqual(self.query(
+            'select count(*) as n from employee_rate_items where version_id=?', (version_id,)
+        )[0]['n'], 0)
+
+    def test_rate_tab_is_version_first(self):
+        version_id = self.add_version('2026-01-01', '2026-01-31', {'regular_hours': 25})
+        page = self.page(self.grade_id)
+        self.assertNotIn('当前生效费率（', page)
+        self.assertNotIn('按当前费率建版本', page)
+        self.assertNotIn('手动指定费率（新建版本）', page)
+        self.assertIn(f'copyRateVersionDialog{version_id}', page)
+        self.assertIn(f'/rates/{version_id}/delete', page)
 
     # ------------------------------------------- 费率版本可编辑（历史版本除外）
     def edit_version(self, version_id, **overrides):

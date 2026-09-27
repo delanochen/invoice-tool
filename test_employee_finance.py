@@ -122,6 +122,43 @@ class PostgreSQLFinanceMigrationTest(unittest.TestCase):
         self.assertIn('employee_payments\' and is_enabled=1', runner)
         self.assertIn('f"{len(TABLES)}|1|1|1"', runner)
 
+    def test_payment_orders_have_only_salary_and_expense_categories(self):
+        self.assertIn("payment_type IN ('salary','expense')", self.sql)
+        module = (ROOT / "employee_finance.py").read_text(encoding="utf-8")
+        self.assertIn('"salary": "工资", "expense": "员工报销"', module)
+        self.assertNotIn('"bonus": "奖金"', module)
+        self.assertIn('payment_type="salary"', module)
+
+    def test_consolidation_migration_backfills_approved_expenses(self):
+        sql = (ROOT / "migrations" / "postgresql" / "0286-payment-order-consolidation.sql").read_text(encoding="utf-8")
+        self.assertIn("SET payment_type = 'salary'", sql)
+        self.assertIn("CHECK (payment_type IN ('salary','expense'))", sql)
+        self.assertIn("FROM expenses", sql)
+        self.assertIn("expenses.status = 'approved'", sql)
+        self.assertIn("'expense:' || expenses.id::text", sql)
+        self.assertIn("payment_order_sources", sql)
+        self.assertIn("payment_order_events", sql)
+        self.assertIn("expenses.payout_status = 'paid' THEN 'paid'", sql)
+        self.assertIn("postgresql_0286_payment_order_consolidation", sql)
+        runner = (ROOT / "scripts" / "upgrade_postgresql_0286.py").read_text(encoding="utf-8")
+        self.assertIn('result.stdout.strip() == "1|1"', runner)
+
+    def test_expense_approval_is_the_only_payment_order_entry_point(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        approval = app_source.split("def approve_expense(expense_id):", 1)[1].split("def return_expense", 1)[0]
+        self.assertIn("ensure_expense_payment_order", approval)
+        processing = app_source.split("def process_expense_action():", 1)[1].split("def audit_log_report", 1)[0]
+        self.assertNotIn('action == "reimburse"', processing)
+        self.assertNotIn('action == "reset_payout"', processing)
+        template = (ROOT / "templates" / "expense_processing.html").read_text(encoding="utf-8")
+        self.assertNotIn('value="reimburse"', template)
+        payment_module = (ROOT / "employee_finance.py").read_text(encoding="utf-8")
+        self.assertIn('"报销付款已发放"', payment_module)
+        self.assertIn('api["notify_expense_participants"]', payment_module)
+        self.assertIn("def cancel_expense_payment_order", payment_module)
+        self.assertIn("_reverse_advance_application(api, payment)", payment_module)
+        self.assertIn("update payment_order_sources set source_number=?,amount=?", payment_module)
+
 
 if __name__ == "__main__":
     unittest.main()

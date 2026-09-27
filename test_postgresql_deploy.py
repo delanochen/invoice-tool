@@ -77,3 +77,12 @@ python3() {
         self.assertIn('backup_postgresql.py --container invoice-tool-postgres --database invoice', trace)
         self.assertIn('invoices-test-stamp.dump', trace)
         self.assertNotIn('compose exec', trace)
+
+    def test_schema_upgrade_runs_payment_consolidation_migration(self):
+        result, trace = self.run_shell(
+            'postgresql', 'postgresql',
+            'configure_database_backend && upgrade_postgresql_schema',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('upgrade_postgresql_0285.py --database invoice', trace)
+        self.assertIn('upgrade_postgresql_0286.py --database invoice', trace)

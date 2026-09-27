@@ -175,59 +175,14 @@
         <!-- ── 面板 2：费率与版本 ── -->
         <section class="erp-panel" data-erp-panel="rates">
           <div class="erp-detail-scroll">
-            <div class="erp-section-title">当前生效费率（{{ today }}）</div>
-            <p class="erp-filter-note">
-              {% if panel.current_version %}
-                生效版本 <b>v{{ panel.current_version.version_no }}</b>（{{ panel.current_version.effective_from }}{% if panel.current_version.effective_to %} ～ {{ panel.current_version.effective_to }}{% else %} 起长期有效{% endif %}）。下表即工资计算实际取值。
-              {% else %}
-                该等级没有生效的费率版本，工资计算回退到等级资料里的静态费率。下表即工资计算实际取值。
-              {% endif %}
-            </p>
-            <div class="rate-metrics">
-              {% for key, label, unit in rate_types %}
-                {% set rate = panel.rates[key] %}
-                <div class="rate-metric">
-                  <span>{{ label }}</span>
-                  <strong>{{ rate.rate|money }}<small>/{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></strong>
-                  <em class="{{ 'src-version' if rate.source == 'version' else ('src-missing' if rate.source == 'missing' else 'src-static') }}">{{ {'version':'版本费率','static':'等级静态费率','missing':'未设置'}.get(rate.source, rate.source) }}</em>
-                </div>
-              {% endfor %}
-            </div>
-            {% if panel.missing_rates %}
-              <p class="erp-warn">有 {{ panel.missing_rates|length }} 项既没有版本费率也没有静态费率，工资计算会按 0 处理，请补齐。</p>
-            {% elif panel.zero_rate_labels %}
-              <p class="erp-warn">{{ panel.zero_rate_labels|length }} 项当前费率为 0（{{ panel.zero_rate_labels|join('、') }}），工资会按 0 计算；请确认无误，或先在下面填一份真实费率。</p>
-            {% endif %}
             {% if panel.overlapping_versions %}
               <p class="erp-warn">以下版本的有效期互相重叠（重叠期间工资按生效日期较晚的版本取值），请点对应版本的「编辑」修正：{{ panel.overlapping_versions|join('；') }}。</p>
             {% endif %}
-
-            {% if can_edit %}
-              <div class="erp-section-title">按当前费率建版本</div>
-              <form method="post" class="erp-filter" action="{{ url_for('employee_rate_versions', grade_id=grade.id) }}">
-                <input type="hidden" name="rate_source" value="current">
-                <label class="erp-field">生效日期 <input type="date" name="effective_from" value="{{ today }}" required></label>
-                <label class="erp-field full-span">备注 <input name="notes" placeholder="留空自动记为「沿用 {{ today }} 的当前费率」"></label>
-                <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">按当前费率建版本</button></div>
-                <p class="erp-filter-note">把上面「当前生效费率」那 7 项原样固化成一条版本，不用逐个手抄。以后调薪照此再存一条新版本即可，历史工资口径不受影响。</p>
-              </form>
-
-              <div class="erp-section-title">手动指定费率（新建版本）</div>
-              <form method="post" class="erp-filter" action="{{ url_for('employee_rate_versions', grade_id=grade.id) }}">
-                <label class="erp-field">生效日期 <input type="date" name="effective_from" required></label>
-                <label class="erp-field">结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不允许与有效版本重叠。</small></label>
-                {% for key, label, unit in rate_types %}
-                  <label class="erp-field">{{ label }}
-                    <input type="number" name="{{ key }}" step="0.0001" min="0" value="{{ panel.rates[key].rate }}" required>
-                    <small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small>
-                  </label>
-                {% endfor %}
-                <label class="erp-field full-span">备注 <input name="notes" placeholder="例如 2027 年调薪；新版本自动把上一个版本的结束日期收到生效日前一天"></label>
-                <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">创建新版本</button></div>
-              </form>
-            {% endif %}
-
-            <div class="erp-section-title">版本历史（{{ panel.versions|length }}）<small>费率填错了？直接点「编辑」修正，或「停用」后重建；修正不会改写已落账的历史工资。</small></div>
+            <div class="erp-section-title" style="display:flex;align-items:center;gap:8px;">
+              <span>费率版本（{{ panel.versions|length }}）</span>
+              <span class="erp-toolbar-spacer"></span>
+              {% if can_edit %}<button type="button" class="erp-btn primary" data-dialog-open="newRateVersionDialog{{ grade.id }}">新增版本</button>{% endif %}
+            </div>
             {% for version in panel.versions %}
               <div class="rate-version">
                 <div class="rate-version-head">
@@ -239,11 +194,18 @@
                   <span class="erp-toolbar-spacer"></span>
                   {# 历史版本（有效期已整体结束）只读：是过往工资的取价依据，不允许改 #}
                   {% set version_editable = not version.effective_to or version.effective_to >= today %}
-                  {% if can_edit and version_editable %}
-                    <button type="button" class="erp-btn" data-dialog-open="editRateVersionDialog{{ version.id }}">编辑</button>
-                    <form method="post" action="{{ url_for('employee_rate_version_state', grade_id=grade.id, version_id=version.id) }}" data-confirm-version-state>
-                      <input type="hidden" name="target" value="{{ 'inactive' if version.status == 'active' else 'active' }}">
-                      <button class="erp-btn" type="submit">{{ '停用' if version.status == 'active' else '启用' }}</button>
+                  {% if can_edit %}
+                    {% if version_editable %}<button type="button" class="erp-btn" data-dialog-open="editRateVersionDialog{{ version.id }}">编辑</button>{% endif %}
+                    <button type="button" class="erp-btn" data-dialog-open="copyRateVersionDialog{{ version.id }}">复制</button>
+                    {% if version_editable %}
+                      <form method="post" action="{{ url_for('employee_rate_version_state', grade_id=grade.id, version_id=version.id) }}" data-confirm-version-state>
+                        <input type="hidden" name="target" value="{{ 'inactive' if version.status == 'active' else 'active' }}">
+                        <button class="erp-btn" type="submit">{{ '停用' if version.status == 'active' else '启用' }}</button>
+                      </form>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('delete_employee_rate_version', grade_id=grade.id, version_id=version.id) }}"
+                          onsubmit="return uiConfirm('确定删除费率版本 v{{ version.version_no }} 吗？已落账工资金额会保留，但该版本本身无法恢复。')">
+                      <button class="erp-btn danger" type="submit">删除</button>
                     </form>
                   {% endif %}
                 </div>
@@ -258,7 +220,7 @@
                 </div>
               </div>
             {% else %}
-              <div class="erp-empty">还没有费率版本，工资按上面的等级静态费率计算。可以直接用「按当前费率建版本」把这份费率固化成第一个版本，也可以填好生效日期与各项费率再创建。</div>
+              <div class="erp-empty">还没有费率版本。请点击“新增版本”设置工资计算费率。</div>
             {% endfor %}
           </div>
         </section>
@@ -345,7 +307,34 @@
       <div class="dialog-header"><h2>编辑 {{ panel.grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
       {{ grade_form(panel.grade) }}
     </dialog>
+    <dialog id="newRateVersionDialog{{ panel.grade.id }}" class="modal-dialog erp-scope erp-compact">
+      <div class="dialog-header"><h2>新增费率版本 · {{ panel.grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+      <form method="post" class="form-stack" action="{{ url_for('employee_rate_versions', grade_id=panel.grade.id) }}">
+        <div class="form-grid two-columns">
+          <label>生效日期 <input type="date" name="effective_from" required></label>
+          <label>结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不能与其他有效版本重叠。</small></label>
+          {% for key, label, unit in rate_types %}
+            <label>{{ label }} <input type="number" step="0.0001" min="0" name="{{ key }}" value="{{ panel.rates[key].rate }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
+          {% endfor %}
+          <label class="full-span">备注 <input name="notes" placeholder="例如 2027 年调薪"></label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">创建版本</button></div>
+      </form>
+    </dialog>
     {% for version in panel.versions %}
+      <dialog id="copyRateVersionDialog{{ version.id }}" class="modal-dialog erp-scope erp-compact">
+        <div class="dialog-header"><h2>复制费率版本 v{{ version.version_no }} · {{ panel.grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+        <form method="post" class="form-stack" action="{{ url_for('employee_rate_versions', grade_id=panel.grade.id) }}">
+          <input type="hidden" name="copy_version_id" value="{{ version.id }}">
+          <div class="form-grid two-columns">
+            <label>新版本生效日期 <input type="date" name="effective_from" required></label>
+            <label>新版本结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不能与其他有效版本重叠。</small></label>
+            <label class="full-span">备注 <input name="notes" placeholder="留空自动记为“复制自 v{{ version.version_no }}”"></label>
+          </div>
+          <p class="muted-line">系统会复制 v{{ version.version_no }} 的全部费率；创建后可继续编辑新版本。</p>
+          <div class="form-actions"><button class="primary" type="submit">复制为新版本</button></div>
+        </form>
+      </dialog>
       {% if not version.effective_to or version.effective_to >= today %}
       <dialog id="editRateVersionDialog{{ version.id }}" class="modal-dialog erp-scope erp-compact">
         <div class="dialog-header"><h2>编辑费率版本 v{{ version.version_no }} · {{ panel.grade.grade_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>

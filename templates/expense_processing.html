@@ -11,10 +11,10 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       报销处理
-      <small>报销处理与发放</small>
+      <small>审核与付款跟踪</small>
     </div>
     <span class="erp-badge">{{ rows|length }} 张报销</span>
-    {% if pending_total %}<span class="erp-badge warn">待报销 {{ pending_total|money }}</span>{% endif %}
+    {% if pending_total %}<span class="erp-badge warn">待付款 {{ pending_total|money }}</span>{% endif %}
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
@@ -34,7 +34,7 @@
           {% endfor %}
         </select>
       </label>
-      <label class="erp-field">报销状态
+      <label class="erp-field">付款状态
         <select name="payout_status">
           <option value="">全部</option>
           {% for value, label in payout_labels.items() %}
@@ -44,35 +44,20 @@
       </label>
     </form>
 
-    <!-- Panel：报销列表 + 批量报销（纵向滚动条只在表格区内出现，页面不滚动） -->
+    <!-- Panel：报销列表（发放统一在员工付款单执行） -->
     <section class="erp-panel active" data-erp-panel="list">
-      <form method="post" action="{{ url_for('process_expense_action') }}" id="expenseProcessingForm" data-selectable-scope
-            style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;">
-        <input type="hidden" name="expense_id" data-selected-input="rowId">
-        {% if normalized_role() in ["manager", "finance"] %}
-          <div class="erp-toolbar-group no-print" style="padding:4px 2px;flex:0 0 auto;">
-            <span class="erp-badge" data-selected-label>{{ rows|length }} 张报销</span>
-            <button class="erp-btn primary" type="submit" name="action" value="reimburse" data-enable-on-select disabled
-                    onclick="return window.uiConfirm ? window.uiConfirm('确认所选报销已经完成付款吗？') : confirm('确认所选报销已经完成付款吗？');">报销</button>
-          </div>
-        {% endif %}
+      <div style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;">
         <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
           <table class="list-table erp-grid selectable-list-table" data-selectable-table>
             <thead>
               <tr>
                 <th>报销编号</th><th>工单</th><th>日期</th><th>报销归属员工</th><th>提交人</th><th>金额</th>
-                <th>流程状态</th><th>报销状态</th><th>发放操作人</th><th>报销时间</th>
+                <th>流程状态</th><th>付款状态</th><th>付款操作人</th><th>付款时间</th>
               </tr>
             </thead>
             <tbody>
               {% for row in rows %}
-                <tr
-                  {% if normalized_role() == "admin" or (row.status == "approved" and row.payout_status != "paid") %}
-                    tabindex="0"
-                    data-row-id="{{ row.id }}"
-                    data-row-label="{{ row.expense_number }} · {{ row.amount|money(row.currency) }}"
-                  {% endif %}
-                >
+                <tr>
                   <td>
                     {% if normalized_role() in ["admin", "manager", "finance"] or row.created_by == g.user.id or row.beneficiary_id == g.user.id %}
                       <a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a>
@@ -96,14 +81,14 @@
             </tbody>
           </table>
         </div>
-      </form>
+      </div>
     </section>
   </div>
 
   <!-- SummaryBar -->
   <footer class="erp-summary">
-    {{ summary_item('待报销合计', pending_total|money, 'warn') }}
-    {{ summary_item('已报销合计', paid_total|money, 'pos') }}
+    {{ summary_item('待付款合计', pending_total|money, 'warn') }}
+    {{ summary_item('已付款合计', paid_total|money, 'pos') }}
     {{ summary_item('报销单数', rows|length, 'muted') }}
   </footer>
 
@@ -113,7 +98,7 @@
     <span class="sep"></span>
     <span>流程状态 <b>{{ expense_labels[status] if status else '全部' }}</b></span>
     <span class="sep"></span>
-    <span>报销状态 <b>{{ payout_labels[payout_status] if payout_status else '全部' }}</b></span>
+    <span>付款状态 <b>{{ payout_labels[payout_status] if payout_status else '全部' }}</b></span>
   </footer>
 </div>
 {% endblock %}

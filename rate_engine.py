@@ -521,16 +521,29 @@ def register_rate_routes(app, api):
             effective_to = request.form.get("effective_to", "").strip() or None
             _validate_dates(effective_from, effective_to)
             notes = request.form.get("notes", "").strip()
+            copy_version_id = request.form.get("copy_version_id", "").strip()
             if request.form.get("rate_source") == "current":
-                # 「按当前费率建版本」：把页面上「当前生效费率」显示的 7 个数字原样固化，
-                # 用户不必照着屏幕手抄（手抄最容易出现某几项漏改）。
-                #
-                # 快照必须在这里取，不能挪到 _prepare_new_version_range 之后：那一步会先把
-                # 上一个版本的结束日期收到新版本生效日前一天，事后再按「今天」查就查不到
-                # 生效版本了，会静默退化成静态费率 —— 固化的就不是用户屏幕上看到的那份。
+                # Backward-compatible endpoint for older clients; the current UI uses
+                # explicit new/copy dialogs and no longer exposes this as a section.
                 today = date.today().isoformat()
                 rate_values = current_rate_values(api["db"](), grade_id, today)
                 notes = notes or f"沿用 {today} 的当前费率"
+            elif copy_version_id.isdigit():
+                source = api["db"]().execute(
+                    "select * from employee_rate_versions where id=? and employee_grade_id=?",
+                    (int(copy_version_id), grade_id),
+                ).fetchone()
+                if not source:
+                    raise ValueError("要复制的费率版本不存在。")
+                source_items = {
+                    row["rate_type"]: float(row["rate"] or 0)
+                    for row in api["db"]().execute(
+                        "select rate_type,rate from employee_rate_items where version_id=?",
+                        (source["id"],),
+                    ).fetchall()
+                }
+                rate_values = {key: source_items.get(key, 0) for key, _label, _unit in EMPLOYEE_RATE_TYPES}
+                notes = notes or f"复制自 v{source['version_no']}"
             else:
                 rate_values = {key: _float_form(key) for key, _label, _unit in EMPLOYEE_RATE_TYPES}
             effective_to = _prepare_new_version_range(
@@ -560,6 +573,26 @@ def register_rate_routes(app, api):
         except ValueError as error:
             api["db"]().rollback()
             flash(str(error), "error")
+        return redirect(url_for("employee_grades", grade_id=grade_id))
+
+    @app.post("/employee-grades/<int:grade_id>/rates/<int:version_id>/delete")
+    @api["login_required"]
+    def delete_employee_rate_version(grade_id, version_id):
+        """Delete a version while preserving already-posted payroll snapshot amounts."""
+        grade, version = _load_grade_version(grade_id, version_id)
+        api["db"]().execute(
+            "update profit_ledger set employee_rate_version_id=null where employee_rate_version_id=?",
+            (version_id,),
+        )
+        api["db"]().execute("delete from employee_rate_items where version_id=?", (version_id,))
+        api["db"]().execute("delete from employee_rate_versions where id=?", (version_id,))
+        api["log_action"](
+            "delete", "employee_rate_version", version_id,
+            f"{grade['grade_name']} v{version['version_no']}",
+            f"删除费率版本；原生效期 {version['effective_from']} 至 {version['effective_to'] or '长期'}",
+        )
+        api["db"]().commit()
+        flash(f"费率版本 v{version['version_no']} 已删除；已落账工资金额不受影响。", "success")
         return redirect(url_for("employee_grades", grade_id=grade_id))
 
     def _load_grade_version(grade_id, version_id):

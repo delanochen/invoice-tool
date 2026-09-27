@@ -122,7 +122,7 @@ class ExpenseOnBehalfTest(unittest.TestCase):
             totals = self.app.customer_reimbursement_totals(rows)
             self.assertEqual(totals['total_amount'], 50)
 
-    def test_workflow_notifications_reach_both_without_duplicates(self):
+    def test_review_notifications_reach_both_and_legacy_payout_is_disabled(self):
         expense = self.create()
         self.login('Manager')
         self.http.post(f'/expenses/{expense["id"]}/return', data={'return_reason':'Check receipt'})
@@ -130,12 +130,19 @@ class ExpenseOnBehalfTest(unittest.TestCase):
         self.http.post(f'/expenses/{expense["id"]}/edit', data=self.form())
         self.login('Manager')
         self.http.post(f'/expenses/{expense["id"]}/approve')
-        self.http.post('/expense-processing/action', data={'expense_id':expense['id'], 'action':'reimburse'})
+        legacy_payout = self.http.post(
+            '/expense-processing/action', data={'expense_id':expense['id'], 'action':'reimburse'}
+        )
+        self.assertEqual(legacy_payout.status_code, 403)
         with self.app.app.app_context():
-            for title in ('报销已被退回', '报销已审核通过', '报销已发放'):
+            for title in ('报销已被退回', '报销已审核通过'):
                 ids = [r['user_id'] for r in self.app.db().execute('select user_id from messages where title=?', (title,))]
                 for name in ('Submitter','Beneficiary'):
                     self.assertEqual(ids.count(self.people[name]),1)
+            self.assertEqual(
+                self.app.db().execute("select count(*) from messages where title='报销已发放'").fetchone()[0],
+                0,
+            )
         # The same recipient/submitter is only notified once.
         self.login('Submitter')
         own = self.create(beneficiary_id=str(self.people['Submitter']))

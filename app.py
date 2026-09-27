@@ -76,7 +76,7 @@ from settlement_review import (
     selected_expense_total,
 )
 from profitability import init_profitability_schema, register_profitability_routes
-from employee_finance import ensure_expense_payment_order, register_employee_finance_routes
+from employee_finance import cancel_expense_payment_order, ensure_expense_payment_order, register_employee_finance_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
 import llm_config
@@ -266,8 +266,8 @@ EXPENSE_STATUS_LABELS = {
 }
 
 EXPENSE_PAYOUT_LABELS = {
-    "pending": "待报销",
-    "paid": "已报销",
+    "pending": "待付款",
+    "paid": "已付款",
 }
 
 CUSTOMER_REIMBURSEMENT_STATUS_LABELS = {
@@ -16807,83 +16807,29 @@ def process_expense_action():
     if not expense:
         abort(404)
     action = request.form.get("action", "")
-    if action == "reimburse" and postgres_enabled():
-        if not has_action_permission("expenses", "approve"):
-            abort(403)
-        if expense["status"] != "approved":
-            flash("只有已审核通过的报销可以进入付款流程。", "error")
-            return redirect(url_for("expense_processing"))
-        payment_id = ensure_expense_payment_order(globals(), expense_id)
-        db().commit()
-        flash("该报销已进入员工付款中心，请在付款单完成审核、付款和对账。", "success")
-        return redirect(url_for("employee_payment_detail", payment_id=payment_id))
-    if action == "reimburse":
-        if not has_action_permission("expenses", "approve"):
-            abort(403)
-        if expense["status"] != "approved":
-            flash("只有已审核通过的报销可以发放。", "error")
-            return redirect(url_for("expense_processing"))
-        if expense["payout_status"] == "paid":
-            flash("这张报销单已经完成报销。", "error")
-            return redirect(url_for("expense_processing"))
-        cursor = db().execute(
-            """
-            update expenses
-            set payout_status = 'paid', reimbursed_by = ?, reimbursed_at = ?, updated_at = ?
-            where id = ? and status = 'approved' and payout_status != 'paid'
-            """,
-            (g.user["id"], now(), now(), expense_id),
-        )
-        if cursor.rowcount != 1:
-            db().rollback()
-            flash("这张报销单已经完成报销或流程状态已变化。", "error")
-            return redirect(url_for("expense_processing"))
-        message = f"报销 {expense['expense_number']} 已完成发放，金额 {money(expense['amount'], expense['currency'])}。"
-        notify_expense_participants(
-            expense,
-            "报销已发放",
-            message,
-            url_for("expense_detail", expense_id=expense_id),
-        )
-        log_action("reimburse", "expense", expense_id, expense["expense_number"], message)
-        db().commit()
-        flash("报销已标记为已报销。", "success")
-    elif action == "reset_payout":
-        if normalized_role() != "admin":
-            abort(403)
-        db().execute(
-            """
-            update expenses
-            set payout_status = 'pending', reimbursed_by = null, reimbursed_at = null, updated_at = ?
-            where id = ?
-            """,
-            (now(), expense_id),
-        )
-        log_action("reset", "expense", expense_id, expense["expense_number"], "发放状态重置为待报销")
-        db().commit()
-        flash("发放状态已重置为待报销。", "success")
-    elif action == "reset_workflow":
-        if normalized_role() != "admin":
-            abort(403)
-        db().execute(
-            """
-            update expenses
-            set status = 'submitted', return_reason = null,
-                reviewed_by = null, reviewed_at = null,
-                payout_status = 'pending', reimbursed_by = null, reimbursed_at = null,
-                updated_at = ?
-            where id = ?
-            """,
-            (now(), expense_id),
-        )
-        log_action("reset", "expense", expense_id, expense["expense_number"], "流程状态重置为待经理审核，发放状态重置为待报销")
-        db().commit()
-        flash("流程状态和发放状态已重置。", "success")
-    else:
-        flash("请选择要执行的操作。", "error")
-    if action in {"reset_payout", "reset_workflow"}:
-        return redirect(url_for("expense_detail", expense_id=expense_id))
-    return redirect(url_for("expense_processing"))
+    if action != "reset_workflow" or normalized_role() != "admin":
+        abort(403)
+    if postgres_enabled():
+        try:
+            cancel_expense_payment_order(globals(), expense_id)
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("expense_detail", expense_id=expense_id))
+    db().execute(
+        """
+        update expenses
+        set status = 'submitted', return_reason = null,
+            reviewed_by = null, reviewed_at = null,
+            payout_status = 'pending', reimbursed_by = null, reimbursed_at = null,
+            updated_at = ?
+        where id = ?
+        """,
+        (now(), expense_id),
+    )
+    log_action("reset", "expense", expense_id, expense["expense_number"], "流程状态重置为待经理审核；未付款的付款单已取消")
+    db().commit()
+    flash("报销已重置为待经理审核；未付款的付款单已取消。", "success")
+    return redirect(url_for("expense_detail", expense_id=expense_id))
 
 
 @app.route("/reports/audit-logs")
@@ -19706,6 +19652,10 @@ def expense_detail(expense_id):
         "select name, email from users where id = ?",
         (expense["reimbursed_by"],),
     ).fetchone() if expense["reimbursed_by"] else None
+    payment_order = db().execute(
+        "select id,payment_number,status from employee_payment_orders where source_key=?",
+        (f"expense:{expense_id}",),
+    ).fetchone() if postgres_enabled() else None
     attachments = get_expense_attachments(expense_id)
     attachments_by_item = group_expense_attachments(attachments)
     # 旧数据兜底：迁移完成前仍存在的“未挂明细行”附件，顶部警告提示而不是渲染通用附件区
@@ -19736,6 +19686,7 @@ def expense_detail(expense_id):
         beneficiary=db().execute("select name from users where id = ?", (expense_beneficiary_id(expense),)).fetchone(),
         reviewer=reviewer,
         reimburser=reimburser,
+        payment_order=payment_order,
         attachments=attachments,
         attachments_by_item=attachments_by_item,
         unassigned_attachments=unassigned_attachments,
@@ -19817,10 +19768,9 @@ def approve_expense(expense_id):
     log_action("approve", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
     # Approval now creates the accounts-payable document while preserving the
     # expense's existing review and profitability semantics.
-    if postgres_enabled():
-        ensure_expense_payment_order(globals(), expense_id)
+    payment_id = ensure_expense_payment_order(globals(), expense_id) if postgres_enabled() else None
     db().commit()
-    flash("报销已审核通过。", "success")
+    flash("报销已审核通过，员工付款单已自动生成。" if payment_id else "报销已审核通过。", "success")
     return redirect(url_for("expense_detail", expense_id=expense_id))
 
 

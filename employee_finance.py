@@ -3,7 +3,7 @@
 The module deliberately sits after the existing payroll/expense calculations:
 those systems remain the source of truth for amounts, while payment orders are
 the accounts-payable document and bank transactions are the cash evidence.
-Schema changes live only in migrations/postgresql/0285-employee-finance-assets.sql.
+Schema changes live in the numbered PostgreSQL migrations (0285 and later).
 """
 from __future__ import annotations
 
@@ -26,8 +26,7 @@ PAYMENT_STATUS_LABELS = {
     "rejected": "已驳回", "cancelled": "已取消", "payment_failed": "付款失败",
 }
 PAYMENT_TYPE_LABELS = {
-    "system_payroll": "系统工资", "offline_salary": "线下约定工资",
-    "expense": "员工报销", "bonus": "奖金", "allowance": "补贴", "other": "其他",
+    "salary": "工资", "expense": "员工报销",
 }
 PAYMENT_METHOD_LABELS = {
     "ach": "ACH", "wire": "电汇", "check": "支票", "cash": "现金", "other": "其他",
@@ -173,6 +172,8 @@ def employee_finance_summary(api, employee_id):
 def _insert_payment(api, *, employee_id, payment_type, gross_amount, source_type,
                     source_id=None, source_number="", source_key="", description="",
                     other_adjustment=Decimal("0"), advance_id=None, advance_offset=Decimal("0")):
+    if payment_type not in PAYMENT_TYPE_LABELS:
+        raise ValueError("付款单类型只能是工资或员工报销。")
     gross, offset, adjustment, net = payment_amounts(gross_amount, advance_offset, other_adjustment)
     if offset and not advance_id:
         raise ValueError("填写借款抵扣时必须选择员工借款。")
@@ -222,6 +223,38 @@ def ensure_expense_payment_order(api, expense_id):
     ).fetchone()
     if not expense or expense["status"] != "approved":
         return None
+    existing = api["db"]().execute(
+        "select id,status,payment_number from employee_payment_orders where source_key=?",
+        (f"expense:{expense_id}",),
+    ).fetchone()
+    if existing:
+        if existing["status"] in {"cancelled", "rejected"}:
+            reopened_at = api["now"]()
+            api["db"]().execute(
+                """update employee_payment_orders
+                   set employee_id=?,status='draft',gross_amount=?,advance_offset=0,
+                       other_adjustment=0,net_amount=?,primary_advance_id=null,
+                       bank_account_id=null,payment_method=null,external_transaction_id=null,
+                       reviewed_by=null,reviewed_at=null,paid_by=null,paid_at=null,
+                       description=?,source_number=?,updated_at=?
+                   where id=?""",
+                (expense["employee_id"], expense["amount"], expense["amount"],
+                 f"报销单 {expense['expense_number']}", expense["expense_number"],
+                 reopened_at, existing["id"]),
+            )
+            api["db"]().execute(
+                "update payment_order_sources set source_number=?,amount=? where payment_order_id=? and source_type='expense' and source_id=?",
+                (expense["expense_number"], expense["amount"], existing["id"], expense_id),
+            )
+            api["db"]().execute(
+                "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,'reopen',?,'draft','报销重新审核通过',?,?)",
+                (existing["id"], existing["status"], g.user["id"], reopened_at),
+            )
+            api["log_action"](
+                "reopen", "employee_payment", existing["id"], existing["payment_number"],
+                "报销重新审核通过，付款单恢复为草稿",
+            )
+        return existing["id"]
     payment_id, _ = _insert_payment(
         api, employee_id=expense["employee_id"], payment_type="expense",
         gross_amount=expense["amount"], source_type="expense", source_id=expense_id,
@@ -229,6 +262,34 @@ def ensure_expense_payment_order(api, expense_id):
         description=f"报销单 {expense['expense_number']}",
     )
     return payment_id
+
+
+def cancel_expense_payment_order(api, expense_id, reason="报销审核流程已重置"):
+    """Cancel an unpaid expense payment and reverse any posted advance offset."""
+    payment = api["db"]().execute(
+        "select * from employee_payment_orders where source_key=?",
+        (f"expense:{expense_id}",),
+    ).fetchone()
+    if not payment:
+        return None
+    if payment["status"] in {"paid", "reconciled"}:
+        raise ValueError("该报销付款单已经发放，不能重置审核流程。")
+    if payment["status"] == "cancelled":
+        return payment["id"]
+    _reverse_advance_application(api, payment)
+    changed_at = api["now"]()
+    api["db"]().execute(
+        "update employee_payment_orders set status='cancelled',updated_at=? where id=?",
+        (changed_at, payment["id"]),
+    )
+    api["db"]().execute(
+        "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,'cancel',?,'cancelled',?,?,?)",
+        (payment["id"], payment["status"], reason, g.user["id"], changed_at),
+    )
+    api["log_action"](
+        "cancel", "employee_payment", payment["id"], payment["payment_number"], reason,
+    )
+    return payment["id"]
 
 
 def _create_advance_application(api, payment):
@@ -309,9 +370,9 @@ def register_employee_finance_routes(app, api):
         _require(api, "employee_payments", "create")
         try:
             employee_id = int(request.form.get("employee_id", ""))
-            payment_type = request.form.get("payment_type", "other")
-            if payment_type not in PAYMENT_TYPE_LABELS:
-                raise ValueError("付款类型无效。")
+            payment_type = request.form.get("payment_type", "salary")
+            if payment_type != "salary":
+                raise ValueError("员工报销付款单只能由报销审核通过后自动生成。")
             payment_id, _ = _insert_payment(
                 api, employee_id=employee_id, payment_type=payment_type,
                 gross_amount=request.form.get("gross_amount"), source_type="manual",
@@ -371,13 +432,13 @@ def register_employee_finance_routes(app, api):
             for row in batch["rows"]:
                 agreement = replacements.get(row["worker_id"])
                 amount = agreement["amount"] if agreement else row["total_pay"]
-                kind = "offline_salary" if agreement else "system_payroll"
+                source_kind = "offline_salary" if agreement else "system_payroll"
                 _, inserted = _insert_payment(
-                    api, employee_id=row["worker_id"], payment_type=kind, gross_amount=amount,
-                    source_type=kind, source_id=agreement["id"] if agreement else None,
+                    api, employee_id=row["worker_id"], payment_type="salary", gross_amount=amount,
+                    source_type=source_kind, source_id=agreement["id"] if agreement else None,
                     source_number=f"{period_start.isoformat()}~{batch['period_end'].isoformat()}",
-                    source_key=f"payroll:{kind}:{row['worker_id']}:{period_start.isoformat()}",
-                    description=f"{period_start.isoformat()} 至 {batch['period_end'].isoformat()} {PAYMENT_TYPE_LABELS[kind]}",
+                    source_key=f"payroll:{source_kind}:{row['worker_id']}:{period_start.isoformat()}",
+                    description=f"{period_start.isoformat()} 至 {batch['period_end'].isoformat()} {'线下约定工资' if agreement else '系统工资'}",
                 )
                 created += int(inserted)
             # Offline-only employees may have no service-report row in this period.
@@ -386,7 +447,7 @@ def register_employee_finance_routes(app, api):
                 if agreement["employee_id"] in worker_ids and agreement["replaces_system_payroll"]:
                     continue
                 _, inserted = _insert_payment(
-                    api, employee_id=agreement["employee_id"], payment_type="offline_salary",
+                    api, employee_id=agreement["employee_id"], payment_type="salary",
                     gross_amount=agreement["amount"], source_type="offline_salary", source_id=agreement["id"],
                     source_number=f"{period_start.isoformat()}~{batch['period_end'].isoformat()}",
                     source_key=f"payroll:offline_salary:{agreement['employee_id']}:{period_start.isoformat()}",
@@ -458,10 +519,25 @@ def register_employee_finance_routes(app, api):
                          g.user["id"], api["now"](), payment_id),
                     )
                     if payment["source_type"] == "expense" and payment["source_id"]:
+                        expense = api["db"]().execute(
+                            "select * from expenses where id=?", (payment["source_id"],)
+                        ).fetchone()
                         api["db"]().execute(
                             "update expenses set payout_status='paid',reimbursed_by=?,reimbursed_at=?,updated_at=? where id=?",
                             (g.user["id"], api["now"](), api["now"](), payment["source_id"]),
                         )
+                        if expense and "notify_expense_participants" in api:
+                            api["notify_expense_participants"](
+                                expense,
+                                "报销付款已发放",
+                                f"报销 {expense['expense_number']} 已通过付款单 {payment['payment_number']} 发放。",
+                                url_for("employee_payment_detail", payment_id=payment_id),
+                            )
+                        if expense:
+                            api["log_action"](
+                                "pay", "expense", expense["id"], expense["expense_number"],
+                                f"通过付款单 {payment['payment_number']} 发放",
+                            )
                 if target in {"approved", "rejected"}:
                     api["db"]().execute("update employee_payment_orders set reviewed_by=?,reviewed_at=? where id=?", (g.user["id"], api["now"](), payment_id))
             reason = request.form.get("reason", "").strip()

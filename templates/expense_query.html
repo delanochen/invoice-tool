@@ -8,7 +8,7 @@
 
 {% block content %}
 {# 只读报表：数据来自 app.py expense_query() 的一条 SQL，
-   这里只做展示层与合计（待报销金额 = 已通过且未发放的明细合计），不改动任何后端逻辑。 #}
+   这里只做展示层与合计（待付款金额 = 已通过且付款单未发放的明细合计），不改动任何后端逻辑。 #}
 
 <div class="erp-app" data-active-panel="list">
 
@@ -19,7 +19,7 @@
       <small>报销明细 · 按费用日期倒序</small>
     </div>
     <span class="erp-badge">{{ rows|length }} 条明细</span>
-    {% if total %}<span class="erp-badge warn">待报销 {{ total|money }}</span>{% endif %}
+    {% if total %}<span class="erp-badge warn">待付款 {{ total|money }}</span>{% endif %}
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
@@ -59,7 +59,7 @@
           {% endfor %}
         </select>
       </label>
-      <label class="erp-field">报销状态
+      <label class="erp-field">付款状态
         <select name="payout_status">
           <option value="">全部</option>
           {% for value, label in payout_labels.items() %}
@@ -82,7 +82,7 @@
           <thead><tr>
             <th>报销编号</th><th>工单</th><th>站点名称</th><th>洲</th><th>国家</th>
             <th>明细项目</th><th>明细说明</th><th>日期</th><th>报销归属员工</th><th>提交人</th>
-            <th class="num">明细金额</th><th>流程状态</th><th>报销状态</th>
+            <th class="num">明细金额</th><th>流程状态</th><th>付款状态</th>
           </tr></thead>
           <tbody>
             {% for row in rows %}
@@ -141,7 +141,7 @@
   <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
   <footer class="erp-summary">
     {{ summary_item('明细数', rows|length, 'muted') }}
-    {{ summary_item('待报销金额', total|money) }}
+    {{ summary_item('待付款金额', total|money) }}
   </footer>
 
   <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
@@ -152,7 +152,7 @@
     <span class="sep"></span>
     <span>流程状态 <b>{{ labels[status] if status else '全部' }}</b></span>
     <span class="sep"></span>
-    <span>报销状态 <b>{{ payout_labels[payout_status] if payout_status else '全部' }}</b></span>
+    <span>付款状态 <b>{{ payout_labels[payout_status] if payout_status else '全部' }}</b></span>
     {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
   </footer>
 </div>

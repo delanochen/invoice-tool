@@ -69,8 +69,7 @@
       {% if normalized_role() == "admin" %}
         <form method="post" action="{{ url_for('process_expense_action') }}">
           <input type="hidden" name="expense_id" value="{{ expense.id }}">
-          <button type="submit" name="action" value="reset_payout" onclick="return window.uiConfirm ? window.uiConfirm('确认将本单重置为待报销吗？') : confirm('确认将本单重置为待报销吗？');">重置发放状态</button>
-          <button class="danger" type="submit" name="action" value="reset_workflow" onclick="return window.uiConfirm ? window.uiConfirm('确认将本单重置为待经理审核，并同时重置发放状态吗？') : confirm('确认将本单重置为待经理审核，并同时重置发放状态吗？');">重置流程状态</button>
+          <button class="danger" type="submit" name="action" value="reset_workflow" onclick="return window.uiConfirm ? window.uiConfirm('确认将本单重置为待经理审核吗？未付款的关联付款单会同时取消。') : confirm('确认将本单重置为待经理审核吗？未付款的关联付款单会同时取消。');">重置流程状态</button>
         </form>
       {% endif %}
       {% if expense.status in ["draft", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
@@ -144,9 +143,10 @@
           <p><strong>提交人</strong><span>{{ creator.name if creator else "Unknown" }}</span></p>
           <p><strong>审核人</strong><span>{{ reviewer.name if reviewer else "-" }}</span></p>
           <p><strong>审核时间</strong><span>{{ expense.reviewed_at|local_datetime if expense.reviewed_at else "-" }}</span></p>
-          <p><strong>报销状态</strong><span class="status {{ expense.payout_status }}">{{ expense_payout_labels[expense.payout_status] }}</span></p>
-          <p><strong>发放操作人</strong><span>{{ reimburser.name if reimburser else "-" }}</span></p>
-          <p><strong>报销时间</strong><span>{{ expense.reimbursed_at|local_datetime if expense.reimbursed_at else "-" }}</span></p>
+          <p><strong>付款状态</strong><span class="status {{ expense.payout_status }}">{{ expense_payout_labels[expense.payout_status] }}</span></p>
+          <p><strong>付款操作人</strong><span>{{ reimburser.name if reimburser else "-" }}</span></p>
+          <p><strong>付款时间</strong><span>{{ expense.reimbursed_at|local_datetime if expense.reimbursed_at else "-" }}</span></p>
+          {% if payment_order %}<p><strong>员工付款单</strong><span><a href="{{ url_for('employee_payment_detail', payment_id=payment_order.id) }}">{{ payment_order.payment_number }}</a></span></p>{% endif %}
           <p class="full-span"><strong>说明</strong><span>{{ expense.description or "-" }}</span></p>
           {% if expense.return_reason %}
             <p class="full-span"><strong>退回原因</strong><span>{{ expense.return_reason }}</span></p>
@@ -246,7 +246,7 @@
     {{ summary_item('报销总额', expense.amount|money(expense.currency), 'muted') }}
     {{ summary_item('明细条数', items|length, 'muted') }}
     {{ summary_item('流程状态', labels[expense.status], 'muted') }}
-    {{ summary_item('发放状态', expense_payout_labels[expense.payout_status], 'warn' if expense.payout_status != 'reimbursed' else 'pos') }}
+    {{ summary_item('付款状态', expense_payout_labels[expense.payout_status], 'warn' if expense.payout_status != 'paid' else 'pos') }}
     {% if duplicate_checks and normalized_role() in ["admin", "manager"] %}
       {{ summary_item('重复疑点', duplicate_checks|length, 'warn') }}
     {% endif %}
