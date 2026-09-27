@@ -7,6 +7,7 @@ from werkzeug.exceptions import Forbidden
 
 from employee_finance import (
     PAYMENT_STATUS_LABELS,
+    _csv_value,
     _can_view_all_payments,
     _require_payment_access,
     payment_amounts,
@@ -18,6 +19,11 @@ ROOT = Path(__file__).resolve().parent
 
 
 class EmployeeFinanceDomainTest(unittest.TestCase):
+    def test_csv_value_accepts_english_and_chinese_headings(self):
+        self.assertEqual(_csv_value({"account_name": " Operating "}, "account_name", "账户名称"), "Operating")
+        self.assertEqual(_csv_value({"账户名称": "运营账户"}, "account_name", "账户名称"), "运营账户")
+        self.assertEqual(_csv_value({}, "currency", "币种", default="USD"), "USD")
+
     def test_payment_visibility_is_self_only_for_employee(self):
         app = Flask(__name__)
         with app.test_request_context():
@@ -116,7 +122,7 @@ class PostgreSQLFinanceMigrationTest(unittest.TestCase):
         self.assertIn('payment["employee_id"] != g.user["id"]', module)
         self.assertIn('method_labels=PAYMENT_METHOD_LABELS, can_view_all=can_view_all', module)
         template = (ROOT / "templates" / "employee_payments.html").read_text(encoding="utf-8")
-        self.assertIn("{% if can_view_all %}<label>员工", template)
+        self.assertIn('{% if can_view_all %}<label class="erp-field">员工', template)
         self.assertIn("{% if has_action_permission('employee_payments','create') %}", template)
         runner = (ROOT / "scripts" / "upgrade_postgresql_0285.py").read_text(encoding="utf-8")
         self.assertIn('employee_payments\' and is_enabled=1', runner)
@@ -158,6 +164,37 @@ class PostgreSQLFinanceMigrationTest(unittest.TestCase):
         self.assertIn("def cancel_expense_payment_order", payment_module)
         self.assertIn("_reverse_advance_application(api, payment)", payment_module)
         self.assertIn("update payment_order_sources set source_number=?,amount=?", payment_module)
+
+    def test_finance_entry_pages_use_erp_shell_and_working_dialogs(self):
+        for filename in ("bank_accounts.html", "bank_transactions.html", "employee_advances.html", "employee_payments.html"):
+            template = (ROOT / "templates" / filename).read_text(encoding="utf-8")
+            self.assertIn('class="erp-app"', template)
+            self.assertIn('class="erp-toolbar no-print"', template)
+            self.assertIn('class="erp-body"', template)
+            self.assertIn("modal-forms.js", template)
+        accounts = (ROOT / "templates" / "bank_accounts.html").read_text(encoding="utf-8")
+        self.assertIn("CSV 导入", accounts)
+        self.assertIn("确认初始化", accounts)
+        transactions = (ROOT / "templates" / "bank_transactions.html").read_text(encoding="utf-8")
+        self.assertIn("手工录入", transactions)
+        self.assertIn("下载银行流水导入模板", transactions)
+
+    def test_bank_initialization_migration_is_additive_and_deployed(self):
+        sql = (ROOT / "migrations" / "postgresql" / "0287-bank-account-initialization.sql").read_text(encoding="utf-8")
+        for column in ("opening_balance_date", "initialized_at", "initialized_by"):
+            self.assertIn(f"ADD COLUMN IF NOT EXISTS {column}", sql)
+        runner = (ROOT / "scripts" / "upgrade_postgresql_0287.py").read_text(encoding="utf-8")
+        self.assertIn('result.stdout.strip() == "3|1"', runner)
+        deploy = (ROOT / "scripts" / "debian-auto-deploy.sh").read_text(encoding="utf-8")
+        self.assertIn("upgrade_postgresql_0287.py", deploy)
+
+    def test_bank_import_and_advance_create_routes_are_exposed(self):
+        module = (ROOT / "employee_finance.py").read_text(encoding="utf-8")
+        self.assertIn('action == "import"', module)
+        self.assertIn('def initialize_bank_account(account_id):', module)
+        self.assertIn('def bank_account_import_template():', module)
+        self.assertIn('def bank_transaction_import_template():', module)
+        self.assertIn('if not purpose: raise ValueError("借款用途不能为空。")', module)
 
 
 if __name__ == "__main__":

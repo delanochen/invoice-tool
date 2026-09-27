@@ -16,7 +16,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
-from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
+from flask import Response, abort, flash, g, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
 
@@ -47,6 +47,28 @@ def _money(value, field="金额") -> Decimal:
     except (InvalidOperation, ValueError):
         raise ValueError(f"{field}格式不正确。")
     return amount
+
+
+def _csv_value(row, *names, default=""):
+    """Read a CSV value using either the English template or Chinese headings."""
+    for name in names:
+        value = row.get(name)
+        if value is not None and str(value).strip() != "":
+            return str(value).strip()
+    return default
+
+
+def _csv_rows(upload):
+    if not upload or not upload.filename:
+        raise ValueError("请选择 CSV 文件。")
+    text = io.TextIOWrapper(upload.stream, encoding="utf-8-sig", newline="")
+    reader = csv.DictReader(text)
+    if not reader.fieldnames:
+        raise ValueError("CSV 文件缺少表头。")
+    rows = list(reader)
+    if not rows:
+        raise ValueError("CSV 文件没有可导入的数据。")
+    return rows
 
 
 def payment_amounts(gross_amount, advance_offset=0, other_adjustment=0):
@@ -560,8 +582,19 @@ def register_employee_finance_routes(app, api):
             _require(api, "employee_advances", "create")
             try:
                 employee_id = int(request.form.get("employee_id", ""))
+                employee = api["db"]().execute(
+                    "select id,name from users where id=? and is_active=1", (employee_id,)
+                ).fetchone()
+                if not employee: raise ValueError("请选择有效员工。")
                 amount = _money(request.form.get("principal_amount"), "借款金额")
                 if amount <= 0: raise ValueError("借款金额必须大于零。")
+                purpose = request.form.get("purpose", "").strip()
+                if not purpose: raise ValueError("借款用途不能为空。")
+                account_id = int(request.form["bank_account_id"]) if request.form.get("bank_account_id", "").isdigit() else None
+                if account_id and not api["db"]().execute(
+                    "select id from bank_accounts where id=? and is_active=1", (account_id,)
+                ).fetchone():
+                    raise ValueError("请选择有效付款账户。")
                 number = _next_number(api, "EA", "employee_advances", "advance_number")
                 upload = request.files.get("attachment")
                 original, stored = "", ""
@@ -573,8 +606,7 @@ def register_employee_finance_routes(app, api):
                 cursor = api["db"]().execute(
                     "insert into employee_advances(advance_number,employee_id,principal_amount,currency,advance_date,bank_account_id,purpose,attachment_name,attachment_stored_filename,status,external_transaction_id,sync_source,sync_status,created_by,created_at,updated_at) values(?,?,?,'USD',?,?,?,?,?,'open',?,'manual','local',?,?,?)",
                     (number, employee_id, amount, request.form.get("advance_date") or date.today().isoformat(),
-                     int(request.form["bank_account_id"]) if request.form.get("bank_account_id", "").isdigit() else None,
-                     request.form.get("purpose", "").strip(), original, stored,
+                     account_id, purpose, original, stored,
                      request.form.get("external_transaction_id", "").strip() or None,
                      g.user["id"], api["now"](), api["now"]()),
                 )
@@ -620,22 +652,77 @@ def register_employee_finance_routes(app, api):
         _require(api, "bank_accounts")
         if request.method == "POST":
             _require(api, "bank_accounts", "create")
-            name = request.form.get("account_name", "").strip()
-            if not name:
-                flash("账户名称不能为空。", "error")
-            else:
-                cursor = api["db"]().execute(
-                    "insert into bank_accounts(account_name,bank_name,account_type,currency,last_four,opening_balance,is_active,external_account_id,sync_source,sync_status,created_by,created_at,updated_at) values(?,?,?,?,?,?,1,?,'manual','local',?,?,?)",
-                    (name, request.form.get("bank_name", "").strip(), request.form.get("account_type", "checking"),
-                     request.form.get("currency", "USD"), request.form.get("last_four", "").strip(),
-                     _money(request.form.get("opening_balance"), "期初余额"), request.form.get("external_account_id", "").strip() or None,
-                     g.user["id"], api["now"](), api["now"]()),
-                )
-                api["log_action"]("create", "bank_account", cursor.lastrowid, name, request.form.get("bank_name", "").strip())
-                api["db"]().commit(); flash("银行账户已创建。", "success")
+            try:
+                action = request.form.get("action", "create")
+                if action == "import":
+                    created = skipped = 0
+                    for row in _csv_rows(request.files.get("csv_file")):
+                        name = _csv_value(row, "account_name", "账户名称")
+                        if not name: raise ValueError("账户 CSV 中存在空的账户名称。")
+                        if api["db"]().execute("select id from bank_accounts where account_name=?", (name,)).fetchone():
+                            skipped += 1; continue
+                        opening = _money(_csv_value(row, "opening_balance", "期初余额", default="0"), "期初余额")
+                        opening_date = _csv_value(row, "opening_balance_date", "期初日期") or None
+                        cursor = api["db"]().execute(
+                            "insert into bank_accounts(account_name,bank_name,account_type,currency,last_four,opening_balance,opening_balance_date,initialized_at,initialized_by,is_active,external_account_id,sync_source,sync_status,created_by,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,1,?,'csv','imported',?,?,?)",
+                            (name, _csv_value(row, "bank_name", "银行"), _csv_value(row, "account_type", "账户类型", default="checking"),
+                             _csv_value(row, "currency", "币种", default="USD"), _csv_value(row, "last_four", "尾号"), opening,
+                             opening_date, api["now"]() if opening_date else None, g.user["id"] if opening_date else None,
+                             _csv_value(row, "external_account_id", "外部账户ID") or None,
+                             g.user["id"], api["now"](), api["now"]()),
+                        )
+                        api["log_action"]("import", "bank_account", cursor.lastrowid, name, "CSV 初始化银行账户")
+                        created += 1
+                    message = f"银行账户 CSV 导入完成：新增 {created} 个，跳过重复 {skipped} 个。"
+                else:
+                    name = request.form.get("account_name", "").strip()
+                    if not name: raise ValueError("账户名称不能为空。")
+                    opening = _money(request.form.get("opening_balance"), "期初余额")
+                    opening_date = request.form.get("opening_balance_date", "").strip() or None
+                    cursor = api["db"]().execute(
+                        "insert into bank_accounts(account_name,bank_name,account_type,currency,last_four,opening_balance,opening_balance_date,initialized_at,initialized_by,is_active,external_account_id,sync_source,sync_status,created_by,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,1,?,'manual','local',?,?,?)",
+                        (name, request.form.get("bank_name", "").strip(), request.form.get("account_type", "checking"),
+                         request.form.get("currency", "USD"), request.form.get("last_four", "").strip(), opening,
+                         opening_date, api["now"]() if opening_date else None, g.user["id"] if opening_date else None,
+                         request.form.get("external_account_id", "").strip() or None, g.user["id"], api["now"](), api["now"]()),
+                    )
+                    api["log_action"]("create", "bank_account", cursor.lastrowid, name, request.form.get("bank_name", "").strip())
+                    message = "银行账户已创建。"
+                api["db"]().commit(); flash(message, "success")
+            except (ValueError, TypeError) as error:
+                api["db"]().rollback(); flash(str(error), "error")
             return redirect(url_for("bank_accounts"))
         rows = api["db"]().execute("select * from bank_accounts order by is_active desc,account_name").fetchall()
         return render_template("bank_accounts.html", rows=rows)
+
+    @app.post("/finance/bank-accounts/<int:account_id>/initialize")
+    @api["login_required"]
+    def initialize_bank_account(account_id):
+        _require(api, "bank_accounts", "create")
+        try:
+            account = api["db"]().execute("select * from bank_accounts where id=?", (account_id,)).fetchone()
+            if not account: abort(404)
+            count = api["db"]().execute("select count(*) count from bank_transactions where bank_account_id=?", (account_id,)).fetchone()["count"]
+            if count: raise ValueError("该账户已有银行流水，不能重设期初余额。")
+            opening = _money(request.form.get("opening_balance"), "期初余额")
+            opening_date = request.form.get("opening_balance_date", "").strip()
+            if not opening_date: raise ValueError("请选择期初日期。")
+            api["db"]().execute(
+                "update bank_accounts set opening_balance=?,opening_balance_date=?,initialized_at=?,initialized_by=?,updated_at=? where id=?",
+                (opening, opening_date, api["now"](), g.user["id"], api["now"](), account_id),
+            )
+            api["log_action"]("initialize", "bank_account", account_id, account["account_name"], f"期初日期 {opening_date}，期初余额 {opening}")
+            api["db"]().commit(); flash("银行账户期初数据已初始化。", "success")
+        except (ValueError, TypeError) as error:
+            api["db"]().rollback(); flash(str(error), "error")
+        return redirect(url_for("bank_accounts"))
+
+    @app.get("/finance/bank-accounts/import-template")
+    @api["login_required"]
+    def bank_account_import_template():
+        _require(api, "bank_accounts", "create")
+        content = "account_name,bank_name,account_type,currency,last_four,opening_balance,opening_balance_date,external_account_id\r\n"
+        return Response("\ufeff" + content, mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=bank-account-import-template.csv"})
 
     def insert_bank_transaction(account_id, values, source="manual"):
         amount = _money(values.get("amount"), "流水金额")
@@ -664,9 +751,8 @@ def register_employee_finance_routes(app, api):
                 account_id = int(request.form.get("bank_account_id", ""))
                 upload = request.files.get("csv_file")
                 if upload and upload.filename:
-                    text = io.TextIOWrapper(upload.stream, encoding="utf-8-sig", newline="")
                     count = 0
-                    for row in csv.DictReader(text):
+                    for row in _csv_rows(upload):
                         insert_bank_transaction(account_id, row, "csv"); count += 1
                     message = f"CSV 已处理 {count} 行；重复流水按指纹跳过。"
                 else:
@@ -681,6 +767,13 @@ def register_employee_finance_routes(app, api):
         ).fetchall()
         accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
         return render_template("bank_transactions.html", rows=rows, accounts=accounts)
+
+    @app.get("/finance/bank-transactions/import-template")
+    @api["login_required"]
+    def bank_transaction_import_template():
+        _require(api, "bank_transactions", "create")
+        content = "transaction_date,posted_date,direction,amount,description,reference_number,external_transaction_id\r\n"
+        return Response("\ufeff" + content, mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=bank-transaction-import-template.csv"})
 
     @app.route("/finance/reconciliation", methods=["GET", "POST"])
     @api["login_required"]
