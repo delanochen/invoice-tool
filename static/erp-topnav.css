@@ -20,6 +20,12 @@
   background: linear-gradient(180deg, #fbfcfd 0%, #eceff4 100%);
   border-bottom: 1px solid #9aa7bb;
   box-shadow: 0 1px 0 rgba(255, 255, 255, .6) inset;
+  /* v0.1.326: PWA standalone — 清出 iPhone 状态栏/刘海。
+     base.html 的 apple-mobile-web-app-status-bar-style=black-translucent 让状态栏**浮在**
+     网页上方，顶栏第一行（品牌 / 语言 / 退出）会钻到时间电量底下被压掉。
+     注意这条是 v0.1.245 给旧 .sidebar 写的修复，v0.1.294 换成 .topbar 时漏搬 —— 补回来。
+     普通浏览器（含 Safari 标签页）里 env() 恒为 0，外观不变。 */
+  padding-top: env(safe-area-inset-top);
 }
 /* 标题栏 + 菜单栏两行：brand 与右侧账号同排，菜单栏独占第二行。
    用 order/flex-wrap 实现，无需改动 base.html 的 DOM 结构。 */

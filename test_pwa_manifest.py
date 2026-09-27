@@ -59,5 +59,48 @@ class TestPwaTemplateContract(unittest.TestCase):
         self.assertIn("fetch(event.request)", sw)
 
 
+class TestPwaSafeAreaTopbar(unittest.TestCase):
+    """v0.1.326: PWA standalone 顶栏被手机状态栏遮挡。
+
+    base.html 声明 apple-mobile-web-app-status-bar-style=black-translucent，
+    即状态栏**浮在**网页之上 → 顶栏第一行（品牌 / 语言 / 退出）会钻到时间电量底下。
+
+    v0.1.245 曾给当时的导航容器 `.sidebar` 加过 env(safe-area-inset-top)，
+    但 v0.1.294 的 ERP 化重构把导航换成 `.topbar` 后该修复**没有跟着搬**，
+    回归因此在无测试覆盖的情况下静默失效了整整 30 多个版本。
+    这个测试把契约钉在「当前真实导航容器」上，防止下次重构再丢。
+    """
+
+    def setUp(self):
+        self.css = (PROJECT_ROOT / "static" / "erp-topnav.css").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _rule_block(css, selector):
+        """取 selector 那条规则的大括号内容（第一个匹配）。"""
+        import re
+        m = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css, re.S)
+        return m.group(1) if m else ""
+
+    def test_topbar_clears_safe_area(self):
+        block = self._rule_block(self.css, ".topbar")
+        self.assertTrue(block, ".topbar 规则不存在 —— 导航容器被改名/移除？")
+        self.assertIn(
+            "env(safe-area-inset-top)", block,
+            ".topbar 缺少 env(safe-area-inset-top) 内边距：PWA 独立模式下顶栏会被状态栏遮挡",
+        )
+
+    def test_navigation_container_is_topbar_not_sidebar(self):
+        """防止「改了 CSS 文件但选择器已不是真实导航容器」这种假修复。"""
+        html = (PROJECT_ROOT / "templates" / "base.html").read_text(encoding="utf-8")
+        self.assertIn('class="topbar no-print"', html)
+        self.assertNotIn('<aside class="sidebar"', html)
+
+    def test_base_html_declares_black_translucent_status_bar(self):
+        """前提断言：只有 black-translucent 才需要安全区（否则本修复无意义）。"""
+        html = (PROJECT_ROOT / "templates" / "base.html").read_text(encoding="utf-8")
+        self.assertIn("black-translucent", html)
+        self.assertIn("viewport-fit=cover", html)
+
+
 if __name__ == "__main__":
     unittest.main()
