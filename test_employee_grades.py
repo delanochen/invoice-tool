@@ -112,14 +112,15 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
             'select is_active from employee_grades where id = ?', (self.grade_id,))[0]['is_active'], 1)
         self.set_user_active(self.fixture.people['Submitter'], 0)
         self.http.post(f'/employee-grades/{self.grade_id}/state', data={'is_active': '0'})
-        self.assertIn('员工等级已停用', self.page(self.grade_id))
+        # v0.1.324 起 ERP 风格不再渲染成功类 flash（状态变化在页面上直接可见）
+        self.assertNotIn('员工等级已停用', self.page(self.grade_id))
         self.assertEqual(self.query(
             'select is_active from employee_grades where id = ?', (self.grade_id,))[0]['is_active'], 0)
 
     def test_reactivate_grade(self):
         self.http.post(f'/employee-grades/{self.grade_id}/state', data={'is_active': '0'})
         self.http.post(f'/employee-grades/{self.grade_id}/state', data={'is_active': '1'})
-        self.assertIn('员工等级已启用', self.page(self.grade_id))
+        self.assertNotIn('员工等级已启用', self.page(self.grade_id))
         self.assertEqual(self.query(
             'select is_active from employee_grades where id = ?', (self.grade_id,))[0]['is_active'], 1)
 
@@ -134,7 +135,8 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
     def test_delete_allowed_when_unassigned_and_removes_versions(self):
         self.add_version('2026-09-01', None, {'regular_hours': 25, 'mileage': 0.9})
         self.http.post(f'/employee-grades/{self.grade_id}/delete')
-        self.assertIn('员工等级已删除', self.page())
+        # v0.1.324 起 ERP 风格不再渲染成功类 flash（删除结果由列表状态直接可见）
+        self.assertNotIn('员工等级已删除', self.page())
         self.assertEqual(self.query(
             'select count(*) as n from employee_grades where id = ?', (self.grade_id,))[0]['n'], 0)
         self.assertEqual(self.query(
@@ -289,7 +291,8 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertEqual(added.status_code, 302)
         self.assertEqual(self.query('select employee_grade_id from users where id = ?', (unused,))[0]['employee_grade_id'],
                          self.grade_id)
-        self.assertIn('已将 Unrelated 加入', self.page(self.grade_id))
+        # v0.1.324 起 ERP 风格不再渲染成功类 flash（操作结果在页面上直接可见）
+        self.assertNotIn('已将 Unrelated 加入', self.page(self.grade_id))
         # 加入后不再出现在「可加入」下拉里
         self.assertNotIn(f'value="{unused}">Unrelated', self.page(self.grade_id))
 
@@ -299,7 +302,7 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         )
         self.assertEqual(removed.status_code, 302)
         self.assertIsNone(self.query('select employee_grade_id from users where id = ?', (unused,))[0]['employee_grade_id'])
-        self.assertIn('已将 Unrelated 移出', self.page(self.grade_id))
+        self.assertNotIn('已将 Unrelated 移出', self.page(self.grade_id))
 
         # 重复加入 / 移出非本等级员工都只提示，不写库
         self.http.post(f'/employee-grades/{self.grade_id}/members', data={'action': 'remove', 'user_id': str(submitter)})

@@ -386,10 +386,12 @@
       </header>
     {% endif %}
     <main class="{% if g.user %}main{% else %}auth-main{% endif %}">
+      {# ERP 风格（v0.1.324 起）：操作成功类提示不再显示（结果在页面上直接可见），只保留 error/warning。
+         success 消息仍被消费（留在 session 无意义），只是不渲染。 #}
       {% with messages = get_flashed_messages(with_categories=true) if not g.user or request.headers.get('Sec-Fetch-Dest') != 'document' or request.endpoint == 'workspace' else [] %}
         {% if messages %}
           <div class="flash-stack no-print">
-            {% for category, message in messages %}
+            {% for category, message in messages if category != 'success' %}
               <div class="flash {{ category }}" role="alert">
                 <span class="flash-message">{{ message }}</span>
                 <button type="button" class="flash-close" aria-label="关闭提示" onclick="this.closest('.flash').remove()">×</button>
