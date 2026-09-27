@@ -1,1 +1,22 @@
-{% extends "base.html" %}{% block title %}员工往来账{% endblock %}{% block content %}<div class="erp-app erp-scope erp-compact"><div class="erp-page-head"><div><h1>员工往来账</h1><p>按员工查看付款与未结借款。</p></div></div><form method="get" class="erp-toolbar"><label>员工<select name="employee_id" required><option value="">请选择</option>{% for employee in employees %}<option value="{{ employee.id }}" {% if employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}</select></label><button class="erp-btn primary">查询</button></form>{% if employee_id %}<div class="erp-panel"><div class="erp-section-title">付款历史</div><table class="erp-table"><thead><tr><th>付款单</th><th>类型</th><th>应付</th><th>抵扣</th><th>实付</th><th>状态</th></tr></thead><tbody>{% for row in payments %}<tr><td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td><td>{{ type_labels[row.payment_type] }}</td><td>{{ row.gross_amount|money }}</td><td>{{ row.advance_offset|money }}</td><td>{{ row.net_amount|money }}</td><td>{{ status_labels[row.status] }}</td></tr>{% endfor %}</tbody></table></div><div class="erp-panel"><div class="erp-section-title">借款</div><table class="erp-table"><thead><tr><th>借款单</th><th>本金</th><th>已抵扣</th><th>余额</th></tr></thead><tbody>{% for row in advances %}<tr><td>{{ row.advance_number }}</td><td>{{ row.principal_amount|money }}</td><td>{{ row.applied_amount|money }}</td><td>{{ row.remaining_amount|money }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}</div>{% endblock %}
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+{% block title %}员工往来账{% endblock %}
+{% block content %}
+<div class="erp-app">
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">员工往来账<small>财务管理 · 按员工查看付款与未结借款</small></div><span class="erp-badge">{{ employees|length }} 名员工</span><span class="erp-toolbar-spacer"></span>
+    <form method="get" class="erp-toolbar-group"><label>员工<select name="employee_id" required><option value="">请选择</option>{% for employee in employees %}<option value="{{ employee.id }}" {% if employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}</select></label><button class="erp-btn primary">查询</button></form>
+  </header>
+  <div class="erp-body">
+    {% if employee_id %}
+    <section class="erp-panel active"><div class="erp-section-title">付款历史</div><div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;"><table class="list-table erp-grid"><thead><tr><th>付款单</th><th>类型</th><th>应付</th><th>抵扣</th><th>实付</th><th>状态</th></tr></thead><tbody>{% for row in payments %}<tr><td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td><td>{{ type_labels[row.payment_type] }}</td><td>{{ row.gross_amount|money }}</td><td>{{ row.advance_offset|money }}</td><td>{{ row.net_amount|money }}</td><td>{{ status_labels[row.status] }}</td></tr>{% else %}<tr><td colspan="6" class="empty">该员工暂无付款记录。</td></tr>{% endfor %}</tbody></table></div></section>
+    <section class="erp-panel"><div class="erp-section-title">借款</div><div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;"><table class="list-table erp-grid"><thead><tr><th>借款单</th><th>本金</th><th>已抵扣</th><th>余额</th></tr></thead><tbody>{% for row in advances %}<tr><td>{{ row.advance_number }}</td><td>{{ row.principal_amount|money }}</td><td>{{ row.applied_amount|money }}</td><td><strong>{{ row.remaining_amount|money }}</strong></td></tr>{% else %}<tr><td colspan="4" class="empty">该员工暂无借款。</td></tr>{% endfor %}</tbody></table></div></section>
+    {% else %}
+    <section class="erp-panel active"><div class="erp-section-title">使用说明</div><p class="muted">请先在上方选择员工再查询。</p></section>
+    {% endif %}
+  </div>
+  {% if employee_id %}<footer class="erp-summary">{{ summary_item('付款记录', payments|length, 'muted') }}{{ summary_item('借款记录', advances|length, 'muted') }}</footer>{% endif %}
+  <footer class="erp-status"><span>借款余额由工资/报销抵扣的核销流水计算。</span></footer>
+</div>
+{% endblock %}

@@ -1,1 +1,19 @@
-{% extends "base.html" %}{% block title %}银行对账{% endblock %}{% block content %}<div class="erp-app erp-scope erp-compact"><div class="erp-page-head"><div><h1>银行对账</h1><p>将实际支出流水与“已付款”付款单一对一匹配。</p></div></div><form method="post" class="erp-panel form-stack"><div class="form-grid two-columns"><label>未匹配支出流水<select name="transaction_id" required>{% for row in transactions %}<option value="{{ row.id }}">{{ row.transaction_date }} · {{ row.account_name }} · {{ row.amount|money }} · {{ row.description }}</option>{% endfor %}</select></label><label>已付款付款单<select name="payment_id" required>{% for row in payments %}<option value="{{ row.id }}">{{ row.payment_number }} · {{ row.employee_name }} · {{ row.net_amount|money }}</option>{% endfor %}</select></label></div><div class="form-actions"><button class="primary">确认匹配并完成对账</button></div></form></div>{% endblock %}
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+{% block title %}银行对账{% endblock %}
+{% block content %}
+<div class="erp-app">
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">银行对账<small>财务管理 · 将实际支出流水与「已付款」付款单一对一匹配</small></div><span class="erp-toolbar-spacer"></span>
+  </header>
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <div class="erp-section-title">匹配</div>
+      <form method="post" class="form-stack"><div class="form-grid two-columns"><label>未匹配支出流水<select name="transaction_id" required>{% for row in transactions %}<option value="{{ row.id }}">{{ row.transaction_date }} · {{ row.account_name }} · {{ row.amount|money }} · {{ row.description }}</option>{% endfor %}</select></label><label>已付款付款单<select name="payment_id" required>{% for row in payments %}<option value="{{ row.id }}">{{ row.payment_number }} · {{ row.employee_name }} · {{ row.net_amount|money }}</option>{% endfor %}</select></label></div><div class="form-actions"><button class="erp-btn primary">确认匹配并完成对账</button></div></form>
+    </section>
+  </div>
+  <footer class="erp-summary">{{ summary_item('未匹配流水', transactions|length, 'muted') }}{{ summary_item('已付款付款单', payments|length, 'muted') }}</footer>
+  <footer class="erp-status"><span>匹配完成后流水将标记对应付款单，账面与实际资金保持一致。</span></footer>
+</div>
+{% endblock %}

@@ -104,8 +104,7 @@
 #topnav .nav-group > summary:hover svg,
 #topnav .nav-group.active > summary svg,
 #topnav .nav-group[open] > summary svg { opacity: 1; }
-/* 访问键：C/S 客户端惯例「文件(F)」，Alt+字母 直接打开 */
-#topnav .nav-group > summary .nav-key { margin-left: 3px; }
+/* 访问键（v0.1.325 已去掉）：Alt+字母总被浏览器截获，快捷键无实际意义，nav-key 元素与规则一并移除 */
 #topnav .nav-group > summary u { text-decoration: underline; text-underline-offset: 1px; }
 #topnav .nav-group > summary:hover {
   background: #cfe0fb;

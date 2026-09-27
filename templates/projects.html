@@ -1,5 +1,5 @@
 ﻿{% extends "base.html" %}
-{% from "erp_ui.html" import summary_item %}
+{% from "erp_ui.html" import summary_item, tab_button %}
 {% block title %}项目 - 发票工具{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
@@ -7,8 +7,9 @@
 {% block content %}
   <div class="erp-app" data-active-panel="list">
     <header class="erp-toolbar no-print">
-      <div class="erp-toolbar-title">项目维护<small>基础数据 · 项目</small></div>
+      <div class="erp-toolbar-title">项目维护<small>基础数据 · 项目 · 报销项目映射</small></div>
       <span class="erp-badge">{{ projects|length }} 个项目</span>
+      <span class="erp-badge">{{ expense_map|length }} 条映射</span>
       <span class="erp-toolbar-spacer"></span>
       <div class="erp-toolbar-group">
         <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
@@ -32,6 +33,11 @@
           </select>
         </label>
       </form>
+
+      <nav class="erp-tabs no-print" aria-label="项目维护视图">
+        {{ tab_button('list', '项目列表', true, projects|length) }}
+        {{ tab_button('mapping', '报销项目映射', false, expense_map|length) }}
+      </nav>
 
       <section class="erp-panel active" data-erp-panel="list">
         <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
@@ -66,10 +72,64 @@
           </table>
         </div>
       </section>
+
+      {# 报销项目映射（v0.1.325）：员工报销项目 → 工单结算金额字段 → 发票项目。
+         「其他」桶发票拆分按此表进行，来源项目缺映射时报错拒拆（fail-fast）。 #}
+      <section class="erp-panel" data-erp-panel="mapping">
+        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
+          <table class="list-table erp-grid">
+            <thead><tr><th>员工报销项目</th><th>结算金额字段</th><th>发票项目</th>{% if can_edit_map %}<th>操作</th>{% endif %}</tr></thead>
+            <tbody>
+              {% for row in expense_map %}
+                <tr>
+                  <td>{{ row.expense_project_name }}</td>
+                  <td>{{ settlement_field_labels.get(row.settlement_field, row.settlement_field) }}</td>
+                  <td>{{ row.invoice_project_name }}</td>
+                  {% if can_edit_map %}
+                    <td>
+                      <form method="post" onsubmit="return confirm('确定删除这条映射吗？删除后该报销项目将无法拆分进发票。');">
+                        <input type="hidden" name="map_action" value="delete">
+                        <input type="hidden" name="map_id" value="{{ row.id }}">
+                        <button class="danger small" type="submit">删除</button>
+                      </form>
+                    </td>
+                  {% endif %}
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="empty">还没有映射。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if can_edit_map %}
+          <form method="post" class="erp-filter no-print" style="border-top:1px solid var(--erp-line);">
+            <input type="hidden" name="map_action" value="add">
+            <label class="erp-field">员工报销项目
+              <input name="expense_project_name" required placeholder="例如 MRO Supplies配件及耗材费">
+            </label>
+            <label class="erp-field">结算金额字段
+              <select name="settlement_field" required>
+                {% for value, label in settlement_field_labels.items() %}
+                  <option value="{{ value }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">发票项目
+              <input name="invoice_project_name" required list="invoiceProjectNames" placeholder="选择或输入发票项目名">
+              <datalist id="invoiceProjectNames">
+                {% for name in invoice_project_names %}<option value="{{ name }}"></option>{% endfor %}
+              </datalist>
+            </label>
+            <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">新增映射</button></div>
+            <p class="erp-filter-note">一个报销项目只允许一条映射；发票项目建议从下拉里选（Technical Services / Travel Expenses Reimbursement / Mileage Reimbursement 或发票项目库里的名字）。</p>
+          </form>
+        {% endif %}
+      </section>
     </div>
 
     <footer class="erp-summary">
       {{ summary_item('项目数', projects|length, 'muted') }}
+      {{ summary_item('映射数', expense_map|length, 'muted') }}
     </footer>
     <footer class="erp-status">
       <span>记录 <b>{{ projects|length }}</b> 条</span>

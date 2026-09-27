@@ -19,7 +19,7 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       公司信息
-      <small>Company · 公司资料与附件</small>
+      <small>Company · 公司资料 · 收款信息 · 附件</small>
     </div>
     <span class="erp-badge">{{ attachments|length }} 个附件</span>
     <span class="erp-toolbar-spacer"></span>
@@ -47,6 +47,17 @@
           <label>登记号码 <input name="company_registration_number" value="{{ company.registration_number }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
           <label>EIN 号码 <input name="company_ein" value="{{ company.ein }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
           <label class="full-span">地址 <textarea name="company_address" rows="4" {% if not can_manage_company_info() %}readonly{% endif %}>{{ company.address }}</textarea></label>
+          {# 收款信息（v0.1.325 起从「系统设置」迁入）：同一表单提交，字段名 payment_* 不变，
+             发票 PDF / 邮件模板读侧不受影响；编辑权限跟随公司资料（company_info.edit）。 #}
+          <div class="full-span erp-detail-section-title">收款信息</div>
+          <label>付款方式 <input name="payment_method" value="{{ payment.method }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>收款人 <input name="payment_beneficiary" value="{{ payment.beneficiary }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>银行 <input name="payment_bank_name" value="{{ payment.bank_name }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>银行账号 <input name="payment_account_number" value="{{ payment.account_number }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>路由号码 <input name="payment_routing_number" value="{{ payment.routing_number }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label>SWIFT/BIC 代码 <input name="payment_swift_bic" value="{{ payment.swift_bic }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
+          <label class="full-span">条款 <textarea name="invoice_terms" rows="4" {% if not can_manage_company_info() %}readonly{% endif %}>{{ terms }}</textarea></label>
+          <label class="full-span">税务说明 <textarea name="company_tax_note" rows="3" {% if not can_manage_company_info() %}readonly{% endif %}>{{ company.tax_note }}</textarea></label>
           {% if can_manage_company_info() %}
             <div class="full-span form-field">
               <span class="field-label">公司附件</span>

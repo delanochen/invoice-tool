@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "erp_ui.html" import summary_item %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
 {% block title %}银行账户{% endblock %}
 {% block content %}
 <div class="erp-app" data-active-panel="list">

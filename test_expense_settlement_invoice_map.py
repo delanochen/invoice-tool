@@ -111,7 +111,11 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
         self.assertEqual(mro[0]["amount"], 25)
 
     def test_legacy_mro_invoice_project_name_is_normalized_on_read(self):
-        """已跑过旧版 0282 的库里 MRO 映射是裸名，读取时必须归一为规范全名。"""
+        """已跑过旧版 0282 的库里 MRO 映射是裸名，读取时必须归一为规范全名。
+
+        共享 PG 测试库（invoice_test）下用例必须自清理：改写成裸名后
+        不恢复会污染后续用例（test_seed_rows_are_inserted 读到裸名而失败）。
+        """
         with self.m.app.app_context():
             db = self.m.db()
             db.execute(
@@ -119,10 +123,26 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
                 " where expense_project_name = 'MRO Supplies配件及耗材费'"
             )
             db.commit()
+            self.addCleanup(self._restore_mro_seed_invoice_name)
             self.assertEqual(
                 self.m.expense_settlement_invoice_field("MRO Supplies配件及耗材费"),
                 ("other", "MRO Supplies配件及耗材费"),
             )
+
+    def _restore_mro_seed_invoice_name(self):
+        with self.m.app.app_context():
+            db = self.m.db()
+            db.execute(
+                "update expense_settlement_invoice_map set invoice_project_name = 'MRO Supplies配件及耗材费'"
+                " where expense_project_name = 'MRO Supplies配件及耗材费'"
+            )
+            db.commit()
+
+    def _delete_project_row(self, project_id):
+        with self.m.app.app_context():
+            db = self.m.db()
+            db.execute("delete from projects where id = ?", (project_id,))
+            db.commit()
 
     def test_invoice_items_accept_legacy_mro_invoice_project_record(self):
         """PostgreSQL 不跑 init_db 的别名合并，发票项目可能仍是裸名 MRO Supplies。"""
@@ -137,6 +157,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
                 (self.m.project_name_key("MRO Supplies"), self.m.now()),
             ).lastrowid
             db.commit()
+            self.addCleanup(lambda cid=connection_id: self._delete_project_row(cid))
         sources = [{"project_name": "MRO Supplies配件及耗材费", "amount": 30}]
         reimbursement = {
             "id": 1, "labor_total": 100, "travel_total": 50,

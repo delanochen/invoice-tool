@@ -571,6 +571,18 @@ EXPENSE_SETTLEMENT_INVOICE_SEEDS = (
     ("Taxi Fare / Ride-Hailing Fare打车费", "taxi", "Travel Expenses Reimbursement"),
 )
 
+# 工单结算里映射可指向的金额字段（expense_settlement_invoice_map.settlement_field 值域）
+SETTLEMENT_EXPENSE_FIELD_LABELS = {
+    "lodging": "住宿费",
+    "airfare": "机票费",
+    "baggage": "行李费",
+    "rental_car": "租车费用",
+    "fuel": "燃油费",
+    "parking": "停车费",
+    "taxi": "打车费",
+    "other": "其他",
+}
+
 DEFAULT_OWNER_NAMES = [
     "未知",
     "Qcells",
@@ -10046,6 +10058,39 @@ def delete_work_order_type(type_id):
 @app.route("/projects", methods=["GET", "POST"])
 @login_required
 def projects():
+    map_action = request.form.get("map_action", "").strip()
+    if request.method == "POST" and map_action in ("add", "delete"):
+        # 报销项目映射维护（v0.1.325）：员工报销项目 → 结算字段 → 发票项目。
+        # 「其他」桶发票拆分（customer_reimbursement_other_invoice_breakdown）按此表 fail-fast，
+        # 此前只有种子数据没有任何维护界面。
+        if not has_action_permission("projects", "edit"):
+            abort(403)
+        if map_action == "add":
+            expense_name = normalized_project_name(request.form.get("expense_project_name"))
+            settlement_field = request.form.get("settlement_field", "").strip()
+            invoice_name = request.form.get("invoice_project_name", "").strip()
+            if not expense_name or settlement_field not in SETTLEMENT_EXPENSE_FIELD_LABELS or not invoice_name:
+                flash("新增映射：报销项目、结算字段、发票项目都不能为空。", "error")
+            elif db().execute(
+                "select 1 from expense_settlement_invoice_map where expense_project_name = ?",
+                (expense_name,),
+            ).fetchone():
+                flash(f"报销项目「{expense_name}」已有映射，请先删除旧行再新增。", "error")
+            else:
+                # id 显式生成：PG 端该表 id 序列与种子行（migration 0282）未同步，
+                # nextval 会撞已有 id；max(id)+1 在 SQLite/PG 下语义一致。
+                db().execute(
+                    "insert into expense_settlement_invoice_map (id, expense_project_name, settlement_field, invoice_project_name, created_at) "
+                    "values ((select coalesce(max(id), 0) + 1 from expense_settlement_invoice_map), ?, ?, ?, ?)",
+                    (expense_name, settlement_field, invoice_name, now()),
+                )
+                db().commit()
+        else:
+            map_id = request.form.get("map_id", "").strip()
+            if map_id.isdigit():
+                db().execute("delete from expense_settlement_invoice_map where id = ?", (int(map_id),))
+                db().commit()
+        return redirect(url_for("projects"))
     if request.method == "POST":
         name = normalized_project_name(request.form.get("name"))
         project_type = request.form.get("project_type", "invoice")
@@ -10098,11 +10143,23 @@ def projects():
         f"select * from projects where {' and '.join(clauses)} order by is_active desc, name",
         params,
     ).fetchall()
+    invoice_project_names = sorted(
+        {row["name"] for row in db().execute(
+            "select name from projects where project_type = 'invoice' and is_active = 1 order by name"
+        ).fetchall()}
+        | set(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS)
+    )
     return render_template(
         "projects.html",
         projects=rows,
         q=q,
         selected_project_type=project_type,
+        expense_map=db().execute(
+            "select id, expense_project_name, settlement_field, invoice_project_name from expense_settlement_invoice_map order by expense_project_name"
+        ).fetchall(),
+        settlement_field_labels=SETTLEMENT_EXPENSE_FIELD_LABELS,
+        invoice_project_names=invoice_project_names,
+        can_edit_map=has_action_permission("projects", "edit"),
     )
 
 
@@ -11118,12 +11175,9 @@ def system_settings():
         if warning_days >= cycle_days:
             flash("预警到期天数必须小于巡检周期天数。", "error")
             return redirect(url_for("system_settings"))
-        set_setting("company_tax_note", request.form.get("company_tax_note", "").strip())
-        for key in DEFAULT_PAYMENT_INSTRUCTIONS:
-            set_setting(f"payment_{key}", request.form.get(f"payment_{key}", "").strip())
+        # 收款信息（payment_* / invoice_terms / company_tax_note）v0.1.325 起迁到「公司信息」页编辑，此处不再保存
         for key in DEFAULT_SMTP_SETTINGS:
             set_setting(f"smtp_{key}", request.form.get(f"smtp_{key}", "").strip())
-        set_setting("invoice_terms", request.form.get("invoice_terms", "").strip())
         set_setting(
             "google_maps_browser_api_key",
             request.form.get("google_maps_browser_api_key", "").strip(),
@@ -15120,6 +15174,12 @@ def company_info():
             db().rollback()
             flash(str(error), "error")
             return redirect(url_for("company_info"))
+        # 收款信息（v0.1.325 起从「系统设置」迁入本页）：与公司资料同权限（company_info.edit）、
+        # 同一表单原子提交；数据仍存 settings 表 payment_* / invoice_terms，发票/邮件读侧不变。
+        for key in DEFAULT_PAYMENT_INSTRUCTIONS:
+            set_setting(f"payment_{key}", request.form.get(f"payment_{key}", "").strip())
+        set_setting("invoice_terms", request.form.get("invoice_terms", "").strip())
+        set_setting("company_tax_note", request.form.get("company_tax_note", "").strip())
         db().commit()
         flash("公司信息已保存。", "success")
         return redirect(url_for("company_info"))
@@ -15128,6 +15188,8 @@ def company_info():
         company=get_company_profile(),
         timezone_name=get_timezone_name(),
         attachments=get_company_attachments(),
+        payment=get_payment_instructions(),
+        terms=get_invoice_terms(),
     )
 
 

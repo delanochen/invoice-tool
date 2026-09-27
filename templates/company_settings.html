@@ -34,7 +34,7 @@
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar">
-    <div class="erp-toolbar-title">系统设置<small>收款 · 邮件 · 站点地图 · 现场水印 · 智能审核 · 大模型</small></div>
+    <div class="erp-toolbar-title">系统设置<small>邮件 · 站点地图 · 现场水印 · 智能审核 · 大模型</small></div>
     <span class="erp-badge">{{ llm_configs|length }} 个大模型配置</span>
     {% if ai_review_enabled %}
       <span class="erp-badge">智能审核 启用 · {{ ai_review_time }}</span>
@@ -51,17 +51,7 @@
   <div class="erp-body">
     <section class="erp-panel active" data-erp-panel="settings">
   <form method="post" class="panel settings-layout" id="settingsForm">
-    <section class="form-stack">
-      <h2>收款信息</h2>
-      <label>付款方式 <input name="payment_method" value="{{ payment.method }}"></label>
-      <label>收款人 <input name="payment_beneficiary" value="{{ payment.beneficiary }}"></label>
-      <label>银行 <input name="payment_bank_name" value="{{ payment.bank_name }}"></label>
-      <label>银行账号 <input name="payment_account_number" value="{{ payment.account_number }}"></label>
-      <label>路由号码 <input name="payment_routing_number" value="{{ payment.routing_number }}"></label>
-      <label>SWIFT/BIC 代码 <input name="payment_swift_bic" value="{{ payment.swift_bic }}"></label>
-      <label>条款 <textarea name="invoice_terms" rows="6">{{ terms }}</textarea></label>
-      <label>税务说明 <textarea name="company_tax_note" rows="6">{{ company.tax_note }}</textarea></label>
-    </section>
+    {# 收款信息（payment_* / invoice_terms / 税务说明）v0.1.325 起迁到「公司信息」页维护 #}
     <section class="form-stack smtp-settings">
       <h2>邮件发送设置</h2>
       <label>SMTP 服务器 <input name="smtp_host" value="{{ smtp.host }}"></label>
