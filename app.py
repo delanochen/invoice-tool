@@ -3175,7 +3175,16 @@ def order_photo_status(order_dir):
 
 
 def save_shared_report_photo(report_id, relative_path, category):
-    source_path = resolve_shared_photo(relative_path, require_file=True)
+    # The photo worker can move a selected NAS photo between page load and
+    # form submission (for example into a date folder).  Treat that as a
+    # recoverable form-validation error instead of aborting the whole request
+    # with the application's generic page/record 404.
+    source_path = resolve_shared_photo(relative_path, allow_missing=True)
+    if (
+        not source_path.is_file()
+        or source_path.suffix.lower().lstrip(".") not in ALLOWED_IMAGE_EXTENSIONS
+    ):
+        raise ValueError("所选服务器照片已移动或不存在，请重新打开辅助填写选择照片后再保存。")
     order_number, _ = report_storage_context(report_id)
     processed_root = (shared_photos_root() / order_number / "pictures").resolve()
     try:
