@@ -95,7 +95,7 @@
                     {% endif %}
                   </td>
                   <td>{{ row.report_date }}</td>
-                  <td>{{ row.total_service_hours or '-' }}</td>
+                  <td>{{ row.total_service_hours|hours if row.total_service_hours is not none else '-' }}</td>
                   <td>{{ row.worker_count }}</td>
                   <td>{{ row.attachment_count }}</td>
                   <td>{{ row.photo_count }}</td>

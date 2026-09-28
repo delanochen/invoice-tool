@@ -1880,12 +1880,24 @@ def money(value, currency="USD"):
 
 
 def hours(value):
-    """时间数量（工时 / 时长 / 小时）统一一位小数；金额与单价不要用它。
+    """时间数量（工时 / 时长 / 小时）保留两位小数；金额与单价不要用它。
 
     只用于**只读展示**：表单里的 input 值必须保留原始精度（如 0.25 小时），
     否则保存时会把用户填的值改掉。
+
+    两位小数是必须的：工时按 15 分钟量化，最小档位就是 0.25 小时，
+    一位小数会把 2.25 显示成 2.2（f"{2.25:.1f}" == "2.2"），与
+    2.25×时薪 算出的金额对不上，用户会以为算错。去掉末尾无意义的 0，
+    使 2.0 显示成 "2"、2.25 显示成 "2.25"。
     """
-    return f"{float(value or 0):.1f}"
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        number = 0.0
+    text = f"{number:.2f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
 
 PROJECT_COLORS = ["#0f766e", "#175cd3", "#b42318", "#7a271a", "#6941c6", "#027a48", "#b54708", "#3538cd"]
@@ -16826,7 +16838,7 @@ def build_service_report_docx(report, order):
     travel_table.rows[0].cells[0].merge(travel_table.rows[0].cells[1])
     set_cell_text(
         travel_table.rows[0].cells[0],
-        f"公共交通时长：{report['public_transport_hours'] or 0} 小时    自驾里程总计：{report['driving_miles'] or 0} 英里",
+        f"公共交通时长：{hours(report['public_transport_hours'])} 小时    自驾里程总计：{report['driving_miles'] or 0} 英里",
         bold=True,
     )
     set_cell_text(travel_table.rows[1].cells[0], f"出发地址：{report['departure_address'] or ''}")
