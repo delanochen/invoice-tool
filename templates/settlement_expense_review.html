@@ -104,7 +104,7 @@
                         {% endif %}
                       </td>
                       <td><span class="status {{ row.status }}">{{ row.status }}</span></td>
-                      <td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}" target="_blank">{{ row.expense_number }}</a></td>
+                      <td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td>
                       <td>{{ row.worker_name or '-' }}</td>
                       <td>{{ row.expense_date }}</td>
                       <td>{{ row.project_name }}</td>
