@@ -9,6 +9,15 @@ from flask import abort, render_template, request
 from rate_engine import CONTRACT_RATE_LABELS, contract_rate, employee_rate
 
 
+# 客户按实际成本全额补偿的报销类别（实报实销 / 代垫）：收入=成本，利润为 0。
+# 这些类别即使尚未被勾选进工单结算单，也按成本确认收入 —— 客户结算单只是事后
+#  paperwork，把它当成「有没有收入」的开关会把代垫项目显示成亏损，与人工收入
+#  「按合同费率预估」的口径也不一致。
+# 注意 "fuel" 经 customer_reimbursement_expense_field() 过滤后只可能是租赁车辆
+#  加油费（个人／自驾的 fuel_vehicle_type 返回 None，走 _is_personal_fuel 分支）。
+PASS_THROUGH_EXPENSE_FIELDS = {"fuel", "parking", "taxi", "lodging"}
+
+
 def _money(value):
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -338,7 +347,7 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
     weights = _work_hour_weights_for_orders(api, {row["service_order_id"] for row in rows})
     lines = []
 
-    def append_line(row, work_date, cost, revenue, allocation_method, selection):
+    def append_line(row, work_date, cost, revenue, allocation_method, client_rate_source):
         if work_date < start_date or work_date > end_date:
             return
         revenue = _money(revenue)
@@ -360,7 +369,7 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
             "revenue": float(revenue),
             "cost": float(cost),
             "profit": float(revenue - cost),
-            "client_rate_source": "selected_settlement_expense" if selection else "not_client_billed",
+            "client_rate_source": client_rate_source,
             "employee_rate_source": "actual_approved_expense",
             "contract_rate_version_id": None,
             "employee_rate_version_id": None,
@@ -375,12 +384,25 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
     for row in rows:
         cost = _money(row["amount"])
         selection = selected.get(row["expense_item_id"])
-        revenue = selection["amount"] if selection else Decimal("0")
+        field = api["customer_reimbursement_expense_field"](row["project_name"], row["fuel_vehicle_type"])
+        if selection:
+            revenue = selection["amount"]
+            source = "selected_settlement_expense"
+        elif field in PASS_THROUGH_EXPENSE_FIELDS:
+            # 实报实销（代垫）项目：客户按实际成本全额补偿，未进入结算单也按成本
+            # 确认收入，利润为 0。住宿费默认同样全额代垫；已结算且超出合同人晚上限
+            # 的部分仍按上限折算（那时上限才是可测量的真实亏损）。
+            revenue = cost
+            source = "pass_through_at_cost"
+        else:
+            revenue = Decimal("0")
+            source = "not_client_billed"
         if _is_personal_fuel(api, row):
             # Customer never receives personal/self-drive fuel as a pass-through
             # under the current business rule. Allocate an order-level fuel claim
             # by the employee's work hours so daily/monthly profit is not distorted.
             revenue = Decimal("0")
+            source = "not_client_billed"
             day_weights = weights.get((row["service_order_id"], row["employee_id"]), {})
             total_weight = sum(day_weights.values(), Decimal("0"))
             if day_weights and total_weight > 0:
@@ -392,9 +414,9 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
                     else:
                         share = (cost * weight / total_weight).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                         allocated += share
-                    append_line(row, work_date, share, 0, "by_work_hours", None)
+                    append_line(row, work_date, share, 0, "by_work_hours", source)
                 continue
-        append_line(row, str(row["expense_date"] or "")[:10], cost, revenue, "direct", selection)
+        append_line(row, str(row["expense_date"] or "")[:10], cost, revenue, "direct", source)
     return lines
 
 
