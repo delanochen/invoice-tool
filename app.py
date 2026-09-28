@@ -5054,6 +5054,25 @@ def remove_customer_reimbursement_pdf(reimbursement):
         pass
 
 
+def ensure_customer_reimbursement_pdf_file(reimbursement, order):
+    """Return the current settlement PDF path, generating it when absent.
+
+    Settlement rows are created before their PDF is materialized, and saving or
+    submitting a settlement deliberately removes the previous PDF so stale
+    content cannot be reused. Every download path therefore needs the same
+    lazy-generation behavior.
+    """
+    reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
+    path = customer_reimbursement_file_path(reimbursement)
+    if not os.path.isfile(path):
+        path = build_customer_reimbursement_pdf(
+            reimbursement,
+            order,
+            customer_reimbursement_items(reimbursement["id"]),
+        )
+    return reimbursement, path
+
+
 def service_report_docx_filename(order, report, used_filenames=None):
     filename = secure_filename(
         f"{order['client_order_number']}-{report['report_date']}-report.docx"
@@ -11560,6 +11579,28 @@ def payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", dat
         following_allowance = worker["pay_following"]
         rental_driving_allowance = worker["pay_rental"]
         worker["transport_hours"] = worker["following_travel_hours"] + worker["rental_driving_hours"]
+
+        # 工资条的“单价”必须与本周期实际参与计算的等级费率一致，不能继续展示
+        # employee_grades 静态列。一个周期可能跨越多个费率版本，因此汇总工资条
+        # 显示金额 / 工时（或里程）的加权实际费率；无对应数量时显示 0，避免展示
+        # 一个并未参与本期工资计算的旧静态费率。
+        def effective_display_rate(amount, quantity):
+            quantity = float(quantity or 0)
+            return float(amount or 0) / quantity if quantity else 0.0
+
+        worker["standard_rate"] = effective_display_rate(standard_pay, worker["standard_hours"])
+        worker["overtime_rate"] = effective_display_rate(overtime_pay, worker["overtime_hours"])
+        worker["holiday_rate"] = effective_display_rate(holiday_pay, worker["holiday_hours"])
+        worker["car_mileage_rate"] = effective_display_rate(
+            self_drive_allowance, worker["driving_miles"]
+        )
+        worker["transport_rate"] = effective_display_rate(
+            following_allowance, worker["following_travel_hours"]
+        )
+        worker["rental_driving_hourly_rate"] = effective_display_rate(
+            rental_driving_allowance, worker["rental_driving_hours"]
+        )
+
         transport_pay = following_allowance + rental_driving_allowance
         car_allowance = self_drive_allowance
         meal_allowance = attendance_days * worker["meal_daily_amount"]
@@ -13802,10 +13843,7 @@ def customer_reimbursement_form(order_id):
 @login_required
 def download_customer_reimbursement(reimbursement_id):
     reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
-    path = customer_reimbursement_file_path(reimbursement)
-    if not os.path.exists(path):
-        build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement_id))
+    reimbursement, path = ensure_customer_reimbursement_pdf_file(reimbursement, order)
     db().commit()
     return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
 
@@ -15823,8 +15861,28 @@ def download_service_order_attachments(order_id):
                 if path.is_file() and path.suffix.lower().lstrip('.') in ALLOWED_IMAGE_EXTENSIONS:
                     collect('现场工作照片', path, '-'.join(path.relative_to(picture_dir).parts), picture_dir)
     if can_view_customer_reimbursement():
-        for reimbursement in db().execute('select * from customer_reimbursements where service_order_id=? order by id', (order_id,)):
-            collect('工单结算', customer_reimbursement_file_path(reimbursement), reimbursement['file_name'], CUSTOMER_REIMBURSEMENT_DIR)
+        reimbursements = db().execute(
+            'select * from customer_reimbursements where service_order_id=? order by id',
+            (order_id,),
+        ).fetchall()
+        for reimbursement in reimbursements:
+            try:
+                current_reimbursement, pdf_path = ensure_customer_reimbursement_pdf_file(reimbursement, order)
+                db().commit()
+            except Exception:
+                db().rollback()
+                app.logger.exception(
+                    "Failed to generate settlement PDF while building attachment archive: reimbursement_id=%s",
+                    reimbursement["id"],
+                )
+                current_reimbursement = reimbursement
+                pdf_path = customer_reimbursement_file_path(reimbursement)
+            collect(
+                '工单结算',
+                pdf_path,
+                current_reimbursement['file_name'],
+                CUSTOMER_REIMBURSEMENT_DIR,
+            )
             for row in db().execute('select * from customer_reimbursement_attachments where customer_reimbursement_id=? order by id', (reimbursement['id'],)):
                 collect('工单结算', customer_reimbursement_attachment_path(row), row['original_filename'], CUSTOMER_REIMBURSEMENT_DIR)
     archive_file = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode='w+b')

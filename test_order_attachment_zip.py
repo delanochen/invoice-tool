@@ -35,12 +35,28 @@ class OrderZipTest(unittest.TestCase):
             self.assertFalse(any(archive.read(name)==b'OTHER-ORDER' for name in names if not name.endswith('/')))
         response.close()
 
-    def test_missing_files_are_reported_and_login_required(self):
+    def test_missing_settlement_pdf_is_regenerated_and_login_required(self):
         response=self.f.client.get(f'/service-orders/{self.f.order_id}/attachments.zip')
         with ZipFile(BytesIO(response.data)) as archive:
-            self.assertIn('工单结算/缺失文件说明.txt',archive.namelist())
+            self.assertIn('工单结算/settlement.pdf',archive.namelist())
+            self.assertTrue(archive.read('工单结算/settlement.pdf').startswith(b'%PDF'))
+            self.assertNotIn('工单结算/缺失文件说明.txt',archive.namelist())
         response.close()
         with self.f.client.session_transaction() as session: session.clear()
         self.assertEqual(self.f.client.get(f'/service-orders/{self.f.order_id}/attachments.zip').status_code,302)
+
+    def test_missing_uploaded_settlement_attachment_is_still_reported(self):
+        with self.m.app.app_context():
+            self.m.db().execute("""insert into customer_reimbursement_attachments
+                (customer_reimbursement_id,original_filename,stored_filename,content_type,uploaded_by,uploaded_at)
+                values (?,'missing-receipt.pdf','missing.pdf','application/pdf',?,'now')""",
+                (self.f.reimbursement_id,self.f.user_id))
+            self.m.db().commit()
+        response=self.f.client.get(f'/service-orders/{self.f.order_id}/attachments.zip')
+        with ZipFile(BytesIO(response.data)) as archive:
+            notice=archive.read('工单结算/缺失文件说明.txt').decode('utf-8')
+            self.assertIn('missing-receipt.pdf',notice)
+            self.assertNotIn('settlement.pdf',notice)
+        response.close()
 
 if __name__=='__main__':unittest.main()

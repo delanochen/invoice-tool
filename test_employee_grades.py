@@ -173,9 +173,47 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         row = batch['rows'][0]
         # 09-01 在版本有效期内：2 小时 × 25；09-03 无版本：1 小时 × 静态 10
         self.assertAlmostEqual(row['standard_pay'], 60)
+        # 汇总工资条跨两个费率时显示实际加权费率：60 / 3 小时 = 20，
+        # 不再错误显示 employee_grades 静态列里的 10。
+        self.assertAlmostEqual(row['standard_rate'], 20)
         # 09-01 里程 10 英里 × 版本 0.9（不是静态 0.5）
         self.assertAlmostEqual(row['self_drive_allowance'], 9)
+        self.assertAlmostEqual(row['car_mileage_rate'], 0.9)
         self.assertAlmostEqual(row['total_pay'], 100 + 60 + 9)
+
+    def test_payslip_displays_effective_overtime_rate_used_for_amount(self):
+        self.assign_grade(self.fixture.people['Submitter'])
+        self.add_version('2026-09-01', None, {
+            'regular_hours': 35, 'overtime_hours': 52.5, 'holiday_hours': 52.5,
+            'travel_hours': 7, 'public_transport_hours': 7, 'mileage': 0.5,
+            'rental_drive_hours': 15,
+        })
+        rows = [dict(
+            report_id=1, worker_id=self.fixture.people['Submitter'], worker_name='Submitter',
+            grade_name='P1', base_salary=0, meal_daily_amount=0, car_allowance_method='mileage',
+            car_mileage_rate=0.5, rental_driving_hourly_rate=15, standard_hourly_rate=35,
+            transport_hourly_rate=7, overtime_hourly_rate=42.5, holiday_hourly_rate=42.5,
+            attendance_date='2026-09-01', service_order_id=self.fixture.order,
+            order_number='SO-DELEGATE', client_name='Site', worker_travel_mode='self_drive',
+            worker_travel_hours=0, worker_driving_miles=0,
+            standard_hours=38, transport_hours=0, overtime_hours=4, holiday_hours=0,
+        )]
+        with patch.object(self.m, 'labor_report_entries', return_value=rows):
+            with self.m.app.app_context():
+                batch = self.m.payroll_rows_for_range(
+                    date(2026, 9, 1), date(2026, 9, 14), date(2026, 9, 28), ''
+                )
+                row = batch['rows'][0]
+                payslip = self.m.payroll_payslip_payload(row)
+
+        self.assertAlmostEqual(row['overtime_pay'], 210)
+        self.assertAlmostEqual(row['overtime_rate'], 52.5)
+        self.assertAlmostEqual(row['holiday_rate'], 0)
+        overtime_line = next(line for line in payslip['lines'] if line['label'] == '加班工资')
+        holiday_line = next(line for line in payslip['lines'] if line['label'] == '假期工资')
+        self.assertEqual(overtime_line['rate'], 52.5)
+        self.assertEqual(overtime_line['amount'], 210)
+        self.assertEqual(holiday_line['rate'], 0)
 
     def test_payroll_falls_back_to_static_rates_without_versions(self):
         self.assign_grade(self.fixture.people['Submitter'])
