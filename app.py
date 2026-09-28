@@ -57,6 +57,16 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from image_processing import compress_image
 from invoice_tool.knowledge import KnowledgeService, register_knowledge_routes
+from invoice_tool.catalog import (
+    MRO_CANONICAL_PROJECT_NAME,
+    build_catalog_services,
+    is_mro_alias_project_name,
+    is_mro_project_name,
+    normalized_project_name,
+    project_name_key,
+    register_catalog_routes,
+)
+from invoice_tool.customers import build_customer_services, register_customer_routes
 from field_work import register_field_routes
 from staff_reports import register_staff_reports
 from customer_report_logic import (
@@ -594,13 +604,8 @@ DEFAULT_SITE_OWNER_NAMES = {
 }
 
 
-def normalized_project_name(value):
-    value = str(value or "").translate({ord(char): None for char in "\u200b\u200c\u200d\ufeff"})
-    return " ".join(value.strip().split())
 
 
-def project_name_key(value):
-    return normalized_project_name(value).casefold()
 
 
 app = Flask(__name__)
@@ -659,85 +664,16 @@ def verify_data_directory_identity():
 
 
 # MRO 项目合并后的规范全名：裸名（MRO Supplies / MroSupplies）一律归到它名下。
-MRO_CANONICAL_PROJECT_NAME = "MRO Supplies配件及耗材费"
 
 
-def is_mro_alias_project_name(value):
-    """MRO 裸名（'MRO Supplies'、'MroSupplies'），尚未合并成规范全名的写法。"""
-    return "".join(normalized_project_name(value).casefold().split()) == "mrosupplies"
 
 
-def is_mro_project_name(value):
-    """MRO 系列项目名：裸名或合并后的规范全名。"""
-    return is_mro_alias_project_name(value) or project_name_key(value) == project_name_key(
-        MRO_CANONICAL_PROJECT_NAME
-    )
 
 
-def merge_mro_project_aliases(connection):
-    canonical_name = MRO_CANONICAL_PROJECT_NAME
-    def is_alias(value):
-        return is_mro_alias_project_name(value)
-    rows = connection.execute("select * from projects order by id").fetchall()
-    for old in rows:
-        if not is_alias(old["name"]):
-            continue
-        target = connection.execute("select id from projects where project_type = ? and name = ? order by id limit 1", (old["project_type"], canonical_name)).fetchone()
-        if target:
-            target_id = target["id"]
-            connection.execute("update invoice_items set project_id = ? where project_id = ?", (target_id, old["id"]))
-            for table in ("expense_items", "expenses"):
-                connection.execute(f"update {table} set project_id = ?, project = ? where project_id = ?", (target_id, canonical_name, old["id"]))
-            connection.execute("delete from projects where id = ?", (old["id"],))
-        else:
-            connection.execute("update projects set name = ?, name_key = ? where id = ?", (canonical_name, project_name_key(canonical_name), old["id"]))
-    for table, column in (("expense_items", "project"), ("expenses", "project"), ("invoice_items", "description")):
-        for row in connection.execute(f"select id, {column} as name from {table}").fetchall():
-            if is_alias(row["name"]):
-                connection.execute(f"update {table} set {column} = ? where id = ?", (canonical_name, row["id"]))
 
 
-def merge_duplicate_projects(connection):
-    grouped = {}
-    for row in connection.execute("select * from projects order by is_active desc, id asc").fetchall():
-        normalized_name = normalized_project_name(row["name"])
-        key = project_name_key(normalized_name)
-        if row["name"] != normalized_name or row["name_key"] != key:
-            connection.execute(
-                "update projects set name = ?, name_key = ? where id = ?",
-                (normalized_name, key, row["id"]),
-            )
-        grouped.setdefault((row["project_type"], key), []).append(row)
-    for rows in grouped.values():
-        if len(rows) < 2:
-            continue
-        canonical = rows[0]
-        canonical_name = normalized_project_name(canonical["name"])
-        duplicate_ids = [row["id"] for row in rows[1:]]
-        placeholders = ",".join("?" for _ in duplicate_ids)
-        connection.execute(
-            f"update invoice_items set project_id = ? where project_id in ({placeholders})",
-            [canonical["id"], *duplicate_ids],
-        )
-        connection.execute(
-            f"update expense_items set project_id = ?, project = ? where project_id in ({placeholders})",
-            [canonical["id"], canonical_name, *duplicate_ids],
-        )
-        connection.execute(
-            f"update expenses set project_id = ?, project = ? where project_id in ({placeholders})",
-            [canonical["id"], canonical_name, *duplicate_ids],
-        )
-        connection.execute(f"delete from projects where id in ({placeholders})", duplicate_ids)
 
 
-def project_name_exists(project_type, name, excluded_project_id=None):
-    normalized_name_key = project_name_key(name)
-    for row in db().execute("select id, name, name_key from projects where project_type = ?", (project_type,)).fetchall():
-        if excluded_project_id and row["id"] == excluded_project_id:
-            continue
-        if (row["name_key"] or project_name_key(row["name"])) == normalized_name_key:
-            return True
-    return False
 
 
 @app.teardown_appcontext
@@ -890,53 +826,12 @@ def clear_session_preserving_language():
     session["language"] = language
 
 
-def country_rows(include_inactive=False):
-    active_clause = "" if include_inactive else "where countries.is_active = 1"
-    language = current_language()
-    return db().execute(
-        f"""
-        select countries.*,
-               coalesce(local.name, chinese.name, english.name, countries.code) as name,
-               coalesce(local.region_name, chinese.region_name, english.region_name, countries.region_code) as region_name
-        from countries
-        left join country_translations local
-          on local.country_code = countries.code and local.language_code = ?
-        left join country_translations chinese
-          on chinese.country_code = countries.code and chinese.language_code = 'zh-CN'
-        left join country_translations english
-          on english.country_code = countries.code and english.language_code = 'en'
-        {active_clause}
-        order by countries.sort_order, name, countries.code
-        """,
-        (language,),
-    ).fetchall()
 
 
-def country_by_code(code, include_inactive=False):
-    clause = "" if include_inactive else "and is_active = 1"
-    return db().execute(
-        f"select * from countries where code = ? {clause}",
-        ((code or "").strip().upper(),),
-    ).fetchone()
 
 
-def country_translations(country_code):
-    return db().execute(
-        """
-        select * from country_translations
-        where country_code = ?
-        order by case language_code when 'zh-CN' then 0 when 'en' then 1 when 'nl' then 2 else 3 end,
-                 language_code
-        """,
-        (country_code,),
-    ).fetchall()
 
 
-def country_from_form(default_code="US"):
-    country = country_by_code(request.form.get("country_code") or default_code, include_inactive=True)
-    if not country:
-        country = country_by_code(default_code, include_inactive=True)
-    return country
 
 
 def report_location_filters(table_alias="service_orders"):
@@ -2166,281 +2061,36 @@ app.jinja_env.globals["contract_type_labels"] = CONTRACT_TYPE_LABELS
 app.jinja_env.globals["contract_status_labels"] = CONTRACT_STATUS_LABELS
 
 
-def next_client_number():
-    lock_number_allocation(db())
-    row = db().execute(
-        """
-        select client_number from clients
-        where client_number glob '[0-9][0-9][0-9][0-9][0-9]'
-        order by client_number desc limit 1
-        """
-    ).fetchone()
-    return "00001" if not row else f"{int(row['client_number']) + 1:05d}"
 
 
-def next_buyer_number():
-    lock_number_allocation(db())
-    row = db().execute(
-        """
-        select buyer_number from buyers
-        where buyer_number glob 'BUY[0-9][0-9][0-9][0-9][0-9]'
-        order by buyer_number desc limit 1
-        """
-    ).fetchone()
-    return "BUY00001" if not row else f"BUY{int(row['buyer_number'][3:]) + 1:05d}"
 
 
-def next_owner_number():
-    lock_number_allocation(db())
-    row = db().execute(
-        """
-        select owner_number from owners
-        where owner_number glob 'OWN[0-9][0-9][0-9][0-9][0-9]'
-        order by owner_number desc limit 1
-        """
-    ).fetchone()
-    return "OWN00001" if not row else f"OWN{int(row['owner_number'][3:]) + 1:05d}"
 
 
-def next_manufacturer_number():
-    lock_number_allocation(db())
-    row = db().execute(
-        """
-        select manufacturer_number from manufacturers
-        where manufacturer_number glob 'MFG[0-9][0-9][0-9][0-9][0-9]'
-        order by manufacturer_number desc limit 1
-        """
-    ).fetchone()
-    return "MFG00001" if not row else f"MFG{int(row['manufacturer_number'][3:]) + 1:05d}"
 
 
-def unknown_owner():
-    owner = db().execute("select * from owners where name = ?", ("未知",)).fetchone()
-    if owner:
-        return owner
-    cursor = db().execute(
-        "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
-        (next_owner_number(), "未知", now()),
-    )
-    return db().execute("select * from owners where id = ?", (cursor.lastrowid,)).fetchone()
 
 
-def owner_options():
-    return db().execute(
-        """
-        select id, owner_number, name from owners
-        order by case when name = '未知' then 0 else 1 end, owner_number
-        """
-    ).fetchall()
 
 
-def manufacturer_options():
-    return db().execute(
-        """
-        select id, manufacturer_number, name from manufacturers
-        order by manufacturer_number
-        """
-    ).fetchall()
 
 
-def manufacturer_from_form():
-    manufacturer_id = (
-        int(request.form["manufacturer_id"])
-        if request.form.get("manufacturer_id", "").isdigit()
-        else None
-    )
-    if not manufacturer_id:
-        return None
-    return db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
 
 
-def manufacturer_by_name(name):
-    clean_name = " ".join(str(name or "").strip().split())
-    if not clean_name:
-        return None
-    return db().execute(
-        "select * from manufacturers where lower(trim(name)) = lower(trim(?))",
-        (clean_name,),
-    ).fetchone()
 
 
-BUYER_IMPORT_FIELD_ALIASES = {
-    "buyer_number": {"编号", "站点编号", "客户编号", "buyer_number", "site_number", "number"},
-    "name": {"站点名称", "站点", "名称", "name", "site", "site_name"},
-    "owner": {"业主", "业主名称", "owner", "owner_name"},
-    "country_code": {"国家", "国家代码", "country", "country_code"},
-    "contact_name": {"联系人", "contact", "contact_name"},
-    "contact_details": {"联系方式", "联系电话", "电话", "contact_details", "phone", "tel"},
-    "email": {"电子邮箱", "电子邮箱地址", "邮箱", "email"},
-    "site_size": {"规模", "site_size", "scale", "size"},
-    "equipment_manufacturer": {"配套机厂家", "配套厂家", "厂家", "equipment_manufacturer", "manufacturer"},
-    "detailed_address": {"详细地址", "地址", "站点地址", "detailed_address", "address", "site_address"},
-}
 
 
-def normalize_import_header(value):
-    return re.sub(r"[\s_（）()：:.-]+", "", str(value or "").strip()).casefold()
 
 
-BUYER_IMPORT_HEADER_LOOKUP = {
-    normalize_import_header(alias): field
-    for field, aliases in BUYER_IMPORT_FIELD_ALIASES.items()
-    for alias in aliases
-}
 
 
-def get_or_create_owner_by_name(owner_name):
-    name = " ".join(str(owner_name or "").strip().split()) or "未知"
-    row = db().execute("select * from owners where lower(trim(name)) = lower(trim(?))", (name,)).fetchone()
-    if row:
-        return row, False
-    cursor = db().execute(
-        "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
-        (next_owner_number(), name, now()),
-    )
-    return db().execute("select * from owners where id = ?", (cursor.lastrowid,)).fetchone(), True
 
 
-def country_from_import_value(value, default_code="US"):
-    text = str(value or "").strip()
-    if text:
-        country = country_by_code(text, include_inactive=True)
-        if country:
-            return country
-        country = db().execute(
-            """
-            select countries.*
-            from countries
-            left join country_translations on country_translations.country_code = countries.code
-            where lower(country_translations.name) = lower(?)
-            limit 1
-            """,
-            (text,),
-        ).fetchone()
-        if country:
-            return country
-    return country_by_code(default_code, include_inactive=True)
 
 
-def imported_buyer_rows(uploaded_file):
-    filename = secure_filename(uploaded_file.filename or "")
-    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    content = uploaded_file.read()
-    if not content:
-        raise ValueError("导入文件为空。")
-    if extension == "csv":
-        for encoding in ("utf-8-sig", "gb18030"):
-            try:
-                text = content.decode(encoding)
-                break
-            except UnicodeDecodeError:
-                text = ""
-        if not text:
-            raise ValueError("CSV 文件编码无法识别，请使用 UTF-8 或 GB18030。")
-        rows = list(csv.DictReader(text.splitlines()))
-    elif extension == "xlsx":
-        try:
-            from openpyxl import load_workbook
-        except ImportError as error:
-            raise ValueError("服务器未安装 Excel 导入组件，请先安装 openpyxl。") from error
-        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-        worksheet = workbook.active
-        values = list(worksheet.iter_rows(values_only=True))
-        if not values:
-            return []
-        headers = [str(cell or "").strip() for cell in values[0]]
-        rows = [
-            {headers[index]: cell for index, cell in enumerate(row) if index < len(headers)}
-            for row in values[1:]
-        ]
-    else:
-        raise ValueError("仅支持导入 .xlsx 或 .csv 文件。")
-    normalized_rows = []
-    for source_row in rows:
-        normalized = {}
-        for header, value in source_row.items():
-            field = BUYER_IMPORT_HEADER_LOOKUP.get(normalize_import_header(header))
-            if field:
-                normalized[field] = "" if value is None else str(value).strip()
-        if any(normalized.values()):
-            normalized_rows.append(normalized)
-    return normalized_rows
 
 
-def import_buyers_from_file(uploaded_file, client_id=None):
-    rows = imported_buyer_rows(uploaded_file)
-    result = {
-        "total": len(rows),
-        "created": 0,
-        "skipped": 0,
-        "errors": 0,
-        "owners_created": 0,
-        "details": [],
-    }
-    seen_keys = set()
-    for index, row in enumerate(rows, start=2):
-        name = row.get("name", "").strip()
-        detailed_address = row.get("detailed_address", "").strip()
-        buyer_number = row.get("buyer_number", "").strip().upper()
-        if not name or not detailed_address:
-            result["errors"] += 1
-            result["details"].append(f"第 {index} 行：缺少站点名称或详细地址，未导入。")
-            continue
-        duplicate_key = (client_id or 0, normalized_address(name), normalized_address(detailed_address))
-        if duplicate_key in seen_keys:
-            result["skipped"] += 1
-            result["details"].append(f"第 {index} 行：{name} 在本次文件中重复，已跳过。")
-            continue
-        seen_keys.add(duplicate_key)
-        existing_site = db().execute(
-            """
-            select buyer_number from buyers
-            where coalesce(client_id, 0) = coalesce(?, 0)
-              and lower(trim(name)) = lower(trim(?))
-              and lower(trim(detailed_address)) = lower(trim(?))
-            """,
-            (client_id, name, detailed_address),
-        ).fetchone()
-        if existing_site:
-            result["skipped"] += 1
-            result["details"].append(f"第 {index} 行：{name} 已存在（{existing_site['buyer_number']}），已跳过。")
-            continue
-        if buyer_number and db().execute("select id from buyers where buyer_number = ?", (buyer_number,)).fetchone():
-            result["skipped"] += 1
-            result["details"].append(f"第 {index} 行：编号 {buyer_number} 已存在，已跳过。")
-            continue
-        owner, owner_created = get_or_create_owner_by_name(row.get("owner"))
-        country = country_from_import_value(row.get("country_code"), "US")
-        manufacturer = manufacturer_by_name(row.get("equipment_manufacturer"))
-        db().execute(
-            """
-            insert into buyers (
-                buyer_number, client_id, country, country_code, name, owner_id, owner, manufacturer_id, contact_name, contact_details,
-                email, site_size, detailed_address, equipment_manufacturer, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                buyer_number or next_buyer_number(),
-                client_id,
-                country["code"],
-                country["code"],
-                name,
-                owner["id"],
-                owner["name"],
-                manufacturer["id"] if manufacturer else None,
-                row.get("contact_name", ""),
-                row.get("contact_details", ""),
-                row.get("email", ""),
-                row.get("site_size", ""),
-                detailed_address,
-                row.get("equipment_manufacturer", ""),
-                now(),
-            ),
-        )
-        result["created"] += 1
-        if owner_created:
-            result["owners_created"] += 1
-    return result
 
 
 def next_invoice_number():
@@ -7445,1012 +7095,44 @@ def recalculate_payment_term_invoices():
     return redirect(url_for("payment_terms"))
 
 
-@app.route("/clients", methods=["GET", "POST"])
-@login_required
-def clients():
-    if normalized_role() in {"employee", "external_employee"}:
-        abort(403)
-    if is_external_manager() and not g.user["client_id"]:
-        flash("外部用户尚未绑定客户。", "error")
-        return redirect(url_for("dashboard"))
-    if request.method == "POST":
-        if is_external_user():
-            abort(403)
-        try:
-            payment_term_id = posted_payment_term_id()
-            db().execute(
-                """
-                insert into clients (
-                    client_number, name, short_name, contact_name, email, address,
-                    country, payment_term_id, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    next_client_number(),
-                    request.form.get("name", "").strip(),
-                    request.form.get("short_name", "").strip() or request.form.get("name", "").strip(),
-                    request.form.get("contact_name", "").strip(),
-                    request.form.get("email", "").strip(),
-                    request.form.get("address", "").strip(),
-                    request.form.get("country", "China").strip() or "China",
-                    payment_term_id,
-                    now(),
-                ),
-            )
-            db().commit()
-            flash("客户已创建。", "success")
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-        except IntegrityError:
-            flash("客户编号重复，请重试。", "error")
-        return redirect(url_for("clients"))
-    q = request.args.get("q", "").strip()
-    if is_external_manager():
-        rows = db().execute(
-            """
-            select clients.*, payment_terms.name as payment_term_name
-            from clients left join payment_terms on payment_terms.id = clients.payment_term_id
-            where clients.id = ?
-            """,
-            (g.user["client_id"],),
-        ).fetchall()
-    else:
-        params = []
-        where = ""
-        if q:
-            where = """
-            where clients.client_number like ? or clients.name like ? or clients.short_name like ?
-               or clients.contact_name like ? or clients.email like ?
-            """
-            params = [f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
-        rows = db().execute(
-            f"""
-            select clients.*, payment_terms.name as payment_term_name
-            from clients left join payment_terms on payment_terms.id = clients.payment_term_id
-            {where}
-            order by clients.client_number asc
-            """,
-            params,
-        ).fetchall()
-    return render_template(
-        "clients.html", clients=rows, q=q, payment_terms=payment_term_rows()
-    )
 
 
-@app.route("/clients/<int:client_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_client(client_id):
-    if normalized_role() == "employee":
-        abort(403)
-    if is_external_user():
-        abort(403)
-    client = db().execute("select * from clients where id = ?", (client_id,)).fetchone()
-    if not client:
-        abort(404)
-    if request.method == "POST":
-        client_number = request.form.get("client_number", "").strip()
-        if len(client_number) != 5 or not client_number.isdigit():
-            flash("客户编号必须是 5 位数字。", "error")
-            return redirect(url_for("edit_client", client_id=client_id))
-        try:
-            payment_term_id = posted_payment_term_id(allow_inactive=True)
-            db().execute(
-                """
-                update clients
-                set client_number = ?, name = ?, short_name = ?, contact_name = ?, email = ?,
-                    address = ?, country = ?, payment_term_id = ?
-                where id = ?
-                """,
-                (
-                    client_number,
-                    request.form.get("name", "").strip(),
-                    request.form.get("short_name", "").strip() or request.form.get("name", "").strip(),
-                    request.form.get("contact_name", "").strip(),
-                    request.form.get("email", "").strip(),
-                    request.form.get("address", "").strip(),
-                    request.form.get("country", "China").strip() or "China",
-                    payment_term_id,
-                    client_id,
-                ),
-            )
-            log_action(
-                "update", "client", client_id, client_number,
-                f"更新客户资料；账期方案ID：{payment_term_id}",
-            )
-            db().commit()
-            flash("客户资料已更新。", "success")
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("edit_client", client_id=client_id))
-        except IntegrityError:
-            flash("客户编号重复，请换一个编号。", "error")
-            return redirect(url_for("edit_client", client_id=client_id))
-        return redirect(url_for("clients"))
-    return render_template("client_form.html", client=client)
 
 
-@app.post("/clients/<int:client_id>/delete")
-@login_required
-def delete_client(client_id):
-    if normalized_role() == "employee":
-        abort(403)
-    if is_external_user():
-        abort(403)
-    invoice_count = db().execute("select count(*) as count from invoices where client_id = ?", (client_id,)).fetchone()["count"]
-    contract_count = db().execute("select count(*) as count from contracts where client_id = ?", (client_id,)).fetchone()["count"]
-    if invoice_count or contract_count:
-        flash("这个客户已有合同或发票记录，不能删除。可以编辑客户资料以保留历史记录。", "error")
-        return redirect(url_for("clients"))
-    db().execute("delete from clients where id = ?", (client_id,))
-    db().commit()
-    flash("客户已删除。", "success")
-    return redirect(url_for("clients"))
 
 
-@app.route("/owners", methods=["GET", "POST"])
-@login_required
-def owners():
-    required_action = "create" if request.method == "POST" else "view"
-    if not has_action_permission("owners", required_action):
-        abort(403)
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        if not name:
-            flash("请填写业主名称。", "error")
-            return redirect(url_for("owners"))
-        if db().execute("select 1 from owners where lower(trim(name)) = lower(trim(?))", (name,)).fetchone():
-            flash("业主名称已存在。", "error")
-            return redirect(url_for("owners"))
-        try:
-            db().execute(
-                "insert into owners (owner_number, name, created_at) values (?, ?, ?)",
-                (next_owner_number(), name, now()),
-            )
-            db().commit()
-            flash("业主已创建。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("业主编号重复，请重试。", "error")
-        return redirect(url_for("owners"))
-    q = request.args.get("q", "").strip()
-    params = []
-    where = ""
-    if q:
-        where = "where owner_number like ? or name like ?"
-        params = [f"%{q}%", f"%{q}%"]
-    rows = db().execute(
-        f"select * from owners {where} order by case when name = '未知' then 0 else 1 end, owner_number asc",
-        params,
-    ).fetchall()
-    return render_template("owners.html", owners=rows, q=q)
 
 
-@app.route("/owners/<int:owner_id>/edit", methods=["POST"])
-@login_required
-def edit_owner(owner_id):
-    if not has_action_permission("owners", "edit"):
-        abort(403)
-    owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
-    if not owner:
-        abort(404)
-    owner_number = request.form.get("owner_number", "").strip().upper()
-    name = request.form.get("name", "").strip()
-    if not owner_number or not name:
-        flash("请填写业主编号和名称。", "error")
-        return redirect(url_for("owners"))
-    if db().execute(
-        "select 1 from owners where id != ? and lower(trim(name)) = lower(trim(?))",
-        (owner_id, name),
-    ).fetchone():
-        flash("业主名称已存在。", "error")
-        return redirect(url_for("owners"))
-    try:
-        db().execute(
-            "update owners set owner_number = ?, name = ? where id = ?",
-            (owner_number, name, owner_id),
-        )
-        db().execute(
-            "update buyers set owner = ? where owner_id = ?",
-            (name, owner_id),
-        )
-        db().commit()
-        flash("业主资料已更新。", "success")
-    except IntegrityError:
-        db().rollback()
-        flash("业主编号重复，请换一个编号。", "error")
-    return redirect(url_for("owners"))
 
 
-@app.post("/owners/<int:owner_id>/delete")
-@login_required
-def delete_owner(owner_id):
-    if not has_action_permission("owners", "delete"):
-        abort(403)
-    owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
-    if not owner:
-        abort(404)
-    if owner["name"] == "未知":
-        flash("默认业主不能删除。", "error")
-        return redirect(url_for("owners"))
-    used = db().execute(
-        "select count(*) as count from buyers where owner_id = ?",
-        (owner_id,),
-    ).fetchone()["count"]
-    if used:
-        flash("这个业主已有站点，不能删除。可以编辑业主资料。", "error")
-        return redirect(url_for("owners"))
-    db().execute("delete from owners where id = ?", (owner_id,))
-    db().commit()
-    flash("业主已删除。", "success")
-    return redirect(url_for("owners"))
 
 
-@app.route("/manufacturers", methods=["GET", "POST"])
-@login_required
-def manufacturers():
-    required_action = "create" if request.method == "POST" else "view"
-    if not has_action_permission("manufacturers", required_action):
-        abort(403)
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        if not name:
-            flash("请填写厂家名称。", "error")
-            return redirect(url_for("manufacturers"))
-        if db().execute("select 1 from manufacturers where lower(trim(name)) = lower(trim(?))", (name,)).fetchone():
-            flash("厂家名称已存在。", "error")
-            return redirect(url_for("manufacturers"))
-        try:
-            db().execute(
-                "insert into manufacturers (manufacturer_number, name, created_at) values (?, ?, ?)",
-                (next_manufacturer_number(), name, now()),
-            )
-            db().commit()
-            flash("厂家已创建。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("厂家编号重复，请重试。", "error")
-        return redirect(url_for("manufacturers"))
-    q = request.args.get("q", "").strip()
-    params = []
-    where = ""
-    if q:
-        where = "where manufacturer_number like ? or name like ?"
-        params = [f"%{q}%", f"%{q}%"]
-    rows = db().execute(
-        f"select * from manufacturers {where} order by manufacturer_number asc",
-        params,
-    ).fetchall()
-    return render_template("manufacturers.html", manufacturers=rows, q=q)
 
 
-@app.route("/manufacturers/<int:manufacturer_id>/edit", methods=["POST"])
-@login_required
-def edit_manufacturer(manufacturer_id):
-    if not has_action_permission("manufacturers", "edit"):
-        abort(403)
-    manufacturer = db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
-    if not manufacturer:
-        abort(404)
-    manufacturer_number = request.form.get("manufacturer_number", "").strip().upper()
-    name = request.form.get("name", "").strip()
-    if not manufacturer_number or not name:
-        flash("请填写厂家编号和名称。", "error")
-        return redirect(url_for("manufacturers"))
-    if db().execute(
-        "select 1 from manufacturers where id != ? and lower(trim(name)) = lower(trim(?))",
-        (manufacturer_id, name),
-    ).fetchone():
-        flash("厂家名称已存在。", "error")
-        return redirect(url_for("manufacturers"))
-    try:
-        db().execute(
-            "update manufacturers set manufacturer_number = ?, name = ? where id = ?",
-            (manufacturer_number, name, manufacturer_id),
-        )
-        db().execute(
-            "update buyers set equipment_manufacturer = ? where manufacturer_id = ?",
-            (name, manufacturer_id),
-        )
-        db().commit()
-        flash("厂家资料已更新。", "success")
-    except IntegrityError:
-        db().rollback()
-        flash("厂家编号重复，请换一个编号。", "error")
-    return redirect(url_for("manufacturers"))
 
 
-@app.post("/manufacturers/<int:manufacturer_id>/delete")
-@login_required
-def delete_manufacturer(manufacturer_id):
-    if not has_action_permission("manufacturers", "delete"):
-        abort(403)
-    manufacturer = db().execute("select * from manufacturers where id = ?", (manufacturer_id,)).fetchone()
-    if not manufacturer:
-        abort(404)
-    used = db().execute(
-        "select count(*) as count from buyers where manufacturer_id = ?",
-        (manufacturer_id,),
-    ).fetchone()["count"]
-    if used:
-        flash("这个厂家已有站点，不能删除。可以编辑厂家资料。", "error")
-        return redirect(url_for("manufacturers"))
-    db().execute("delete from manufacturers where id = ?", (manufacturer_id,))
-    db().commit()
-    flash("厂家已删除。", "success")
-    return redirect(url_for("manufacturers"))
 
 
-@app.route("/buyers", methods=["GET", "POST"])
-@login_required
-def buyers():
-    required_action = "create" if request.method == "POST" else "view"
-    if not has_action_permission("buyers", required_action):
-        abort(403)
-    owners_rows = owner_options()
-    manufacturers_rows = manufacturer_options()
-    countries_rows = country_rows()
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        country = country_from_form()
-        owner = None
-        owner_id = int(request.form["owner_id"]) if request.form.get("owner_id", "").isdigit() else None
-        if owner_id:
-            owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
-            if not owner:
-                flash("请选择有效的业主。", "error")
-                return redirect(url_for("buyers"))
-        else:
-            owner = unknown_owner()
-            owner_id = owner["id"]
-        manufacturer = manufacturer_from_form()
-        if request.form.get("manufacturer_id") and not manufacturer:
-            flash("请选择有效的厂家。", "error")
-            return redirect(url_for("buyers"))
-        detailed_address = request.form.get("detailed_address", "").strip()
-        if not name or not detailed_address:
-            flash("请填写站点名称和详细地址。", "error")
-            return redirect(url_for("buyers"))
-        try:
-            manual_coordinates = parse_coordinate_pair(request.form.get("coordinates"))
-        except ValueError as error:
-            flash(str(error), "error")
-            return redirect(url_for("buyers"))
-        client_id = g.user["client_id"] if is_external_manager() else (
-            int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else None
-        )
-        existing_site = db().execute(
-            """
-            select buyer_number from buyers
-            where coalesce(client_id, 0) = coalesce(?, 0)
-              and lower(trim(name)) = lower(trim(?))
-              and lower(trim(detailed_address)) = lower(trim(?))
-            """,
-            (client_id, name, detailed_address),
-        ).fetchone()
-        if existing_site:
-            flash(f"站点已存在，编号：{existing_site['buyer_number']}。", "error")
-            return redirect(url_for("buyers"))
-        try:
-            db().execute(
-                """
-                insert into buyers (
-                    buyer_number, client_id, country, country_code, name, owner_id, owner, manufacturer_id, contact_name, contact_details,
-                    email, site_size, detailed_address, equipment_manufacturer, latitude, longitude, geocode_address,
-                    geocode_status, geocode_attempted_at, geocode_version, manual_coordinates, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    next_buyer_number(),
-                    client_id,
-                    country["code"],
-                    country["code"],
-                    name,
-                    owner_id,
-                    owner["name"] if owner else "",
-                    manufacturer["id"] if manufacturer else None,
-                    request.form.get("contact_name", "").strip(),
-                    request.form.get("contact_details", "").strip(),
-                    request.form.get("email", "").strip(),
-                    request.form.get("site_size", "").strip(),
-                    detailed_address,
-                    manufacturer["name"] if manufacturer else "",
-                    manual_coordinates[0] if manual_coordinates else None,
-                    manual_coordinates[1] if manual_coordinates else None,
-                    detailed_address if manual_coordinates else None,
-                    "success" if manual_coordinates else "pending",
-                    now() if manual_coordinates else None,
-                    GEOCODER_VERSION if manual_coordinates else None,
-                    1 if manual_coordinates else 0,
-                    now(),
-                ),
-            )
-            db().commit()
-            flash("站点已创建。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("站点编号重复，请重试。", "error")
-        return redirect(url_for("buyers"))
-    q = request.args.get("q", "").strip()
-    sort = request.args.get("sort", "buyer_number")
-    direction = request.args.get("direction", "asc").lower()
-    buyer_sort_columns = {
-        "buyer_number": "buyers.buyer_number",
-        "country_name": "coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code)",
-        "name": "buyers.name",
-        "owner_name": "coalesce(owners.name, buyers.owner)",
-        "contact_name": "buyers.contact_name",
-        "contact_details": "buyers.contact_details",
-        "email": "buyers.email",
-        "site_size": "buyers.site_size",
-        "equipment_manufacturer": "buyers.equipment_manufacturer",
-        "detailed_address": "buyers.detailed_address",
-    }
-    if sort not in buyer_sort_columns:
-        sort = "buyer_number"
-    if direction not in {"asc", "desc"}:
-        direction = "asc"
-    order_direction = "desc" if direction == "desc" else "asc"
-    order_by = f"lower(coalesce({buyer_sort_columns[sort]}, '')) {order_direction}, buyers.name asc, buyers.buyer_number asc"
-    params = []
-    clauses = []
-    if is_external_manager():
-        clauses.append("buyers.client_id = ?")
-        params.append(g.user["client_id"])
-    if q:
-        clauses.append(
-            """(
-            buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
-            or buyers.contact_details like ? or buyers.email like ? or buyers.site_size like ? or buyers.detailed_address like ? or buyers.equipment_manufacturer like ?
-            )"""
-        )
-        params = [f"%{q}%"] * 9
-        if is_external_manager():
-            params.insert(0, g.user["client_id"])
-    where = f"where {' and '.join(clauses)}" if clauses else ""
-    rows = db().execute(
-        f"""
-        select buyers.*, coalesce(owners.name, buyers.owner) as owner_name,
-               owners.owner_number as owner_number,
-               coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code) as country_name
-        from buyers
-        left join owners on owners.id = buyers.owner_id
-        left join country_translations country_local
-          on country_local.country_code = buyers.country_code and country_local.language_code = ?
-        left join country_translations country_zh
-          on country_zh.country_code = buyers.country_code and country_zh.language_code = 'zh-CN'
-        left join country_translations country_en
-          on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
-        {where}
-        order by {order_by}
-        """,
-        [current_language(), *params],
-    ).fetchall()
-    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    return render_template(
-        "buyers.html",
-        buyers=rows,
-        clients=clients_rows,
-        owners=owners_rows,
-        manufacturers=manufacturers_rows,
-        countries=countries_rows,
-        q=q,
-        sort=sort,
-        direction=direction,
-        import_result=session.pop("buyer_import_result", None),
-    )
 
 
-@app.post("/buyers/import")
-@login_required
-def import_buyers():
-    if not has_action_permission("buyers", "create"):
-        abort(403)
-    uploaded_file = request.files.get("import_file")
-    if not uploaded_file or not uploaded_file.filename:
-        flash("请选择要导入的站点文件。", "error")
-        return redirect(url_for("buyers"))
-    client_id = g.user["client_id"] if is_external_manager() else (
-        int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else None
-    )
-    try:
-        result = import_buyers_from_file(uploaded_file, client_id)
-        detail_lines = result["details"][:20]
-        if len(result["details"]) > 20:
-            detail_lines.append(f"还有 {len(result['details']) - 20} 条明细未在弹窗中显示，请查看操作日志。")
-        session["buyer_import_result"] = {
-            **result,
-            "details": detail_lines,
-        }
-        log_summary = (
-            f"导入站点：文件 {uploaded_file.filename}；总行数 {result['total']}；"
-            f"新增 {result['created']}；跳过 {result['skipped']}；错误 {result['errors']}；"
-            f"自动创建业主 {result['owners_created']}。"
-        )
-        if result["details"]:
-            log_summary = f"{log_summary} 明细：{' | '.join(result['details'])}"
-        log_action("import", "buyer", None, uploaded_file.filename, log_summary)
-        db().commit()
-        flash("站点导入已完成。", "success")
-    except ValueError as error:
-        db().rollback()
-        flash(str(error), "error")
-    except IntegrityError:
-        db().rollback()
-        flash("导入失败：站点编号或业主编号冲突，请检查导入文件后重试。", "error")
-    return redirect(url_for("buyers"))
 
 
-@app.route("/buyers/<int:buyer_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_buyer(buyer_id):
-    if not has_action_permission("buyers", "edit"):
-        abort(403)
-    buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
-    if not buyer:
-        abort(404)
-    if not can_access_buyer(buyer):
-        abort(403)
-    if request.method == "POST":
-        buyer_number = request.form.get("buyer_number", "").strip().upper()
-        name = request.form.get("name", "").strip()
-        country = country_from_form(buyer["country_code"] or "US")
-        owner = None
-        owner_id = int(request.form["owner_id"]) if request.form.get("owner_id", "").isdigit() else None
-        if owner_id:
-            owner = db().execute("select * from owners where id = ?", (owner_id,)).fetchone()
-            if not owner:
-                flash("请选择有效的业主。", "error")
-                return redirect(url_for("edit_buyer", buyer_id=buyer_id))
-        else:
-            owner = unknown_owner()
-            owner_id = owner["id"]
-        manufacturer = manufacturer_from_form()
-        if request.form.get("manufacturer_id") and not manufacturer:
-            flash("请选择有效的厂家。", "error")
-            return redirect(url_for("edit_buyer", buyer_id=buyer_id))
-        detailed_address = request.form.get("detailed_address", "").strip()
-        if not buyer_number or not name or not detailed_address:
-            flash("请填写编号、站点名称和详细地址。", "error")
-            return redirect(url_for("edit_buyer", buyer_id=buyer_id))
-        try:
-            pasted_coordinates = parse_coordinate_pair(request.form.get("coordinates"))
-        except ValueError as error:
-            flash(str(error), "error")
-            return redirect(url_for("edit_buyer", buyer_id=buyer_id))
-        clear_manual_coordinates = request.form.get("clear_manual_coordinates") == "1"
-        address_changed = normalized_address(buyer["detailed_address"]) != normalized_address(detailed_address)
-        try:
-            db().execute(
-                """
-                update buyers
-                set buyer_number = ?, client_id = ?, country = ?, country_code = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
-                    manufacturer_id = ?, contact_details = ?, email = ?, site_size = ?, detailed_address = ?, equipment_manufacturer = ?
-                where id = ?
-                """,
-                (
-                    buyer_number,
-                    g.user["client_id"] if is_external_manager() else (
-                        int(request.form["client_id"]) if request.form.get("client_id", "").isdigit() else buyer["client_id"]
-                    ),
-                    country["code"],
-                    country["code"],
-                    name,
-                    owner_id,
-                    owner["name"] if owner else "",
-                    request.form.get("contact_name", "").strip(),
-                    manufacturer["id"] if manufacturer else None,
-                    request.form.get("contact_details", "").strip(),
-                    request.form.get("email", "").strip(),
-                    request.form.get("site_size", "").strip(),
-                    detailed_address,
-                    manufacturer["name"] if manufacturer else "",
-                    buyer_id,
-                ),
-            )
-            db().execute(
-                """
-                update service_orders
-                set client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?
-                where buyer_id = ?
-                """,
-                (
-                    name,
-                    request.form.get("contact_name", "").strip(),
-                    request.form.get("contact_details", "").strip(),
-                    buyer_id,
-                ),
-            )
-            if clear_manual_coordinates:
-                db().execute(
-                    """
-                    update buyers
-                    set latitude = null, longitude = null, geocode_address = null,
-                        geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null,
-                        manual_coordinates = 0
-                    where id = ?
-                    """,
-                    (buyer_id,),
-                )
-            elif pasted_coordinates:
-                db().execute(
-                    """
-                    update buyers
-                    set latitude = ?, longitude = ?, geocode_address = ?, geocode_status = 'success',
-                        geocode_attempted_at = ?, geocode_version = ?, manual_coordinates = 1
-                    where id = ?
-                    """,
-                    (pasted_coordinates[0], pasted_coordinates[1], detailed_address, now(), GEOCODER_VERSION, buyer_id),
-                )
-            elif buyer["manual_coordinates"]:
-                db().execute(
-                    """
-                    update buyers
-                    set geocode_address = ?, geocode_status = 'success', geocode_version = ?
-                    where id = ?
-                    """,
-                    (detailed_address, GEOCODER_VERSION, buyer_id),
-                )
-            elif address_changed:
-                db().execute(
-                    """
-                    update buyers
-                    set latitude = null, longitude = null, geocode_address = null,
-                        geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null,
-                        manual_coordinates = 0
-                    where id = ?
-                    """,
-                    (buyer_id,),
-                )
-            db().commit()
-            flash("站点资料已更新。", "success")
-            return redirect(url_for("buyers"))
-        except IntegrityError:
-            db().rollback()
-            flash("站点编号重复，请换一个编号。", "error")
-    clients_rows = db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    owners_rows = owner_options()
-    return render_template(
-        "buyer_form.html",
-        buyer=buyer,
-        clients=clients_rows,
-        owners=owners_rows,
-        manufacturers=manufacturer_options(),
-        countries=country_rows(),
-    )
 
 
-@app.post("/buyers/<int:buyer_id>/delete")
-@login_required
-def delete_buyer(buyer_id):
-    if not has_action_permission("buyers", "delete"):
-        abort(403)
-    buyer = db().execute("select * from buyers where id = ?", (buyer_id,)).fetchone()
-    if not buyer:
-        abort(404)
-    if not can_access_buyer(buyer):
-        abort(403)
-    used = db().execute(
-        "select count(*) as count from service_orders where buyer_id = ?",
-        (buyer_id,),
-    ).fetchone()["count"]
-    if used:
-        flash("这个站点已有工单，不能删除。可以编辑站点资料。", "error")
-        return redirect(url_for("buyers"))
-    db().execute("delete from buyers where id = ?", (buyer_id,))
-    db().commit()
-    flash("站点已删除。", "success")
-    return redirect(url_for("buyers"))
 
 
-@app.route("/work-order-types", methods=["GET", "POST"])
-@login_required
-def work_order_types():
-    if request.method == "POST":
-        code = request.form.get("code", "").strip().upper()
-        name = request.form.get("name", "").strip()
-        if not code or not name:
-            flash("请填写工单类型编码和名称。", "error")
-            return redirect(url_for("work_order_types"))
-        try:
-            db().execute(
-                """
-                insert into work_order_types (code, name, description, is_active, created_at)
-                values (?, ?, ?, 1, ?)
-                """,
-                (code, name, request.form.get("description", "").strip(), now()),
-            )
-            db().commit()
-            flash("工单类型已创建。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("工单类型编码重复。", "error")
-        return redirect(url_for("work_order_types"))
-    rows = db().execute("select * from work_order_types order by is_active desc, code").fetchall()
-    return render_template("work_order_types.html", work_order_types=rows)
 
 
-@app.route("/work-order-types/<int:type_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_work_order_type(type_id):
-    work_order_type = db().execute("select * from work_order_types where id = ?", (type_id,)).fetchone()
-    if not work_order_type:
-        abort(404)
-    if request.method == "POST":
-        try:
-            db().execute(
-                """
-                update work_order_types
-                set code = ?, name = ?, description = ?, is_active = ?
-                where id = ?
-                """,
-                (
-                    request.form.get("code", "").strip().upper(),
-                    request.form.get("name", "").strip(),
-                    request.form.get("description", "").strip(),
-                    1 if request.form.get("is_active", "1") == "1" else 0,
-                    type_id,
-                ),
-            )
-            db().commit()
-            flash("工单类型已更新。", "success")
-            return redirect(url_for("work_order_types"))
-        except IntegrityError:
-            db().rollback()
-            flash("工单类型编码重复。", "error")
-    return render_template("work_order_type_form.html", work_order_type=work_order_type)
 
 
-@app.post("/work-order-types/<int:type_id>/delete")
-@login_required
-def delete_work_order_type(type_id):
-    used = db().execute(
-        "select count(*) as count from service_orders where work_order_type_id = ?",
-        (type_id,),
-    ).fetchone()["count"]
-    if used:
-        flash("这个工单类型已有工单使用，不能删除，可以停用。", "error")
-        return redirect(url_for("work_order_types"))
-    db().execute("delete from work_order_types where id = ?", (type_id,))
-    db().commit()
-    flash("工单类型已删除。", "success")
-    return redirect(url_for("work_order_types"))
 
 
-@app.route("/projects", methods=["GET", "POST"])
-@login_required
-def projects():
-    map_action = request.form.get("map_action", "").strip()
-    if request.method == "POST" and map_action in ("add", "delete"):
-        # 报销项目映射维护（v0.1.325）：员工报销项目 → 结算字段 → 发票项目。
-        # 「其他」桶发票拆分（customer_reimbursement_other_invoice_breakdown）按此表 fail-fast，
-        # 此前只有种子数据没有任何维护界面。
-        if not has_action_permission("projects", "edit"):
-            abort(403)
-        if map_action == "add":
-            expense_name = normalized_project_name(request.form.get("expense_project_name"))
-            settlement_field = request.form.get("settlement_field", "").strip()
-            invoice_name = request.form.get("invoice_project_name", "").strip()
-            if not expense_name or settlement_field not in SETTLEMENT_EXPENSE_FIELD_LABELS or not invoice_name:
-                flash("新增映射：报销项目、结算字段、发票项目都不能为空。", "error")
-            elif db().execute(
-                "select 1 from expense_settlement_invoice_map where expense_project_name = ?",
-                (expense_name,),
-            ).fetchone():
-                flash(f"报销项目「{expense_name}」已有映射，请先删除旧行再新增。", "error")
-            else:
-                # id 显式生成：PG 端该表 id 序列与种子行（migration 0282）未同步，
-                # nextval 会撞已有种子 id；使用 max(id)+1 保持现有分配语义。
-                db().execute(
-                    "insert into expense_settlement_invoice_map (id, expense_project_name, settlement_field, invoice_project_name, created_at) "
-                    "values ((select coalesce(max(id), 0) + 1 from expense_settlement_invoice_map), ?, ?, ?, ?)",
-                    (expense_name, settlement_field, invoice_name, now()),
-                )
-                db().commit()
-        else:
-            map_id = request.form.get("map_id", "").strip()
-            if map_id.isdigit():
-                db().execute("delete from expense_settlement_invoice_map where id = ?", (int(map_id),))
-                db().commit()
-        return redirect(url_for("projects"))
-    if request.method == "POST":
-        name = normalized_project_name(request.form.get("name"))
-        project_type = request.form.get("project_type", "invoice")
-        if project_type not in PROJECT_TYPE_LABELS:
-            project_type = "invoice"
-        if not name:
-            flash("项目名称不能为空。", "error")
-            return redirect(url_for("projects"))
-        if project_name_exists(project_type, name):
-            flash("同一项目类型下已存在同名项目，不能重复创建。", "error")
-            return redirect(url_for("projects"))
-        try:
-            db().execute(
-                """
-                insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-                values (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    name,
-                    project_name_key(name),
-                    project_type,
-                    to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
-                    to_float(request.form.get("unit_price")),
-                    to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
-                    1 if request.form.get("is_active", "1") == "1" else 0,
-                    now(),
-                ),
-            )
-            db().commit()
-            flash("项目已创建。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("同一项目类型下已存在同名项目，不能重复创建。", "error")
-        return redirect(url_for("projects"))
-    merge_duplicate_projects(db())
-    db().commit()
-    q = request.args.get("q", "").strip()
-    project_type = request.args.get("project_type", "").strip()
-    if project_type not in PROJECT_TYPE_LABELS:
-        project_type = ""
-    clauses = ["1 = 1"]
-    params = []
-    if q:
-        clauses.append("name like ?")
-        params.append(f"%{q}%")
-    if project_type:
-        clauses.append("project_type = ?")
-        params.append(project_type)
-    rows = db().execute(
-        f"select * from projects where {' and '.join(clauses)} order by is_active desc, name",
-        params,
-    ).fetchall()
-    invoice_project_names = sorted(
-        {row["name"] for row in db().execute(
-            "select name from projects where project_type = 'invoice' and is_active = 1 order by name"
-        ).fetchall()}
-        | set(CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS)
-    )
-    return render_template(
-        "projects.html",
-        projects=rows,
-        q=q,
-        selected_project_type=project_type,
-        expense_map=db().execute(
-            "select id, expense_project_name, settlement_field, invoice_project_name from expense_settlement_invoice_map order by expense_project_name"
-        ).fetchall(),
-        settlement_field_labels=SETTLEMENT_EXPENSE_FIELD_LABELS,
-        invoice_project_names=invoice_project_names,
-        can_edit_map=has_action_permission("projects", "edit"),
-    )
 
 
-@app.route("/projects/<int:project_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_project(project_id):
-    project = db().execute("select * from projects where id = ?", (project_id,)).fetchone()
-    if not project:
-        abort(404)
-    if request.method == "POST":
-        name = normalized_project_name(request.form.get("name"))
-        project_type = request.form.get("project_type", "invoice")
-        if project_type not in PROJECT_TYPE_LABELS:
-            project_type = "invoice"
-        if not name:
-            flash("项目名称不能为空。", "error")
-            return redirect(url_for("edit_project", project_id=project_id))
-        if project_name_exists(project_type, name, excluded_project_id=project_id):
-            flash("同一项目类型下已存在同名项目，不能重复保存。", "error")
-            return redirect(url_for("edit_project", project_id=project_id))
-        invoice_used = db().execute(
-            "select count(*) as count from invoice_items where project_id = ?",
-            (project_id,),
-        ).fetchone()["count"]
-        expense_used = db().execute(
-            "select count(*) as count from expense_items where project_id = ?",
-            (project_id,),
-        ).fetchone()["count"]
-        if project_type != project["project_type"] and (invoice_used or expense_used):
-            flash("已被发票或报销使用的项目不能切换类型，可以新建另一个项目。", "error")
-            return redirect(url_for("edit_project", project_id=project_id))
-        try:
-            db().execute(
-                """
-                update projects set name = ?, name_key = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
-                where id = ?
-                """,
-                (
-                    name,
-                    project_name_key(name),
-                    project_type,
-                    to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
-                    to_float(request.form.get("unit_price")),
-                    to_float(request.form.get("tax_rate")) if project_type == "invoice" else 0,
-                    1 if request.form.get("is_active", "1") == "1" else 0,
-                    project_id,
-                ),
-            )
-            db().commit()
-            flash("项目已更新。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("同一项目类型下已存在同名项目，不能重复保存。", "error")
-        return redirect(url_for("projects"))
-    return render_template("project_form.html", project=project)
 
 
-@app.post("/projects/<int:project_id>/delete")
-@login_required
-def delete_project(project_id):
-    invoice_used = db().execute("select count(*) as count from invoice_items where project_id = ?", (project_id,)).fetchone()["count"]
-    expense_used = db().execute("select count(*) as count from expense_items where project_id = ?", (project_id,)).fetchone()["count"]
-    if invoice_used or expense_used:
-        flash("这个项目已有发票或报销记录，不能删除。可以停用该项目。", "error")
-        return redirect(url_for("projects"))
-    db().execute("delete from projects where id = ?", (project_id,))
-    db().commit()
-    flash("项目已删除。", "success")
-    return redirect(url_for("projects"))
 
 
-@app.route("/countries", methods=["GET", "POST"])
-@login_required
-def countries():
-    if request.method == "POST":
-        code = request.form.get("code", "").strip().upper()
-        region_code = request.form.get("region_code", "").strip().lower()
-        if not re.fullmatch(r"[A-Z]{2,3}", code) or not re.fullmatch(r"[a-z][a-z0-9_-]*", region_code):
-            flash("国家代码应为 2-3 位大写字母，区域代码应使用小写字母、数字、下划线或连字符。", "error")
-            return redirect(url_for("countries"))
-        translations = []
-        seen_languages = set()
-        for language_code, name, region_name in zip(
-            request.form.getlist("language_code"),
-            request.form.getlist("translation_name"),
-            request.form.getlist("translation_region_name"),
-        ):
-            language_code = language_code.strip()
-            name = name.strip()
-            region_name = region_name.strip()
-            if not language_code or not name or not region_name or language_code in seen_languages:
-                continue
-            seen_languages.add(language_code)
-            translations.append((language_code, name, region_name))
-        if not translations:
-            flash("请至少填写一种语言的国家名称和区域名称。", "error")
-            return redirect(url_for("countries"))
-        db().execute(
-            """
-            insert into countries (code, region_code, is_active, sort_order, created_at)
-            values (?, ?, ?, ?, ?)
-            on conflict(code) do update set
-                region_code = excluded.region_code,
-                is_active = excluded.is_active,
-                sort_order = excluded.sort_order
-            """,
-            (
-                code,
-                region_code,
-                1 if request.form.get("is_active", "1") == "1" else 0,
-                int(request.form.get("sort_order") or 0),
-                now(),
-            ),
-        )
-        db().execute("delete from country_translations where country_code = ?", (code,))
-        db().executemany(
-            """
-            insert into country_translations (country_code, language_code, name, region_name)
-            values (?, ?, ?, ?)
-            """,
-            [(code, language_code, name, region_name) for language_code, name, region_name in translations],
-        )
-        db().commit()
-        flash("国家配置已保存。", "success")
-        return redirect(url_for("countries"))
-    rows = country_rows(include_inactive=True)
-    translations = {country["code"]: country_translations(country["code"]) for country in rows}
-    return render_template("countries.html", countries=rows, translations=translations)
 
 
 def employee_grade_usage(grade_id):
@@ -19256,6 +17938,104 @@ def monthly_paid_chart():
         return []
     max_value = max(buckets.values()) or 1
     return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
+
+
+_catalog_services = build_catalog_services(db=db, current_language=current_language)
+merge_mro_project_aliases = _catalog_services["merge_mro_project_aliases"]
+merge_duplicate_projects = _catalog_services["merge_duplicate_projects"]
+project_name_exists = _catalog_services["project_name_exists"]
+country_rows = _catalog_services["country_rows"]
+country_by_code = _catalog_services["country_by_code"]
+country_translations = _catalog_services["country_translations"]
+country_from_form = _catalog_services["country_from_form"]
+
+_customer_services = build_customer_services(
+    db=db,
+    lock_number_allocation=lock_number_allocation,
+    now=now,
+    normalized_address=normalized_address,
+    country_by_code=country_by_code,
+)
+next_client_number = _customer_services["next_client_number"]
+next_buyer_number = _customer_services["next_buyer_number"]
+next_owner_number = _customer_services["next_owner_number"]
+next_manufacturer_number = _customer_services["next_manufacturer_number"]
+unknown_owner = _customer_services["unknown_owner"]
+owner_options = _customer_services["owner_options"]
+manufacturer_options = _customer_services["manufacturer_options"]
+manufacturer_from_form = _customer_services["manufacturer_from_form"]
+manufacturer_by_name = _customer_services["manufacturer_by_name"]
+normalize_import_header = _customer_services["normalize_import_header"]
+get_or_create_owner_by_name = _customer_services["get_or_create_owner_by_name"]
+country_from_import_value = _customer_services["country_from_import_value"]
+imported_buyer_rows = _customer_services["imported_buyer_rows"]
+import_buyers_from_file = _customer_services["import_buyers_from_file"]
+
+_catalog_route_exports = register_catalog_routes(
+    app,
+    db=db,
+    now=now,
+    login_required=login_required,
+    has_action_permission=has_action_permission,
+    to_float=to_float,
+    project_type_labels=PROJECT_TYPE_LABELS,
+    settlement_expense_field_labels=SETTLEMENT_EXPENSE_FIELD_LABELS,
+    customer_reimbursement_invoice_projects=CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS,
+    merge_duplicate_projects=merge_duplicate_projects,
+    project_name_exists=project_name_exists,
+    country_rows=country_rows,
+    country_translations=country_translations,
+)
+work_order_types = _catalog_route_exports["work_order_types"]
+edit_work_order_type = _catalog_route_exports["edit_work_order_type"]
+delete_work_order_type = _catalog_route_exports["delete_work_order_type"]
+projects = _catalog_route_exports["projects"]
+edit_project = _catalog_route_exports["edit_project"]
+delete_project = _catalog_route_exports["delete_project"]
+countries = _catalog_route_exports["countries"]
+
+_customer_route_exports = register_customer_routes(
+    app,
+    db=db,
+    now=now,
+    login_required=login_required,
+    normalized_role=normalized_role,
+    is_external_manager=is_external_manager,
+    is_external_user=is_external_user,
+    posted_payment_term_id=posted_payment_term_id,
+    payment_term_rows=payment_term_rows,
+    log_action=log_action,
+    has_action_permission=has_action_permission,
+    parse_coordinate_pair=parse_coordinate_pair,
+    current_language=current_language,
+    can_access_buyer=can_access_buyer,
+    geocoder_version=GEOCODER_VERSION,
+    country_rows=country_rows,
+    country_from_form=country_from_form,
+    normalized_address=normalized_address,
+    next_client_number=next_client_number,
+    next_buyer_number=next_buyer_number,
+    next_owner_number=next_owner_number,
+    next_manufacturer_number=next_manufacturer_number,
+    unknown_owner=unknown_owner,
+    owner_options=owner_options,
+    manufacturer_options=manufacturer_options,
+    manufacturer_from_form=manufacturer_from_form,
+    import_buyers_from_file=import_buyers_from_file,
+)
+clients = _customer_route_exports["clients"]
+edit_client = _customer_route_exports["edit_client"]
+delete_client = _customer_route_exports["delete_client"]
+owners = _customer_route_exports["owners"]
+edit_owner = _customer_route_exports["edit_owner"]
+delete_owner = _customer_route_exports["delete_owner"]
+manufacturers = _customer_route_exports["manufacturers"]
+edit_manufacturer = _customer_route_exports["edit_manufacturer"]
+delete_manufacturer = _customer_route_exports["delete_manufacturer"]
+buyers = _customer_route_exports["buyers"]
+import_buyers = _customer_route_exports["import_buyers"]
+edit_buyer = _customer_route_exports["edit_buyer"]
+delete_buyer = _customer_route_exports["delete_buyer"]
 
 
 _knowledge_service = KnowledgeService(
