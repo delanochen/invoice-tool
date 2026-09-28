@@ -14833,6 +14833,12 @@ def delete_report_attachment(attachment_id):
         pass
     db().execute("delete from service_report_attachments where id = ?", (attachment_id,))
     db().commit()
+    # 前端（service-report.js）用 fetch 就地删行，页面不刷新 —— 整页重载会先
+    # 重绘到顶部再跳锚点，用户看到的是「删一张图，页面滚回最上面」，而且表单里
+    # 没保存的修改也会一并丢掉。非 JS 场景仍保留原来的重定向 + 锚点回退。
+    # 判定方式与 delete_invoice_attachment 保持一致。
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": True, "deleted": attachment_id})
     flash("附件已删除。", "success")
     redirect_anchor = request.form.get("redirect_anchor", "").strip()
     if not re.fullmatch(r"#[A-Za-z0-9_-]+", redirect_anchor):

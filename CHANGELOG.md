@@ -4,6 +4,23 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.330] - 2026-09-28
+
+### 修复：日报里删除里程佐证图片会把页面滚回最上面
+- 「里程佐证」附件的删除按钮原本是**整张日报表单的 submit 按钮**
+  （`formaction` 指向删除路由）。服务端删完文件后 `redirect` 回
+  `edit_service_report + '#report-mileage-proof'`：整页重载必然先重绘到顶部
+  再跳到锚点，用户看到的就是「删一张图，页面滚回最上面」；而且表单里
+  **尚未保存的编辑会被一并丢掉**。
+- 改成无刷新就地删除：`service-report.js` 拦下点击，确认后带
+  `X-Requested-With: XMLHttpRequest` 走 `fetch`，成功时**只把这一行从 DOM 移除**，
+  滚动位置与表单状态都不动。后端按该请求头返回 JSON
+  （与发票附件删除 `delete_invoice_attachment` 同一约定），非 JS 场景仍保留
+  原来的重定向 + 锚点回退；请求失败时前端降级为原生表单提交，功能不会
+  因为脚本报错而失效。
+- 二次确认从内联 `onclick` 搬到 JS：内联 handler 的 `return false` 只取消默认
+  行为、拦不住事件冒泡到 `document`，用户点「取消」仍会发出删除请求。
+
 ## [0.1.329] - 2026-09-28
 
 ### 消息页：已读 / 未读批量标记

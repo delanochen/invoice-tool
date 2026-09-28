@@ -582,3 +582,66 @@ document.getElementById("confirmNasSelection")?.addEventListener("click", () => 
   renderSelectedNasPhotos(activeNasCategory);
   nasDialog.close();
 });
+
+// ── 里程佐证附件：无刷新就地删除 ────────────────────────────────────────────
+// 这些「删除」原本是整张日报表单的 submit 按钮（formaction 指向删除路由），
+// 服务端删完再 redirect 回 `edit_service_report + '#report-mileage-proof'`。
+// 整页重载会先重绘到顶部、再跳到锚点，用户看到的就是「删一张里程佐证图片，
+// 页面滚回最上面」；而且表单里尚未保存的编辑会被一起丢掉。
+//
+// 改成 fetch 提交后**只把这一行从 DOM 移除**，滚动位置与表单状态都不动。
+// 后端按 X-Requested-With 判定返回 JSON（与发票附件删除同一约定）；
+// 请求失败时降级成原生表单提交，保证功能不会因为脚本报错而失效。
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-mileage-proof-delete]");
+  if (!button || button.disabled) return;
+  const url = button.dataset.mileageProofDelete;
+  if (!url) return;
+  if (!window.fetch || !window.FormData) return;  // 极老浏览器走原生提交
+  event.preventDefault();
+  // 确认放在这里而不是内联 onclick：内联 handler 的 `return false` 只取消默认
+  // 行为、拦不住事件冒泡到 document，取消后仍会发出删除请求。
+  const confirmText = button.dataset.confirm || "确定删除这个里程佐证附件吗？";
+  const ask = window.uiConfirm || window.confirm;
+  if (!ask(confirmText)) return;
+
+  const row = button.closest("tr");
+  const table = button.closest("table");
+  const tbody = table?.querySelector("tbody");
+  const status = document.getElementById("mileageEvidenceStatus");
+
+  button.disabled = true;
+  const originalText = button.textContent;
+
+  const payload = new FormData();
+  payload.set("redirect_anchor", "#report-mileage-proof");
+
+  fetch(url, {
+    method: "POST",
+    body: payload,
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+    credentials: "same-origin",
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`删除失败 (${response.status})`);
+      return response.json().catch(() => ({ ok: true }));
+    })
+    .then(() => {
+      row?.remove();
+      // 删掉的是最后一行时，把「已保存附件」标题与空表一起收掉，
+      // 否则会留一个只有表头的空表格。
+      if (tbody && tbody.querySelectorAll("tr").length === 0) {
+        const heading = table?.previousElementSibling;
+        if (heading?.tagName === "H3") heading.remove();
+        table?.remove();
+      }
+      if (status) status.textContent = "已删除 1 个里程佐证附件。";
+    })
+    .catch((error) => {
+      // 降级：恢复按钮，改用原生表单提交（后端仍会 302 回锚点，功能不丢）。
+      button.disabled = false;
+      button.textContent = originalText;
+      if (status) status.textContent = `${error.message}，正在重试…`;
+      if (button.form) button.form.submit();
+    });
+});
