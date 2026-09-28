@@ -67,7 +67,11 @@ from invoice_tool.catalog import (
     register_catalog_routes,
 )
 from invoice_tool.customers import build_customer_services, register_customer_routes
-from invoice_tool.employees import register_employee_grade_routes
+from invoice_tool.employees import (
+    build_user_services,
+    register_employee_grade_routes,
+    register_employee_user_routes,
+)
 from field_work import register_field_routes
 from staff_reports import register_staff_reports
 from customer_report_logic import (
@@ -1060,44 +1064,10 @@ def get_company_attachments():
     ).fetchall()
 
 
-def get_user_attachments(user_id):
-    return db().execute(
-        """
-        select user_attachments.*, users.name as uploader_name
-        from user_attachments
-        left join users on users.id = user_attachments.uploaded_by
-        where user_attachments.user_id = ?
-        order by uploaded_at desc, user_attachments.id desc
-        """,
-        (user_id,),
-    ).fetchall()
 
 
-def assigned_service_order_ids(user_id):
-    return {
-        row["service_order_id"]
-        for row in db().execute(
-            "select service_order_id from user_service_orders where user_id = ?",
-            (user_id,),
-        ).fetchall()
-    }
 
 
-def save_user_service_order_assignments(user_id, role):
-    db().execute("delete from user_service_orders where user_id = ?", (user_id,))
-    if role != "external_employee":
-        return
-    order_ids = {int(value) for value in request.form.getlist("service_order_id") if value.isdigit()}
-    for order_id in order_ids:
-        order = db().execute("select client_id from service_orders where id = ?", (order_id,)).fetchone()
-        if order and (not is_external_manager() or order["client_id"] == g.user["client_id"]):
-            db().execute(
-                """
-                insert into user_service_orders (user_id, service_order_id, assigned_by, assigned_at)
-                values (?, ?, ?, ?)
-                """,
-                (user_id, order_id, g.user["id"], now()),
-            )
 
 
 @app.template_filter("nl2br")
@@ -3541,16 +3511,6 @@ def assert_contract_rates_covered(order_id, rows):
         raise ValueError(f"客户费率未配置：{detail}。请先在对应合同的「费率版本」中配置后再保存工单结算。")
 
 
-def employee_grade_options(include_inactive=False):
-    active_clause = "" if include_inactive else "where is_active = 1"
-    return db().execute(
-        f"""
-        select *
-        from employee_grades
-        {active_clause}
-        order by is_active desc, grade_name
-        """
-    ).fetchall()
 
 
 def parse_report_minutes(value):
@@ -7178,427 +7138,18 @@ def payroll_subsidies():
     return render_template("payroll_subsidies.html", settings=payroll_subsidy_settings())
 
 
-@app.route("/users", methods=["GET", "POST"])
-@login_required
-def users():
-    if request.method == "POST" and not can_assign_external_employees():
-        abort(403)
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        name = request.form.get("name", "").strip() or email
-        address = request.form.get("address", "").strip()
-        password = request.form.get("password", "")
-        role = request.form.get("role", "employee")
-        country = country_from_form()
-        default_language = language_from_form(current_language())
-        preferred_language, communication_languages = communication_languages_from_form(current_language())
-        employee_grade_id = (
-            int(request.form["employee_grade_id"])
-            if can_manage_users() and request.form.get("employee_grade_id", "").isdigit()
-            else None
-        )
-        if is_external_manager():
-            role = "external_employee"
-        if role not in ROLE_OPTIONS:
-            role = "employee"
-        client_id = (
-            g.user["client_id"]
-            if is_external_manager()
-            else int(request.form["client_id"]) if role in {"external_manager", "external_employee"} and request.form.get("client_id", "").isdigit()
-            else None
-        )
-        if "�" in name:
-            flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
-            return redirect(url_for("users"))
-        if requires_user_address(role) and not address:
-            flash("内部员工必须填写地址。", "error")
-            return redirect(url_for("users"))
-        if len(password) < 8:
-            flash("密码至少需要 8 位。", "error")
-            return redirect(url_for("users"))
-        try:
-            cursor = db().execute(
-                """
-                insert into users (
-                    name, email, password_hash, role, address, default_language, employee_grade_id, client_id, region_code, country_code, created_at,
-                    preferred_communication_language, communication_languages
-                )
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    name,
-                    email,
-                    generate_password_hash(password),
-                    role,
-                    address,
-                    default_language,
-                    employee_grade_id,
-                    client_id,
-                    country["region_code"],
-                    country["code"],
-                    now(),
-                    preferred_language,
-                    communication_languages,
-                ),
-            )
-            user_id = cursor.lastrowid
-            save_user_service_order_assignments(user_id, role)
-            for uploaded in uploaded_attachments_from_request():
-                save_named_attachment(
-                    uploaded,
-                    os.path.join(USER_ATTACHMENT_DIR, str(user_id)),
-                    "user_attachments",
-                    "user_id",
-                    user_id,
-                )
-            db().commit()
-            flash("用户已创建。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("这个邮箱已经存在。", "error")
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-        return redirect(url_for("users"))
-    if can_manage_users():
-        rows = db().execute(
-            """
-            select users.*, clients.name as client_name,
-                   employee_grades.grade_name as employee_grade_name,
-                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
-                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
-            from users left join clients on clients.id = users.client_id
-            left join employee_grades on employee_grades.id = users.employee_grade_id
-            left join country_translations country_local
-              on country_local.country_code = users.country_code and country_local.language_code = ?
-            left join country_translations country_zh
-              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
-            order by users.created_at desc
-            """,
-            (current_language(),),
-        ).fetchall()
-    elif normalized_role() == "manager":
-        rows = db().execute(
-            """
-            select users.*, clients.name as client_name,
-                   employee_grades.grade_name as employee_grade_name,
-                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
-                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
-            from users left join clients on clients.id = users.client_id
-            left join employee_grades on employee_grades.id = users.employee_grade_id
-            left join country_translations country_local
-              on country_local.country_code = users.country_code and country_local.language_code = ?
-            left join country_translations country_zh
-              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
-            where users.id = ? or users.role in ('employee', 'external_employee')
-            order by users.is_active asc, users.created_at desc
-            """,
-            (current_language(), g.user["id"]),
-        ).fetchall()
-    elif is_external_manager():
-        rows = db().execute(
-            """
-            select users.*, clients.name as client_name,
-                   employee_grades.grade_name as employee_grade_name,
-                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
-                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
-            from users left join clients on clients.id = users.client_id
-            left join employee_grades on employee_grades.id = users.employee_grade_id
-            left join country_translations country_local
-              on country_local.country_code = users.country_code and country_local.language_code = ?
-            left join country_translations country_zh
-              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
-            where users.id = ?
-               or (users.role = 'external_employee' and users.client_id = ?)
-            order by users.created_at desc
-            """,
-            (current_language(), g.user["id"], g.user["client_id"]),
-        ).fetchall()
-    else:
-        rows = db().execute(
-            """
-            select users.*, null as client_name,
-                   employee_grades.grade_name as employee_grade_name,
-                   coalesce(country_local.name, country_zh.name, users.country_code) as country_name,
-                   coalesce(country_local.region_name, country_zh.region_name, users.region_code) as region_name
-            from users
-            left join employee_grades on employee_grades.id = users.employee_grade_id
-            left join country_translations country_local
-              on country_local.country_code = users.country_code and country_local.language_code = ?
-            left join country_translations country_zh
-              on country_zh.country_code = users.country_code and country_zh.language_code = 'zh-CN'
-            where users.id = ?
-            """,
-            (current_language(), g.user["id"]),
-        ).fetchall()
-    clients_rows = (
-        db().execute("select id, client_number, name from clients where id = ?", (g.user["client_id"],)).fetchall()
-        if is_external_manager()
-        else db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    )
-    service_orders_rows = (
-        db().execute(
-            "select id, order_number, client_name, status from service_orders where client_id = ? order by status != 'closed' desc, created_at desc, id desc",
-            (g.user["client_id"],),
-        ).fetchall()
-        if is_external_manager()
-        else db().execute("select id, order_number, client_name, status from service_orders order by status != 'closed' desc, created_at desc, id desc").fetchall()
-    )
-    return render_template(
-        "users.html",
-        users=rows,
-        clients=clients_rows,
-        service_orders=service_orders_rows,
-        user_attachments={user["id"]: get_user_attachments(user["id"]) for user in rows},
-        user_order_ids={user["id"]: assigned_service_order_ids(user["id"]) for user in rows},
-        role_options=ROLE_OPTIONS,
-        can_manage=can_manage_users(),
-        can_assign=can_assign_external_employees(),
-        can_approve=can_approve_users(),
-        countries=country_rows(),
-        employee_grades=employee_grade_options(),
-    )
 
 
-@app.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_user(user_id):
-    if not can_manage_users() and user_id != g.user["id"] and not is_external_manager():
-        abort(403)
-    user = db().execute(
-        """
-        select users.*, employee_grades.grade_name as employee_grade_name
-        from users
-        left join employee_grades on employee_grades.id = users.employee_grade_id
-        where users.id = ?
-        """,
-        (user_id,),
-    ).fetchone()
-    if not user:
-        abort(404)
-    if is_external_manager() and user_id != g.user["id"]:
-        if normalized_role(user["role"]) != "external_employee" or user["client_id"] != g.user["client_id"]:
-            abort(403)
-    if request.method == "POST":
-        email = request.form.get("email", user["email"]).strip().lower() if can_manage_users() else user["email"]
-        name = request.form.get("name", "").strip() or email
-        role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
-        address = request.form.get("address", "").strip()
-        default_language = language_from_form(user["default_language"] or DEFAULT_LANGUAGE)
-        preferred_language, communication_languages = communication_languages_from_form(
-            user["preferred_communication_language"] or user["default_language"] or DEFAULT_LANGUAGE
-        )
-        if role not in ROLE_OPTIONS and can_manage_users():
-            role = "employee"
-        client_id = (
-            user["client_id"]
-            if not can_manage_users()
-            else int(request.form["client_id"]) if role in {"external_manager", "external_employee"} and request.form.get("client_id", "").isdigit()
-            else None
-        )
-        employee_grade_id = (
-            int(request.form["employee_grade_id"])
-            if can_manage_users() and request.form.get("employee_grade_id", "").isdigit()
-            else user["employee_grade_id"]
-        )
-        password = request.form.get("password", "")
-        country = country_from_form(user["country_code"]) if can_assign_external_employees() else country_by_code(
-            user["country_code"], include_inactive=True
-        )
-        admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
-        if "�" in name:
-            flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
-            return redirect(url_for("edit_user", user_id=user_id))
-        if can_manage_users() and user["role"] == "admin" and role != "admin" and admin_count <= 1:
-            flash("至少需要保留一个管理员。", "error")
-            return redirect(url_for("edit_user", user_id=user_id))
-        if requires_user_address(role) and not address:
-            flash("内部员工必须填写地址。", "error")
-            return redirect(url_for("edit_user", user_id=user_id))
-        try:
-            phone = user["phone"] or ""
-            if "phone" in request.form:
-                raw_phone = request.form.get("phone", "").strip()
-                phone = normalize_phone(raw_phone, country["code"]) if raw_phone else ""
-            db().execute(
-                """
-                update users
-                set name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?, phone = ?,
-                    preferred_communication_language = ?, communication_languages = ?
-                where id = ?
-                """,
-                (
-                    name,
-                    email,
-                    role,
-                    address,
-                    default_language,
-                    employee_grade_id,
-                    client_id,
-                    country["region_code"],
-                    country["code"],
-                    phone,
-                    preferred_language,
-                    communication_languages,
-                    user_id,
-                ),
-            )
-            if phone != (user["phone"] or ""):
-                db().execute("update users set phone_verified = 0 where id = ?", (user_id,))
-            if user_id == g.user["id"]:
-                session["language"] = default_language
-            if can_assign_external_employees():
-                save_user_service_order_assignments(user_id, role)
-            if password:
-                if len(password) < 8:
-                    flash("新密码至少需要 8 位。", "error")
-                    return redirect(url_for("edit_user", user_id=user_id))
-                db().execute("update users set password_hash = ? where id = ?", (generate_password_hash(password), user_id))
-            for uploaded in uploaded_attachments_from_request():
-                save_named_attachment(
-                    uploaded,
-                    os.path.join(USER_ATTACHMENT_DIR, str(user_id)),
-                    "user_attachments",
-                    "user_id",
-                    user_id,
-                )
-            db().commit()
-            flash("用户资料已更新。", "success")
-        except IntegrityError:
-            db().rollback()
-            flash("这个邮箱已经存在。", "error")
-            return redirect(url_for("edit_user", user_id=user_id))
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("edit_user", user_id=user_id))
-        return redirect(url_for("users"))
-    clients_rows = (
-        db().execute("select id, client_number, name from clients where id = ?", (g.user["client_id"],)).fetchall()
-        if is_external_manager()
-        else db().execute("select id, client_number, name from clients order by client_number").fetchall()
-    )
-    service_orders_rows = (
-        db().execute(
-            "select id, order_number, client_name, status from service_orders where client_id = ? order by status != 'closed' desc, created_at desc, id desc",
-            (g.user["client_id"],),
-        ).fetchall()
-        if is_external_manager()
-        else db().execute("select id, order_number, client_name, status from service_orders order by status != 'closed' desc, created_at desc, id desc").fetchall()
-    )
-    return render_template(
-        "user_form.html",
-        user=user,
-        clients=clients_rows,
-        service_orders=service_orders_rows,
-        selected_order_ids=assigned_service_order_ids(user_id),
-        attachments=get_user_attachments(user_id),
-        role_options=ROLE_OPTIONS,
-        can_manage=can_manage_users(),
-        can_assign=can_assign_external_employees(),
-        can_approve=can_approve_users(),
-        countries=country_rows(),
-        employee_grades=employee_grade_options(),
-    )
 
 
-@app.post("/users/<int:user_id>/status")
-@login_required
-def update_user_status(user_id):
-    if not can_approve_users():
-        abort(403)
-    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
-    if not user:
-        abort(404)
-    if normalized_role(user["role"]) not in {"employee", "external_employee"}:
-        abort(403)
-    is_active = 1 if request.form.get("is_active") == "1" else 0
-    db().execute("update users set is_active = ? where id = ?", (is_active, user_id))
-    if is_active:
-        create_message(
-            user_id,
-            "账号已启用",
-            f"{g.user['name']} 已批准并启用你的账号。",
-        )
-    db().commit()
-    flash("用户状态已更新。", "success")
-    return redirect(url_for("users"))
 
 
-@app.get("/user-attachments/<int:attachment_id>/download")
-@login_required
-def download_user_attachment(attachment_id):
-    attachment = db().execute("select * from user_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    owner = db().execute("select * from users where id = ?", (attachment["user_id"],)).fetchone()
-    if not owner or not can_manage_user_record(owner):
-        abort(403)
-    return send_file(
-        os.path.join(USER_ATTACHMENT_DIR, str(attachment["user_id"]), attachment["stored_filename"]),
-        as_attachment=True,
-        download_name=attachment["original_filename"],
-    )
 
 
-@app.get("/user-attachments/<int:attachment_id>/preview")
-@login_required
-def preview_user_attachment(attachment_id):
-    attachment = db().execute("select * from user_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    owner = db().execute("select * from users where id = ?", (attachment["user_id"],)).fetchone()
-    if not owner or not can_manage_user_record(owner):
-        abort(403)
-    return safe_attachment_response(
-        os.path.join(USER_ATTACHMENT_DIR, str(attachment["user_id"]), attachment["stored_filename"]),
-        attachment["original_filename"],
-    )
 
 
-@app.post("/user-attachments/<int:attachment_id>/delete")
-@login_required
-def delete_user_attachment(attachment_id):
-    attachment = db().execute("select * from user_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    owner = db().execute("select * from users where id = ?", (attachment["user_id"],)).fetchone()
-    if not owner or not can_manage_user_record(owner):
-        abort(403)
-    try:
-        os.remove(os.path.join(USER_ATTACHMENT_DIR, str(attachment["user_id"]), attachment["stored_filename"]))
-    except FileNotFoundError:
-        pass
-    db().execute("delete from user_attachments where id = ?", (attachment_id,))
-    db().commit()
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True, "attachment_id": attachment_id})
-    flash("用户附件已删除。", "success")
-    return redirect(url_for("users"))
 
 
-@app.post("/users/<int:user_id>/delete")
-@login_required
-def delete_user(user_id):
-    if user_id == g.user["id"]:
-        flash("不能删除当前登录用户。", "error")
-        return redirect(url_for("users"))
-    user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
-    if not user:
-        abort(404)
-    admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
-    if user["role"] == "admin" and admin_count <= 1:
-        flash("至少需要保留一个管理员。", "error")
-        return redirect(url_for("users"))
-    invoice_count = db().execute("select count(*) as count from invoices where created_by = ?", (user_id,)).fetchone()["count"]
-    if invoice_count:
-        flash("这个用户已经创建过发票，不能删除。", "error")
-        return redirect(url_for("users"))
-    db().execute("delete from messages where user_id = ?", (user_id,))
-    db().execute("delete from users where id = ?", (user_id,))
-    db().commit()
-    flash("用户已删除。", "success")
-    return redirect(url_for("users"))
 
 
 @app.route("/settings/system", methods=["GET", "POST"])
@@ -17562,6 +17113,17 @@ def monthly_paid_chart():
     return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
 
 
+_user_services = build_user_services(
+    db=db,
+    now=now,
+    is_external_manager=is_external_manager,
+)
+get_user_attachments = _user_services["get_user_attachments"]
+assigned_service_order_ids = _user_services["assigned_service_order_ids"]
+save_user_service_order_assignments = _user_services["save_user_service_order_assignments"]
+employee_grade_options = _user_services["employee_grade_options"]
+
+
 _employee_grade_exports = register_employee_grade_routes(
     app,
     db=db,
@@ -17683,6 +17245,46 @@ buyers = _customer_route_exports["buyers"]
 import_buyers = _customer_route_exports["import_buyers"]
 edit_buyer = _customer_route_exports["edit_buyer"]
 delete_buyer = _customer_route_exports["delete_buyer"]
+
+
+_employee_user_exports = register_employee_user_routes(
+    app,
+    db=db,
+    now=now,
+    login_required=login_required,
+    can_assign_external_employees=can_assign_external_employees,
+    country_from_form=country_from_form,
+    language_from_form=language_from_form,
+    current_language=current_language,
+    communication_languages_from_form=communication_languages_from_form,
+    can_manage_users=can_manage_users,
+    is_external_manager=is_external_manager,
+    role_options=ROLE_OPTIONS,
+    requires_user_address=requires_user_address,
+    save_user_service_order_assignments=save_user_service_order_assignments,
+    uploaded_attachments_from_request=uploaded_attachments_from_request,
+    save_named_attachment=save_named_attachment,
+    user_attachment_dir=USER_ATTACHMENT_DIR,
+    get_user_attachments=get_user_attachments,
+    assigned_service_order_ids=assigned_service_order_ids,
+    can_approve_users=can_approve_users,
+    country_rows=country_rows,
+    employee_grade_options=employee_grade_options,
+    normalized_role=normalized_role,
+    default_language_code=DEFAULT_LANGUAGE,
+    country_by_code=country_by_code,
+    normalize_phone=normalize_phone,
+    can_manage_user_record=can_manage_user_record,
+    safe_attachment_response=safe_attachment_response,
+    create_message=create_message,
+)
+users = _employee_user_exports["users"]
+edit_user = _employee_user_exports["edit_user"]
+update_user_status = _employee_user_exports["update_user_status"]
+download_user_attachment = _employee_user_exports["download_user_attachment"]
+preview_user_attachment = _employee_user_exports["preview_user_attachment"]
+delete_user_attachment = _employee_user_exports["delete_user_attachment"]
+delete_user = _employee_user_exports["delete_user"]
 
 
 _knowledge_service = KnowledgeService(

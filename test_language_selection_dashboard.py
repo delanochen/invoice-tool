@@ -93,7 +93,7 @@ def test_users_dialogs_have_language_checks():
 
 
 def test_user_routes_persist_language_columns():
-    source = _read("app.py")
+    source = _read("invoice_tool/employees/user_routes.py")
     # 新建用户 insert 与编辑用户 update 都写这两列
     assert "preferred_communication_language, communication_languages" in source
     assert "preferred_communication_language = ?, communication_languages = ?" in source
