@@ -321,6 +321,9 @@ class ServiceReportAssistService:
             reported_miles=round(one_way_miles * trip_multiplier(trip_type), 2),
             travel_hours=self.duration_to_travel_hours(duration_seconds, trip_type),
             route_status="success",
+            # 审计：被选中路线的 routeLabels（省油路线应为 FUEL_EFFICIENT），
+            # 让预览里程与最终佐证可核对是否走了同一条路线。
+            route_labels=list(getattr(result, "route_labels", None) or []),
             route_fingerprint=route_fingerprint_parts(
                 getattr(result, "origin_normalized", None) or origin,
                 getattr(result, "destination_normalized", None) or destination,
@@ -444,6 +447,8 @@ class ServiceReportEvidenceService:
             route_polyline=getattr(route, "encoded_polyline", None),
             route_provider=getattr(route, "provider", None) or "google_routes",
             route_query_time=getattr(route, "query_time", None),
+            # 审计：记录被选中路线的 routeLabels（省油路线应为 FUEL_EFFICIENT）。
+            route_labels=list(getattr(route, "route_labels", None) or []),
             route_status="success",
             travel_hours=MileageService.duration_to_travel_hours(duration_seconds, trip_type),
         )

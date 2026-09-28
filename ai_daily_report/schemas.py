@@ -158,6 +158,9 @@ class WorkerTravel(BaseModel):
     route_polyline: Optional[str] = None
     route_provider: Optional[str] = None  # "google_routes"
     route_query_time: Optional[str] = None  # UTC ISO8601 with Z suffix
+    # 被选中路线的 Google routeLabels（审计用）。省油路线模式下应为
+    # ["FUEL_EFFICIENT"]；回退默认路线时为 ["DEFAULT_ROUTE"]；默认模式为空。
+    route_labels: Optional[List[str]] = None
     route_status: Optional[Literal["not_calculated", "success", "verification_required", "failed"]] = None
     route_error: Optional[str] = None
     mileage_evidence_id: Optional[str] = None  # evidence_id from Draft evidence_records (Phase 3B)

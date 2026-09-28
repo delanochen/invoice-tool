@@ -133,6 +133,7 @@ class MileageService:
             worker.route_distance_meters = None
             worker.one_way_miles = None
             worker.reported_miles = None
+            worker.route_labels = None
             if worker.travel_hours_source != "user_input":
                 worker.travel_hours = None
                 worker.travel_hours_source = None
@@ -146,6 +147,8 @@ class MileageService:
         worker.destination_normalized = result.destination_normalized
         worker.route_provider = result.provider
         worker.route_query_time = result.query_time
+        # 审计：记录被选中路线的 routeLabels，便于确认实际选中的是 FUEL_EFFICIENT。
+        worker.route_labels = list(getattr(result, "route_labels", None) or [])
         worker.route_status = "success"
         worker.route_error = None
 

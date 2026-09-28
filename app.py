@@ -14338,7 +14338,12 @@ def generate_service_report_mileage_evidence(report_id):
     # 多台设备会超过 gunicorn/网关超时被切断连接，前端只会看到"网络错误"。
     try:
         evidence_svc = ServiceReportEvidenceService(
-            routes_service=GoogleRoutesService(routes_api_key, timeout=8, max_retries=1) if routes_api_key else None,
+            # 工作日报里程佐证：采用省油路线（Google Maps 手机端绿色叶子语义）。
+            # 必须与「辅助填写预览」用同一策略，否则预览里程和最终佐证里程会对不上。
+            # pref 关闭时请求体与历史完全一致，其他调用方不受影响。
+            routes_service=GoogleRoutesService(
+                routes_api_key, timeout=8, max_retries=1, prefer_fuel_efficient=True
+            ) if routes_api_key else None,
             evidence_service=MileageEvidenceService(
                 GoogleStaticMapsService(static_maps_key, timeout=8),
                 evidence_root,
@@ -14467,7 +14472,10 @@ def service_report_assist_plan():
     assist = ServiceReportAssistService(
         photo_discovery=photo_discovery,
         photo_metadata=photo_metadata,
-        routes_service=GoogleRoutesService(routes_api_key) if routes_api_key else None,
+        # 工作日报辅助填写预览：与里程佐证生成使用同一省油路线策略，
+        # 保证预览里程 == 最终佐证里程。其他 GoogleRoutesService 调用点
+        # （AI 日报草稿、出行工具等）保持默认 TRAFFIC_UNAWARE 行为不变。
+        routes_service=GoogleRoutesService(routes_api_key, prefer_fuel_efficient=True) if routes_api_key else None,
         employee_address_lookup=lambda uid: emp_resolver.get_employee_default_address(uid),
         photo_url_builder=lambda relative_path: {
             "thumbnail": url_for("shared_photo_thumbnail", path=relative_path),

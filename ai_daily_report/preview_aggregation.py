@@ -124,6 +124,8 @@ class PreviewAggregationService:
                 "route_status": w.get("route_status", "not_calculated"),
                 "route_provider": w.get("route_provider"),
                 "route_query_time": w.get("route_query_time"),
+                # 被选中路线的 routeLabels（审计：确认是否为 FUEL_EFFICIENT 省油路线）
+                "route_labels": w.get("route_labels") or [],
                 "mileage_evidence_id": w.get("mileage_evidence_id"),
                 # 工作内容（人工填写或从设备维修清单读取的「位置号 + 铭牌号 + 备注」）
                 "work_description": w.get("work_description") or "",

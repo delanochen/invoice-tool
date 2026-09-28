@@ -34,6 +34,7 @@ ROUTE_OUTPUT_FIELDS = [
     "route_duration_seconds",
     "route_provider",
     "route_query_time",
+    "route_labels",
     "route_status",
     "route_error",
     "origin_normalized",
@@ -88,6 +89,7 @@ class TravelService:
         worker.route_duration_seconds = None
         worker.route_provider = None
         worker.route_query_time = None
+        worker.route_labels = None
         worker.route_status = "not_calculated"
         worker.route_error = None
         worker.origin_normalized = None

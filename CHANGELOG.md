@@ -4,6 +4,34 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.332] - 2026-09-28
+
+### 变更：工作日报里程佐证改用省油路线（对齐 Google Maps 绿色叶子）
+- 工作日报的**里程佐证生成**与**辅助填写预览**两个入口，现在会优先采用
+  Google 的**省油路线**（即 Google Maps 手机端显示「绿色叶子」的那条），
+  而不再一律使用原来的 `TRAFFIC_UNAWARE` 默认路线。
+- 说明：绿色叶子表示**省油**，不等于**最短**，因此它的里程**有可能比默认路线更长**。
+  这是预期行为——本次改的是选路语义，**没有对距离乘任何系数，也没有加固定里程**，
+  里程仍取 Google 返回的原始 `distanceMeters`，再按原有公式
+  `单程英里 = distanceMeters / 1609.344`、往返按 `trip_type` 规则换算。
+- 选路规则（`ai_daily_report/google_routes.py`）：
+  1. 优先取 `routeLabels` 含 `FUEL_EFFICIENT` 的那条；
+  2. Google 没返回省油路线时，回退到 `DEFAULT_ROUTE`；
+  3. 都没有标签时（默认模式或旧响应）才取 `routes[0]`。
+  **不会无条件取第一条，也不会挑最长的那条。**
+- 两个入口**必须使用同一策略**，否则会出现「预览里程」与「最终佐证里程」对不上。
+- **其他调用方行为完全不变**：AI 日报草稿媒体、AI 日报对话、AI 日报里程重算、
+  出行工具等仍走原来的 `TRAFFIC_UNAWARE` 默认路线。新增开关
+  `prefer_fuel_efficient=False` 默认关闭，全局默认值未被翻转。
+- 被选中路线的 `routeLabels` 会一并存入结果与预览数据（审计用），
+  便于核对实际选中的确实是 `FUEL_EFFICIENT`。
+- 新增回归 `test_google_routes_fuel_efficient.py`（30 个用例，全部 mock，
+  不调用真实收费 API）：覆盖请求体与 Field Mask、各级选路与回退、
+  默认行为逐字不变、原始里程不放大、`routeLabels` 落库、端到端请求，
+  以及两个入口接线与「全局默认未翻转」的源码契约。
+- ⚠️ **计费提示**：开启后会请求 `requestedReferenceRoutes`，Google 对参考路线
+  单独计费，工作日报的每次里程查询费用可能约翻倍。已限制只在这两个入口开启。
+
 ## [0.1.331] - 2026-09-28
 
 ### 修复：工时显示精度与金额对不上（「2.2 小时算出 78.75」）
