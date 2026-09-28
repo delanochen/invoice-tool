@@ -55,8 +55,8 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
-from pypdf import PdfReader
 from image_processing import compress_image
+from invoice_tool.knowledge import KnowledgeService, register_knowledge_routes
 from field_work import register_field_routes
 from staff_reports import register_staff_reports
 from customer_report_logic import (
@@ -12872,458 +12872,6 @@ def database_console():
     )
 
 
-def extract_knowledge_pdf_text(pdf_path):
-    try:
-        reader = PdfReader(pdf_path, strict=False)
-        text_parts = []
-        text_length = 0
-        for page in reader.pages:
-            page_text = (page.extract_text() or "").strip()
-            if not page_text:
-                continue
-            remaining = KNOWLEDGE_MAX_EXTRACTED_TEXT - text_length
-            if remaining <= 0:
-                break
-            page_text = page_text[:remaining]
-            text_parts.append(page_text)
-            text_length += len(page_text) + 1
-        return "\n".join(text_parts)[:KNOWLEDGE_MAX_EXTRACTED_TEXT]
-    except Exception:
-        return ""
-
-
-def save_knowledge_pdf_upload(uploaded):
-    if not uploaded or not uploaded.filename:
-        raise ValueError("请选择要上传的 PDF 文档。")
-    original_filename = os.path.basename(uploaded.filename).strip()
-    if not original_filename.lower().endswith(".pdf"):
-        raise ValueError("知识库目前仅支持 PDF 文档。")
-    header = uploaded.stream.read(5)
-    uploaded.stream.seek(0)
-    if header != b"%PDF-":
-        raise ValueError("文件内容不是有效的 PDF 文档。")
-    stored_filename = f"{secrets.token_hex(16)}.pdf"
-    os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
-    destination = os.path.join(KNOWLEDGE_BASE_DIR, stored_filename)
-    try:
-        uploaded.save(destination)
-        file_size = os.path.getsize(destination)
-        if file_size > KNOWLEDGE_MAX_PDF_BYTES:
-            raise ValueError("PDF 文档不能超过 50 MB。")
-        return {
-            "original_filename": original_filename,
-            "stored_filename": stored_filename,
-            "destination": destination,
-            "file_size": file_size,
-            "extracted_text": extract_knowledge_pdf_text(destination),
-        }
-    except Exception:
-        try:
-            os.remove(destination)
-        except FileNotFoundError:
-            pass
-        raise
-
-
-def knowledge_expiry_from_form():
-    value = request.form.get("expires_on", "").strip()
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value).isoformat()
-    except ValueError as error:
-        raise ValueError("到期日期格式无效。") from error
-
-
-def knowledge_document_path(document):
-    return os.path.join(KNOWLEDGE_BASE_DIR, document["stored_filename"])
-
-
-def knowledge_document_or_404(document_id):
-    document = db().execute(
-        "select * from knowledge_documents where id = ?",
-        (document_id,),
-    ).fetchone()
-    if not document:
-        abort(404)
-    return document
-
-
-def knowledge_version_or_404(version_id):
-    version = db().execute(
-        "select * from knowledge_document_versions where id = ?",
-        (version_id,),
-    ).fetchone()
-    if not version:
-        abort(404)
-    return version
-
-
-def knowledge_version_path(version):
-    return os.path.join(KNOWLEDGE_BASE_DIR, version["stored_filename"])
-
-
-@app.route("/knowledge-base", methods=["GET", "POST"])
-@login_required
-def knowledge_base():
-    if request.method == "POST":
-        saved = None
-        try:
-            saved = save_knowledge_pdf_upload(request.files.get("document"))
-            expires_on = knowledge_expiry_from_form()
-            title = (
-                request.form.get("title", "").strip()
-                or os.path.splitext(saved["original_filename"])[0]
-                or "未命名文档"
-            )[:200]
-            category = (request.form.get("category", "").strip() or "其他")[:80]
-            description = request.form.get("description", "").strip()[:2000]
-            is_pinned = 1 if request.form.get("is_pinned") == "1" else 0
-            timestamp = now()
-            cursor = db().execute(
-                """
-                insert into knowledge_documents (
-                    title, category, description, original_filename, stored_filename,
-                    content_type, file_size, uploaded_by, uploaded_at, updated_at,
-                    is_pinned, expires_on, search_text, text_indexed_at, current_version
-                ) values (?, ?, ?, ?, ?, 'application/pdf', ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                """,
-                (
-                    title,
-                    category,
-                    description,
-                    saved["original_filename"],
-                    saved["stored_filename"],
-                    saved["file_size"],
-                    g.user["id"],
-                    timestamp,
-                    timestamp,
-                    is_pinned,
-                    expires_on,
-                    saved["extracted_text"],
-                    timestamp,
-                ),
-            )
-            document_id = cursor.lastrowid
-            db().execute(
-                """
-                insert into knowledge_document_versions (
-                    document_id, version_number, original_filename, stored_filename,
-                    file_size, extracted_text, change_note, uploaded_by, uploaded_at
-                ) values (?, 1, ?, ?, ?, ?, '初始版本', ?, ?)
-                """,
-                (
-                    document_id,
-                    saved["original_filename"],
-                    saved["stored_filename"],
-                    saved["file_size"],
-                    saved["extracted_text"],
-                    g.user["id"],
-                    timestamp,
-                ),
-            )
-            log_action("create", "knowledge_document", document_id, title, f"分类：{category}")
-            db().commit()
-        except ValueError as error:
-            db().rollback()
-            if saved is not None:
-                try:
-                    os.remove(saved["destination"])
-                except FileNotFoundError:
-                    pass
-            flash(str(error), "error")
-            return redirect(url_for("knowledge_base"))
-        except Exception:
-            db().rollback()
-            if saved is not None:
-                try:
-                    os.remove(saved["destination"])
-                except FileNotFoundError:
-                    pass
-            raise
-        flash("知识库文档已上传。", "success")
-        return redirect(url_for("knowledge_base"))
-
-    keyword = request.args.get("q", "").strip()
-    category = request.args.get("category", "").strip()
-    expiry_status = request.args.get("expiry", "").strip()
-    if expiry_status not in {"expired", "soon", "current"}:
-        expiry_status = ""
-    today_value = datetime.now(app_timezone()).date()
-    upcoming_value = today_value + timedelta(days=30)
-    clauses = []
-    params = []
-    if keyword:
-        pattern = f"%{keyword}%"
-        clauses.append(
-            "(knowledge_documents.title like ? or knowledge_documents.description like ? "
-            "or knowledge_documents.original_filename like ? or knowledge_documents.search_text like ?)"
-        )
-        params.extend([pattern, pattern, pattern, pattern])
-    if category:
-        clauses.append("knowledge_documents.category = ?")
-        params.append(category)
-    if expiry_status == "expired":
-        clauses.append("knowledge_documents.expires_on < ?")
-        params.append(today_value.isoformat())
-    elif expiry_status == "soon":
-        clauses.append("knowledge_documents.expires_on >= ? and knowledge_documents.expires_on <= ?")
-        params.extend([today_value.isoformat(), upcoming_value.isoformat()])
-    elif expiry_status == "current":
-        clauses.append("(knowledge_documents.expires_on is null or knowledge_documents.expires_on > ?)")
-        params.append(upcoming_value.isoformat())
-    where_clause = f"where {' and '.join(clauses)}" if clauses else ""
-    documents = db().execute(
-        f"""
-        select knowledge_documents.*, users.name as uploader_name
-        from knowledge_documents
-        left join users on users.id = knowledge_documents.uploaded_by
-        {where_clause}
-        order by knowledge_documents.is_pinned desc, knowledge_documents.updated_at desc, knowledge_documents.id desc
-        """,
-        params,
-    ).fetchall()
-    categories = db().execute(
-        "select distinct category from knowledge_documents order by category"
-    ).fetchall()
-    version_rows = db().execute(
-        """
-        select knowledge_document_versions.*, users.name as uploader_name
-        from knowledge_document_versions
-        left join users on users.id = knowledge_document_versions.uploaded_by
-        order by knowledge_document_versions.document_id, knowledge_document_versions.version_number desc
-        """
-    ).fetchall()
-    versions_by_document = {}
-    for version in version_rows:
-        versions_by_document.setdefault(version["document_id"], []).append(version)
-    knowledge_metrics = db().execute(
-        """
-        select count(*) as total,
-               sum(case when expires_on < ? then 1 else 0 end) as expired,
-               sum(case when expires_on >= ? and expires_on <= ? then 1 else 0 end) as expiring_soon,
-               sum(view_count) as views,
-               sum(download_count) as downloads
-        from knowledge_documents
-        """,
-        (today_value.isoformat(), today_value.isoformat(), upcoming_value.isoformat()),
-    ).fetchone()
-    return render_template(
-        "knowledge_base.html",
-        documents=documents,
-        categories=[row["category"] for row in categories],
-        keyword=keyword,
-        selected_category=category,
-        selected_expiry=expiry_status,
-        today_date=today_value.isoformat(),
-        upcoming_date=upcoming_value.isoformat(),
-        versions_by_document=versions_by_document,
-        knowledge_metrics=knowledge_metrics,
-    )
-
-
-@app.get("/knowledge-base/<int:document_id>/preview")
-@login_required
-def preview_knowledge_document(document_id):
-    document = knowledge_document_or_404(document_id)
-    if not os.path.isfile(knowledge_document_path(document)):
-        abort(404)
-    db().execute("update knowledge_documents set view_count = view_count + 1 where id = ?", (document_id,))
-    db().commit()
-    return send_file(
-        knowledge_document_path(document),
-        mimetype="application/pdf",
-        as_attachment=False,
-        download_name=document["original_filename"],
-        conditional=True,
-    )
-
-
-@app.get("/knowledge-base/<int:document_id>/download")
-@login_required
-def download_knowledge_document(document_id):
-    document = knowledge_document_or_404(document_id)
-    if not os.path.isfile(knowledge_document_path(document)):
-        abort(404)
-    db().execute("update knowledge_documents set download_count = download_count + 1 where id = ?", (document_id,))
-    db().commit()
-    return send_file(
-        knowledge_document_path(document),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=document["original_filename"],
-        conditional=True,
-    )
-
-
-@app.post("/knowledge-base/<int:document_id>/edit")
-@login_required
-def edit_knowledge_document(document_id):
-    document = knowledge_document_or_404(document_id)
-    title = request.form.get("title", "").strip()[:200]
-    if not title:
-        flash("文档标题不能为空。", "error")
-        return redirect(url_for("knowledge_base"))
-    try:
-        expires_on = knowledge_expiry_from_form()
-    except ValueError as error:
-        flash(str(error), "error")
-        return redirect(url_for("knowledge_base"))
-    category = (request.form.get("category", "").strip() or "其他")[:80]
-    description = request.form.get("description", "").strip()[:2000]
-    is_pinned = 1 if request.form.get("is_pinned") == "1" else 0
-    db().execute(
-        """
-        update knowledge_documents
-        set title = ?, category = ?, description = ?, is_pinned = ?, expires_on = ?, updated_at = ?
-        where id = ?
-        """,
-        (title, category, description, is_pinned, expires_on, now(), document_id),
-    )
-    log_action("update", "knowledge_document", document_id, title, f"原文件：{document['original_filename']}")
-    db().commit()
-    flash("文档信息已更新。", "success")
-    return redirect(url_for("knowledge_base"))
-
-
-@app.post("/knowledge-base/<int:document_id>/versions")
-@login_required
-def upload_knowledge_document_version(document_id):
-    document = knowledge_document_or_404(document_id)
-    saved = None
-    try:
-        saved = save_knowledge_pdf_upload(request.files.get("document"))
-        version_number = db().execute(
-            "select coalesce(max(version_number), 0) + 1 as value from knowledge_document_versions where document_id = ?",
-            (document_id,),
-        ).fetchone()["value"]
-        timestamp = now()
-        change_note = request.form.get("change_note", "").strip()[:500]
-        db().execute(
-            """
-            insert into knowledge_document_versions (
-                document_id, version_number, original_filename, stored_filename,
-                file_size, extracted_text, change_note, uploaded_by, uploaded_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                document_id,
-                version_number,
-                saved["original_filename"],
-                saved["stored_filename"],
-                saved["file_size"],
-                saved["extracted_text"],
-                change_note,
-                g.user["id"],
-                timestamp,
-            ),
-        )
-        db().execute(
-            """
-            update knowledge_documents
-            set original_filename = ?, stored_filename = ?, file_size = ?, search_text = ?,
-                text_indexed_at = ?, current_version = ?, updated_at = ?
-            where id = ?
-            """,
-            (
-                saved["original_filename"],
-                saved["stored_filename"],
-                saved["file_size"],
-                saved["extracted_text"],
-                timestamp,
-                version_number,
-                timestamp,
-                document_id,
-            ),
-        )
-        log_action(
-            "update",
-            "knowledge_document",
-            document_id,
-            document["title"],
-            f"上传 v{version_number}：{change_note or saved['original_filename']}",
-        )
-        db().commit()
-    except ValueError as error:
-        db().rollback()
-        flash(str(error), "error")
-        return redirect(url_for("knowledge_base"))
-    except Exception:
-        db().rollback()
-        if saved is not None:
-            try:
-                os.remove(saved["destination"])
-            except FileNotFoundError:
-                pass
-        raise
-    flash(f"文档已更新为 v{version_number}。", "success")
-    return redirect(url_for("knowledge_base"))
-
-
-@app.get("/knowledge-base/versions/<int:version_id>/preview")
-@login_required
-def preview_knowledge_document_version(version_id):
-    version = knowledge_version_or_404(version_id)
-    if not os.path.isfile(knowledge_version_path(version)):
-        abort(404)
-    db().execute(
-        "update knowledge_documents set view_count = view_count + 1 where id = ?",
-        (version["document_id"],),
-    )
-    db().commit()
-    return send_file(
-        knowledge_version_path(version),
-        mimetype="application/pdf",
-        as_attachment=False,
-        download_name=version["original_filename"],
-        conditional=True,
-    )
-
-
-@app.get("/knowledge-base/versions/<int:version_id>/download")
-@login_required
-def download_knowledge_document_version(version_id):
-    version = knowledge_version_or_404(version_id)
-    if not os.path.isfile(knowledge_version_path(version)):
-        abort(404)
-    db().execute(
-        "update knowledge_documents set download_count = download_count + 1 where id = ?",
-        (version["document_id"],),
-    )
-    db().commit()
-    return send_file(
-        knowledge_version_path(version),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=version["original_filename"],
-        conditional=True,
-    )
-
-
-@app.post("/knowledge-base/<int:document_id>/delete")
-@login_required
-def delete_knowledge_document(document_id):
-    document = knowledge_document_or_404(document_id)
-    version_paths = {
-        knowledge_version_path(version)
-        for version in db().execute(
-            "select stored_filename from knowledge_document_versions where document_id = ?",
-            (document_id,),
-        ).fetchall()
-    }
-    db().execute("delete from knowledge_documents where id = ?", (document_id,))
-    log_action("delete", "knowledge_document", document_id, document["title"], document["original_filename"])
-    db().commit()
-    version_paths.add(knowledge_document_path(document))
-    for path in version_paths:
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
-    flash("知识库文档已删除。", "success")
-    return redirect(url_for("knowledge_base"))
-
-
 @app.route("/company-info", methods=["GET", "POST"])
 @login_required
 def company_info():
@@ -19709,6 +19257,37 @@ def monthly_paid_chart():
     max_value = max(buckets.values()) or 1
     return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
 
+
+_knowledge_service = KnowledgeService(
+    db=db,
+    storage_dir=KNOWLEDGE_BASE_DIR,
+    max_pdf_bytes=KNOWLEDGE_MAX_PDF_BYTES,
+    max_extracted_text=KNOWLEDGE_MAX_EXTRACTED_TEXT,
+)
+_knowledge_exports = register_knowledge_routes(
+    app,
+    service=_knowledge_service,
+    db=db,
+    now=now,
+    app_timezone=app_timezone,
+    login_required=login_required,
+    log_action=log_action,
+)
+extract_knowledge_pdf_text = _knowledge_exports["extract_knowledge_pdf_text"]
+save_knowledge_pdf_upload = _knowledge_exports["save_knowledge_pdf_upload"]
+knowledge_expiry_from_form = _knowledge_exports["knowledge_expiry_from_form"]
+knowledge_document_path = _knowledge_exports["knowledge_document_path"]
+knowledge_document_or_404 = _knowledge_exports["knowledge_document_or_404"]
+knowledge_version_or_404 = _knowledge_exports["knowledge_version_or_404"]
+knowledge_version_path = _knowledge_exports["knowledge_version_path"]
+knowledge_base = _knowledge_exports["knowledge_base"]
+preview_knowledge_document = _knowledge_exports["preview_knowledge_document"]
+download_knowledge_document = _knowledge_exports["download_knowledge_document"]
+edit_knowledge_document = _knowledge_exports["edit_knowledge_document"]
+upload_knowledge_document_version = _knowledge_exports["upload_knowledge_document_version"]
+preview_knowledge_document_version = _knowledge_exports["preview_knowledge_document_version"]
+download_knowledge_document_version = _knowledge_exports["download_knowledge_document_version"]
+delete_knowledge_document = _knowledge_exports["delete_knowledge_document"]
 
 register_field_routes(app, globals())
 register_staff_reports(app, globals())
