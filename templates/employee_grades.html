@@ -314,7 +314,7 @@
           <label>生效日期 <input type="date" name="effective_from" required></label>
           <label>结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不能与其他有效版本重叠。</small></label>
           {% for key, label, unit in rate_types %}
-            <label>{{ label }} <input type="number" step="0.0001" min="0" name="{{ key }}" value="{{ panel.rates[key].rate }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
+            <label>{{ label }} <input type="number" step="0.01" min="0" name="{{ key }}" value="{{ '%.2f'|format(panel.rates[key].rate or 0) }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
           {% endfor %}
           <label class="full-span">备注 <input name="notes" placeholder="例如 2027 年调薪"></label>
         </div>
@@ -345,7 +345,7 @@
             <label>结束日期 <input type="date" name="effective_to" value="{{ version.effective_to or '' }}"><small>留空表示持续有效；不能与其他有效版本重叠。</small></label>
             {% for key, label, unit in rate_types %}
               {% set item = version_items.get(key) %}
-              <label>{{ label }} <input type="number" step="0.0001" min="0" name="{{ key }}" value="{{ item.rate if item else 0 }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
+              <label>{{ label }} <input type="number" step="0.01" min="0" name="{{ key }}" value="{{ '%.2f'|format(item.rate) if item else '0.00' }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
             {% endfor %}
             <label class="full-span">备注 <input name="notes" value="{{ version.notes or '' }}"></label>
           </div>

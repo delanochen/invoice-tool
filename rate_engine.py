@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from flask import abort, flash, g, redirect, render_template, request, url_for
 
@@ -228,6 +230,18 @@ def current_rate_values(connection, grade_id, work_date):
     return values
 
 
+RATE_CENT = Decimal("0.01")
+
+
+def _rate_value(value):
+    """单价口径：费率一律 2 位小数（四舍五入），与页面展示的 money 过滤器对齐。
+
+    手填、复制旧版本、沿用静态费率三条路径都过这里，历史数据里的
+    45.0001 之类 4 位小数在落库时归一，不会再扩散到新版本。
+    """
+    return float(Decimal(str(value if value is not None else 0)).quantize(RATE_CENT, rounding=ROUND_HALF_UP))
+
+
 def _float_form(name):
     raw = request.form.get(name, "").strip()
     if raw == "":
@@ -236,9 +250,11 @@ def _float_form(name):
         value = float(raw)
     except ValueError as exc:
         raise ValueError(f"{name} 必须是数字。") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{name} 必须是数字。")
     if value < 0:
         raise ValueError(f"{name} 不能小于 0。")
-    return value
+    return _rate_value(value)
 
 
 def _validate_dates(effective_from, effective_to):
@@ -493,7 +509,7 @@ def register_rate_routes(app, api):
             for key, _label, unit in EMPLOYEE_RATE_TYPES:
                 api["db"]().execute(
                     "insert into employee_rate_items (version_id, rate_type, unit, rate) values (?, ?, ?, ?)",
-                    (version_id, key, unit, rate_values[key]),
+                    (version_id, key, unit, _rate_value(rate_values[key])),
                 )
             api["log_action"]("create", "employee_rate_version", version_id, f"{grade['grade_name']} v{next_no}", f"生效：{effective_from} 至 {effective_to or '长期'}")
             api["db"]().commit()

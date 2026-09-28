@@ -1,21 +1,46 @@
-.user-details-grid, .user-details-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px 14px; align-items: start; }
-.user-details-grid label, .user-details-form > label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.user-full-width, .user-section-title, .user-details-form > fieldset, .user-details-form > section, .user-details-form > .form-actions, .user-details-form > label:has(textarea), .user-details-form > label:has(input[type=file]) { grid-column: 1 / -1; }
-.user-section-title { margin: 6px 0 0; padding-bottom: 5px; border-bottom: 1px solid var(--line); font-size: 16px; }
-.user-section-title:first-child { margin-top: 0; }
-.user-details-dialog { width: min(880px,calc(100vw - 24px)); max-height: 90dvh; padding: 14px; }
-.user-details-dialog .form-stack { gap: 10px; }
-.user-details-dialog .dialog-header { position: sticky; top: -1px; z-index: 3; background: white; padding: 2px 0 6px; }
-.user-details-dialog .dialog-header h2 { font-size: 22px; }
-.user-details-dialog .form-actions { position: sticky; bottom: -1px; z-index: 3; background: white; border-top: 1px solid var(--line); padding: 8px 0 0; }
-.user-details-dialog .assignment-table-wrap { max-height: 260px; }
-.user-details-dialog .subsection { padding-top: 4px; }
-.user-details-dialog .subsection h3 { margin-bottom: 6px; font-size: 16px; }
-.user-details-dialog .subsection > label { gap: 4px; margin-bottom: 8px; }
-.user-details-grid input:not([type=checkbox]):not([type=file]), .user-details-grid select { min-height: 36px; padding: 7px 9px; }
+/* 用户编辑整页表单（user_form.html）：双列栅格布局。 */
+.user-details-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; align-items: start; }
+.user-details-form > label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.user-details-form > fieldset,
+.user-details-form > section,
+.user-details-form > .form-actions,
+.user-details-form > label:has(textarea),
+.user-details-form > label:has(input[type=file]) { grid-column: 1 / -1; }
+
+/* 用户弹窗（users.html 新增/编辑）：配合 .erp-scope .erp-compact 的令牌与紧凑控件，
+   这里只负责弹窗自身的尺寸、吸顶吸底与分区排版。 */
+.user-details-dialog { width: min(860px, calc(100vw - 24px)); max-height: 92dvh; padding: 10px 12px; }
+.user-details-dialog .form-stack { gap: 8px; }
+.user-details-dialog .dialog-header {
+  position: sticky; top: -1px; z-index: 3;
+  background: var(--erp-panel, #fff);
+  padding: 0 0 6px; margin: 0 0 2px;
+  border-bottom: 1px solid var(--erp-line-soft, var(--line));
+}
+.user-details-dialog .dialog-header h2 { font-size: 15px; }
+.user-section-title {
+  margin: 2px 0 0; padding: 2px 0 4px;
+  border-bottom: 1px solid var(--erp-line-soft, var(--line));
+  font-size: 12.5px; font-weight: 600; color: var(--erp-muted, #64748b); letter-spacing: .3px;
+}
+.user-details-dialog .form-actions {
+  position: sticky; bottom: -1px; z-index: 3;
+  background: var(--erp-panel, #fff);
+  border-top: 1px solid var(--erp-line-soft, var(--line));
+  padding: 6px 0 0; margin: 0;
+}
+.user-details-dialog .subsection { padding-top: 2px; }
+.user-details-dialog .subsection h3 { margin-bottom: 4px; font-size: 12.5px; }
+.user-details-dialog .subsection > label { gap: 3px; margin-bottom: 6px; }
+.user-details-dialog .assignment-table-wrap { max-height: 240px; border: 1px solid var(--erp-line-soft, var(--line)); }
 .user-details-dialog .assignment-table th,
-.user-details-dialog .assignment-table td { min-width: 0; padding: 4px 7px; line-height: 1.25; }
+.user-details-dialog .assignment-table td { min-width: 0; padding: 3px 6px; line-height: 1.25; }
 .user-details-dialog .assignment-table th:first-child,
-.user-details-dialog .assignment-table td:first-child { width: 48px; }
-.user-details-dialog .assignment-table input[type=checkbox] { width: 18px; height: 18px; min-height: 18px; margin: 0; }
-@media(max-width:640px) { .user-details-grid, .user-details-form { grid-template-columns: minmax(0,1fr); } .user-details-dialog { padding: 12px; } }
+.user-details-dialog .assignment-table td:first-child { width: 40px; }
+.user-details-dialog .assignment-table input[type=checkbox] { width: 14px; height: 14px; min-height: 0; margin: 0; }
+.user-details-dialog .language-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.user-details-dialog .language-check { display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 640px) {
+  .user-details-form { grid-template-columns: minmax(0, 1fr); }
+  .user-details-dialog { padding: 10px; }
+}
