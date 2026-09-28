@@ -12171,6 +12171,13 @@ def customer_reimbursement_query():
         abort(403)
     q = request.args.get("q", "").strip()
     status = request.args.get("status", "")
+    # 工单状态筛选（open/closed）：与结算单自身的 status 是两个独立维度。
+    # 默认只看「进行中」的工单——「进行中」是唯一有意义的默认值，
+    # 不做筛选会把历史已关闭工单的结算全带进来，数量上淹没当期的。
+    # 传 order_status=all（或空字符串以外的 ALL）表示不限。
+    order_status = request.args.get("order_status", "open")
+    if order_status not in ("open", "closed", "all"):
+        order_status = "open"
     date_from = request.args.get("date_from", "")
     date_to = request.args.get("date_to", "")
     order_ids = list(dict.fromkeys(value for value in request.args.getlist("order_id") if value))
@@ -12204,6 +12211,10 @@ def customer_reimbursement_query():
         params.append(status)
     else:
         status = ""
+    if order_status == "open":
+        clauses.append("service_orders.status != 'closed'")
+    elif order_status == "closed":
+        clauses.append("service_orders.status = 'closed'")
     if date_from:
         clauses.append("date(customer_reimbursements.created_at) >= ?")
         params.append(date_from)
@@ -12252,6 +12263,7 @@ def customer_reimbursement_query():
         totals=totals,
         q=q,
         status=status,
+        order_status=order_status,
         date_from=date_from,
         date_to=date_to,
         labels=CUSTOMER_REIMBURSEMENT_STATUS_LABELS,

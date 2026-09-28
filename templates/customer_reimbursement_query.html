@@ -42,7 +42,16 @@
     <form class="erp-filter no-print" method="get" data-erp-filter>
       {{ multi_filter('工单号', 'order_id', order_options, order_ids, 'id', 'order_number') }}
       {{ multi_filter('站点', 'site', site_options, sites, 'client_name', 'client_name') }}
-      <label class="erp-field">状态
+      {# 两个状态是两个维度：「工单状态」是工单本身进行中/已关闭，
+         「结算状态」是这张结算单走到哪一步，各自独立、可叠加。 #}
+      <label class="erp-field">工单状态
+        <select name="order_status">
+          <option value="open" {% if order_status == "open" %}selected{% endif %}>进行中</option>
+          <option value="closed" {% if order_status == "closed" %}selected{% endif %}>已关闭</option>
+          <option value="all" {% if order_status == "all" %}selected{% endif %}>全部</option>
+        </select>
+      </label>
+      <label class="erp-field">结算状态
         <select name="status">
           <option value="">全部</option>
           {% for value, label in labels.items() %}
@@ -141,7 +150,9 @@
     <span class="sep"></span>
     <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
     <span class="sep"></span>
-    <span>状态 <b>{{ labels[status] if status else '全部' }}</b></span>
+    <span>工单状态 <b>{{ {"open": "进行中", "closed": "已关闭", "all": "全部"}[order_status] }}</b></span>
+    <span class="sep"></span>
+    <span>结算状态 <b>{{ labels[status] if status else '全部' }}</b></span>
     {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
   </footer>
 </div>
