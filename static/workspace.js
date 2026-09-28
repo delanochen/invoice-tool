@@ -52,6 +52,10 @@
     if (win.location.pathname === '/login') { location.href = '/login'; return; }
     // Downloads, previews and the camera application keep their original navigation.
     if (!doc.querySelector('.main')) return;
+    // 让页面内的脚本也能请求「在工作区里新开一个标签页」（而不是自己 location.href 跳走，
+    // 那会把当前标签的页面整个换掉）。工作区内所有站内跳转都应走这里，见
+    // selectable-table-actions.js 的 detailUrl 按钮。
+    try { win.workspaceOpen = (url, title) => open(url, title); } catch { /* 跨源等异常忽略 */ }
     if (tab.submitted) changed(tab);
     tab.submitted = false; tab.dirty = false; tab.stale = false;
     tab.url = localUrl(win.location.href) || tab.url;

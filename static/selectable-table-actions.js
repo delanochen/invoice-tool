@@ -73,6 +73,16 @@
       document.getElementById(value)?.showModal();
       return;
     }
+    // 明细类跳转（查看日报 / 查看报销 / 预览发票）要在工作区里新开一个标签页，
+    // 而不是把当前标签的页面整个换掉 —— 否则用户在列表里点几次「查看」，
+    // 列表页本身就被顶掉了（丢失滚动位置与筛选条件）。
+    // 外壳会把 workspaceOpen 注入进来；不在工作区里跑时退化为浏览器新窗口。
+    // 例外：下载类（pdfUrl 等直接给文件的）保持浏览器原生行为，别塞进 iframe 标签。
+    const isDownload = /pdf|download|export/i.test(button.dataset.rowAction || "");
+    if (!isDownload && typeof window.workspaceOpen === "function") {
+      window.workspaceOpen(value, button.textContent.trim());
+      return;
+    }
     window.location.href = value;
   });
 })();
