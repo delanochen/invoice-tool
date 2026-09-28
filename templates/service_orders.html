@@ -12,9 +12,12 @@
 {% block content %}
 {# 只做展示层改造：数据仍来自 app.py service_orders()，不改动任何后端逻辑。
    该页只列「进行中」工单（后端固定 status != 'closed'），完整条件查询走 /reports/service-orders。 #}
-{% set ns = namespace(report=0, invoiced=0, paid=0) %}
+{% set ns = namespace(report=0, expense_items=0, invoiced=0, paid=0) %}
+{# 报销列跟「工单结算」列一样按权限收口：外部角色看得到工单，但看不到报销数据。 #}
+{% set show_expenses = has_action_permission('expenses', 'view') %}
 {% for order in orders %}
   {% set ns.report = ns.report + (order.report_count or 0)|int %}
+  {% set ns.expense_items = ns.expense_items + (order.expense_item_count or 0)|int %}
   {% if order.invoice_count %}{% set ns.invoiced = ns.invoiced + 1 %}{% endif %}
   {% if order.invoice_count and order.paid_invoice_count == order.invoice_count %}{% set ns.paid = ns.paid + 1 %}{% endif %}
 {% endfor %}
@@ -54,9 +57,9 @@
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid service-orders-table" data-grid-height="100%">
           {# 空行 colspan 用同一份列数计算，避免加列后空状态提示横跨错位。 #}
-          {% set grid_columns = 11 + (1 if can_view_customer_reimbursement() else 0) + (2 if can_view_invoices() else 0) %}
+          {% set grid_columns = 11 + (1 if show_expenses else 0) + (1 if can_view_customer_reimbursement() else 0) + (2 if can_view_invoices() else 0) %}
           <thead><tr>
-            <th>工单编号</th><th>站点名称</th><th>日报</th>
+            <th>工单编号</th><th>站点名称</th><th>日报</th>{% if show_expenses %}<th>报销</th>{% endif %}
             {# data-grid-width 是给 Tabulator 镜像用的：镜像列宽跟源表 CSS 的 nth-child 无关，
                而 fitDataStretch 会把没声明宽度的列摊开，「工单结算」只有一个对勾会被撑成一大片，
                所以钉死在 Tabulator 的 minWidth（85）上。 #}
@@ -70,6 +73,7 @@
                 <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
                 <td>{{ order.client_name }}</td>
                 <td>{{ order.report_count }}</td>
+                {% if show_expenses %}<td>{{ order.expense_item_count or 0 }}</td>{% endif %}
                 {# 只表达「有没有工单结算单」：有打勾，没有留空（不写占位符，用户明确要求空）。 #}
                 {% if can_view_customer_reimbursement() %}
                   <td class="settlement-cell">{% if order.settlement_count %}<span class="settlement-tick" title="已有工单结算单" aria-label="已有工单结算单">✓</span>{% endif %}</td>
@@ -127,6 +131,7 @@
             <div class="erp-cert-file">{{ order.client_order_number or '无服务订单号码' }} · {{ order.buyer_owner or '无业主' }}</div>
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>日报</span><strong>{{ order.report_count }}</strong></div>
+              {% if show_expenses %}<div class="erp-card-metric"><span>报销</span><strong>{{ order.expense_item_count or 0 }}</strong></div>{% endif %}
               {# 手机端卡片与表格列同口径：有结算单打勾，没有就用本页惯用的占位横杠 #}
               {% if can_view_customer_reimbursement() %}<div class="erp-card-metric"><span>结算</span><strong>{{ '✓' if order.settlement_count else '—' }}</strong></div>{% endif %}
               {% if can_view_invoices() %}<div class="erp-card-metric"><span>发票</span><strong>{{ order.invoice_count }}</strong></div>{% endif %}
@@ -148,6 +153,7 @@
     {{ summary_item('工单数', orders|length, 'muted') }}
     {{ summary_item('进行中', orders|length, 'warn') }}
     {{ summary_item('日报合计', ns.report, 'muted') }}
+    {% if show_expenses %}{{ summary_item('报销明细合计', ns.expense_items, 'muted') }}{% endif %}
     {% if can_view_invoices() %}
       {{ summary_item('已开票', ns.invoiced, 'pos') }}
       {{ summary_item('已核销', ns.paid, 'pos') }}

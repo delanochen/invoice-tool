@@ -12611,6 +12611,11 @@ def service_orders():
                coalesce(order_manufacturers.name, buyers.equipment_manufacturer) as buyer_equipment_manufacturer,
                contracts.contract_number,
                count(distinct service_reports.id) as report_count,
+               -- 报销：该工单所有报销单的明细条目数之和（与「日报」列同为条数口径）。
+               -- 用相关子查询而不是 join expenses，免得 group by 行集膨胀。
+               (select count(*) from expense_items
+                 join expenses on expenses.id = expense_items.expense_id
+                where expenses.service_order_id = service_orders.id) as expense_item_count,
                count(distinct invoices.id) as invoice_count,
                count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count,
                -- 是否已有工单结算单：用相关子查询，不再 join 一张一对多的表，

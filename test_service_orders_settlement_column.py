@@ -127,11 +127,13 @@ class ServiceOrdersSettlementColumnTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return response.get_data(as_text=True)
 
-    def test_column_sits_right_after_the_report_column(self):
+    def test_column_sits_right_after_the_report_group(self):
         headers, _ = _table(self._page(self.admin))
         self.assertIn("日报", headers)
         self.assertIn("工单结算", headers)
-        self.assertEqual(headers[headers.index("日报") + 1], "工单结算")
+        # 「日报」列后面还有「报销」列（明细条目数），「工单结算」顺延一位
+        self.assertEqual(headers[headers.index("日报") + 1], "报销")
+        self.assertEqual(headers.index("工单结算"), headers.index("报销") + 1)
         self.assertEqual(headers.index("配套机厂家"), headers.index("工单结算") + 1)
 
     def test_tick_only_on_orders_that_have_a_settlement(self):
