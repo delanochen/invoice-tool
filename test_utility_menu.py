@@ -89,6 +89,7 @@ class UtilityMenuTest(unittest.TestCase):
                 "knowledge_base",
                 "ai_assistant",
                 "database_console",
+                "order_data_transfer",
             ],
         )
 

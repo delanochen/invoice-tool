@@ -99,7 +99,7 @@
         {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
         {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document"] %}
         {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
-        {% set utility_endpoints = ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page", "travel_tools_page", "knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document", "ai_assistant", "ai_assistant_chat", "database_console"] %}
+        {% set utility_endpoints = ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page", "travel_tools_page", "knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document", "ai_assistant", "ai_assistant_chat", "database_console", "order_data_transfer"] %}
         {% set invoice_create_endpoints = ["new_invoice", "edit_invoice"] %}
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies", "employee_payments", "employee_payment_detail"] %}
@@ -260,6 +260,7 @@
             (has_menu_permission("ai_daily_report") and is_internal_user())
             or (has_menu_permission("travel_tools") and is_internal_user())
             or (has_menu_permission("database_console") and has_action_permission("database_console", "view"))
+            or (has_menu_permission("order_data_transfer") and has_action_permission("order_data_transfer", "view"))
             or (has_menu_permission("knowledge_base") and has_action_permission("knowledge_base", "view"))
             or (has_menu_permission("ai_assistant") and has_action_permission("ai_assistant", "view"))
           %}
@@ -281,6 +282,9 @@
               {% endif %}
               {% if has_menu_permission("database_console") and has_action_permission("database_console", "view") %}
                 {{ nav_link("database_console", "数据库工具", icon="database") }}
+              {% endif %}
+              {% if has_menu_permission("order_data_transfer") and has_action_permission("order_data_transfer", "view") %}
+                {{ nav_link("order_data_transfer", "工单数据转移", icon="database") }}
               {% endif %}
             </div>
           </details>

@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}工单数据转移 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{# 工单间数据转移：日报编辑页不支持改工单，报销同理；附件路径里嵌了工单号，
+   所以日报要连磁盘文件一起搬，报销（目录按 expense_id 组织）不用搬。
+   只搬勾选的那几条，已被工单结算单引用的拒绝转移。 #}
+<div class="erp-app erp-app--flow erp-compact">
+
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      工单数据转移
+      <small>把勾选的日报 / 报销搬到另一个工单</small>
+    </div>
+    {% if source_order %}<span class="erp-badge">{{ reports|length }} 条日报 · {{ expenses|length }} 张报销</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="submit" class="erp-btn primary" form="transferForm">执行转移</button>
+    </div>
+  </header>
+
+  <div class="erp-body">
+    <section class="erp-panel active">
+
+      {% if lookup_error %}
+        <div class="flash error">{{ lookup_error }}</div>
+      {% endif %}
+
+      <!-- ───────────────────────── 选择工单 ───────────────────────── -->
+      <section class="panel">
+        <div class="panel-title">
+          <div>
+            <h2>选择工单</h2>
+            <span class="muted-line">源工单提供待转移数据，目标工单接收数据。两个工单号都不能为空且不能相同。</span>
+          </div>
+        </div>
+        <form method="get" class="form-row" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end">
+          <label style="display:flex; flex-direction:column; gap:4px">
+            <span>源工单号</span>
+            <input type="text" name="source" value="{{ source }}" placeholder="SO2609005" autocomplete="off">
+          </label>
+          <label style="display:flex; flex-direction:column; gap:4px">
+            <span>目标工单号</span>
+            <input type="text" name="target" value="{{ target }}" placeholder="SO2609006" autocomplete="off">
+          </label>
+          <button type="submit" class="erp-btn">查询</button>
+        </form>
+        {% if source_order %}
+          <p class="muted-line">
+            源：<strong>{{ source_order.order_number }}</strong> · {{ source_order.client_name or '-' }}
+            {% if source_downstream %}（下游关联：{{ source_downstream|join('、') }}）{% endif %}
+            {% if target_order %}
+              <br>目标：<strong>{{ target_order.order_number }}</strong> · {{ target_order.client_name or '-' }}
+              {% if target_downstream %}（下游关联：{{ target_downstream|join('、') }}）{% endif %}
+            {% endif %}
+          </p>
+        {% endif %}
+      </section>
+
+      {% if source_order %}
+      <form method="post" id="transferForm" class="form-stack">
+        <input type="hidden" name="source" value="{{ source_order.order_number }}">
+        <input type="hidden" name="target" value="{{ target or '' }}">
+
+        {% if not target_order %}
+          <div class="flash warning">请先在上方填写目标工单号并查询，再勾选要转移的数据。</div>
+        {% endif %}
+
+        <!-- ───────────────────────── 日报 ───────────────────────── -->
+        <section class="panel">
+          <div class="panel-title">
+            <div>
+              <h2>工作日报</h2>
+              <span class="muted-line">转移日报时会一起搬走它的附件、当天的现场照片（含缩略图）和 AI 日报留痕。</span>
+            </div>
+          </div>
+          {% if reports %}
+          <div class="table-scroll">
+            <table class="list-table compact-table">
+              <thead>
+                <tr><th>选择</th><th>日期</th><th>工时</th><th>人员</th><th>附件</th><th>现场照片</th><th>里程佐证</th><th>说明</th></tr>
+              </thead>
+              <tbody>
+              {% for row in reports %}
+                <tr class="{% if row.blocked %}muted-row{% endif %}">
+                  <td>
+                    {% if row.blocked %}
+                      <input type="checkbox" disabled title="{{ row.blocked }}">
+                    {% else %}
+                      <input type="checkbox" name="report_ids" value="{{ row.id }}">
+                    {% endif %}
+                  </td>
+                  <td>{{ row.report_date }}</td>
+                  <td>{{ row.total_service_hours or '-' }}</td>
+                  <td>{{ row.worker_count }}</td>
+                  <td>{{ row.attachment_count }}</td>
+                  <td>{{ row.photo_count }}</td>
+                  <td>
+                    {{ row.mileage_count or '-' }}
+                    {% if row.mileage_count %}<span class="muted-line" title="终点是源工单地址，转移后需重算">需重算</span>{% endif %}
+                  </td>
+                  <td>
+                    {{ row.service_description[:60] or '-' }}
+                    {% if row.blocked %}<br><span class="muted-line">不可转移：{{ row.blocked }}</span>{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+            <p class="empty">这个工单没有日报。</p>
+          {% endif %}
+        </section>
+
+        <!-- ───────────────────────── 报销 ───────────────────────── -->
+        <section class="panel">
+          <div class="panel-title">
+            <div>
+              <h2>员工报销</h2>
+              <span class="muted-line">整单转移：报销附件目录按报销 ID 组织，换工单不用搬文件，报销编号也不变。</span>
+            </div>
+          </div>
+          {% if expenses %}
+          <div class="table-scroll">
+            <table class="list-table compact-table">
+              <thead>
+                <tr><th>选择</th><th>报销编号</th><th>日期</th><th>状态</th><th>项目</th><th>明细</th><th>附件</th><th>金额</th></tr>
+              </thead>
+              <tbody>
+              {% for row in expenses %}
+                <tr class="{% if row.blocked %}muted-row{% endif %}">
+                  <td>
+                    {% if row.blocked %}
+                      <input type="checkbox" disabled title="{{ row.blocked }}">
+                    {% else %}
+                      <input type="checkbox" name="expense_ids" value="{{ row.id }}">
+                    {% endif %}
+                  </td>
+                  <td><a href="{{ url_for('expense_detail', expense_id=row.id) }}">{{ row.expense_number }}</a></td>
+                  <td>{{ row.expense_date }}</td>
+                  <td><span class="status {{ row.status }}">{{ row.status }}</span></td>
+                  <td>{{ row.project or '-' }}</td>
+                  <td>{{ row.item_count }}</td>
+                  <td>{{ row.attachment_count }}</td>
+                  <td>{{ row.amount|money }}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+            <p class="empty">这个工单没有员工报销。</p>
+          {% endif %}
+        </section>
+
+        <section class="panel">
+          <label style="display:flex; gap:8px; align-items:center">
+            <input type="checkbox" name="confirm" value="1">
+            <span>我确认转移：只转移上面勾选的数据；转移后源工单不再包含它们，操作会记入操作日志。</span>
+          </label>
+          <p class="muted-line">执行前建议先备份数据库。整个过程是单事务：任何一步失败都会回滚，文件也会退回原状。</p>
+        </section>
+      </form>
+      {% endif %}
+
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -94,6 +94,7 @@ from settlement_review import (
     selected_expense_total,
 )
 from profitability import register_profitability_routes
+from order_data_transfer import register_order_data_transfer_routes
 from employee_finance import cancel_expense_payment_order, ensure_expense_payment_order, register_employee_finance_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
@@ -384,6 +385,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "database_console", "label": "数据库工具", "roles": {"admin"}},
+            {"key": "order_data_transfer", "label": "工单数据转移", "roles": {"admin"}},
         ],
     },
     {
@@ -460,6 +462,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "company_info", "label": "公司信息", "actions": {"view": {"admin", "manager", "finance", "employee"}, "edit": {"admin"}}},
             {"key": "system_settings", "label": "系统设置", "actions": {"view": {"admin"}, "edit": {"admin"}}},
             {"key": "database_console", "label": "数据库工具", "actions": {"view": {"admin"}, "execute": {"admin"}}},
+            {"key": "order_data_transfer", "label": "工单数据转移", "actions": {"view": {"admin"}, "execute": {"admin"}}},
             {"key": "payment_terms", "label": "账期管理", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "audit_logs", "label": "操作日志", "actions": {"view": {"admin", "manager", "finance"}}},
         ],
@@ -1703,6 +1706,8 @@ def required_action_for_request():
         ("deepseek_connection_test", "POST"): ("system_settings", "edit"),
         ("database_console", "GET"): ("database_console", "view"),
         ("database_console", "POST"): ("database_console", "execute"),
+        ("order_data_transfer", "GET"): ("order_data_transfer", "view"),
+        ("order_data_transfer", "POST"): ("order_data_transfer", "execute"),
         ("company_info", "GET"): ("company_info", "view"),
         ("company_info", "POST"): ("company_info", "edit"),
         ("travel_tools_page", "GET"): ("travel_tools", "view"),
@@ -17334,6 +17339,7 @@ register_staff_reports(app, globals())
 register_rate_routes(app, globals())
 register_settlement_review_routes(app, globals())
 register_profitability_routes(app, globals())
+register_order_data_transfer_routes(app, globals())
 register_travel_tools_routes(app, globals())
 register_employee_finance_routes(app, globals())
 
