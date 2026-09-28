@@ -1,11 +1,12 @@
 """利润表：代垫类报销的收入口径（v0.1.327）。
 
 业务规则（2026-09-28 用户确认）：
-  - 租赁汽车加油费 / 停车费 / 打车费 / 住宿费 是「实报实销（代垫）」：
-    客户按实际成本全额补偿，收入 = 成本，利润 = 0。
+  - 租赁汽车加油费 / 停车费 / 打车费 是「实报实销（代垫）」：客户按实际成本
+    全额补偿，收入 = 成本，利润 = 0。
+  - 住宿费是「实报实销但有上限」：客户只按 人晚 × 每晚上限 补偿，超出上限的
+    部分是真实亏损 —— **无论有没有进结算单都要按上限折算，不能一律做成利润 0**。
+    没配上限（人晚或每晚上限为 0）时才等同全额代垫。
   - 只有个人／自驾加油费没有收入（客户不承担），利润 = -成本。
-  - 住宿费默认同样全额代垫；已结算且超出合同人晚上限的部分仍按上限折算，
-    那时上限才是可测量的真实亏损。
 
 修复前：收入只在「报销被手工勾选进工单结算单」之后才确认，没勾选/没结算
 一律算 0 收入 —— 于是代垫项目被显示成等额亏损，而同期人工收入却是按合同
@@ -145,6 +146,68 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp_dir.cleanup()
 
+    def setUp(self):
+        """每个用例之间清掉结算单 / 日报 / 住宿上限设置，避免互相污染。"""
+        with self.module.app.app_context():
+            db = self.module.db()
+            row = db.execute(
+                "select value from settings where key = 'payroll_lodging_limit'"
+            ).fetchone()
+            self.lodging_limit_backup = row["value"] if row else None
+            db.commit()
+
+    def tearDown(self):
+        with self.module.app.app_context():
+            db = self.module.db()
+            db.execute(
+                "delete from customer_reimbursement_expense_links where "
+                "customer_reimbursement_id in (select id from customer_reimbursements "
+                "where service_order_id = ?)",
+                (self.order_id,),
+            )
+            db.execute("delete from customer_reimbursements where service_order_id = ?", (self.order_id,))
+            db.execute(
+                "delete from service_report_workers where report_id in "
+                "(select id from service_reports where service_order_id = ?)",
+                (self.order_id,),
+            )
+            db.execute("delete from service_reports where service_order_id = ?", (self.order_id,))
+            if self.lodging_limit_backup is None:
+                db.execute("delete from settings where key = 'payroll_lodging_limit'")
+            else:
+                db.execute(
+                    "insert into settings (key, value) values (?, ?) "
+                    "on conflict (key) do update set value = excluded.value",
+                    ("payroll_lodging_limit", self.lodging_limit_backup),
+                )
+            db.commit()
+
+    def set_lodging_limit(self, value):
+        """设置全局「住宿实报实销上限」（合同里没配 lodging_cap 时的回落值）。"""
+        with self.module.app.app_context():
+            self.module.set_setting("payroll_lodging_limit", str(value))
+            self.module.db().commit()
+
+    def add_work_days(self, days):
+        """写日报，让「住宿人晚」估算有依据：相邻两个工作日的间隔 = 人晚数。"""
+        with self.module.app.app_context():
+            db = self.module.db()
+            uid = db.execute(
+                "select id from users where email = 'profit-pt@example.invalid'"
+            ).fetchone()["id"]
+            for day in days:
+                rid = db.execute(
+                    "insert into service_reports (service_order_id, report_date, "
+                    "actual_work_date, created_by, created_at, updated_at) "
+                    "values (?,?,?,?,?,?) returning id",
+                    (self.order_id, day, day, uid, NOW, NOW),
+                ).fetchone()["id"]
+                db.execute(
+                    "insert into service_report_workers (report_id, user_id) values (?,?)",
+                    (rid, uid),
+                )
+            db.commit()
+
     def lines(self):
         with self.module.app.app_context():
             return profitability._expense_lines(self.api, RANGE[0], RANGE[1], self.order_id)
@@ -187,12 +250,11 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
     # ─────────────────────────── 未进入结算单 ───────────────────────────
 
     def test_unsettled_pass_through_categories_break_even(self):
-        """未结算时，租赁加油/停车/打车/住宿 收入=成本，利润 0。"""
+        """未结算时，租赁加油/停车/打车 收入=成本，利润 0（住宿费另按上限折算）。"""
         for key, expected_cost in (
             ("rental_fuel", 100.0),
             ("parking", 45.0),
             ("taxi", 30.0),
-            ("lodging", 1000.0),
         ):
             line = self.line_for(key)
             self.assertEqual(line["cost"], expected_cost, key)
@@ -205,6 +267,33 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
         self.assertEqual(line["cost"], 80.0)
         self.assertEqual(line["revenue"], 0.0)
         self.assertEqual(line["profit"], -80.0)
+
+    # ─────────────────────────── 住宿费上限 ───────────────────────────
+
+    def test_unsettled_lodging_without_cap_is_full_cost(self):
+        """没配上限（人晚/每晚上限为 0）时，住宿费等同全额代垫，利润 0。"""
+        line = self.line_for("lodging")
+        self.assertEqual(line["revenue"], 1000.0)
+        self.assertEqual(line["profit"], 0.0)
+        self.assertEqual(line["client_rate_source"], "pass_through_at_cost")
+
+    def test_unsettled_lodging_prorated_by_cap(self):
+        """未结算也按上限折算：5 人晚 × 100/晚 = 500 上限，1000 住宿费亏 500。"""
+        self.set_lodging_limit(100)
+        self.add_work_days(["2026-09-10", "2026-09-15"])  # 间隔 5 晚
+        line = self.line_for("lodging")
+        self.assertEqual(line["cost"], 1000.0)
+        self.assertEqual(line["revenue"], 500.0)
+        self.assertEqual(line["profit"], -500.0)
+        self.assertEqual(line["client_rate_source"], "lodging_cap")
+
+    def test_unselected_lodging_still_uses_cap(self):
+        """结算单里没勾住宿费，也按上限估收入 —— 不能再回到 0 收入的全额亏损。"""
+        self.select_into_settlement(["taxi"], person_nights=5, cap_rate=100)
+        line = self.line_for("lodging")
+        self.assertEqual(line["cost"], 1000.0)
+        self.assertEqual(line["revenue"], 500.0)
+        self.assertEqual(line["profit"], -500.0)
 
     # ─────────────────────────── 已进入结算单 ───────────────────────────
 
@@ -224,13 +313,6 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
         self.assertEqual(line["cost"], 1000.0)
         self.assertEqual(line["revenue"], 500.0)  # 5 人晚 × 100 = 500 上限
         self.assertEqual(line["profit"], -500.0)
-
-    def test_unsettled_lodging_defaults_to_full_cost(self):
-        """住宿费未结算时按你说的默认全额代垫，利润 0（不臆造上限亏损）。"""
-        line = self.line_for("lodging")
-        self.assertEqual(line["revenue"], 1000.0)
-        self.assertEqual(line["profit"], 0.0)
-        self.assertEqual(line["client_rate_source"], "pass_through_at_cost")
 
 
 if __name__ == "__main__":

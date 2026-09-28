@@ -7,6 +7,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from flask import abort, render_template, request
 
 from rate_engine import CONTRACT_RATE_LABELS, contract_rate, employee_rate
+# 住宿人晚的估算与结算前审核页共用同一套口径（settlement_review 不反向 import
+# 本模块，无循环依赖）。
+from settlement_review import default_person_nights
 
 
 # 客户按实际成本全额补偿的报销类别（实报实销 / 代垫）：收入=成本，利润为 0。
@@ -15,7 +18,11 @@ from rate_engine import CONTRACT_RATE_LABELS, contract_rate, employee_rate
 #  「按合同费率预估」的口径也不一致。
 # 注意 "fuel" 经 customer_reimbursement_expense_field() 过滤后只可能是租赁车辆
 #  加油费（个人／自驾的 fuel_vehicle_type 返回 None，走 _is_personal_fuel 分支）。
-PASS_THROUGH_EXPENSE_FIELDS = {"fuel", "parking", "taxi", "lodging"}
+#
+# 住宿费**不**在这个集合里：它是「实报实销但有上限」——客户只按 人晚 × 每晚上限
+# 补偿，超出部分是真实亏损，所以无论有没有进结算单都要按上限折算（见
+# _lodging_cap_ratios），不能一律做成利润 0。
+PASS_THROUGH_EXPENSE_FIELDS = {"fuel", "parking", "taxi"}
 
 
 def _money(value):
@@ -271,6 +278,108 @@ def _lodging_ratios(api):
     return ratios
 
 
+def _order_lodging_totals(api, order_ids):
+    """每个工单「已核准住宿费」合计。
+
+    上限是整单一起算的（人晚 × 每晚上限对的是工单，不是单条报销），所以这里
+    按工单汇总全部已核准住宿费，不受利润表当前的人员筛选影响。
+    """
+    totals = {}
+    if not order_ids:
+        return totals
+    placeholders = ", ".join("?" * len(order_ids))
+    rows = api["db"]().execute(
+        f"""
+        select expenses.service_order_id as service_order_id,
+               expense_items.amount as amount,
+               coalesce(projects.name, expense_items.project) as project_name,
+               expense_items.fuel_vehicle_type as fuel_vehicle_type
+        from expenses
+        join expense_items on expense_items.expense_id = expenses.id
+        left join projects on projects.id = expense_items.project_id
+        where expenses.status = 'approved'
+          and expenses.service_order_id in ({placeholders})
+        """,
+        tuple(order_ids),
+    ).fetchall()
+    for row in rows:
+        if api["customer_reimbursement_expense_field"](row["project_name"], row["fuel_vehicle_type"]) == "lodging":
+            key = row["service_order_id"]
+            totals[key] = totals.get(key, Decimal("0")) + _money(row["amount"])
+    return totals
+
+
+def _lodging_cap_ratios(api, rows):
+    """住宿费的「上限折算比例」（每工单一个）：min(1, 上限 / 住宿合计)。
+
+    上限 = 人晚 × 每晚上限：
+      - 人晚优先用工单结算单里存下来的数字（结算前审核页可手改，是人工确认过的）；
+        没有结算单时用 settlement_review.default_person_nights() 的同款估算。
+      - 每晚上限走 contract_rate('lodging_cap')，合同版本查不到时回落到全局设置
+        的「住宿实报实销上限」。
+    两者任一为 0（即没配上限）就按全额代垫处理 —— 那时确实没有可测量的亏损。
+    """
+    ratios = {}
+    if not rows:
+        return ratios
+    field = api["customer_reimbursement_expense_field"]
+    order_ids = sorted(
+        {row["service_order_id"] for row in rows if field(row["project_name"], row["fuel_vehicle_type"]) == "lodging"}
+    )
+    if not order_ids:
+        return ratios
+    db = api["db"]()
+    placeholders = ", ".join("?" * len(order_ids))
+    totals = _order_lodging_totals(api, order_ids)
+    orders = {
+        row["id"]: row
+        for row in db.execute(
+            f"select id, start_date from service_orders where id in ({placeholders})",
+            tuple(order_ids),
+        ).fetchall()
+    }
+    settlements = {}
+    for row in db.execute(
+        f"""
+        select service_order_id, lodging_person_nights, lodging_cap_rate_snapshot
+        from customer_reimbursements
+        where service_order_id in ({placeholders})
+        order by created_at desc, id desc
+        """,
+        tuple(order_ids),
+    ).fetchall():
+        # 只认填了人晚的结算单：同一工单可能有多张草稿，空的那张没有参考价值。
+        if _money(row["lodging_person_nights"]) > 0 and _money(row["lodging_cap_rate_snapshot"]) > 0:
+            settlements.setdefault(row["service_order_id"], row)
+    for order_id in order_ids:
+        total = totals.get(order_id, Decimal("0"))
+        if total <= 0:
+            ratios[order_id] = Decimal("1")
+            continue
+        settlement = settlements.get(order_id)
+        nights = _money(settlement["lodging_person_nights"]) if settlement else Decimal("0")
+        rate = _money(settlement["lodging_cap_rate_snapshot"]) if settlement else Decimal("0")
+        if nights <= 0:
+            nights = Decimal(default_person_nights(db, order_id))
+        if rate <= 0:
+            order = orders.get(order_id)
+            # 注意：数据库 Row 不支持 .get()（PG 与自定义 Row 都是），只能取列。
+            raw_start = order["start_date"] if order else None
+            work_date = str(raw_start or date.today().isoformat())[:10]
+            rate = _money(
+                contract_rate(
+                    db,
+                    order_id,
+                    work_date,
+                    "lodging_cap",
+                    lodging_fallback=api["lodging_reimbursement_limit"](),
+                )["rate"]
+            )
+        cap = nights * rate
+        ratios[order_id] = Decimal("1") if cap <= 0 else min(Decimal("1"), cap / total)
+    return ratios
+
+
 def _selected_expense_map(api):
     ratios = _lodging_ratios(api)
     result = {}
@@ -344,6 +453,7 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
         params,
     ).fetchall()
     selected = _selected_expense_map(api)
+    lodging_ratios = _lodging_cap_ratios(api, rows)
     weights = _work_hour_weights_for_orders(api, {row["service_order_id"] for row in rows})
     lines = []
 
@@ -388,10 +498,16 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
         if selection:
             revenue = selection["amount"]
             source = "selected_settlement_expense"
+        elif field == "lodging":
+            # 住宿费实报实销但有上限：无论有没有进结算单，都按 人晚 × 每晚上限
+            # 折算收入，超出上限的部分是真亏损（不能一律做成利润 0）。没配上限时
+            # 比例是 1，等价于全额代垫。
+            ratio = lodging_ratios.get(row["service_order_id"], Decimal("1"))
+            revenue = cost * ratio
+            source = "lodging_cap" if ratio < 1 else "pass_through_at_cost"
         elif field in PASS_THROUGH_EXPENSE_FIELDS:
             # 实报实销（代垫）项目：客户按实际成本全额补偿，未进入结算单也按成本
-            # 确认收入，利润为 0。住宿费默认同样全额代垫；已结算且超出合同人晚上限
-            # 的部分仍按上限折算（那时上限才是可测量的真实亏损）。
+            # 确认收入，利润为 0。
             revenue = cost
             source = "pass_through_at_cost"
         else:
