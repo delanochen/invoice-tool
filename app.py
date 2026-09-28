@@ -14218,18 +14218,18 @@ def generate_service_report_mileage_evidence(report_id):
     evidence_root = os.path.join(DATA_DIR, "service-report-mileage")
     # 同步接口：用更短的超时/重试（fail-fast）。否则每台设备最坏 ~96 秒，
     # 多台设备会超过 gunicorn/网关超时被切断连接，前端只会看到"网络错误"。
-    evidence_svc = ServiceReportEvidenceService(
-        routes_service=GoogleRoutesService(routes_api_key, timeout=8, max_retries=1) if routes_api_key else None,
-        evidence_service=MileageEvidenceService(
-            GoogleStaticMapsService(static_maps_key, timeout=8, max_retries=1),
-            evidence_root,
-        ),
-        attachment_saver=save_generated_report_attachment,
-        evidence_root=evidence_root,
-        uploaded_by=g.user["id"],
-        now_fn=now,
-    )
     try:
+        evidence_svc = ServiceReportEvidenceService(
+            routes_service=GoogleRoutesService(routes_api_key, timeout=8, max_retries=1) if routes_api_key else None,
+            evidence_service=MileageEvidenceService(
+                GoogleStaticMapsService(static_maps_key, timeout=8),
+                evidence_root,
+            ),
+            attachment_saver=save_generated_report_attachment,
+            evidence_root=evidence_root,
+            uploaded_by=g.user["id"],
+            now_fn=now,
+        )
         summary = evidence_svc.generate(
             report_id=report_id,
             order_id=order["id"],
