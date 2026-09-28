@@ -6414,6 +6414,70 @@ def messages():
     return render_template("messages.html", messages=rows)
 
 
+def _message_ids_for_user(raw_ids):
+    """把表单里的 id 收敛成当前用户自己的消息 id。
+
+    消息是「每人一份」的私有数据（`where user_id = ?` 就是权限边界），
+    所以这里必须再过滤一次 —— 不能因为前端只传自己的 id 就信任它。
+    非数字、越界的 id 一律丢弃，不报错。
+    """
+    ids = []
+    for value in raw_ids:
+        try:
+            message_id = int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        if message_id > 0:
+            ids.append(message_id)
+    if not ids:
+        return []
+    # 去重后保持稳定顺序，便于日志与测试断言。
+    unique = sorted(set(ids))
+    placeholders = ",".join("?" for _ in unique)
+    owned = db().execute(
+        f"select id from messages where user_id = ? and id in ({placeholders})",
+        (g.user["id"], *unique),
+    ).fetchall()
+    return [row["id"] for row in owned]
+
+
+@app.post("/messages/mark")
+@login_required
+def mark_messages():
+    """把选中的消息标为已读或未读。
+
+    对应页面上「标为已读 / 标为未读」两个按钮：未读的可以选中设为已读，
+    已读的也可以选中设为未读。两个方向共用一个端点，靠 is_read 取值区分。
+    """
+    is_read = 1 if request.form.get("is_read") == "1" else 0
+    ids = _message_ids_for_user(request.form.getlist("message_id"))
+    if not ids:
+        flash("请先勾选要标记的消息。", "error")
+        return redirect(url_for("messages"))
+    placeholders = ",".join("?" for _ in ids)
+    db().execute(
+        f"update messages set is_read = ? where user_id = ? and id in ({placeholders})",
+        (is_read, g.user["id"], *ids),
+    )
+    db().commit()
+    flash(f"已将 {len(ids)} 条消息标为{'已读' if is_read else '未读'}。", "success")
+    return redirect(url_for("messages"))
+
+
+@app.post("/messages/mark-all-read")
+@login_required
+def mark_all_messages_read():
+    """「未读全为已读」：把自己名下所有未读一次性标为已读。"""
+    cursor = db().execute(
+        "update messages set is_read = 1 where user_id = ? and is_read = 0",
+        (g.user["id"],),
+    )
+    db().commit()
+    changed = max(0, cursor.rowcount or 0)
+    flash(f"已将 {changed} 条未读消息标为已读。" if changed else "当前没有未读消息。", "success")
+    return redirect(url_for("messages"))
+
+
 @app.route("/messages/<int:message_id>")
 @login_required
 def message_detail(message_id):
@@ -13376,6 +13440,16 @@ def service_order_detail(order_id):
     expense_total = sum((Decimal(str(row["amount"] or 0)) for row in expenses_rows), Decimal("0"))
     expense_currency = expenses_rows[0]["currency"] if expenses_rows else "USD"
     customer_reimbursement = latest_customer_reimbursement(order_id) if can_view_customer_reimbursement() else None
+    # 结算明细：工单详情页的「工单结算」面板按只读表格展示（此前只有小计/合计，
+    # 明细只在编辑页可见）。金额口径与编辑页一致——差旅各项走
+    # customer_reimbursement_item_expense_amount()「手改优先、绝不与 auto 相加」。
+    settlement_items = customer_reimbursement_items(customer_reimbursement["id"]) if customer_reimbursement else []
+    settlement_items = [dict(item) for item in settlement_items]
+    for item in settlement_items:
+        item["expense_amounts"] = {
+            key: customer_reimbursement_item_expense_amount(item, key)
+            for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
+        }
     delete_blockers = service_order_delete_blockers(order_id)
     photo_summary = (
         service_order_photo_summary(order["order_number"])
@@ -13391,6 +13465,7 @@ def service_order_detail(order_id):
         expense_total=expense_total,
         expense_currency=expense_currency,
         customer_reimbursement=customer_reimbursement,
+        settlement_items=settlement_items,
         can_delete_order=can_delete_service_order() and not delete_blockers,
         delete_blockers=delete_blockers,
         photo_summary=photo_summary,

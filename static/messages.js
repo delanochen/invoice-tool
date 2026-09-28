@@ -241,6 +241,86 @@ document.querySelectorAll("[data-message-link]").forEach((link) => {
   });
 });
 
+// ── 勾选与批量标记 ────────────────────────────────────────────────────────
+// 页面里的表格会被 system-grid.js 镜像成 Tabulator，鼠标点到的是镜像出来的
+// checkbox；镜像层会把状态写回原 checkbox 并派发 change（见 system-grid.js
+// 的 mirror()）。所以「哪些行被选中」必须始终以**原表**里的 checkbox 为准。
+//
+// 关键：镜像出来的行也在**同一个 document** 里（.system-grid 是原表的兄弟
+// 节点），所以 `document.querySelectorAll('[data-message-select]')` 会把原件
+// 和副本一起数进来 —— 勾一行会被算成两行。必须把副本排除掉。
+function messageSourceCheckboxes() {
+  return [...document.querySelectorAll("[data-message-select]")].filter(
+    (box) => !box.closest(".system-grid")
+  );
+}
+
+function selectedMessageIds() {
+  return messageSourceCheckboxes()
+    .filter((box) => box.checked)
+    .map((box) => box.value);
+}
+
+function messageSelection() {
+  const boxes = messageSourceCheckboxes();
+  const selected = boxes.filter((box) => box.checked);
+  const markRead = document.querySelector('[data-message-mark-selected][data-mark-read="1"]');
+  const markUnread = document.querySelector('[data-message-mark-selected][data-mark-read="0"]');
+  for (const button of [markRead, markUnread]) {
+    if (button) button.disabled = selected.length === 0;
+  }
+  const all = document.querySelector("[data-message-select-all]");
+  if (all) {
+    all.checked = boxes.length > 0 && selected.length === boxes.length;
+    all.indeterminate = selected.length > 0 && selected.length < boxes.length;
+  }
+  const count = document.querySelector("[data-message-selected-count]");
+  if (count) count.textContent = selected.length ? `已选 ${selected.length} 条` : "";
+}
+
+async function submitMessageMark(ids, isRead) {
+  if (!ids.length) return;
+  const form = new FormData();
+  form.set("is_read", isRead ? "1" : "0");
+  for (const id of ids) form.append("message_id", id);
+  const response = await fetch(document.getElementById("messageMarkForm").action, {
+    method: "POST",
+    body: form,
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+  });
+  if (!response.ok) return;
+  // 标记后行内状态与未读徽标都要跟着变；排序规则是未读在前，
+  // 局部改 class 不会重排，所以这一步直接整页刷新最稳。
+  window.location.reload();
+}
+
+document.querySelector("[data-message-select-all]")?.addEventListener("change", (event) => {
+  const checked = event.target.checked;
+  messageSourceCheckboxes().forEach((box) => {
+    box.checked = checked;
+    // 镜像 DOM 是独立副本，原 checkbox 改了要同步通知它一次。
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  messageSelection();
+});
+
+document.addEventListener("change", (event) => {
+  if (event.target.closest("[data-message-select]")) messageSelection();
+});
+
+document.querySelectorAll("[data-message-mark-selected]").forEach((button) => {
+  button.addEventListener("click", () => {
+    submitMessageMark(selectedMessageIds(), button.dataset.markRead === "1");
+  });
+});
+
+document.querySelector("[data-message-mark-all]")?.addEventListener("click", () => {
+  const form = document.getElementById("messageMarkAllForm");
+  if (form) form.submit();
+});
+
+messageSelection();
+
 translateMessages();
 
 window.addEventListener("pageshow", (event) => {

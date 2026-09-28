@@ -85,4 +85,20 @@
     }
     window.location.href = value;
   });
+
+  // 非「行选择」类的跳转按钮（如工单详情页「编辑工单结算」）也走同一套：
+  // 带上 data-workspace-url 就表示「在工作区里新开标签页」，而不是替换当前标签。
+  // 下载类不能走这里（否则文件下载会变成 iframe 页面），仍用原生 onclick。
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-workspace-url]");
+    if (!button || button.disabled) return;
+    const url = button.dataset.workspaceUrl || "";
+    if (!url) return;
+    event.preventDefault();
+    if (typeof window.workspaceOpen === "function") {
+      window.workspaceOpen(url, button.dataset.workspaceTitle || button.textContent.trim());
+      return;
+    }
+    window.location.href = url;
+  });
 })();

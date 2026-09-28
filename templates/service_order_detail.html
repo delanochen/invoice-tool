@@ -241,8 +241,12 @@
         {% if customer_reimbursement %}
           <div class="erp-toolbar-group no-print" style="padding:0 0 6px;flex:0 0 auto;">
             {% if can_manage_customer_reimbursement() %}
-              <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">{% if customer_reimbursement %}编辑工单结算{% else %}生成工单结算{% endif %}</button>
+              {# data-workspace-url：在工作区里新开标签页，不把当前工单详情页顶掉。 #}
+              <button class="erp-btn" type="button"
+                      data-workspace-url="{{ url_for('customer_reimbursement_form', order_id=order.id) }}"
+                      data-workspace-title="工单结算 · {{ order.order_number }}">{% if customer_reimbursement %}编辑工单结算{% else %}生成工单结算{% endif %}</button>
             {% endif %}
+            {# 下载类保持浏览器原生行为，不进 iframe 标签。 #}
             <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
             <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_excel', reimbursement_id=customer_reimbursement.id) }}'">导出 Excel</button>
           </div>
@@ -254,11 +258,70 @@
           <div class="erp-detail-metrics">
             <div><span>合计</span><strong>{{ customer_reimbursement.total_amount|money }}</strong></div>
           </div>
+          {% if settlement_items %}
+          {# 只读结算明细：此前详情页只有小计/合计，明细必须进编辑页才看得到。
+             金额口径与编辑页一致（手改优先），因此直接展示后端算好的值，不做二次计算。 #}
+          <div class="erp-grid-wrap" style="margin-top:6px;">
+            <table class="list-table erp-grid">
+              <thead>
+                <tr>
+                  <th>姓名</th><th>项目时间</th>
+                  <th>标准</th><th>交通</th><th>公共交通</th><th>加班</th><th>节假日</th>
+                  <th>工时费</th>
+                  <th>住宿</th><th>机票</th><th>行李</th><th>租车</th><th>加油</th><th>停车</th><th>打车</th>
+                  <th>英里</th><th>里程费</th><th>其他</th><th>合计</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in settlement_items %}
+                  <tr>
+                    <td>{{ item.worker_name }}</td>
+                    <td>{{ item.project_date }}</td>
+                    <td>{{ item.standard_hours|hours }}</td>
+                    <td>{{ item.transport_hours|hours }}</td>
+                    <td>{{ item.public_transport_hours|hours }}</td>
+                    <td>{{ item.overtime_hours|hours }}</td>
+                    <td>{{ item.holiday_hours|hours }}</td>
+                    <td>{{ item.labor_total|money }}</td>
+                    <td>{{ item.expense_amounts.lodging|money }}</td>
+                    <td>{{ item.expense_amounts.airfare|money }}</td>
+                    <td>{{ item.expense_amounts.baggage|money }}</td>
+                    <td>{{ item.expense_amounts.rental_car|money }}</td>
+                    <td>{{ item.expense_amounts.fuel|money }}</td>
+                    <td>{{ item.expense_amounts.parking|money }}</td>
+                    <td>{{ item.expense_amounts.taxi|money }}</td>
+                    <td>{{ "%g"|format(item.miles or 0) }}</td>
+                    <td>{{ item.mileage_total|money }}</td>
+                    <td>{{ item.expense_amounts.other|money }}</td>
+                    <td>{{ item.total|money }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="erp-cards">
+            {% for item in settlement_items %}
+              <article class="erp-card">
+                <div class="erp-card-head">
+                  <span class="erp-card-code">{{ item.worker_name }}</span>
+                  <span class="erp-card-customer">{{ item.project_date }}</span>
+                </div>
+                <div class="erp-card-sub">
+                  <span>工时 {{ item.labor_total|money }}</span>
+                  <span>里程 {{ item.mileage_total|money }}</span>
+                  <span>合计 {{ item.total|money }}</span>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+          {% endif %}
         {% else %}
           <div class="erp-empty">还没有工单结算。生成后可补充住宿、交通费、英里数和附件。</div>
           {% if can_manage_customer_reimbursement() %}
             <div class="erp-toolbar-group no-print" style="padding:8px 0 0;">
-              <button class="erp-btn primary" type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_form', order_id=order.id) }}'">生成工单结算</button>
+              <button class="erp-btn primary" type="button"
+                      data-workspace-url="{{ url_for('customer_reimbursement_form', order_id=order.id) }}"
+                      data-workspace-title="工单结算 · {{ order.order_number }}">生成工单结算</button>
             </div>
           {% endif %}
         {% endif %}

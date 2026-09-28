@@ -4,11 +4,18 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  /* 勾选列窄一些，且不要被表内搜索当成正文内容。 */
+  .erp-grid .message-select-col { width: 2.4rem; text-align: center; }
+  .erp-grid .message-select-col input[type="checkbox"] { margin: 0; cursor: pointer; }
+  .erp-cards .erp-card-check { display: inline-flex; align-items: center; margin-right: 4px; }
+  .erp-cards .erp-card-check input[type="checkbox"] { margin: 0; cursor: pointer; }
+</style>
 {% endblock %}
 
 {% block content %}
-{# 展示层改造：data-message-* 钩子与 messages.js 全部保持原样，
-   后端消息列表与已读逻辑未改动。 #}
+{# data-message-* 钩子供 messages.js 使用；已读状态本身仍是后端落库字段，
+   「标为已读 / 标为未读 / 全部标为已读」三个按钮走 POST 后整页刷新。 #}
 {% set unread = messages|rejectattr('is_read')|list|length %}
 <div class="erp-app" data-active-panel="list">
 
@@ -22,27 +29,43 @@
     {% if unread %}<span class="erp-badge warn">未读 {{ unread }}</span>{% endif %}
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" data-message-mark-selected data-mark-read="1" disabled>标为已读</button>
+      <button type="button" class="erp-btn" data-message-mark-selected data-mark-read="0" disabled>标为未读</button>
+      <button type="button" class="erp-btn" data-message-mark-all {% if not unread %}disabled{% endif %}>全部标为已读</button>
       <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
     </div>
   </header>
 
+  <!-- 批量标记表单：按钮收集勾选行后提交。method=post 由 messages.js 组装 message_id。
+       放在 <form> 里而不是每行一个表单，避免 Tabulator 镜像时 form 属性被剥掉。 -->
+  <form method="post" action="{{ url_for('mark_messages') }}" id="messageMarkForm" hidden>
+    <input type="hidden" name="is_read" value="1" data-message-mark-read-input>
+  </form>
+  <form method="post" action="{{ url_for('mark_all_messages_read') }}" id="messageMarkAllForm" hidden></form>
+
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
   <div class="erp-body">
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid" data-grid-height="100%">
-          <thead><tr><th>标题</th><th>内容</th><th>时间</th><th>状态</th></tr></thead>
+        <table class="list-table erp-grid" data-grid-height="100%" data-message-table>
+          <thead><tr>
+            <th class="message-select-col"><input type="checkbox" data-message-select-all aria-label="全选"></th>
+            <th>状态</th><th>标题</th><th>内容</th><th>时间</th>
+          </tr></thead>
           <tbody>
             {% for message in messages %}
               <tr class="{% if not message.is_read %}message-unread{% endif %}" data-message-row data-is-read="{{ 1 if message.is_read else 0 }}">
+                <td class="message-select-col">
+                  <input type="checkbox" data-message-select value="{{ message.id }}" aria-label="选择这条消息">
+                </td>
+                <td data-message-status>{{ "已读" if message.is_read else "未读" }}</td>
                 <td><a href="{{ url_for('message_detail', message_id=message.id) }}" data-message-link data-message-title>{{ message.title }}</a></td>
                 <td data-message-body>{{ message.body }}</td>
                 <td>{{ message.created_at|local_datetime }}</td>
-                <td data-message-status>{{ "已读" if message.is_read else "未读" }}</td>
               </tr>
             {% else %}
-              <tr><td colspan="4" class="empty">暂无消息。</td></tr>
+              <tr><td colspan="5" class="empty">暂无消息。</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -53,8 +76,11 @@
         {% for message in messages %}
           <article class="erp-card {% if message.is_read %}pos{% else %}warn{% endif %}">
             <div class="erp-card-head">
-              <span class="erp-card-code" data-message-title>{{ message.title }}</span>
+              <label class="erp-card-check">
+                <input type="checkbox" data-message-select value="{{ message.id }}" aria-label="选择这条消息">
+              </label>
               <span data-message-status>{{ "已读" if message.is_read else "未读" }}</span>
+              <span class="erp-card-code" data-message-title>{{ message.title }}</span>
             </div>
             <div class="erp-card-sub"><span>{{ message.created_at|local_datetime }}</span></div>
             <div class="erp-cert-file" data-message-body>{{ message.body }}</div>
@@ -81,6 +107,8 @@
     <span>记录 <b data-erp-count>{{ messages|length }}</b> 条</span>
     <span class="sep"></span>
     <span>未读 <b>{{ unread }}</b> 条</span>
+    <span class="sep"></span>
+    <span data-message-selected-count></span>
   </footer>
 </div>
 {% endblock %}

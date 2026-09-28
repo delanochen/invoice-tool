@@ -146,6 +146,28 @@
           });
           return;
         }
+        // 单元格内的「操作控件」自我替换（如报销详情页点「智能解读」后按钮变成
+        // 「解读结果」链接）同样只改呈现、不动数据。走 replaceData 会重建整张表、
+        // 把表格内部滚动位置清零 —— 用户看到的就是「点一下页面就往上跳」。
+        // 只重绘受影响的单元格即可。
+        const controlsOnly = records.length && records.every(record =>
+          record.type === 'childList' &&
+          record.target.closest?.('[data-interpret-cell]')
+        );
+        if (controlsOnly) {
+          const cells = new Set();
+          records.forEach(record => {
+            const cell = record.target.closest?.('td');
+            if (cell) cells.add(cell);
+          });
+          cells.forEach(sourceCell => {
+            const row = sourceCell.closest('tr');
+            const tRow = this.grid.getRow(row?._gridId);
+            // reformat 会重跑 formatter → mirror()，把最新 DOM 镜像进这一行。
+            tRow?.reformat();
+          });
+          return;
+        }
         this.schedule();
       });
       this.observer.observe(source, {subtree:true, childList:true, characterData:true, attributes:true});
@@ -265,12 +287,39 @@
       const data=this.read();
       const signature=JSON.stringify(data)+this.source.innerHTML+JSON.stringify([...this.source.querySelectorAll('input,select,textarea')].map(input=>[input.value,input.checked,input.disabled]));
       if(signature===this.signature) return;
+      // 只有 checkbox 勾选状态变了（如消息页批量选择、报销候选池多选）时，
+      // 不能走 replaceData：那会重建整张表，把纵向滚动清零、并丢掉刚勾好的
+      // 选中态 —— 用户看到的就是「勾一个，列表跳回顶部」。行数据本身没变，
+      // 只需把原表的 checkbox 状态同步给镜像出来的那些副本。
+      // 判据 = 行数据 / 文本没变，且勾选态**确实变了**（全都一样的话签名也不会变，
+      // 走不到这里；所以这里要求「有差异」而不是「全相同」）。
+      const boxStates = [...this.source.querySelectorAll('input[type=checkbox]')].map(box=>box.checked);
+      const previous = this.boxSnapshot;
+      const hasBoxSnapshot = Array.isArray(previous) && previous.length === boxStates.length;
+      const boxesChanged = hasBoxSnapshot && previous.some((value, index) => value !== boxStates[index]);
+      const onlyCheckboxes = boxStates.length > 0 && boxesChanged &&
+        this.textSnapshot === this.source.innerHTML &&
+        JSON.stringify(this.dataSnapshot) === JSON.stringify(data);
+      if (onlyCheckboxes) {
+        this.signature = signature;
+        this.boxSnapshot = boxStates;
+        this.grid.getRows().forEach(row=>{
+          const sourceBox = this.rows.get(row.getData()._id)?.querySelector('input[type=checkbox]');
+          const mirrorBox = row.getElement()?.querySelector('input[type=checkbox]');
+          if (sourceBox && mirrorBox) mirrorBox.checked = sourceBox.checked;
+        });
+        return;
+      }
       const now = performance.now();
       this.syncTimes = (this.syncTimes || []).filter(time => now - time < 4000);
       // 熔断：4 秒内超过 12 次 replaceData 视为病态变更循环（例如浏览器
       // 翻译插件反复改写表格文本），跳过本次刷新避免底部合计行持续闪烁。
       if(this.syncTimes.length >= 12) return;
-      this.syncTimes.push(now); this.signature=signature; this.grid.replaceData(data).then(()=>this.updateCount());
+      this.syncTimes.push(now); this.signature=signature;
+      this.boxSnapshot = boxStates;
+      this.textSnapshot = this.source.innerHTML;
+      this.dataSnapshot = JSON.parse(JSON.stringify(data));
+      this.grid.replaceData(data).then(()=>this.updateCount());
     }
     updateCount() {
       if(!this.count) return;
