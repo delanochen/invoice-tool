@@ -10,8 +10,10 @@ import importlib.util
 import shutil
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from trip_policy import DEFAULT_TRIP_TYPE, ONE_WAY, ROUND_TRIP
 
@@ -345,6 +347,7 @@ class ServiceReportWorkerFieldsTest(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def setUp(self):
+        self.module.REPORT_ATTACHMENTS_DIR = str(Path(self.temp_dir.name) / "report-attachments")
         with self.module.app.app_context():
             connection = self.module.db()
             for table in (
@@ -427,6 +430,31 @@ class ServiceReportWorkerFieldsTest(unittest.TestCase):
         self.assertIn("往返", html)
         self.assertIn("单程", html)
         self.assertIn('value="1 Main St"', html)
+
+    def test_new_report_photo_save_uses_known_context_without_requery(self):
+        from PIL import Image
+
+        image = BytesIO()
+        Image.new("RGB", (40, 30), "blue").save(image, "JPEG")
+        image.seek(0)
+        with patch.object(
+            self.module,
+            "report_storage_context",
+            side_effect=AssertionError("new report save must not requery attachment context"),
+        ):
+            response = self._submit(
+                save_token="assist-photo-token",
+                site_photos=(image, "site.jpg"),
+            )
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            attachment = self.module.db().execute(
+                "select * from service_report_attachments where category = 'site'"
+            ).fetchone()
+        self.assertIsNotNone(attachment)
+        self.assertTrue(
+            (Path(self.module.REPORT_ATTACHMENTS_DIR) / attachment["stored_filename"]).is_file()
+        )
 
     def test_assist_plan_endpoint_rejects_bad_date(self):
         response = self.http.post(

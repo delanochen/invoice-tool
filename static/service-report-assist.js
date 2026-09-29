@@ -1,7 +1,7 @@
 // 工作日报「辅助填写」：只读预览 -> 用户勾选 -> 应用到表单。
 //
 // 设计要点：
-// 1. 照片走 service-report.js 已有的 NAS 通道（nasSelections + renderSelectedNasPhotos），
+// 1. 照片走 service-report.js 已有的服务器照片通道（nasSelections + renderSelectedNasPhotos），
 //    不新增上传/落库路径，保证「服务器选择」和「辅助填写」两种来源行为一致。
 // 2. 只填空值：里程、交通时长、出发地如果人工已经填过（非 0 非空），不覆盖。
 // 3. 一切都等用户点「应用到表单」才写进表单（保存前仍可撤销）。

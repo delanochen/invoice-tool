@@ -85,7 +85,7 @@
   }
 
   async function capture(file) {
-    busy = true; updateReady(); showStatus("正在加水印并上传 NAS…");
+    busy = true; updateReady(); showStatus("正在加水印并上传服务器…");
     const capturedAt = adjustedDate();
     try {
       const blob = await watermark(file, capturedAt);
@@ -100,7 +100,7 @@
       const response = await fetch(shell.dataset.uploadUrl, { method: "POST", body: data, credentials: "same-origin" });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.ok) throw new Error(result.error || "上传失败");
-      showStatus(result.message || "打卡成功，照片已上传 NAS。");
+      showStatus(result.message || "打卡成功，照片已上传服务器。");
     } catch (error) { showStatus(error.message || "打卡失败，请重试。", true); }
     finally { busy = false; input.value = ""; updateReady(); }
   }

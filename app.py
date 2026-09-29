@@ -2563,6 +2563,16 @@ def allowed_image(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
 
+def report_storage_context_values(order_number, report_date, report_id=None):
+    """Build the attachment folder context without requiring a persisted report."""
+    safe_order_number = secure_filename(order_number) or f"SO-{report_id or 'new'}"
+    try:
+        safe_report_date = datetime.strptime(report_date, "%Y-%m-%d").strftime("%Y%m%d")
+    except (TypeError, ValueError):
+        safe_report_date = str(report_date or "").replace("-", "") or "unknown-date"
+    return safe_order_number, safe_report_date
+
+
 def report_storage_context(report_id):
     row = db().execute(
         """
@@ -2574,25 +2584,28 @@ def report_storage_context(report_id):
         (report_id,),
     ).fetchone()
     if not row:
+        app.logger.warning(
+            "Report attachment context missing: report_id=%s endpoint=%s path=%s",
+            report_id,
+            request.endpoint,
+            request.path,
+        )
         abort(404)
-    order_number = secure_filename(row["order_number"]) or f"SO-{report_id}"
-    try:
-        report_date = datetime.strptime(row["report_date"], "%Y-%m-%d").strftime("%Y%m%d")
-    except (TypeError, ValueError):
-        report_date = str(row["report_date"] or "").replace("-", "") or "unknown-date"
-    return order_number, report_date
+    return report_storage_context_values(row["order_number"], row["report_date"], report_id)
 
 
-def report_attachment_relative_path(report_id, category, stored_filename):
-    order_number, report_date = report_storage_context(report_id)
+def report_attachment_relative_path(report_id, category, stored_filename, storage_context=None):
+    order_number, report_date = storage_context or report_storage_context(report_id)
     category_folder = REPORT_PHOTO_FOLDERS.get(category)
     if not category_folder:
         raise ValueError("未知的日报附件类别。")
     return Path(order_number, report_date, category_folder, os.path.basename(stored_filename)).as_posix()
 
 
-def report_attachment_dir(report_id, category):
-    relative = report_attachment_relative_path(report_id, category, "placeholder.jpg")
+def report_attachment_dir(report_id, category, storage_context=None):
+    relative = report_attachment_relative_path(
+        report_id, category, "placeholder.jpg", storage_context=storage_context
+    )
     path = os.path.join(REPORT_ATTACHMENTS_DIR, os.path.dirname(relative))
     os.makedirs(path, exist_ok=True)
     return path
@@ -2684,7 +2697,7 @@ def is_duplicate_report_photo(report_id, category, original_filename, candidate_
     return False
 
 
-def save_report_attachment(report_id, uploaded, category):
+def save_report_attachment(report_id, uploaded, category, storage_context=None):
     if not uploaded or not uploaded.filename:
         return False
     if not allowed_image(uploaded.filename):
@@ -2692,7 +2705,7 @@ def save_report_attachment(report_id, uploaded, category):
     source_filename = uploaded.filename or "photo"
     extension = source_filename.rsplit(".", 1)[1].lower()
     original_filename = os.path.basename(source_filename).strip() or f"photo.{extension}"
-    target_dir = report_attachment_dir(report_id, category)
+    target_dir = report_attachment_dir(report_id, category, storage_context=storage_context)
     temporary_filename = f".{secrets.token_hex(12)}.jpg.tmp"
     temporary_path = os.path.join(target_dir, temporary_filename)
     compress_report_image(uploaded.stream, temporary_path)
@@ -2701,7 +2714,9 @@ def save_report_attachment(report_id, uploaded, category):
         os.remove(temporary_path)
         return False
     image_filename = f"{secrets.token_hex(12)}.jpg"
-    stored_filename = report_attachment_relative_path(report_id, category, image_filename)
+    stored_filename = report_attachment_relative_path(
+        report_id, category, image_filename, storage_context=storage_context
+    )
     os.replace(temporary_path, os.path.join(target_dir, image_filename))
     content_type = "image/jpeg"
     db().execute(
@@ -2715,7 +2730,7 @@ def save_report_attachment(report_id, uploaded, category):
     return True
 
 
-def save_report_file_attachment(report_id, uploaded, category):
+def save_report_file_attachment(report_id, uploaded, category, storage_context=None):
     if not uploaded or not uploaded.filename:
         return False
     if not allowed_attachment(uploaded.filename):
@@ -2725,7 +2740,7 @@ def save_report_file_attachment(report_id, uploaded, category):
     original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
     if "." not in original_filename:
         original_filename = f"{original_filename}.{extension}"
-    target_dir = report_attachment_dir(report_id, category)
+    target_dir = report_attachment_dir(report_id, category, storage_context=storage_context)
     temporary_filename = f".{secrets.token_hex(12)}.{extension}.tmp"
     temporary_path = os.path.join(target_dir, temporary_filename)
     uploaded.save(temporary_path)
@@ -2734,7 +2749,9 @@ def save_report_file_attachment(report_id, uploaded, category):
         os.remove(temporary_path)
         return False
     stored_basename = f"{secrets.token_hex(12)}.{extension}"
-    stored_filename = report_attachment_relative_path(report_id, category, stored_basename)
+    stored_filename = report_attachment_relative_path(
+        report_id, category, stored_basename, storage_context=storage_context
+    )
     os.replace(temporary_path, os.path.join(target_dir, stored_basename))
     db().execute(
         """
@@ -3191,8 +3208,8 @@ def order_photo_status(order_dir):
     }
 
 
-def save_shared_report_photo(report_id, relative_path, category):
-    # The photo worker can move a selected NAS photo between page load and
+def save_shared_report_photo(report_id, relative_path, category, storage_context=None):
+    # The Debian photo worker can move a selected server photo between page load and
     # form submission (for example into a date folder).  Treat that as a
     # recoverable form-validation error instead of aborting the whole request
     # with the application's generic page/record 404.
@@ -3202,19 +3219,27 @@ def save_shared_report_photo(report_id, relative_path, category):
         or source_path.suffix.lower().lstrip(".") not in ALLOWED_IMAGE_EXTENSIONS
     ):
         raise ValueError("所选服务器照片已移动或不存在，请重新打开辅助填写选择照片后再保存。")
-    order_number, _ = report_storage_context(report_id)
+    order_number, _ = storage_context or report_storage_context(report_id)
     processed_root = (shared_photos_root() / order_number / "pictures").resolve()
     try:
         source_path.relative_to(processed_root)
     except ValueError:
-        raise ValueError("只能选择已完成处理的 NAS 照片。")
+        raise ValueError("只能选择已完成处理的服务器照片。")
     if source_path.suffix.lower() not in {".jpg", ".jpeg"}:
-        raise ValueError("NAS 照片尚未完成处理。")
+        raise ValueError("服务器照片尚未完成处理。")
     if is_duplicate_report_photo(report_id, category, source_path.name, file_sha256(source_path)):
         return False
     image_filename = f"{secrets.token_hex(12)}.jpg"
-    stored_filename = report_attachment_relative_path(report_id, category, image_filename)
-    shutil.copyfile(source_path, os.path.join(report_attachment_dir(report_id, category), image_filename))
+    stored_filename = report_attachment_relative_path(
+        report_id, category, image_filename, storage_context=storage_context
+    )
+    shutil.copyfile(
+        source_path,
+        os.path.join(
+            report_attachment_dir(report_id, category, storage_context=storage_context),
+            image_filename,
+        ),
+    )
     db().execute(
         """
         insert into service_report_attachments (
@@ -3271,19 +3296,38 @@ def save_generated_report_attachment(report_id, source_path, original_filename, 
     return cursor.lastrowid
 
 
-def save_report_uploads(report_id):
-    for field_name, category in (
-        ("self_check_photos", "self_check"),
-        ("site_photos", "site"),
-        ("arrival_photos", "arrival"),
-        ("departure_photos", "departure"),
-    ):
-        for uploaded in uploaded_report_files(field_name):
-            save_report_attachment(report_id, uploaded, category)
-        for relative_path in request.form.getlist(f"shared_photo_{category}"):
-            save_shared_report_photo(report_id, relative_path, category)
-    for uploaded in uploaded_report_files("mileage_proof_attachments"):
-        save_report_file_attachment(report_id, uploaded, "mileage_proof")
+def save_report_uploads(report_id, storage_context=None):
+    try:
+        for field_name, category in (
+            ("self_check_photos", "self_check"),
+            ("site_photos", "site"),
+            ("arrival_photos", "arrival"),
+            ("departure_photos", "departure"),
+        ):
+            for uploaded in uploaded_report_files(field_name):
+                save_report_attachment(
+                    report_id, uploaded, category, storage_context=storage_context
+                )
+            for relative_path in request.form.getlist(f"shared_photo_{category}"):
+                save_shared_report_photo(
+                    report_id, relative_path, category, storage_context=storage_context
+                )
+        for uploaded in uploaded_report_files("mileage_proof_attachments"):
+            save_report_file_attachment(
+                report_id, uploaded, "mileage_proof", storage_context=storage_context
+            )
+    except ValueError:
+        raise
+    except OSError as error:
+        app.logger.warning(
+            "Unable to save report attachment: report_id=%s endpoint=%s error=%s",
+            report_id,
+            request.endpoint,
+            type(error).__name__,
+        )
+        raise ValueError(
+            "日报照片保存失败，所选照片可能已移动或暂时不可用。请重新选择照片后再保存。"
+        ) from error
 
 
 def claim_report_save_token(token, report_id=None):
@@ -7765,7 +7809,7 @@ def call_deepseek_chat(messages, settings, include_tools=True, max_tokens=1600):
         detail = error.read().decode("utf-8", errors="replace")[:500]
         raise RuntimeError(deepseek_api_error_message(error.code, detail)) from error
     except (URLError, TimeoutError, OSError) as error:
-        raise RuntimeError(f"NAS 无法连接 DeepSeek API：{error}") from error
+        raise RuntimeError(f"服务器无法连接 DeepSeek API：{error}") from error
     except json.JSONDecodeError as error:
         raise RuntimeError("DeepSeek API 返回了无法解析的数据。") from error
     if not isinstance(result, dict):
@@ -13283,11 +13327,11 @@ def new_service_order():
             ensure_service_order_picture_folder(order_number)
         except OSError:
             folder_created = False
-            app.logger.exception("Failed to create NAS pictures folder for service order %s", order_number)
-            flash("工单已创建，但 NAS 照片文件夹创建失败，请检查共享照片目录挂载或权限。", "error")
+            app.logger.exception("Failed to create server pictures folder for service order %s", order_number)
+            flash("工单已创建，但服务器照片文件夹创建失败，请检查共享照片目录或权限。", "error")
         db().commit()
         if folder_created:
-            flash("工单已创建，NAS 照片文件夹已自动创建。", "success")
+            flash("工单已创建，服务器照片文件夹已自动创建。", "success")
         return redirect(url_for("service_orders"))
     return render_template(
         "service_order_form.html",
@@ -13572,7 +13616,7 @@ def import_google_photos_for_service_order(order_id):
         service_order_incoming_folder(order["order_number"], "google-photos")
     except OSError:
         app.logger.exception("Failed to prepare Google Photos import folder for service order %s", order["order_number"])
-        flash("无法写入 NAS 照片目录，请检查共享照片目录挂载或权限。", "error")
+        flash("无法写入服务器照片目录，请检查共享照片目录或权限。", "error")
         return redirect(url_for("service_order_detail", order_id=order_id))
     start_google_photos_import_job(order_id, g.user["id"], share_url)
     flash("Google Photos 分享链接导入任务已开始。完成后会通过邮件和系统消息通知你。", "success")
@@ -14177,7 +14221,10 @@ def new_service_report(order_id):
             report_id = cursor.lastrowid
             finish_report_save_token(save_token, report_id)
             save_report_detail_rows(report_id)
-            save_report_uploads(report_id)
+            storage_context = report_storage_context_values(
+                order["order_number"], request.form.get("report_date"), report_id
+            )
+            save_report_uploads(report_id, storage_context=storage_context)
             log_action(
                 "create",
                 "service_report",
@@ -14662,7 +14709,7 @@ def upload_mobile_clock_in():
     )
     log_action("create", "clock_in_photo", cursor.lastrowid, site["name"], "移动打卡拍照")
     db().commit()
-    return jsonify({"ok": True, "message": "打卡照片已上传到 NAS。", "id": cursor.lastrowid})
+    return jsonify({"ok": True, "message": "打卡照片已上传到服务器。", "id": cursor.lastrowid})
 
 
 @app.route("/shared-photos/browse")
@@ -14787,7 +14834,7 @@ def download_shared_photos():
     if not files:
         abort(400)
 
-    archive_root = secure_filename(Path(selected_paths[0]).parts[0]) or "nas-photos"
+    archive_root = secure_filename(Path(selected_paths[0]).parts[0]) or "server-photos"
     used_names = set()
     archive_file = tempfile.NamedTemporaryFile(prefix=f"{archive_root}-", suffix=".zip", delete=False)
     archive_path = archive_file.name
@@ -17091,6 +17138,13 @@ def forbidden(error):
 
 @app.errorhandler(404)
 def not_found(error):
+    app.logger.warning(
+        "404 response: method=%s path=%s endpoint=%s description=%s",
+        request.method,
+        request.path,
+        request.endpoint,
+        getattr(error, "description", ""),
+    )
     return (
         render_template(
             "error.html",
