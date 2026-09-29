@@ -258,7 +258,23 @@
     document.querySelectorAll('[data-tab]').forEach(el => el.setAttribute('aria-current', el.dataset.tab === name ? 'page':'false'));
     if (name !== 'camera') stopCamera();
     if (name === 'orders') renderOrders();
-    if (name === 'ledger') loadLedger();
+    if (name === 'ledger') { seedLedgerDateDefaults(); loadLedger(); }
+  }
+  // 台账不筛选直接查询会返回全部照片（图片多，手机端很卡）。
+  // 进入台账时给日期填上「仅今天」的默认范围，只拉当天照片。
+  // 只填空字段：用户自己填过的日期不覆盖。
+  function seedLedgerDateDefaults() {
+    const form = $('ledgerFilter');
+    if (!form) return;
+    const today = localDateString(new Date());
+    const from = form.elements.date_from, to = form.elements.date_to;
+    if (from && !from.value) from.value = today;
+    if (to && !to.value) to.value = today;
+  }
+  // 用本地时区取 YYYY-MM-DD；toISOString() 是 UTC，跨时区会差一天。
+  function localDateString(date) {
+    const pad = value => String(value).padStart(2, '0');
+    return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
   }
   function lock(message) {
     bootstrapGeneration++;
