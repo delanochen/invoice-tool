@@ -21,7 +21,7 @@
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('download_service_order_attachments', order_id=order.id) }}'">批量下载附件</button>
       {% if has_menu_permission("field_work") %}
-        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('field_work', order_id=order.id) }}'">工单拍照</button>
+        <a class="erp-btn" href="{{ url_for('field_work', order_id=order.id) }}">工单拍照</a>
         <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('field_photo_query', order_id=order.id) }}'">照片台账</button>
       {% endif %}
       {% if not (normalized_role() in ["employee", "external_employee", "external_manager"] and order.status == "closed") %}

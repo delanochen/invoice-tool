@@ -120,9 +120,13 @@
     });
     doc.addEventListener('click', event => {
       const link = event.target.closest?.('a[href]');
-      if (!link || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.target || link.hasAttribute('download') || link.hasAttribute('onclick') || link.dataset.imagePreview !== undefined) return;
+      if (!link || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.hasAttribute('download') || link.hasAttribute('onclick') || link.dataset.imagePreview !== undefined) return;
       const url = localUrl(link.href);
-      if (url && /^\/field\/?(?:[?#]|$)/.test(url)) { event.preventDefault(); window.open(url, '_blank', 'noopener'); return; }
+      // 现场工作（/field/）是独立的手机端页面，不放进工作区 iframe，也不另开浏览器标签：
+      // iframe 内的原生导航只会替换当前 iframe，因此必须由外壳主动执行顶层导航。
+      // 返回走页面内的「进入管理系统」。工作区外壳的未保存改动由 beforeunload 兜底提示。
+      if (url && /^\/field\/?(?:[?#]|$)/.test(url)) { event.preventDefault(); location.assign(url); return; }
+      if (link.target) return;
       if (!url || link.getAttribute('href').startsWith('#') || /\.(?:pdf|zip|xlsx?|csv|jpe?g|png|webp)(?:[?#]|$)|\/(?:download|preview|print|export)(?:[/?-]|$)|^\/field\/?(?:[?#]|$)/i.test(url)) return;
       // List/detail/edit links open independently. GET filter forms stay in their tab.
       event.preventDefault(); open(url, link.textContent.trim());
@@ -158,7 +162,8 @@
   }
   document.querySelectorAll('#topnav a').forEach(link => link.addEventListener('click', event => {
     if (event.ctrlKey || event.metaKey || event.shiftKey || link.target) return;
-    if (/^\/field\/?$/.test(new URL(link.href).pathname)) { event.preventDefault(); window.open(link.href, '_blank', 'noopener'); return; }
+    // 现场工作（/field/）：交还浏览器原生导航整页进入，不另开浏览器标签页，也不塞进工作区 iframe。
+    if (/^\/field\/?$/.test(new URL(link.href).pathname)) return;
     event.preventDefault(); open(link.href, link.textContent.trim());
   }));
   const refresh = () => { if (active && allowDiscard(active)) { active.dirty = false; active.frame.contentWindow.location.reload(); } };
