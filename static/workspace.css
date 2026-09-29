@@ -31,6 +31,40 @@
 #workspacePages { position: relative; flex: 1; min-height: 0; }
 #workspacePages iframe { width: 100%; height: 100%; border: 0; background: var(--bg); }
 #workspacePages iframe[hidden] { display: none; }
+.workspace-load-failure {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--ink);
+}
+.workspace-load-failure[hidden] { display: none; }
+.workspace-load-failure-card {
+  width: min(520px, 100%);
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, .10);
+  text-align: center;
+}
+.workspace-load-failure-icon {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  background: #fff4d6;
+  color: #b54708;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 44px;
+}
+.workspace-load-failure h2 { margin: 0 0 8px; font-size: 20px; }
+.workspace-load-failure p { margin: 0 0 16px; line-height: 1.65; color: #475467; }
+.workspace-load-failure button { min-height: 34px; margin-bottom: 14px; }
+.workspace-load-failure small { display: block; color: #667085; line-height: 1.6; }
 @media (max-width: 1100px) {
   .workspace-shell { display: flex; flex-direction: column; }
   .workspace-shell > .sidebar { flex-shrink: 0; max-height: 65dvh; overflow: auto; }

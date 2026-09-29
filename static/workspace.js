@@ -19,7 +19,8 @@
   function activate(tab) {
     active = tab;
     tabs.forEach(item => {
-      item.frame.hidden = item !== tab;
+      item.frame.hidden = item !== tab || item.failed;
+      item.failure.hidden = item !== tab || !item.failed;
       item.node.classList.toggle('active', item === tab);
       item.button.setAttribute('aria-selected', String(item === tab));
       item.button.tabIndex = item === tab ? 0 : -1;
@@ -38,20 +39,53 @@
   function close(tab) {
     if (!allowDiscard(tab)) return;
     const index = tabs.indexOf(tab);
-    tabs.splice(index, 1); tab.node.remove(); tab.frame.remove();
+    if (tab.retryTimer) clearTimeout(tab.retryTimer);
+    tabs.splice(index, 1); tab.node.remove(); tab.frame.remove(); tab.failure.remove();
     if (!tabs.length) open('/'); else if (active === tab) activate(tabs[Math.min(index, tabs.length - 1)]);
   }
   function changed(source) {
     tabs.forEach(tab => { if (tab !== source) tab.stale = true; });
     if (active) notice.hidden = !active.stale;
   }
+  function showLoadFailure(tab, final = false) {
+    tab.failed = true;
+    tab.failure.querySelector('[data-workspace-load-message]').textContent = final
+      ? '该页面未能从服务器加载。可能是网络或 Cloudflare 隧道短暂中断；如果正在上传附件，也请确认所选本地文件仍然存在。'
+      : '页面连接短暂中断，系统正在自动重新加载…';
+    tab.failure.querySelector('[data-workspace-retry]').hidden = !final;
+    if (active === tab) activate(tab);
+  }
+  function retryLoad(tab, automatic = false) {
+    if (tab.retryTimer) clearTimeout(tab.retryTimer);
+    tab.retryTimer = null;
+    if (!automatic) tab.loadFailures = 0;
+    tab.failed = true;
+    tab.failure.querySelector('[data-workspace-load-message]').textContent = '正在重新连接服务器并加载页面…';
+    tab.failure.querySelector('[data-workspace-retry]').hidden = true;
+    if (active === tab) activate(tab);
+    tab.frame.src = tab.url;
+  }
+  function pageLoadFailed(tab) {
+    if (tab.retryTimer || tab.failed && tab.loadFailures > 1) return;
+    tab.loadFailures += 1;
+    if (tab.loadFailures === 1) {
+      showLoadFailure(tab, false);
+      tab.retryTimer = setTimeout(() => retryLoad(tab, true), 1200);
+      return;
+    }
+    showLoadFailure(tab, true);
+  }
   function attach(tab) {
     let win, doc;
-    try { win = tab.frame.contentWindow; doc = win.document; } catch { return; }
+    try { win = tab.frame.contentWindow; doc = win.document; } catch { pageLoadFailed(tab); return; }
     if (!doc || win.location.href === 'about:blank') return;
     if (win.location.pathname === '/login') { location.href = '/login'; return; }
-    // Downloads, previews and the camera application keep their original navigation.
-    if (!doc.querySelector('.main')) return;
+    // Workspace URLs are application documents and must contain .main. Browser/network
+    // error documents and proxy error pages do not, so replace them with our retry UI.
+    if (!doc.querySelector('.main')) { pageLoadFailed(tab); return; }
+    if (tab.retryTimer) clearTimeout(tab.retryTimer);
+    tab.retryTimer = null; tab.loadFailures = 0; tab.failed = false;
+    if (active === tab) activate(tab);
     // 让页面内的脚本也能请求「在工作区里新开一个标签页」（而不是自己 location.href 跳走，
     // 那会把当前标签的页面整个换掉）。工作区内所有站内跳转都应走这里，见
     // selectable-table-actions.js 的 detailUrl 按钮。
@@ -99,14 +133,17 @@
     if (!url) return;
     const existing = tabs.find(tab => key(tab.url) === key(url));
     if (existing) { activate(existing); return; }
-    const node = document.createElement('div'), button = document.createElement('button'), closeButton = document.createElement('button'), frame = document.createElement('iframe');
+    const node = document.createElement('div'), button = document.createElement('button'), closeButton = document.createElement('button'), frame = document.createElement('iframe'), failure = document.createElement('section');
     node.className = 'workspace-tab'; button.type = closeButton.type = 'button'; button.setAttribute('role', 'tab');
     frame.id = 'workspace-page-' + (++serial); frame.title = title; frame.setAttribute('role', 'tabpanel');
     frame.setAttribute('allow', 'web-share; clipboard-write');
+    failure.className = 'workspace-load-failure'; failure.hidden = true;
+    failure.innerHTML = '<div class="workspace-load-failure-card"><div class="workspace-load-failure-icon" aria-hidden="true">!</div><h2>页面加载失败</h2><p data-workspace-load-message></p><button type="button" data-workspace-retry hidden>重新加载</button><small>如果仍然失败，请检查网络后稍候再试；已经选择的本地附件可能需要重新选择。</small></div>';
     button.id = 'workspace-tab-' + serial; button.setAttribute('aria-controls', frame.id); frame.setAttribute('aria-labelledby', button.id);
     closeButton.className = 'workspace-close'; closeButton.textContent = '×';
-    const tab = {url, title, node, button, close: closeButton, frame, dirty: false, stale: false};
+    const tab = {url, title, node, button, close: closeButton, frame, failure, dirty: false, stale: false, failed: false, loadFailures: 0, retryTimer: null};
     button.addEventListener('click', () => activate(tab)); closeButton.addEventListener('click', () => close(tab));
+    failure.querySelector('[data-workspace-retry]').addEventListener('click', () => retryLoad(tab));
     button.addEventListener('keydown', event => {
       let index = tabs.indexOf(tab);
       if (event.key === 'ArrowRight') index = (index + 1) % tabs.length;
@@ -115,8 +152,9 @@
       event.preventDefault(); activate(tabs[index]); tabs[index].button.focus();
     });
     frame.addEventListener('load', () => attach(tab));
+    frame.addEventListener('error', () => pageLoadFailed(tab));
     node.append(button, closeButton); bar.append(node); tabs.push(tab); paint(tab);
-    frame.src = url; pages.append(frame); activate(tab);
+    frame.src = url; pages.append(frame, failure); activate(tab);
   }
   document.querySelectorAll('#topnav a').forEach(link => link.addEventListener('click', event => {
     if (event.ctrlKey || event.metaKey || event.shiftKey || link.target) return;

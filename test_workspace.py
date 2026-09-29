@@ -31,6 +31,18 @@ class WorkspaceTest(unittest.TestCase):
         page = self.http.get('/workspace', headers={'Sec-Fetch-Dest': 'document'})
         self.assertNotIn(b'workspace-flash-test', page.data)
 
+    def test_browser_load_failures_get_friendly_retry_ui(self):
+        js = (Path(__file__).resolve().parent / 'static' / 'workspace.js').read_text(encoding='utf-8')
+        css = (Path(__file__).resolve().parent / 'static' / 'workspace.css').read_text(encoding='utf-8')
+
+        self.assertIn('function pageLoadFailed(tab)', js)
+        self.assertIn('setTimeout(() => retryLoad(tab, true), 1200)', js)
+        self.assertIn('页面加载失败', js)
+        self.assertIn('Cloudflare 隧道短暂中断', js)
+        self.assertIn('data-workspace-retry', js)
+        self.assertIn("frame.addEventListener('error'", js)
+        self.assertIn('.workspace-load-failure[hidden]', css)
+
 
 if __name__ == '__main__':
     unittest.main()
