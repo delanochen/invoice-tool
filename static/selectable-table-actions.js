@@ -42,23 +42,42 @@
     }
   };
 
-  const selectRow = (table, row) => {
-    const scope = table.closest("[data-selectable-scope]") || document;
-    table.querySelectorAll("tbody tr.is-selected").forEach((item) => item.classList.remove("is-selected"));
-    row.classList.add("is-selected");
-    updateToolbar(scope, row);
+  const selectItem = (container, item) => {
+    const scope = container.closest("[data-selectable-scope]") || document;
+    scope.querySelectorAll("[data-row-id].is-selected").forEach((candidate) => {
+      candidate.classList.remove("is-selected");
+      if (candidate.hasAttribute("aria-selected")) candidate.setAttribute("aria-selected", "false");
+    });
+    item.classList.add("is-selected");
+    if (item.hasAttribute("aria-selected")) item.setAttribute("aria-selected", "true");
+    updateToolbar(scope, item);
   };
 
   document.querySelectorAll("[data-selectable-table]").forEach((table) => {
     table.querySelectorAll("tbody tr[data-row-id]").forEach((row) => {
       row.addEventListener("click", (event) => {
         if (event.target.closest("a, button, input, select, textarea, label")) return;
-        selectRow(table, row);
+        selectItem(table, row);
       });
       row.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        selectRow(table, row);
+        selectItem(table, row);
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-selectable-cards]").forEach((cards) => {
+    cards.querySelectorAll("[data-selectable-card][data-row-id]").forEach((card) => {
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("a, button, input, select, textarea, label")) return;
+        selectItem(cards, card);
+      });
+      card.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (event.target.closest("a, button, input, select, textarea, label")) return;
+        event.preventDefault();
+        selectItem(cards, card);
       });
     });
   });

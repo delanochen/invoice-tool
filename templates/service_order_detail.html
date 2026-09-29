@@ -153,9 +153,24 @@
           </tbody>
         </table>
       </div>
-      <div class="erp-cards">
+      <div class="erp-cards" data-selectable-cards>
         {% for report in reports %}
-          <article class="erp-card">
+          {% set can_open_report = is_external_manager() or (not is_external_employee() or report.created_by == g.user.id) %}
+          {% set can_delete_report = report.created_by == g.user.id or normalized_role() in ["admin", "manager"] %}
+          <article
+            class="erp-card"
+            tabindex="0"
+            role="button"
+            aria-selected="false"
+            data-selectable-card
+            data-row-id="{{ report.id }}"
+            data-row-label="{{ report.report_date }} · {{ report.worker_names or '-' }}"
+            data-view-url="{{ url_for('view_service_report', report_id=report.id) }}"
+            data-edit-url="{% if can_open_report and not is_external_manager() %}{{ url_for('edit_service_report', report_id=report.id) }}{% endif %}"
+            data-copy-url="{% if can_open_report and can_create_service_report(order) %}{{ url_for('new_service_report', order_id=order.id, copy_from=report.id) }}{% endif %}"
+            data-export-url="{{ url_for('export_service_report', report_id=report.id) }}"
+            data-delete-url="{% if can_delete_report %}{{ url_for('delete_service_report', report_id=report.id) }}{% endif %}"
+          >
             <div class="erp-card-head">
               <span class="erp-card-code">{{ report.report_date }}</span>
               <span class="erp-card-customer">{{ report.worker_names or '-' }}</span>
@@ -431,5 +446,5 @@
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
-  <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20260708-v1') }}"></script>
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v=app_version) }}"></script>
 {% endblock %}

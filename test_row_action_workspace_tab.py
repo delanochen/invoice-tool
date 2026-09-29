@@ -76,6 +76,25 @@ class RowActionOpensWorkspaceTabSourceTest(unittest.TestCase):
         self.assertIn('data-row-action="viewUrl"', html)
         self.assertIn('data-row-action="editUrl"', html)
 
+    def test_daily_report_mobile_cards_can_drive_row_actions(self):
+        html = (TEMPLATES / "service_order_detail.html").read_text(encoding="utf-8")
+        js = (STATIC / "selectable-table-actions.js").read_text(encoding="utf-8")
+        css = (STATIC / "erp-ui.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="erp-cards" data-selectable-cards', html)
+        self.assertIn("data-selectable-card", html)
+        for attribute in (
+            "data-view-url=",
+            "data-edit-url=",
+            "data-copy-url=",
+            "data-export-url=",
+            "data-delete-url=",
+        ):
+            self.assertIn(attribute, html)
+        self.assertIn('[data-selectable-cards]', js)
+        self.assertIn('[data-selectable-card][data-row-id]', js)
+        self.assertIn('.erp-card[data-selectable-card].is-selected', css)
+
 
 class RowActionOpensWorkspaceTabRenderTest(unittest.TestCase):
     """第二层：真渲染 —— 起一个真服务器 + 无头 Chrome，点按钮看是否多出标签页。"""
@@ -165,6 +184,39 @@ class RowActionOpensWorkspaceTabRenderTest(unittest.TestCase):
         )
         self.assertTrue(result["frameLoaded"], "新标签页里应加载了报销明细页")
         self.assertIn("expense-detail", result["frameSrc"])
+
+    def test_clicking_daily_report_card_selects_it_and_enables_toolbar(self):
+        dom = self._run_chrome("""<!doctype html>
+<html><head><meta charset="utf-8"><title>PROBE:{}</title></head>
+<body>
+  <section data-selectable-scope>
+    <button type="button" data-row-action="editUrl" disabled>编辑</button>
+    <div data-selectable-cards>
+      <article tabindex="0" role="button" aria-selected="false"
+               data-selectable-card data-row-id="7" data-row-label="2026-08-28"
+               data-edit-url="/reports/7/edit">日报卡片</article>
+    </div>
+  </section>
+  <script src="/static/selectable-table-actions.js"></script>
+  <script>
+    const card = document.querySelector('[data-selectable-card]');
+    const button = document.querySelector('[data-row-action="editUrl"]');
+    card.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    document.title = 'PROBE:' + JSON.stringify({
+      selected: card.classList.contains('is-selected'),
+      ariaSelected: card.getAttribute('aria-selected'),
+      buttonEnabled: !button.disabled,
+      selectedValue: button.dataset.selectedValue || ''
+    });
+  </script>
+</body></html>""")
+        marker = re.search(r"PROBE:(\{.*?\})", dom)
+        self.assertIsNotNone(marker, f"卡片选择探针没有输出结果：{dom[:500]}")
+        result = json.loads(marker.group(1))
+        self.assertTrue(result["selected"])
+        self.assertEqual(result["ariaSelected"], "true")
+        self.assertTrue(result["buttonEnabled"])
+        self.assertEqual(result["selectedValue"], "/reports/7/edit")
 
     def _probe_script(self):
         """探针：加载真实外壳页，再把内层 iframe 换成我们的「工单详情」页。

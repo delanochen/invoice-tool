@@ -674,6 +674,17 @@
   background: #fff;
   padding: 7px 9px;
 }
+.erp-card[data-selectable-card] { cursor: pointer; }
+.erp-card[data-selectable-card]:focus-visible {
+  outline: 2px solid var(--erp-accent);
+  outline-offset: 1px;
+}
+.erp-card[data-selectable-card].is-selected {
+  border-color: var(--brand);
+  border-left-color: var(--brand);
+  background: #dcfce7;
+  box-shadow: inset 4px 0 0 var(--brand);
+}
 .erp-card.neg { border-left-color: #b42318; }
 .erp-card.pos { border-left-color: #12b76a; }
 .erp-card.warn { border-left-color: #f59e0b; }
