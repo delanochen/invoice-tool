@@ -21,6 +21,12 @@
     {% if advance_remaining %}<span class="erp-badge warn">未结借款 {{ advance_remaining|money }}</span>{% endif %}
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
+      {# 合并发放：勾选同一员工的多张付款单合成一张支票。按钮默认禁用，
+         勾了付款单才可用（由 payment-batch.js 维护 disabled）。 #}
+      {% if can_pay %}
+      <button type="button" class="erp-btn primary" data-dialog-open="batchPayDialog"
+              data-payment-batch-open disabled>合并发放</button>
+      {% endif %}
       <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
       <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
       <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
@@ -62,8 +68,9 @@
              两个前提：① 表里有金额列才有小计 / 合计，分组入口才出现 —— 金额列默认按列名
              白名单识别，「应付 / 抵扣 / 实付」这类列名不在名单里，必须用 `data-grid-money`
              显式声明；② 可分组维度也要命中白名单（员工 / 类型 / 状态 / 创建时间）。 #}
-          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th>说明</th><th data-grid-money>应付</th><th data-grid-money>抵扣</th><th data-grid-money>其他调整</th><th data-grid-money>实付</th><th>状态</th><th>创建时间</th></tr></thead>
+          <thead><tr>{% if can_pay %}<th class="ledger-select-col"><input type="checkbox" data-payment-select-all aria-label="全选可发放的付款单"></th>{% endif %}<th>付款单</th><th>员工</th><th>类型</th><th>说明</th><th data-grid-money>应付</th><th data-grid-money>抵扣</th><th data-grid-money>其他调整</th><th data-grid-money>实付</th><th>状态</th><th>创建时间</th></tr></thead>
           <tbody>{% for row in payments %}<tr>
+            {% if can_pay %}<td class="ledger-select-col">{% if row.status in ['approved','pending_payment'] %}<input type="checkbox" data-payment-select value="{{ row.id }}" data-net-amount="{{ row.net_amount }}" aria-label="选择付款单 {{ row.payment_number }}">{% endif %}</td>{% endif %}
             <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td>
             <td>{{ row.employee_name }}</td>
             <td>{{ type_labels[row.payment_type] }}</td>
@@ -75,7 +82,7 @@
             <td><strong>{{ row.net_amount|money }}</strong></td>
             <td><span class="status {{ row.status }}">{{ status_labels[row.status] }}</span></td>
             <td>{{ row.created_at|local_datetime }}</td>
-          </tr>{% else %}<tr><td colspan="10" class="empty">没有符合条件的付款记录。</td></tr>{% endfor %}</tbody>
+          </tr>{% else %}<tr><td colspan="{{ 11 if can_pay else 10 }}" class="empty">没有符合条件的付款记录。</td></tr>{% endfor %}</tbody>
         </table>
       </div>
 
@@ -84,6 +91,7 @@
         {% for row in payments %}
           <article class="erp-card">
             <div class="erp-card-head">
+              {% if can_pay and row.status in ['approved','pending_payment'] %}<label class="ledger-card-check"><input type="checkbox" data-payment-select value="{{ row.id }}" data-net-amount="{{ row.net_amount }}" aria-label="选择付款单 {{ row.payment_number }}"></label>{% endif %}
               <span class="erp-card-code">{{ row.payment_number }}</span>
               <span class="erp-card-customer">{{ row.employee_name }}</span>
               <span class="status {{ row.status }}">{{ status_labels[row.status] }}</span>
@@ -157,6 +165,7 @@
 
   <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
   <footer class="erp-status">
+    {% if can_pay %}<span>已选 <b data-payment-selected-count></b> 张 · 合计 <b data-payment-selected-total></b></span><span class="sep"></span>{% endif %}
     <span>记录 <b data-erp-count>{{ payments|length }}</b> 条</span>
     <span class="sep"></span>
     <span>员工 <b>{{ employee_label }}</b></span>
@@ -168,5 +177,32 @@
     <span>借款余额由工资/报销抵扣的核销流水计算。</span>
   </footer>
 </div>
+
+{# 合并发放：勾选的付款单 id 由 payment-batch.js 在提交前注入 hidden input。
+   表单放在 dialog 里而不是工具栏，避免 Tabulator 镜像时 form 属性被剥掉。 #}
+{% if can_pay %}
+<dialog id="batchPayDialog" class="modal-dialog">
+  <form method="post" action="{{ url_for('create_payment_batch') }}" id="paymentBatchForm" class="form-stack">
+    <div class="dialog-header"><h2>合并发放（开一张支票）</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <div class="form-grid two-columns">
+      <label>付款账户<select name="bank_account_id" required><option value="">请选择</option>{% for account in accounts %}<option value="{{ account.id }}">{{ account.account_name }}</option>{% endfor %}</select></label>
+      <label>付款方式<select name="payment_method" required>{% for value,label in method_labels.items() %}<option value="{{ value }}" {% if value=='check' %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>支票号<input name="check_number" required placeholder="必填，同一账户下不能重复"></label>
+      <label class="full-span">备注<textarea name="notes" rows="2" placeholder="可留空"></textarea></label>
+    </div>
+    <p class="erp-filter-note">
+      同一员工的「已批准 / 待付款」付款单才能合并；一张支票只有一名收款人，跨员工请分批开。
+      发放后状态变为「已付款」，报销来源同步置为已发放，对账时按批次整批核销。
+    </p>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="primary">确认合并发放</button></div>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}
+{# data-dialog-open 的页面必须加载 modal-forms.js（否则按钮点了没反应）。
+   payment-batch.js 负责勾选态与提交前注入 payment_id。 #}
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='payment-batch.js', v=app_version) }}"></script>
+{% endblock %}

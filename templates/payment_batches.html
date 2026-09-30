@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block title %}付款批次{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+
+{% block content %}
+{# 付款批次 = 合并发放出来的那张支票。列表按员工/状态筛选，点批次号进明细。
+   与员工往来账同一 ERP 范式：工具栏 + 筛选栏 + 面板内网格。 #}
+{% set issued_total = rows|selectattr('status', 'equalto', 'issued')|sum(attribute='total_amount') %}
+
+<div class="erp-app" data-active-panel="batches">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">付款批次<small>财务管理 · 多张付款单合并成一张支票</small></div>
+    <span class="erp-badge">{{ rows|length }} 个批次</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ─────────────────────────────────── ERP Body ───────────────────────── -->
+  <div class="erp-body">
+    <form method="get" class="erp-filter no-print" data-erp-filter>
+      {% if can_view_all %}<label class="erp-field">员工
+        <select name="employee_id">
+          <option value="">全部员工</option>
+          {% for employee in employees %}<option value="{{ employee.id }}" {% if employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}
+        </select>
+      </label>{% endif %}
+      <label class="erp-field">状态
+        <select name="status">
+          <option value="">全部</option>
+          {% for value,label in status_labels.items() %}<option value="{{ value }}" {% if status==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+    </form>
+
+    <section class="erp-panel active" data-erp-panel="batches">
+      <div class="erp-grid-wrap">
+        {# 金额列用 data-grid-money 显式声明：分组/小计/合计入口只在表里有金额列时出现，
+           而「合计金额」这类列名不在组件自带的白名单里。 #}
+        <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
+          <thead><tr><th>批次号</th><th>员工</th><th>付款账户</th><th>方式</th><th>支票号</th><th data-grid-money>合计金额</th><th>张数</th><th>状态</th><th>发放时间</th></tr></thead>
+          <tbody>{% for row in rows %}<tr>
+            <td><a href="{{ url_for('payment_batch_detail', batch_id=row.id) }}">{{ row.batch_number }}</a></td>
+            <td>{{ row.employee_name }}</td>
+            <td>{{ row.account_name or '-' }}</td>
+            <td>{{ method_labels.get(row.payment_method, row.payment_method) }}</td>
+            <td>{{ row.check_number or '-' }}</td>
+            <td><strong>{{ row.total_amount|money }}</strong></td>
+            <td>{{ row.payment_count }}</td>
+            <td><span class="status {{ row.status }}">{{ status_labels[row.status] }}</span></td>
+            <td>{{ row.issued_at|local_datetime }}</td>
+          </tr>{% else %}<tr><td colspan="9" class="empty">没有符合条件的付款批次。</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in rows %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code"><a href="{{ url_for('payment_batch_detail', batch_id=row.id) }}">{{ row.batch_number }}</a></span>
+              <span class="erp-card-customer">{{ row.employee_name }}</span>
+              <span class="status {{ row.status }}">{{ status_labels[row.status] }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ row.account_name or '-' }}</span>
+              <span>支票 {{ row.check_number or '-' }}</span>
+              <span>{{ row.issued_at|local_datetime }}</span>
+            </div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>合计</span><strong>{{ row.total_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>张数</span><strong>{{ row.payment_count }}</strong></div>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn primary" href="{{ url_for('payment_batch_detail', batch_id=row.id) }}">批次明细</a>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的付款批次。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('批次', rows|length, 'muted') }}
+    {{ summary_item('已发放合计', issued_total|money, 'pos') }}
+    {{ summary_item('付款单', rows|sum(attribute='payment_count'), 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ status_labels.get(status, '全部') }}</b></span>
+    <span class="sep"></span>
+    <span>合并发放请在「员工往来账」勾选付款单后执行。</span>
+  </footer>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}

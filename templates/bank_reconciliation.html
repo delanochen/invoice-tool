@@ -5,15 +5,19 @@
 {% block content %}
 <div class="erp-app">
   <header class="erp-toolbar no-print">
-    <div class="erp-toolbar-title">银行对账<small>财务管理 · 将实际支出流水与「已付款」付款单一对一匹配</small></div><span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-title">银行对账<small>财务管理 · 支出流水匹配付款单；合并发放的支票按批次整批核销</small></div><span class="erp-toolbar-spacer"></span>
   </header>
   <div class="erp-body">
     <section class="erp-panel active">
-      <div class="erp-section-title">匹配</div>
+      {# 批次级对账：一张支票在流水里只有一笔支出，一笔流水对一张付款单的
+         老口径匹配不上，所以单独给一个表单，金额按批次合计比对。 #}
+      <div class="erp-section-title">批次对账（合并发放的支票）</div>
+      <form method="post" class="form-stack"><div class="form-grid two-columns"><label>未匹配支出流水<select name="transaction_id" required>{% for row in transactions %}<option value="{{ row.id }}">{{ row.transaction_date }} · {{ row.account_name }} · {{ row.amount|money }} · {{ row.description }}</option>{% endfor %}</select></label><label>已发放付款批次<select name="batch_id" required>{% for row in batches %}<option value="{{ row.id }}">{{ row.batch_number }} · {{ row.employee_name }} · 支票 {{ row.check_number }} · {{ row.total_amount|money }}（{{ row.payment_count }} 张）</option>{% endfor %}</select></label></div><div class="form-actions"><button class="erp-btn primary">按批次对账</button></div></form>
+      <div class="erp-section-title">单张对账</div>
       <form method="post" class="form-stack"><div class="form-grid two-columns"><label>未匹配支出流水<select name="transaction_id" required>{% for row in transactions %}<option value="{{ row.id }}">{{ row.transaction_date }} · {{ row.account_name }} · {{ row.amount|money }} · {{ row.description }}</option>{% endfor %}</select></label><label>已付款付款单<select name="payment_id" required>{% for row in payments %}<option value="{{ row.id }}">{{ row.payment_number }} · {{ row.employee_name }} · {{ row.net_amount|money }}</option>{% endfor %}</select></label></div><div class="form-actions"><button class="erp-btn primary">确认匹配并完成对账</button></div></form>
     </section>
   </div>
-  <footer class="erp-summary">{{ summary_item('未匹配流水', transactions|length, 'muted') }}{{ summary_item('已付款付款单', payments|length, 'muted') }}</footer>
+  <footer class="erp-summary">{{ summary_item('未匹配流水', transactions|length, 'muted') }}{{ summary_item('已发放批次', batches|length, 'muted') }}{{ summary_item('已付款付款单', payments|length, 'muted') }}</footer>
   <footer class="erp-status"><span>匹配完成后流水将标记对应付款单，账面与实际资金保持一致。</span></footer>
 </div>
 {% endblock %}

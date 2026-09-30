@@ -103,7 +103,7 @@
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies", "employee_payments", "employee_payment_detail"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
-        {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "bank_reconciliation"] %}
+        {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "payment_batches", "payment_batch_detail", "bank_reconciliation"] %}
         {% set asset_endpoints = ["assets", "asset_detail"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
         {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions"] %}
@@ -236,6 +236,7 @@
             or (has_menu_permission("bank_transactions") and has_action_permission("bank_transactions", "view"))
             or (has_menu_permission("employee_advances") and has_action_permission("employee_advances", "view"))
             or (has_menu_permission("employee_ledger") and has_action_permission("employee_ledger", "view"))
+            or (has_menu_permission("payment_batches") and has_action_permission("employee_payments", "view"))
             or (has_menu_permission("bank_reconciliation") and has_action_permission("bank_reconciliation", "view"))
           %}
           {% if show_finance_menu %}
@@ -246,6 +247,9 @@
                 {% if has_menu_permission("bank_transactions") and has_action_permission("bank_transactions", "view") %}{{ nav_link("bank_transactions", "银行流水", icon="table") }}{% endif %}
                 {% if has_menu_permission("employee_advances") and has_action_permission("employee_advances", "view") %}{{ nav_link("employee_advances", "员工借款", icon="receipt") }}{% endif %}
                 {% if has_menu_permission("employee_ledger") and has_action_permission("employee_ledger", "view") %}{{ nav_link("employee_ledger", "员工往来账", icon="user") }}{% endif %}
+                {# 付款批次沿用「员工付款单」的动作权限：它本身就是付款单的合并发放形态，
+                   不新增权限资源（新增资源要动默认权限组的迁移）。 #}
+                {% if has_menu_permission("payment_batches") and has_action_permission("employee_payments", "view") %}{{ nav_link("payment_batches", "付款批次", endpoints=["payment_batches", "payment_batch_detail"], icon="receipt") }}{% endif %}
                 {% if has_menu_permission("bank_reconciliation") and has_action_permission("bank_reconciliation", "view") %}{{ nav_link("bank_reconciliation", "银行对账", icon="audit") }}{% endif %}
               </div>
             </details>

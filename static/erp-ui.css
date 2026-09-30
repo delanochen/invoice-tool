@@ -946,3 +946,11 @@
 @media screen and (min-width: 1101px) {
   body:has(.erp-app) .flash-stack { top: var(--flash-top, 60px); }
 }
+
+/* ------------------------------------------------ 往来账「合并发放」勾选控件 */
+/* 勾选列只在有发放权限时出现；宽度压到最小，别抢表格横向空间。
+   镜像出来的 Tabulator 副本在同一个 document 里，样式按元素选择器给，两份都生效。 */
+.erp-grid .ledger-select-col { width: 34px; text-align: center; }
+.erp-grid .ledger-select-col input[type="checkbox"] { margin: 0; cursor: pointer; }
+.erp-cards .ledger-card-check { display: inline-flex; align-items: center; margin-right: 6px; }
+.erp-cards .ledger-card-check input[type="checkbox"] { margin: 0; cursor: pointer; }

@@ -1,0 +1,108 @@
+{% extends "base.html" %}{% from "erp_ui.html" import summary_item %}
+{% block title %}付款批次 {{ batch.batch_number }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{# ERP 详情页范式（对齐 employee_payment_detail）：erp-app--flow 整页滚动，
+   一张支票（批次）= N 张付款单；作废会把批次内付款单退回「待付款」，可重新合并发放。 #}
+<div class="erp-app erp-app--flow erp-compact" data-active-panel="orders">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ batch.batch_number }}
+      <small>{{ batch.employee_name }} · {{ batch.account_name or '未指定账户' }} · 发放于 {{ batch.issued_at|local_datetime }}</small>
+    </div>
+    <span class="erp-badge">{{ batch_status_labels[batch.status] }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      {% if batch.status=='issued' and has_action_permission('employee_payments','pay') %}
+        <button type="button" class="erp-btn danger" data-dialog-open="voidBatch">作废支票</button>
+      {% endif %}
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="orders">
+      <section class="panel">
+        <div class="panel-title"><h2>支票信息</h2><span class="status {{ batch.status }}">{{ batch_status_labels[batch.status] }}</span></div>
+        <div class="detail-grid">
+          <p><strong>员工</strong><span>{{ batch.employee_name }}</span></p>
+          <p><strong>付款账户</strong><span>{{ batch.account_name or '—' }}</span></p>
+          <p><strong>付款方式</strong><span>{{ method_labels.get(batch.payment_method, batch.payment_method) }}</span></p>
+          <p><strong>支票号</strong><span>{{ batch.check_number or '—' }}</span></p>
+          <p><strong>合计金额</strong><span><strong>{{ batch.total_amount|money }}</strong></span></p>
+          <p><strong>付款单张数</strong><span>{{ batch.payment_count }}</span></p>
+          <p><strong>发放时间</strong><span>{{ batch.issued_at|local_datetime }}</span></p>
+          <p><strong>对账时间</strong><span>{{ batch.reconciled_at|local_datetime if batch.reconciled_at else '—' }}</span></p>
+          <p class="full-span"><strong>备注</strong><span>{{ batch.notes or '—' }}</span></p>
+          {% if batch.voided_at %}<p class="full-span"><strong>作废时间</strong><span>{{ batch.voided_at|local_datetime }}</span></p>{% endif %}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title"><h2>批次内付款单</h2><span class="erp-badge">{{ orders|length }} 张</span></div>
+        <table class="list-table">
+          <thead><tr><th>付款单</th><th>类型</th><th>说明</th><th>应付</th><th>抵扣</th><th>实付</th><th>状态</th><th>发放时间</th></tr></thead>
+          <tbody>{% for row in orders %}<tr>
+            <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td>
+            <td>{{ type_labels[row.payment_type] }}</td>
+            <td>{% if row.source_type=='expense' and row.source_id %}<a href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</td>
+            <td>{{ row.gross_amount|money }}</td>
+            <td>{{ row.advance_offset|money }}</td>
+            <td><strong>{{ row.net_amount|money }}</strong></td>
+            <td><span class="status {{ row.status }}">{{ status_labels[row.status] }}</span></td>
+            <td>{{ row.paid_at|local_datetime if row.paid_at else '—' }}</td>
+          </tr>{% else %}<tr><td colspan="8" class="empty">该批次下没有付款单。</td></tr>{% endfor %}</tbody>
+        </table>
+      </section>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('付款单', orders|length, 'muted') }}
+    {{ summary_item('应付合计', orders|sum(attribute='gross_amount')|money, 'muted') }}
+    {{ summary_item('实付合计', batch.total_amount|money, 'pos') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>批次 <b>{{ batch.batch_number }}</b></span>
+    <span class="sep"></span>
+    <span>支票 <b>{{ batch.check_number or '—' }}</b></span>
+    <span class="sep"></span>
+    <span>员工 <b>{{ batch.employee_name }}</b></span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ batch_status_labels[batch.status] }}</b></span>
+    <span class="sep"></span>
+    <span>对账在「银行对账」里按批次整批核销。</span>
+  </footer>
+</div>
+
+{# 作废要填原因，走 <dialog>：与付款单其余流程动作同一手法。 #}
+{% if batch.status=='issued' and has_action_permission('employee_payments','pay') %}
+<dialog id="voidBatch" class="modal-dialog">
+  <form method="post" action="{{ url_for('void_payment_batch', batch_id=batch.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>作废支票 {{ batch.batch_number }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <label>作废原因<textarea name="reason" rows="4" required placeholder="必填，会写入审计轨迹"></textarea></label>
+    <p class="erp-filter-note">
+      批次内 {{ orders|length }} 张付款单会退回「待付款」，已抵扣的借款与已回写的报销付款状态同时冲销，
+      可重新勾选合并发放。
+    </p>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="danger">确认作废</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{# data-dialog-open 的页面必须加载 modal-forms.js（否则按钮点了没反应）。 #}
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
+{% endblock %}

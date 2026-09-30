@@ -372,6 +372,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "bank_transactions", "label": "银行流水", "roles": {"admin", "finance"}},
             {"key": "employee_advances", "label": "员工借款", "roles": {"admin", "manager", "finance"}},
             {"key": "employee_ledger", "label": "员工往来账", "roles": {"admin", "manager", "finance"}},
+            {"key": "payment_batches", "label": "付款批次", "roles": {"admin", "manager", "finance"}},
             {"key": "bank_reconciliation", "label": "银行对账", "roles": {"admin", "finance"}},
         ],
     },

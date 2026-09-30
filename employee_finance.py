@@ -31,6 +31,15 @@ PAYMENT_TYPE_LABELS = {
 PAYMENT_METHOD_LABELS = {
     "ach": "ACH", "wire": "电汇", "check": "支票", "cash": "现金", "other": "其他",
 }
+# v0.1.350：合并发放。审核通过后不再一张一张发，而是把同一员工的多张付款单
+# 合成一张支票（付款批次 PB-YYMM-NNNN）一次性发放。
+PAYMENT_BATCH_STATUS_LABELS = {
+    "issued": "已发放", "reconciled": "已对账", "void": "已作废",
+}
+BATCH_NUMBER_PREFIX = "PB"
+# 能进批次的付款单状态：已批准（approved）直接合并发放时，会先补做借款抵扣
+# 再置为已付款，省掉「先进入待付款」这一步。
+BATCHABLE_PAYMENT_STATUSES = ("approved", "pending_payment")
 ASSET_STATUS_LABELS = {
     "available": "可领用", "assigned": "使用中", "damaged": "损坏",
     "lost": "丢失", "retired": "已报废",
@@ -363,6 +372,63 @@ def _reverse_advance_application(api, payment):
         )
 
 
+def _settle_expense_payout(api, payment, extra=""):
+    """付款单发放后回写来源报销单（单张发放与批次发放共用同一条回写口径）。
+
+    extra 会追加到通知正文末尾（批次发放时用来说明是哪张支票），不传则与
+    原来的单张发放文案完全一致。
+    """
+    if payment["source_type"] != "expense" or not payment["source_id"]:
+        return None
+    expense = api["db"]().execute("select * from expenses where id=?", (payment["source_id"],)).fetchone()
+    api["db"]().execute(
+        "update expenses set payout_status='paid',reimbursed_by=?,reimbursed_at=?,updated_at=? where id=?",
+        (g.user["id"], api["now"](), api["now"](), payment["source_id"]),
+    )
+    if expense and "notify_expense_participants" in api:
+        note = f"报销 {expense['expense_number']} 已通过付款单 {payment['payment_number']} 发放。"
+        api["notify_expense_participants"](
+            expense, "报销付款已发放", f"{note}{extra}",
+            url_for("employee_payment_detail", payment_id=payment["id"]),
+        )
+    if expense:
+        api["log_action"]("pay", "expense", expense["id"], expense["expense_number"],
+                          f"通过付款单 {payment['payment_number']} 发放")
+    return expense
+
+
+def _release_expense_payout(api, payment):
+    """批次作废：来源报销单退回未付款（与报销审核重置同一口径）。"""
+    if payment["source_type"] != "expense" or not payment["source_id"]:
+        return
+    api["db"]().execute(
+        "update expenses set payout_status='pending',reimbursed_by=null,reimbursed_at=null,updated_at=? where id=?",
+        (api["now"](), payment["source_id"]),
+    )
+
+
+def _load_batch(api, batch_id):
+    """读取批次并按员工校验可见性（员工本人只能看自己的批次）。"""
+    batch = api["db"]().execute(
+        """select b.*, u.name employee_name, a.account_name
+           from employee_payment_batches b
+           join users u on u.id=b.employee_id
+           left join bank_accounts a on a.id=b.bank_account_id
+           where b.id=?""", (batch_id,)
+    ).fetchone()
+    if not batch:
+        abort(404)
+    _require_payment_access(api, batch)
+    return batch
+
+
+def _batch_orders(api, batch_id):
+    return api["db"]().execute(
+        """select p.*,u.name employee_name from employee_payment_orders p
+           join users u on u.id=p.employee_id where p.batch_id=? order by p.id""", (batch_id,)
+    ).fetchall()
+
+
 def register_employee_finance_routes(app, api):
     app.jinja_env.globals["employee_finance_summary"] = lambda employee_id: employee_finance_summary(api, employee_id)
 
@@ -513,8 +579,14 @@ def register_employee_finance_routes(app, api):
             (payment_id,),
         ).fetchall()
         accounts = api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
+        # 合并发放出来的付款单要能一眼看到是哪张支票（批次）。
+        batch = (
+            api["db"]().execute("select * from employee_payment_batches where id=?", (payment["batch_id"],)).fetchone()
+            if payment["batch_id"] else None
+        )
         return render_template("employee_payment_detail.html", payment=payment, sources=sources, events=events,
-                               applications=applications, accounts=accounts, status_labels=PAYMENT_STATUS_LABELS,
+                               applications=applications, accounts=accounts, batch=batch,
+                               status_labels=PAYMENT_STATUS_LABELS,
                                type_labels=PAYMENT_TYPE_LABELS, method_labels=PAYMENT_METHOD_LABELS)
 
     @app.post("/employee-payments/<int:payment_id>/transition")
@@ -556,26 +628,7 @@ def register_employee_finance_routes(app, api):
                         (int(account_id), method, request.form.get("external_transaction_id", "").strip() or None,
                          g.user["id"], api["now"](), payment_id),
                     )
-                    if payment["source_type"] == "expense" and payment["source_id"]:
-                        expense = api["db"]().execute(
-                            "select * from expenses where id=?", (payment["source_id"],)
-                        ).fetchone()
-                        api["db"]().execute(
-                            "update expenses set payout_status='paid',reimbursed_by=?,reimbursed_at=?,updated_at=? where id=?",
-                            (g.user["id"], api["now"](), api["now"](), payment["source_id"]),
-                        )
-                        if expense and "notify_expense_participants" in api:
-                            api["notify_expense_participants"](
-                                expense,
-                                "报销付款已发放",
-                                f"报销 {expense['expense_number']} 已通过付款单 {payment['payment_number']} 发放。",
-                                url_for("employee_payment_detail", payment_id=payment_id),
-                            )
-                        if expense:
-                            api["log_action"](
-                                "pay", "expense", expense["id"], expense["expense_number"],
-                                f"通过付款单 {payment['payment_number']} 发放",
-                            )
+                    _settle_expense_payout(api, payment)
                 if target in {"approved", "rejected"}:
                     api["db"]().execute("update employee_payment_orders set reviewed_by=?,reviewed_at=? where id=?", (g.user["id"], api["now"](), payment_id))
             reason = request.form.get("reason", "").strip()
@@ -589,6 +642,184 @@ def register_employee_finance_routes(app, api):
         except ValueError as error:
             api["db"]().rollback(); flash(str(error), "error")
         return redirect(url_for("employee_payment_detail", payment_id=payment_id))
+
+    @app.get("/finance/payment-batches")
+    @api["login_required"]
+    def payment_batches():
+        _require(api, "employee_payments")
+        employee_id = request.args.get("employee_id", "")
+        status = request.args.get("status", "")
+        can_view_all = _can_view_all_payments(api)
+        if not can_view_all:
+            # 与付款单同一口径：没有「查看全部」权限时只给本人，改 URL 也不放行。
+            employee_id = str(g.user["id"])
+        employees = (
+            api["db"]().execute("select id,name from users where role in ('employee','manager','finance','admin') order by name").fetchall()
+            if can_view_all else api["db"]().execute("select id,name from users where id=?", (g.user["id"],)).fetchall()
+        )
+        clauses, params = ["1=1"], []
+        if employee_id.isdigit():
+            clauses.append("b.employee_id=?"); params.append(int(employee_id))
+        if status in PAYMENT_BATCH_STATUS_LABELS:
+            clauses.append("b.status=?"); params.append(status)
+        else:
+            status = ""
+        rows = api["db"]().execute(
+            f"""select b.*,u.name employee_name,a.account_name from employee_payment_batches b
+            join users u on u.id=b.employee_id left join bank_accounts a on a.id=b.bank_account_id
+            where {' and '.join(clauses)} order by b.issued_at desc,b.id desc""", params
+        ).fetchall()
+        return render_template("payment_batches.html", rows=rows, employees=employees, employee_id=employee_id,
+                               status=status, status_labels=PAYMENT_BATCH_STATUS_LABELS,
+                               method_labels=PAYMENT_METHOD_LABELS, can_view_all=can_view_all)
+
+    @app.get("/finance/payment-batches/<int:batch_id>")
+    @api["login_required"]
+    def payment_batch_detail(batch_id):
+        _require(api, "employee_payments")
+        batch = _load_batch(api, batch_id)
+        orders = _batch_orders(api, batch_id)
+        return render_template("payment_batch_detail.html", batch=batch, orders=orders,
+                               status_labels=PAYMENT_STATUS_LABELS, type_labels=PAYMENT_TYPE_LABELS,
+                               method_labels=PAYMENT_METHOD_LABELS,
+                               batch_status_labels=PAYMENT_BATCH_STATUS_LABELS)
+
+    @app.post("/finance/payment-batches/create")
+    @api["login_required"]
+    def create_payment_batch():
+        """合并发放：勾选同一员工的多张付款单，合成一张支票。"""
+        _require(api, "employee_payments", "pay")
+        back = request.referrer or url_for("employee_ledger")
+        try:
+            raw_ids = [value for value in request.form.getlist("payment_id") if str(value).strip().isdigit()]
+            ids = sorted({int(value) for value in raw_ids})
+            if not ids:
+                raise ValueError("请先勾选要合并发放的付款单。")
+            placeholders = ",".join(["?"] * len(ids))
+            orders = api["db"]().execute(
+                f"""select p.*,u.name employee_name from employee_payment_orders p
+                join users u on u.id=p.employee_id where p.id in ({placeholders}) order by p.id""", ids
+            ).fetchall()
+            if len(orders) != len(ids):
+                raise ValueError("部分付款单不存在，请刷新后重试。")
+            for order in orders:
+                _require_payment_access(api, order)
+            blocked = [order["payment_number"] for order in orders
+                       if order["status"] not in BATCHABLE_PAYMENT_STATUSES]
+            if blocked:
+                raise ValueError("只有「已批准」或「待付款」的付款单可以合并发放：" + "、".join(blocked))
+            # 一张支票只有一名收款人 —— 跨员工必须先按人分批，否则支票抬头没法写。
+            if len({order["employee_id"] for order in orders}) > 1:
+                raise ValueError("一张支票只能开给一名员工，请不要跨员工勾选。")
+            if len({order["currency"] for order in orders}) > 1:
+                raise ValueError("不同币种的付款单不能合并到同一张支票。")
+            # 只拦「还在生效」的批次：支票作废后付款单退回待付款，必须能重新合并发放，
+            # 否则那几张单就被作废批次永久占住了。
+            live_batches = {row["id"] for row in api["db"]().execute(
+                "select id from employee_payment_batches where status<>'void'").fetchall()}
+            taken = [order["payment_number"] for order in orders
+                     if order["batch_id"] and order["batch_id"] in live_batches]
+            if taken:
+                raise ValueError("这些付款单已属于其它发放批次：" + "、".join(taken))
+            account_id = request.form.get("bank_account_id", "")
+            method = request.form.get("payment_method", "")
+            if not account_id.isdigit() or method not in PAYMENT_METHOD_LABELS:
+                raise ValueError("请选择付款账户和付款方式。")
+            account = api["db"]().execute(
+                "select * from bank_accounts where id=? and is_active=1", (int(account_id),)
+            ).fetchone()
+            if not account:
+                raise ValueError("请选择有效的付款账户。")
+            currency = orders[0]["currency"]
+            if account["currency"] != currency:
+                raise ValueError(f"付款账户币种（{account['currency']}）与付款单币种（{currency}）不一致。")
+            check_number = request.form.get("check_number", "").strip()
+            if not check_number:
+                raise ValueError("请填写支票号。")
+            if api["db"]().execute(
+                "select id from employee_payment_batches where bank_account_id=? and check_number=? and status<>'void'",
+                (int(account_id), check_number),
+            ).fetchone():
+                raise ValueError("该账户下的支票号已经用过了。")
+            total = sum((Decimal(str(order["net_amount"])) for order in orders), Decimal("0"))
+            batch_number = _next_number(api, BATCH_NUMBER_PREFIX, "employee_payment_batches", "batch_number")
+            now = api["now"]()
+            api["db"]().execute(
+                "insert into employee_payment_batches(batch_number,employee_id,currency,bank_account_id,payment_method,"
+                " check_number,total_amount,payment_count,status,notes,issued_by,issued_at,created_at,updated_at)"
+                " values(?,?,?,?,?,?,?,?,'issued',?,?,?,?,?)",
+                (batch_number, orders[0]["employee_id"], currency, int(account_id), method, check_number,
+                 total, len(orders), request.form.get("notes", "").strip(), g.user["id"], now, now, now),
+            )
+            batch_id = api["db"]().execute(
+                "select id from employee_payment_batches where batch_number=?", (batch_number,)
+            ).fetchone()["id"]
+            detail = f"批次 {batch_number} · 支票 {check_number}"
+            for order in orders:
+                # 从「已批准」直接合并发放时，借款抵扣还没落账（单张流程是点
+                # 「进入待付款」时落的），这里补上，否则借款余额不会减少。
+                if order["status"] == "approved":
+                    _create_advance_application(api, order)
+                api["db"]().execute(
+                    "update employee_payment_orders set status='paid',batch_id=?,bank_account_id=?,payment_method=?,"
+                    "external_transaction_id=?,paid_by=?,paid_at=?,updated_at=? where id=?",
+                    (batch_id, int(account_id), method, check_number, g.user["id"], now, now, order["id"]),
+                )
+                api["db"]().execute(
+                    "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at)"
+                    " values(?,?,?,?,?,?,?)",
+                    (order["id"], "batch_pay", order["status"], "paid", detail, g.user["id"], now),
+                )
+                _settle_expense_payout(api, order, extra=f"（{detail}）")
+                api["log_action"]("batch_pay", "employee_payment", order["id"], order["payment_number"],
+                                  f"{order['status']} → paid {detail}")
+            api["db"]().commit()
+            flash(f"已合并发放 {len(orders)} 张付款单：{batch_number}（支票 {check_number}，合计 {total}）。", "success")
+            return redirect(url_for("payment_batch_detail", batch_id=batch_id))
+        except (ValueError, TypeError) as error:
+            api["db"]().rollback(); flash(str(error), "error")
+            return redirect(back)
+
+    @app.post("/finance/payment-batches/<int:batch_id>/void")
+    @api["login_required"]
+    def void_payment_batch(batch_id):
+        """支票作废：批次内付款单退回「待付款」，可重新合并发放。"""
+        _require(api, "employee_payments", "pay")
+        try:
+            batch = _load_batch(api, batch_id)
+            if batch["status"] != "issued":
+                raise ValueError("只有「已发放」的批次可以作废。")
+            reason = request.form.get("reason", "").strip()
+            if not reason:
+                raise ValueError("请填写作废原因。")
+            orders = _batch_orders(api, batch_id)
+            now = api["now"]()
+            for order in orders:
+                # 借款抵扣要冲销（发放时落过一笔 application），否则借款余额虚低。
+                _reverse_advance_application(api, order)
+                _release_expense_payout(api, order)
+                api["db"]().execute(
+                    "update employee_payment_orders set status='pending_payment',bank_account_id=null,payment_method=null,"
+                    "external_transaction_id=null,paid_by=null,paid_at=null,updated_at=? where id=?",
+                    (now, order["id"]),
+                )
+                api["db"]().execute(
+                    "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at)"
+                    " values(?,?,?,?,?,?,?)",
+                    (order["id"], "void", order["status"], "pending_payment",
+                     f"批次 {batch['batch_number']} 作废：{reason}", g.user["id"], now),
+                )
+                api["log_action"]("void", "employee_payment", order["id"], order["payment_number"],
+                                  f"批次 {batch['batch_number']} 作废：{reason}")
+            api["db"]().execute(
+                "update employee_payment_batches set status='void',voided_by=?,voided_at=?,updated_at=? where id=?",
+                (g.user["id"], now, now, batch_id),
+            )
+            api["db"]().commit()
+            flash(f"批次 {batch['batch_number']} 已作废，{len(orders)} 张付款单退回待付款。", "success")
+        except (ValueError, TypeError) as error:
+            api["db"]().rollback(); flash(str(error), "error")
+        return redirect(url_for("payment_batch_detail", batch_id=batch_id))
 
     @app.route("/finance/advances", methods=["GET", "POST"])
     @api["login_required"]
@@ -799,10 +1030,47 @@ def register_employee_finance_routes(app, api):
             _require(api, "bank_reconciliation", "reconcile")
             _require(api, "employee_payments", "reconcile")
             try:
-                transaction_id = int(request.form.get("transaction_id", "")); payment_id = int(request.form.get("payment_id", ""))
+                transaction_id = int(request.form.get("transaction_id", ""))
                 tx = api["db"]().execute("select * from bank_transactions where id=?", (transaction_id,)).fetchone()
+                if not tx or tx["matched_payment_order_id"] or tx["matched_batch_id"]:
+                    raise ValueError("银行流水不存在或已匹配。")
+                raw_batch = request.form.get("batch_id", "")
+                # 批次级对账：一张支票在流水里是一笔支出，整批核销，
+                # 不再要求「一笔流水 = 一张付款单」。
+                if str(raw_batch).strip().isdigit():
+                    batch = _load_batch(api, int(raw_batch))
+                    if batch["status"] != "issued": raise ValueError("只有已发放的付款批次可以对账。")
+                    if tx["direction"] != "debit" or tx["bank_account_id"] != batch["bank_account_id"]:
+                        raise ValueError("流水必须是付款账户下的支出记录。")
+                    if tx["currency"] != batch["currency"]:
+                        raise ValueError("流水币种与付款批次不一致。")
+                    if Decimal(str(tx["amount"])) != Decimal(str(batch["total_amount"])):
+                        raise ValueError("流水金额必须与付款批次合计金额一致。")
+                    orders = _batch_orders(api, batch["id"])
+                    api["db"]().execute(
+                        "update bank_transactions set matched_batch_id=?,matched_by=?,matched_at=?,sync_status='matched' where id=?",
+                        (batch["id"], g.user["id"], api["now"](), transaction_id),
+                    )
+                    for order in orders:
+                        api["db"]().execute(
+                            "update employee_payment_orders set status='reconciled',reconciled_by=?,reconciled_at=?,updated_at=? where id=?",
+                            (g.user["id"], api["now"](), api["now"](), order["id"]),
+                        )
+                        api["db"]().execute(
+                            "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,?,?,?,?,?,?)",
+                            (order["id"], "reconcile", order["status"], "reconciled",
+                             f"批次 {batch['batch_number']} 匹配银行流水 #{transaction_id}", g.user["id"], api["now"]()),
+                        )
+                    api["db"]().execute(
+                        "update employee_payment_batches set status='reconciled',reconciled_by=?,reconciled_at=?,updated_at=? where id=?",
+                        (g.user["id"], api["now"](), api["now"](), batch["id"]),
+                    )
+                    api["log_action"]("reconcile", "payment_batch", batch["id"], batch["batch_number"], f"银行流水 #{transaction_id}")
+                    api["db"]().commit()
+                    flash(f"付款批次与银行流水已完成对账，{len(orders)} 张付款单转为已对账。", "success")
+                    return redirect(url_for("bank_reconciliation"))
+                payment_id = int(request.form.get("payment_id", ""))
                 payment = _payment_order(api, payment_id)
-                if not tx or tx["matched_payment_order_id"]: raise ValueError("银行流水不存在或已匹配。")
                 if payment["status"] != "paid": raise ValueError("只有已付款的付款单可以对账。")
                 if tx["direction"] != "debit" or tx["bank_account_id"] != payment["bank_account_id"]:
                     raise ValueError("流水必须是付款账户下的支出记录。")
@@ -818,9 +1086,15 @@ def register_employee_finance_routes(app, api):
             except (ValueError, TypeError) as error:
                 api["db"]().rollback(); flash(str(error), "error")
             return redirect(url_for("bank_reconciliation"))
-        transactions = api["db"]().execute("select t.*,a.account_name from bank_transactions t join bank_accounts a on a.id=t.bank_account_id where t.matched_payment_order_id is null and t.direction='debit' order by t.transaction_date desc").fetchall()
+        transactions = api["db"]().execute("select t.*,a.account_name from bank_transactions t join bank_accounts a on a.id=t.bank_account_id where t.matched_payment_order_id is null and t.matched_batch_id is null and t.direction='debit' order by t.transaction_date desc").fetchall()
         payments = api["db"]().execute("select p.*,u.name employee_name from employee_payment_orders p join users u on u.id=p.employee_id where p.status='paid' order by p.paid_at desc").fetchall()
-        return render_template("bank_reconciliation.html", transactions=transactions, payments=payments)
+        batches = api["db"]().execute(
+            """select b.*,u.name employee_name,a.account_name from employee_payment_batches b
+            join users u on u.id=b.employee_id left join bank_accounts a on a.id=b.bank_account_id
+            where b.status='issued' order by b.issued_at desc,b.id desc"""
+        ).fetchall()
+        return render_template("bank_reconciliation.html", transactions=transactions, payments=payments,
+                               batches=batches, method_labels=PAYMENT_METHOD_LABELS)
 
     @app.get("/finance/employee-ledger")
     @api["login_required"]
@@ -880,11 +1154,18 @@ def register_employee_finance_routes(app, api):
             _advance_balances(api, int(employee_id) if employee_id.isdigit() else None)
             if can_view_all else []
         )
+        # 合并发放需要付款账户下拉与「pay」权限；没有权限就不画按钮也不查账户。
+        can_pay = can_view_all and api["has_action_permission"]("employee_payments", "pay")
+        accounts = (
+            api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
+            if can_pay else []
+        )
         return render_template("employee_ledger.html", employees=employees, employee_id=employee_id,
                                payments=payments, advances=advances, status_labels=PAYMENT_STATUS_LABELS,
                                type_labels=PAYMENT_TYPE_LABELS, payment_type=payment_type, status=status,
                                total_count=total_count, salary_count=type_counts["salary"],
-                               expense_count=type_counts["expense"], can_view_all=can_view_all)
+                               expense_count=type_counts["expense"], can_view_all=can_view_all,
+                               can_pay=can_pay, accounts=accounts, method_labels=PAYMENT_METHOD_LABELS)
 
     @app.route("/assets", methods=["GET", "POST"])
     @api["login_required"]

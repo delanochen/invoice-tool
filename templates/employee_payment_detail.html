@@ -48,6 +48,8 @@
           <p><strong>付款账户</strong><span>{{ payment.account_name or '—' }}</span></p>
           <p><strong>付款方式</strong><span>{{ method_labels.get(payment.payment_method,'—') }}</span></p>
           <p><strong>外部交易 ID</strong><span>{{ payment.external_transaction_id or '—' }}</span></p>
+          {# 合并发放的付款单挂在某个批次（一张支票）下，直接点回批次明细。 #}
+          <p><strong>所属批次</strong><span>{% if batch %}<a href="{{ url_for('payment_batch_detail', batch_id=batch.id) }}">{{ batch.batch_number }}</a>（支票 {{ batch.check_number or '—' }}）{% else %}—{% endif %}</span></p>
           <p class="full-span"><strong>说明</strong><span>{{ payment.description or '—' }}</span></p>
         </div>
       </section>
