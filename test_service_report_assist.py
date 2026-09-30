@@ -348,10 +348,17 @@ class ServiceReportWorkerFieldsTest(unittest.TestCase):
 
     def setUp(self):
         self.module.REPORT_ATTACHMENTS_DIR = str(Path(self.temp_dir.name) / "report-attachments")
+        self.module.SHARED_PHOTOS_DIR = str(Path(self.temp_dir.name) / "shared-photos")
+        shutil.rmtree(self.module.REPORT_ATTACHMENTS_DIR, ignore_errors=True)
+        shutil.rmtree(self.module.SHARED_PHOTOS_DIR, ignore_errors=True)
         with self.module.app.app_context():
             connection = self.module.db()
             for table in (
+                "service_report_attachments",
+                "service_report_saved_parts",
+                "service_report_replaced_parts",
                 "service_report_workers",
+                "service_report_save_tokens",
                 "service_reports",
                 "service_orders",
                 "clients",
@@ -455,6 +462,44 @@ class ServiceReportWorkerFieldsTest(unittest.TestCase):
         self.assertTrue(
             (Path(self.module.REPORT_ATTACHMENTS_DIR) / attachment["stored_filename"]).is_file()
         )
+
+    def test_new_report_can_save_existing_shared_photo(self):
+        from PIL import Image
+
+        relative_path = "SO-ASSIST/pictures/2026-09-24/site.jpg"
+        source_path = Path(self.module.SHARED_PHOTOS_DIR) / relative_path
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (40, 30), "green").save(source_path, "JPEG")
+
+        response = self._submit(
+            save_token="assist-shared-photo-token",
+            shared_photo_site=[relative_path],
+        )
+
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            attachment = self.module.db().execute(
+                "select * from service_report_attachments where category = 'site'"
+            ).fetchone()
+        self.assertIsNotNone(attachment)
+        self.assertEqual(attachment["original_filename"], "site.jpg")
+        self.assertTrue(
+            (Path(self.module.REPORT_ATTACHMENTS_DIR) / attachment["stored_filename"]).is_file()
+        )
+
+    def test_moved_shared_photo_returns_form_error_without_partial_report(self):
+        response = self._submit(
+            save_token="assist-missing-shared-photo-token",
+            shared_photo_site=["SO-ASSIST/pictures/2026-09-24/moved.jpg"],
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], f"/service-orders/{self.order_id}/reports/new")
+        with self.module.app.app_context():
+            report_count = self.module.db().execute(
+                "select count(*) as count from service_reports"
+            ).fetchone()["count"]
+        self.assertEqual(report_count, 0)
 
     def test_assist_plan_endpoint_rejects_bad_date(self):
         response = self.http.post(

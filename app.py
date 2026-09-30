@@ -3213,7 +3213,7 @@ def save_shared_report_photo(report_id, relative_path, category, storage_context
     # form submission (for example into a date folder).  Treat that as a
     # recoverable form-validation error instead of aborting the whole request
     # with the application's generic page/record 404.
-    source_path = resolve_shared_photo(relative_path, allow_missing=True)
+    source_path = resolve_shared_photo(relative_path, require_file=True, allow_missing=True)
     if (
         not source_path.is_file()
         or source_path.suffix.lower().lstrip(".") not in ALLOWED_IMAGE_EXTENSIONS
