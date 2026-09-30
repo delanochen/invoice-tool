@@ -3,7 +3,9 @@
 覆盖最容易出错、也是以前纯手工最容易漏的三件事：
   1. 日报附件相对路径里嵌了工单号 → 只改库不改磁盘就会 404；
   2. 现场照片要 pictures + thumbnails 两份一起搬（缩略图路径由 relative_path 推导）；
-  3. 已被工单结算单引用的日报/报销必须拒绝转移（否则结算单对不上账）。
+  3. 已被工单结算单引用的日报/报销必须拒绝转移（否则结算单对不上账）；
+  4. 工单号支持模糊输入（只记得后几位也能定位），但命中多条时**必须报错列候选、不能猜**
+     —— 猜错工单会把日报/报销搬到别的工单去。
 
 本测试连 PostgreSQL invoice_test（见 conftest.py / tests_pg.py）。磁盘相关的
 DATA / shared-photos 根目录指向临时目录（通过环境变量在 import app 之前切换）。
@@ -385,6 +387,53 @@ class OrderDataTransferTest(unittest.TestCase):
         self.assertEqual(report["service_order_id"], self.target_id)
         self.assertEqual(expense["service_order_id"], self.target_id)
         self.assertEqual(logs, 2, "日报和报销都应留下操作日志")
+
+
+    # ───────────────────── 工单号模糊输入（只记得后几位） ─────────────────────
+
+    def _seeded_client(self):
+        self.seed()
+        client = self.module.app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = self.user_id
+        return client
+
+    def _open_page(self, client, source, target=""):
+        query = f"source={source}" + (f"&target={target}" if target else "")
+        response = client.get(f"/tools/order-data-transfer?{query}")
+        self.assertEqual(response.status_code, 200)
+        return response.get_data(as_text=True)
+
+    def test_partial_order_number_resolves_the_order(self):
+        """SO-TRANSFER-A 只输 TRANSFER-A（不带前缀）也要能定位到。"""
+        body = self._open_page(self._seeded_client(), "TRANSFER-A")
+        self.assertIn(SOURCE_NUMBER, body)
+        self.assertIn("EX-TRANSFER-1", body, "片段唯一命中时应正常列出可转移数据")
+        # 注意别断言「匹配到多个工单」这类提示文案：页面说明里就有这句话，断言会永真。
+        self.assertNotIn('class="flash error"', body, "唯一命中时不应报错")
+
+    def test_lowercase_partial_also_resolves(self):
+        """大小写不敏感：用户不会特意去大写 SO 前缀。"""
+        body = self._open_page(self._seeded_client(), "transfer-a")
+        self.assertIn(SOURCE_NUMBER, body)
+        self.assertIn("EX-TRANSFER-1", body)
+
+    def test_ambiguous_partial_lists_candidates_without_guessing(self):
+        """TRANSFER 同时命中 A 和 B：必须报错列候选，绝不能挑一个就搬。"""
+        body = self._open_page(self._seeded_client(), "TRANSFER")
+        self.assertIn('class="flash error"', body)
+        # 候选是「、」连接的工单号列表，只有错误消息里会出现
+        self.assertIn(f"{SOURCE_NUMBER}、{TARGET_NUMBER}", body)
+        self.assertNotIn("EX-TRANSFER-1", body, "多个候选时不能猜一个工单去列数据")
+
+    def test_unknown_number_still_reports_not_found(self):
+        body = self._open_page(self._seeded_client(), "NOPE-9999")
+        self.assertIn("找不到源工单", body)
+
+    def test_like_fragment_escapes_wildcards(self):
+        """ORDER_NUMBER_PATTERN 允许 `_`，不转义会被 like 当成单字符通配符。"""
+        self.assertEqual(order_data_transfer._like_fragment("A_B"), "%A\\_B%")
+        self.assertEqual(order_data_transfer._like_fragment("A%B"), "%A\\%B%")
 
 
 if __name__ == "__main__":

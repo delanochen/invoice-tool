@@ -29,6 +29,19 @@ from flask import flash, redirect, render_template, request, url_for
 
 ORDER_NUMBER_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
+# 模糊匹配命中多条时最多列出这么多候选，够用户判断是哪个工单就行
+_ORDER_FUZZY_LIMIT = 5
+
+
+def _like_fragment(number):
+    """把用户输入的片段变成 like 的匹配串。
+
+    ORDER_NUMBER_PATTERN 允许 `_`，而 `_` 在 like 里是单字符通配符，必须转义，
+    否则 `SO_2609` 之类会误命中。转义符 `\\` 在 SQLite 与 PostgreSQL 里写法一致。
+    """
+    escaped = number.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
 
 # ────────────────────────────── 候选清单 ──────────────────────────────
 
@@ -382,17 +395,42 @@ def finalize_transfer(api, summary):
 
 
 def _resolve_order(api, order_number, field_label):
-    """按工单号取工单；走 require_service_order 以保证越权访问照样 403/404。"""
+    """按工单号取工单；走 require_service_order 以保证越权访问照样 403/404。
+
+    工单号支持模糊输入：先按完整工单号精确匹配，取不到再按片段匹配 —— 用户常常只记得
+    工单号的后几位（SO2609007 只输 09007），以前会直接报「找不到工单」。
+    片段命中多条时**不猜**，把候选列出来让用户补全：这里选错工单会把日报/报销搬到别的
+    工单去，宁可多问一句。候选列表同样走 service_order_access_filters，不泄露无权访问的工单号。
+    """
     number = (order_number or "").strip()
     if not number:
         return None, f"请填写{field_label}工单号。"
     if not ORDER_NUMBER_PATTERN.match(number):
         return None, f"{field_label}工单号格式不正确。"
-    row = api["db"]().execute(
+    conn = api["db"]()
+    row = conn.execute(
         "select id from service_orders where order_number = ?", (number,)
     ).fetchone()
     if not row:
-        return None, f"找不到{field_label}工单 {number}。"
+        clauses, params = api["service_order_access_filters"]()
+        clauses.append("upper(order_number) like upper(?) escape '\\'")
+        params.append(_like_fragment(number))
+        rows = conn.execute(
+            "select id, order_number from service_orders "
+            f"where {' and '.join(clauses)} "
+            "order by order_number limit ?",
+            (*params, _ORDER_FUZZY_LIMIT),
+        ).fetchall()
+        if not rows:
+            return None, f"找不到{field_label}工单 {number}。"
+        if len(rows) > 1:
+            candidates = "、".join(str(r["order_number"]) for r in rows)
+            more = " …" if len(rows) == _ORDER_FUZZY_LIMIT else ""
+            return None, (
+                f"{field_label}工单号 {number} 匹配到多个工单：{candidates}{more}，"
+                "请填写更完整的工单号。"
+            )
+        row = rows[0]
     return api["require_service_order"](row["id"]), None
 
 
