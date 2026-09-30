@@ -1,22 +1,172 @@
 {% extends "base.html" %}
-{% from "erp_ui.html" import summary_item %}
+{% from "erp_ui.html" import summary_item, nav_item %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
 {% block title %}员工往来账{% endblock %}
+
 {% block content %}
-<div class="erp-app">
+{# ERP 明细账范式（对齐员工付款中心）：工具栏动作 + 筛选栏 + SidebarTree + 面板内网格。
+   筛选口径：员工 = 服务端精确匹配（改查询串即换人，最常用）；类型 / 状态 = 表格自带筛选，
+   在已加载的数据上即时过滤，不产生整页往返。 #}
+{% set salary_count = payments|selectattr('payment_type', 'equalto', 'salary')|list|length %}
+{% set expense_count = payments|selectattr('payment_type', 'equalto', 'expense')|list|length %}
+{% set advance_remaining = advances|sum(attribute='remaining_amount') %}
+{% set selected_employee = employees|selectattr('id', 'equalto', employee_id|int)|list %}
+{% set employee_label = selected_employee[0].name if selected_employee else '全部员工' %}
+
+<div class="erp-app" data-active-panel="payments">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
-    <div class="erp-toolbar-title">员工往来账<small>财务管理 · 按员工查看付款与未结借款</small></div><span class="erp-badge">{{ employees|length }} 名员工</span><span class="erp-toolbar-spacer"></span>
-    <form method="get" class="erp-toolbar-group"><label>员工<select name="employee_id" required><option value="">请选择</option>{% for employee in employees %}<option value="{{ employee.id }}" {% if employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}</select></label><button class="erp-btn primary">查询</button></form>
+    <div class="erp-toolbar-title">员工往来账<small>财务管理 · 按员工查看付款与未结借款</small></div>
+    <span class="erp-badge">{{ payments|length }} 张付款单</span>
+    {% if advance_remaining %}<span class="erp-badge warn">未结借款 {{ advance_remaining|money }}</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
   </header>
+
+  <!-- ───────────────────────────── SidebarTree ─────────────────────────── -->
+  {# 类型入口走 URL 参数并保留当前员工：与员工证书清单同一手法（<a> 而非 data-erp-tab） #}
+  {# 必须是 .erp-app 的直接子元素、且在 .erp-body 之前 —— erp-ui.css 用
+     `.erp-app:not(:has(> .erp-nav))` 把导航列（208px）还给内容区，放进 body 里会让
+     :has 判定失败 → 侧栏被压成整行堆到表格上方，而不是左侧竖栏。 #}
+  <nav class="erp-nav no-print" aria-label="员工往来账">
+    <div class="erp-nav-title">单据类型</div>
+    <ul class="erp-nav-tree">
+      <li><a class="erp-nav-item{% if not payment_type %} active{% endif %}"
+             href="{{ url_for('employee_ledger', employee_id=employee_id) }}">
+        <span>全部单据</span><span class="count">{{ payments|length }}</span></a></li>
+      <li><a class="erp-nav-item{% if payment_type=='salary' %} active{% endif %}"
+             href="{{ url_for('employee_ledger', employee_id=employee_id, payment_type='salary') }}">
+        <span>工资</span><span class="count">{{ salary_count }}</span></a></li>
+      <li><a class="erp-nav-item{% if payment_type=='expense' %} active{% endif %}"
+             href="{{ url_for('employee_ledger', employee_id=employee_id, payment_type='expense') }}">
+        <span>员工报销</span><span class="count">{{ expense_count }}</span></a></li>
+    </ul>
+  </nav>
+
+  <!-- ─────────────────────────────────── ERP Body ───────────────────────── -->
   <div class="erp-body">
-    {% if employee_id %}
-    <section class="erp-panel active"><div class="erp-section-title">付款历史</div><div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;"><table class="list-table erp-grid"><thead><tr><th>付款单</th><th>类型</th><th>应付</th><th>抵扣</th><th>实付</th><th>状态</th></tr></thead><tbody>{% for row in payments %}<tr><td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td><td>{{ type_labels[row.payment_type] }}</td><td>{{ row.gross_amount|money }}</td><td>{{ row.advance_offset|money }}</td><td>{{ row.net_amount|money }}</td><td>{{ status_labels[row.status] }}</td></tr>{% else %}<tr><td colspan="6" class="empty">该员工暂无付款记录。</td></tr>{% endfor %}</tbody></table></div></section>
-    <section class="erp-panel"><div class="erp-section-title">借款</div><div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;"><table class="list-table erp-grid"><thead><tr><th>借款单</th><th>本金</th><th>已抵扣</th><th>余额</th></tr></thead><tbody>{% for row in advances %}<tr><td>{{ row.advance_number }}</td><td>{{ row.principal_amount|money }}</td><td>{{ row.applied_amount|money }}</td><td><strong>{{ row.remaining_amount|money }}</strong></td></tr>{% else %}<tr><td colspan="4" class="empty">该员工暂无借款。</td></tr>{% endfor %}</tbody></table></div></section>
-    {% else %}
-    <section class="erp-panel active"><div class="erp-section-title">使用说明</div><p class="muted">请先在上方选择员工再查询。</p></section>
-    {% endif %}
+    <form method="get" class="erp-filter no-print" data-erp-filter>
+      <label class="erp-field">员工
+        <select name="employee_id">
+          <option value="">全部员工</option>
+          {% for employee in employees %}<option value="{{ employee.id }}" {% if employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}
+        </select>
+      </label>
+      {% if payment_type %}<input type="hidden" name="payment_type" value="{{ payment_type }}">{% endif %}
+      <p class="erp-filter-note">「员工」为精确筛选（服务端）·「类型 / 状态」在表格工具栏内即时筛选 · 金额单位 {{ payments|length and payments[0].currency or 'USD' }}</p>
+    </form>
+
+    <!-- ─────────────────────────────── 付款历史 ──────────────────────────── -->
+    <section class="erp-panel active" data-erp-panel="payments">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th>应付</th><th>抵扣</th><th>其他调整</th><th>实付</th><th>状态</th><th>创建时间</th></tr></thead>
+          <tbody>{% for row in payments %}<tr>
+            <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td>
+            <td>{{ row.employee_name }}</td>
+            <td>{{ type_labels[row.payment_type] }}</td>
+            <td>{{ row.gross_amount|money }}</td>
+            <td>{{ row.advance_offset|money }}</td>
+            <td>{{ row.other_adjustment|money }}</td>
+            <td><strong>{{ row.net_amount|money }}</strong></td>
+            <td><span class="status {{ row.status }}">{{ status_labels[row.status] }}</span></td>
+            <td>{{ row.created_at|local_datetime }}</td>
+          </tr>{% else %}<tr><td colspan="9" class="empty">没有符合条件的付款记录。</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in payments %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.payment_number }}</span>
+              <span class="erp-card-customer">{{ row.employee_name }}</span>
+              <span class="status {{ row.status }}">{{ status_labels[row.status] }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ type_labels[row.payment_type] }}</span>
+              <span>{{ row.created_at|local_datetime }}</span>
+            </div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>应付</span><strong>{{ row.gross_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>抵扣</span><strong>{{ row.advance_offset|money }}</strong></div>
+              <div class="erp-card-metric"><span>实付</span><strong>{{ row.net_amount|money }}</strong></div>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn primary" href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">付款单详情</a>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的付款记录。</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────── 借款 ─────────────────────────────── -->
+    <section class="erp-panel" data-erp-panel="advances">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead><tr><th>借款单</th><th>员工</th><th>借款日期</th><th>本金</th><th>已抵扣</th><th>余额</th></tr></thead>
+          <tbody>{% for row in advances %}<tr>
+            <td>{{ row.advance_number }}</td>
+            <td>{{ row.employee_name }}</td>
+            <td>{{ row.advance_date }}</td>
+            <td>{{ row.principal_amount|money }}</td>
+            <td>{{ row.applied_amount|money }}</td>
+            <td><strong>{{ row.remaining_amount|money }}</strong></td>
+          </tr>{% else %}<tr><td colspan="6" class="empty">没有符合条件的借款记录。</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in advances %}
+          <article class="erp-card {{ 'neg' if row.remaining_amount|float > 0 else '' }}">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.advance_number }}</span>
+              <span class="erp-card-customer">{{ row.employee_name }}</span>
+            </div>
+            <div class="erp-card-sub"><span>{{ row.advance_date }}</span></div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>本金</span><strong>{{ row.principal_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>已抵扣</span><strong>{{ row.applied_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>余额</span><strong>{{ row.remaining_amount|money }}</strong></div>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的借款记录。</div>
+        {% endfor %}
+      </div>
+    </section>
   </div>
-  {% if employee_id %}<footer class="erp-summary">{{ summary_item('付款记录', payments|length, 'muted') }}{{ summary_item('借款记录', advances|length, 'muted') }}</footer>{% endif %}
-  <footer class="erp-status"><span>借款余额由工资/报销抵扣的核销流水计算。</span></footer>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('付款单', payments|length, 'muted') }}
+    {{ summary_item('工资 / 员工报销', '%d / %d'|format(salary_count, expense_count), 'muted') }}
+    {{ summary_item('应付合计', payments|sum(attribute='gross_amount')|money, 'muted') }}
+    {{ summary_item('实付合计', payments|sum(attribute='net_amount')|money, 'pos') }}
+    {{ summary_item('借款余额', advance_remaining|money, 'neg' if advance_remaining|float > 0 else 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ payments|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>员工 <b>{{ employee_label }}</b></span>
+    <span class="sep"></span>
+    <span>类型 <b>{{ type_labels.get(payment_type, '全部') }}</b></span>
+    <span class="sep"></span>
+    <span>借款余额由工资/报销抵扣的核销流水计算。</span>
+  </footer>
 </div>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}

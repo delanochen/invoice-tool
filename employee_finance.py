@@ -826,15 +826,45 @@ def register_employee_finance_routes(app, api):
     @api["login_required"]
     def employee_ledger():
         _require(api, "employee_ledger")
+        # v0.1.344：从「先选员工才出数据」改成 ERP 明细账范式 ——
+        # 默认列出全部员工（受 can_view_all_payments 约束），员工 / 类型 / 状态三个筛选
+        # 可任意组合；只有员工筛选必须能单独生效，所以员工筛选走服务端（精确匹配），
+        # 类型与状态交给表格自带筛选（前端，含排序+列设置）以减少一次整页往返。
+        # 员工下拉必须保留「全部」选项：旧版 select 带 required，不给「全部」就没法退回去。
         employee_id = request.args.get("employee_id", "")
-        employees = api["db"]().execute("select id,name from users order by name").fetchall()
-        payments, advances = [], []
+        payment_type = request.args.get("payment_type", "")
+        can_view_all = _can_view_all_payments(api)
+        if not can_view_all:
+            # 无「查看全部」权限时强制锁定为本人，忽略 URL 里的 employee_id，
+            # 否则改一下查询串就能读到别人的付款记录。
+            employee_id = str(g.user["id"])
+        employees = (
+            api["db"]().execute("select id,name from users where role in ('employee','manager','finance','admin') order by name").fetchall()
+            if can_view_all else api["db"]().execute("select id,name from users where id=?", (g.user["id"],)).fetchall()
+        )
+        clauses, params = ["1=1"], []
         if employee_id.isdigit():
-            payments = api["db"]().execute("select * from employee_payment_orders where employee_id=? order by created_at desc", (int(employee_id),)).fetchall()
-            advances = _advance_balances(api, int(employee_id))
+            clauses.append("p.employee_id=?"); params.append(int(employee_id))
+        # 类型筛选来自左侧 SidebarTree。白名单判定：只接受 PAYMENT_TYPE_LABELS 里的键，
+        # 非法值当作「全部」而不是拼进 SQL（值虽已参数化，但未知类型只会筛出空表，徒增困惑）。
+        if payment_type in PAYMENT_TYPE_LABELS:
+            clauses.append("p.payment_type=?"); params.append(payment_type)
+        else:
+            payment_type = ""
+        payments = api["db"]().execute(
+            f"""select p.*,u.name employee_name from employee_payment_orders p
+            join users u on u.id=p.employee_id
+            where {' and '.join(clauses)} order by p.created_at desc,p.id desc""", params
+        ).fetchall()
+        # 借款按员工聚合展示（原表格只有单号/本金/余额，看不出是谁的，选「全部」后完全没法读）
+        advances = (
+            _advance_balances(api, int(employee_id) if employee_id.isdigit() else None)
+            if can_view_all else []
+        )
         return render_template("employee_ledger.html", employees=employees, employee_id=employee_id,
                                payments=payments, advances=advances, status_labels=PAYMENT_STATUS_LABELS,
-                               type_labels=PAYMENT_TYPE_LABELS)
+                               type_labels=PAYMENT_TYPE_LABELS, payment_type=payment_type,
+                               can_view_all=can_view_all)
 
     @app.route("/assets", methods=["GET", "POST"])
     @api["login_required"]
