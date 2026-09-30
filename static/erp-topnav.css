@@ -2,7 +2,7 @@
    ERP 顶部菜单导航（v0.1.294）
    覆盖 styles.css 的左侧 sidebar 布局 → C/S 客户端式「标题栏 + 菜单栏」
    观感要点:
-     · 两行：上排标题栏（品牌 / 语言 / 用户 / 退出），下排菜单栏（24px 细条）
+     · 单行标题栏：菜单（24px 细条）与右侧账号（语言 / 用户 / 退出）同一行，账号靠右
      · 直角、细边框、12px 字号、无圆角下拉、硬阴影（传统 Windows / ERP 客户端）
      · 菜单项带下划线访问键（Alt+M 等）、悬浮即高亮、打开时呈「按下」态
      · 子菜单级联向右弹出（▶），菜单内分隔线
@@ -27,51 +27,34 @@
      普通浏览器（含 Safari 标签页）里 env() 恒为 0，外观不变。 */
   padding-top: env(safe-area-inset-top);
 }
-/* 标题栏 + 菜单栏两行：brand 与右侧账号同排，菜单栏独占第二行。
-   用 order/flex-wrap 实现，无需改动 base.html 的 DOM 结构。 */
+/* 单行标题栏：菜单（#topnav）与右侧账号（语言/用户名/退出）同一行，账号靠右。
+   品牌行已移除；窄屏时整行横向溢出（页面可左右滚动），不换行兜底。 */
 .topbar-inner {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: stretch;
   gap: 0;
   height: auto;
   padding: 0;
   max-width: none;
 }
-.topbar-brand {
-  order: 1;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 30px;
-  padding: 0 10px;
-  margin-right: 0;
-  border-right: 0;
-  flex: 0 0 auto;
-  min-width: 0;
-}
-.topbar-brand img { width: 20px; height: 20px; border-radius: 3px; }
-.topbar-name {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #1c2b3a;
-  white-space: nowrap;
-}
+/* 品牌行已移除（v0.1.341）：.topbar-brand 仅剩移动端汉堡按钮，桌面端整体隐藏 */
+.topbar-brand { display: none; }
 .topbar .mobile-menu-toggle { display: none; }
 
-/* ── 菜单栏（第二行，24px 细条）── */
+/* ── 菜单栏（与账号区同一行，24px 细条；横向溢出交给页面级滚动）── */
 #topnav {
-  order: 3;
-  flex: 0 0 100%;
+  order: 1;
+  flex: 1 1 auto;
   display: flex;
   align-items: stretch;
   gap: 0;
-  min-width: 0;
+  /* 不收缩到内容宽度以下：窄屏时整行横向溢出而不是与右侧账号重叠 */
+  min-width: auto;
   height: 24px;
   overflow: visible;
   background: linear-gradient(180deg, #f6f7f9 0%, #e9edf2 100%);
-  border-top: 1px solid #dfe4ea;
-  border-bottom: 1px solid #9aa7bb;
+  /* 单行布局后，头部分隔线统一由 .topbar 的 border-bottom 承担 */
 }
 
 /* ── 一级菜单（details）──
@@ -300,14 +283,14 @@
 }
 #topnav .nav-subgroup[open] > .nav-submenu { display: block; }
 
-/* ── 右侧：语言 / 用户 / 退出 ── */
+/* ── 右侧：语言 / 用户 / 退出（与菜单同一行，靠右）── */
 .topbar-right {
   order: 2;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  height: 24px;
   padding: 0 10px;
   margin-left: auto;
   border-left: 0;
@@ -340,9 +323,9 @@
 
 /* ── 移动端（≤760px）：汉堡 + 纵向抽屉 ── */
 @media (max-width: 760px) {
-  .topbar-inner { padding: 0; }
-  /* 品牌占满第一行剩余宽度，汉堡按钮（margin-left:auto）才能靠右 */
-  .topbar-brand { flex: 1 1 auto; height: 40px; padding: 0 10px; justify-content: flex-start; }
+  .topbar-inner { padding: 0; flex-wrap: wrap; }
+  /* 品牌区只剩汉堡按钮：占满第一行剩余宽度让按钮（margin-left:auto）与账号区同排靠右 */
+  .topbar-brand { display: flex; flex: 1 1 auto; height: 40px; padding: 0 10px; justify-content: flex-start; }
   .topbar .mobile-menu-toggle {
     display: inline-flex;
     align-items: center;
