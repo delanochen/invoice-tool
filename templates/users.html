@@ -15,6 +15,10 @@
         {% if can_assign %}
           <button type="button" class="erp-btn primary" data-dialog-open="newUserDialog">新增用户</button>
         {% endif %}
+        {# 导出走通用「导出可见表格」机制：report-export.js 从 system-grid 镜像取当前
+           筛选/排序/分组后的行，POST 给 export_visible_report 换 xlsx。按钮动作由
+           erp-report.js 的 data-erp-action="export" 派发（本页此前没加载它）。 #}
+        <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
       </div>
     </header>
 
@@ -311,6 +315,11 @@
   {% endfor %}
 {% endblock %}
 {% block scripts %}
+  {# 导出配置必须先于 report-export.js 赋值：它在顶层就把 window.reportExportConfig
+     读进模块内常量，之后再赋值新对象不会生效。 #}
+  <script>window.reportExportConfig = {url: {{ url_for('export_visible_report')|tojson }}, title: "用户管理"};</script>
+  <script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='user-address.js', v='20260706-user-address-v1') }}"></script>
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>

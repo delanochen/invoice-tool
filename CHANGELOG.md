@@ -4,6 +4,20 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.347] - 2026-09-30
+
+### 新增：用户管理页导出 Excel
+- 用户管理（`/users`）工具栏新增「导出 Excel」按钮，导出当前表格可见行
+  （含表内搜索 / 排序 / 分组小计），文件名 `用户管理-<日期>.xlsx`。
+- 复用全站通用导出链路：`data-erp-action="export"` → `erp-report.js` 派发 →
+  `report-export.js` 取 `system-grid` 镜像数据 → `POST /reports/export-visible.xlsx`。
+  本页此前两样都缺：不在 `base.html` 的自动导出白名单里（该白名单只给有
+  `page-header` 的老页面自动插按钮，用户页是 ERP 外壳），也没加载 `erp-report.js`
+  （`data-erp-action` 没人派发）。现在由模板自管：`reportExportConfig` 先赋值、
+  再加载 `report-export.js` + `erp-report.js`。
+- 回归：新增 `test_users_export.py`（按钮位置 / 脚本齐全 / config 早于脚本的顺序契约 /
+  端点存在 / 不重复进白名单，9 项）。
+
 ## [0.1.346] - 2026-09-30
 
 ### 新增：员工往来账表格支持「分组 / 二级分组」，付款单动作改弹窗
