@@ -1,19 +1,22 @@
-"""员工往来账筛选契约（v0.1.344）。
+"""员工往来账筛选契约（v0.1.344 / v0.1.345）。
 
-用户诉求：「员工往来账的表格增加筛选，员工、类型，更像 ERP 风格」。
+用户诉求：「员工往来账的表格增加筛选，员工、类型，更像 ERP 风格」；
+v0.1.345 追加：「不要左边的类型选择，类型和员工和状态一样在筛选栏里选；表格里加上说明这一列」。
 
-本次改动把页面从「先选员工、select 带 required」改成 ERP 明细账范式：
+页面从「先选员工、select 带 required」改成 ERP 明细账范式：
 - 默认列出全部员工（受 can_view_all_payments 权限约束）；
-- 员工筛选 = 服务端精确匹配（保留「全部员工」选项，否则选完回不去）；
-- 类型筛选 = 服务端白名单（工资 / 员工报销），由左侧 SidebarTree 驱动；
-- 状态与表内搜索交给表格工具栏；
-- 无「查看全部」权限时强制锁定本人 —— 改 URL 查询串也读不到别人的记录。
+- 员工 / 类型 / 状态三个筛选并列放在筛选栏，全部走服务端精确匹配（各有「全部」选项）；
+- 无「查看全部」权限时强制锁定本人 —— 改 URL 查询串也读不到别人的记录；
+- 说明列：报销类付款单（source_type='expense'）的说明直接链到对应报销单。
 
 回归要点（改这几处必须同步本文件）：
-- employee_finance.employee_ledger 的 clauses 拼装与 payment_type 白名单；
-- templates/employee_ledger.html 的筛选栏 / SidebarTree / 表格列；
-- PAYMENT_TYPE_LABELS 的键集合（SidebarTree 的入口就是它）。
+- employee_finance.employee_ledger 的 clauses 拼装与 payment_type / status 白名单；
+- 计数口径：total / salary / expense 只套「员工+状态」，**不套类型**（v0.1.345：
+  侧栏时代选中「工资」会让报销数变 0，看着像数据没了）；
+- templates/employee_ledger.html 的筛选栏（employee_id / payment_type / status）与表格列；
+- PAYMENT_TYPE_LABELS 的键集合（筛选栏选项就是它）。
 """
+import re
 import unittest
 
 import tests_pg
@@ -71,19 +74,21 @@ def _seed(conn):
         "insert into users(id,name,email,role,password_hash,is_active,created_at) "
         "values(2,'筛选乙','b@example.invalid','employee','x',1,'2026-01-01T00:00:00-06:00')"
     )
+    # 第 2 行是报销桥接过来的付款单（source_type='expense' + source_id），
+    # 说明列要能点进报销单 —— 这里带上 description 供渲染断言。
     rows = [
-        (1, 1, "salary", "SL-2609-0001", "1000.00"),
-        (2, 1, "expense", "ER-2609-0002", "200.00"),
-        (3, 2, "salary", "SL-2609-0003", "3000.00"),
+        (1, 1, "salary", "SL-2609-0001", "1000.00", "manual", None, ""),
+        (2, 1, "expense", "ER-2609-0002", "200.00", "expense", 7, "报销单 EX-2609-0007"),
+        (3, 2, "salary", "SL-2609-0003", "3000.00", "manual", None, ""),
     ]
-    for pid, employee_id, kind, number, amount in rows:
+    for pid, employee_id, kind, number, amount, source_type, source_id, description in rows:
         conn.execute(
             "insert into employee_payment_orders"
-            "(id,payment_number,employee_id,payment_type,source_type,status,currency,"
+            "(id,payment_number,employee_id,payment_type,source_type,source_id,description,status,currency,"
             " gross_amount,advance_offset,other_adjustment,net_amount,created_at,updated_at,created_by)"
-            " values(%s,%s,%s,%s,'manual','draft','USD',%s,'0','0',%s,"
+            " values(%s,%s,%s,%s,%s,%s,%s,'draft','USD',%s,'0','0',%s,"
             "        '2026-09-20T10:00:00-05:00','2026-09-20T10:00:00-05:00',1)",
-            (pid, number, employee_id, kind, amount, amount),
+            (pid, number, employee_id, kind, source_type, source_id, description, amount, amount),
         )
 
 
@@ -227,41 +232,64 @@ class EmployeeLedgerFilterContractTest(unittest.TestCase):
         self.assertEqual(len(salary), 2)
         self.assertEqual(len(expense), 1)
 
-    def test_page_renders_filter_sidebar_and_table_headers(self):
-        """真渲染一次，确认筛选栏 / 侧栏入口 / 新增列都在 HTML 里。"""
+    def test_page_renders_filter_bar_and_table_headers(self):
+        """真渲染一次，确认筛选栏三个下拉 / 表格列都在 HTML 里。"""
         body = self._render_page()
-        self.assertIn('name="employee_id"', body)
+        self.assertIn("员工往来账", body)
+        # v0.1.345：员工 / 类型 / 状态并列在筛选栏（类型不再走左侧 SidebarTree）
+        for field in ("employee_id", "payment_type", "status"):
+            self.assertIn(f'name="{field}"', body)
         self.assertIn("全部员工", body)
         for kind in PAYMENT_TYPE_LABELS:
             self.assertIn(kind, body)
-        self.assertIn("erp-nav-tree", body)
-        self.assertIn("员工往来账", body)
-        # v0.1.344 新增列：员工 / 其他调整 / 创建时间
-        for header in ("付款单", "员工", "类型", "应付", "抵扣", "其他调整", "实付", "状态", "创建时间"):
+        # v0.1.344 新增列：员工 / 其他调整 / 创建时间；v0.1.345 再加「说明」
+        for header in ("付款单", "员工", "类型", "说明", "应付", "抵扣", "其他调整", "实付", "状态", "创建时间"):
             self.assertIn(header, body)
+        self.assertNotIn("erp-nav-tree", body, "单据类型入口已挪进筛选栏，不应再渲染侧栏树")
 
-    def test_type_sidebar_links_preserve_employee_filter(self):
-        """类型入口必须带上当前员工，否则点一下类型就把人筛丢了。"""
-        body = self._render_page(employee_id="2")
-        self.assertIn("payment_type=salary", body)
-        self.assertIn("payment_type=expense", body)
-        self.assertIn("employee_id=2", body)
+    def test_status_filter_narrows_rows(self):
+        """状态筛选与员工 / 类型同口径：服务端精确匹配，非法值回落「全部」。"""
+        self.assertEqual(len(self._render(status="draft")["payments"]), 3)
+        paid = self._render(status="paid")
+        self.assertEqual(paid["payments"], [])
+        self.assertEqual(paid["status"], "paid")
+        unknown = self._render(status="not_a_status")
+        self.assertEqual(unknown["status"], "")
+        self.assertEqual(len(unknown["payments"]), 3)
 
-    def test_nav_is_direct_child_of_erp_app(self):
-        """侧栏必须是 .erp-app 的直接子元素。
+    def test_filter_bar_keeps_selected_values(self):
+        """筛选栏要回填当前条件，否则点「查询」后看起来什么都没选。"""
+        body = self._render_page(employee_id="2", payment_type="salary", status="draft")
+        self.assertIn('value="2" selected', body)
+        self.assertIn('value="salary" selected', body)
+        self.assertIn('value="draft" selected', body)
 
-        erp-ui.css 用 `.erp-app:not(:has(> .erp-nav))` 决定「有没有 208px 导航列」。
-        把 <nav> 放进 .erp-body 里会让该判定失败 —— 侧栏不会变成左侧竖栏，
-        而是被压成整行堆到表格上方（真渲染实测 gridCols 只有 1 列）。
-        这条断言就是钉住层级，别再挪回去。
+    def test_counts_ignore_type_filter(self):
+        """工资 / 报销计数按「员工+状态」口径，选中某个类型时数字不能跟着变。
+
+        v0.1.345：侧栏时代三个数字都从已过滤的 payments 里算，选中「工资」后
+        「全部单据」= 工资数、「员工报销」= 0，用户以为数据没了。
         """
-        body = self._render_page()
-        # 取出 .erp-app 开标签之后、.erp-body 开标签之前的那一段
-        app_at = body.index('class="erp-app"')
-        body_at = body.index('class="erp-body"')
-        self.assertLess(app_at, body_at, "erp-body 应在 erp-app 之后")
-        between = body[app_at:body_at]
-        self.assertIn("erp-nav", between, "erp-nav 必须是 erp-app 的直接子元素（在 erp-body 之前）")
+        base = self._render(employee_id="1")
+        self.assertEqual(base["total_count"], 2)
+        self.assertEqual(base["salary_count"], 1)
+        self.assertEqual(base["expense_count"], 1)
+        for kind in PAYMENT_TYPE_LABELS:
+            ctx = self._render(employee_id="1", payment_type=kind)
+            self.assertEqual(ctx["total_count"], 2, f"{kind} 视图下总数不应变")
+            self.assertEqual(ctx["salary_count"], 1)
+            self.assertEqual(ctx["expense_count"], 1)
+
+    def test_expense_description_links_to_expense(self):
+        """报销类付款单的说明直接链到对应报销单。"""
+        body = self._render_page(payment_type="expense")
+        self.assertRegex(
+            body,
+            r'<a href="[^"]*/expenses/7[^"]*">\s*报销单 EX-2609-0007\s*</a>',
+        )
+        # 工资单没有来源报销单，说明就是纯文本
+        salary_body = self._render_page(payment_type="salary")
+        self.assertNotIn("/expenses/7", salary_body)
 
 
 if __name__ == "__main__":

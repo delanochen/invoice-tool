@@ -1,14 +1,13 @@
 {% extends "base.html" %}
-{% from "erp_ui.html" import summary_item, nav_item %}
+{% from "erp_ui.html" import summary_item %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
 {% block title %}员工往来账{% endblock %}
 
 {% block content %}
-{# ERP 明细账范式（对齐员工付款中心）：工具栏动作 + 筛选栏 + SidebarTree + 面板内网格。
-   筛选口径：员工 = 服务端精确匹配（改查询串即换人，最常用）；类型 / 状态 = 表格自带筛选，
-   在已加载的数据上即时过滤，不产生整页往返。 #}
-{% set salary_count = payments|selectattr('payment_type', 'equalto', 'salary')|list|length %}
-{% set expense_count = payments|selectattr('payment_type', 'equalto', 'expense')|list|length %}
+{# ERP 明细账范式（对齐员工付款中心）：工具栏动作 + 筛选栏 + 面板内网格。
+   v0.1.345：类型 / 状态从左侧 SidebarTree 挪进筛选栏，与「员工」并列走服务端筛选 ——
+   侧栏的单据类型入口会让「全部单据」的计数跟着当前类型变（选中工资后报销数显示为 0），
+   看着像数据没了。计数（total/salary/expense）由服务端按「员工+状态」口径给出，不含类型。 #}
 {% set advance_remaining = advances|sum(attribute='remaining_amount') %}
 {% set selected_employee = employees|selectattr('id', 'equalto', employee_id|int)|list %}
 {% set employee_label = selected_employee[0].name if selected_employee else '全部员工' %}
@@ -30,26 +29,6 @@
     </div>
   </header>
 
-  <!-- ───────────────────────────── SidebarTree ─────────────────────────── -->
-  {# 类型入口走 URL 参数并保留当前员工：与员工证书清单同一手法（<a> 而非 data-erp-tab） #}
-  {# 必须是 .erp-app 的直接子元素、且在 .erp-body 之前 —— erp-ui.css 用
-     `.erp-app:not(:has(> .erp-nav))` 把导航列（208px）还给内容区，放进 body 里会让
-     :has 判定失败 → 侧栏被压成整行堆到表格上方，而不是左侧竖栏。 #}
-  <nav class="erp-nav no-print" aria-label="员工往来账">
-    <div class="erp-nav-title">单据类型</div>
-    <ul class="erp-nav-tree">
-      <li><a class="erp-nav-item{% if not payment_type %} active{% endif %}"
-             href="{{ url_for('employee_ledger', employee_id=employee_id) }}">
-        <span>全部单据</span><span class="count">{{ payments|length }}</span></a></li>
-      <li><a class="erp-nav-item{% if payment_type=='salary' %} active{% endif %}"
-             href="{{ url_for('employee_ledger', employee_id=employee_id, payment_type='salary') }}">
-        <span>工资</span><span class="count">{{ salary_count }}</span></a></li>
-      <li><a class="erp-nav-item{% if payment_type=='expense' %} active{% endif %}"
-             href="{{ url_for('employee_ledger', employee_id=employee_id, payment_type='expense') }}">
-        <span>员工报销</span><span class="count">{{ expense_count }}</span></a></li>
-    </ul>
-  </nav>
-
   <!-- ─────────────────────────────────── ERP Body ───────────────────────── -->
   <div class="erp-body">
     <form method="get" class="erp-filter no-print" data-erp-filter>
@@ -59,26 +38,39 @@
           {% for employee in employees %}<option value="{{ employee.id }}" {% if employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}
         </select>
       </label>
-      {% if payment_type %}<input type="hidden" name="payment_type" value="{{ payment_type }}">{% endif %}
-      <p class="erp-filter-note">「员工」为精确筛选（服务端）·「类型 / 状态」在表格工具栏内即时筛选 · 金额单位 {{ payments|length and payments[0].currency or 'USD' }}</p>
+      <label class="erp-field">类型
+        <select name="payment_type">
+          <option value="">全部</option>
+          {% for value,label in type_labels.items() %}<option value="{{ value }}" {% if payment_type==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">状态
+        <select name="status">
+          <option value="">全部</option>
+          {% for value,label in status_labels.items() %}<option value="{{ value }}" {% if status==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <p class="erp-filter-note">员工 / 类型 / 状态均为服务端精确筛选，点「查询」生效 · 金额单位 {{ payments|length and payments[0].currency or 'USD' }}</p>
     </form>
 
     <!-- ─────────────────────────────── 付款历史 ──────────────────────────── -->
     <section class="erp-panel active" data-erp-panel="payments">
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid" data-grid-height="100%">
-          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th>应付</th><th>抵扣</th><th>其他调整</th><th>实付</th><th>状态</th><th>创建时间</th></tr></thead>
+          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th>说明</th><th>应付</th><th>抵扣</th><th>其他调整</th><th>实付</th><th>状态</th><th>创建时间</th></tr></thead>
           <tbody>{% for row in payments %}<tr>
             <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td>
             <td>{{ row.employee_name }}</td>
             <td>{{ type_labels[row.payment_type] }}</td>
+            {# 报销类付款单的说明带来源报销单号，直接点开对应报销单，省一次复制单号再查的操作 #}
+            <td>{% if row.source_type=='expense' and row.source_id %}<a href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</td>
             <td>{{ row.gross_amount|money }}</td>
             <td>{{ row.advance_offset|money }}</td>
             <td>{{ row.other_adjustment|money }}</td>
             <td><strong>{{ row.net_amount|money }}</strong></td>
             <td><span class="status {{ row.status }}">{{ status_labels[row.status] }}</span></td>
             <td>{{ row.created_at|local_datetime }}</td>
-          </tr>{% else %}<tr><td colspan="9" class="empty">没有符合条件的付款记录。</td></tr>{% endfor %}</tbody>
+          </tr>{% else %}<tr><td colspan="10" class="empty">没有符合条件的付款记录。</td></tr>{% endfor %}</tbody>
         </table>
       </div>
 
@@ -95,6 +87,7 @@
               <span>{{ type_labels[row.payment_type] }}</span>
               <span>{{ row.created_at|local_datetime }}</span>
             </div>
+            {% if row.description %}<div class="erp-card-sub">{% if row.source_type=='expense' and row.source_id %}<a href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</div>{% endif %}
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>应付</span><strong>{{ row.gross_amount|money }}</strong></div>
               <div class="erp-card-metric"><span>抵扣</span><strong>{{ row.advance_offset|money }}</strong></div>
@@ -164,6 +157,8 @@
     <span>员工 <b>{{ employee_label }}</b></span>
     <span class="sep"></span>
     <span>类型 <b>{{ type_labels.get(payment_type, '全部') }}</b></span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ status_labels.get(status, '全部') }}</b></span>
     <span class="sep"></span>
     <span>借款余额由工资/报销抵扣的核销流水计算。</span>
   </footer>

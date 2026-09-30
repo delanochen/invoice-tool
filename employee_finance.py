@@ -833,6 +833,7 @@ def register_employee_finance_routes(app, api):
         # 员工下拉必须保留「全部」选项：旧版 select 带 required，不给「全部」就没法退回去。
         employee_id = request.args.get("employee_id", "")
         payment_type = request.args.get("payment_type", "")
+        status = request.args.get("status", "")
         can_view_all = _can_view_all_payments(api)
         if not can_view_all:
             # 无「查看全部」权限时强制锁定为本人，忽略 URL 里的 employee_id，
@@ -845,7 +846,25 @@ def register_employee_finance_routes(app, api):
         clauses, params = ["1=1"], []
         if employee_id.isdigit():
             clauses.append("p.employee_id=?"); params.append(int(employee_id))
-        # 类型筛选来自左侧 SidebarTree。白名单判定：只接受 PAYMENT_TYPE_LABELS 里的键，
+        # 状态筛选：白名单判定，非法值当作「全部」。
+        if status in PAYMENT_STATUS_LABELS:
+            clauses.append("p.status=?"); params.append(status)
+        else:
+            status = ""
+        # 汇总栏「工资 / 员工报销」的计数必须是「当前员工+状态」口径，不套类型筛选 ——
+        # 否则选中「工资」后报销数会变成 0，看着像数据没了（v0.1.345）。
+        # 所以计数排在类型条件加入之前。
+        type_counts = {key: 0 for key in PAYMENT_TYPE_LABELS}
+        total_count = 0
+        for row in api["db"]().execute(
+            f"""select p.payment_type, count(*) total from employee_payment_orders p
+            join users u on u.id=p.employee_id where {' and '.join(clauses)} group by p.payment_type""", params
+        ).fetchall():
+            count = int(row["total"])
+            total_count += count
+            if row["payment_type"] in type_counts:
+                type_counts[row["payment_type"]] = count
+        # 类型筛选：白名单判定，只接受 PAYMENT_TYPE_LABELS 里的键，
         # 非法值当作「全部」而不是拼进 SQL（值虽已参数化，但未知类型只会筛出空表，徒增困惑）。
         if payment_type in PAYMENT_TYPE_LABELS:
             clauses.append("p.payment_type=?"); params.append(payment_type)
@@ -863,8 +882,9 @@ def register_employee_finance_routes(app, api):
         )
         return render_template("employee_ledger.html", employees=employees, employee_id=employee_id,
                                payments=payments, advances=advances, status_labels=PAYMENT_STATUS_LABELS,
-                               type_labels=PAYMENT_TYPE_LABELS, payment_type=payment_type,
-                               can_view_all=can_view_all)
+                               type_labels=PAYMENT_TYPE_LABELS, payment_type=payment_type, status=status,
+                               total_count=total_count, salary_count=type_counts["salary"],
+                               expense_count=type_counts["expense"], can_view_all=can_view_all)
 
     @app.route("/assets", methods=["GET", "POST"])
     @api["login_required"]
