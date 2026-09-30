@@ -197,5 +197,30 @@ class PostgreSQLFinanceMigrationTest(unittest.TestCase):
         self.assertIn('if not purpose: raise ValueError("借款用途不能为空。")', module)
 
 
+    def test_payment_number_uses_one_prefix_per_type(self):
+        """v0.1.343：工资 SL-、员工报销 ER-，各自独立流水池。
+
+        以前两类共用 EP- 前缀 + 同一流水池（工资 EP-2609-0001~0007、报销接着
+        0008 往下排），0286 迁移还留下第三种 EP-MIG-EXP-<id> 格式，光看单号
+        分不清业务类型。详细回归见 test_payment_number_prefixes.py。
+        """
+        module = (ROOT / "employee_finance.py").read_text(encoding="utf-8")
+        self.assertIn("PAYMENT_NUMBER_PREFIXES", module)
+        self.assertIn('"salary": "SL"', module)
+        self.assertIn('"expense": "ER"', module)
+        self.assertIn("PAYMENT_NUMBER_PREFIXES[payment_type]", module)
+        self.assertNotIn('_next_number(api, "EP", "employee_payment_orders"', module)
+
+    def test_payment_number_migration_is_additive_and_deployed(self):
+        sql = (ROOT / "migrations" / "postgresql" / "0289-payment-number-prefixes.sql").read_text(encoding="utf-8")
+        self.assertIn("WHEN 'salary' THEN 'SL'", sql)
+        self.assertIn("ELSE 'ER'", sql)
+        self.assertIn("postgresql_0289_payment_number_prefixes", sql)
+        runner = (ROOT / "scripts" / "upgrade_postgresql_0289.py").read_text(encoding="utf-8")
+        self.assertIn("postgresql_0289_payment_number_prefixes", runner)
+        deploy = (ROOT / "scripts" / "debian-auto-deploy.sh").read_text(encoding="utf-8")
+        self.assertIn("upgrade_postgresql_0289.py", deploy)
+
+
 if __name__ == "__main__":
     unittest.main()

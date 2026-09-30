@@ -112,19 +112,33 @@ def _require_payment_access(api, payment):
         abort(403)
 
 
+# v0.1.343：员工付款单按业务类型分前缀 —— 工资走 SL-，员工报销走 ER-。
+# 以前两类共用 EP- 前缀 + 同一个流水池（工资 EP-2609-0001~0007、报销接着 0008
+# 往下排），光看单号分不清是工资还是报销；历史迁移还留下过第三种
+# EP-MIG-EXP-<id> 格式。现在与全站其它单据（SO/EX/CT/PP）一致：一类一前缀。
+PAYMENT_NUMBER_PREFIXES = {
+    "salary": "SL",    # 工资
+    "expense": "ER",   # 员工报销
+}
+
+
 def _next_number(api, prefix, table, column):
     api["lock_number_allocation"](api["db"]())
     stamp = date.today().strftime("%y%m")
     root = f"{prefix}-{stamp}-"
-    row = api["db"]().execute(
-        f"select {column} from {table} where {column} like ? order by id desc limit 1", (root + "%",)
-    ).fetchone()
+    # 取同前缀同月份里**流水号最大**的那条，不能 `order by id desc` ——
+    # 存量改号后 id 顺序与流水顺序不再一致，按 id 取会让新号与旧号撞车。
+    rows = api["db"]().execute(
+        f"select {column} from {table} where {column} like ?", (root + "%",)
+    ).fetchall()
     sequence = 1
-    if row:
+    for row in rows:
         try:
-            sequence = int(row[column].rsplit("-", 1)[1]) + 1
+            value = int(str(row[column]).rsplit("-", 1)[1])
         except (ValueError, IndexError):
-            pass
+            continue
+        if value >= sequence:
+            sequence = value + 1
     return f"{root}{sequence:04d}"
 
 
@@ -211,7 +225,9 @@ def _insert_payment(api, *, employee_id, payment_type, gross_amount, source_type
         ).fetchone()
         if existing:
             return existing["id"], False
-    number = _next_number(api, "EP", "employee_payment_orders", "payment_number")
+    # v0.1.343：按业务类型选前缀（工资 SL-、员工报销 ER-），各自独立流水池。
+    number = _next_number(api, PAYMENT_NUMBER_PREFIXES[payment_type],
+                          "employee_payment_orders", "payment_number")
     created_at = api["now"]()
     cursor = api["db"]().execute(
         """

@@ -4,6 +4,36 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.343] - 2026-09-30
+
+### 修复：员工往来账里「工资」和「员工报销」的单号规则不一致
+- 现象：员工付款单的 `payment_type` 只有 `salary`（工资）和 `expense`（员工报销）
+  两种，但两类**共用同一个 EP- 前缀和同一个流水池** —— 工资占 `EP-2609-0001`
+  ~`0007`，报销接着从 `0008` 往下排；另外 0286 迁移补建存量报销时又用了
+  第三种格式 `EP-MIG-EXP-<报销id>`（号段稀疏：1-9、18-30、33-43…）。
+  结果同一个 EP- 下混着三种口径，**光看单号分不清是工资还是报销**。
+- 改为（用户拍板）：**按业务类型分前缀**，各自独立流水池 ——
+  - 工资 → `SL-<YYMM>-<NNNN>`（Salary）
+  - 员工报销 → `ER-<YYMM>-<NNNN>`（Employee Reimbursement）
+  与全站其它单据（`SO` 工单 / `EX` 报销 / `CT` 合同 / `PP` 发票）一致，一类一前缀。
+- **存量单据一并改号**（用户拍板）：115 张历史付款单（工资 7 + 报销 108）
+  按 `(created_at, id)` 在同前缀同月份内从 `0001` 重新连续编号；
+  `YYMM` 取单据自己的 `created_at`，保留「哪个月的单」这一信息。
+- 顺带修掉编号分配器的一个隐患：原来用 `order by id desc limit 1` 取同前缀
+  最大号，**存量改号后 id 顺序与流水顺序不再一致**，会生成与已有单号撞车的
+  新号（实测触发 `payment_number` 唯一约束冲突）。改为扫描同前缀全部单号取
+  数值最大值。
+- 影响面：所有页面（员工往来账、员工付款中心、付款单详情、银行对账、
+  报销详情）都是实时读 `employee_payment_orders.payment_number` 渲染，
+  改号后自动全局生效。审计日志 `audit_logs.entity_label` 里的旧单号属于
+  **历史留痕**，故意不改写。
+- 回归：新增 `test_payment_number_prefixes.py`（13 项，真连测试库跑迁移 SQL
+  + 真跑编号分配器）；`test_employee_finance.py` 补 2 项契约测试。
+  反向对照：把前缀改回共用 `EP` → 7 项失败（含唯一约束冲突实证）。
+- 顺带修正测试库 schema 快照：`tests/schema_postgresql.sql` 补齐 0287 的
+  `bank_accounts` 三列（`opening_balance_date` / `initialized_at` /
+  `initialized_by`）与对应外键，与线上结构逐行一致。
+
 ## [0.1.342] - 2026-09-30
 
 ### 修复：机票费 / 租车费 / 行李费被算成纯亏损，把赚钱的工单显示成亏

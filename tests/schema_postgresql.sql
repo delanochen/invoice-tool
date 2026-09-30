@@ -492,6 +492,9 @@ CREATE TABLE public.bank_accounts (
     created_by bigint,
     created_at text NOT NULL,
     updated_at text NOT NULL,
+    opening_balance_date text,
+    initialized_at text,
+    initialized_by bigint,
     CONSTRAINT bank_accounts_is_active_check CHECK ((is_active = ANY (ARRAY[0, 1])))
 );
 
@@ -3995,6 +3998,14 @@ ALTER TABLE ONLY public.audit_logs
 
 ALTER TABLE ONLY public.bank_accounts
     ADD CONSTRAINT bank_accounts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: bank_accounts bank_accounts_initialized_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.bank_accounts
+    ADD CONSTRAINT bank_accounts_initialized_by_fkey FOREIGN KEY (initialized_by) REFERENCES public.users(id);
 
 
 --
