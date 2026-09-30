@@ -40,8 +40,8 @@
       </nav>
 
       <section class="erp-panel active" data-erp-panel="list">
-        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
-          <table class="list-table erp-grid">
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid" data-grid-height="100%">
             <thead>
               <tr>
                 <th>项目名称</th><th>类型</th><th>单价</th><th>默认金额</th><th>税率</th><th>状态</th><th>操作</th>
@@ -76,8 +76,8 @@
       {# 报销项目映射（v0.1.325）：员工报销项目 → 工单结算金额字段 → 发票项目。
          「其他」桶发票拆分按此表进行，来源项目缺映射时报错拒拆（fail-fast）。 #}
       <section class="erp-panel" data-erp-panel="mapping">
-        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
-          <table class="list-table erp-grid">
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid" data-grid-height="100%">
             <thead><tr><th>员工报销项目</th><th>结算金额字段</th><th>发票项目</th>{% if can_edit_map %}<th>操作</th>{% endif %}</tr></thead>
             <tbody>
               {% for row in expense_map %}

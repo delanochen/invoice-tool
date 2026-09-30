@@ -124,7 +124,7 @@
         </form>
       </div>
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+        <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
           <thead><tr><th>报告日期</th><th>实际日期</th><th>填写人</th><th>服务人员</th><th>服务工时</th><th>交通时长</th></tr></thead>
           <tbody>
             {% for report in reports %}
@@ -202,7 +202,7 @@
         <button class="erp-btn" type="button" data-row-action="detailUrl" disabled>查看</button>
       </div>
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+        <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
           <thead><tr><th>报销编号</th><th>项目</th><th>费用日期</th><th>报销归属员工</th><th>提交人</th><th>金额</th><th>状态</th></tr></thead>
           <tbody>
             {% for expense in expenses %}
@@ -277,7 +277,7 @@
           {# 只读结算明细：此前详情页只有小计/合计，明细必须进编辑页才看得到。
              金额口径与编辑页一致（手改优先），因此直接展示后端算好的值，不做二次计算。 #}
           <div class="erp-grid-wrap" style="margin-top:6px;">
-            <table class="list-table erp-grid">
+            <table class="list-table erp-grid" data-grid-height="100%">
               <thead>
                 <tr>
                   <th>姓名</th><th>项目时间</th>
@@ -356,7 +356,7 @@
         </form>
       </div>
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+        <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
           <thead><tr><th>发票编号</th><th>客户</th><th>日期</th><th>状态</th></tr></thead>
           <tbody>
             {% for invoice in invoices %}

@@ -128,8 +128,8 @@
     </section>
 
     <section class="erp-panel" data-erp-panel="recent">
-      <div class="table-scroll">
-        <table class="list-table erp-grid">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
           <thead><tr><th>编号</th><th>客户</th><th>日期</th><th>状态</th><th>核销</th></tr></thead>
           <tbody>
             {% for invoice in recent %}

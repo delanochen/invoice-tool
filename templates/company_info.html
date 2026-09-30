@@ -72,8 +72,8 @@
     </section>
 
     <section class="erp-panel" data-erp-panel="files">
-      <div class="table-scroll">
-        <table class="list-table erp-grid">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
           <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
           <tbody>
             {% for attachment in attachments %}

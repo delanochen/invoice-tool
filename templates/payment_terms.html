@@ -39,8 +39,8 @@
     </nav>
 
     <section class="erp-panel active" data-erp-panel="terms">
-      <div class="table-scroll">
-        <table class="list-table erp-grid">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
           <thead><tr><th>名称</th><th>类型</th><th>计算规则</th><th>客户数</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
           <tbody>
             {% for term in payment_terms %}
@@ -77,8 +77,8 @@
           </form>
         {% endif %}
       </div>
-      <div class="table-scroll">
-        <table class="list-table erp-grid">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
           <thead><tr><th>发票编号</th><th>客户</th><th>工单</th><th>开票日期</th><th>原到期日</th><th>新到期日</th><th>账期方案</th></tr></thead>
           <tbody>
             {% for change in due_date_changes %}

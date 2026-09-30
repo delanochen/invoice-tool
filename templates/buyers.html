@@ -47,8 +47,8 @@
             </a>
           </th>
         {%- endmacro %}
-        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
-          <table class="list-table erp-grid selectable-list-table" data-selectable-table>
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>
               <tr>
                 {{ sortable_th("buyer_number", "编号") }}

@@ -12,7 +12,7 @@
       <article class="erp-kpi"><span>员工未结借款</span><strong>{{ advance_total|money }}</strong></article>
     </div></section>
     <section class="erp-panel"><div class="erp-section-title">付款单状态</div><div class="erp-kpi-grid">{% for row in payment_summary %}<article class="erp-kpi"><span>{{ status_labels[row.status] }}</span><strong>{{ row.count }}</strong><small>{{ row.total|money }}</small></article>{% endfor %}</div></section>
-    <section class="erp-panel"><div class="erp-section-title">银行账户</div><div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;"><table class="list-table erp-grid"><thead><tr><th>账户</th><th>银行</th><th>期初</th><th>流水净变动</th><th>账面余额</th></tr></thead><tbody>{% for row in account_summary %}<tr><td>{{ row.account_name }}</td><td>{{ row.bank_name }}</td><td>{{ row.opening_balance|money }}</td><td>{{ row.movement|money }}</td><td><strong>{{ ((row.opening_balance|float)+(row.movement|float))|money }}</strong></td></tr>{% endfor %}</tbody></table></div></section>
+    <section class="erp-panel"><div class="erp-section-title">银行账户</div><div class="erp-grid-wrap"><table class="list-table erp-grid" data-grid-height="100%"><thead><tr><th>账户</th><th>银行</th><th>期初</th><th>流水净变动</th><th>账面余额</th></tr></thead><tbody>{% for row in account_summary %}<tr><td>{{ row.account_name }}</td><td>{{ row.bank_name }}</td><td>{{ row.opening_balance|money }}</td><td>{{ row.movement|money }}</td><td><strong>{{ ((row.opening_balance|float)+(row.movement|float))|money }}</strong></td></tr>{% endfor %}</tbody></table></div></section>
   </div>
   <footer class="erp-status"><span>付款单代表应付；银行流水代表实际发生；匹配后才完成对账。</span></footer>
 </div>
