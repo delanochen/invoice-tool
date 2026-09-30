@@ -276,7 +276,9 @@ class EmployeeResolutionService:
     def get_employee_default_address(self, user_id: int) -> Optional[str]:
         """Get employee's default address (users.address).
 
-        This is a SUGGESTION only, must be marked origin_confirmed=False.
+        v0.1.340 起：带出的地址直接作为已确认的出发地参与里程/佐证计算（用户决策
+        2026-09-29）。调用方仍应把 origin_source 记为 employee_default 以保留来源审计，
+        但不要再把它当「待确认建议」而阻塞计算；地址不对时改一下就会失效重算。
         """
         row = self.db.execute(
             "select address from users where id = ?",

@@ -43,6 +43,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .schemas import collect_safety_photos
+
 logger = logging.getLogger(__name__)
 
 FORMAL_SAVE_VERSION = 1
@@ -408,6 +410,10 @@ class FormalSaveService:
         data_dir: DATA_DIR (prepared assets + evidence live under it).
         report_attachments_dir: REPORT_ATTACHMENTS_DIR (formal attachments).
         user_id: authenticated Formal Save actor.
+        shared_photos_dir: shared-photos 根目录；不完整传递时用它定位所选照片原图
+            （v0.1.340）。不传则跳过照片类附件。
+        draft_evidence_root: 草稿里程佐证根目录（DATA_DIR/ai-daily-report-drafts）。
+            不传则跳过里程佐证附件。
     """
 
     def __init__(
@@ -416,11 +422,15 @@ class FormalSaveService:
         data_dir: str,
         report_attachments_dir: str,
         user_id: int,
+        shared_photos_dir: Optional[str] = None,
+        draft_evidence_root: Optional[str] = None,
     ):
         self.db = db
         self.data_dir = Path(data_dir).resolve()
         self.report_attachments_dir = Path(report_attachments_dir).resolve()
         self.user_id = int(user_id)
+        self.shared_photos_dir = Path(shared_photos_dir).resolve() if shared_photos_dir else None
+        self.draft_evidence_root = Path(draft_evidence_root).resolve() if draft_evidence_root else None
 
     # ─── Public entry ──────────────────────────────────────────────────────
 
@@ -606,10 +616,29 @@ class FormalSaveService:
         # 4. Claim the exactly-once commit row with sentinel manifest values.
         commit_id = self._claim_commit(draft_row, None, None, incomplete=True)
 
-        # 5. Single DB transaction (no attachments in the incomplete path).
+        # 5. v0.1.340: 尽力把用户当时选中的照片（进场/离场/自检/施工）与已生成的
+        #    里程佐证带到正式日报。以前这条路径一张附件都不带（no manifest, no
+        #    attachments），用户选完照片一提交就全丢了。缺哪份跳哪份，不阻塞传递。
+        formal_files, attachment_rows = self._materialize_incomplete_files(draft_row, mapping)
+        mapping["attachment_rows"] = attachment_rows
+
+        # 6. Single DB transaction.
         try:
             report_id = self._insert_formal_report(draft_row, mapping, {"sources": []})
             self._insert_formal_workers(draft_id, report_id, mapping["workers"])
+            for row in mapping["attachment_rows"]:
+                self.db.execute(
+                    """
+                    insert into service_report_attachments (
+                        report_id, category, original_filename, stored_filename,
+                        content_type, uploaded_by, uploaded_at
+                    ) values (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        report_id, row["category"], row["original_filename"],
+                        row["stored_filename"], row["content_type"], self.user_id, _now_iso(),
+                    ),
+                )
             self.db.execute(
                 """
                 update ai_daily_report_formal_commits
@@ -639,6 +668,7 @@ class FormalSaveService:
             self.db.commit()
         except Exception:
             self.db.rollback()
+            self._cleanup_formal_files(formal_files)
             raise
 
         return {"status": "created", "service_report_id": int(report_id)}
@@ -1059,6 +1089,142 @@ class FormalSaveService:
             self._commit_formal_files_record(manifest_id, recorded)
         return recorded, attachment_rows
 
+    # ─── 不完整传递的尽力附件（v0.1.340） ──────────────────────────────────
+
+    def _incomplete_attachment_items(
+        self, draft_row: Dict[str, Any], draft_data: Dict[str, Any]
+    ) -> List[Tuple[str, Path]]:
+        """Resolve (category, source_path) for whatever the draft already holds.
+
+        不完整传递没有附件清单可用，所以这里直接回到 draft_data 里用户当时的选择：
+        进场 / 离场 / 自检 / 施工照片，以及已经生成好的里程佐证。
+
+        **尽力而为**：文件不在、路径越界、目录没配，一律跳过 —— 这条路径是用户
+        「日报不完整也想先落到工单」的最后退路，绝不能因为缺一张照片就整体失败。
+        """
+        items: List[Tuple[str, Path]] = []
+        seen = set()
+
+        def _add(category: str, path: Optional[Path]) -> None:
+            if path is None or (category, str(path)) in seen:
+                return
+            seen.add((category, str(path)))
+            items.append((category, path))
+
+        candidates: Dict[str, Dict[str, Any]] = {}
+        for p in draft_data.get("photo_candidates", []):
+            if isinstance(p, dict) and p.get("photo_id") and p.get("relative_path"):
+                candidates.setdefault(str(p["photo_id"]), p)
+
+        def _photo_path(photo_id: Any) -> Optional[Path]:
+            if not self.shared_photos_dir:
+                return None
+            ref = candidates.get(str(photo_id or ""))
+            if not ref:
+                return None
+            try:
+                full = (self.shared_photos_dir / str(ref["relative_path"])).resolve()
+                full.relative_to(self.shared_photos_dir)
+            except (ValueError, OSError):
+                return None
+            return full if full.is_file() else None
+
+        # 进场 / 离场（各一张）
+        _add("arrival", _photo_path(draft_data.get("arrival_photo_ref")))
+        _add("departure", _photo_path(draft_data.get("departure_photo_ref")))
+        # 自检照片
+        for entry in collect_safety_photos(draft_data):
+            photo_id = entry.get("photo_id") if isinstance(entry, dict) else None
+            _add("self_check", _photo_path(photo_id))
+        # 施工照片
+        for entry in draft_data.get("selected_service_photos", []):
+            if isinstance(entry, dict):
+                _add("site", _photo_path(entry.get("photo_id")))
+        # 已生成的里程佐证
+        draft_id = int(draft_row["id"])
+        for ev in draft_data.get("evidence_records", []):
+            if not isinstance(ev, dict) or not self.draft_evidence_root:
+                continue
+            if str(ev.get("evidence_status") or "") in (
+                "stale", "failed", "verification_required",
+            ):
+                continue
+            rel = str(ev.get("file_relative_path") or "")
+            if not rel:
+                continue
+            try:
+                full = (self.draft_evidence_root / str(draft_id) / "mileage" / rel).resolve()
+                full.relative_to(self.draft_evidence_root)
+            except (ValueError, OSError):
+                continue
+            if full.is_file():
+                _add("mileage_proof", full)
+        return items
+
+    def _materialize_incomplete_files(
+        self, draft_row: Dict[str, Any], mapping: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        """Best-effort variant of _materialize_formal_files for run_incomplete().
+
+        Same tmp -> sha256 verify -> os.replace discipline, but every failure is
+        tolerated: a photo that cannot be copied is dropped, not fatal.
+        """
+        draft_id = int(draft_row["id"])
+        report_date = str(draft_row.get("report_date") or "")
+        order_number = str(mapping.get("order_number") or "")
+        draft_data = mapping.get("draft_data") or {}
+
+        recorded: Dict[str, Any] = {"planned": [], "tmp": [], "files": []}
+        attachment_rows: List[Dict[str, Any]] = []
+
+        items = self._incomplete_attachment_items(draft_row, draft_data)
+        if not items or not order_number or not report_date:
+            return recorded, attachment_rows
+
+        self._commit_formal_files_record_for_draft(draft_id, recorded)
+        for category, source in items:
+            try:
+                expected_sha = file_sha256(source)
+                ext = source.suffix.lower().lstrip(".") or "bin"
+                stored_dir_rel = self._formal_attachment_dir_relative(
+                    report_date, order_number, category
+                )
+                target_dir = (self.report_attachments_dir / stored_dir_rel).resolve()
+                if not target_dir.is_relative_to(self.report_attachments_dir):
+                    continue
+                target_dir.mkdir(parents=True, exist_ok=True)
+                token = secrets.token_hex(12)
+                final_path = target_dir / f"{token}.{ext}"
+                tmp_path = target_dir / f".{token}.{ext}.tmp"
+                stored_final = str(Path(stored_dir_rel) / final_path.name).replace("\\", "/")
+                stored_tmp = str(Path(stored_dir_rel) / tmp_path.name).replace("\\", "/")
+                recorded["planned"].extend([stored_final, stored_tmp])
+                shutil.copyfile(source, tmp_path)
+                recorded["tmp"].append(stored_tmp)
+                if file_sha256(tmp_path) != expected_sha:
+                    tmp_path.unlink(missing_ok=True)
+                    recorded["tmp"] = [p for p in recorded["tmp"] if p != stored_tmp]
+                    continue
+                os.replace(tmp_path, final_path)
+                recorded["tmp"] = [p for p in recorded["tmp"] if p != stored_tmp]
+                recorded["files"].append(stored_final)
+                attachment_rows.append({
+                    "category": category,
+                    "original_filename": source.name or "attachment",
+                    "stored_filename": stored_final,
+                    "content_type": mimetypes.guess_type(source.name or "")[0]
+                    or "application/octet-stream",
+                })
+                self._commit_formal_files_record_for_draft(draft_id, recorded)
+            except (OSError, ValueError):
+                # 尽力而为：这一份附件带不过去就跳过，不影响工单日报本身。
+                logger.warning(
+                    "AI daily report incomplete pass-through skipped attachment %s for draft %s",
+                    category, draft_id,
+                )
+                continue
+        return recorded, attachment_rows
+
     # ─── DB transaction pieces ─────────────────────────────────────────────
 
     def _insert_formal_report(
@@ -1205,6 +1371,15 @@ class FormalSaveService:
             raise FormalSaveIntegrityError(CODE_INTEGRITY, "缺少工单号，无法生成正式附件路径。")
         date_part = (report_date or "").replace("-", "") or "unknown-date"
         return Path(order_number, date_part, CATEGORY_FOLDERS[category]).as_posix()
+
+    def _commit_formal_files_record_for_draft(self, draft_id: int, recorded: Dict[str, Any]) -> None:
+        """v0.1.340: 不完整传递没有 manifest_id（哨兵值 'force_incomplete' 会被多个
+        draft 共用），所以按 draft_id 定位提交行。"""
+        self.db.execute(
+            "update ai_daily_report_formal_commits set formal_files = ? where draft_id = ? and status = 'committing'",
+            (_canonical_json(recorded), draft_id),
+        )
+        self.db.commit()
 
     def _commit_formal_files_record(self, manifest_id: str, recorded: Dict[str, Any]) -> None:
         self.db.execute(

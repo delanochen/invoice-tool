@@ -185,15 +185,20 @@ class HomeOriginTest(unittest.TestCase):
         self.assertEqual(w.origin_source, "user_input")
         self.assertTrue(w.origin_confirmed)
 
-    def test_no_origin_still_requires_confirmation(self):
-        """No home wording and no origin -> employee_default + origin_confirmed=False (ORIG-002 still needed)."""
+    def test_no_origin_uses_employee_default_and_is_confirmed(self):
+        """v0.1.340：没说「从家出发」也没给起点 -> 用员工档案地址，且**视为已确认**。
+
+        旧契约是 origin_confirmed=False（必须人工确认覆盖后才算里程佐证），用户反馈
+        这一步是纯摩擦：地址本来就是系统自动带出的。现在改为直接确认，里程/佐证立即计算。
+        origin_source 仍为 employee_default，来源审计不变。
+        """
         resp = self._chat(None)
         self.assertEqual(resp.status_code, 200, resp.get_json())
         draft_id = resp.get_json()["draft_id"]
         w = self._draft_workers(draft_id)[0]
         self.assertEqual(w.origin, "518 Anacacho Dr, Spring, TX 77386")
         self.assertEqual(w.origin_source, "employee_default")
-        self.assertFalse(w.origin_confirmed)
+        self.assertTrue(w.origin_confirmed)
 
 
 if __name__ == "__main__":

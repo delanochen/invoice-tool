@@ -172,6 +172,24 @@ IOS_BUNDLE_ID = os.environ.get("IOS_BUNDLE_ID", "com.prasinospower.internal").st
 IOS_APP_VERSION = os.environ.get("IOS_APP_VERSION", "1.0.0").strip()
 KNOWLEDGE_MAX_PDF_BYTES = 50 * 1024 * 1024
 KNOWLEDGE_MAX_EXTRACTED_TEXT = 500_000
+
+
+def _new_formal_save_service(user_id):
+    """构造 FormalSaveService（AI 日报正式保存）。
+
+    照片原图在 shared-photos、草稿里程佐证在 DATA_DIR/ai-daily-report-drafts，
+    两个根目录都要传进去 —— 缺了它们，「不完整也传到工单」时就找不到该带过去的附件。
+    这里在调用时才拼路径（DATA_DIR 可被测试/运行期改掉），不要固化成模块级常量。
+    """
+    return FormalSaveService(
+        db(),
+        DATA_DIR,
+        REPORT_ATTACHMENTS_DIR,
+        user_id,
+        shared_photos_dir=SHARED_PHOTOS_DIR,
+        draft_evidence_root=os.path.join(DATA_DIR, "ai-daily-report-drafts"),
+    )
+
 SHARED_PHOTOS_DIR = os.environ.get("SHARED_PHOTOS_DIR", "/app/shared-photos")
 APP_VERSION = os.environ.get("APP_VERSION", "0.0.0").strip() or "0.0.0"
 if APP_VERSION == "0.0.0":
@@ -8299,11 +8317,10 @@ def ai_daily_report_chat():
     travel_svc.set_destination_for_all(draft.workers, site_address)
 
     # Phase 2: Apply employee default origin for self_drive workers.
-    # If the user explicitly said they depart from home ("从家出发"), the
-    # employee default address (users.address) counts as an explicit
-    # confirmation: origin_confirmed=True (no ORIG-002), and mileage/route
-    # can be generated directly. Without such wording the address remains a
-    # suggestion that still needs confirmation (existing behaviour).
+    # v0.1.340（用户决策 2026-09-29）：员工档案地址（users.address）能自动带出，
+    # 就直接当成已确认的出发地（origin_confirmed=True），里程/佐证立即计算，
+    # 不再逼用户多点一次「确认覆盖」。origin_source 仍记 employee_default 保留审计。
+    # 用户改地址时会走 invalidate_worker_route 重算，所以不会留下错误的里程。
     for w in draft.workers:
         if w.transportation == "self_drive" and w.user_id > 0:
             from_home = travel_svc.is_home_origin(w.origin)
@@ -8312,7 +8329,7 @@ def ai_daily_report_chat():
                 if default_addr:
                     w.origin = default_addr
                     w.origin_source = "employee_default"
-                    w.origin_confirmed = from_home
+                    w.origin_confirmed = True
                     if from_home:
                         travel_svc.invalidate_worker_route(w)
 
@@ -8968,9 +8985,7 @@ def ai_daily_report_confirm(draft_id):
             except Exception:
                 force_incomplete = False
             if force_incomplete:
-                formal_svc = FormalSaveService(
-                    db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, user_id
-                )
+                formal_svc = _new_formal_save_service(user_id)
                 result = formal_svc.run_incomplete(draft_row, None)
                 db().commit()
                 auto["formal_saved"] = True
@@ -9006,9 +9021,7 @@ def ai_daily_report_confirm(draft_id):
                 (reviewed_at, manifest["manifest_id"]),
             )
             db().commit()
-            formal_svc = FormalSaveService(
-                db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, user_id
-            )
+            formal_svc = _new_formal_save_service(user_id)
             result = formal_svc.run(draft_row, None, None, validation, manifest_svc)
             db().commit()
             auto["formal_saved"] = True
@@ -9987,9 +10000,7 @@ def ai_daily_report_draft_formal_save(draft_id):
     # the full manifest chain (with attachments) is always preferred.
     incomplete_pass = bool(force_incomplete and not validation.can_proceed)
     try:
-        formal_svc = FormalSaveService(
-            db(), DATA_DIR, REPORT_ATTACHMENTS_DIR, int(g.user["id"])
-        )
+        formal_svc = _new_formal_save_service(int(g.user["id"]))
         if incomplete_pass:
             result = formal_svc.run_incomplete(draft_row, expected_version)
         else:

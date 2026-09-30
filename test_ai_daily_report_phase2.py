@@ -204,8 +204,12 @@ class AIDailyReportPhase2Test(unittest.TestCase):
             self.assertEqual(w.origin_source, "user_input")
             self.assertTrue(w.origin_confirmed)
 
-    def test_employee_default_address_unconfirmed(self):
-        """users.address should be origin_source=employee_default, origin_confirmed=False."""
+    def test_employee_default_address_is_confirmed(self):
+        """v0.1.340：users.address -> origin_source=employee_default 且 origin_confirmed=True。
+
+        旧契约是 origin_confirmed=False（等人工确认），用户反馈这是多余的一步：
+        地址既然从员工档案自动带出，就该直接用于里程计算；改地址会自动失效重算。
+        """
         with self.module.app.app_context():
             _, travel, _, _ = self._make_services()
             w = travel.build_worker_travel(
@@ -214,7 +218,7 @@ class AIDailyReportPhase2Test(unittest.TestCase):
             )
             self.assertEqual(w.origin, self.zhangsan["address"])
             self.assertEqual(w.origin_source, "employee_default")
-            self.assertFalse(w.origin_confirmed)
+            self.assertTrue(w.origin_confirmed)
 
     def test_draft_existing_origin_preserved(self):
         with self.module.app.app_context():

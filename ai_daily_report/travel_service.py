@@ -112,7 +112,11 @@ class TravelService:
         Origin priority:
         1. user_input_origin (from current message) -> origin_confirmed=True
         2. draft_existing_origin (already in draft) -> keep existing confirmation
-        3. employee_default (users.address) -> origin_confirmed=False, must verify
+        3. employee_default (users.address) -> origin_confirmed=True
+
+        v0.1.340 决策（用户 2026-09-29）：员工档案地址既然能自动带出，就视为**已确认**，
+        不再要求用户多点一次「确认覆盖」才去算里程佐证 —— 那一步是纯摩擦，地址不对时
+        改一下就会自动失效重算。origin_source 仍然记 employee_default，审计链不变。
         """
         origin = None
         origin_source = None
@@ -132,12 +136,12 @@ class TravelService:
             origin_source = "draft_existing"
             origin_confirmed = False
         else:
-            # Try employee default address (suggestion only)
+            # Try employee default address (v0.1.340: 视为已确认，直接参与里程计算)
             default_addr = self.employee_resolution.get_employee_default_address(user_id)
             if default_addr:
                 origin = default_addr
                 origin_source = "employee_default"
-                origin_confirmed = False
+                origin_confirmed = True
 
         return WorkerTravel(
             user_id=user_id,

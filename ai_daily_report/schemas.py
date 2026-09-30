@@ -132,7 +132,8 @@ class WorkerTravel(BaseModel):
     """Per-worker travel data. overnight_stay is per-person.
 
     Phase 2: user_id is the primary identity; name is display only.
-    origin_source tracks where origin came from; employee_default is NOT confirmed.
+    origin_source tracks where origin came from. v0.1.340 起 employee_default
+    （员工档案地址）也算已确认，直接参与里程/佐证计算（用户决策 2026-09-29）。
     Phase 3A: route fields from Google Routes API.
     """
     user_id: int

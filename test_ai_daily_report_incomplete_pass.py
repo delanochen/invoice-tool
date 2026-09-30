@@ -363,5 +363,122 @@ class IncompletePassEndpointTests(IncompletePassTestBase):
         )
 
 
+class IncompletePassCarriesPhotosTest(IncompletePassTestBase):
+    """v0.1.340：「不完整也传到工单」必须带上用户当时选的照片和已生成的里程佐证。
+
+    run_incomplete() 以前整个跳过附件链（注释写着 no manifest, no attachments），
+    于是用户选完进场 / 离场 / 施工 / 自检照片、一点提交就全丢了 —— 这是用户报的问题。
+    现在改为「尽力带」：有就带过去，没有就跳过，绝不因为缺一张照片挡住传递。
+    """
+
+    DRAFT_ID = 530
+    REPORT_DATE = "2026-08-27"
+    PHOTO_NAMES = ("arrival.jpg", "departure.jpg", "service.jpg", "safety.jpg")
+
+    def _seed_photo_files(self):
+        """返回 {文件名: shared-photos 下的相对路径}，并把文件真正写到磁盘。"""
+        pic_dir = Path(self.shared_dir) / self.ORDER_NUMBER / "pictures" / self.REPORT_DATE
+        pic_dir.mkdir(parents=True, exist_ok=True)
+        relative = {}
+        for name in self.PHOTO_NAMES:
+            (pic_dir / name).write_bytes(name.encode())
+            relative[name] = f"{self.ORDER_NUMBER}/pictures/{self.REPORT_DATE}/{name}"
+        return relative
+
+    def _seed_evidence_file(self):
+        ev_dir = (
+            Path(self.app_module.DATA_DIR) / "ai-daily-report-drafts"
+            / str(self.DRAFT_ID) / "mileage"
+        )
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        (ev_dir / "ev-530.png").write_bytes(b"evidence-bytes")
+
+    def _draft_data(self, relative):
+        return _make_empty_draft_data(
+            photo_candidates=[
+                {"photo_id": "p-arrival", "relative_path": relative["arrival.jpg"]},
+                {"photo_id": "p-departure", "relative_path": relative["departure.jpg"]},
+                {"photo_id": "p-service", "relative_path": relative["service.jpg"]},
+                {"photo_id": "p-safety", "relative_path": relative["safety.jpg"]},
+            ],
+            arrival_photo_ref="p-arrival",
+            departure_photo_ref="p-departure",
+            selected_service_photos=[{"photo_id": "p-service"}],
+            selected_safety_photos=[{"photo_id": "p-safety"}],
+            evidence_records=[{
+                "evidence_id": "ev-530",
+                "evidence_status": "success",
+                "file_relative_path": "ev-530.png",
+            }],
+        )
+
+    def test_13_force_incomplete_carries_selected_photos_and_evidence(self):
+        relative = self._seed_photo_files()
+        self._seed_evidence_file()
+        self._insert_draft(
+            self.DRAFT_ID, self._draft_data(relative), status="confirmed"
+        )
+        self._login(400)
+        resp = self.client.post(
+            f"/api/ai/daily-report/draft/{self.DRAFT_ID}/formal-save",
+            headers={"X-CSRF-Token": self._get_csrf()},
+            json={"draft_version": 1, "force_incomplete": True},
+        )
+        self.assertEqual(resp.status_code, 201, resp.get_data(as_text=True))
+        report_id = int(resp.get_json()["service_report_id"])
+
+        rows = self.app_module.db().execute(
+            "select category, stored_filename, original_filename "
+            "from service_report_attachments where report_id = ?",
+            (report_id,),
+        ).fetchall()
+        by_cat = {r["category"]: r for r in rows}
+        self.assertEqual(
+            sorted(by_cat),
+            ["arrival", "departure", "mileage_proof", "self_check", "site"],
+            f"四类照片 + 里程佐证都应带过去，实际: {sorted(by_cat)}",
+        )
+        self.assertEqual(by_cat["arrival"]["original_filename"], "arrival.jpg")
+        self.assertEqual(by_cat["departure"]["original_filename"], "departure.jpg")
+        self.assertEqual(by_cat["site"]["original_filename"], "service.jpg")
+        self.assertEqual(by_cat["self_check"]["original_filename"], "safety.jpg")
+        # 文件必须真的落到正式附件目录（不然日报页照样显示不出来）
+        root = Path(self.app_module.REPORT_ATTACHMENTS_DIR)
+        for row in rows:
+            self.assertTrue(
+                (root / row["stored_filename"]).is_file(),
+                f"附件文件未落盘: {row['stored_filename']}",
+            )
+
+    def test_14_missing_photo_file_is_skipped_not_fatal(self):
+        """照片文件不在磁盘上：跳过该附件，日报照样传到工单（尽力而为）。"""
+        relative = self._seed_photo_files()
+        # 故意删掉施工照片，模拟「选了但文件已被清理」
+        (Path(self.shared_dir) / self.ORDER_NUMBER / "pictures" / self.REPORT_DATE
+         / "service.jpg").unlink()
+        self._seed_evidence_file()
+        self._insert_draft(
+            self.DRAFT_ID, self._draft_data(relative), status="confirmed"
+        )
+        self._login(400)
+        resp = self.client.post(
+            f"/api/ai/daily-report/draft/{self.DRAFT_ID}/formal-save",
+            headers={"X-CSRF-Token": self._get_csrf()},
+            json={"draft_version": 1, "force_incomplete": True},
+        )
+        self.assertEqual(resp.status_code, 201, resp.get_data(as_text=True))
+        report_id = int(resp.get_json()["service_report_id"])
+        rows = self.app_module.db().execute(
+            "select category from service_report_attachments where report_id = ?",
+            (report_id,),
+        ).fetchall()
+        categories = sorted(r["category"] for r in rows)
+        self.assertNotIn("site", categories, "缺失文件的照片应被跳过")
+        self.assertEqual(
+            categories, ["arrival", "departure", "mileage_proof", "self_check"],
+            f"其余附件仍应带过去，实际: {categories}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
