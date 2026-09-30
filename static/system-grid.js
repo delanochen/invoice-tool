@@ -6,7 +6,9 @@
   const text = node => (node?.textContent || '').trim();
   const t = value => window.uiTranslate ? window.uiTranslate(value) : value;
   const monetary = /^(金额|明细金额|合同金额|税额|合计|总额|报销金额|报销总额|工时费|差旅费|里程费|基本工资|标准工资|交通工资|加班工资|假期工资|自驾车补|随行车补|随行补贴|租车驾驶补贴|补贴|餐补|报告撰写费|合计工资|住宿费|机票费|行李费|租车费|燃油费|停车费|出租车费|住宿|机票|行李|租车|燃油|停车|出租车|其他|收入|成本|利润|客户单价|员工\/实际成本单价|Amount|Tax|Line Total)$/;
-  const dimension = /姓名|工单|站点|客户|员工|人员|施工员|创建人|提交人|开票人|项目|类别|日期|时间|状态|国家|业主|报销编号|发票编号|Description/;
+  // 可分组维度：一级 / 二级分组下拉只列出命中这里的列。「类型」是明细账最常用的分组维度，
+  // 原先漏了它 —— 员工往来账这类表就没法按「工资 / 员工报销」分组。
+  const dimension = /姓名|工单|站点|客户|员工|人员|施工员|创建人|提交人|开票人|项目|类别|类型|日期|时间|状态|国家|业主|报销编号|发票编号|Description/;
   const valueOf = cell => {
     const control = cell?.querySelector('input:not([type=hidden]),select,textarea');
     return control ? (control.tagName === 'SELECT' ? text(control.selectedOptions[0]) : control.value) : text(cell);
@@ -35,9 +37,14 @@
     constructor(source) {
       this.source = source; this.rows = new Map(); this.nextId = 0; this.ready = false;
       this.listeners=new AbortController();
-      this.labels = [...source.tHead.rows[0].cells].map(cell => (cell.dataset.gridLabel || text(cell)).replace(/（.*）$/, ''));
+      const headCells = [...source.tHead.rows[0].cells];
+      this.labels = headCells.map(cell => (cell.dataset.gridLabel || text(cell)).replace(/（.*）$/, ''));
       this.headers = this.labels.map(t);
-      this.money = this.labels.map(label => !location.pathname.includes('employee-grades') && monetary.test(label));
+      // 金额列判定：默认按列名白名单（monetary）。列名不在名单里的（如「应付 / 实付 /
+      // 抵扣」）由源表 <th data-grid-money> 显式声明 —— 没有金额列就没有小计 / 合计行，
+      // 也就没有一级 / 二级分组入口（分组按金额小计才有意义，见 controls()）。
+      this.money = this.labels.map((label, index) => !location.pathname.includes('employee-grades')
+        && (monetary.test(label) || headCells[index].hasAttribute('data-grid-money')));
       this.editable = !!source.querySelector('input:not([type=checkbox]):not([type=hidden]),textarea,select');
       this.key = `grid:${document.body.dataset.gridUser || ''}:${location.pathname}:${source.id || [...document.querySelectorAll('table')].indexOf(source)}`;
       this.shell = document.createElement('section'); this.shell.className = 'system-grid grid-building';

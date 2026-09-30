@@ -20,12 +20,15 @@
     <span class="erp-badge">{{ status_labels[payment.status] }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
+      {# 需要填原因 / 选账户的动作一律走 <dialog>：挤在工具栏里的裸 <input> 既没有
+         标签也说不清必填，宽度还会把整条工具栏撑破。弹窗里再逐项说明。 #}
       {% if has_action_permission('employee_payments','edit') or has_action_permission('employee_payments','approve') or has_action_permission('employee_payments','pay') %}
       {% if payment.status=='draft' and has_action_permission('employee_payments','edit') %}<form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input type="hidden" name="action" value="submit"><button class="erp-btn primary">提交审核</button></form>{% endif %}
-      {% if payment.status=='pending_review' and has_action_permission('employee_payments','approve') %}<form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input type="hidden" name="action" value="approve"><button class="erp-btn primary">批准</button></form><form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input name="reason" placeholder="驳回原因" required><button class="erp-btn danger">驳回</button></form>{% endif %}
+      {% if payment.status=='pending_review' and has_action_permission('employee_payments','approve') %}<form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input type="hidden" name="action" value="approve"><button class="erp-btn primary">批准</button></form><button class="erp-btn danger" type="button" data-dialog-open="rejectPayment">驳回</button>{% endif %}
       {% if payment.status=='approved' and has_action_permission('employee_payments','pay') %}<form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input type="hidden" name="action" value="ready"><button class="erp-btn primary">进入待付款</button></form>{% endif %}
-      {% if payment.status in ['pending_payment','payment_failed'] and has_action_permission('employee_payments','pay') %}<form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input type="hidden" name="action" value="{{ 'retry' if payment.status=='payment_failed' else 'mark_paid' }}">{% if payment.status=='pending_payment' %}<select name="bank_account_id" required><option value="">付款账户</option>{% for account in accounts %}<option value="{{ account.id }}">{{ account.account_name }}</option>{% endfor %}</select><select name="payment_method" required>{% for value,label in method_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select><input name="external_transaction_id" placeholder="外部交易 ID（可选）">{% endif %}<button class="erp-btn primary">{{ '重试发放' if payment.status=='payment_failed' else '发放' }}</button></form>{% if payment.status=='pending_payment' and has_action_permission('employee_payments','pay') %}<form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input type="hidden" name="action" value="fail"><input name="reason" placeholder="失败原因" required><button class="erp-btn danger">发放失败</button></form>{% endif %}{% endif %}
-      {% if payment.status not in ['paid','reconciled','cancelled'] and has_action_permission('employee_payments','edit') %}<form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}"><input type="hidden" name="action" value="cancel"><input name="reason" placeholder="取消原因"><button class="erp-btn">取消</button></form>{% endif %}
+      {% if payment.status=='pending_payment' and has_action_permission('employee_payments','pay') %}<button class="erp-btn primary" type="button" data-dialog-open="payPayment">发放</button><button class="erp-btn danger" type="button" data-dialog-open="failPayment">发放失败</button>{% endif %}
+      {% if payment.status=='payment_failed' and has_action_permission('employee_payments','pay') %}<button class="erp-btn primary" type="button" data-dialog-open="retryPayment">重试发放</button>{% endif %}
+      {% if payment.status not in ['paid','reconciled','cancelled'] and has_action_permission('employee_payments','edit') %}<button class="erp-btn" type="button" data-dialog-open="cancelPayment">取消</button>{% endif %}
       {% endif %}
       <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
@@ -97,5 +100,66 @@
     <span>状态 <b>{{ status_labels[payment.status] }}</b></span>
   </footer>
 </div>
+
+{# 流程弹窗：只有当前状态允许该动作时才渲染，避免手改 DOM 提交不允许的流转
+   （后端 transition 仍按状态白名单校验，弹窗只是别把入口摆出来）。 #}
+{% if payment.status=='pending_review' and has_action_permission('employee_payments','approve') %}
+<dialog id="rejectPayment" class="modal-dialog">
+  <form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>驳回 {{ payment.payment_number }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="reject">
+    <label>驳回原因<textarea name="reason" rows="4" required placeholder="必填，会写入审计轨迹"></textarea></label>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="danger">确认驳回</button></div>
+  </form>
+</dialog>
+{% endif %}
+
+{% if payment.status=='pending_payment' and has_action_permission('employee_payments','pay') %}
+<dialog id="payPayment" class="modal-dialog">
+  <form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>发放 {{ payment.payment_number }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="mark_paid">
+    <div class="form-grid two-columns">
+      <label>付款账户<select name="bank_account_id" required><option value="">请选择</option>{% for account in accounts %}<option value="{{ account.id }}">{{ account.account_name }}</option>{% endfor %}</select></label>
+      <label>付款方式<select name="payment_method" required>{% for value,label in method_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+      <label class="full-span">外部交易 ID（可选）<input name="external_transaction_id" placeholder="银行流水号 / 交易号"></label>
+    </div>
+    <p class="erp-filter-note">实付 {{ payment.net_amount|money }}；发放后状态变为「已付款」，报销来源会同步置为已发放。</p>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="primary">确认发放</button></div>
+  </form>
+</dialog>
+
+<dialog id="failPayment" class="modal-dialog">
+  <form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>标记发放失败</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="fail">
+    <label>失败原因<textarea name="reason" rows="4" required placeholder="必填，会写入审计轨迹"></textarea></label>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="danger">确认标记失败</button></div>
+  </form>
+</dialog>
+{% endif %}
+
+{% if payment.status=='payment_failed' and has_action_permission('employee_payments','pay') %}
+<dialog id="retryPayment" class="modal-dialog">
+  <form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>重试发放 {{ payment.payment_number }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="retry">
+    <p class="erp-filter-note">把状态退回「待付款」，之后可重新走发放流程。</p>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="primary">确认重试</button></div>
+  </form>
+</dialog>
+{% endif %}
+
+{% if payment.status not in ['paid','reconciled','cancelled'] and has_action_permission('employee_payments','edit') %}
+<dialog id="cancelPayment" class="modal-dialog">
+  <form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>取消 {{ payment.payment_number }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="cancel">
+    <label>取消原因<textarea name="reason" rows="4" placeholder="可留空；本单已抵扣的借款会自动冲销"></textarea></label>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="danger">确认取消</button></div>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}
+{# data-dialog-open 的页面必须加载 modal-forms.js（否则按钮点了没反应）。 #}
+{% block scripts %}<script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script><script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}

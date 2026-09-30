@@ -35,6 +35,10 @@ class GridRegexTest(unittest.TestCase):
         for label in ["工单", "员工", "类别", "项目", "日期"]:
             self.assertTrue(self.dimension.search(label), f"dimension should match {label}")
 
+    def test_type_is_groupable_dimension(self):
+        """v0.1.346：类型是最常用的分组维度（员工往来账要按「工资 / 员工报销」分组）。"""
+        self.assertTrue(self.dimension.search("类型"))
+
     def test_existing_labels_still_recognised(self):
         for label in ["金额", "明细金额", "合计工资", "Amount", "Line Total"]:
             self.assertTrue(self.monetary.fullmatch(label), f"monetary should still match {label}")
@@ -44,6 +48,32 @@ class GridRegexTest(unittest.TestCase):
     def test_non_money_columns_not_matched(self):
         for label in ["数量", "利润率", "状态", "分摊"]:
             self.assertFalse(self.monetary.fullmatch(label), f"monetary must not match {label}")
+
+
+class GridMoneyOptInTest(unittest.TestCase):
+    """v0.1.346：金额列也可以由源表 <th data-grid-money> 显式声明。
+
+    分组入口（一级 / 二级分组 + 小计 / 合计）只在「表里有金额列」时出现，
+    而金额列默认靠列名白名单识别 —— 员工往来账的「应付 / 抵扣 / 实付」不在名单里，
+    不声明就整张表没有分组能力。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = pathlib.Path(__file__).parent
+
+    def test_grid_honours_money_attribute(self):
+        js = (self.root / "static" / "system-grid.js").read_text(encoding="utf-8")
+        self.assertIn("hasAttribute('data-grid-money')", js)
+        self.assertIn("monetary.test(label) ||", js)
+
+    def test_employee_ledger_declares_money_columns(self):
+        html = (self.root / "templates" / "employee_ledger.html").read_text(encoding="utf-8")
+        for label in ["应付", "抵扣", "其他调整", "实付"]:
+            self.assertIn(f'<th data-grid-money>{label}</th>', html, f"{label} 必须声明为金额列")
+        # 维度列本身不是金额列，别误标（标了就不能当分组维度）
+        for label in ["员工", "类型", "状态"]:
+            self.assertNotIn(f'<th data-grid-money>{label}</th>', html)
 
 
 class DialogBackdropFixTest(unittest.TestCase):
