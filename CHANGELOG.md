@@ -4,6 +4,24 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.1.348] - 2026-09-30
+
+### 修复：用户管理表格表头跟着滚动跑（改为表头固定 + 表格内部滚动）
+- 用户管理列表滚动时表头一起滚没了。根因不是 CSS 偏移，而是**结构少了一半**：
+  表格被 `system-grid.js` 镜像成 Tabulator 后，是否吃满容器高度完全取决于源表有没有
+  `data-grid-height`。本页两样都缺（外层还是老的 `.table-scroll`、表上也没有该属性），
+  于是 Tabulator 按内容长高，滚动落到包裹层上，表头随之一块滚走。
+- 改为 ERP 标准范式：容器换成 `.erp-grid-wrap`（吃掉剩余高度）+ 源表
+  `data-grid-height="100%"` —— 滚动改由 `.tabulator-tableholder` 承担，
+  而 `.tabulator-header` 是它的兄弟节点，天然不参与滚动。
+- 真渲染对照（60 行数据、1400×760）：修复前滚动容器 `.table-scroll`
+  （clientH 406 / scrollH 1825），滚动 240px 后**表头位移 -240px**；修复后容器
+  `.tabulator-tableholder`（clientH 347 / scrollH 1768），**表头位移 0.0px**，
+  与员工往来账完全一致。900 / 1440 两种宽度各验一遍同为 0px。
+- 回归：新增 `test_erp_fixed_header_contract.py`（容器 + 高度 opt-in +
+  CSS 高度链 3 条 + system-grid 透传），并做了反向对照——去掉任一半共 2 处修复点
+  都立刻 FAIL，确认断言不是空转。
+
 ## [0.1.347] - 2026-09-30
 
 ### 新增：用户管理页导出 Excel

@@ -39,8 +39,11 @@
             </form>
           {% endif %}
         </div>
-        <div class="table-scroll" style="flex:1 1 auto;min-height:0;overflow:auto;">
-          <table class="list-table erp-grid users-table selectable-list-table" data-selectable-table>
+        {# 表头固定 + 表格内部滚动：必须用 .erp-grid-wrap 包 + 表上 data-grid-height="100%"。
+           少任何一半，Tabulator 就退回「按内容长高」——滚动发生在包裹层上，表头跟着滚走
+           （实测 60 行时表头位移 -240px）。#}
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid users-table selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>
               <tr><th>姓名</th><th>手机号</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th></tr>
             </thead>
