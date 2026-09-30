@@ -22,7 +22,20 @@ from settlement_review import default_person_nights
 # 住宿费**不**在这个集合里：它是「实报实销但有上限」——客户只按 人晚 × 每晚上限
 # 补偿，超出部分是真实亏损，所以无论有没有进结算单都要按上限折算（见
 # _lodging_cap_ratios），不能一律做成利润 0。
-PASS_THROUGH_EXPENSE_FIELDS = {"fuel", "parking", "taxi"}
+#
+# v0.1.342（2026-09-30 用户拍板）：机票费 / 租车费 / 行李费与停车费同口径 ——
+# 客户按实际成本全额补偿，收入 = 成本，利润 0。以前这三类落到 else 分支
+# （not_client_billed，收入恒为 0），于是「我们垫了钱、客户事后照付」的差旅
+# 全被显示成等额亏损，把人工赚的钱盖成负数（SO2609005 就是这样亏了 1701）。
+# 差旅类项目本质都是代垫：员工出差先垫付，客户按票实报实销。
+PASS_THROUGH_EXPENSE_FIELDS = {
+    "fuel",        # 租赁车辆加油费（个人／自驾油费走 _is_personal_fuel，收入恒 0）
+    "parking",     # 停车费
+    "taxi",        # 打车费
+    "airfare",     # 机票费
+    "rental_car",  # 租车费用
+    "baggage",     # 托运行李费
+}
 
 
 def _money(value):

@@ -1,8 +1,10 @@
-"""利润表：代垫类报销的收入口径（v0.1.327）。
+"""利润表：代垫类报销的收入口径（v0.1.327，v0.1.342 扩充）。
 
-业务规则（2026-09-28 用户确认）：
-  - 租赁汽车加油费 / 停车费 / 打车费 是「实报实销（代垫）」：客户按实际成本
-    全额补偿，收入 = 成本，利润 = 0。
+业务规则（2026-09-28 确认，2026-09-30 扩充）：
+  - 租赁汽车加油费 / 停车费 / 打车费 / 机票费 / 租车费 / 行李费 都是
+    「实报实销（代垫）」：客户按实际成本全额补偿，收入 = 成本，利润 = 0。
+    机票/租车/行李自 v0.1.342 起纳入 —— 以前落到 not_client_billed（收入恒 0），
+    把差旅垫付显示成等额亏损（SO2609005 因此显示亏 1,701）。
   - 住宿费是「实报实销但有上限」：客户只按 人晚 × 每晚上限 补偿，超出上限的
     部分是真实亏损 —— **无论有没有进结算单都要按上限折算，不能一律做成利润 0**。
     没配上限（人晚或每晚上限为 0）时才等同全额代垫。
@@ -33,6 +35,10 @@ MAPPING = [
     ("Fuel Expenses燃油费", "fuel", "Travel Expenses Reimbursement"),
     ("Parking Charge停车费", "parking", "Travel Expenses Reimbursement"),
     ("Taxi Fare / Ride-Hailing Fare打车费", "taxi", "Travel Expenses Reimbursement"),
+    # v0.1.342：差旅类与停车费同口径 —— 客户按实际成本全额补偿，收入=成本，利润 0
+    ("Airfare机票费", "airfare", "Travel Expenses Reimbursement"),
+    ("Car Rental Fee租车费用", "rental_car", "Travel Expenses Reimbursement"),
+    ("Checked Baggage Fee行李费", "baggage", "Travel Expenses Reimbursement"),
     ("Accommodation/Lodging住宿费", "lodging", "Travel Expenses Reimbursement"),
 ]
 
@@ -138,6 +144,9 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
                 "personal_fuel": add_expense("EX-PT-2", "Fuel Expenses燃油费", 80.0, "personal"),
                 "parking": add_expense("EX-PT-3", "Parking Charge停车费", 45.0, None),
                 "taxi": add_expense("EX-PT-4", "Taxi Fare / Ride-Hailing Fare打车费", 30.0, None),
+                "airfare": add_expense("EX-PT-6", "Airfare机票费", 789.60, None),
+                "rental_car": add_expense("EX-PT-7", "Car Rental Fee租车费用", 377.58, None),
+                "baggage": add_expense("EX-PT-8", "Checked Baggage Fee行李费", 100.0, None),
                 "lodging": add_expense("EX-PT-5", "Accommodation/Lodging住宿费", 1000.0, None),
             }
             db.commit()
@@ -250,16 +259,35 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
     # ─────────────────────────── 未进入结算单 ───────────────────────────
 
     def test_unsettled_pass_through_categories_break_even(self):
-        """未结算时，租赁加油/停车/打车 收入=成本，利润 0（住宿费另按上限折算）。"""
+        """未结算时，租赁加油/停车/打车/机票/租车/行李 收入=成本，利润 0。
+
+        后三类（v0.1.342 起）以前落到 not_client_billed、收入恒为 0，把「客户
+        事后按票实报实销」的差旅垫付显示成等额亏损，把人工赚的钱盖成负数。
+        """
         for key, expected_cost in (
             ("rental_fuel", 100.0),
             ("parking", 45.0),
             ("taxi", 30.0),
+            ("airfare", 789.60),
+            ("rental_car", 377.58),
+            ("baggage", 100.0),
         ):
             line = self.line_for(key)
             self.assertEqual(line["cost"], expected_cost, key)
             self.assertEqual(line["revenue"], expected_cost, key)
             self.assertEqual(line["profit"], 0.0, f"{key} 利润应为 0")
+            self.assertEqual(line["client_rate_source"], "pass_through_at_cost", key)
+
+    def test_personal_fuel_still_has_no_revenue_after_travel_pass_through(self):
+        """差旅分类纳入代垫后，个人／自驾油费**仍然**没有收入（别被一起带进去）。
+
+        个人油费是唯一「客户明确不承担」的类别，收入必须还是 0。
+        """
+        line = self.line_for("personal_fuel")
+        self.assertEqual(line["cost"], 80.0)
+        self.assertEqual(line["revenue"], 0.0)
+        self.assertEqual(line["profit"], -80.0)
+        self.assertEqual(line["client_rate_source"], "not_client_billed")
 
     def test_personal_fuel_has_no_revenue(self):
         """个人／自驾加油费没有收入，利润 = -成本。"""
@@ -299,8 +327,9 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
 
     def test_selected_expenses_still_use_settlement_snapshot(self):
         """已勾选进结算单的，仍以结算快照金额为准（不因本次改动而改变）。"""
-        self.select_into_settlement(["rental_fuel", "parking", "taxi"])
-        for key in ("rental_fuel", "parking", "taxi"):
+        self.select_into_settlement(
+            ["rental_fuel", "parking", "taxi", "airfare", "rental_car", "baggage"])
+        for key in ("rental_fuel", "parking", "taxi", "airfare", "rental_car", "baggage"):
             line = self.line_for(key)
             self.assertEqual(line["revenue"], line["cost"], key)
             self.assertEqual(line["profit"], 0.0, key)
