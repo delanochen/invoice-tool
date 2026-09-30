@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% from "erp_ui.html" import tab_button %}
 {% from "employee_grade_member_parts.html" import member_rows, candidate_options %}
+{# v0.1.341：等级静态费率列可空。NULL = 从没维护过，0 = 明确维护成 0 —— 两者在页面上必须看得出来，
+   否则「显示 $0.00」会让人以为已经维护。 #}
+{% macro static_rate(value) %}{% if value is none %}<span class="muted">未设置</span>{% else %}{{ value|money }}{% endif %}{% endmacro %}
 {% block title %}员工等级 - 发票工具{% endblock %}
 
 {% block head %}
@@ -238,12 +241,12 @@
               <p><strong>餐费补贴/天</strong><span>{{ grade.meal_daily_amount|money }}</span></p>
               <p><strong>车补计算方式</strong><span>{{ '按时长' if grade.car_allowance_method == 'hourly' else '按里程' }}</span></p>
               <p class="full-span"><strong>静态兜底费率</strong><span>下面这组数字只在「当天没有生效费率版本」时参与工资计算，已经不在「编辑等级」里维护了；调整费率请到「费率版本」页签新增版本。</span></p>
-              <p><strong>车补里程单价</strong><span>{{ grade.car_mileage_rate|money }}</span></p>
-              <p><strong>租车驾驶补贴/小时</strong><span>{{ grade.rental_driving_hourly_rate|money }}</span></p>
-              <p><strong>标准时薪</strong><span>{{ grade.standard_hourly_rate|money }}</span></p>
-              <p><strong>交通时薪</strong><span>{{ grade.transport_hourly_rate|money }}</span></p>
-              <p><strong>加班时薪</strong><span>{{ grade.overtime_hourly_rate|money }}</span></p>
-              <p><strong>假期时薪</strong><span>{{ grade.holiday_hourly_rate|money }}</span></p>
+              <p><strong>车补里程单价</strong><span>{{ static_rate(grade.car_mileage_rate) }}</span></p>
+              <p><strong>租车驾驶补贴/小时</strong><span>{{ static_rate(grade.rental_driving_hourly_rate) }}</span></p>
+              <p><strong>标准时薪</strong><span>{{ static_rate(grade.standard_hourly_rate) }}</span></p>
+              <p><strong>交通时薪</strong><span>{{ static_rate(grade.transport_hourly_rate) }}</span></p>
+              <p><strong>加班时薪</strong><span>{{ static_rate(grade.overtime_hourly_rate) }}</span></p>
+              <p><strong>假期时薪</strong><span>{{ static_rate(grade.holiday_hourly_rate) }}</span></p>
               <p class="full-span"><strong>规则</strong><span>等级被员工使用时不能删除；仍有在职员工使用时不能停用；员工全部停用后可停用等级。计算工资按工作日落在的有效期版本取费率，没有版本时用上面的静态兜底费率。基本工资、餐补、车补方式在「编辑等级」里维护，费率一律在「费率版本」里按生效日期维护。</span></p>
             </div>
           </div>

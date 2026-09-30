@@ -248,24 +248,44 @@ def register_employee_grade_routes(
                     return to_float(existing[name], absent)
                 return float(absent)
 
+            def grade_rate(name):
+                """费率列：**没填就是空（NULL）**，只有明确填过（含填 0）才写数字。
+
+                v0.1.341 之前这里缺省写 0（里程单价还默认 0.5、租车驾驶默认 15），
+                于是「建等级时没填费率」和「明确把费率填成 0」在库里长得一模一样，
+                下游只能靠 rate <= 0 去猜，结果把明确维护成 0 的费率（例：W1 外籍员工
+                不拿交通补贴）也当成了「缺费率」。现在一律落 NULL，
+                NULL = 没维护，0 = 维护成 0，两者可区分。
+                """
+                if name in request.form:
+                    raw = str(request.form.get(name) or "").strip()
+                    if not raw:
+                        return None  # 表单里留空 = 不维护
+                    return max(to_float(raw), 0)
+                if existing is not None:
+                    value = existing[name]
+                    return None if value is None else float(value)
+                return None  # 新建等级没提交费率字段 = 不维护
+
             car_method = request.form.get("car_allowance_method", "").strip()
             if car_method not in {"mileage", "hourly"}:
                 car_method = existing["car_allowance_method"] if existing is not None else "mileage"
             # car_hourly_rate 历史上就是跟随交通时薪写入的（test_payment_terms 有断言钉住），保持口径不变
-            transport_hourly_rate = grade_number("transport_hourly_rate")
+            transport_hourly_rate = grade_rate("transport_hourly_rate")
             values = (
                 grade_name,
                 request.form.get("description", "").strip(),
+                # 基本工资 / 餐补不是「费率」，维持原来的 0 默认
                 grade_number("base_salary"),
                 max(grade_number("meal_daily_amount"), 0),
                 car_method,
-                max(grade_number("car_mileage_rate", absent=0.5, empty=0), 0),
-                max(transport_hourly_rate, 0),
-                max(grade_number("rental_driving_hourly_rate", absent=15), 0),
-                grade_number("standard_hourly_rate"),
+                grade_rate("car_mileage_rate"),
                 transport_hourly_rate,
-                grade_number("overtime_hourly_rate"),
-                grade_number("holiday_hourly_rate"),
+                grade_rate("rental_driving_hourly_rate"),
+                grade_rate("standard_hourly_rate"),
+                transport_hourly_rate,
+                grade_rate("overtime_hourly_rate"),
+                grade_rate("holiday_hourly_rate"),
             )
             try:
                 if grade_id and str(grade_id).isdigit():

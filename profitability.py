@@ -165,11 +165,15 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
                 employee = employee_rate(api["db"](), worker["user_id"], work_date, employee_type)
                 revenue = _money(quantity) * _money(client["rate"])
                 cost = _money(quantity) * _money(employee["rate"])
+                # v0.1.341：「缺费率」只表示**没维护**（查不到生效版本、也查不到
+                # 等级静态值 —— 静态列为 NULL），不表示「费率是 0」。
+                # 费率被明确维护成 0 是合法口径（例：W1 外籍员工不拿交通补贴，
+                # 费率版本里 travel_hours/mileage 都填的 0），以前靠 rate <= 0 猜
+                # 缺费率，会把这类行全标成缺费率并弹红条。客户侧同理：合同版本里
+                # 填 0（含住宿上限 0 = 不限制）也算已维护。
                 missing = (
                     client["source"] == "missing"
                     or employee["source"].startswith("missing")
-                    or float(client["rate"] or 0) <= 0
-                    or float(employee["rate"] or 0) <= 0
                 )
                 lines.append({
                     "work_date": work_date,

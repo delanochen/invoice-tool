@@ -1153,18 +1153,18 @@ CREATE TABLE public.employee_grades (
     id bigint NOT NULL,
     grade_name text NOT NULL,
     base_salary double precision DEFAULT 0 NOT NULL,
-    standard_hourly_rate double precision DEFAULT 0 NOT NULL,
-    transport_hourly_rate double precision DEFAULT 0 NOT NULL,
-    overtime_hourly_rate double precision DEFAULT 0 NOT NULL,
-    holiday_hourly_rate double precision DEFAULT 0 NOT NULL,
+    standard_hourly_rate double precision,
+    transport_hourly_rate double precision,
+    overtime_hourly_rate double precision,
+    holiday_hourly_rate double precision,
     is_active bigint DEFAULT 1 NOT NULL,
     created_at text NOT NULL,
     description text DEFAULT ''::text NOT NULL,
     meal_daily_amount double precision DEFAULT 0 NOT NULL,
     car_allowance_method text DEFAULT 'mileage'::text NOT NULL,
-    car_mileage_rate double precision DEFAULT 0.5 NOT NULL,
-    car_hourly_rate double precision DEFAULT 10 NOT NULL,
-    rental_driving_hourly_rate double precision DEFAULT 15 NOT NULL
+    car_mileage_rate double precision,
+    car_hourly_rate double precision,
+    rental_driving_hourly_rate double precision
 );
 
 

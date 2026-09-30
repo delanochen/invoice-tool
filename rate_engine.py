@@ -151,8 +151,20 @@ def employee_rate(connection, user_id, work_date, rate_type):
     fallback_columns = EMPLOYEE_STATIC_RATE_COLUMNS
     column = fallback_columns.get(rate_type)
     if column and column in row.keys():
+        value = row[column]
+        if value is None:
+            # v0.1.341：等级静态费率列是 NULL = **从没维护过**，不是「维护成 0」。
+            # rate 仍返回数值 0（工资计算要拿它做乘法，不能给 None），
+            # 但 source 记成 missing，让调用方（利润表）能区分「没维护」与「维护成 0」。
+            return {
+                "rate": 0.0,
+                "unit": RATE_UNITS.get(rate_type, "hour"),
+                "source": "missing",
+                "version_id": None,
+                "version_no": None,
+            }
         return {
-            "rate": float(row[column] or 0),
+            "rate": float(value),
             "unit": RATE_UNITS.get(rate_type, "hour"),
             "source": "legacy_employee_grade",
             "version_id": None,
@@ -191,9 +203,11 @@ def employee_grade_rate_snapshot(connection, grade_id, work_date):
             rates[key] = {"rate": float(item["rate"] or 0), "unit": item["unit"] or unit, "source": "version"}
             continue
         column = EMPLOYEE_STATIC_RATE_COLUMNS.get(key)
-        if column and column in grade_keys:
-            rates[key] = {"rate": float(grade[column] or 0), "unit": unit, "source": "static"}
+        if column and column in grade_keys and grade[column] is not None:
+            rates[key] = {"rate": float(grade[column]), "unit": unit, "source": "static"}
         else:
+            # v0.1.341：静态列是 NULL 与「列不存在」一样都算没维护。
+            # 静态列是 0 则是「维护成 0」，source 仍是 static，不算缺费率。
             rates[key] = {"rate": 0.0, "unit": unit, "source": "missing"}
     return {"version": version, "rates": rates}
 

@@ -557,6 +557,48 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         for column in RATE_FIELDS:
             self.assertEqual(after[column], before[column], column)
 
+    def test_new_grade_rate_columns_default_to_null(self):
+        """新建等级时不填费率 → 静态费率列落 NULL，不是 0。
+
+        以前缺省写 0（里程单价还默认 0.5、租车驾驶默认 15），于是「没填」和
+        「明确填 0」在库里长得一模一样，下游只能靠 rate <= 0 猜有没有维护，
+        结果把明确维护成 0 的费率（例：W1 外籍员工不拿交通补贴）也当成缺费率。
+        """
+        response = self.http.post('/employee-grades', data={
+            'grade_name': 'NEW-NULL',
+            'description': '',
+            'base_salary': '0',
+            'meal_daily_amount': '0',
+            'car_allowance_method': 'mileage',
+        })
+        self.assertEqual(response.status_code, 302)
+        row = self.query("select * from employee_grades where grade_name = 'NEW-NULL'")[0]
+        for column in RATE_FIELDS:
+            self.assertIsNone(row[column], column)
+        # 基本工资 / 餐补不是费率，仍然按 0 存
+        self.assertEqual(row['base_salary'], 0)
+        self.assertEqual(row['meal_daily_amount'], 0)
+
+    def test_explicit_zero_rate_is_stored_as_zero(self):
+        """表单里明确填 0 的费率必须存成 0（不是 NULL）—— 0 是「维护成 0」。"""
+        response = self.http.post('/employee-grades', data={
+            'grade_name': 'NEW-ZERO',
+            'description': '',
+            'base_salary': '0',
+            'meal_daily_amount': '0',
+            'car_allowance_method': 'mileage',
+            'standard_hourly_rate': '0',
+            'transport_hourly_rate': '0',
+            'overtime_hourly_rate': '0',
+            'holiday_hourly_rate': '0',
+            'car_mileage_rate': '0',
+            'rental_driving_hourly_rate': '0',
+        })
+        self.assertEqual(response.status_code, 302)
+        row = self.query("select * from employee_grades where grade_name = 'NEW-ZERO'")[0]
+        for column in RATE_FIELDS:
+            self.assertEqual(row[column], 0, column)
+
     def version_items(self, version_id):
         return {row['rate_type']: row['rate'] for row in self.query(
             'select * from employee_rate_items where version_id = ?', (version_id,))}
@@ -608,8 +650,40 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
         self.assertEqual(items['regular_hours'], 25)     # 版本费率，不是静态的 10
         self.assertEqual(items['overtime_hours'], 20)    # 版本里没给 → 回退静态兜底
 
+    def _refuse_one_click(self, grade_id):
+        """按当前费率建版本 → 期望被拒绝，返回 (版本数, 页面 HTML)。"""
+        self.http.post(
+            f'/employee-grades/{grade_id}/rates',
+            data={'rate_source': 'current', 'effective_from': date.today().isoformat()},
+        )
+        count = self.query(
+            'select count(*) as n from employee_rate_versions where employee_grade_id = ?',
+            (grade_id,))[0]['n']
+        return count, self.page(grade_id)
+
+    def test_one_click_version_refused_when_rates_not_maintained(self):
+        """7 项费率一项都没维护（静态列为 NULL）时拒绝固化。
+
+        v0.1.341 起静态费率列默认 NULL 而不是 0：NULL = 从没维护过，所以这里的提示
+        是「既没有生效版本也没有等级静态值」，不是原来那句「全是 0」。
+        """
+        with self.m.app.app_context():
+            db = self.m.db()
+            blank = db.execute(
+                """insert into employee_grades (grade_name, description, is_active, created_at)
+                   values ('Blank','',1,?)""",
+                (self.m.now(),),
+            ).lastrowid
+            db.commit()
+        count, page = self._refuse_one_click(blank)
+        self.assertEqual(count, 0)
+        self.assertIn('既没有生效版本也没有等级静态值', page)
+        # 等级资料里静态费率显示成「未设置」，而不是 $0.00
+        self.assertIn('未设置', page)
+        self.assertNotIn('全是 0', page)
+
     def test_one_click_version_refused_when_rates_all_zero(self):
-        """7 项费率全为 0 时拒绝固化。
+        """7 项费率被**明确维护成 0** 时同样拒绝固化 —— 与「没维护」是两回事。
 
         固化出一条全 0 的版本比「没有版本」更危险：没有版本时页面会明确提示
         「未设置」，而全 0 版本看起来是「已配置」，会静默把工资算成 0。
@@ -618,19 +692,16 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
             db = self.m.db()
             blank = db.execute(
                 """insert into employee_grades
-                   (grade_name, description, car_mileage_rate, rental_driving_hourly_rate, is_active, created_at)
-                   values ('Blank','',0,0,1,?)""",
+                   (grade_name, description, car_mileage_rate, rental_driving_hourly_rate,
+                    standard_hourly_rate, transport_hourly_rate, overtime_hourly_rate,
+                    holiday_hourly_rate, car_hourly_rate, is_active, created_at)
+                   values ('Blank','',0,0,0,0,0,0,0,1,?)""",
                 (self.m.now(),),
             ).lastrowid
             db.commit()
-        self.http.post(
-            f'/employee-grades/{blank}/rates',
-            data={'rate_source': 'current', 'effective_from': date.today().isoformat()},
-        )
-        self.assertEqual(self.query(
-            'select count(*) as n from employee_rate_versions where employee_grade_id = ?',
-            (blank,))[0]['n'], 0)
-        self.assertIn('全是 0', self.page(blank))
+        count, page = self._refuse_one_click(blank)
+        self.assertEqual(count, 0)
+        self.assertIn('全是 0', page)
 
     def test_manual_version_creation_still_works(self):
         """手动填 7 项费率的路径不受一键固化改造影响。"""
