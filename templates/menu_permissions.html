@@ -149,6 +149,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    /* styles.css 的旧 Web 规则给这里写过 justify-content: space-between。
+       本页靠 .permission-inline-check 的 margin-left:auto 把「显示菜单」推到右边，
+       而 space-between 会把「没有该复选框」的行（工作日报/员工报销/工单结算/操作日志）
+       的标签顶到最右侧 —— 必须显式清零（旧样式逐条覆盖，漏一条就漏一条 bug）。 */
+    justify-content: flex-start;
     min-height: var(--erp-row-height);
     padding: 3px 8px;
     font-weight: 600;
