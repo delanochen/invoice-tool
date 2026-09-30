@@ -56,6 +56,9 @@ CSS = ROOT / "static" / "erp-ui.css"
 GRID_JS = ROOT / "static" / "system-grid.js"
 
 #: v0.1.349 批量改造的 19 个页面（含 users / employee_ledger 两个已改造工时长的参照页）。
+#: 后续追加：profitability（利润明细/汇总两表，v0.1.352 从 .table-scroll 迁移到同一范式——
+#: 旧结构下 Tabulator 按内容长高、外层容器滚动，.tabulator{overflow:hidden} 会捕获 sticky，
+#: 表头随行一起滚走；改为 .erp-grid-wrap + data-grid-height="100%" 后行在表体内滚动、表头天然固定）。
 #: invoice_detail **刻意不在此列**：它的 erp-grid 挂在 .erp-detail-scroll 里的
 #: .attachment-panel 下，那一整块详情本来就是一个滚动区，按「整页滚动」设计，
 #: 钉住高度反而会与详情滚动 / 打印规则冲突。
@@ -63,7 +66,8 @@ ERP_CONTRACT_PAGES = [
     "asset_detail", "assets", "bank_accounts", "bank_transactions", "buyers", "clients",
     "company_info", "countries", "dashboard", "employee_advances", "employee_ledger",
     "expense_processing", "finance_overview", "knowledge_base", "manufacturers", "owners",
-    "payment_terms", "projects", "service_order_detail", "users", "work_order_types",
+    "payment_terms", "profitability", "projects", "service_order_detail", "users",
+    "work_order_types",
 ]
 
 
