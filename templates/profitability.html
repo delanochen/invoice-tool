@@ -166,7 +166,7 @@
     <!-- 利润明细（沿用原有明细表） -->
     <section class="erp-panel" data-erp-panel="detail">
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid" data-grid-height="100%" data-no-report-export="true" data-grid-calcs="bottom">
+        <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
           <thead><tr>
             <th>日期</th><th>工单</th><th>员工</th><th>类别</th><th>项目</th>
             <th class="num">数量</th><th class="num" data-grid-no-calc>客户单价</th><th class="num" data-grid-no-calc>员工/实际成本单价</th>
@@ -222,7 +222,7 @@
     <!-- 按日 / 按月 / 按工单汇总（沿用后端 rows） -->
     <section class="erp-panel" data-erp-panel="summary">
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid" data-grid-height="100%" data-no-report-export="true" data-grid-calcs="bottom">
+        <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
           <thead><tr>
             <th>{{ {'day':'日期','month':'月份','order':'工单'}[group_by] }}</th>
             <th class="num">收入</th><th class="num">成本</th><th class="num">利润</th>
