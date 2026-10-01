@@ -1058,7 +1058,10 @@ CREATE TABLE public.email_delivery_logs (
     sent_by_name text DEFAULT ''::text NOT NULL,
     sent_at text NOT NULL,
     is_legacy bigint DEFAULT 0 NOT NULL,
-    source_audit_log_id bigint
+    source_audit_log_id bigint,
+    status text DEFAULT 'sent'::text NOT NULL,
+    error_message text DEFAULT ''::text NOT NULL,
+    employee_id integer
 );
 
 

@@ -1144,6 +1144,115 @@ def render_payment_statement_pdf(payload, *, company_name="", generated_at=""):
     return buffer.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# Phase 5C：Payment Statement Email + Delivery Log。
+#
+# 唯一发送链路（Email 层绝不自己查付款明细 / 重算 Statement / 走 HTTP）：
+#   batch_id → payment_statement_payload() → render_payment_statement_pdf()
+#   → payment_statement_pdf_filename() → users.email → send_email()
+#   → record_email_delivery()
+# 发送与付款事务完全解耦：SMTP 失败记 failed delivery 后原样抛出，
+# 绝不影响批次 / 付款单 / 组件 / 往来账 / 对账。
+# ---------------------------------------------------------------------------
+
+STATEMENT_EMAIL_ENTITY_TYPE = "payment_statement"
+# 与客户报销邮件同一收件人校验口径（app.py deliver_customer_reimbursement_email）。
+STATEMENT_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def statement_email_can_send(api):
+    """Email Statement 只允许 admin / finance（manager / employee 绝不允许）。"""
+    return api["normalized_role"]() in {"admin", "finance"}
+
+
+def send_payment_statement_email(api, batch_id):
+    """发送 Payment Statement 邮件，返回 recipient。
+
+    业务阻断（void / 不闭合 / 缺有效 email）抛 ValueError：不调用 SMTP、
+    不记 delivery。SMTP 失败：捕获后记 failed delivery（独立 commit）再抛出。
+    """
+    batch = _load_batch(api, batch_id)
+    if batch["status"] == "void":
+        raise ValueError("This payment batch is void and cannot be emailed.")
+    payload = payment_statement_payload(api, batch_id)
+    if not payload["batch_closure_ok"]:
+        raise ValueError(
+            "Data integrity error: batch does not close; the statement cannot be emailed.")
+    recipient = (payload["batch"]["employee_email"] or "").strip()
+    if not STATEMENT_EMAIL_RE.fullmatch(recipient):
+        raise ValueError("Employee email not available.")
+
+    subject = f"Payment Statement - {payload['statement_number']}"
+    company_profile = api.get("get_company_profile")
+    company_name = company_profile()["name"] if company_profile else ""
+    currency = payload["batch"].get("currency") or "USD"
+    pdf_bytes = render_payment_statement_pdf(
+        payload, company_name=company_name, generated_at=api["now"]())
+    attachments = [{
+        "filename": payment_statement_pdf_filename(
+            payload["statement_number"], payload["batch"]["employee_name"]),
+        "content": pdf_bytes,
+        "maintype": "application",
+        "subtype": "pdf",
+    }]
+    html = api["render_template"](
+        "email_payment_statement.html",
+        employee_name=payload["batch"]["employee_name"],
+        batch_number=payload["statement_number"],
+        issued_at=payload["batch"]["issued_at"],
+        total_amount=_pdf_money(payload["batch"]["total_amount"], currency),
+        payment_method=PAYMENT_METHOD_LABELS.get(
+            payload["batch"]["payment_method"], payload["batch"]["payment_method"]),
+        check_number=payload["batch"]["check_number"] or "",
+        review_pending=payload["review_pending"]["amount"] > 0,
+        company_name=company_name,
+    )
+    try:
+        api["send_email"](to=recipient, subject=subject, html=html, attachments=attachments)
+    except Exception as error:
+        api["record_email_delivery"](
+            STATEMENT_EMAIL_ENTITY_TYPE, batch_id, recipient, subject,
+            status="failed", error_message=str(error), employee_id=batch["employee_id"])
+        api["db"]().commit()
+        raise
+    api["record_email_delivery"](
+        STATEMENT_EMAIL_ENTITY_TYPE, batch_id, recipient, subject,
+        status="sent", employee_id=batch["employee_id"])
+    api["db"]().commit()
+    api["log_action"](
+        "email", STATEMENT_EMAIL_ENTITY_TYPE, batch_id, payload["statement_number"],
+        f"发送至：{recipient}；附件：{len(attachments)} 个")
+    return recipient
+
+
+def statement_email_history(api, batch_id, limit=10):
+    """Email History：最近 N 条，新到旧。0294 未生效时页面必须照常可用。"""
+    try:
+        return api["db"]().execute(
+            f"""select id, recipient, subject, status, error_message, sent_by_name, sent_at
+                from email_delivery_logs
+                where entity_type=? and entity_id=?
+                order by id desc limit {int(limit)}""",
+            (STATEMENT_EMAIL_ENTITY_TYPE, batch_id),
+        ).fetchall()
+    except Exception:
+        return []
+
+
+def statement_email_last_sent(api, batch_id):
+    """最近一次成功投递（Send Again 的 Last sent 提示）。0294 未生效时为 None。"""
+    try:
+        return api["db"]().execute(
+            """select recipient, sent_by_name, sent_at
+               from email_delivery_logs
+               where entity_type=? and entity_id=? and status='sent'
+               order by id desc limit 1""",
+            (STATEMENT_EMAIL_ENTITY_TYPE, batch_id),
+        ).fetchone()
+    except Exception:
+        return None
+
+
 def register_employee_finance_routes(app, api):
     app.jinja_env.globals["employee_finance_summary"] = lambda employee_id: employee_finance_summary(api, employee_id)
 
@@ -1475,7 +1584,10 @@ def register_employee_finance_routes(app, api):
                                status_labels=PAYMENT_STATUS_LABELS,
                                type_labels=PAYMENT_TYPE_LABELS,
                                method_labels=PAYMENT_METHOD_LABELS,
-                               batch_status_labels=PAYMENT_BATCH_STATUS_LABELS)
+                               batch_status_labels=PAYMENT_BATCH_STATUS_LABELS,
+                               can_email=statement_email_can_send(api),
+                               email_history=statement_email_history(api, batch_id),
+                               last_sent=statement_email_last_sent(api, batch_id))
 
     @app.get("/finance/payment-batches/<int:batch_id>/statement.pdf")
     @api["login_required"]
@@ -1501,6 +1613,30 @@ def register_employee_finance_routes(app, api):
             download_name=payment_statement_pdf_filename(
                 data["batch"]["batch_number"], data["batch"]["employee_name"]),
         )
+
+    @app.post("/finance/payment-batches/<int:batch_id>/statement/email")
+    @api["login_required"]
+    def email_payment_statement(batch_id):
+        """发送 Payment Statement 邮件（Phase 5C，仅 admin / finance）。
+
+        POST-only（不能用 GET 发送）。发送链路唯一：payload → PDF →
+        send_email → record_email_delivery；业务阻断 flash 提示，SMTP 失败
+        记 failed delivery 后提示。绝不写批次 / 付款单 / 往来账 / 对账。
+        """
+        _require(api, "employee_payments")
+        if not statement_email_can_send(api):
+            abort(403)
+        try:
+            recipient = send_payment_statement_email(api, batch_id)
+        except ValueError as error:
+            api["db"]().rollback()
+            flash(str(error), "error")
+        except Exception as error:
+            api["db"]().rollback()  # failed delivery 已在服务层单独 commit
+            flash(f"邮件发送失败：{error}", "error")
+        else:
+            flash(f"Payment Statement 已发送至 {recipient}。", "success")
+        return redirect(url_for("payment_statement", batch_id=batch_id))
 
     @app.post("/finance/payment-batches/create")
     @api["login_required"]

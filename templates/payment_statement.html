@@ -185,6 +185,45 @@
           </tbody>
         </table>
       </section>
+
+      <!-- ─────────────────────── Email Delivery ─────────────────────── -->
+      <section class="panel">
+        <div class="panel-title"><h2>Email Delivery</h2></div>
+        {# Phase 5C：仅 admin / finance 显示发送按钮；void / 不闭合 / 缺 email 阻断发送。 #}
+        {% if can_email %}
+          {% if s.batch.status == 'void' %}
+            <p class="erp-filter-note">This payment batch is void and cannot be emailed.</p>
+          {% elif not s.batch_closure_ok %}
+            <p class="erp-filter-note">Data integrity error：批次不闭合，不能发送邮件。</p>
+          {% elif not s.batch.employee_email %}
+            <p class="erp-filter-note">Employee email not available.</p>
+          {% else %}
+            <form method="post" action="{{ url_for('email_payment_statement', batch_id=s.batch.id) }}" class="statement-email-form">
+              <button type="submit" class="erp-btn erp-btn--primary">{{ 'Send Again' if last_sent else 'Email Payment Statement' }}</button>
+              {% if last_sent %}
+                <span class="muted">Last sent: {{ last_sent.sent_at|local_datetime }} · {{ last_sent.sent_by_name }} → {{ last_sent.recipient }}</span>
+              {% endif %}
+            </form>
+          {% endif %}
+        {% endif %}
+        {% if email_history %}
+          <table class="list-table">
+            <thead><tr><th>Time</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Sent By</th><th>Error</th></tr></thead>
+            <tbody>
+              {% for row in email_history %}<tr>
+                <td>{{ row.sent_at|local_datetime }}</td>
+                <td>{{ row.recipient }}</td>
+                <td>{{ row.subject }}</td>
+                <td>{{ row.status }}</td>
+                <td>{{ row.sent_by_name }}</td>
+                <td>{{ row.error_message or '—' }}</td>
+              </tr>{% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="erp-filter-note">No email delivery history.</p>
+        {% endif %}
+      </section>
     </section>
   </div>
 

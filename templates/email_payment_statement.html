@@ -1,0 +1,17 @@
+<p>Hello {{ employee_name }},</p>
+
+<p>Your Payment Statement is attached as a PDF.</p>
+
+<ul>
+  <li>Employee Name: {{ employee_name }}</li>
+  <li>Batch Number: {{ batch_number }}</li>
+  <li>Issued Date: {{ issued_at }}</li>
+  <li>Total Payment Amount: {{ total_amount }}</li>
+  <li>Payment Method: {{ payment_method }}</li>
+  {% if check_number %}<li>Check Number: {{ check_number }}</li>{% endif %}
+</ul>
+
+{% if review_pending %}<p>This statement includes items with tax classification review pending.</p>{% endif %}
+
+<p>Thank you,<br>
+{{ company_name }}</p>
