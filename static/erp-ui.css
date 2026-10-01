@@ -954,3 +954,12 @@
 .erp-grid .ledger-select-col input[type="checkbox"] { margin: 0; cursor: pointer; }
 .erp-cards .ledger-card-check { display: inline-flex; align-items: center; margin-right: 6px; }
 .erp-cards .ledger-card-check input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+/* ------------------------------------------------ Payment Statement（Phase 5A）
+   一次实际员工付款的完整付款说明。纯 read model：样式只负责分块与小计表。 */
+.statement-block { margin: 10px 0 18px; }
+.statement-block-title { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.statement-subtotal { margin-top: 8px; max-width: 640px; }
+.statement-subtotal td { background: var(--panel-alt, #fafafa); }
+.statement-review-warn { border-color: #fde68a; color: #92400e; background: #fffbeb; }
+.erp-app .text-danger { color: var(--danger, #b91c1c); }

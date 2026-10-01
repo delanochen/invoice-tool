@@ -1,0 +1,211 @@
+{% extends "base.html" %}{% from "erp_ui.html" import summary_item %}
+{% block title %}Payment Statement {{ s.statement_number }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{# Phase 5A：Payment Statement = 一次实际员工付款（一个 payment batch）的完整付款说明。
+   纯 read model：金额全部来自冻结的批次/付款单/组件快照/复核链，本页不产生任何写入。
+   闭合校验失败必须显式报 data integrity error，绝不静默补差。 #}
+<div class="erp-app erp-app--flow erp-compact" data-active-panel="statement">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      Payment Statement
+      <small>{{ s.statement_number }} · {{ s.batch.employee_name }} · {{ s.batch.total_amount|money }}</small>
+    </div>
+    <span class="erp-badge">{{ batch_status_labels[s.batch.status] }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <a class="erp-btn" href="{{ url_for('payment_batch_detail', batch_id=s.batch.id) }}">返回批次</a>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="statement">
+
+      {# 批次闭合失败：数据完整性错误，顶部横幅 + 逐区提示，绝不静默补差。 #}
+      {% if not s.batch_closure_ok %}
+      <div class="flash flash-error">Data integrity error：批次内付款单合计 {{ s.orders_net|money }} ≠ 批次金额
+        {{ s.batch.total_amount|money }}（或张数 {{ s.salary_orders|length + s.expense_orders|length }} ≠
+        {{ s.batch.payment_count }}）。请先核对批次数据，本 Statement 仅供参考。</div>
+      {% endif %}
+
+      {# Tax Review Pending：只提示，不阻止展示，也不改 Total Payment Amount。 #}
+      {% if s.review_pending.amount > 0 %}
+      <div class="flash statement-review-warn"><strong>Tax Classification Review Pending</strong> —
+        该批次内 {{ s.review_pending.count }} 个税务组件（合计 {{ s.review_pending.amount|money }}）
+        仍待税务复核，分类以最终复核结果为准。</div>
+      {% endif %}
+
+      <!-- ─────────────────────── Statement Header ─────────────────────── -->
+      <section class="panel">
+        <div class="panel-title"><h2>付款说明 Payment Statement</h2>
+          <span class="status {{ s.batch.status }}">{{ batch_status_labels[s.batch.status] }}</span></div>
+        <div class="detail-grid">
+          <p><strong>Statement Number</strong><span>{{ s.statement_number }}</span></p>
+          <p><strong>批次</strong><span><a href="{{ url_for('payment_batch_detail', batch_id=s.batch.id) }}">{{ s.batch.batch_number }}</a></span></p>
+          <p><strong>员工</strong><span>{{ s.batch.employee_name }}</span></p>
+          <p><strong>付款方式</strong><span>{{ method_labels.get(s.batch.payment_method, s.batch.payment_method) }}</span></p>
+          <p><strong>支票号</strong><span>{{ s.batch.check_number or '—' }}</span></p>
+          <p><strong>发放时间</strong><span>{{ s.batch.issued_at|local_datetime if s.batch.issued_at else '—' }}</span></p>
+          <p><strong>对账时间</strong><span>{{ s.batch.reconciled_at|local_datetime if s.batch.reconciled_at else '—' }}</span></p>
+          {% if s.batch.voided_at %}<p><strong>作废时间</strong><span>{{ s.batch.voided_at|local_datetime }}</span></p>{% endif %}
+          <p class="full-span"><strong>Total Payment Amount</strong><span><strong>{{ s.batch.total_amount|money }}</strong></span></p>
+          {% if s.batch.notes %}<p class="full-span"><strong>备注</strong><span>{{ s.batch.notes }}</span></p>{% endif %}
+        </div>
+      </section>
+
+      <!-- ─────────────────────── Earnings / Salary ─────────────────────── -->
+      {% if s.salary_orders %}
+      <section class="panel">
+        <div class="panel-title"><h2>工资 / 报酬 Earnings</h2><span class="erp-badge">{{ s.salary_orders|length }} 张</span></div>
+        {% for order in s.salary_orders %}
+        <div class="statement-block">
+          <p class="statement-block-title">
+            <strong><a href="{{ url_for('employee_payment_detail', payment_id=order.id) }}">{{ order.payment_number }}</a></strong>
+            {% if order.pay_period %}<span class="muted">期间 {{ order.pay_period }}</span>{% endif %}
+            <span class="status {{ order.status }}">{{ status_labels[order.status] }}</span>
+          </p>
+          {% if not order.has_components %}
+            <p class="erp-filter-note">Component detail unavailable（该付款单没有组件快照，仅显示付款单金额，不伪造明细）。</p>
+          {% elif not order.component_closure_ok %}
+            <div class="flash flash-error">Data integrity error：{{ order.payment_number }} 组件合计
+              {{ order.component_sum|money }} ≠ 付款单金额 {{ order.gross_amount|money }}。</div>
+          {% else %}
+            <table class="list-table">
+              <thead><tr><th>Service Date</th><th>Work Order</th><th>Component</th><th>数量</th><th>单价</th><th>金额</th></tr></thead>
+              <tbody>
+                {% for row in order.components %}<tr>
+                  <td>{{ row.service_date or '—' }}</td>
+                  <td>{% if row.work_order_id and row.order_number %}{{ row.order_number }}{% elif row.order_number %}{{ row.order_number }}{% else %}—{% endif %}</td>
+                  <td>{{ row.component_name or row.component_code }}<small class="muted"> {{ row.component_code }}</small></td>
+                  <td>{% if row.quantity is not none %}{{ row.quantity }}{% if row.unit %} {{ row.unit }}{% endif %}{% else %}—{% endif %}</td>
+                  <td>{% if row.unit_rate is not none %}{{ row.unit_rate|money }}{% else %}—{% endif %}</td>
+                  <td><strong>{{ row.amount|money }}</strong></td>
+                </tr>{% endfor %}
+              </tbody>
+            </table>
+            {# 按 component_code 汇总小计（绝不用 component_name 猜归类）。 #}
+            <table class="list-table statement-subtotal">
+              <thead><tr><th>Component 汇总</th><th>数量</th><th>金额</th></tr></thead>
+              <tbody>
+                {% for bucket in order.component_subtotals %}<tr>
+                  <td>{{ bucket.component_name }}<small class="muted"> {{ bucket.component_code }}</small></td>
+                  <td>{% if bucket.has_quantity %}{{ bucket.quantity }}{% if bucket.unit %} {{ bucket.unit }}{% endif %}{% else %}—{% endif %}</td>
+                  <td>{{ bucket.amount|money }}</td>
+                </tr>{% endfor %}
+                <tr><td><strong>{{ order.payment_number }} 小计</strong></td><td></td><td><strong>{{ order.net_amount|money }}</strong></td></tr>
+              </tbody>
+            </table>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %}
+
+      <!-- ─────────────────── Expense Reimbursements ─────────────────── -->
+      {% if s.expense_orders %}
+      <section class="panel">
+        <div class="panel-title"><h2>报销 Expense Reimbursements</h2><span class="erp-badge">{{ s.expense_orders|length }} 张</span></div>
+        {% for order in s.expense_orders %}
+        <div class="statement-block">
+          <p class="statement-block-title">
+            <strong><a href="{{ url_for('employee_payment_detail', payment_id=order.id) }}">{{ order.payment_number }}</a></strong>
+            {% if order.expense %}
+              <a href="{{ url_for('expense_detail', expense_id=order.expense.id) }}">{{ order.expense.expense_number }}</a>
+              <span class="muted">费用日期 {{ order.expense.expense_date }}{% if order.expense.order_number %} · 工单 {{ order.expense.order_number }}{% endif %}</span>
+            {% else %}
+              <span class="muted">来源报销单不可用</span>
+            {% endif %}
+            <span class="status {{ order.status }}">{{ status_labels[order.status] }}</span>
+          </p>
+          {% if order.expense and order.expense_item_rows %}
+            <table class="list-table">
+              <thead><tr><th>Item / Project</th><th>说明</th><th>金额</th></tr></thead>
+              <tbody>
+                {% for item in order.expense_item_rows %}<tr>
+                  <td>{{ item.project }}</td>
+                  <td>{{ item.description or '—' }}</td>
+                  <td><strong>{{ item.amount|money }}</strong></td>
+                </tr>{% endfor %}
+                <tr><td><strong>{{ order.payment_number }} 小计</strong></td><td></td><td><strong>{{ order.net_amount|money }}</strong></td></tr>
+              </tbody>
+            </table>
+          {% elif order.expense %}
+            <p class="erp-filter-note">报销明细不可用，仅显示付款单金额。</p>
+            <p class="statement-block-title"><strong>金额</strong><span>{{ order.net_amount|money }}</span></p>
+          {% else %}
+            <p class="statement-block-title"><strong>金额</strong><span>{{ order.net_amount|money }}</span></p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %}
+
+      <!-- ─────────────────── Tax Classification Summary ─────────────────── -->
+      <section class="panel">
+        <div class="panel-title"><h2>税务分类汇总 Tax Classification</h2>
+          <span class="erp-badge">解释付款组成，不改变 Total Payment</span></div>
+        <table class="list-table">
+          <thead><tr><th>分类</th><th>Original（生成时快照）</th><th>Effective（最新复核后）</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>{% if s.salary_total %}Compensation{% else %}Service Compensation{% endif %}</td>
+              <td>{{ s.original_totals.taxable_compensation|money }}</td>
+              <td><strong>{{ s.effective_totals.taxable_compensation|money }}</strong></td>
+            </tr>
+            <tr>
+              <td>Reimbursements</td>
+              <td>{{ s.original_totals.accountable_reimbursement|money }}</td>
+              <td><strong>{{ s.effective_totals.accountable_reimbursement|money }}</strong></td>
+            </tr>
+            <tr>
+              <td>{% if s.review_pending.amount > 0 %}<strong class="text-danger">Review Required</strong>{% else %}Review Required{% endif %}</td>
+              <td>{{ s.original_totals.tax_review_required|money }}</td>
+              <td><strong>{{ s.effective_totals.tax_review_required|money }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ─────────────────────── Payment Summary ─────────────────────── -->
+      <section class="panel">
+        <div class="panel-title"><h2>付款汇总 Payment Summary</h2></div>
+        <table class="list-table">
+          <tbody>
+            <tr><td>工资 / 报酬小计</td><td>{{ s.salary_total|money }}</td></tr>
+            <tr><td>报销小计</td><td>{{ s.expense_total|money }}</td></tr>
+            <tr><td><strong>Total Payment Amount</strong></td><td><strong>{{ s.orders_net|money }}</strong></td></tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('工资', s.salary_orders|length, 'muted') }}
+    {{ summary_item('报销', s.expense_orders|length, 'muted') }}
+    {{ summary_item('Total Payment', s.orders_net|money, 'pos') }}
+  </footer>
+
+  <footer class="erp-status">
+    <span>Statement <b>{{ s.statement_number }}</b></span>
+    <span class="sep"></span>
+    <span>员工 <b>{{ s.batch.employee_name }}</b></span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ batch_status_labels[s.batch.status] }}</b></span>
+    <span class="sep"></span>
+    <span>金额全部来自冻结快照，本页只读。</span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+{% endblock %}

@@ -71,7 +71,7 @@
           <thead><tr>{% if can_pay %}<th class="ledger-select-col"><input type="checkbox" data-payment-select-all aria-label="全选可发放的付款单"></th>{% endif %}<th>付款单</th><th>员工</th><th>类型</th><th>说明</th><th data-grid-money>应付</th><th data-grid-money>抵扣</th><th data-grid-money>其他调整</th><th data-grid-money>实付</th><th>状态</th><th>创建时间</th></tr></thead>
           <tbody>{% for row in payments %}<tr>
             {% if can_pay %}<td class="ledger-select-col">{% if row.status in ['approved','pending_payment'] %}<input type="checkbox" data-payment-select value="{{ row.id }}" data-net-amount="{{ row.net_amount }}" aria-label="选择付款单 {{ row.payment_number }}">{% endif %}</td>{% endif %}
-            <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td>
+            <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a>{% if row.batch_id %} <a class="muted" href="{{ url_for('payment_statement', batch_id=row.batch_id) }}">Statement</a>{% endif %}</td>
             <td>{{ row.employee_name }}</td>
             <td>{{ type_labels[row.payment_type] }}</td>
             {# 报销类付款单的说明带来源报销单号，直接点开对应报销单，省一次复制单号再查的操作 #}
@@ -108,6 +108,7 @@
             </div>
             <div class="erp-card-foot">
               <a class="erp-btn primary" href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">付款单详情</a>
+              {% if row.batch_id %}<a class="erp-btn" href="{{ url_for('payment_statement', batch_id=row.batch_id) }}">Statement</a>{% endif %}
             </div>
           </article>
         {% else %}

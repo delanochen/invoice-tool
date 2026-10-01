@@ -48,7 +48,8 @@
         <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
           <thead><tr><th>批次号</th><th>员工</th><th>付款账户</th><th>方式</th><th>支票号</th><th data-grid-money>合计金额</th><th>张数</th><th>状态</th><th>发放时间</th></tr></thead>
           <tbody>{% for row in rows %}<tr>
-            <td><a href="{{ url_for('payment_batch_detail', batch_id=row.id) }}">{{ row.batch_number }}</a></td>
+            <td><a href="{{ url_for('payment_batch_detail', batch_id=row.id) }}">{{ row.batch_number }}</a>
+              <a class="muted" href="{{ url_for('payment_statement', batch_id=row.id) }}">Statement</a></td>
             <td>{{ row.employee_name }}</td>
             <td>{{ row.account_name or '-' }}</td>
             <td>{{ method_labels.get(row.payment_method, row.payment_method) }}</td>
@@ -81,6 +82,7 @@
             </div>
             <div class="erp-card-foot">
               <a class="erp-btn primary" href="{{ url_for('payment_batch_detail', batch_id=row.id) }}">批次明细</a>
+              <a class="erp-btn" href="{{ url_for('payment_statement', batch_id=row.id) }}">Statement</a>
             </div>
           </article>
         {% else %}

@@ -19,6 +19,7 @@
     <span class="erp-badge">{{ batch_status_labels[batch.status] }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
+      <a class="erp-btn primary" href="{{ url_for('payment_statement', batch_id=batch.id) }}">付款说明 Statement</a>
       {% if batch.status=='issued' and has_action_permission('employee_payments','pay') %}
         <button type="button" class="erp-btn danger" data-dialog-open="voidBatch">作废支票</button>
       {% endif %}

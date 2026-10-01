@@ -549,6 +549,177 @@ def _batch_orders(api, batch_id):
     ).fetchall()
 
 
+# ---------------------------------------------------------------------------
+# Phase 5A：Payment Statement（read model / presentation layer）。
+#
+# Statement 对应一次实际员工付款（一个 payment batch），金额全部来自现有冻结
+# 数据（批次 / 付款单 / 组件快照 / 复核链 / 报销明细），绝不重新计算工资或
+# 报销，也绝不写库。HTML / 以后的 PDF / Email 必须复用这一份 payload，
+# 不允许各写一套业务查询。
+# ---------------------------------------------------------------------------
+
+STATEMENT_TAX_CATEGORIES = ("taxable_compensation", "accountable_reimbursement", "tax_review_required")
+
+
+def payment_statement_payload(api, batch_id):
+    """构建一份 Payment Statement payload（只读，不改任何业务表）。
+
+    闭合规则（不静默补差，交由页面显式报 data integrity error）：
+    - 批次闭合：sum(批次内付款单 net_amount) == batch.total_amount，
+      且付款单张数 == batch.payment_count；
+    - 组件闭合：有快照的付款单 component sum == order.gross_amount；
+      历史无快照的特殊单据不伪造组件，标 component detail unavailable。
+    """
+    batch = _load_batch(api, batch_id)
+    orders = _batch_orders(api, batch_id)
+    employee = api["db"]().execute(
+        "select email from users where id=?", (batch["employee_id"],)
+    ).fetchone()
+
+    def dec(value):
+        return Decimal(str(value))
+
+    salary_orders, expense_orders = [], []
+    original_totals = {key: Decimal("0") for key in STATEMENT_TAX_CATEGORIES}
+    effective_totals = {key: Decimal("0") for key in STATEMENT_TAX_CATEGORIES}
+    review_pending = {"count": 0, "amount": Decimal("0")}
+
+    for order in orders:
+        tax = api["payment_tax_components"](order["id"])
+        rows = tax["rows"]
+        has_components = bool(rows)
+        component_sum = sum((dec(row["amount"]) for row in rows), Decimal("0"))
+        gross = dec(order["gross_amount"])
+        # 组件闭合：有快照必须逐分相等；无快照不伪造，只显示付款单金额。
+        component_closure_ok = (not has_components) or component_sum == gross
+
+        # 税务分类汇总按「有效分类」聚合（原始列保留审计意义）。
+        for row in rows:
+            amount = dec(row["amount"])
+            original = row["tax_category"]
+            effective = row["effective_tax_category"]
+            if original in original_totals:
+                original_totals[original] += amount
+            if effective in effective_totals:
+                effective_totals[effective] += amount
+            if effective == "tax_review_required":
+                review_pending["count"] += 1
+                review_pending["amount"] += amount
+
+        entry = {
+            "id": order["id"],
+            "payment_number": order["payment_number"],
+            "payment_type": order["payment_type"],
+            "status": order["status"],
+            "description": order["description"],
+            "gross_amount": gross,
+            "advance_offset": dec(order["advance_offset"]),
+            "net_amount": dec(order["net_amount"]),
+            "paid_at": order["paid_at"],
+            "source_type": order["source_type"],
+            "source_id": order["source_id"],
+            # SL：source_number = 「period_start~period_end」；不可靠时留空。
+            "pay_period": order["source_number"] if (
+                order["payment_type"] == "salary" and order["source_number"]
+                and "~" in order["source_number"]) else "",
+            "has_components": has_components,
+            "components": rows,
+            "component_sum": component_sum,
+            "component_closure_ok": component_closure_ok,
+            "original_totals": tax["original_totals"],
+            "effective_totals": tax["effective_totals"],
+            "expense": None,
+            "expense_item_rows": [],
+        }
+
+        # SL：按 component_code 汇总小计（绝不用 component_name 猜归类）。
+        if order["payment_type"] == "salary":
+            aggregated = {}
+            for row in rows:
+                key = row["component_code"]
+                bucket = aggregated.setdefault(key, {
+                    "component_code": key,
+                    "component_name": row["component_name"] or key,
+                    "amount": Decimal("0"),
+                    "quantity": Decimal("0"),
+                    "has_quantity": False,
+                    "unit": row["unit"] or "",
+                })
+                bucket["amount"] += dec(row["amount"])
+                if row["quantity"] is not None:
+                    bucket["quantity"] += dec(row["quantity"])
+                    bucket["has_quantity"] = True
+            entry["component_subtotals"] = [
+                aggregated[key] for key in sorted(aggregated, key=lambda k: (-aggregated[k]["amount"], k))
+            ]
+            salary_orders.append(entry)
+
+        # ER：来源报销单 + 逐 item（缺来源/缺 item 不伪造，留空展示）。
+        if order["payment_type"] == "expense":
+            if order["source_id"]:
+                expense = api["db"]().execute(
+                    """select e.expense_number, e.expense_date, e.project,
+                              so.order_number
+                       from expenses e
+                       left join service_orders so on so.id=e.service_order_id
+                       where e.id=?""", (order["source_id"],)
+                ).fetchone()
+                if expense:
+                    entry["expense"] = {
+                        "id": order["source_id"],
+                        "expense_number": expense["expense_number"],
+                        "expense_date": expense["expense_date"],
+                        "project": expense["project"],
+                        "order_number": expense["order_number"],
+                    }
+                    entry["expense_item_rows"] = [
+                        dict(item) for item in api["db"]().execute(
+                            """select project, description, amount from expense_items
+                               where expense_id=? order by sort_order, id""",
+                            (order["source_id"],),
+                        ).fetchall()
+                    ]
+            expense_orders.append(entry)
+
+    orders_net = sum((dec(order["net_amount"]) for order in orders), Decimal("0"))
+    batch_total = dec(batch["total_amount"])
+    # 批次闭合：金额与张数都对得上才算闭合，差一分也必须显式报错。
+    batch_closure_ok = (
+        orders_net == batch_total and len(orders) == int(batch["payment_count"])
+    )
+
+    return {
+        "statement_number": batch["batch_number"],  # 第一版直接用 batch_number，不建新序列
+        "batch": {
+            "id": batch["id"],
+            "batch_number": batch["batch_number"],
+            "employee_id": batch["employee_id"],
+            "employee_name": batch["employee_name"],
+            "employee_email": (employee["email"] or "").strip() if employee else "",
+            "payment_method": batch["payment_method"],
+            "check_number": batch["check_number"],
+            "status": batch["status"],
+            "currency": batch["currency"],
+            "account_name": batch["account_name"],
+            "issued_at": batch["issued_at"],
+            "reconciled_at": batch["reconciled_at"],
+            "voided_at": batch["voided_at"],
+            "notes": batch["notes"],
+            "total_amount": batch_total,
+            "payment_count": int(batch["payment_count"]),
+        },
+        "salary_orders": salary_orders,
+        "expense_orders": expense_orders,
+        "salary_total": sum((entry["net_amount"] for entry in salary_orders), Decimal("0")),
+        "expense_total": sum((entry["net_amount"] for entry in expense_orders), Decimal("0")),
+        "orders_net": orders_net,
+        "original_totals": original_totals,
+        "effective_totals": effective_totals,
+        "review_pending": review_pending,
+        "batch_closure_ok": batch_closure_ok,
+    }
+
+
 def register_employee_finance_routes(app, api):
     app.jinja_env.globals["employee_finance_summary"] = lambda employee_id: employee_finance_summary(api, employee_id)
 
@@ -862,6 +1033,23 @@ def register_employee_finance_routes(app, api):
         orders = _batch_orders(api, batch_id)
         return render_template("payment_batch_detail.html", batch=batch, orders=orders,
                                status_labels=PAYMENT_STATUS_LABELS, type_labels=PAYMENT_TYPE_LABELS,
+                               method_labels=PAYMENT_METHOD_LABELS,
+                               batch_status_labels=PAYMENT_BATCH_STATUS_LABELS)
+
+    @app.get("/finance/payment-batches/<int:batch_id>/statement")
+    @api["login_required"]
+    def payment_statement(batch_id):
+        """Payment Statement：一次实际员工付款的完整付款说明（read model）。
+
+        权限与批次详情同口径：admin/manager/finance 全部可见，员工 self-only
+        （_load_batch 内部走 _require_payment_access，改 URL 看别人的直接 403）。
+        纯展示：不写批次 / 付款单 / 往来账 / 对账任何一张表。
+        """
+        _require(api, "employee_payments")
+        data = payment_statement_payload(api, batch_id)
+        return render_template("payment_statement.html", s=data,
+                               status_labels=PAYMENT_STATUS_LABELS,
+                               type_labels=PAYMENT_TYPE_LABELS,
                                method_labels=PAYMENT_METHOD_LABELS,
                                batch_status_labels=PAYMENT_BATCH_STATUS_LABELS)
 
