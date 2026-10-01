@@ -16,7 +16,7 @@
 """
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 CENT = Decimal("0.01")
 
@@ -167,23 +167,61 @@ def build_payment_components(component_rows, *, employee_id, gross_amount, payme
     return prepared, totals
 
 
-def _allocate_cents(rows, gross):
-    """把原始金额按 ROUND_HALF_UP 量化到分，并保证合计恰好等于 gross。
+def _allocation_tie_key(row):
+    """最大余额法 tie 时的稳定排序键：service_date → work_order_id →
+    component_code → source_id，升序。缺失值排最后；数值列按数值比较。"""
+    day = row.get("service_date")
+    day_key = day.isoformat() if hasattr(day, "isoformat") else (day or "")
+    order_id = row.get("work_order_id")
+    if isinstance(order_id, int):
+        order_key = (0, order_id, "")
+    else:
+        order_key = (1, 0, str(order_id or ""))
+    code = row.get("component_code") or ""
+    source_id = row.get("source_id")
+    if isinstance(source_id, int):
+        source_key = (0, source_id, "")
+    else:
+        source_key = (1, 0, str(source_id or ""))
+    return (day_key, order_key, code, source_key)
 
-    背景工资组件来自「逐条工时 × 当日费率」的原始浮点累加，逐条量化到
+
+def _raw_decimal(value):
+    """上游工资行的原始金额可能是 float / str / Decimal，统一成 Decimal。"""
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def _allocate_cents(rows, gross):
+    """把原始金额用真正的最大余额法（largest remainder）确定性分配到分。
+
+    背景：工资组件来自「逐条工时 × 当日费率」的原始浮点累加，逐条量化到
     numeric(14,2) 后其和可能与量化后的总额差 1-2 分（纯分位分配问题，
-    不是金额错误——真正的算法/数据漂移已在上方 raw_total != gross 处拦下）。
-    处理方式是确定性最大余额法：只把分位残差摊到原始金额最大的组件上，
-    任何一行偏离其原始值不超过 1 分，且每次触发都会写 log_action 审计。
+    不是金额错误——真正的算法/数据漂移已在上方 raw_total != gross 处拦下，
+    本函数绝不掩盖 drift）。
+
+    算法：
+    1. 保留每个组件量化前的 Decimal raw amount；
+    2. 每行先向下取整到分（base），fractional remainder = raw - base
+       （单位：分，落在 [0, 1)）；
+    3. 需补的整分差额 D = gross - sum(base)。raw 合计已先通过 gross 一致性
+       校验，可证 0 <= D <= 行数，因此每行最多只承受 1 分 rounding allocation；
+    4. 按 remainder 从大到小排序，前 D 行各 +1 分；remainder 相同（tie）时
+       按 _allocation_tie_key 稳定排序，结果确定、可重复。
+
+    任何一行偏离其原始值不超过 1 分；调整只由分位残差驱动，与组件金额
+    大小、名称、角色均无关。
     """
-    amounts = [money(row["amount_raw"]) for row in rows]
-    residual = gross - sum(amounts)
-    if residual == 0 or not rows:
-        return amounts
-    # residual 以分为单位（|residual| < 行数 × 0.01）；逐分摊给原始金额最大者。
-    residual_cents = int((residual / CENT).to_integral_value(rounding=ROUND_HALF_UP))
-    step = CENT if residual_cents > 0 else -CENT
-    order = sorted(range(len(rows)), key=lambda i: (-abs(rows[i]["amount_raw"]), i))
-    for k in range(abs(residual_cents)):
-        amounts[order[k % len(order)]] += step
+    bases = [_raw_decimal(row["amount_raw"]).quantize(CENT, rounding=ROUND_DOWN)
+             for row in rows]
+    deficit = (gross - sum(bases)) / CENT
+    deficit_cents = int(deficit.to_integral_value(rounding=ROUND_HALF_UP))
+    if deficit_cents == 0 or not rows:
+        return bases
+    remainders = [(_raw_decimal(row["amount_raw"]) - base) / CENT
+                  for row, base in zip(rows, bases)]
+    order = sorted(range(len(rows)),
+                   key=lambda i: (-remainders[i], _allocation_tie_key(rows[i])))
+    amounts = list(bases)
+    for k in range(deficit_cents):
+        amounts[order[k]] += CENT
     return amounts

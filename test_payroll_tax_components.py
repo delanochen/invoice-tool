@@ -387,12 +387,14 @@ class PayrollTaxComponentTest(unittest.TestCase):
         self.assertEqual(self._components(first["id"]), first_lines)
 
     def test_sub_cent_components_are_allocated_to_match_gross(self):
-        """亚分原始金额：分位残差确定性摊到原始金额最大的组件，sum 恒等于 gross。
+        """亚分原始金额：真正的最大余额法确定性摊掉分位残差，sum 恒等于 gross。
 
         场景：等级时薪 33.33，两份 0.5h 日报 → 每份 16.665，总额 33.33；
-        逐条量化 16.67×2 = 33.34，比 gross 多 1 分 → 摊给原始金额最大的
-        base_salary（500.00 → 499.99）。算法/数据漂移仍由 raw 校验拦下，
-        这里只验证纯分位分配不阻断生成。
+        向下取整 16.66×2 = 33.32，比 gross 少 1 分 → 补 1 分给 remainder
+        最大的组件。两条 standard_pay remainder 相同（各 0.5 分），tie 按
+        service_date 升序 → 2026-08-03 得 16.67，08-04 保持 16.66；
+        base_salary（500.00，整分，remainder 0）与 meal（15.00 整分）不动。
+        算法/数据漂移仍由 raw 校验拦下，这里只验证纯分位分配不阻断生成。
         """
         self._seed_tax_status(self.worker_id, [("W2", "2026-01-01", None)])
         with self.module.app.app_context():
@@ -407,10 +409,12 @@ class PayrollTaxComponentTest(unittest.TestCase):
         self.assertEqual(dec(payment["gross_amount"]), Decimal("563.33"))
         self.assertEqual(sum(dec(line["amount"]) for line in lines), dec(payment["gross_amount"]))
         base = next(line for line in lines if line["component_code"] == "base_salary")
-        self.assertEqual(dec(base["amount"]), Decimal("499.99"))
-        for line in lines:
-            if line["component_code"] == "standard_pay":
-                self.assertEqual(dec(line["amount"]), Decimal("16.67"))
+        self.assertEqual(dec(base["amount"]), Decimal("500.00"))
+        std = {line["service_date"]: line for line in lines
+               if line["component_code"] == "standard_pay"}
+        self.assertEqual(set(std), {"2026-08-03", "2026-08-04"})
+        self.assertEqual(dec(std["2026-08-03"]["amount"]), Decimal("16.67"))
+        self.assertEqual(dec(std["2026-08-04"]["amount"]), Decimal("16.66"))
         self.assertEqual(dec(payment["taxable_compensation_total"]), Decimal("533.33"))
         self.assertEqual(dec(payment["tax_review_required_total"]), Decimal("30.00"))
 
@@ -462,6 +466,91 @@ class PayrollTaxComponentTest(unittest.TestCase):
                 "select count(*) from payment_order_events where payment_order_id=?",
                 (payment["id"],)).fetchone()[0]
             self.assertEqual(events, 1)
+
+
+class AllocateCentsUnitTest(unittest.TestCase):
+    """_allocate_cents 纯函数契约（Phase 2A.1）：真正的最大余额法。
+
+    硬性要求：确定、可重复；每行最多承受 1 分 rounding allocation；
+    tie 按 service_date → work_order_id → component_code → source_id 稳定排序；
+    分配只由 fractional remainder 驱动，与金额大小无关。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            "payroll_tax_under_test", ROOT / "invoice_tool" / "payroll" / "tax.py")
+        cls.tax = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.tax)
+
+    def _rows(self, *raws):
+        """构造行：remainder 各不相同，service_date 依序递增。"""
+        return [
+            {"amount_raw": Decimal(raw),
+             "service_date": "2026-08-%02d" % (index + 1),
+             "work_order_id": index + 1,
+             "component_code": "code_%d" % index,
+             "source_id": None}
+            for index, raw in enumerate(raws)
+        ]
+
+    def _assert_within_one_cent(self, rows, amounts):
+        for row, amount in zip(rows, amounts):
+            self.assertLessEqual(abs(amount - row["amount_raw"]), Decimal("0.01"))
+
+    def test_no_residual_returns_half_up_amounts_unchanged(self):
+        rows = self._rows("10.005", "20.004")
+        amounts = self.tax._allocate_cents(rows, Decimal("30.01"))
+        self.assertEqual(amounts, [Decimal("10.01"), Decimal("20.00")])
+        self._assert_within_one_cent(rows, amounts)
+
+    def test_allocation_is_deterministic_and_repeatable(self):
+        rows = self._rows("16.665", "16.665", "500.00", "30.00")
+        first = self.tax._allocate_cents(rows, Decimal("563.33"))
+        second = self.tax._allocate_cents(
+            [dict(row) for row in rows], Decimal("563.33"))
+        self.assertEqual(first, second)
+        self.assertEqual([str(a) for a in first],
+                         ["16.67", "16.66", "500.00", "30.00"])
+        self.assertEqual(sum(first), Decimal("563.33"))
+        self._assert_within_one_cent(rows, first)
+
+    def test_tie_break_follows_service_date_then_work_order_then_code(self):
+        # remainder 相同（各 0.5 分）→ service_date 早者优先 +1 分。
+        rows = self._rows("10.005", "10.005")
+        rows[0]["service_date"] = "2026-08-09"
+        rows[1]["service_date"] = "2026-08-02"
+        amounts = self.tax._allocate_cents(rows, Decimal("20.01"))
+        self.assertEqual(amounts, [Decimal("10.00"), Decimal("10.01")])
+        # service_date 也相同 → work_order_id 小者优先；再相同 → component_code 升序。
+        rows = self._rows("10.005", "10.005", "10.005")
+        for row in rows:
+            row["service_date"] = "2026-08-05"
+        rows[1]["work_order_id"] = 1
+        rows[0]["work_order_id"] = 2
+        rows[2]["work_order_id"] = 1
+        rows[2]["component_code"] = "aaa"
+        amounts = self.tax._allocate_cents(rows, Decimal("30.01"))
+        # 候选：index1（wo=1, code_1）与 index2（wo=1, aaa）→ code 升序 aaa 先。
+        self.assertEqual(amounts, [Decimal("10.00"), Decimal("10.00"), Decimal("10.01")])
+
+    def test_multi_cent_deficit_goes_to_largest_remainders_only(self):
+        rows = self._rows("10.009", "10.008", "10.001")
+        amounts = self.tax._allocate_cents(rows, Decimal("30.02"))
+        self.assertEqual(amounts, [Decimal("10.01"), Decimal("10.01"), Decimal("10.00")])
+        self.assertEqual(sum(amounts), Decimal("30.02"))
+        self._assert_within_one_cent(rows, amounts)
+
+    def test_each_row_receives_at_most_one_cent_even_with_many_rows(self):
+        raws = tuple("33.339" for _ in range(10))  # 每行 remainder 0.9 分
+        rows = self._rows(*raws)
+        gross = (sum(row["amount_raw"] for row in rows)).quantize(Decimal("0.01"))
+        amounts = self.tax._allocate_cents(rows, gross)
+        self.assertEqual(sum(amounts), gross)
+        self._assert_within_one_cent(rows, amounts)
+        # 10 行 remainder 0.9 → F=9 分 → D=9 → 恰有 9 行 +1 分，1 行保持 base。
+        ups = sum(1 for a in amounts if a == Decimal("33.34"))
+        self.assertEqual(ups, 9)
 
 
 if __name__ == "__main__":
