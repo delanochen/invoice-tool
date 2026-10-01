@@ -1,7 +1,13 @@
 const reportExportConfig = window.reportExportConfig || {};
 
 function exportableReportTable() {
-  return Array.from(document.querySelectorAll("main table")).find((table) => (
+  // 优先当前激活的 ERP 视图（[data-erp-panel].active）中的表格 ——
+  // 多视图页面（项目利润 / 日报查询等）切到哪个页签就导出哪个视图的内容，
+  // 而不是永远导出 DOM 里的第一张表。
+  // 普通页面没有面板结构时回退到 main 下的第一张可导出表（原有行为）。
+  const activePanel = document.querySelector("[data-erp-panel].active");
+  const scope = activePanel || document.querySelector("main") || document;
+  return Array.from(scope.querySelectorAll("table")).find((table) => (
     !table.closest("dialog") && !table.hasAttribute("data-no-report-export") && table.querySelector("thead th")
   ));
 }
