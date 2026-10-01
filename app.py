@@ -12734,6 +12734,13 @@ def edit_service_order(order_id):
         if contract_id and (not contract or contract["client_id"] != client["id"]):
             flash("关联合同必须属于所选客户。", "error")
             return redirect(url_for("edit_service_order", order_id=order_id))
+        if (
+            request.form.get("status") == "closed"
+            and order["status"] != "closed"
+            and service_order_dependency_counts(order_id)["invoices"] == 0
+        ):
+            flash("该工单尚未开具发票，不能变更为“已完成”。请先为工单开具发票。", "error")
+            return redirect(url_for("edit_service_order", order_id=order_id))
         db().execute(
             """
             update service_orders
@@ -12775,6 +12782,7 @@ def edit_service_order(order_id):
         form_title="编辑工单",
         start_date_only=False,
         countries=country_rows(),
+        invoice_count=service_order_dependency_counts(order_id)["invoices"],
     )
 
 

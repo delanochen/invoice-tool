@@ -125,7 +125,7 @@
           <label>状态
             <select name="status">
               <option value="open" {% if order.status != "closed" %}selected{% endif %}>进行中</option>
-              <option value="closed" {% if order.status == "closed" %}selected{% endif %}>已完成</option>
+              <option value="closed" {% if order.status == "closed" %}selected{% endif %}{% if order.status != "closed" and not invoice_count %} disabled title="该工单尚未开具发票，不能标记为已完成"{% endif %}>已完成</option>
             </select>
           </label>
         {% endif %}
