@@ -47,6 +47,9 @@
       // 也就没有一级 / 二级分组入口（分组按金额小计才有意义，见 controls()）。
       this.money = this.labels.map((label, index) => !location.pathname.includes('employee-grades')
         && (monetary.test(label) || headCells[index].hasAttribute('data-grid-money')));
+      // 金额列里显式声明 <th data-grid-no-calc> 的不参与合计 / 分组小计 / 导出合计
+      //（如单价列：单价求和无意义）。列仍按金额列处理（右对齐 / 数字排序 / 分组可用）。
+      this.calcs = this.money.map((isMoney, index) => isMoney && !headCells[index].hasAttribute('data-grid-no-calc'));
       this.editable = !!source.querySelector('input:not([type=checkbox]):not([type=hidden]),textarea,select');
       this.key = `grid:${document.body.dataset.gridUser || ''}:${location.pathname}:${source.id || [...document.querySelectorAll('table')].indexOf(source)}`;
       this.shell = document.createElement('section'); this.shell.className = 'system-grid grid-building';
@@ -72,10 +75,10 @@
           sorter: (a,b) => this.money[index] ? this.numeric(a)-this.numeric(b) : String(a).localeCompare(String(b), undefined, {numeric:true}),
           hozAlign: this.money[index] ? 'right' : 'left',
           formatter: cell => this.mirror(this.rows.get(cell.getData()._id)?.cells[index], cell),
-          ...(this.money[index] ? {bottomCalc:(values, data) => total(data.map(row => row[`m${index}`])), bottomCalcFormatter:'textarea'} : {}),
+          ...(this.calcs[index] ? {bottomCalc:(values, data) => total(data.map(row => row[`m${index}`])), bottomCalcFormatter:'textarea'} : {}),
         };
       });
-      if (this.money.some(Boolean) && !this.money[0]) columns[0].bottomCalc = () => t('小计 / 合计');
+      if (this.calcs.some(Boolean) && !this.money[0]) columns[0].bottomCalc = () => t('小计 / 合计');
       const groupedColumns = [];
       columns.forEach((column, index) => {
         const group = source.tHead.rows[0].cells[index].dataset.columnGroup;
@@ -230,7 +233,7 @@
         this.leafColumns().filter(column=>column.isVisible()).forEach(column=>{
           const cell=document.createElement('div');cell.className='tabulator-cell';cell.setAttribute('role','cell');cell.style.width=`${column.getWidth()}px`;cell.style.whiteSpace='pre-wrap';
           const index=Number(column.getField().slice(1));
-          if(this.money[index]){cell.textContent=total(data.map(row=>row[`m${index}`]));cell.style.textAlign='right';}
+          if(this.calcs[index]){cell.textContent=total(data.map(row=>row[`m${index}`]));cell.style.textAlign='right';}
           else if(!labeled){cell.textContent=`${group.getKey()} · ${t('小计')}`;labeled=true;}
           summary.append(cell);
         });
@@ -371,7 +374,7 @@
       const fields=this.groupFields || [];
       const summary=(data,label)=>columns.map((column,index)=>{
         const field=column.getField();const number=Number(field.slice(1));
-        return this.money[number] ? total(data.map(row=>row[`m${number}`])) : index===0 ? label : '';
+        return this.calcs[number] ? total(data.map(row=>row[`m${number}`])) : index===0 ? label : '';
       });
       const collect=(data,level)=>{
         if(level>=fields.length) return data.map(row=>columns.map(column=>row[column.getField()]));
