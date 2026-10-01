@@ -446,3 +446,111 @@ def review_reason_options():
         REASON_SUBSTANTIATION,
         REASON_CLASSIFICATION,
     )]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4B：Annual Tax Summary（年度税务汇总）。
+#
+# 年度口径是**显式参数**，绝不散落硬编码进 SQL：
+#   service_date = 工作 / 费用发生日（component 自带，生产 100% 有值）
+#   payment_date = 实际付款日（四级优先解析，未付款 = NULL）
+# 生产实测：银行流水表为空、绝大多数付款单未真正付款，payment_date 只能解析出
+# 极小一部分 → 默认 service_date，页面必须标注「Service-date basis」，
+# 并且一律用 Recorded Amount，绝不冒充 Paid / filing year。
+# ---------------------------------------------------------------------------
+
+YEAR_BASIS_SERVICE = "service_date"
+YEAR_BASIS_PAYMENT = "payment_date"
+DEFAULT_YEAR_BASIS = YEAR_BASIS_SERVICE
+YEAR_BASIS_OPTIONS = (
+    (YEAR_BASIS_SERVICE, "Service Date（服务 / 费用发生日）"),
+    (YEAR_BASIS_PAYMENT, "Payment Date（实际付款日）"),
+)
+YEAR_BASIS_NOTES = {
+    YEAR_BASIS_SERVICE: "Service-date basis：按工作 / 费用发生日归年，不是最终 filing year。",
+    YEAR_BASIS_PAYMENT: "Payment-date basis：按实际付款日归年；付款日解析不出的组件不计入任何年度。",
+}
+
+
+def normalize_year_basis(value, *, default=None):
+    """年度口径必须显式传入；非法值直接抛错，绝不静默回退。"""
+    basis = (value or "").strip() or (default or DEFAULT_YEAR_BASIS)
+    if basis not in (YEAR_BASIS_SERVICE, YEAR_BASIS_PAYMENT):
+        raise ValueError("未知的年度口径：%r（只接受 service_date / payment_date）" % (value,))
+    return basis
+
+
+# 年度汇总的三个桶（与 effective category 一一对应，UI 名称按身份不同）。
+SUMMARY_BUCKET_COMPENSATION = "compensation"
+SUMMARY_BUCKET_REIMBURSEMENT = "reimbursement"
+SUMMARY_BUCKET_REVIEW = "review"
+SUMMARY_BUCKETS = (SUMMARY_BUCKET_COMPENSATION, SUMMARY_BUCKET_REIMBURSEMENT, SUMMARY_BUCKET_REVIEW)
+SUMMARY_BUCKET_CATEGORY = {
+    SUMMARY_BUCKET_COMPENSATION: "taxable_compensation",
+    SUMMARY_BUCKET_REIMBURSEMENT: "accountable_reimbursement",
+    SUMMARY_BUCKET_REVIEW: "tax_review_required",
+}
+SUMMARY_BUCKET_OPTIONS = (
+    (SUMMARY_BUCKET_COMPENSATION, "补偿 / 报酬"),
+    (SUMMARY_BUCKET_REIMBURSEMENT, "报销"),
+    (SUMMARY_BUCKET_REVIEW, "待复核"),
+)
+
+
+def normalize_summary_bucket(value):
+    bucket = (value or "").strip()
+    if bucket and bucket not in SUMMARY_BUCKET_CATEGORY:
+        raise ValueError("未知的年度汇总桶：%r" % (value,))
+    return bucket
+
+
+def tax_status_label(tax_status):
+    """身份分组标签。NULL = 当时未登记身份，绝不拿员工「当前身份」覆盖历史快照。"""
+    return {"1099": "1099", "W2": "W2"}.get(tax_status, "Missing Tax Status")
+
+
+def compensation_bucket_label(tax_status):
+    """1099 区块叫 Service Compensation，W-2 区块叫 Taxable Compensation。"""
+    return "Service Compensation" if tax_status == "1099" else "Taxable Compensation"
+
+
+# Potential 1099 Reportable Amount：这是**候选值**，不是最终 1099-NEC。
+POTENTIAL_1099_RULE_VERSION = "service_compensation_v1"
+POTENTIAL_1099_RULE_NOTE = (
+    "Preliminary — subject to CPA review. 当前只取 Service Compensation；"
+    "报销与待复核金额并未被永久排除，最终是否计入 1099-NEC 取决于 filing rule"
+    "（是否能适用 accountable plan 等），由未来可配置规则决定。"
+)
+# W-2 Candidate Wages：不是 Final Box 1（本阶段不生成任何税表）。
+W2_CANDIDATE_RULE_VERSION = "taxable_compensation_v1"
+W2_CANDIDATE_RULE_NOTE = (
+    "W-2 Candidate Wages（非 Final Box 1）：当前取 Taxable Compensation；"
+    "待复核金额不自动计入，复核后可能转为应税报酬。"
+)
+
+
+def potential_1099_reportable(*, compensation=0, reimbursement=0, review_required=0,
+                              rule=None):
+    """「Potential 1099 Reportable Amount」候选值（金额一律 Decimal）。
+
+    第一版规则 service_compensation_v1：只取 Service Compensation。
+    这里**刻意保留** reimbursement / review_required 两个入参：将来 filing rule
+    变化时只新增规则分支，既不必改调用方，也不会把
+    「accountable_reimbursement = 永不报告」写死进 SQL 或模板。
+    """
+    rule = rule or POTENTIAL_1099_RULE_VERSION
+    if rule == "service_compensation_v1":
+        return money(compensation)
+    if rule == "all_recorded_v1":
+        return money(compensation) + money(reimbursement) + money(review_required)
+    raise ValueError("未知的 1099 reporting 规则：%r" % (rule,))
+
+
+def w2_candidate_wages(*, compensation=0, review_required=0, rule=None):
+    """W-2 Candidate Wages（绝不叫 Final Box 1，也不自动生成 W-2）。"""
+    rule = rule or W2_CANDIDATE_RULE_VERSION
+    if rule == "taxable_compensation_v1":
+        return money(compensation)
+    if rule == "taxable_plus_review_v1":
+        return money(compensation) + money(review_required)
+    raise ValueError("未知的 W-2 candidate 规则：%r" % (rule,))

@@ -375,6 +375,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "employee_ledger", "label": "员工往来账", "roles": {"admin", "manager", "finance"}},
             {"key": "payment_batches", "label": "付款批次", "roles": {"admin", "manager", "finance"}},
             {"key": "tax_review", "label": "税务复核", "roles": {"admin", "manager", "finance"}},
+            {"key": "annual_tax_summary", "label": "年度税务汇总", "roles": {"admin", "manager", "finance"}},
             {"key": "bank_reconciliation", "label": "银行对账", "roles": {"admin", "finance"}},
         ],
     },
@@ -500,6 +501,9 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             # Phase 4A：税务复核。「看」给财务/经理/管理员，「改分类」只给财务与管理员
             # —— 分类调整会改变年度汇总口径，不能让只读角色误点。
             {"key": "tax_review", "label": "税务复核", "actions": {"view": {"admin", "manager", "finance"}, "review": {"admin", "finance"}}},
+            # Phase 4B：年度税务汇总。看 = 财务 / 经理 / 管理员；导出只给财务与管理员。
+            # 普通员工一律不给（要看自己的年度汇总以后单独做 self-only 权限）。
+            {"key": "annual_tax_summary", "label": "年度税务汇总", "actions": {"view": {"admin", "manager", "finance"}, "export": {"admin", "finance"}}},
             {"key": "bank_reconciliation", "label": "银行对账", "actions": {"view": {"admin", "finance"}, "reconcile": {"admin", "finance"}}},
             {"key": "assets", "label": "资产档案", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin"}}},
         ],
@@ -1837,6 +1841,10 @@ def required_action_for_request():
         "tax_review": ("tax_review", "view"),
         "tax_review_component": ("tax_review", "view"),
         "save_tax_review": ("tax_review", "review"),
+        # Phase 4B：Annual Tax Summary（导出额外要求 annual_tax_summary.export）
+        "annual_tax_summary": ("annual_tax_summary", "view"),
+        "annual_tax_summary_components": ("annual_tax_summary", "view"),
+        "annual_tax_summary_export": ("annual_tax_summary", "export"),
     }
     return method_rules.get((endpoint, method)) or endpoint_rules.get(endpoint)
 
@@ -16933,6 +16941,12 @@ tax_review_detail = _payroll_services["tax_review_detail"]
 tax_review_history = _payroll_services["tax_review_history"]
 record_tax_review = _payroll_services["record_tax_review"]
 payment_tax_components = _payroll_services["payment_tax_components"]
+# Phase 4B：Annual Tax Summary（只读 reporting，绝不写业务表）
+# 注意：服务层与路由层同名会互相覆盖（路由函数名决定 endpoint，不能改），
+# 所以服务在 globals 里一律用 *_rows 名字暴露，路由内部也按这个名字取。
+annual_tax_summary_rows = _payroll_services["annual_tax_summary"]
+annual_tax_summary_options = _payroll_services["annual_tax_summary_options"]
+annual_tax_summary_component_rows = _payroll_services["annual_tax_summary_components"]
 _payroll_routes = register_payroll_routes(app, globals())
 payroll_subsidies = _payroll_routes["payroll_subsidies"]
 labor_hours_report = _payroll_routes["labor_hours_report"]
@@ -16945,6 +16959,9 @@ worker_tax_status_history = _payroll_routes["worker_tax_status_history"]
 tax_review = _payroll_routes["tax_review"]
 tax_review_component = _payroll_routes["tax_review_component"]
 save_tax_review = _payroll_routes["save_tax_review"]
+annual_tax_summary = _payroll_routes["annual_tax_summary"]
+annual_tax_summary_components = _payroll_routes["annual_tax_summary_components"]
+annual_tax_summary_export = _payroll_routes["annual_tax_summary_export"]
 
 register_employee_finance_routes(app, globals())
 

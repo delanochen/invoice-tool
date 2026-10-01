@@ -103,7 +103,7 @@
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies", "employee_payments", "employee_payment_detail"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
-        {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "payment_batches", "payment_batch_detail", "bank_reconciliation", "tax_review", "tax_review_component", "save_tax_review"] %}
+        {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "payment_batches", "payment_batch_detail", "bank_reconciliation", "tax_review", "tax_review_component", "save_tax_review", "annual_tax_summary", "annual_tax_summary_components", "annual_tax_summary_export"] %}
         {% set asset_endpoints = ["assets", "asset_detail"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
         {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions"] %}
@@ -239,6 +239,7 @@
             or (has_menu_permission("payment_batches") and has_action_permission("employee_payments", "view"))
             or (has_menu_permission("bank_reconciliation") and has_action_permission("bank_reconciliation", "view"))
             or (has_menu_permission("tax_review") and has_action_permission("tax_review", "view"))
+            or (has_menu_permission("annual_tax_summary") and has_action_permission("annual_tax_summary", "view"))
           %}
           {% if show_finance_menu %}
             <details class="nav-group {{ 'active' if active_endpoint in finance_endpoints else '' }}" {% if active_endpoint in finance_endpoints %}open{% endif %}>
@@ -254,6 +255,8 @@
                 {% if has_menu_permission("bank_reconciliation") and has_action_permission("bank_reconciliation", "view") %}{{ nav_link("bank_reconciliation", "银行对账", icon="audit") }}{% endif %}
                 {# Phase 4A：税务复核工作台。金额与付款单不变，只改「有效税务分类」。 #}
                 {% if has_menu_permission("tax_review") and has_action_permission("tax_review", "view") %}{{ nav_link("tax_review", "税务复核", ["tax_review", "tax_review_component"], icon="audit") }}{% endif %}
+                {# Phase 4B：年度税务汇总（只读 reporting，按最新复核结果分组）。 #}
+                {% if has_menu_permission("annual_tax_summary") and has_action_permission("annual_tax_summary", "view") %}{{ nav_link("annual_tax_summary", "年度税务汇总", ["annual_tax_summary", "annual_tax_summary_components"], icon="audit") }}{% endif %}
               </div>
             </details>
           {% endif %}

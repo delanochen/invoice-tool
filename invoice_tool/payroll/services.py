@@ -26,12 +26,23 @@ from .calculations import (
     split_report_labor_hours,
 )
 from .tax import (
+    DEFAULT_YEAR_BASIS,
+    SUMMARY_BUCKET_CATEGORY,
+    SUMMARY_BUCKET_REVIEW,
     TAX_CATEGORIES,
+    YEAR_BASIS_PAYMENT,
+    YEAR_BASIS_SERVICE,
     build_payment_components,
+    compensation_bucket_label,
     effective_tax_category,
     expense_purpose_ok,
+    normalize_summary_bucket,
+    normalize_year_basis,
+    potential_1099_reportable,
     review_reason_key,
     review_reason_label,
+    tax_status_label,
+    w2_candidate_wages,
 )
 
 # 报销侧组件的 provenance（新建 ER / 历史 ER 回填），复核原因按同一套口径推导。
@@ -759,6 +770,330 @@ def build_payroll_services(api):
                 effective[row["effective_tax_category"]] + amount)
         return {"rows": rows, "original_totals": original, "effective_totals": effective}
 
+    # ------------------------------------------------------------------
+    # Phase 4B：Annual Tax Summary（年度税务汇总 + drill-down）。
+    #
+    # 纯 reporting / read model：不写员工往来账、不改付款单 / 组件 / 身份 / 报销 / 工资。
+    # 分组维度固定为 employee + tax_year + tax_status_snapshot —— 同一人同年同时出现
+    # 1099 与 W2 时必须拆成两个 section，绝不用员工「当前身份」覆盖历史快照。
+    # 分类一律用 effective（最新 review 优先），绝不用付款单上的原始 tax totals。
+    # ------------------------------------------------------------------
+
+    def _payment_date_expr():
+        """实际付款日（四级优先；解析不出就是 NULL = 已记录未付款）。
+
+        1. 银行交易（按 batch 匹配，退而求其次按 order 匹配）→ transaction_date /
+           posted_date；作废批次一律不算付款
+        2. 批次已签发 → batch.issued_at（再退 reconciled_at）
+        3. 未进批次但付款单已付 → order.paid_at
+        4. 都没有 → NULL
+
+        绝不把 NULL 当成已付款：页面必须显示 Recorded，不能显示 Paid。
+        """
+        return """
+            case
+              when b.id is not null and b.status <> 'void' and bt.id is not null
+                   and coalesce(bt.transaction_date, '') <> ''
+                   then left(bt.transaction_date, 10)
+              when b.id is not null and b.status <> 'void' and bt.id is not null
+                   and coalesce(bt.posted_date, '') <> ''
+                   then left(bt.posted_date, 10)
+              when b.id is not null and b.status <> 'void'
+                   and coalesce(b.issued_at, '') <> ''
+                   then left(b.issued_at, 10)
+              when b.id is not null and b.status <> 'void'
+                   and coalesce(b.reconciled_at, '') <> ''
+                   then left(b.reconciled_at, 10)
+              when coalesce(o.paid_at, '') <> '' then left(o.paid_at, 10)
+              else null end
+        """
+
+    def _annual_base_cte():
+        """年度汇总与 drill-down 共用的 base：生效快照 + 有效分类 + 付款日。"""
+        return f"""
+            with {_latest_review_cte()},
+            base as (
+                select c.id as component_id, c.payment_order_id, c.employee_id,
+                       c.component_code, c.component_name, c.amount, c.quantity, c.unit,
+                       c.unit_rate, c.service_date, c.work_order_id, c.source_type,
+                       c.source_id, c.daily_report_id, c.tax_category, c.tax_status_snapshot,
+                       c.substantiated, c.review_status, c.created_at,
+                       coalesce(lr.new_tax_category, c.tax_category) as effective_tax_category,
+                       lr.review_id, lr.reviewed_at as last_reviewed_at,
+                       lr.reason as last_review_reason, lr.reviewed_by as last_reviewed_by,
+                       ru.name as last_reviewed_by_name,
+                       o.payment_number, o.payment_type, o.status as payment_status,
+                       o.paid_at, o.batch_id,
+                       b.batch_number, b.status as batch_status,
+                       b.issued_at as batch_issued_at, b.reconciled_at as batch_reconciled_at,
+                       u.name as employee_name,
+                       so.order_number, so.client_name,
+                       {_payment_date_expr()} as payment_date
+                from employee_payment_components c
+                join employee_payment_orders o on o.id = c.payment_order_id
+                join users u on u.id = c.employee_id
+                left join employee_payment_batches b on b.id = o.batch_id
+                left join lateral (
+                    select bt.id, bt.transaction_date, bt.posted_date
+                    from bank_transactions bt
+                    where bt.matched_batch_id = b.id
+                       or (b.id is null and bt.matched_payment_order_id = o.id)
+                    order by bt.transaction_date, bt.id
+                    limit 1
+                ) bt on true
+                left join service_orders so on so.id = c.work_order_id
+                left join latest_review lr on lr.component_id = c.id
+                left join users ru on ru.id = lr.reviewed_by
+                where c.superseded_at is null
+            )
+        """
+
+    def _annual_year_expr(basis):
+        """年度口径表达式（唯一来源，杜绝把口径散落硬编码到各处 SQL）。"""
+        if basis == YEAR_BASIS_PAYMENT:
+            return "nullif(left(payment_date, 4), '')"
+        return "nullif(left(coalesce(service_date, ''), 4), '')"
+
+    def _annual_filters(filters=None, default_year=None):
+        """规范化年度汇总筛选参数（口径必须显式，非法值抛错）。"""
+        filters = dict(filters or {})
+        include_review = filters.get("include_review")
+        if include_review is None:
+            include_review = True
+        return {
+            "year": (str(filters.get("year") or "").strip() or str(default_year or "").strip()),
+            "year_basis": normalize_year_basis(filters.get("year_basis")),
+            "employee_id": str(filters.get("employee_id") or "").strip(),
+            "tax_status": str(filters.get("tax_status") or "").strip(),
+            "category": normalize_summary_bucket(filters.get("category")),
+            "payment_status": str(filters.get("payment_status") or "").strip(),
+            "work_order_id": str(filters.get("work_order_id") or "").strip(),
+            "include_review": str(include_review).lower() not in ("0", "false", "no", ""),
+        }
+
+    def _annual_where(normalized, *, with_year=True):
+        clauses = ["1 = 1"]
+        params = []
+        year_expr = _annual_year_expr(normalized["year_basis"])
+        if with_year:
+            # payment-date 口径下解析不出付款日的组件不属于任何年度（单独报告）。
+            if normalized["year_basis"] == YEAR_BASIS_PAYMENT:
+                clauses.append(f"{year_expr} is not null")
+            if normalized["year"]:
+                clauses.append(f"{year_expr} = ?")
+                params.append(normalized["year"])
+        if normalized["employee_id"]:
+            clauses.append("employee_id = ?")
+            params.append(int(normalized["employee_id"]))
+        if normalized["tax_status"] == "NULL":
+            clauses.append("tax_status_snapshot is null")
+        elif normalized["tax_status"]:
+            clauses.append("tax_status_snapshot = ?")
+            params.append(normalized["tax_status"])
+        if normalized["category"]:
+            clauses.append("effective_tax_category = ?")
+            params.append(SUMMARY_BUCKET_CATEGORY[normalized["category"]])
+        if normalized["payment_status"]:
+            clauses.append("payment_status = ?")
+            params.append(normalized["payment_status"])
+        if normalized["work_order_id"]:
+            clauses.append("work_order_id = ?")
+            params.append(int(normalized["work_order_id"]))
+        if not normalized["include_review"]:
+            clauses.append("effective_tax_category <> ?")
+            params.append(SUMMARY_BUCKET_CATEGORY[SUMMARY_BUCKET_REVIEW])
+        return " and ".join(clauses), params
+
+    def _annual_tax_summary(filters=None, default_year=None):
+        """按 employee + 年度 + 身份快照分组的年度税务汇总（只读）。
+
+        三个桶（compensation / reimbursement / review）与 Total Recorded Amount
+        必须闭合；闭合性在返回值里给出 closure_ok，页面与测试都能直接断言。
+        """
+        from .tax import money
+        normalized = _annual_filters(filters, default_year)
+        db = api["db"]()
+        where, params = _annual_where(normalized)
+        year_expr = _annual_year_expr(normalized["year_basis"])
+        sql = f"""
+            {_annual_base_cte()}
+            select employee_id, max(employee_name) as employee_name,
+                   coalesce(tax_status_snapshot, '') as tax_status_key,
+                   {year_expr} as tax_year,
+                   coalesce(sum(case when effective_tax_category = 'taxable_compensation'
+                                     then amount else 0 end), 0) as compensation_amount,
+                   coalesce(sum(case when effective_tax_category = 'accountable_reimbursement'
+                                     then amount else 0 end), 0) as reimbursement_amount,
+                   coalesce(sum(case when effective_tax_category = 'tax_review_required'
+                                     then amount else 0 end), 0) as review_amount,
+                   coalesce(sum(amount), 0) as total_amount,
+                   count(*) as component_count,
+                   coalesce(sum(case when payment_date is not null then amount else 0 end), 0)
+                       as paid_amount,
+                   coalesce(sum(case when payment_date is not null then 1 else 0 end), 0)
+                       as paid_count,
+                   coalesce(sum(case when payment_type = 'salary' then 1 else 0 end), 0)
+                       as salary_count,
+                   coalesce(sum(case when payment_type = 'expense' then 1 else 0 end), 0)
+                       as expense_count
+            from base
+            where {where}
+            group by employee_id, coalesce(tax_status_snapshot, ''), {year_expr}
+            order by employee_name, tax_status_key, tax_year
+        """
+        rows = []
+        for row in db.execute(sql, params).fetchall():
+            entry = dict(row)
+            status = entry.pop("tax_status_key") or None
+            compensation = money(entry["compensation_amount"])
+            reimbursement = money(entry["reimbursement_amount"])
+            review = money(entry["review_amount"])
+            total = money(entry["total_amount"])
+            paid = money(entry["paid_amount"])
+            entry.update({
+                "tax_status": status,
+                "tax_status_label": tax_status_label(status),
+                "compensation_label": compensation_bucket_label(status),
+                "compensation_amount": compensation,
+                "reimbursement_amount": reimbursement,
+                "review_amount": review,
+                "total_amount": total,
+                "paid_amount": paid,
+                "unpaid_amount": total - paid,
+                "paid_count": int(entry["paid_count"]),
+                "component_count": int(entry["component_count"]),
+                "salary_count": int(entry["salary_count"]),
+                "expense_count": int(entry["expense_count"]),
+                # 候选值，不是最终 filing amount；规则可配置，见 tax.py。
+                "potential_1099_amount": potential_1099_reportable(
+                    compensation=compensation, reimbursement=reimbursement,
+                    review_required=review),
+                "w2_candidate_wages": w2_candidate_wages(
+                    compensation=compensation, review_required=review),
+            })
+            rows.append(entry)
+
+        totals = {key: money(0) for key in (
+            "compensation_amount", "reimbursement_amount", "review_amount",
+            "total_amount", "paid_amount")}
+        totals["component_count"] = 0
+        for entry in rows:
+            for key in ("compensation_amount", "reimbursement_amount", "review_amount",
+                        "total_amount", "paid_amount"):
+                totals[key] = totals[key] + entry[key]
+            totals["component_count"] += entry["component_count"]
+        totals["unpaid_amount"] = totals["total_amount"] - totals["paid_amount"]
+        totals["potential_1099_amount"] = potential_1099_reportable(
+            compensation=totals["compensation_amount"],
+            reimbursement=totals["reimbursement_amount"],
+            review_required=totals["review_amount"])
+        # 闭合：三桶相加必须等于记录总额（否则页面要显式报警，不能悄悄上线）。
+        bucket_sum = (totals["compensation_amount"] + totals["reimbursement_amount"]
+                      + totals["review_amount"])
+        totals["closure_ok"] = bucket_sum == totals["total_amount"]
+
+        excluded_where, excluded_params = _annual_where(normalized, with_year=False)
+        excluded = db.execute(
+            f"""
+            {_annual_base_cte()}
+            select count(*) as n, coalesce(sum(amount), 0) as amt
+            from base where {excluded_where} and {year_expr} is null
+            """,
+            excluded_params,
+        ).fetchone()
+        return {
+            "rows": rows,
+            "totals": totals,
+            "filters": normalized,
+            "options": _annual_tax_summary_options(),
+            "excluded": {
+                "count": int(excluded["n"] or 0),
+                "amount": money(excluded["amt"] or 0),
+                "reason": ("付款日无法解析（未付款 / 无银行流水）"
+                           if normalized["year_basis"] == YEAR_BASIS_PAYMENT
+                           else "缺少服务日期"),
+            },
+        }
+
+    def _annual_tax_summary_options():
+        db = api["db"]()
+        employees = [dict(row) for row in db.execute(
+            """select distinct u.id, u.name from users u
+               join employee_payment_components c on c.employee_id = u.id
+               where c.superseded_at is null order by u.name"""
+        ).fetchall()]
+        service_years = [row["year"] for row in db.execute(
+            """select distinct left(service_date, 4) as year
+               from employee_payment_components
+               where superseded_at is null and coalesce(service_date, '') <> ''
+               order by year desc"""
+        ).fetchall() if row["year"]]
+        payment_years = [row["year"] for row in db.execute(
+            f"""
+            {_annual_base_cte()}
+            select distinct left(payment_date, 4) as year from base
+            where payment_date is not null order by year desc
+            """
+        ).fetchall() if row["year"]]
+        statuses = [row["status"] for row in db.execute(
+            """select distinct tax_status_snapshot as status
+               from employee_payment_components where superseded_at is null
+               order by 1"""
+        ).fetchall() if row["status"]]
+        payment_statuses = [row["status"] for row in db.execute(
+            """select distinct o.status from employee_payment_orders o
+               join employee_payment_components c on c.payment_order_id = o.id
+               where c.superseded_at is null order by 1"""
+        ).fetchall() if row["status"]]
+        work_orders = [dict(row) for row in db.execute(
+            """select distinct so.id, so.order_number, so.client_name
+               from employee_payment_components c
+               join service_orders so on so.id = c.work_order_id
+               where c.superseded_at is null
+               order by so.order_number limit 500"""
+        ).fetchall()]
+        return {
+            "employees": employees,
+            "service_years": service_years,
+            "payment_years": payment_years,
+            "tax_statuses": statuses,
+            "payment_statuses": payment_statuses,
+            "work_orders": work_orders,
+        }
+
+    def _annual_tax_summary_components(filters=None, default_year=None, limit=5000):
+        """年度汇总 drill-down：金额可一路追到 component（只读）。"""
+        from .tax import money
+        normalized = _annual_filters(filters, default_year)
+        where, params = _annual_where(normalized)
+        rows = [dict(row) for row in api["db"]().execute(
+            f"""
+            {_annual_base_cte()}
+            select * from base where {where}
+            order by employee_name, coalesce(service_date, '') desc,
+                     coalesce(payment_date, '') desc, component_id desc
+            limit ?
+            """,
+            params + [int(limit)],
+        ).fetchall()]
+        _annotate(rows)
+        totals = {key: money(0) for key in (
+            "amount", "taxable_compensation", "accountable_reimbursement",
+            "tax_review_required", "paid_amount")}
+        for row in rows:
+            amount = money(row["amount"])
+            totals["amount"] = totals["amount"] + amount
+            totals[row["effective_tax_category"]] = (
+                totals[row["effective_tax_category"]] + amount)
+            if row.get("payment_date"):
+                totals["paid_amount"] = totals["paid_amount"] + amount
+        return {
+            "rows": rows,
+            "totals": totals,
+            "filters": normalized,
+            "options": _annual_tax_summary_options(),
+        }
+
     def _iso_day_of(value):
         return value.isoformat() if hasattr(value, "isoformat") else value
 
@@ -821,4 +1156,8 @@ def build_payroll_services(api):
         "tax_review_history": _tax_review_history,
         "record_tax_review": _record_tax_review,
         "payment_tax_components": _payment_tax_components,
+        # Phase 4B：Annual Tax Summary（只读 reporting，绝不写任何业务表）
+        "annual_tax_summary": _annual_tax_summary,
+        "annual_tax_summary_options": _annual_tax_summary_options,
+        "annual_tax_summary_components": _annual_tax_summary_components,
     }

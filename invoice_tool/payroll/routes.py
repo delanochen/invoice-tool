@@ -16,7 +16,16 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from .tax import TAX_CATEGORIES, review_reason_options
+from .tax import (
+    DEFAULT_YEAR_BASIS,
+    POTENTIAL_1099_RULE_NOTE,
+    SUMMARY_BUCKET_OPTIONS,
+    TAX_CATEGORIES,
+    W2_CANDIDATE_RULE_NOTE,
+    YEAR_BASIS_NOTES,
+    YEAR_BASIS_OPTIONS,
+    review_reason_options,
+)
 
 # Phase 4A：复核工作台的展示字典（纯展示，判定一律走 tax.py 的结构化函数）。
 TAX_CATEGORY_LABELS = {
@@ -29,6 +38,19 @@ TAX_CATEGORY_OPTIONS = [(key, TAX_CATEGORY_LABELS[key]) for key in TAX_CATEGORIE
 TAX_REVIEW_PAYMENT_TYPES = [("salary", "SL 工资"), ("expense", "ER 报销")]
 TAX_STATUS_OPTIONS = [("1099", "1099"), ("W2", "W2"), ("NULL", "NULL（缺身份）")]
 TAX_REVIEW_REVIEWED_OPTIONS = [("unreviewed", "未复核"), ("reviewed", "已复核")]
+
+# Phase 4B：付款单状态（Recorded ≠ Paid，年度汇总必须让「已记录未付款」看得见）。
+PAYMENT_STATUS_LABELS = {
+    "draft": "草稿",
+    "pending_review": "待审核",
+    "approved": "已审核",
+    "pending_payment": "待付款",
+    "paid": "已付款",
+    "reconciled": "已对账",
+    "rejected": "已拒绝",
+    "cancelled": "已取消",
+    "payment_failed": "付款失败",
+}
 
 
 def register_payroll_routes(app, api):
@@ -407,10 +429,126 @@ def register_payroll_routes(app, api):
             api["flash"](str(error), "error")
         return api["redirect"](api["url_for"]("tax_review_component", component_id=component_id))
 
+    # ------------------------------------------------------------------
+    # Phase 4B：Annual Tax Summary（年度税务汇总 + drill-down）。
+    # 纯只读 reporting：不写往来账、不改付款单 / 组件 / 身份 / 报销 / 工资。
+    # 年度口径（service_date / payment_date）由页面显式传入，默认 service_date。
+    # ------------------------------------------------------------------
+    def annual_filters_from_request(request, default_year):
+        args = request.args
+        return {
+            "year": (args.get("year") or "").strip() or default_year,
+            "year_basis": (args.get("year_basis") or "").strip() or DEFAULT_YEAR_BASIS,
+            "employee_id": args.get("employee_id") or "",
+            "tax_status": args.get("tax_status") or "",
+            "category": args.get("category") or "",
+            "payment_status": args.get("payment_status") or "",
+            "work_order_id": args.get("work_order_id") or "",
+            "include_review": args.get("include_review") or "1",
+        }
+
+    @app.get("/finance/annual-tax-summary")
+    @api["login_required"]
+    def annual_tax_summary():
+        if not api["has_action_permission"]("annual_tax_summary", "view"):
+            api["abort"](403)
+        request = api["request"]
+        data = api["annual_tax_summary_rows"](
+            annual_filters_from_request(request, str(date.today().year)))
+        return api["render_template"](
+            "annual_tax_summary.html",
+            rows=data["rows"],
+            totals=data["totals"],
+            filters=data["filters"],
+            options=data["options"],
+            excluded=data["excluded"],
+            year_basis_options=YEAR_BASIS_OPTIONS,
+            year_basis_notes=YEAR_BASIS_NOTES,
+            bucket_options=SUMMARY_BUCKET_OPTIONS,
+            tax_status_options=TAX_STATUS_OPTIONS,
+            payment_status_labels=PAYMENT_STATUS_LABELS,
+            potential_1099_note=POTENTIAL_1099_RULE_NOTE,
+            w2_note=W2_CANDIDATE_RULE_NOTE,
+            can_export=api["has_action_permission"]("annual_tax_summary", "export"),
+            today=date.today().isoformat(),
+        )
+
+    @app.get("/finance/annual-tax-summary/components")
+    @api["login_required"]
+    def annual_tax_summary_components():
+        if not api["has_action_permission"]("annual_tax_summary", "view"):
+            api["abort"](403)
+        request = api["request"]
+        data = api["annual_tax_summary_component_rows"](
+            annual_filters_from_request(request, str(date.today().year)))
+        return api["render_template"](
+            "annual_tax_summary_components.html",
+            rows=data["rows"],
+            totals=data["totals"],
+            filters=data["filters"],
+            options=data["options"],
+            year_basis_options=YEAR_BASIS_OPTIONS,
+            year_basis_notes=YEAR_BASIS_NOTES,
+            bucket_options=SUMMARY_BUCKET_OPTIONS,
+            tax_status_options=TAX_STATUS_OPTIONS,
+            payment_status_labels=PAYMENT_STATUS_LABELS,
+            category_labels=TAX_CATEGORY_LABELS,
+            potential_1099_note=POTENTIAL_1099_RULE_NOTE,
+            can_export=api["has_action_permission"]("annual_tax_summary", "export"),
+            today=date.today().isoformat(),
+        )
+
+    @app.get("/finance/annual-tax-summary/export.xlsx")
+    @api["login_required"]
+    def annual_tax_summary_export():
+        if not api["has_action_permission"]("annual_tax_summary", "export"):
+            api["abort"](403)
+        request = api["request"]
+        data = api["annual_tax_summary_rows"](
+            annual_filters_from_request(request, str(date.today().year)))
+        headers = ["员工", "税务年度", "身份快照", "Compensation", "Reimbursements",
+                   "Tax Review Required", "Total Recorded", "Paid", "Unpaid",
+                   "Potential 1099 Reportable", "组件数"]
+        rows = []
+        for entry in data["rows"]:
+            rows.append([
+                entry["employee_name"],
+                entry["tax_year"] or "",
+                entry["tax_status_label"],
+                float(entry["compensation_amount"]),
+                float(entry["reimbursement_amount"]),
+                float(entry["review_amount"]),
+                float(entry["total_amount"]),
+                float(entry["paid_amount"]),
+                float(entry["unpaid_amount"]),
+                float(entry["potential_1099_amount"]),
+                entry["component_count"],
+            ])
+        totals = data["totals"]
+        rows.append([])
+        rows.append(["合计", data["filters"]["year"], data["filters"]["year_basis"],
+                     float(totals["compensation_amount"]), float(totals["reimbursement_amount"]),
+                     float(totals["review_amount"]), float(totals["total_amount"]),
+                     float(totals["paid_amount"]), float(totals["unpaid_amount"]),
+                     float(totals["potential_1099_amount"]), totals["component_count"]])
+        rows.append(["闭合校验", "三桶合计 = 记录总额" if totals["closure_ok"] else "不闭合！"])
+        workbook = api["build_simple_xlsx"](headers, rows, sheet_name="年度税务汇总")
+        filename = "annual-tax-summary-%s-%s.xlsx" % (
+            data["filters"]["year"] or "all", data["filters"]["year_basis"])
+        return api["send_file"](
+            workbook,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     return {
         "tax_review": tax_review,
         "tax_review_component": tax_review_component,
         "save_tax_review": save_tax_review,
+        "annual_tax_summary": annual_tax_summary,
+        "annual_tax_summary_components": annual_tax_summary_components,
+        "annual_tax_summary_export": annual_tax_summary_export,
         "payroll_subsidies": payroll_subsidies,
         "labor_hours_report": labor_hours_report,
         "payroll_report": payroll_report,

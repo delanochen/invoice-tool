@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+{% block title %}年度税务汇总{% endblock %}
+
+{% block content %}
+{# Phase 4B：Annual Tax Summary（只读 reporting / read model）。
+   分组 = 员工 + 税务年度 + 身份快照（同一人同年 1099 与 W2 拆开）；
+   分类一律用有效分类（最新复核优先）；Recorded ≠ Paid；
+   Potential 1099 是候选值，不是最终 1099-NEC。绝不写任何业务表。 #}
+<div class="erp-app" data-active-panel="summary">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">年度税务汇总<small>财务管理 · 按员工 + 年度 + 身份快照的有效分类汇总</small></div>
+    <span class="erp-badge">{{ rows|length }} 个分组</span>
+    <span class="erp-badge">Recorded {{ totals.total_amount|money }}</span>
+    {% if not totals.closure_ok %}<span class="erp-badge err">闭合校验失败！</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+      {% if can_export %}<a class="erp-btn" href="{{ url_for('annual_tax_summary_export', **request.args) }}">导出 XLSX</a>{% endif %}
+    </div>
+  </header>
+
+  <!-- ─────────────────────────────────── ERP Body ───────────────────────── -->
+  <div class="erp-body">
+    <form method="get" class="erp-filter no-print" data-erp-filter>
+      <label class="erp-field">年度口径
+        <select name="year_basis">
+          {% for value,label in year_basis_options %}<option value="{{ value }}" {% if filters.year_basis==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">税务年度
+        <select name="year">
+          <option value="">全部年度</option>
+          {% set years = options.payment_years if filters.year_basis == 'payment_date' else options.service_years %}
+          {% for year in years %}<option value="{{ year }}" {% if filters.year==year %}selected{% endif %}>{{ year }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">员工
+        <select name="employee_id">
+          <option value="">全部员工</option>
+          {% for employee in options.employees %}<option value="{{ employee.id }}" {% if filters.employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">税务身份
+        <select name="tax_status">
+          <option value="">全部</option>
+          {% for value,label in tax_status_options %}<option value="{{ value }}" {% if filters.tax_status==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">付款状态
+        <select name="payment_status">
+          <option value="">全部</option>
+          {% for status in options.payment_statuses %}<option value="{{ status }}" {% if filters.payment_status==status %}selected{% endif %}>{{ payment_status_labels.get(status, status) }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">工单
+        <select name="work_order_id">
+          <option value="">全部</option>
+          {% for order in options.work_orders %}<option value="{{ order.id }}" {% if filters.work_order_id|string==order.id|string %}selected{% endif %}>{{ order.order_number }}{% if order.client_name %} · {{ order.client_name }}{% endif %}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field erp-field-check">含待复核
+        <input type="checkbox" name="include_review" value="1" {% if filters.include_review %}checked{% endif %}>
+        <input type="hidden" name="include_review" value="0">
+      </label>
+    </form>
+
+    {% if filters.year_basis == 'payment_date' and excluded.count %}
+      <div class="erp-notice warn">
+        Payment-date basis：付款日无法解析的组件不计入任何年度 —— 排除 {{ excluded.count }} 条 / {{ excluded.amount|money }}（{{ excluded.reason }}）。全年份记录总额以 Service-date basis 为准。
+      </div>
+    {% endif %}
+
+    <section class="erp-panel active" data-erp-panel="summary">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
+          <thead><tr>
+            <th>员工</th><th>身份快照</th><th>年度</th>
+            <th data-grid-money>{{ rows[0].compensation_label if rows else 'Compensation' }}</th>
+            <th data-grid-money>Reimbursements</th>
+            <th data-grid-money>Tax Review Required</th>
+            <th data-grid-money>Total Recorded</th>
+            <th data-grid-money>Paid</th>
+            <th data-grid-money>Unpaid</th>
+            <th data-grid-money>Potential 1099 / W-2 Candidate</th>
+            <th>组件数</th>
+          </tr></thead>
+          <tbody>{% for row in rows %}<tr>
+            <td><strong>{{ row.employee_name }}</strong></td>
+            <td>{% if row.tax_status %}{{ row.tax_status_label }}{% else %}<span class="erp-badge warn">Missing Tax Status</span>{% endif %}</td>
+            <td>{{ row.tax_year }}</td>
+            {% set drill = dict(year=filters.year, year_basis=filters.year_basis, employee_id=row.employee_id, tax_status=(row.tax_status or 'NULL')) %}
+            <td data-grid-money><a href="{{ url_for('annual_tax_summary_components', category='compensation', **drill) }}">{{ row.compensation_amount|money }}</a></td>
+            <td data-grid-money><a href="{{ url_for('annual_tax_summary_components', category='reimbursement', **drill) }}">{{ row.reimbursement_amount|money }}</a></td>
+            <td data-grid-money>{% if row.review_amount %}<strong class="neg"><a href="{{ url_for('annual_tax_summary_components', category='review', **drill) }}">{{ row.review_amount|money }}</a></strong>{% else %}{{ row.review_amount|money }}{% endif %}</td>
+            <td data-grid-money><a href="{{ url_for('annual_tax_summary_components', tax_status=(row.tax_status or 'NULL'), employee_id=row.employee_id, year=filters.year, year_basis=filters.year_basis) }}"><strong>{{ row.total_amount|money }}</strong></a></td>
+            <td data-grid-money>{{ row.paid_amount|money }}<small class="muted"> · {{ row.paid_count }}笔</small></td>
+            <td data-grid-money>{{ row.unpaid_amount|money }}</td>
+            <td data-grid-money>{% if row.tax_status == '1099' %}{{ row.potential_1099_amount|money }}{% else %}{{ row.w2_candidate_wages|money }}{% endif %}</td>
+            <td>{{ row.component_count }}<small class="muted">（SL {{ row.salary_count }} / ER {{ row.expense_count }}）</small></td>
+          </tr>{% else %}<tr><td colspan="11" class="empty">没有符合条件的组件。</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in rows %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.tax_year }}</span>
+              <span class="erp-card-customer">{{ row.employee_name }}</span>
+              <span class="status">{{ row.tax_status_label }}</span>
+            </div>
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>{{ row.compensation_label }}</span><strong>{{ row.compensation_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>Reimbursements</span><strong>{{ row.reimbursement_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>Review Required</span><strong>{{ row.review_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>Total Recorded</span><strong>{{ row.total_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>Paid</span><strong>{{ row.paid_amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>Potential 1099</span><strong>{{ row.potential_1099_amount|money }}</strong></div>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn primary" href="{{ url_for('annual_tax_summary_components', employee_id=row.employee_id, tax_status=(row.tax_status or 'NULL'), year=filters.year, year_basis=filters.year_basis) }}">查看组件明细</a>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的组件。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('分组', rows|length, 'muted') }}
+    {{ summary_item('Recorded', totals.total_amount|money, 'muted') }}
+    {{ summary_item('Compensation', totals.compensation_amount|money, 'muted') }}
+    {{ summary_item('Reimbursements', totals.reimbursement_amount|money, 'muted') }}
+    {{ summary_item('Review Required', totals.review_amount|money, 'neg') }}
+    {{ summary_item('Paid', totals.paid_amount|money, 'muted') }}
+    {{ summary_item('闭合', 'OK' if totals.closure_ok else 'FAIL', 'ok' if totals.closure_ok else 'neg') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>{{ year_basis_notes.get(filters.year_basis, '') }}</span>
+    <span class="sep"></span>
+    <span>Recorded = 已生成组件的记录金额（含未付款）；Paid = 已解析出付款日的部分。</span>
+    <span class="sep"></span>
+    <span>Potential 1099 Reportable：Preliminary — subject to CPA review，不是最终 1099-NEC。</span>
+  </footer>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}
