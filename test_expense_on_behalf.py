@@ -48,9 +48,11 @@ class ExpenseOnBehalfTest(unittest.TestCase):
             session['user_id'] = self.people[name]
 
     def form(self, **overrides):
+        # Phase 3D：action='submit' 必须带 business_purpose（草稿可空）。
         data = {'save_token': secrets.token_urlsafe(24), 'action': 'submit',
                 'project_id': str(self.project), 'item_amount': '50', 'item_description': 'Delegate receipt',
                 'item_line_key': 'line-test', 'expense_date': '2026-09-01',
+                'business_purpose': 'Delegated purchase for work order WO-1',
                 'beneficiary_id': str(self.people['Beneficiary'])}
         data.update(overrides)
         return data

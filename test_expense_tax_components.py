@@ -101,8 +101,13 @@ class ExpenseTaxComponentTest(unittest.TestCase):
             db.commit()
 
     def _expense(self, *, status="submitted", description="客户现场维修住宿",
-                 business_purpose=None, reviewed_by=None, amount=None, expense_date="2026-08-05"):
-        """默认：已审核背书（reviewed_by）+ 描述；金额在插入 item 后按合计维护。"""
+                 business_purpose="工单现场作业需要的住宿支出", reviewed_by=None,
+                 amount=None, expense_date="2026-08-05"):
+        """默认：Phase 3D 新数据口径——显式 business_purpose。
+
+        需要验证「缺业务用途」的用例必须显式传 business_purpose=None；
+        description / reviewed_by 自 3D 起不再能替代业务用途。
+        金额在插入 item 后按合计维护。"""
         with self.module.app.app_context():
             db = self.module.db()
             expense_id = db.execute(
@@ -239,10 +244,10 @@ class ExpenseTaxComponentTest(unittest.TestCase):
         self.assertEqual(dec(payment["tax_review_required_total"]), Decimal("80.00"))
 
     def test_missing_business_purpose_is_review_required(self):
-        """缺业务用途（无描述/无 business_purpose/无审核背书）→ review。"""
+        """Phase 3D：缺 business_purpose → review（即便有 description/reviewed_by）。"""
         self._seed_tax_status(self.worker_id, [("1099", "2026-01-01", None)])
-        expense_id = self._expense(status="approved", description="",
-                                   reviewed_by=None)
+        expense_id = self._expense(status="approved", business_purpose=None,
+                                   reviewed_by=self.admin_id)
         self._item(expense_id, "50.00")
         self._receipt(expense_id, "line-1")
         with self.module.app.test_request_context("/"):

@@ -19,6 +19,11 @@ from pathlib import Path
 from flask import Response, abort, flash, g, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
+from invoice_tool.payroll.tax import (
+    EXPENSE_CLASSIFICATION_CURRENT,
+    EXPENSE_CLASSIFICATION_LEGACY_BACKFILL,
+)
+
 
 PAYMENT_STATUS_LABELS = {
     "draft": "草稿", "pending_review": "待审核", "approved": "已批准",
@@ -263,15 +268,22 @@ def _insert_payment(api, *, employee_id, payment_type, gross_amount, source_type
     return payment_id, True
 
 
-def expense_payment_components(api, expense, payment_order_id):
-    """Phase 3A：按 expense_items 构建 ER 组件快照（构建期硬校验）。
+def expense_payment_components(api, expense, payment_order_id,
+                               classification_mode=EXPENSE_CLASSIFICATION_CURRENT):
+    """Phase 3A/3D：按 expense_items 构建 ER 组件快照（构建期硬校验）。
 
     分类依据全部是结构化字段：item 专属凭证（expense_item_key=line_key）、
-    业务用途（business_purpose / description / 审核通过背书）、工单关联、
-    金额有效性、按 expense_date 查 worker_tax_status_history。
+    业务用途（见 expense_purpose_ok 的口径选择）、工单关联、金额有效性、
+    按 expense_date 查 worker_tax_status_history。
     禁止按项目名称猜税类（is_lodging_project_name 等不参与判定）。
+
+    classification_mode（Phase 3D，必须显式）：
+    - "current"：3D 上线后的新数据，业务用途只认 business_purpose；
+    - "legacy_backfill"：历史 ER 回填专用兼容口径（business_purpose OR
+      description OR reviewed_by），只用于解释已冻结的历史 snapshot。
     """
     from invoice_tool.payroll.tax import build_expense_payment_components
+    from invoice_tool.payroll.tax import expense_purpose_ok
 
     db = api["db"]()
     items = db.execute(
@@ -282,9 +294,9 @@ def expense_payment_components(api, expense, payment_order_id):
     ).fetchall()
     if not items:
         raise ValueError("报销单 %s 没有明细行，无法生成税务组件。" % expense["expense_number"])
-    # business_purpose 列（0291）当前尚无录入 UI；已审核通过（reviewed_by）在
-    # 现行流程里即业务用途的人工背书，三者任一非空即视为用途已确认。
-    purpose_ok = bool(expense["business_purpose"] or expense["description"] or expense["reviewed_by"])
+    # Phase 3D：口径由调用方显式决定（current=只认 business_purpose；
+    # legacy_backfill=历史兼容，含 description/reviewed_by）。
+    purpose_ok = expense_purpose_ok(expense, classification_mode)
     rows = []
     for item in items:
         amount = _money(item["amount"])
@@ -313,7 +325,8 @@ def expense_payment_components(api, expense, payment_order_id):
     )
 
 
-def _write_expense_components(api, payment_id, expense):
+def _write_expense_components(api, payment_id, expense,
+                              classification_mode=EXPENSE_CLASSIFICATION_CURRENT):
     """ER 组件快照与三项税务合计与付款单同事务落库（失败整体回滚）。
 
     幂等：已有生效快照（superseded_at is null）直接跳过，绝不重复插入；
@@ -327,7 +340,8 @@ def _write_expense_components(api, payment_id, expense):
     ).fetchone()[0]
     if live:
         return
-    components, totals = expense_payment_components(api, expense, payment_id)
+    components, totals = expense_payment_components(
+        api, expense, payment_id, classification_mode=classification_mode)
     gross = _money(expense["amount"])
     line_sum = sum((line["amount"] for line in components), Decimal("0"))
     if line_sum != gross or sum(totals.values()) != gross:

@@ -109,6 +109,8 @@
           <strong>合计：<span id="expenseTotal">{{ expense.amount or 0 }}</span> USD</strong>
         </div>
         <input type="hidden" name="currency" value="USD">
+        <label>业务用途（Business Purpose） <textarea name="business_purpose" rows="3" placeholder="请说明该费用为何属于公司业务支出，例如对应的工单、现场任务或采购用途。">{{ expense.business_purpose or '' }}</textarea></label>
+        <p class="muted-line">草稿可以稍后再填；提交审核前必须填写业务用途。报销单说明只是备注，不能替代业务用途。</p>
         <label>报销单说明 <textarea name="description" rows="5">{{ expense.description or '' }}</textarea></label>
         <p class="muted-line">附件请添加到对应的员工报销明细行（「添加附件」），不挂明细行的附件无法保存。</p>
       </form>

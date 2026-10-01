@@ -147,6 +147,7 @@
           <p><strong>付款操作人</strong><span>{{ reimburser.name if reimburser else "-" }}</span></p>
           <p><strong>付款时间</strong><span>{{ expense.reimbursed_at|local_datetime if expense.reimbursed_at else "-" }}</span></p>
           {% if payment_order %}<p><strong>员工付款单</strong><span><a href="{{ url_for('employee_payment_detail', payment_id=payment_order.id) }}">{{ payment_order.payment_number }}</a></span></p>{% endif %}
+          <p class="full-span"><strong>业务用途（Business Purpose）</strong><span>{{ expense.business_purpose or "Not recorded" }}</span></p>
           <p class="full-span"><strong>说明</strong><span>{{ expense.description or "-" }}</span></p>
           {% if expense.return_reason %}
             <p class="full-span"><strong>退回原因</strong><span>{{ expense.return_reason }}</span></p>

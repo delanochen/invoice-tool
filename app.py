@@ -14445,6 +14445,7 @@ def expense_defaults(expense=None):
         "amount": "",
         "currency": "USD",
         "description": "",
+        "business_purpose": "",
         "status": "draft",
     }
 
@@ -14578,7 +14579,11 @@ def new_expense(order_id):
             flash("该报销正在保存，请稍候。", "error")
             return redirect(url_for("new_expense", order_id=order_id))
         submit_for_review = request.form.get("action") == "submit"
+        business_purpose = (request.form.get("business_purpose", "") or "").strip()
         try:
+            # Phase 3D：草稿可暂缺业务用途；提交审核前必须显式填写。
+            if submit_for_review and not business_purpose:
+                raise ValueError("请填写业务用途后再提交报销。")
             beneficiary = posted_expense_beneficiary()
             item_rows = expense_items_from_form()
             total_amount = sum(item["amount"] for item in item_rows)
@@ -14589,8 +14594,8 @@ def new_expense(order_id):
                 """
                 insert into expenses (
                     service_order_id, expense_number, project_id, project, expense_date, amount, currency,
-                    description, status, created_by, created_at, updated_at, beneficiary_id
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    description, status, created_by, created_at, updated_at, beneficiary_id, business_purpose
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id,
@@ -14606,6 +14611,7 @@ def new_expense(order_id):
                     now(),
                     now(),
                     beneficiary["id"],
+                    business_purpose,
                 ),
             )
             expense_id = cursor.lastrowid
@@ -14702,7 +14708,11 @@ def edit_expense(expense_id):
             flash("该报销已经保存，请勿重复提交。", "success")
             return redirect(url_for("edit_expense", expense_id=expense_id))
         submit_for_review = request.form.get("action") == "submit"
+        business_purpose = (request.form.get("business_purpose", "") or "").strip()
         try:
+            # Phase 3D：历史单查看不强制补；只有真正编辑并重新提交审核时才要求。
+            if submit_for_review and not business_purpose:
+                raise ValueError("请填写业务用途后再提交报销。")
             beneficiary = posted_expense_beneficiary(expense)
             item_rows = expense_items_from_form(expense_id)
             total_amount = sum(item["amount"] for item in item_rows)
@@ -14712,7 +14722,7 @@ def edit_expense(expense_id):
                 """
                 update expenses
                 set project_id = ?, project = ?, expense_date = ?, amount = ?, currency = ?, description = ?,
-                    status = ?, return_reason = null, updated_at = ?, beneficiary_id = ?
+                    status = ?, return_reason = null, updated_at = ?, beneficiary_id = ?, business_purpose = ?
                 where id = ?
                 """,
                 (
@@ -14725,6 +14735,7 @@ def edit_expense(expense_id):
                     "submitted" if submit_for_review else "draft",
                     now(),
                     beneficiary["id"],
+                    business_purpose,
                     expense_id,
                 ),
             )

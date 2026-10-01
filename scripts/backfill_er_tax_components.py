@@ -10,9 +10,10 @@
 行为：
 - 目标：payment_type='expense'、source_type='expense'、source_id 仍指向存在的
   expenses 行、且**尚无生效组件快照**的 ER（已有的跳过 → 幂等，可安全重跑）。
-- 每张 ER：按 expense_items 1:1 重算（与 3A 新单生成完全相同的
-  employee_finance.expense_payment_components，历史兼容口径
-  business_purpose OR description OR reviewed_by）→
+- 每张 ER：按 expense_items 1:1 重算（与 3A 新单生成相同的
+  employee_finance.expense_payment_components，但分类口径显式固定为
+  classification_mode='legacy_backfill'：business_purpose OR description OR
+  reviewed_by）→
   sum(组件) == gross_amount 硬校验（Decimal + ROUND_HALF_UP，禁止 round()）→
   写入 employee_payment_components（source_type='historical_expense_recompute'）
   → 更新付款单三项税务合计。
@@ -108,7 +109,12 @@ def main():
                 print("[SKIP-ERROR] %s: expense 不存在" % row["payment_number"])
                 continue
             try:
-                components, totals = EF.expense_payment_components(api, expense, row["id"])
+                # Phase 3D：历史回填口径**固定**为 legacy_backfill（business_purpose
+                # OR description OR reviewed_by）。新数据规则上线后本工具重跑必须
+                # 产生与首次执行完全相同的分类，绝不随 current 口径漂移。
+                components, totals = EF.expense_payment_components(
+                    api, expense, row["id"],
+                    classification_mode=EF.EXPENSE_CLASSIFICATION_LEGACY_BACKFILL)
             except ValueError as error:
                 stats["mismatch"] += 1
                 print("[SKIP-MISMATCH] %s: %s" % (row["payment_number"], error))

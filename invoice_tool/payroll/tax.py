@@ -238,6 +238,37 @@ def _allocate_cents(rows, gross):
 
 EXPENSE_COMPONENT_CODE = "expense_item"
 
+# Phase 3D：业务用途判定必须显式选择口径，绝不按 created_at 等日期隐式分支。
+EXPENSE_CLASSIFICATION_CURRENT = "current"          # 新数据：只认 business_purpose
+EXPENSE_CLASSIFICATION_LEGACY_BACKFILL = "legacy_backfill"  # 历史回填：兼容旧凭证
+
+
+def expense_purpose_ok(expense, classification_mode=EXPENSE_CLASSIFICATION_CURRENT):
+    """业务用途是否成立（Phase 3D：历史口径与新数据口径彻底分开）。
+
+    - current（3D 上线后的新数据 / 重新提交的历史单）：只认结构化字段
+      business_purpose。description 是备注，reviewed_by 只是「审核动作」，
+      两者都不再能替代业务用途。
+    - legacy_backfill（历史 ER 回填专用）：business_purpose OR description OR
+      reviewed_by——仅用于解释已冻结的历史 snapshot，且必须显式传入，
+      绝不因为上线时间隐式切换。
+    非法 mode 直接抛错，避免调用方漏传导致口径漂移。
+    """
+
+    def field(name):
+        # database.Row 没有 .get()；缺列时按「未填写」处理，不让历史行炸掉。
+        try:
+            return expense[name]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    if classification_mode == EXPENSE_CLASSIFICATION_CURRENT:
+        return bool(field("business_purpose"))
+    if classification_mode == EXPENSE_CLASSIFICATION_LEGACY_BACKFILL:
+        return bool(field("business_purpose") or field("description")
+                    or field("reviewed_by"))
+    raise ValueError("未知的报销分类口径：%r" % (classification_mode,))
+
 
 def classify_expense_item(*, amount_ok, receipt_ok, purpose_ok, work_order_ok,
                           tax_status):
