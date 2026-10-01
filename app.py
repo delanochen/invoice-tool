@@ -14920,7 +14920,14 @@ def approve_expense(expense_id):
     log_action("approve", "expense", expense_id, expense["expense_number"], f"工单：{order['order_number']}")
     # Approval now creates the accounts-payable document while preserving the
     # expense's existing review and profitability semantics.
-    payment_id = ensure_expense_payment_order(globals(), expense_id)
+    # Phase 3A：组件快照硬校验失败（明细合计 != gross 等）时整体回滚，
+    # 报销单保持 submitted，不让没有快照的 ER 落库。
+    try:
+        payment_id = ensure_expense_payment_order(globals(), expense_id)
+    except ValueError as error:
+        db().rollback()
+        flash(f"报销已通过，但员工付款单生成失败，已整体回滚：{error}", "error")
+        return redirect(url_for("expense_detail", expense_id=expense_id))
     db().commit()
     flash("报销已审核通过，员工付款单已自动生成。" if payment_id else "报销已审核通过。", "success")
     return redirect(url_for("expense_detail", expense_id=expense_id))

@@ -263,6 +263,102 @@ def _insert_payment(api, *, employee_id, payment_type, gross_amount, source_type
     return payment_id, True
 
 
+def expense_payment_components(api, expense, payment_order_id):
+    """Phase 3A：按 expense_items 构建 ER 组件快照（构建期硬校验）。
+
+    分类依据全部是结构化字段：item 专属凭证（expense_item_key=line_key）、
+    业务用途（business_purpose / description / 审核通过背书）、工单关联、
+    金额有效性、按 expense_date 查 worker_tax_status_history。
+    禁止按项目名称猜税类（is_lodging_project_name 等不参与判定）。
+    """
+    from invoice_tool.payroll.tax import build_expense_payment_components
+
+    db = api["db"]()
+    items = db.execute(
+        "select i.id, i.line_key, i.amount, coalesce(p.name, i.project) as project_name"
+        " from expense_items i left join projects p on p.id = i.project_id"
+        " where i.expense_id = ? order by i.sort_order, i.id",
+        (expense["id"],),
+    ).fetchall()
+    if not items:
+        raise ValueError("报销单 %s 没有明细行，无法生成税务组件。" % expense["expense_number"])
+    # business_purpose 列（0291）当前尚无录入 UI；已审核通过（reviewed_by）在
+    # 现行流程里即业务用途的人工背书，三者任一非空即视为用途已确认。
+    purpose_ok = bool(expense["business_purpose"] or expense["description"] or expense["reviewed_by"])
+    rows = []
+    for item in items:
+        amount = _money(item["amount"])
+        receipt_ok = bool(db.execute(
+            "select 1 from expense_attachments where expense_id = ? and expense_item_key = ? limit 1",
+            (expense["id"], item["line_key"]),
+        ).fetchone())
+        rows.append({
+            "amount": amount,
+            "component_name": item["project_name"],
+            "service_date": expense["expense_date"],
+            "work_order_id": expense["service_order_id"],
+            "source_id": item["id"],
+            "amount_ok": amount > 0,
+            "receipt_ok": receipt_ok,
+            "purpose_ok": purpose_ok,
+            "work_order_ok": bool(expense["service_order_id"]),
+        })
+    return build_expense_payment_components(
+        rows,
+        employee_id=int(expense["employee_id"]),
+        gross_amount=expense["amount"],
+        payment_order_id=payment_order_id,
+        # app.globals() 暴露的是 build_payroll_services 的工厂闭包，先调用取 lookup。
+        tax_status_lookup=api["worker_tax_status_lookup"](),
+    )
+
+
+def _write_expense_components(api, payment_id, expense):
+    """ER 组件快照与三项税务合计与付款单同事务落库（失败整体回滚）。
+
+    幂等：已有生效快照（superseded_at is null）直接跳过，绝不重复插入；
+    被重开取代的旧快照只置 superseded_at，原始内容永不 UPDATE/DELETE。
+    """
+    db = api["db"]()
+    live = db.execute(
+        "select count(*) from employee_payment_components"
+        " where payment_order_id = ? and superseded_at is null",
+        (payment_id,),
+    ).fetchone()[0]
+    if live:
+        return
+    components, totals = expense_payment_components(api, expense, payment_id)
+    gross = _money(expense["amount"])
+    line_sum = sum((line["amount"] for line in components), Decimal("0"))
+    if line_sum != gross or sum(totals.values()) != gross:
+        raise ValueError(
+            "报销组件合计 %s / 税务合计 %s 与付款单金额 %s 不一致，已中止生成。"
+            % (line_sum, sum(totals.values()), gross)
+        )
+    for line in components:
+        db.execute(
+            """
+            insert into employee_payment_components
+            (payment_order_id,employee_id,component_code,component_name,amount,
+             quantity,unit,unit_rate,service_date,work_order_id,source_type,source_id,
+             daily_report_id,tax_category,tax_status_snapshot,substantiated,review_status,created_at)
+            values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (payment_id, line["employee_id"], line["component_code"], line["component_name"],
+             line["amount"], line["quantity"], line["unit"], line["unit_rate"],
+             line["service_date"], line["work_order_id"], line["source_type"],
+             line["source_id"], line["daily_report_id"], line["tax_category"],
+             line["tax_status_snapshot"], line["substantiated"], line["review_status"],
+             api["now"]()),
+        )
+    db.execute(
+        "update employee_payment_orders set taxable_compensation_total=?,"
+        "accountable_reimbursement_total=?,tax_review_required_total=? where id=?",
+        (totals["taxable_compensation"], totals["accountable_reimbursement"],
+         totals["tax_review_required"], payment_id),
+    )
+
+
 def ensure_expense_payment_order(api, expense_id):
     """Idempotently bridge an already-approved expense into accounts payable."""
     expense = api["db"]().execute(
@@ -301,6 +397,15 @@ def ensure_expense_payment_order(api, expense_id):
                 "reopen", "employee_payment", existing["id"], existing["payment_number"],
                 "报销重新审核通过，付款单恢复为草稿",
             )
+            # Phase 3A：重开复用同一 ER。旧组件快照是不可变历史——只置
+            # superseded_at 退役（原始内容永不改写），再按当前 expense_items
+            # 生成新的生效快照；若金额/明细未变，新快照内容与旧快照一致。
+            api["db"]().execute(
+                "update employee_payment_components set superseded_at = ?"
+                " where payment_order_id = ? and superseded_at is null",
+                (reopened_at, existing["id"]),
+            )
+            _write_expense_components(api, existing["id"], expense)
         return existing["id"]
     payment_id, _ = _insert_payment(
         api, employee_id=expense["employee_id"], payment_type="expense",
@@ -308,6 +413,7 @@ def ensure_expense_payment_order(api, expense_id):
         source_number=expense["expense_number"], source_key=f"expense:{expense_id}",
         description=f"报销单 {expense['expense_number']}",
     )
+    _write_expense_components(api, payment_id, expense)
     return payment_id
 
 

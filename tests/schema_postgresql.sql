@@ -1254,6 +1254,7 @@ CREATE TABLE public.employee_payment_components (
     substantiated boolean,
     review_status text DEFAULT 'confirmed'::text NOT NULL,
     created_at text NOT NULL,
+    superseded_at text,
     CONSTRAINT employee_payment_components_review_status_check CHECK ((review_status = ANY (ARRAY['confirmed'::text, 'review_required'::text]))),
     CONSTRAINT employee_payment_components_service_date_check CHECK (((service_date IS NULL) OR (service_date ~ '^\d{4}-\d{2}-\d{2}'::text))),
     CONSTRAINT employee_payment_components_tax_category_check CHECK ((tax_category = ANY (ARRAY['taxable_compensation'::text, 'accountable_reimbursement'::text, 'tax_review_required'::text]))),

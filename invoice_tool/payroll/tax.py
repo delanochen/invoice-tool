@@ -153,6 +153,11 @@ def build_payment_components(component_rows, *, employee_id, gross_amount, payme
             "substantiated": substantiated,
             "review_status": "review_required" if category == "tax_review_required" else "confirmed",
         })
+    return _finish_component_rows(prepared, gross)
+
+
+def _finish_component_rows(prepared, gross):
+    """共享收口：分位分配 + 三项税务合计 + 闭合防御（SL / ER 两侧共用）。"""
     amounts = _allocate_cents(prepared, gross)
     totals = {
         "taxable_compensation": money(0),
@@ -225,3 +230,79 @@ def _allocate_cents(rows, gross):
     for k in range(deficit_cents):
         amounts[order[k]] += CENT
     return amounts
+
+
+# ---------------------------------------------------------------------------
+# Phase 3A：Expense / ER 侧组件分类（与工资侧同一套结构化原则，禁止名称猜）。
+# ---------------------------------------------------------------------------
+
+EXPENSE_COMPONENT_CODE = "expense_item"
+
+
+def classify_expense_item(*, amount_ok, receipt_ok, purpose_ok, work_order_ok,
+                          tax_status):
+    """单个 expense item 的结构化税务判定（Phase 3A 口径）。
+
+    - Expense 侧不自动产生 taxable_compensation：证据不足一律
+      tax_review_required，绝不因为缺凭证就改判 taxable；
+    - substantiated 语义：True=证据充分；False=已判定证据不足；
+      NULL（None）保留给「尚未判定/历史未迁移」，本判定不产生 NULL；
+    - 证据充分但缺税务身份 → review 且 snapshot 保持 NULL（禁止猜身份）。
+    返回 (tax_category, substantiated)。
+    """
+    substantiated = bool(amount_ok and receipt_ok and purpose_ok and work_order_ok)
+    if not substantiated:
+        return "tax_review_required", False
+    if tax_status is None:
+        return "tax_review_required", True
+    return "accountable_reimbursement", True
+
+
+def build_expense_payment_components(component_rows, *, employee_id, gross_amount,
+                                     payment_order_id, tax_status_lookup,
+                                     source_type=EXPENSE_COMPONENT_CODE):
+    """把 expense_items 变成 ER 可写入的组件快照（无 db/flask 依赖）。
+
+    component_rows 每行结构化字段：
+        amount / component_name / service_date / work_order_id / source_id
+        amount_ok / receipt_ok / purpose_ok / work_order_ok
+    分类只看上述结构化布尔 + tax_status_lookup，禁止按项目名称猜。
+    返回 (rows, totals)；构建期硬校验失败抛 ValueError。
+    """
+    gross = money(gross_amount)
+    raw_total = money(sum(row["amount"] for row in component_rows) if component_rows else 0)
+    if raw_total != gross:
+        raise ValueError(
+            "报销组件合计 %s 与付款单金额 %s 不一致，已中止生成（不静默补差）。"
+            % (raw_total, gross)
+        )
+    prepared = []
+    for row in component_rows:
+        lookup_day = row.get("service_date")
+        tax_status = tax_status_lookup(employee_id, lookup_day) if lookup_day else None
+        category, substantiated = classify_expense_item(
+            amount_ok=row.get("amount_ok"),
+            receipt_ok=row.get("receipt_ok"),
+            purpose_ok=row.get("purpose_ok"),
+            work_order_ok=row.get("work_order_ok"),
+            tax_status=tax_status)
+        prepared.append({
+            "payment_order_id": payment_order_id,
+            "employee_id": employee_id,
+            "component_code": source_type,
+            "component_name": row.get("component_name") or source_type,
+            "amount_raw": row["amount"],
+            "quantity": None,
+            "unit": None,
+            "unit_rate": None,
+            "service_date": lookup_day,
+            "work_order_id": row.get("work_order_id"),
+            "source_type": source_type,
+            "source_id": row.get("source_id"),
+            "daily_report_id": None,
+            "tax_category": category,
+            "tax_status_snapshot": tax_status,
+            "substantiated": substantiated,
+            "review_status": "review_required" if category == "tax_review_required" else "confirmed",
+        })
+    return _finish_component_rows(prepared, gross)
