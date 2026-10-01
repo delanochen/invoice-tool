@@ -385,6 +385,7 @@ def register_payroll_routes(app, api):
             tax_status_options=TAX_STATUS_OPTIONS,
             reviewed_options=TAX_REVIEW_REVIEWED_OPTIONS,
             can_review=api["has_action_permission"]("tax_review", "review"),
+            queues=api["tax_review_queue_summaries"](str(date.today().year)),
             today=date.today().isoformat(),
         )
 
@@ -542,6 +543,138 @@ def register_payroll_routes(app, api):
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+    # ------------------------------------------------------------------
+    # Phase 6B：CPA Workpaper（内部工作底稿 + Closing Exceptions）。
+    # 只读 reporting，复用 Annual Tax Summary 的 read model；绝不写业务表，
+    # 绝不生成 1099 / withholding / IRS 文件。
+    # ------------------------------------------------------------------
+    @app.get("/finance/cpa-workpaper")
+    @api["login_required"]
+    def cpa_workpaper():
+        if not api["has_action_permission"]("annual_tax_summary", "view"):
+            api["abort"](403)
+        request = api["request"]
+        data = api["cpa_workpaper_rows"](
+            annual_filters_from_request(request, str(date.today().year)))
+        return api["render_template"](
+            "cpa_workpaper.html",
+            rows=data["rows"],
+            totals=data["totals"],
+            filters=data["filters"],
+            options=data["options"],
+            excluded=data["excluded"],
+            exceptions=data["exceptions"],
+            rule_version=data["rule_version"],
+            not_filing_note=data["not_filing_note"],
+            year_basis_note=data["year_basis_note"],
+            potential_1099_note=POTENTIAL_1099_RULE_NOTE,
+            year_basis_options=YEAR_BASIS_OPTIONS,
+            year_basis_notes=YEAR_BASIS_NOTES,
+            tax_status_options=TAX_STATUS_OPTIONS,
+            can_export=api["has_action_permission"]("annual_tax_summary", "export"),
+            today=date.today().isoformat(),
+        )
+
+    @app.get("/finance/cpa-workpaper/export.xlsx")
+    @api["login_required"]
+    def cpa_workpaper_export():
+        if not api["has_action_permission"]("annual_tax_summary", "export"):
+            api["abort"](403)
+        request = api["request"]
+        data = api["cpa_workpaper_rows"](
+            annual_filters_from_request(request, str(date.today().year)))
+        generated_at = api["now"]()
+        banner = [data["not_filing_note"],
+                  "generated_at=%s" % generated_at,
+                  "year_basis=%s" % data["filters"]["year_basis"],
+                  "reporting_rule_version=%s" % data["rule_version"],
+                  data["year_basis_note"]]
+
+        review_data = api["tax_review_rows"]({
+            "effective_category": "tax_review_required",
+            "year": data["filters"]["year"],
+        })
+        review_groups = {}
+        for row in review_data["rows"]:
+            key = (row.get("review_reason") or "other", row["component_code"])
+            group = review_groups.setdefault(key, {
+                "count": 0, "amount": 0, "employees": set(), "dates": []})
+            group["count"] += 1
+            group["amount"] += row["amount"] or 0
+            group["employees"].add(row["employee_id"])
+            if row.get("service_date"):
+                group["dates"].append(row["service_date"])
+        review_rows = [[key[0], key[1], g["count"], float(g["amount"]),
+                        len(g["employees"]),
+                        min(g["dates"]) if g["dates"] else "",
+                        max(g["dates"]) if g["dates"] else ""]
+                       for key, g in sorted(review_groups.items())]
+
+        detail_data = api["annual_tax_summary_component_rows"](
+            annual_filters_from_request(request, str(date.today().year)))
+        detail_rows = [[
+            row.get("employee_name"), row.get("payment_number"),
+            row.get("payment_type"), row.get("service_date") or "",
+            row.get("payment_date") or "", row.get("order_number") or "",
+            row.get("component_name") or row.get("component_code"),
+            float(row.get("amount") or 0),
+            row.get("tax_category"), row.get("effective_tax_category"),
+            row.get("tax_status_snapshot") or "NULL",
+            "Paid" if row.get("payment_date") else "Unpaid",
+        ] for row in detail_data["rows"]]
+
+        totals = data["totals"]
+        employee_rows = [[
+            entry["employee_name"], entry["tax_status_label"],
+            float(entry["compensation_amount"]), float(entry["reimbursement_amount"]),
+            float(entry["review_amount"]), float(entry["total_amount"]),
+            float(entry["paid_amount"]), float(entry["potential_1099_amount"]),
+            entry["review_count"], float(entry["review_amount"]),
+        ] for entry in data["rows"]]
+        employee_rows.append([])
+        employee_rows.append(["合计", "", float(totals["compensation_amount"]),
+                              float(totals["reimbursement_amount"]),
+                              float(totals["review_amount"]),
+                              float(totals["total_amount"]), float(totals["paid_amount"]),
+                              float(totals["potential_1099_amount"]),
+                              totals["review_count"], float(totals["review_amount"])])
+
+        exception_rows = [[e["severity"], e["issue_type"], e["label"],
+                           e["count"], float(e["amount"]), e["detail"]]
+                          for e in data["exceptions"]]
+
+        sheets = [
+            ("Employee Summary",
+             ["Employee", "Tax Status", "Service Compensation", "Reimbursements",
+              "Review Required", "Recorded Total", "Paid Total",
+              "Potential 1099 Reportable (Preliminary)",
+              "Unresolved Review Count", "Unresolved Review Amount"],
+             employee_rows),
+            ("Component Detail",
+             ["Employee", "Payment", "Type", "Service Date", "Payment Date",
+              "Work Order", "Component", "Amount", "Original Category",
+              "Effective Category", "Tax Status Snapshot", "Paid/Unpaid"],
+             detail_rows),
+            ("Outstanding Review",
+             ["Reason", "Component Code", "Count", "Amount", "Employee Count",
+              "Earliest Service Date", "Latest Service Date"],
+             review_rows),
+            ("Closing Exceptions",
+             ["Severity", "Issue Type", "Label", "Count", "Amount", "Detail"],
+             exception_rows),
+        ]
+        workbook = api["build_multi_sheet_xlsx"](
+            [(name, banner + [""] + headers, rows)
+             for name, headers, rows in sheets])
+        filename = "cpa-workpaper-%s-%s.xlsx" % (
+            data["filters"]["year"] or "all", data["filters"]["year_basis"])
+        return api["send_file"](
+            workbook,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     return {
         "tax_review": tax_review,
         "tax_review_component": tax_review_component,
@@ -549,6 +682,8 @@ def register_payroll_routes(app, api):
         "annual_tax_summary": annual_tax_summary,
         "annual_tax_summary_components": annual_tax_summary_components,
         "annual_tax_summary_export": annual_tax_summary_export,
+        "cpa_workpaper": cpa_workpaper,
+        "cpa_workpaper_export": cpa_workpaper_export,
         "payroll_subsidies": payroll_subsidies,
         "labor_hours_report": labor_hours_report,
         "payroll_report": payroll_report,

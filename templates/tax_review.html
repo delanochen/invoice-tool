@@ -25,6 +25,42 @@
     </div>
   </header>
 
+  <!-- ─────────────────────────────── Resolution Queues ───────────────────── -->
+  {% if queues %}
+  <div class="erp-notice no-print" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+    <div style="flex:1;min-width:220px;">
+      <strong>Queue A — Mileage Evidence</strong><br>
+      {{ queues.queue_a_mileage.count }} 条 / {{ queues.queue_a_mileage.amount|money }} · {{ queues.queue_a_mileage.employee_count }} 人 ·
+      {{ queues.queue_a_mileage.earliest_service_date or '—' }} ~ {{ queues.queue_a_mileage.latest_service_date or '—' }}<br>
+      {% if queues.queue_a_mileage.verified_candidates.count %}
+        <span class="erp-badge warn">佐证已补齐待人工复核 {{ queues.queue_a_mileage.verified_candidates.count }} 条 / {{ queues.queue_a_mileage.verified_candidates.amount|money }}</span>
+      {% endif %}
+      <a class="erp-btn" href="{{ url_for('tax_review', component_code='self_drive_allowance', effective_category='tax_review_required') }}">打开队列</a>
+    </div>
+    <div style="flex:1;min-width:220px;">
+      <strong>Queue B — Meal Allowance Policy</strong>
+      <span class="erp-badge err">CPA POLICY DECISION REQUIRED</span><br>
+      {{ queues.queue_b_meal.count }} 条 / {{ queues.queue_b_meal.amount|money }} · {{ queues.queue_b_meal.employee_count }} 人 ·
+      {{ queues.queue_b_meal.earliest_service_date or '—' }} ~ {{ queues.queue_b_meal.latest_service_date or '—' }}<br>
+      <small class="muted">当前 config：{{ queues.meal_config.display_name if queues.meal_config else '—' }} → {{ queues.meal_config.default_tax_category if queues.meal_config else '—' }}
+      （{{ queues.meal_config.effective_from if queues.meal_config else '' }} 起{% if queues.meal_config and queues.meal_config.effective_to %} ~ {{ queues.meal_config.effective_to }}{% endif %}）</small><br>
+      <small class="muted">批量决策预览：Option A→taxable / Option B→reimbursement / Option C→keep，影响即上列 count / amount / 人数；执行须二次确认，本版未开放批量。</small><br>
+      <a class="erp-btn" href="{{ url_for('tax_review', component_code='meal_allowance', effective_category='tax_review_required') }}">打开队列</a>
+    </div>
+    <div style="flex:1;min-width:220px;">
+      <strong>Queue C — Expense Documentation</strong><br>
+      {{ queues.queue_c_expense.count }} 条 / {{ queues.queue_c_expense.amount|money }} · {{ queues.queue_c_expense.employee_count }} 人 ·
+      {{ queues.queue_c_expense.earliest_service_date or '—' }} ~ {{ queues.queue_c_expense.latest_service_date or '—' }}<br>
+      <a class="erp-btn" href="{{ url_for('tax_review', component_code='expense_item', effective_category='tax_review_required') }}">打开队列</a>
+    </div>
+    <div style="flex:1;min-width:180px;">
+      <strong>CPA Workpaper</strong><br>
+      <small class="muted">Internal workpaper — Not an IRS filing</small><br>
+      <a class="erp-btn primary" href="{{ url_for('cpa_workpaper') }}">打开 CPA Workpaper</a>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- ─────────────────────────────────── ERP Body ───────────────────────── -->
   <div class="erp-body">
     <form method="get" class="erp-filter no-print" data-erp-filter>
@@ -108,7 +144,11 @@
             <td>{{ row.component_name or row.component_code }}<small class="muted"> {{ row.component_code }}</small></td>
             <td data-grid-money>{{ row.amount|money }}</td>
             <td>{{ row.tax_status_snapshot or 'NULL' }}</td>
-            <td>{% if row.substantiated is none %}—{% elif row.substantiated %}充分{% else %}不足{% endif %}</td>
+            <td>{% if row.substantiated is none %}—{% elif row.substantiated %}充分{% else %}不足{% endif %}
+              {% if row.mileage_evidence_status %}
+                <small class="muted">{{ {'no_evidence':'实时：无佐证','evidence_success':'实时：佐证成功','evidence_failed':'实时：佐证失败'}.get(row.mileage_evidence_status, row.mileage_evidence_status) }}
+                {% if row.mileage_evidence_origin or row.mileage_evidence_destination %}· {{ row.mileage_evidence_origin or '?' }} → {{ row.mileage_evidence_destination or '?' }}{% endif %}</small>
+              {% endif %}</td>
             <td>{{ category_labels.get(row.tax_category, row.tax_category) }}</td>
             <td><strong>{{ category_labels.get(row.effective_tax_category, row.effective_tax_category) }}</strong></td>
             <td>{{ row.review_reason_label or '—' }}</td>

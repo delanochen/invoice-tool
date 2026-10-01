@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, timedelta
 
 from rate_engine import employee_rate
@@ -51,6 +52,7 @@ from .tax import (
     EXPENSE_CLASSIFICATION_CURRENT,
     EXPENSE_CLASSIFICATION_LEGACY_BACKFILL,
     EXPENSE_COMPONENT_SOURCE_TYPES,
+    POTENTIAL_1099_RULE_VERSION,
 )
 
 
@@ -498,6 +500,46 @@ def build_payroll_services(api):
             row["review_reason_label"] = review_reason_label(reason)
         return rows
 
+    def _mileage_review_context(rows):
+        """Phase 6B Queue A：为 self_drive 组件补充**实时**里程佐证状态。
+
+        只读展示，绝不据此改分类——快照里的 substantiated 保持原样，
+        佐证后来补齐也必须由授权人员人工复核（候选名单见 queue 摘要）。
+        """
+        todo = [row for row in rows
+                if row.get("component_code") == "self_drive_allowance"
+                and row.get("daily_report_id")]
+        for row in rows:
+            row.setdefault("mileage_evidence_status", None)
+            row.setdefault("mileage_evidence_origin", "")
+            row.setdefault("mileage_evidence_destination", "")
+        if not todo:
+            return
+        ids = sorted({int(row["daily_report_id"]) for row in todo})
+        marks = ",".join("?" * len(ids))
+        evidence_rows = api["db"]().execute(
+            f"""select report_id, status, origin_address, destination_address
+                from service_report_mileage_evidence
+                where report_id in ({marks}) order by id""",
+            ids,
+        ).fetchall()
+        by_report = defaultdict(list)
+        for evidence in evidence_rows:
+            by_report[int(evidence["report_id"])].append(evidence)
+        for row in todo:
+            evidence = by_report.get(int(row["daily_report_id"])) or []
+            statuses = {entry["status"] for entry in evidence}
+            if not evidence:
+                row["mileage_evidence_status"] = "no_evidence"
+            elif "success" in statuses:
+                row["mileage_evidence_status"] = "evidence_success"
+            else:
+                row["mileage_evidence_status"] = "evidence_failed"
+            latest = evidence[-1] if evidence else None
+            if latest is not None:
+                row["mileage_evidence_origin"] = latest["origin_address"] or ""
+                row["mileage_evidence_destination"] = latest["destination_address"] or ""
+
     def _tax_review_rows(filters=None):
         """复核工作台列表：只查生效快照（superseded_at is null）。
 
@@ -587,6 +629,7 @@ def build_payroll_services(api):
             sql, params + outer_params + [int(filters.get("limit") or 2000)]
         ).fetchall()]
         _annotate(rows)
+        _mileage_review_context(rows)
         reason_filter = (filters.get("reason") or "").strip()
         if reason_filter:
             rows = [row for row in rows if row["review_reason"] == reason_filter]
@@ -926,6 +969,8 @@ def build_payroll_services(api):
                                      then amount else 0 end), 0) as reimbursement_amount,
                    coalesce(sum(case when effective_tax_category = 'tax_review_required'
                                      then amount else 0 end), 0) as review_amount,
+                   coalesce(sum(case when effective_tax_category = 'tax_review_required'
+                                     then 1 else 0 end), 0) as review_count,
                    coalesce(sum(amount), 0) as total_amount,
                    count(*) as component_count,
                    coalesce(sum(case when payment_date is not null then amount else 0 end), 0)
@@ -957,6 +1002,7 @@ def build_payroll_services(api):
                 "compensation_amount": compensation,
                 "reimbursement_amount": reimbursement,
                 "review_amount": review,
+                "review_count": int(entry["review_count"]),
                 "total_amount": total,
                 "paid_amount": paid,
                 "unpaid_amount": total - paid,
@@ -977,11 +1023,13 @@ def build_payroll_services(api):
             "compensation_amount", "reimbursement_amount", "review_amount",
             "total_amount", "paid_amount")}
         totals["component_count"] = 0
+        totals["review_count"] = 0
         for entry in rows:
             for key in ("compensation_amount", "reimbursement_amount", "review_amount",
                         "total_amount", "paid_amount"):
                 totals[key] = totals[key] + entry[key]
             totals["component_count"] += entry["component_count"]
+            totals["review_count"] += entry["review_count"]
         totals["unpaid_amount"] = totals["total_amount"] - totals["paid_amount"]
         totals["potential_1099_amount"] = potential_1099_reportable(
             compensation=totals["compensation_amount"],
@@ -1094,6 +1142,192 @@ def build_payroll_services(api):
             "options": _annual_tax_summary_options(),
         }
 
+    def _tax_review_queue_summaries(default_year=None):
+        """Phase 6B：三个快捷复核队列（A 里程佐证 / B 餐补政策 / C 报销凭证）。
+
+        只读摘要；不判断、不改分类。Queue B 额外给出当前 config 快照与
+        「CPA POLICY DECISION REQUIRED」所需口径；Queue A 额外给出
+        「佐证已补齐但 effective 仍 review」的人工复核候选数。
+        """
+        from .tax import money
+        db = api["db"]()
+        year = str(default_year or "").strip()
+        rows = db.execute(
+            f"""
+            with {_latest_review_cte()}
+            select c.component_code, c.source_type, c.amount, c.employee_id,
+                   c.service_date, c.daily_report_id,
+                   coalesce(lr.new_tax_category, c.tax_category) as effective_tax_category
+            from employee_payment_components c
+            left join latest_review lr on lr.component_id = c.id
+            where c.superseded_at is null
+              and coalesce(lr.new_tax_category, c.tax_category) = 'tax_review_required'
+            """
+        ).fetchall()
+
+        def summarize(match):
+            picked = [row for row in rows if match(row)]
+            dates = [row["service_date"] for row in picked if row["service_date"]]
+            return {
+                "count": len(picked),
+                "amount": money(sum((row["amount"] or 0) for row in picked)),
+                "employee_count": len({row["employee_id"] for row in picked}),
+                "earliest_service_date": min(dates) if dates else "",
+                "latest_service_date": max(dates) if dates else "",
+            }
+
+        queue_a = summarize(
+            lambda row: row["component_code"] == "self_drive_allowance")
+        queue_b = summarize(lambda row: row["component_code"] == "meal_allowance")
+        queue_c = summarize(
+            lambda row: row["source_type"] in EXPENSE_COMPONENT_SOURCE_TYPES)
+        # Queue A 候选：佐证现在已 success、但 effective 仍是 review（绝不自动改）。
+        evidence_lookup = _mileage_evidence_lookup()
+        candidates = []
+        for row in rows:
+            if row["component_code"] != "self_drive_allowance" or not row["daily_report_id"]:
+                continue
+            if evidence_lookup(row["employee_id"], [row["daily_report_id"]]):
+                candidates.append(row)
+        queue_a["verified_candidates"] = {
+            "count": len(candidates),
+            "amount": money(sum((row["amount"] or 0) for row in candidates)),
+        }
+        meal_config = db.execute(
+            """select display_name, default_tax_category, requires_substantiation,
+                      effective_from, effective_to
+               from payroll_component_tax_config
+               where component_code='meal_allowance' and is_active=1
+               order by effective_from desc limit 1"""
+        ).fetchone()
+        return {
+            "year": year,
+            "queue_a_mileage": queue_a,
+            "queue_b_meal": queue_b,
+            "queue_c_expense": queue_c,
+            "meal_config": dict(meal_config) if meal_config else None,
+        }
+
+    def _closing_exceptions():
+        """Phase 6B：Closing Exceptions（6A 盘点的产品化，只读，不自动修复）。"""
+        from .tax import money
+        db = api["db"]()
+        out = []
+
+        def add(severity, issue_type, label, count, amount, detail=""):
+            out.append({"severity": severity, "issue_type": issue_type,
+                        "label": label, "count": int(count),
+                        "amount": money(amount or 0), "detail": str(detail or "")})
+
+        row = db.execute(
+            f"""
+            with {_latest_review_cte()}
+            select count(*) as n, coalesce(sum(c.amount), 0) as a
+            from employee_payment_components c
+            left join latest_review lr on lr.component_id = c.id
+            where c.superseded_at is null
+              and coalesce(lr.new_tax_category, c.tax_category) = 'tax_review_required'
+            """
+        ).fetchone()
+        add("HIGH", "unresolved_tax_review", "未解决税务复核", row["n"], row["a"])
+
+        cancelled = db.execute(
+            """
+            select o.payment_number, o.gross_amount
+            from employee_payment_orders o
+            where o.status = 'cancelled' and not exists (
+                select 1 from employee_payment_components c
+                where c.payment_order_id = o.id and c.superseded_at is null)
+            order by o.id
+            """
+        ).fetchall()
+        add("HIGH", "cancelled_source_missing",
+            "Excluded cancelled payment with missing source",
+            len(cancelled), sum((r["gross_amount"] or 0) for r in cancelled),
+            "；".join(f"{r['payment_number']} ${r['gross_amount']}" for r in cancelled) or "—")
+
+        row = db.execute(
+            f"{_annual_base_cte()} select count(*) as n, coalesce(sum(amount), 0) as a"
+            " from base where payment_date is null").fetchone()
+        add("MEDIUM", "missing_payment_date", "缺少可解析付款日", row["n"], row["a"])
+
+        row = db.execute(
+            "select count(*) as n, coalesce(sum(net_amount), 0) as a"
+            " from employee_payment_orders where batch_id is null and status <> 'void'"
+        ).fetchone()
+        add("MEDIUM", "order_without_batch", "付款单未入批次", row["n"], row["a"])
+
+        bad_batches = db.execute(
+            """
+            select count(*) as n from (
+                select b.id
+                from employee_payment_batches b
+                left join employee_payment_orders o on o.batch_id = b.id
+                group by b.id, b.total_amount, b.payment_count
+                having coalesce(sum(o.net_amount), 0) <> b.total_amount
+                    or count(o.id) <> b.payment_count) q
+            """
+        ).fetchone()
+        add("HIGH" if bad_batches["n"] else "INFO", "batch_integrity_mismatch",
+            "批次闭合校验失败", bad_batches["n"], 0)
+
+        bad_orders = db.execute(
+            """
+            select count(*) as n from (
+                select o.id
+                from employee_payment_orders o
+                join employee_payment_components c on c.payment_order_id = o.id
+                    and c.superseded_at is null
+                group by o.id
+                having coalesce(sum(c.amount), 0) <> o.gross_amount) q
+            """
+        ).fetchone()
+        add("HIGH" if bad_orders["n"] else "INFO", "component_mismatch",
+            "组件与付款单金额不一致", bad_orders["n"], 0)
+
+        orphan = db.execute(
+            """
+            select count(*) as n, coalesce(sum(c.amount), 0) as a
+            from employee_payment_components c
+            left join expense_items i on i.id = c.source_id
+            where c.superseded_at is null
+              and c.source_type in ('expense_item', 'historical_expense_recompute')
+              and i.id is null
+            """
+        ).fetchone()
+        add("HIGH" if orphan["n"] else "INFO", "component_source_missing",
+            "报销组件缺少来源快照", orphan["n"], orphan["a"])
+
+        row = db.execute(
+            "select count(*) as n, coalesce(sum(total_amount), 0) as a"
+            " from employee_payment_batches where status = 'issued'").fetchone()
+        add("INFO", "batch_not_reconciled", "批次已签发未对账", row["n"], row["a"])
+
+        row = db.execute(
+            "select count(*) as n from users u where (u.email is null or u.email = '')"
+            " and exists (select 1 from employee_payment_orders o where o.employee_id = u.id)"
+        ).fetchone()
+        add("INFO", "employee_email_missing", "员工缺少 Email（仅信息项）", row["n"], 0)
+
+        order = {"HIGH": 0, "MEDIUM": 1, "INFO": 2}
+        out.sort(key=lambda item: (order.get(item["severity"], 3), -item["amount"]))
+        return out
+
+    def _cpa_workpaper(filters=None, default_year=None):
+        """Phase 6B：CPA Workpaper（内部工作底稿，绝不是 IRS 申报文件）。只读。
+
+        主表复用 Annual Tax Summary（员工 + 年度 + 身份快照），
+        Recorded / Paid 严格分开；Potential 1099 继续走
+        POTENTIAL_1099_RULE_VERSION（service_compensation_v1），Preliminary。
+        """
+        data = _annual_tax_summary(filters, default_year)
+        data["exceptions"] = _closing_exceptions()
+        data["rule_version"] = POTENTIAL_1099_RULE_VERSION
+        data["not_filing_note"] = "Internal CPA Workpaper — Not an IRS Filing"
+        data["year_basis_note"] = (
+            "Reporting year and filing treatment must be confirmed before final tax filing.")
+        return data
+
     def _iso_day_of(value):
         return value.isoformat() if hasattr(value, "isoformat") else value
 
@@ -1160,4 +1394,8 @@ def build_payroll_services(api):
         "annual_tax_summary": _annual_tax_summary,
         "annual_tax_summary_options": _annual_tax_summary_options,
         "annual_tax_summary_components": _annual_tax_summary_components,
+        # Phase 6B：Resolution Queue + CPA Workpaper（只读；复核动作仍走 4A）
+        "tax_review_queue_summaries": _tax_review_queue_summaries,
+        "closing_exceptions": _closing_exceptions,
+        "cpa_workpaper": _cpa_workpaper,
     }
