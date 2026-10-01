@@ -533,30 +533,82 @@ def register_employee_finance_routes(app, api):
             ).fetchall()
             replacements = {row["employee_id"]: row for row in agreements if row["replaces_system_payroll"]}
             created = 0
+
+            def _write_components(payment_id, employee_id, components, totals, gross_amount):
+                """组件快照与三项税务合计与付款单同事务落库（失败整体回滚）。
+
+                写入前做最后一道 sum(components) == gross 硬校验（ROUND_HALF_UP），
+                任何不一致都拒绝写快照并回滚整个生成操作。
+                """
+                gross = _money(gross_amount)
+                line_sum = sum((line["amount"] for line in components), Decimal("0"))
+                if line_sum != gross or sum(totals.values()) != gross:
+                    raise ValueError(
+                        "工资组件合计 %s / 税务合计 %s 与付款单金额 %s 不一致，已中止生成。"
+                        % (line_sum, sum(totals.values()), gross)
+                    )
+                db = api["db"]()
+                for line in components:
+                    db.execute(
+                        """
+                        insert into employee_payment_components
+                        (payment_order_id,employee_id,component_code,component_name,amount,
+                         quantity,unit,unit_rate,service_date,work_order_id,source_type,source_id,
+                         daily_report_id,tax_category,tax_status_snapshot,substantiated,review_status,created_at)
+                        values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (payment_id, employee_id, line["component_code"], line["component_name"],
+                         line["amount"], line["quantity"], line["unit"], line["unit_rate"],
+                         line["service_date"], line["work_order_id"], line["source_type"],
+                         line["source_id"], line["daily_report_id"], line["tax_category"],
+                         line["tax_status_snapshot"], line["substantiated"], line["review_status"],
+                         api["now"]()),
+                    )
+                db.execute(
+                    "update employee_payment_orders set taxable_compensation_total=?,"
+                    "accountable_reimbursement_total=?,tax_review_required_total=? where id=?",
+                    (totals["taxable_compensation"], totals["accountable_reimbursement"],
+                     totals["tax_review_required"], payment_id),
+                )
+
             for row in batch["rows"]:
                 agreement = replacements.get(row["worker_id"])
                 amount = agreement["amount"] if agreement else row["total_pay"]
                 source_kind = "offline_salary" if agreement else "system_payroll"
-                _, inserted = _insert_payment(
+                # Phase 2A：生成前先算组件并做 sum==gross 硬校验（失败抛 ValueError
+                # → 下方 except 回滚整个生成操作），绝不写不完整快照、不静默补差。
+                if source_kind == "system_payroll":
+                    components, totals = api["payroll_payment_components"](
+                        period_start, row["worker_id"], amount)
+                else:
+                    components, totals = api["offline_salary_payment_components"](
+                        row["worker_id"], amount, batch["period_end"])
+                payment_id, inserted = _insert_payment(
                     api, employee_id=row["worker_id"], payment_type="salary", gross_amount=amount,
                     source_type=source_kind, source_id=agreement["id"] if agreement else None,
                     source_number=f"{period_start.isoformat()}~{batch['period_end'].isoformat()}",
                     source_key=f"payroll:{source_kind}:{row['worker_id']}:{period_start.isoformat()}",
                     description=f"{period_start.isoformat()} 至 {batch['period_end'].isoformat()} {'线下约定工资' if agreement else '系统工资'}",
                 )
+                if inserted:
+                    _write_components(payment_id, row["worker_id"], components, totals, amount)
                 created += int(inserted)
             # Offline-only employees may have no service-report row in this period.
             worker_ids = {row["worker_id"] for row in batch["rows"]}
             for agreement in agreements:
                 if agreement["employee_id"] in worker_ids and agreement["replaces_system_payroll"]:
                     continue
-                _, inserted = _insert_payment(
+                payment_id, inserted = _insert_payment(
                     api, employee_id=agreement["employee_id"], payment_type="salary",
                     gross_amount=agreement["amount"], source_type="offline_salary", source_id=agreement["id"],
                     source_number=f"{period_start.isoformat()}~{batch['period_end'].isoformat()}",
                     source_key=f"payroll:offline_salary:{agreement['employee_id']}:{period_start.isoformat()}",
                     description=f"{period_start.isoformat()} 至 {batch['period_end'].isoformat()} 线下约定工资",
                 )
+                if inserted:
+                    components, totals = api["offline_salary_payment_components"](
+                        agreement["employee_id"], agreement["amount"], batch["period_end"])
+                    _write_components(payment_id, agreement["employee_id"], components, totals, agreement["amount"])
                 created += int(inserted)
             api["db"]().commit(); flash(f"已生成 {created} 张付款单；重复来源已自动跳过。", "success")
         except (ValueError, TypeError) as error:

@@ -77,29 +77,20 @@ def split_report_labor_hours(
     return result
 
 
-def aggregate_payroll_rows(
-    entries,
-    writer_rows,
-    subsidy_settings,
-    period_start,
-    detail=False,
-    rate_resolver=None,
-):
-    """把逐条工时行聚合成工资行。
+def _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detail):
+    """aggregate_payroll_rows 与 payroll_component_rows 共用的累加主体。
 
-    这是 ``payroll_rows_for_range`` 的计算主体，抽到本层后既便于独立测试，
-    也让后续「按 service_date 输出组件明细」的改造不必再碰 SQL。
-    返回 ``(payroll_rows, totals)``。
+    聚合键：detail=True 时按 (worker_id, attendance_date, service_order_id)，
+    否则只按 worker_id。返回 bucket 字典（插入序 = 首条出现序）。
     """
-    if rate_resolver is None:
-        raise TypeError("rate_resolver is required")
     payroll = {}
 
     def ensure_worker(row):
         key = (row["worker_id"], row["attendance_date"], row["service_order_id"]) if detail else row["worker_id"]
         return payroll.setdefault(key, {
             **({"attendance_date": row["attendance_date"], "service_order_id": row["service_order_id"],
-                "order_number": row["order_number"], "client_name": row["client_name"], "report_ids": set()} if detail else {}),
+                "order_number": row["order_number"], "client_name": row["client_name"], "report_ids": set(),
+                "attendance_bucket": False} if detail else {}),
             "worker_id": row["worker_id"], "worker_name": row["worker_name"],
             "grade_name": row["grade_name"] or "未指定",
             "base_salary": float(row["base_salary"] or 0),
@@ -138,6 +129,7 @@ def aggregate_payroll_rows(
         worker = ensure_worker(row)
         if detail:
             worker["report_ids"].add(row["report_id"])
+            worker["attendance_bucket"] = True
         work_date = row["attendance_date"] or period_start.isoformat()
         worker_id = row["worker_id"]
         for key in ("standard_hours", "transport_hours", "overtime_hours", "holiday_hours"):
@@ -171,6 +163,26 @@ def aggregate_payroll_rows(
         else:
             ensure_worker(row)["report_writing_count"] = int(row["report_writing_count"] or 0)
 
+    return payroll
+
+
+def aggregate_payroll_rows(
+    entries,
+    writer_rows,
+    subsidy_settings,
+    period_start,
+    detail=False,
+    rate_resolver=None,
+):
+    """把逐条工时行聚合成工资行。
+
+    这是 ``payroll_rows_for_range`` 的计算主体，抽到本层后既便于独立测试，
+    也让后续「按 service_date 输出组件明细」的改造不必再碰 SQL。
+    返回 ``(payroll_rows, totals)``。
+    """
+    if rate_resolver is None:
+        raise TypeError("rate_resolver is required")
+    payroll = _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detail)
     payroll_rows = []
     for worker in payroll.values():
         attendance_days = len(worker["attendance_dates"])
@@ -240,6 +252,100 @@ def aggregate_payroll_rows(
         "self_drive_allowance", "following_allowance", "rental_driving_allowance", "car_allowance",
         "meal_allowance", "report_writing_fee", "subsidy_total", "total_pay")}
     return payroll_rows, totals
+
+
+# 税务组件明细：code -> (bucket 原始金额键, 数量字段, 单位)。
+# 金额全部来自 _accumulate_buckets 的同一套 pay_* 累加器（与工资行同源，
+# 禁止另算）；standard_pay 等展示名是 finalize 阶段才生成的，这里不能用。
+COMPONENT_QTY_SPECS = (
+    ("standard_pay", "pay_standard", "standard_hours", "hours"),
+    ("overtime_pay", "pay_overtime", "overtime_hours", "hours"),
+    ("holiday_pay", "pay_holiday", "holiday_hours", "hours"),
+    ("following_allowance", "pay_following", "following_travel_hours", "hours"),
+    ("rental_driving_allowance", "pay_rental", "rental_driving_hours", "hours"),
+    ("self_drive_allowance", "pay_self_drive", "driving_miles", "miles"),
+)
+
+
+def payroll_component_rows(entries, writer_rows, subsidy_settings, period_start, rate_resolver):
+    """输出按 (员工, service_date, 工单, 组件) 拆分的工资组件明细（原始精度）。
+
+    供生成付款单时冻结 ``employee_payment_components`` 使用：
+    与 ``aggregate_payroll_rows(detail=True)`` 共用同一累加器，因此
+    ``sum(组件金额)`` 与工资行的 ``total_pay`` 同源同值（金额差异只可能
+    来自落库时的分位量化，由调用方做 ROUND_HALF_UP 硬校验）。
+
+    返回 dict 列表，字段：
+        worker_id, component_code, amount, quantity, unit, unit_rate,
+        service_date, work_order_id, order_number, report_ids,
+        meal_daily_amount, base_salary
+    金额为 0 的组件不输出；base_salary / meal_allowance 是周期性组件，
+    分别落到 worker 首个 bucket 与每个出勤日的首个 bucket。
+    """
+    if rate_resolver is None:
+        raise TypeError("rate_resolver is required")
+    payroll = _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detail=True)
+    writing_fee = float(subsidy_settings["report_writing_fee"] or 0)
+    rows = []
+    worker_meal = {}
+    worker_base = {}
+    meal_emitted = set()
+    for bucket in payroll.values():
+        service_date = bucket["attendance_date"] or None
+        report_ids = bucket["report_ids"]
+        worker_id = bucket["worker_id"]
+        if worker_id not in worker_meal:
+            # 与周期级工资行一致：meal / base 取该 worker 首个 bucket 的等级值。
+            worker_meal[worker_id] = float(bucket["meal_daily_amount"] or 0)
+            worker_base[worker_id] = float(bucket["base_salary"] or 0)
+        for code, amount_key, qty_key, unit in COMPONENT_QTY_SPECS:
+            amount = float(bucket[amount_key] or 0)
+            if amount == 0:
+                continue
+            quantity = float(bucket[qty_key] or 0)
+            rows.append({
+                "worker_id": worker_id, "component_code": code, "amount": amount,
+                "quantity": quantity, "unit": unit,
+                "unit_rate": effective_display_rate(amount, quantity),
+                "service_date": service_date, "work_order_id": bucket["service_order_id"],
+                "order_number": bucket["order_number"], "report_ids": set(report_ids),
+                "daily_report_id": next(iter(report_ids)) if len(report_ids) == 1 else None,
+            })
+        count = int(bucket["report_writing_count"] or 0)
+        if count and writing_fee:
+            amount = count * writing_fee
+            rows.append({
+                "worker_id": worker_id, "component_code": "report_writing_fee",
+                "amount": amount, "quantity": float(count), "unit": "reports",
+                "unit_rate": writing_fee,
+                "service_date": service_date, "work_order_id": bucket["service_order_id"],
+                "order_number": bucket["order_number"], "report_ids": set(report_ids),
+                "daily_report_id": next(iter(report_ids)) if len(report_ids) == 1 else None,
+            })
+        meal_key = (worker_id, bucket["attendance_date"])
+        if (
+            bucket["attendance_bucket"] and bucket["attendance_date"]
+            and meal_key not in meal_emitted and worker_meal[worker_id]
+        ):
+            meal_emitted.add(meal_key)
+            rows.append({
+                "worker_id": worker_id, "component_code": "meal_allowance",
+                "amount": worker_meal[worker_id], "quantity": 1.0, "unit": "day",
+                "unit_rate": worker_meal[worker_id],
+                "service_date": bucket["attendance_date"],
+                "work_order_id": bucket["service_order_id"],
+                "order_number": bucket["order_number"], "report_ids": set(report_ids),
+                "daily_report_id": next(iter(report_ids)) if len(report_ids) == 1 else None,
+            })
+    for worker_id, base in worker_base.items():
+        if base:
+            rows.append({
+                "worker_id": worker_id, "component_code": "base_salary",
+                "amount": base, "quantity": 1.0, "unit": "period", "unit_rate": base,
+                "service_date": None, "work_order_id": None, "order_number": "",
+                "report_ids": set(), "daily_report_id": None,
+            })
+    return rows
 
 
 def payroll_period_dates(period_start):

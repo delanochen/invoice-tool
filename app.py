@@ -16883,6 +16883,12 @@ payroll_batch_payload = _payroll_services["payroll_batch_payload"]
 current_payroll_period_start = _payroll_services["current_payroll_period_start"]
 effective_payroll_worker_id = _payroll_services["effective_payroll_worker_id"]
 historical_payroll_period = _payroll_services["historical_payroll_period"]
+# Phase 2A：税务组件快照（生成 SL 时冻结 employee_payment_components）
+payroll_payment_components = _payroll_services["payroll_payment_components"]
+offline_salary_payment_components = _payroll_services["offline_salary_payment_components"]
+component_tax_config_lookup = _payroll_services["component_tax_config_lookup"]
+worker_tax_status_lookup = _payroll_services["worker_tax_status_lookup"]
+mileage_evidence_lookup = _payroll_services["mileage_evidence_lookup"]
 _payroll_routes = register_payroll_routes(app, globals())
 payroll_subsidies = _payroll_routes["payroll_subsidies"]
 labor_hours_report = _payroll_routes["labor_hours_report"]
