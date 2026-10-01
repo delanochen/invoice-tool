@@ -238,6 +238,13 @@ def _allocate_cents(rows, gross):
 
 EXPENSE_COMPONENT_CODE = "expense_item"
 
+# 历史 ER 回填的 provenance（scripts/backfill_er_tax_components.py），与新建
+# ER 的 'expense_item' 同属「报销侧组件」，复核工作台按同一套原因推导。
+EXPENSE_BACKFILL_SOURCE_TYPE = "historical_expense_recompute"
+EXPENSE_COMPONENT_SOURCE_TYPES = frozenset(
+    {EXPENSE_COMPONENT_CODE, EXPENSE_BACKFILL_SOURCE_TYPE}
+)
+
 # Phase 3D：业务用途判定必须显式选择口径，绝不按 created_at 等日期隐式分支。
 EXPENSE_CLASSIFICATION_CURRENT = "current"          # 新数据：只认 business_purpose
 EXPENSE_CLASSIFICATION_LEGACY_BACKFILL = "legacy_backfill"  # 历史回填：兼容旧凭证
@@ -337,3 +344,105 @@ def build_expense_payment_components(component_rows, *, employee_id, gross_amoun
             "review_status": "review_required" if category == "tax_review_required" else "confirmed",
         })
     return _finish_component_rows(prepared, gross)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4A：Tax Review 工作台的纯判定。
+#
+# 两条铁律：
+#   1. 原始快照只读 —— 人工复核只写 employee_payment_tax_reviews，
+#      绝不 UPDATE employee_payment_components.tax_category；
+#   2. 原因一律由结构化字段推导（component_code / substantiated /
+#      tax_status_snapshot / 报销侧的凭证与业务用途），禁止按 component_name 猜。
+# ---------------------------------------------------------------------------
+
+REASON_MISSING_MILEAGE_EVIDENCE = "missing_mileage_evidence"
+REASON_MEAL_POLICY = "meal_policy_review"
+REASON_MISSING_TAX_STATUS = "missing_tax_status"
+REASON_MISSING_ATTACHMENT = "missing_attachment"
+REASON_MISSING_BUSINESS_PURPOSE = "missing_business_purpose"
+REASON_SUBSTANTIATION = "substantiation_issue"
+REASON_CLASSIFICATION = "classification_review"
+
+REVIEW_REASON_LABELS = {
+    REASON_MISSING_MILEAGE_EVIDENCE: "Missing mileage evidence",
+    REASON_MEAL_POLICY: "Policy review required",
+    REASON_MISSING_TAX_STATUS: "Missing worker tax status",
+    REASON_MISSING_ATTACHMENT: "Missing attachment",
+    REASON_MISSING_BUSINESS_PURPOSE: "Missing business purpose",
+    REASON_SUBSTANTIATION: "Other substantiation issue",
+    REASON_CLASSIFICATION: "Tax classification review required",
+}
+
+
+def _field(row, name, default=None):
+    """database.Row 没有 .get()；缺列按未填写处理，不让历史行炸掉。"""
+    try:
+        return row[name]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+def effective_tax_category(original_category, latest_review):
+    """有效税务分类 = 最新一条 review 的 new_tax_category，无 review 回退原始快照。
+
+    latest_review 为 None 表示「从未复核」。Annual Summary 必须用这个值，
+    不能只读 employee_payment_components.tax_category。
+    """
+    if latest_review is None:
+        return original_category
+    return _field(latest_review, "new_tax_category") or original_category
+
+
+def review_reason_key(component, *, tax_category=None, expense_context=None):
+    """推导「当前仍待复核」的原因 key；已确认分类（非 review）返回 None。
+
+    tax_category 传**有效分类**：复核成 accountable / taxable 之后就不再有待办原因。
+    优先级按 Phase 4A 拍板顺序，结构化字段优先，绝不看 component_name。
+
+    Payroll：self_drive 缺里程佐证 → 餐补政策待定 → 缺税务身份 → 其他分类待定
+    Expense：缺凭证 → 缺业务用途 → 缺税务身份 → 其他佐证问题
+
+    expense_context 为 None（取不到报销上下文）时跳过前两项，只按身份 / 兜底判定，
+    绝不因为查不到上下文就把问题算成「已解决」。
+    """
+    category = tax_category if tax_category is not None else _field(component, "tax_category")
+    if category != "tax_review_required":
+        return None
+    tax_status = _field(component, "tax_status_snapshot")
+    source_type = _field(component, "source_type") or ""
+    if source_type in EXPENSE_COMPONENT_SOURCE_TYPES:
+        if expense_context is not None:
+            if not expense_context.get("receipt_ok", True):
+                return REASON_MISSING_ATTACHMENT
+            if not expense_context.get("purpose_ok", True):
+                return REASON_MISSING_BUSINESS_PURPOSE
+        if tax_status is None:
+            return REASON_MISSING_TAX_STATUS
+        return REASON_SUBSTANTIATION
+    code = _field(component, "component_code") or ""
+    substantiated = _field(component, "substantiated")
+    if code == "self_drive_allowance" and (substantiated is False or substantiated == 0):
+        return REASON_MISSING_MILEAGE_EVIDENCE
+    if code == "meal_allowance":
+        return REASON_MEAL_POLICY
+    if tax_status is None:
+        return REASON_MISSING_TAX_STATUS
+    return REASON_CLASSIFICATION
+
+
+def review_reason_label(key):
+    return REVIEW_REASON_LABELS.get(key, "")
+
+
+def review_reason_options():
+    """筛选下拉用的 (key, label) 列表（顺序即展示顺序）。"""
+    return [(key, REVIEW_REASON_LABELS[key]) for key in (
+        REASON_MISSING_MILEAGE_EVIDENCE,
+        REASON_MEAL_POLICY,
+        REASON_MISSING_TAX_STATUS,
+        REASON_MISSING_ATTACHMENT,
+        REASON_MISSING_BUSINESS_PURPOSE,
+        REASON_SUBSTANTIATION,
+        REASON_CLASSIFICATION,
+    )]

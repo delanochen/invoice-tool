@@ -25,7 +25,22 @@ from .calculations import (
     payroll_row_export,
     split_report_labor_hours,
 )
-from .tax import build_payment_components
+from .tax import (
+    TAX_CATEGORIES,
+    build_payment_components,
+    effective_tax_category,
+    expense_purpose_ok,
+    review_reason_key,
+    review_reason_label,
+)
+
+# 报销侧组件的 provenance（新建 ER / 历史 ER 回填），复核原因按同一套口径推导。
+from .tax import (
+    EXPENSE_BACKFILL_SOURCE_TYPE,
+    EXPENSE_CLASSIFICATION_CURRENT,
+    EXPENSE_CLASSIFICATION_LEGACY_BACKFILL,
+    EXPENSE_COMPONENT_SOURCE_TYPES,
+)
 
 
 def build_payroll_services(api):
@@ -357,6 +372,393 @@ def build_payroll_services(api):
         day = _iso_day_of(today) if today else _date.today().isoformat()
         return _worker_tax_status_lookup()(employee_id, day)
 
+    # ------------------------------------------------------------------
+    # Phase 4A：Tax Review 工作台。
+    #
+    # 只读原则：组件快照（employee_payment_components）永不 UPDATE/DELETE，
+    # 人工复核只往 employee_payment_tax_reviews 追加一行（previous → new + reason）。
+    # 「有效分类」= 最新一条 review 的 new_tax_category，无 review 回退原始快照。
+    # ------------------------------------------------------------------
+
+    def _latest_review_cte():
+        """每个组件最新一条复核（PG DISTINCT ON；排序与 Python 侧一致）。"""
+        return """
+            latest_review as (
+                select distinct on (component_id) component_id, id as review_id,
+                       new_tax_category, previous_tax_category, reason,
+                       reviewed_by, reviewed_at
+                from employee_payment_tax_reviews
+                order by component_id, reviewed_at desc, id desc
+            )
+        """
+
+    def _tax_review_options():
+        db = api["db"]()
+        employees = db.execute(
+            """select distinct u.id, u.name from users u
+               join employee_payment_components c on c.employee_id = u.id
+               where c.superseded_at is null order by u.name"""
+        ).fetchall()
+        codes = db.execute(
+            """select distinct component_code from employee_payment_components
+               where superseded_at is null order by component_code"""
+        ).fetchall()
+        years = db.execute(
+            """select distinct left(coalesce(service_date, created_at), 4) as year
+               from employee_payment_components
+               where superseded_at is null and coalesce(service_date, created_at) is not null
+               order by year desc"""
+        ).fetchall()
+        return {
+            "employees": [dict(row) for row in employees],
+            "component_codes": [row["component_code"] for row in codes],
+            "years": [row["year"] for row in years if row["year"]],
+        }
+
+    def _expense_contexts(rows):
+        """按 component.source_id（= expense_items.id）批量取报销侧判定上下文。
+
+        凭证与业务用途都是**当前**状态（动态推导）：凭证后补 / 用途后填，
+        原因会随之变化，这正是复核工作台要看到的。
+        """
+        ids = [int(row["source_id"]) for row in rows
+               if row.get("source_type") in EXPENSE_COMPONENT_SOURCE_TYPES and row.get("source_id")]
+        if not ids:
+            return {}
+        db = api["db"]()
+        marks = ",".join("?" * len(ids))
+        items = db.execute(
+            f"""
+            select i.id as item_id, i.line_key, i.expense_id, i.project,
+                   i.amount as item_amount, i.description as item_description,
+                   e.expense_number, e.expense_date, e.status as expense_status,
+                   e.business_purpose, e.description, e.reviewed_by,
+                   e.service_order_id as expense_order_id
+            from expense_items i join expenses e on e.id = i.expense_id
+            where i.id in ({marks})
+            """,
+            ids,
+        ).fetchall()
+        if not items:
+            return {}
+        expense_ids = sorted({int(row["expense_id"]) for row in items})
+        marks = ",".join("?" * len(expense_ids))
+        attachments = db.execute(
+            f"""select expense_id, expense_item_key, count(*) as hits
+                from expense_attachments where expense_id in ({marks})
+                group by expense_id, expense_item_key""",
+            expense_ids,
+        ).fetchall()
+        hits = {(int(row["expense_id"]), row["expense_item_key"] or ""): int(row["hits"] or 0)
+                for row in attachments}
+        contexts = {}
+        for row in items:
+            contexts[int(row["item_id"])] = {
+                "expense": row,
+                "receipt_ok": bool(hits.get((int(row["expense_id"]), row["line_key"] or ""))),
+            }
+        return contexts
+
+    def _expense_context(component, contexts):
+        """取出某个报销组件可用的上下文（含按 provenance 显式选择用途口径）。"""
+        found = contexts.get(int(component["source_id"])) if component.get("source_id") else None
+        if not found:
+            return None
+        mode = (EXPENSE_CLASSIFICATION_LEGACY_BACKFILL
+                if component.get("source_type") == EXPENSE_BACKFILL_SOURCE_TYPE
+                else EXPENSE_CLASSIFICATION_CURRENT)
+        return {
+            "receipt_ok": found["receipt_ok"],
+            "purpose_ok": expense_purpose_ok(found["expense"], mode),
+            "expense": found["expense"],
+        }
+
+    def _annotate(rows):
+        """给每行补 effective 分类、复核原因与来源上下文（纯推导，不写库）。"""
+        contexts = _expense_contexts(rows)
+        for row in rows:
+            row["reviewed"] = row.get("review_id") is not None
+            context = _expense_context(row, contexts) if (
+                row.get("source_type") in EXPENSE_COMPONENT_SOURCE_TYPES) else None
+            row["expense"] = (context or {}).get("expense")
+            reason = review_reason_key(
+                row, tax_category=row.get("effective_tax_category"), expense_context=context)
+            row["review_reason"] = reason
+            row["review_reason_label"] = review_reason_label(reason)
+        return rows
+
+    def _tax_review_rows(filters=None):
+        """复核工作台列表：只查生效快照（superseded_at is null）。
+
+        SQL 负责结构化筛选；「原因」依赖报销上下文（凭证 / 业务用途）在 Python 侧
+        推导后再过滤，避免把推导逻辑复制一份进 SQL 造成两套真相。
+        """
+        from .tax import money
+        filters = dict(filters or {})
+        clauses = ["c.superseded_at is null"]
+        params = []
+        year = (filters.get("year") or "").strip()
+        if year:
+            clauses.append("left(coalesce(c.service_date, o.created_at), 4) = ?")
+            params.append(year)
+        employee_id = (filters.get("employee_id") or "").strip()
+        if employee_id:
+            clauses.append("c.employee_id = ?")
+            params.append(int(employee_id))
+        payment_type = (filters.get("payment_type") or "").strip()
+        if payment_type:
+            clauses.append("o.payment_type = ?")
+            params.append(payment_type)
+        component_code = (filters.get("component_code") or "").strip()
+        if component_code:
+            clauses.append("c.component_code = ?")
+            params.append(component_code)
+        tax_status = (filters.get("tax_status") or "").strip()
+        if tax_status == "NULL":
+            clauses.append("c.tax_status_snapshot is null")
+        elif tax_status:
+            clauses.append("c.tax_status_snapshot = ?")
+            params.append(tax_status)
+        original_category = (filters.get("original_category") or "").strip()
+        if original_category:
+            clauses.append("c.tax_category = ?")
+            params.append(original_category)
+        date_from = (filters.get("date_from") or "").strip()
+        if date_from:
+            clauses.append("c.service_date >= ?")
+            params.append(date_from)
+        date_to = (filters.get("date_to") or "").strip()
+        if date_to:
+            clauses.append("c.service_date <= ?")
+            params.append(date_to)
+        reviewed = (filters.get("reviewed") or "").strip()
+        if reviewed == "reviewed":
+            clauses.append("lr.review_id is not null")
+        elif reviewed == "unreviewed":
+            clauses.append("lr.review_id is null")
+
+        outer = ["1 = 1"]
+        outer_params = []
+        effective_category = (filters.get("effective_category") or "").strip()
+        if effective_category:
+            outer.append("effective_tax_category = ?")
+            outer_params.append(effective_category)
+
+        sql = f"""
+            with {_latest_review_cte()}
+            select * from (
+                select c.id as component_id, c.payment_order_id, c.employee_id,
+                       c.component_code, c.component_name, c.amount, c.quantity, c.unit,
+                       c.unit_rate, c.service_date, c.work_order_id, c.source_type,
+                       c.source_id, c.daily_report_id, c.tax_category,
+                       c.tax_status_snapshot, c.substantiated, c.review_status,
+                       c.created_at,
+                       coalesce(lr.new_tax_category, c.tax_category) as effective_tax_category,
+                       lr.review_id, lr.reviewed_at as last_reviewed_at,
+                       lr.reviewed_by as last_reviewed_by, lr.reason as last_review_reason,
+                       o.payment_number, o.payment_type, o.status as payment_status,
+                       o.paid_at, u.name as employee_name,
+                       so.order_number, so.client_name,
+                       ru.name as last_reviewed_by_name
+                from employee_payment_components c
+                join employee_payment_orders o on o.id = c.payment_order_id
+                join users u on u.id = c.employee_id
+                left join service_orders so on so.id = c.work_order_id
+                left join latest_review lr on lr.component_id = c.id
+                left join users ru on ru.id = lr.reviewed_by
+                where {" and ".join(clauses)}
+            ) base
+            where {" and ".join(outer)}
+            order by coalesce(service_date, '') desc, component_id desc
+            limit ?
+        """
+        rows = [dict(row) for row in api["db"]().execute(
+            sql, params + outer_params + [int(filters.get("limit") or 2000)]
+        ).fetchall()]
+        _annotate(rows)
+        reason_filter = (filters.get("reason") or "").strip()
+        if reason_filter:
+            rows = [row for row in rows if row["review_reason"] == reason_filter]
+        totals = {
+            "amount": money(sum((row["amount"] or 0) for row in rows) if rows else 0),
+            "taxable_compensation": money(0),
+            "accountable_reimbursement": money(0),
+            "tax_review_required": money(0),
+        }
+        for row in rows:
+            totals[row["effective_tax_category"]] = (
+                totals[row["effective_tax_category"]] + money(row["amount"]))
+        return {"rows": rows, "totals": totals, "filters": filters,
+                "options": _tax_review_options()}
+
+    def _tax_review_detail(component_id):
+        """单条组件复核详情（含来源单据 / 里程佐证 / 复核历史）。"""
+        from .tax import money
+        db = api["db"]()
+        component = db.execute(
+            """
+            select c.*,
+                   coalesce((select r.new_tax_category from employee_payment_tax_reviews r
+                             where r.component_id = c.id
+                             order by r.reviewed_at desc, r.id desc limit 1),
+                            c.tax_category) as effective_tax_category,
+                   o.payment_number, o.payment_type, o.status as payment_status,
+                   o.gross_amount, o.advance_offset, o.other_adjustment, o.net_amount,
+                   o.paid_at, o.description as payment_description,
+                   u.name as employee_name,
+                   so.order_number, so.client_name, so.site_address
+            from employee_payment_components c
+            join employee_payment_orders o on o.id = c.payment_order_id
+            join users u on u.id = c.employee_id
+            left join service_orders so on so.id = c.work_order_id
+            where c.id = ?
+            """,
+            (component_id,),
+        ).fetchone()
+        if not component:
+            return None
+        component = dict(component)
+        expense = None
+        evidence = []
+        report = None
+        if component["source_type"] in EXPENSE_COMPONENT_SOURCE_TYPES and component["source_id"]:
+            expense = db.execute(
+                """
+                select e.*, i.line_key, i.project as item_project, i.description as item_description,
+                       i.amount as item_amount
+                from expense_items i join expenses e on e.id = i.expense_id
+                where i.id = ?
+                """,
+                (component["source_id"],),
+            ).fetchone()
+            if expense:
+                attachments = db.execute(
+                    """select id, original_filename, uploaded_at from expense_attachments
+                       where expense_id = ? and expense_item_key = ? order by id""",
+                    (expense["id"], expense["line_key"]),
+                ).fetchall()
+                expense = dict(expense)
+                expense["attachments"] = [dict(row) for row in attachments]
+        if component["daily_report_id"]:
+            report = db.execute(
+                """
+                select sr.id, sr.report_date, sr.arrival_time, sr.departure_time,
+                       srw.driving_miles, srw.travel_mode, srw.travel_hours,
+                       so.order_number, so.site_address
+                from service_reports sr
+                left join service_report_workers srw
+                       on srw.report_id = sr.id and srw.user_id = ?
+                left join service_orders so on so.id = sr.service_order_id
+                where sr.id = ?
+                """,
+                (component["employee_id"], component["daily_report_id"]),
+            ).fetchone()
+            if report:
+                report = dict(report)
+            evidence = [dict(row) for row in db.execute(
+                """
+                select id, status, one_way_miles, reported_miles, distance_meters,
+                       origin_address, destination_address, trip_type, generated_by, generated_at
+                from service_report_mileage_evidence
+                where report_id = ? and worker_user_id = ?
+                order by id desc
+                """,
+                (component["daily_report_id"], component["employee_id"]),
+            ).fetchall()]
+        context = None
+        if expense is not None:
+            context = _expense_context(component, {int(component["source_id"]): {
+                "expense": expense, "receipt_ok": bool(expense.get("attachments"))}})
+        reason = review_reason_key(component, tax_category=component["effective_tax_category"],
+                                   expense_context=context)
+        return {
+            "component": component,
+            "effective_tax_category": component["effective_tax_category"],
+            "review_reason": reason,
+            "review_reason_label": review_reason_label(reason),
+            "expense": expense,
+            "report": report,
+            "mileage_evidence": evidence,
+            "history": _tax_review_history(component_id),
+            "amount": money(component["amount"]),
+        }
+
+    def _tax_review_history(component_id):
+        """复核历史：按时间正序（审计链：原始 → 第一次 → 第二次……）。"""
+        return [dict(row) for row in api["db"]().execute(
+            """
+            select r.*, u.name as reviewer_name
+            from employee_payment_tax_reviews r
+            left join users u on u.id = r.reviewed_by
+            where r.component_id = ?
+            order by r.reviewed_at asc, r.id asc
+            """,
+            (component_id,),
+        ).fetchall()]
+
+    def _record_tax_review(component_id, new_category, reason, reviewer_id):
+        """追加一条复核（只读组件，绝不 UPDATE employee_payment_components）。
+
+        previous_tax_category 取**当前有效分类**（不是原始快照值），这样第二次
+        复核时审计链是连续的：review → accountable → taxable。
+        返回 previous 分类供调用方写审计日志。
+        """
+        if new_category not in TAX_CATEGORIES:
+            raise ValueError("未知的税务分类：%r" % (new_category,))
+        reason = (reason or "").strip()
+        if not reason:
+            raise ValueError("复核原因必填：分类调整必须留下可追溯的说明。")
+        db = api["db"]()
+        component = db.execute(
+            "select * from employee_payment_components where id = ?", (component_id,)
+        ).fetchone()
+        if not component:
+            raise ValueError("找不到该税务组件。")
+        if component["superseded_at"]:
+            raise ValueError("该组件快照已被新快照取代，不能再复核（请复核当前生效快照）。")
+        latest = db.execute(
+            """select * from employee_payment_tax_reviews where component_id = ?
+               order by reviewed_at desc, id desc limit 1""",
+            (component_id,),
+        ).fetchone()
+        previous = effective_tax_category(component["tax_category"], latest)
+        db.execute(
+            """insert into employee_payment_tax_reviews
+               (component_id, reviewed_by, reviewed_at, previous_tax_category,
+                new_tax_category, reason)
+               values (?,?,?,?,?,?)""",
+            (component_id, reviewer_id, api["now"](), previous, new_category, reason),
+        )
+        return previous
+
+    def _payment_tax_components(payment_id):
+        """付款单的组件 + 原始/有效两套税务合计（页面展示用，改库一律不发生）。"""
+        from .tax import money
+        rows = [dict(row) for row in api["db"]().execute(
+            f"""
+            with {_latest_review_cte()}
+            select c.*, coalesce(lr.new_tax_category, c.tax_category) as effective_tax_category,
+                   lr.reviewed_at as last_reviewed_at, lr.reason as last_review_reason,
+                   u.name as last_reviewed_by_name, so.order_number, so.client_name
+            from employee_payment_components c
+            left join latest_review lr on lr.component_id = c.id
+            left join users u on u.id = lr.reviewed_by
+            left join service_orders so on so.id = c.work_order_id
+            where c.payment_order_id = ? and c.superseded_at is null
+            order by c.id
+            """,
+            (payment_id,),
+        ).fetchall()]
+        _annotate(rows)
+        original = {key: money(0) for key in TAX_CATEGORIES}
+        effective = {key: money(0) for key in TAX_CATEGORIES}
+        for row in rows:
+            amount = money(row["amount"])
+            original[row["tax_category"]] = original[row["tax_category"]] + amount
+            effective[row["effective_tax_category"]] = (
+                effective[row["effective_tax_category"]] + amount)
+        return {"rows": rows, "original_totals": original, "effective_totals": effective}
+
     def _iso_day_of(value):
         return value.isoformat() if hasattr(value, "isoformat") else value
 
@@ -413,4 +815,10 @@ def build_payroll_services(api):
         "worker_tax_status_entries": _worker_tax_status_entries,
         "create_worker_tax_status_entry": _create_worker_tax_status_entry,
         "worker_tax_status_current": _worker_tax_status_current,
+        # Phase 4A：Tax Review 工作台（只读快照 + 只追加复核）
+        "tax_review_rows": _tax_review_rows,
+        "tax_review_detail": _tax_review_detail,
+        "tax_review_history": _tax_review_history,
+        "record_tax_review": _record_tax_review,
+        "payment_tax_components": _payment_tax_components,
     }

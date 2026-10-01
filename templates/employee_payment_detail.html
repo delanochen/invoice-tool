@@ -66,6 +66,46 @@
         </table>
       </section>
 
+      {# Phase 4A：Effective Tax Summary。金额与单据一律不变 —— 复核只改「有效税务分类」，
+         原始快照合计保留审计意义，这里的有效合计是每次打开页面按最新复核动态算的。 #}
+      {% if tax_components %}
+      <section class="panel">
+        <div class="panel-title"><h2>税务组件（Effective）</h2><span class="erp-badge">{{ tax_components.rows|length }} 条</span></div>
+        <table class="list-table">
+          <thead><tr><th>组件</th><th>服务日期</th><th>工单</th><th data-grid-money>金额</th><th>税务身份</th><th>原始分类</th><th>有效分类</th><th>复核原因</th><th></th></tr></thead>
+          <tbody>{% for row in tax_components.rows %}<tr>
+            <td>{{ row.component_name or row.component_code }}<small class="muted"> {{ row.component_code }}</small></td>
+            <td>{{ row.service_date or '—' }}</td>
+            <td>{{ row.order_number or row.work_order_id or '—' }}</td>
+            <td data-grid-money>{{ row.amount|money }}</td>
+            <td>{{ row.tax_status_snapshot or 'NULL' }}</td>
+            <td>{{ tax_category_labels.get(row.tax_category, row.tax_category) }}</td>
+            <td><strong>{{ tax_category_labels.get(row.effective_tax_category, row.effective_tax_category) }}</strong></td>
+            <td>{{ row.review_reason_label or '—' }}</td>
+            <td>{% if has_action_permission('tax_review','view') %}<a href="{{ url_for('tax_review_component', component_id=row.id) }}">复核</a>{% endif %}</td>
+          </tr>{% else %}<tr><td colspan="9" class="empty">该付款单没有生效的税务组件快照。</td></tr>{% endfor %}</tbody>
+          <tfoot><tr>
+            <td colspan="3">原始快照合计</td>
+            <td data-grid-money>{{ (tax_components.original_totals.taxable_compensation + tax_components.original_totals.accountable_reimbursement + tax_components.original_totals.tax_review_required)|money }}</td>
+            <td colspan="5" class="muted">
+              Taxable {{ tax_components.original_totals.taxable_compensation|money }} ·
+              Reimbursement {{ tax_components.original_totals.accountable_reimbursement|money }} ·
+              Review {{ tax_components.original_totals.tax_review_required|money }}
+            </td>
+          </tr><tr>
+            <td colspan="3"><strong>有效分类合计</strong></td>
+            <td data-grid-money><strong>{{ (tax_components.effective_totals.taxable_compensation + tax_components.effective_totals.accountable_reimbursement + tax_components.effective_totals.tax_review_required)|money }}</strong></td>
+            <td colspan="5" class="muted">
+              Taxable {{ tax_components.effective_totals.taxable_compensation|money }} ·
+              Reimbursement {{ tax_components.effective_totals.accountable_reimbursement|money }} ·
+              Review {{ tax_components.effective_totals.tax_review_required|money }}
+            </td>
+          </tr></tfoot>
+        </table>
+        <p class="erp-filter-note">复核只改变有效税务分类：应付 / 实付 / 往来账 / 批次 / 银行对账一律不变。</p>
+      </section>
+      {% endif %}
+
       <section class="panel">
         <div class="panel-title"><h2>完整审计轨迹</h2><span class="erp-badge">{{ events|length }} 条</span></div>
         <table class="list-table">

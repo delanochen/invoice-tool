@@ -374,6 +374,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "employee_advances", "label": "员工借款", "roles": {"admin", "manager", "finance"}},
             {"key": "employee_ledger", "label": "员工往来账", "roles": {"admin", "manager", "finance"}},
             {"key": "payment_batches", "label": "付款批次", "roles": {"admin", "manager", "finance"}},
+            {"key": "tax_review", "label": "税务复核", "roles": {"admin", "manager", "finance"}},
             {"key": "bank_reconciliation", "label": "银行对账", "roles": {"admin", "finance"}},
         ],
     },
@@ -496,6 +497,9 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             {"key": "bank_accounts", "label": "银行账户", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "bank_transactions", "label": "银行流水", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "employee_ledger", "label": "员工往来账", "actions": {"view": {"admin", "manager", "finance"}}},
+            # Phase 4A：税务复核。「看」给财务/经理/管理员，「改分类」只给财务与管理员
+            # —— 分类调整会改变年度汇总口径，不能让只读角色误点。
+            {"key": "tax_review", "label": "税务复核", "actions": {"view": {"admin", "manager", "finance"}, "review": {"admin", "finance"}}},
             {"key": "bank_reconciliation", "label": "银行对账", "actions": {"view": {"admin", "finance"}, "reconcile": {"admin", "finance"}}},
             {"key": "assets", "label": "资产档案", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin"}}},
         ],
@@ -1829,6 +1833,10 @@ def required_action_for_request():
         "payroll_calendar": ("payroll_calendar", "view"),
         "payroll_calendar_batch": ("payroll_calendar", "view"),
         "payroll_calendar_export": ("payroll_calendar", "export"),
+        # Phase 4A：Tax Review 工作台（写动作额外要求 tax_review.review）
+        "tax_review": ("tax_review", "view"),
+        "tax_review_component": ("tax_review", "view"),
+        "save_tax_review": ("tax_review", "review"),
     }
     return method_rules.get((endpoint, method)) or endpoint_rules.get(endpoint)
 
@@ -16919,6 +16927,12 @@ mileage_evidence_lookup = _payroll_services["mileage_evidence_lookup"]
 worker_tax_status_entries = _payroll_services["worker_tax_status_entries"]
 create_worker_tax_status_entry = _payroll_services["create_worker_tax_status_entry"]
 worker_tax_status_current = _payroll_services["worker_tax_status_current"]
+# Phase 4A：Tax Review 工作台（组件快照只读，复核只追加 review 行）
+tax_review_rows = _payroll_services["tax_review_rows"]
+tax_review_detail = _payroll_services["tax_review_detail"]
+tax_review_history = _payroll_services["tax_review_history"]
+record_tax_review = _payroll_services["record_tax_review"]
+payment_tax_components = _payroll_services["payment_tax_components"]
 _payroll_routes = register_payroll_routes(app, globals())
 payroll_subsidies = _payroll_routes["payroll_subsidies"]
 labor_hours_report = _payroll_routes["labor_hours_report"]
@@ -16928,6 +16942,9 @@ payroll_calendar = _payroll_routes["payroll_calendar"]
 payroll_calendar_batch = _payroll_routes["payroll_calendar_batch"]
 payroll_calendar_export = _payroll_routes["payroll_calendar_export"]
 worker_tax_status_history = _payroll_routes["worker_tax_status_history"]
+tax_review = _payroll_routes["tax_review"]
+tax_review_component = _payroll_routes["tax_review_component"]
+save_tax_review = _payroll_routes["save_tax_review"]
 
 register_employee_finance_routes(app, globals())
 

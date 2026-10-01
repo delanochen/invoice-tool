@@ -756,8 +756,17 @@ def register_employee_finance_routes(app, api):
             api["db"]().execute("select * from employee_payment_batches where id=?", (payment["batch_id"],)).fetchone()
             if payment["batch_id"] else None
         )
+        # Phase 4A：Effective Tax Summary。只读 —— 组件快照永远是生成当时的冻结值，
+        # 页面上的「有效分类」按最新复核动态算出，不写回任何表。
+        from invoice_tool.payroll.routes import TAX_CATEGORY_LABELS
+        tax_components = (
+            api["payment_tax_components"](payment_id)
+            if api["has_action_permission"]("tax_review", "view") else None
+        )
         return render_template("employee_payment_detail.html", payment=payment, sources=sources, events=events,
                                applications=applications, accounts=accounts, batch=batch,
+                               tax_components=tax_components,
+                               tax_category_labels=TAX_CATEGORY_LABELS,
                                status_labels=PAYMENT_STATUS_LABELS,
                                type_labels=PAYMENT_TYPE_LABELS, method_labels=PAYMENT_METHOD_LABELS)
 

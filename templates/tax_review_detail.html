@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block title %}税务复核 · #{{ component.id }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{# Phase 4A 复核详情：来源单据 / 里程佐证 / 凭证 / 复核历史。
+   原始快照与付款单金额一律只读；三个复核动作都要填原因，只追加 review 行。 #}
+{% set expense = detail.expense %}
+{% set report = detail.report %}
+<div class="erp-app erp-app--flow erp-compact" data-active-panel="detail">
+
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      税务复核 #{{ component.id }}
+      <small>{{ component.employee_name }} · {{ component.payment_number }} · {{ component.component_name or component.component_code }}</small>
+    </div>
+    <span class="erp-badge">{{ category_labels.get(detail.effective_tax_category, detail.effective_tax_category) }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      {% if can_review %}
+      <button class="erp-btn primary" type="button" data-dialog-open="reviewAccountable">确认为可报销</button>
+      <button class="erp-btn" type="button" data-dialog-open="reviewTaxable">视为应税报酬</button>
+      <button class="erp-btn" type="button" data-dialog-open="reviewKeep">继续待复核</button>
+      {% endif %}
+      <a class="erp-btn" href="{{ url_for('tax_review') }}">返回列表</a>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <div class="erp-body">
+    <section class="erp-panel active" data-erp-panel="detail">
+      <section class="panel">
+        <div class="panel-title"><h2>组件快照（只读）</h2><span class="erp-badge">{{ component.source_type }}</span></div>
+        <div class="detail-grid">
+          <p><strong>员工</strong><span>{{ component.employee_name }}</span></p>
+          <p><strong>付款单</strong><span><a href="{{ url_for('employee_payment_detail', payment_id=component.payment_order_id) }}">{{ component.payment_number }}</a>（{{ {'salary':'SL 工资','expense':'ER 报销'}.get(component.payment_type, component.payment_type) }}）</span></p>
+          <p><strong>组件</strong><span>{{ component.component_name or component.component_code }}<small class="muted"> {{ component.component_code }}</small></span></p>
+          <p><strong>金额</strong><span><strong>{{ component.amount|money }}</strong></span></p>
+          <p><strong>服务日期</strong><span>{{ component.service_date or '—' }}</span></p>
+          <p><strong>工单</strong><span>{% if component.work_order_id %}{{ component.order_number or component.work_order_id }}{% if component.client_name %} · {{ component.client_name }}{% endif %}{% else %}—{% endif %}</span></p>
+          <p><strong>税务身份快照</strong><span>{{ component.tax_status_snapshot or 'NULL（缺身份）' }}</span></p>
+          <p><strong>佐证</strong><span>{% if component.substantiated is none %}未判定{% elif component.substantiated %}充分{% else %}不足{% endif %}</span></p>
+          <p><strong>原始分类</strong><span>{{ category_labels.get(component.tax_category, component.tax_category) }}</span></p>
+          <p><strong>有效分类</strong><span><strong>{{ category_labels.get(detail.effective_tax_category, detail.effective_tax_category) }}</strong></span></p>
+          <p class="full-span"><strong>复核原因</strong><span>{{ detail.review_reason_label or '（当前分类已确认，无待办原因）' }}</span></p>
+        </div>
+      </section>
+
+      {% if expense %}
+      <section class="panel">
+        <div class="panel-title"><h2>来源报销</h2><span class="erp-badge">{{ expense.expense_number }}</span></div>
+        <div class="detail-grid">
+          <p><strong>报销单</strong><span><a href="{{ url_for('expense_detail', expense_id=expense.id) }}">{{ expense.expense_number }}</a></span></p>
+          <p><strong>项目</strong><span>{{ expense.item_project or '—' }}</span></p>
+          <p><strong>报销日期</strong><span>{{ expense.expense_date or '—' }}</span></p>
+          <p><strong>明细金额</strong><span>{{ expense.item_amount|money }}</span></p>
+          <p><strong>业务用途</strong><span>{{ expense.business_purpose or '（未填写）' }}</span></p>
+          <p class="full-span"><strong>明细说明</strong><span>{{ expense.item_description or expense.description or '—' }}</span></p>
+        </div>
+        <table class="list-table">
+          <thead><tr><th>凭证</th><th>上传时间</th></tr></thead>
+          <tbody>
+          {% for attachment in expense.attachments %}<tr>
+            <td>{{ attachment.original_filename }}</td>
+            <td>{{ attachment.uploaded_at|local_datetime }}</td>
+          </tr>{% else %}<tr><td colspan="2" class="empty">该明细行没有凭证 —— 这就是复核原因。</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% endif %}
+
+      {% if report %}
+      <section class="panel">
+        <div class="panel-title"><h2>来源日报 / 里程</h2><span class="erp-badge">#{{ component.daily_report_id }}</span></div>
+        <div class="detail-grid">
+          <p><strong>日报日期</strong><span>{{ report.report_date or '—' }}</span></p>
+          <p><strong>申报里程</strong><span>{{ report.driving_miles if report.driving_miles is not none else '—' }}</span></p>
+          <p><strong>出行方式</strong><span>{{ report.travel_mode or '—' }}</span></p>
+          <p><strong>日报</strong><span>{% if component.daily_report_id %}<a href="{{ url_for('view_service_report', report_id=component.daily_report_id) }}">#{{ component.daily_report_id }}</a>{% else %}—{% endif %}</span></p>
+          <p><strong>工单</strong><span>{{ report.order_number or '—' }}</span></p>
+          <p class="full-span"><strong>目的地</strong><span>{{ report.site_address or '—' }}</span></p>
+        </div>
+        <table class="list-table">
+          <thead><tr><th>佐证</th><th>状态</th><th>起点</th><th>终点</th><th>里程</th><th>生成时间</th></tr></thead>
+          <tbody>
+          {% for item in detail.mileage_evidence %}<tr>
+            <td>#{{ item.id }}</td>
+            <td>{{ item.status }}</td>
+            <td>{{ item.origin_address or '—' }}</td>
+            <td>{{ item.destination_address or '—' }}</td>
+            <td>{{ item.reported_miles if item.reported_miles is not none else item.one_way_miles }}</td>
+            <td>{{ item.generated_at|local_datetime }}</td>
+          </tr>{% else %}<tr><td colspan="6" class="empty">没有里程佐证记录 —— 这就是复核原因。</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% endif %}
+
+      <section class="panel">
+        <div class="panel-title"><h2>复核历史</h2><span class="erp-badge">{{ history|length }} 条</span></div>
+        <table class="list-table">
+          <thead><tr><th>#</th><th>时间</th><th>复核人</th><th>原分类</th><th>新分类</th><th>原因</th></tr></thead>
+          <tbody>{% for entry in history %}<tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ entry.reviewed_at|local_datetime }}</td>
+            <td>{{ entry.reviewer_name or entry.reviewed_by }}</td>
+            <td>{{ category_labels.get(entry.previous_tax_category, entry.previous_tax_category) }}</td>
+            <td>{{ category_labels.get(entry.new_tax_category, entry.new_tax_category) }}</td>
+            <td>{{ entry.reason }}</td>
+          </tr>{% else %}<tr><td colspan="6" class="empty">尚未复核 —— 当前有效分类就是原始快照分类。</td></tr>{% endfor %}</tbody>
+        </table>
+      </section>
+    </section>
+  </div>
+
+  <footer class="erp-summary">
+    {{ summary_item('金额', component.amount|money, 'muted') }}
+    {{ summary_item('原始分类', category_labels.get(component.tax_category, component.tax_category), 'muted') }}
+    {{ summary_item('有效分类', category_labels.get(detail.effective_tax_category, detail.effective_tax_category), 'pos') }}
+    {{ summary_item('复核次数', history|length, 'muted') }}
+  </footer>
+
+  <footer class="erp-status">
+    <span>组件 <b>#{{ component.id }}</b></span>
+    <span class="sep"></span>
+    <span>付款单 <b>{{ component.payment_number }}</b></span>
+    <span class="sep"></span>
+    <span>复核只写 employee_payment_tax_reviews；组件快照与付款单金额永不改写。</span>
+  </footer>
+</div>
+
+{# 三个复核动作：原因必填（中英文都可以），提交后只追加一条复核记录。 #}
+{% if can_review %}
+<dialog id="reviewAccountable" class="modal-dialog">
+  <form method="post" action="{{ url_for('save_tax_review', component_id=component.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>确认为可报销</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="accountable">
+    <label>复核原因<textarea name="reason" rows="4" required placeholder="必填，例如：Receipt provided and verified. / 凭证已补齐并核对。"></textarea></label>
+    <p class="erp-filter-note">有效分类改为 accountable_reimbursement；金额与付款单不变。</p>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="primary">保存复核</button></div>
+  </form>
+</dialog>
+
+<dialog id="reviewTaxable" class="modal-dialog">
+  <form method="post" action="{{ url_for('save_tax_review', component_id=component.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>视为应税报酬</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="taxable">
+    <label>复核原因<textarea name="reason" rows="4" required placeholder="必填，例如：Expense determined to be compensation. / 认定为报酬性质。"></textarea></label>
+    <p class="erp-filter-note">有效分类改为 taxable_compensation；金额与付款单不变。</p>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="primary">保存复核</button></div>
+  </form>
+</dialog>
+
+<dialog id="reviewKeep" class="modal-dialog">
+  <form method="post" action="{{ url_for('save_tax_review', component_id=component.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>继续待复核</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="keep">
+    <label>复核原因<textarea name="reason" rows="4" required placeholder="必填，例如：Supporting documentation remains unavailable. / 佐证仍未取得。"></textarea></label>
+    <p class="erp-filter-note">分类保持 tax_review_required，但会留下一条「已看过」的复核记录。</p>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="primary">保存复核</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}
+{# data-dialog-open 的页面必须加载 modal-forms.js（否则按钮点了没反应）。 #}
+{% block scripts %}<script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script><script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}

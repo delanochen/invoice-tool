@@ -144,6 +144,7 @@ upgrade_postgresql_schema() {
   python3 "$APP_DIR/scripts/upgrade_postgresql_0290.py" --database "$PG_DATABASE" || return 1
   python3 "$APP_DIR/scripts/upgrade_postgresql_0291.py" --database "$PG_DATABASE" || return 1
   python3 "$APP_DIR/scripts/upgrade_postgresql_0292.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0293.py" --database "$PG_DATABASE" || return 1
 }
 build_current_version() {
   APP_VERSION="$(tr -d '\r\n' < VERSION)"

@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+{% block title %}税务复核{% endblock %}
+
+{% block content %}
+{# Phase 4A：Tax Review 工作台（ERP 明细账范式）。
+   只查当前生效快照（superseded_at is null）；「有效分类」= 最新复核结果，
+   没有复核就回退原始快照。复核只追加 review 行 —— 组件快照、付款单金额、
+   往来账 / 批次 / 对账一律不动。 #}
+<div class="erp-app" data-active-panel="review">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">税务复核<small>财务管理 · 统一处理工资与报销组件的待复核项</small></div>
+    <span class="erp-badge">{{ rows|length }} 条组件</span>
+    <span class="erp-badge warn">待复核 {{ totals.tax_review_required|money }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ─────────────────────────────────── ERP Body ───────────────────────── -->
+  <div class="erp-body">
+    <form method="get" class="erp-filter no-print" data-erp-filter>
+      <label class="erp-field">税务年度
+        <select name="year">
+          <option value="">全部年度</option>
+          {% for year in years %}<option value="{{ year }}" {% if filters.year==year %}selected{% endif %}>{{ year }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">员工
+        <select name="employee_id">
+          <option value="">全部员工</option>
+          {% for employee in employees %}<option value="{{ employee.id }}" {% if filters.employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">单据类型
+        <select name="payment_type">
+          <option value="">全部</option>
+          {% for value,label in payment_type_labels %}<option value="{{ value }}" {% if filters.payment_type==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">组件
+        <select name="component_code">
+          <option value="">全部组件</option>
+          {% for code in component_codes %}<option value="{{ code }}" {% if filters.component_code==code %}selected{% endif %}>{{ code }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">复核原因
+        <select name="reason">
+          <option value="">全部原因</option>
+          {% for value,label in reason_options %}<option value="{{ value }}" {% if filters.reason==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">税务身份
+        <select name="tax_status">
+          <option value="">全部</option>
+          {% for value,label in tax_status_options %}<option value="{{ value }}" {% if filters.tax_status==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">原始分类
+        <select name="original_category">
+          <option value="">全部</option>
+          {% for value,label in category_options %}<option value="{{ value }}" {% if filters.original_category==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">有效分类
+        <select name="effective_category">
+          <option value="">全部</option>
+          {% for value,label in category_options %}<option value="{{ value }}" {% if filters.effective_category==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">复核状态
+        <select name="reviewed">
+          <option value="">全部</option>
+          {% for value,label in reviewed_options %}<option value="{{ value }}" {% if filters.reviewed==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="erp-field">服务日期起
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label class="erp-field">服务日期止
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+    </form>
+
+    <section class="erp-panel active" data-erp-panel="review">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
+          <thead><tr>
+            <th>员工</th><th>付款单</th><th>SL / ER</th><th>服务日期</th><th>工单 / 项目</th>
+            <th>组件</th><th data-grid-money>金额</th><th>税务身份</th><th>佐证</th>
+            <th>原始分类</th><th>有效分类</th><th>复核原因</th><th>最近复核人</th><th>最近复核时间</th><th></th>
+          </tr></thead>
+          <tbody>{% for row in rows %}<tr>
+            <td>{{ row.employee_name }}</td>
+            <td><a href="{{ url_for('employee_payment_detail', payment_id=row.payment_order_id) }}">{{ row.payment_number }}</a></td>
+            {# SL = 工资付款单 / ER = 报销付款单（与付款单编号前缀一致） #}
+            <td>{{ {'salary':'SL','expense':'ER'}.get(row.payment_type, row.payment_type) }}</td>
+            <td>{{ row.service_date or '—' }}</td>
+            <td>{% if row.work_order_id %}{{ row.order_number or row.work_order_id }}{% if row.client_name %} · {{ row.client_name }}{% endif %}{% else %}—{% endif %}</td>
+            <td>{{ row.component_name or row.component_code }}<small class="muted"> {{ row.component_code }}</small></td>
+            <td data-grid-money>{{ row.amount|money }}</td>
+            <td>{{ row.tax_status_snapshot or 'NULL' }}</td>
+            <td>{% if row.substantiated is none %}—{% elif row.substantiated %}充分{% else %}不足{% endif %}</td>
+            <td>{{ category_labels.get(row.tax_category, row.tax_category) }}</td>
+            <td><strong>{{ category_labels.get(row.effective_tax_category, row.effective_tax_category) }}</strong></td>
+            <td>{{ row.review_reason_label or '—' }}</td>
+            <td>{{ row.last_reviewed_by_name or '—' }}</td>
+            <td>{{ row.last_reviewed_at|local_datetime if row.last_reviewed_at else '—' }}</td>
+            <td><a class="erp-btn" href="{{ url_for('tax_review_component', component_id=row.component_id) }}">复核</a></td>
+          </tr>{% else %}<tr><td colspan="15" class="empty">没有符合条件的组件。</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for row in rows %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ row.payment_number }}</span>
+              <span class="erp-card-customer">{{ row.employee_name }}</span>
+              <span class="status {{ row.payment_status }}">{{ {'salary':'SL','expense':'ER'}.get(row.payment_type, row.payment_type) }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ row.component_name or row.component_code }}</span>
+              <span>{{ row.service_date or '—' }}</span>
+            </div>
+            {% if row.review_reason_label %}<div class="erp-card-sub">{{ row.review_reason_label }}</div>{% endif %}
+            <div class="erp-card-metrics">
+              <div class="erp-card-metric"><span>金额</span><strong>{{ row.amount|money }}</strong></div>
+              <div class="erp-card-metric"><span>原始</span><strong>{{ category_labels.get(row.tax_category, row.tax_category) }}</strong></div>
+              <div class="erp-card-metric"><span>有效</span><strong>{{ category_labels.get(row.effective_tax_category, row.effective_tax_category) }}</strong></div>
+            </div>
+            <div class="erp-card-foot">
+              <a class="erp-btn primary" href="{{ url_for('tax_review_component', component_id=row.component_id) }}">复核</a>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的组件。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('组件', rows|length, 'muted') }}
+    {{ summary_item('记录金额', totals.amount|money, 'muted') }}
+    {{ summary_item('Taxable', totals.taxable_compensation|money, 'muted') }}
+    {{ summary_item('Reimbursement', totals.accountable_reimbursement|money, 'muted') }}
+    {{ summary_item('Review Required', totals.tax_review_required|money, 'neg') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>年度 <b>{{ filters.year or '全部' }}</b></span>
+    <span class="sep"></span>
+    <span>有效分类 <b>{{ filters.effective_category or '全部' }}</b></span>
+    <span class="sep"></span>
+    <span>复核只改变有效税务分类，付款单金额 / 往来账 / 批次 / 银行对账一律不变。</span>
+  </footer>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>{% endblock %}

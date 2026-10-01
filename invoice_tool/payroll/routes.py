@@ -16,6 +16,20 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from .tax import TAX_CATEGORIES, review_reason_options
+
+# Phase 4A：复核工作台的展示字典（纯展示，判定一律走 tax.py 的结构化函数）。
+TAX_CATEGORY_LABELS = {
+    "taxable_compensation": "Taxable Compensation",
+    "accountable_reimbursement": "Accountable Reimbursement",
+    "tax_review_required": "Tax Review Required",
+}
+TAX_CATEGORY_OPTIONS = [(key, TAX_CATEGORY_LABELS[key]) for key in TAX_CATEGORIES]
+# SL = 工资付款单 / ER = 报销付款单（与 employee_finance.PAYMENT_NUMBER_PREFIXES 一致）。
+TAX_REVIEW_PAYMENT_TYPES = [("salary", "SL 工资"), ("expense", "ER 报销")]
+TAX_STATUS_OPTIONS = [("1099", "1099"), ("W2", "W2"), ("NULL", "NULL（缺身份）")]
+TAX_REVIEW_REVIEWED_OPTIONS = [("unreviewed", "未复核"), ("reviewed", "已复核")]
+
 
 def register_payroll_routes(app, api):
 
@@ -279,7 +293,124 @@ def register_payroll_routes(app, api):
             can_manage=can_manage,
         )
 
+    # ------------------------------------------------------------------
+    # Phase 4A：Tax Review 工作台。
+    #
+    # 统一处理 payroll 与 expense 两侧「当前生效快照」里仍需人工判定的组件。
+    # 复核**只追加** employee_payment_tax_reviews：原始组件快照、付款单金额、
+    # 往来账 / 批次 / 银行对账一律不动（页面上的 Effective 合计是动态算出来的）。
+    # 权限：tax_review.view 看，tax_review.review 才能改分类（默认 admin/finance）。
+    # ------------------------------------------------------------------
+    REVIEW_ACTIONS = {
+        "accountable": "accountable_reimbursement",
+        "taxable": "taxable_compensation",
+        "keep": "tax_review_required",
+    }
+    REVIEW_ACTION_LABELS = {
+        "accountable": "确认为可报销",
+        "taxable": "视为应税报酬",
+        "keep": "继续待复核",
+    }
+
+    def _review_filters(request, default_year):
+        """默认口径：当前税务年度 + 有效分类仍是 tax_review_required。
+
+        「全部」选项的值就是空串，所以只要 URL 里显式带了参数就不套默认，
+        用户能真正看到全部记录，而不是被默认值悄悄过滤掉。
+        """
+        requested = request.args
+        effective = requested.get("effective_category")
+        if effective is None:
+            effective = "tax_review_required"
+        year = requested.get("year")
+        if year is None:
+            year = default_year
+        return {
+            "year": year or "",
+            "employee_id": requested.get("employee_id", "") or "",
+            "payment_type": requested.get("payment_type", "") or "",
+            "component_code": requested.get("component_code", "") or "",
+            "reason": requested.get("reason", "") or "",
+            "tax_status": requested.get("tax_status", "") or "",
+            "original_category": requested.get("original_category", "") or "",
+            "effective_category": effective or "",
+            "reviewed": requested.get("reviewed", "") or "",
+            "date_from": requested.get("date_from", "") or "",
+            "date_to": requested.get("date_to", "") or "",
+        }
+
+    @app.get("/finance/tax-review")
+    @api["login_required"]
+    def tax_review():
+        if not api["has_action_permission"]("tax_review", "view"):
+            api["abort"](403)
+        request = api["request"]
+        filters = _review_filters(request, str(date.today().year))
+        data = api["tax_review_rows"](filters)
+        return api["render_template"](
+            "tax_review.html",
+            rows=data["rows"],
+            totals=data["totals"],
+            filters=data["filters"],
+            options=data["options"],
+            employees=data["options"]["employees"],
+            component_codes=data["options"]["component_codes"],
+            years=data["options"]["years"],
+            reason_options=review_reason_options(),
+            category_options=TAX_CATEGORY_OPTIONS,
+            category_labels=TAX_CATEGORY_LABELS,
+            payment_type_labels=TAX_REVIEW_PAYMENT_TYPES,
+            tax_status_options=TAX_STATUS_OPTIONS,
+            reviewed_options=TAX_REVIEW_REVIEWED_OPTIONS,
+            can_review=api["has_action_permission"]("tax_review", "review"),
+            today=date.today().isoformat(),
+        )
+
+    @app.get("/finance/tax-review/<int:component_id>")
+    @api["login_required"]
+    def tax_review_component(component_id):
+        if not api["has_action_permission"]("tax_review", "view"):
+            api["abort"](403)
+        detail = api["tax_review_detail"](component_id)
+        if detail is None:
+            api["abort"](404)
+        return api["render_template"](
+            "tax_review_detail.html",
+            detail=detail,
+            component=detail["component"],
+            history=detail["history"],
+            category_labels=TAX_CATEGORY_LABELS,
+            can_review=api["has_action_permission"]("tax_review", "review"),
+        )
+
+    @app.post("/finance/tax-review/<int:component_id>/review")
+    @api["login_required"]
+    def save_tax_review(component_id):
+        if not api["has_action_permission"]("tax_review", "review"):
+            api["abort"](403)
+        request = api["request"]
+        action = (request.form.get("action", "") or "").strip()
+        target = REVIEW_ACTIONS.get(action)
+        reason = (request.form.get("reason", "") or "").strip()
+        try:
+            if target is None:
+                raise ValueError("未知的复核动作。")
+            previous = api["record_tax_review"](
+                component_id, target, reason, api["g"].user["id"])
+            api["log_action"](
+                "review", "tax_review", component_id, "%s → %s" % (previous, target),
+                "税务复核 %s → %s：%s" % (previous, target, reason))
+            api["db"]().commit()
+            api["flash"]("复核已保存：%s。" % REVIEW_ACTION_LABELS[action], "success")
+        except ValueError as error:
+            api["db"]().rollback()
+            api["flash"](str(error), "error")
+        return api["redirect"](api["url_for"]("tax_review_component", component_id=component_id))
+
     return {
+        "tax_review": tax_review,
+        "tax_review_component": tax_review_component,
+        "save_tax_review": save_tax_review,
         "payroll_subsidies": payroll_subsidies,
         "labor_hours_report": labor_hours_report,
         "payroll_report": payroll_report,
