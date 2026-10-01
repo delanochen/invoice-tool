@@ -12,12 +12,22 @@ import hashlib
 import io
 import json
 import os
-from datetime import date
+import re
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 from flask import Response, abort, flash, g, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.platypus import LongTable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, TableStyle
 
 from invoice_tool.payroll.tax import (
     EXPENSE_CLASSIFICATION_CURRENT,
@@ -720,6 +730,420 @@ def payment_statement_payload(api, batch_id):
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 5B：Payment Statement PDF（presentation layer）。
+#
+# 分层铁律：Business = payment_statement_payload()，Presentation =
+# render_payment_statement_pdf(payload)。PDF 绝不再查库、绝不重算任何金额，
+# HTML / PDF / 以后的 Email 附件共享同一份 payload。下载路由零写入。
+# ---------------------------------------------------------------------------
+
+STATEMENT_PDF_TAX_LABELS = {
+    "taxable_compensation": "Compensation (taxable)",
+    "accountable_reimbursement": "Reimbursement (accountable)",
+    "tax_review_required": "Tax review required",
+}
+
+_STATEMENT_FILENAME_UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def payment_statement_pdf_filename(batch_number, employee_name=""):
+    """Payment_Statement_{batch}_{employee}.pdf；非法字符换 '-'，Unicode 保留。
+
+    secure_filename 会把中文整个剥掉，所以这里用与工单结算导出相同的白名单外
+    字符替换策略；员工名清洗后为空时回退 batch 号，保证文件名稳定可下载。
+    """
+    parts = ["Payment_Statement"]
+    for value in (batch_number, employee_name):
+        cleaned = _STATEMENT_FILENAME_UNSAFE.sub("-", str(value or "")).strip(" .")
+        if cleaned:
+            parts.append(cleaned)
+    return "_".join(parts) + ".pdf"
+
+
+def _pdf_money(value, currency="USD"):
+    symbols = {"USD": "$", "CNY": "¥", "EUR": "€", "GBP": "£", "JPY": "¥"}
+    amount = Decimal(str(value or "0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    symbol = symbols.get(currency, f"{currency} ")
+    return f"{symbol}{amount:,.2f}"
+
+
+def _pdf_datetime(value):
+    text = "" if value is None else str(value)
+    if not text:
+        return "—"
+    try:
+        return datetime.fromisoformat(text).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return text
+
+
+def render_payment_statement_pdf(payload, *, company_name="", generated_at=""):
+    """由 payload 渲染 Payment Statement PDF（Letter、黑白友好、BytesIO）。
+
+    只做 payload → presentation 转换：
+    - 金额/分类/闭合结论一律取 payload，本函数不查库、不算账；
+    - 批次不闭合仍允许生成，但顶部 DATA INTEGRITY WARNING 显式列出差额；
+    - review_pending > 0 显示 Review Pending 横幅，但不让生成失败；
+    - 组件/报销明细缺失与 HTML 同口径容错，不伪造；
+    - 不出现 Taxes / Deductions / Net Pay 等传统 paystub 栏位。
+    """
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    batch = payload["batch"]
+    currency = batch.get("currency") or "USD"
+
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+        title=f"Payment Statement {payload['statement_number']}",
+        author=company_name or "Prasinos Power",
+    )
+
+    title_style = ParagraphStyle(
+        "StatementPdfTitle", fontName="STSong-Light", fontSize=16, leading=20,
+        alignment=TA_CENTER, textColor=colors.HexColor("#10233F"),
+    )
+    section_style = ParagraphStyle(
+        "StatementPdfSection", fontName="STSong-Light", fontSize=11, leading=14,
+        alignment=TA_LEFT, textColor=colors.HexColor("#10233F"), spaceBefore=6,
+    )
+    order_style = ParagraphStyle(
+        "StatementPdfOrder", fontName="STSong-Light", fontSize=9, leading=12,
+        alignment=TA_LEFT, textColor=colors.black,
+    )
+    meta_style = ParagraphStyle(
+        "StatementPdfMeta", fontName="STSong-Light", fontSize=9, leading=12,
+        alignment=TA_LEFT, textColor=colors.black,
+    )
+    note_style = ParagraphStyle(
+        "StatementPdfNote", fontName="STSong-Light", fontSize=7.5, leading=10,
+        alignment=TA_LEFT, textColor=colors.HexColor("#475467"),
+    )
+    warn_style = ParagraphStyle(
+        "StatementPdfWarn", fontName="STSong-Light", fontSize=8.5, leading=11,
+        alignment=TA_LEFT, textColor=colors.HexColor("#B42318"),
+    )
+    head_style = ParagraphStyle(
+        "StatementPdfHead", fontName="STSong-Light", fontSize=7.5, leading=9,
+        alignment=TA_LEFT, textColor=colors.black,
+    )
+    cell_style = ParagraphStyle(
+        "StatementPdfCell", fontName="STSong-Light", fontSize=7.5, leading=9,
+        alignment=TA_LEFT, textColor=colors.black,
+    )
+    money_style = ParagraphStyle(
+        "StatementPdfMoney", parent=cell_style, alignment=TA_RIGHT,
+    )
+
+    def para(text, style):
+        return Paragraph("" if text is None else str(text), style)
+
+    def banner(text, warn=False):
+        style = warn_style if warn else note_style
+        table = LongTable(
+            [[para(text, style)]],
+            colWidths=[document.width],
+        )
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1),
+             colors.HexColor("#FEF3F2") if warn else colors.HexColor("#FFFAEB")),
+            ("BOX", (0, 0), (-1, -1), 0.6,
+             colors.HexColor("#B42318") if warn else colors.HexColor("#DC6803")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        return table
+
+    def grid_table(header, rows, col_widths, *, repeat_header=True):
+        data = [[para(text, head_style) for text in header]]
+        data.extend(rows)
+        table = LongTable(
+            data, colWidths=col_widths, repeatRows=1 if repeat_header else 0,
+            hAlign="LEFT",
+        )
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E7EBF0")),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#98A2B3")),
+            ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#475467")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ]))
+        return table
+
+    # ---- 抬头：标题 + 元数据 ------------------------------------------------
+    story = [
+        para(company_name or "Payment Statement", ParagraphStyle(
+            "StatementPdfCompany", parent=title_style, fontSize=11, leading=14)),
+        para("Payment Statement", title_style),
+        Spacer(1, 4 * mm),
+    ]
+    order_count = len(payload["salary_orders"]) + len(payload["expense_orders"])
+    meta_rows = [
+        ("Statement No.", payload["statement_number"]),
+        ("Batch", batch["batch_number"]),
+        ("Employee", batch["employee_name"]),
+        ("Payment Status", PAYMENT_BATCH_STATUS_LABELS.get(batch["status"], batch["status"])),
+        ("Issued Date", _pdf_datetime(batch["issued_at"])),
+        ("Payment Method", PAYMENT_METHOD_LABELS.get(batch["payment_method"], batch["payment_method"])),
+        ("Check Number", batch["check_number"] or "—"),
+    ]
+    if batch["reconciled_at"]:
+        meta_rows.append(("Reconciled Date", _pdf_datetime(batch["reconciled_at"])))
+    if batch["voided_at"]:
+        meta_rows.append(("Voided Date", _pdf_datetime(batch["voided_at"])))
+    meta_table = LongTable(
+        [[para(label, meta_style), para(value, meta_style)] for label, value in meta_rows],
+        colWidths=[document.width * 0.3, document.width * 0.7], hAlign="LEFT",
+    )
+    meta_table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]))
+    story.append(meta_table)
+    story.append(Spacer(1, 3 * mm))
+
+    # ---- 顶部横幅：闭合失败 / review pending（都不阻止生成）-----------------
+    if not payload["batch_closure_ok"]:
+        story.append(banner(
+            "DATA INTEGRITY WARNING — Payments in batch total "
+            f"{_pdf_money(payload['orders_net'], currency)} across {order_count} payment order(s) "
+            f"does not match the batch recorded total {_pdf_money(batch['total_amount'], currency)} "
+            f"({batch['payment_count']} expected). This statement is for reference only; "
+            "amounts have NOT been adjusted.", warn=True))
+        story.append(Spacer(1, 2 * mm))
+    if payload["review_pending"]["amount"] > 0:
+        story.append(banner(
+            "Tax Classification Review Pending — "
+            f"{payload['review_pending']['count']} component(s) totaling "
+            f"{_pdf_money(payload['review_pending']['amount'], currency)} in this batch are "
+            "awaiting tax classification review. Classification is subject to the final review result."))
+        story.append(Spacer(1, 2 * mm))
+
+    total_table = LongTable(
+        [[para("Total Payment Amount", ParagraphStyle(
+            "StatementPdfTotalLabel", parent=meta_style, fontSize=10)),
+          para(_pdf_money(batch["total_amount"], currency), ParagraphStyle(
+              "StatementPdfTotalValue", parent=money_style, fontSize=10))]],
+        colWidths=[document.width * 0.7, document.width * 0.3], hAlign="LEFT",
+    )
+    total_table.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 0.8, colors.HexColor("#475467")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(total_table)
+    story.append(Spacer(1, 4 * mm))
+
+    # ---- 工资 / 报酬 --------------------------------------------------------
+    if payload["salary_orders"]:
+        story.append(para("Earnings / Compensation", section_style))
+        story.append(Spacer(1, 1.5 * mm))
+        component_widths = [
+            document.width * w for w in
+            (0.13, 0.13, 0.30, 0.09, 0.08, 0.12, 0.15)
+        ]
+        for order in payload["salary_orders"]:
+            head_parts = [f"<b>{order['payment_number']}</b>"]
+            if order["pay_period"]:
+                head_parts.append(f"Pay Period: {order['pay_period']}")
+            head_parts.append(
+                "Status: " + PAYMENT_STATUS_LABELS.get(order["status"], order["status"]))
+            head_parts.append(f"Order Amount: {_pdf_money(order['net_amount'], currency)}")
+            heading = para("　·　".join(head_parts), order_style)
+            if not order["has_components"]:
+                block = [
+                    heading,
+                    para("Component detail unavailable — this payment order has no component "
+                         "snapshot; only the payment order amount is shown.", note_style),
+                ]
+            elif not order["component_closure_ok"]:
+                block = [
+                    heading,
+                    banner(
+                        f"Data integrity error — {order['payment_number']} component sum "
+                        f"{_pdf_money(order['component_sum'], currency)} does not equal the "
+                        f"order amount {_pdf_money(order['gross_amount'], currency)}.", warn=True),
+                ]
+            else:
+                rows = []
+                for row in order["components"]:
+                    component_cell = [
+                        para(row["component_name"] or row["component_code"], cell_style),
+                        para(row["component_code"], ParagraphStyle(
+                            "StatementPdfCode", parent=note_style, fontSize=6.5, leading=8)),
+                    ]
+                    effective = row["effective_tax_category"]
+                    original = row["tax_category"]
+                    if effective != original:
+                        component_cell.append(para(
+                            f"{STATEMENT_PDF_TAX_LABELS.get(original, original)} → "
+                            f"{STATEMENT_PDF_TAX_LABELS.get(effective, effective)}",
+                            ParagraphStyle(
+                                "StatementPdfReclass", parent=note_style, fontSize=6.5, leading=8)))
+                    quantity = (
+                        f"{row['quantity']:g}" if row["quantity"] is not None else "—")
+                    rate = (
+                        _pdf_money(row["unit_rate"], currency)
+                        if row["unit_rate"] is not None else "—")
+                    rows.append([
+                        para(row["service_date"] or "—", cell_style),
+                        para(row["order_number"] or "—", cell_style),
+                        component_cell,
+                        para(quantity, cell_style),
+                        para(row["unit"] or "", cell_style),
+                        para(rate, money_style),
+                        para(_pdf_money(row["amount"], currency), money_style),
+                    ])
+                rows.append([
+                    para(f"<b>{order['payment_number']} Subtotal</b>", cell_style),
+                    para("", cell_style), para("", cell_style), para("", cell_style),
+                    para("", cell_style), para("", cell_style),
+                    para(f"<b>{_pdf_money(order['net_amount'], currency)}</b>", money_style),
+                ])
+                block = [heading, Spacer(1, 1 * mm),
+                         grid_table(
+                             ["Service Date", "Work Order", "Component", "Qty", "Unit",
+                              "Rate", "Amount"],
+                             rows, component_widths)]
+            story.append(KeepTogether(block))
+            story.append(Spacer(1, 2.5 * mm))
+
+    # ---- 报销 ---------------------------------------------------------------
+    if payload["expense_orders"]:
+        story.append(para("Expense Reimbursements", section_style))
+        story.append(Spacer(1, 1.5 * mm))
+        item_widths = [
+            document.width * w for w in (0.28, 0.47, 0.25)
+        ]
+        for order in payload["expense_orders"]:
+            expense = order["expense"]
+            head_parts = [f"<b>{order['payment_number']}</b>"]
+            if expense:
+                head_parts.append(f"Expense: {expense['expense_number']}")
+                if expense["expense_date"]:
+                    head_parts.append(f"Date: {expense['expense_date']}")
+                if expense["order_number"]:
+                    head_parts.append(f"Work Order: {expense['order_number']}")
+            else:
+                head_parts.append("Source expense unavailable")
+            head_parts.append(
+                "Status: " + PAYMENT_STATUS_LABELS.get(order["status"], order["status"]))
+            head_parts.append(f"Order Amount: {_pdf_money(order['net_amount'], currency)}")
+            heading = para("　·　".join(head_parts), order_style)
+            if expense and order["expense_item_rows"]:
+                rows = [
+                    [
+                        para(item["project"] or "—", cell_style),
+                        para(item["description"] or "—", cell_style),
+                        para(_pdf_money(item["amount"], currency), money_style),
+                    ]
+                    for item in order["expense_item_rows"]
+                ]
+                rows.append([
+                    para(f"<b>{order['payment_number']} Subtotal</b>", cell_style),
+                    para("", cell_style),
+                    para(f"<b>{_pdf_money(order['net_amount'], currency)}</b>", money_style),
+                ])
+                block = [heading, Spacer(1, 1 * mm),
+                         grid_table(["Project", "Description", "Amount"], rows, item_widths)]
+            elif expense:
+                block = [
+                    heading,
+                    para("Expense item detail unavailable — only the payment order amount "
+                         "is shown.", note_style),
+                ]
+            else:
+                block = [
+                    heading,
+                    para("Source expense unavailable — only the payment order amount is "
+                         "shown.", note_style),
+                ]
+            story.append(KeepTogether(block))
+            story.append(Spacer(1, 2.5 * mm))
+
+    # ---- 税务分类汇总 -------------------------------------------------------
+    story.append(para("Tax Classification Summary", section_style))
+    story.append(Spacer(1, 1.5 * mm))
+    summary_rows = [
+        ("Compensation", "taxable_compensation"),
+        ("Reimbursements", "accountable_reimbursement"),
+        ("Tax Review Required", "tax_review_required"),
+    ]
+    rows = [
+        [
+            para(label, cell_style),
+            para(_pdf_money(payload["original_totals"][key], currency), money_style),
+            para(_pdf_money(payload["effective_totals"][key], currency), money_style),
+        ]
+        for label, key in summary_rows
+    ]
+    story.append(grid_table(
+        ["Classification", "Original (snapshot)", "Effective (after review)"],
+        rows, [document.width * 0.4, document.width * 0.3, document.width * 0.3]))
+    story.append(Spacer(1, 1.5 * mm))
+    story.append(para(
+        "Tax classifications reflect the current effective classification and may include "
+        "later tax review decisions.", note_style))
+    story.append(Spacer(1, 4 * mm))
+
+    # ---- 付款汇总 -----------------------------------------------------------
+    story.append(para("Payment Summary", section_style))
+    story.append(Spacer(1, 1.5 * mm))
+    summary_payment_rows = [
+        [para("Salary / Compensation subtotal", cell_style),
+         para(_pdf_money(payload["salary_total"], currency), money_style)],
+        [para("Expense Reimbursement subtotal", cell_style),
+         para(_pdf_money(payload["expense_total"], currency), money_style)],
+        [para("<b>Total Payment Amount</b>", cell_style),
+         para(f"<b>{_pdf_money(payload['orders_net'], currency)}</b>", money_style)],
+    ]
+    if not payload["batch_closure_ok"]:
+        summary_payment_rows.append(
+            [para("Batch recorded total", cell_style),
+             para(_pdf_money(batch["total_amount"], currency), money_style)])
+    summary_table = LongTable(
+        summary_payment_rows,
+        colWidths=[document.width * 0.7, document.width * 0.3], hAlign="LEFT",
+    )
+    summary_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#98A2B3")),
+        ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#475467")),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E7EBF0")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(summary_table)
+
+    def draw_footer(page_canvas, doc):
+        page_canvas.saveState()
+        page_canvas.setFont("STSong-Light", 7)
+        page_canvas.setFillColor(colors.HexColor("#667085"))
+        footer_parts = [f"Statement {payload['statement_number']}", f"Page {doc.page}"]
+        if generated_at:
+            footer_parts.append(f"Generated: {generated_at}")
+        page_canvas.drawRightString(
+            letter[0] - 16 * mm, 9 * mm, "　·　".join(footer_parts))
+        page_canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 def register_employee_finance_routes(app, api):
     app.jinja_env.globals["employee_finance_summary"] = lambda employee_id: employee_finance_summary(api, employee_id)
 
@@ -1052,6 +1476,31 @@ def register_employee_finance_routes(app, api):
                                type_labels=PAYMENT_TYPE_LABELS,
                                method_labels=PAYMENT_METHOD_LABELS,
                                batch_status_labels=PAYMENT_BATCH_STATUS_LABELS)
+
+    @app.get("/finance/payment-batches/<int:batch_id>/statement.pdf")
+    @api["login_required"]
+    def payment_statement_pdf(batch_id):
+        """Payment Statement PDF 下载（Phase 5B）。
+
+        权限与 HTML Statement 完全同口径（_require + payload 内
+        _require_payment_access，员工改 URL 看别人的直接 403）。请求时即时生成、
+        BytesIO 返回，零写入：不碰批次 / 付款单 / 组件 / 往来账 / 对账，也不记
+        下载事件（Delivery Log 属 Phase 5C）。业务数据只来自
+        payment_statement_payload()，PDF 不查库、不重算。
+        """
+        _require(api, "employee_payments")
+        data = payment_statement_payload(api, batch_id)
+        company_profile = api.get("get_company_profile")
+        company_name = company_profile()["name"] if company_profile else ""
+        pdf_bytes = render_payment_statement_pdf(
+            data, company_name=company_name, generated_at=api["now"]())
+        return send_file(
+            io.BytesIO(pdf_bytes),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=payment_statement_pdf_filename(
+                data["batch"]["batch_number"], data["batch"]["employee_name"]),
+        )
 
     @app.post("/finance/payment-batches/create")
     @api["login_required"]
