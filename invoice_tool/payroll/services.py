@@ -17,6 +17,8 @@ from datetime import date, timedelta
 
 from rate_engine import employee_rate
 
+from .tax import money
+
 from .calculations import (
     aggregate_payroll_rows,
     payroll_calendar_weeks,
@@ -1328,6 +1330,401 @@ def build_payroll_services(api):
             "Reporting year and filing treatment must be confirmed before final tax filing.")
         return data
 
+    # ------------------------------------------------------------------
+    # Phase 6C：CPA Policy Decision Preparation。
+    # 只读决策包 + 纯内存 scenario 模拟；绝不写库、绝不执行 review、
+    # 绝不生成 1099。Total Recorded 闭合失败即模拟失败。
+    # ------------------------------------------------------------------
+    _POLICY_TARGETS = ("taxable_compensation", "accountable_reimbursement",
+                       "tax_review_required")
+
+    def _effective_category_totals(component_ids=None):
+        """按 effective category 的只读汇总（全库或指定组件集合）。"""
+        from .tax import money
+        db = api["db"]()
+        rows = []
+        if component_ids is None:
+            rows = db.execute(f"""
+                with {_latest_review_cte()}
+                select coalesce(lr.new_tax_category, c.tax_category) as cat,
+                       count(*) as n, coalesce(sum(c.amount), 0) as a
+                from employee_payment_components c
+                left join latest_review lr on lr.component_id = c.id
+                where c.superseded_at is null
+                group by 1
+            """).fetchall()
+        else:
+            ids = sorted({int(i) for i in component_ids})
+            if ids:
+                marks = ",".join("?" * len(ids))
+                rows = db.execute(f"""
+                    with {_latest_review_cte()}
+                    select coalesce(lr.new_tax_category, c.tax_category) as cat,
+                           count(*) as n, coalesce(sum(c.amount), 0) as a
+                    from employee_payment_components c
+                    left join latest_review lr on lr.component_id = c.id
+                    where c.superseded_at is null and c.id in ({marks})
+                    group by 1
+                """, ids).fetchall()
+        amounts = {key: money(0) for key in _POLICY_TARGETS}
+        counts = {key: 0 for key in _POLICY_TARGETS}
+        for row in rows:
+            if row["cat"] in amounts:
+                amounts[row["cat"]] = amounts[row["cat"]] + money(row["a"] or 0)
+                counts[row["cat"]] += int(row["n"] or 0)
+        return {"amounts": amounts, "counts": counts}
+
+    def _scenario_view(totals):
+        """scenario 口径视图（service_compensation_v1：potential = taxable）。"""
+        amounts = totals["amounts"]
+        return {
+            "service_compensation": amounts["taxable_compensation"],
+            "reimbursements": amounts["accountable_reimbursement"],
+            "review_required": amounts["tax_review_required"],
+            "potential_1099_candidate": amounts["taxable_compensation"],
+            "total_recorded": money(sum(amounts.values(), money(0))),
+            "component_count": sum(totals["counts"].values()),
+            "counts": dict(totals["counts"]),
+        }
+
+    def _simulate_tax_policy_decision(component_ids, target_category):
+        """纯内存模拟：把 affected 组件的 effective 改为 target 后的 before/after。
+
+        只 SELECT，不 INSERT/UPDATE 任何表（不写 review、不碰组件/付款单）。
+        Total Recorded before != after 即模拟失败。
+        """
+        ids = sorted({int(i) for i in (component_ids or [])})
+        if not ids:
+            raise ValueError("no components selected for simulation")
+        if target_category not in _POLICY_TARGETS:
+            raise ValueError("invalid target tax category: %r" % (target_category,))
+        db = api["db"]()
+        marks = ",".join("?" * len(ids))
+        affected = db.execute(f"""
+            with {_latest_review_cte()}
+            select c.id, c.amount, coalesce(lr.new_tax_category, c.tax_category) as effective
+            from employee_payment_components c
+            left join latest_review lr on lr.component_id = c.id
+            where c.superseded_at is null and c.id in ({marks})
+        """, ids).fetchall()
+        if len(affected) != len(ids):
+            raise ValueError(
+                "simulation failed: some components not found or superseded")
+        before_totals = _effective_category_totals()
+        after_amounts = {key: money(value)
+                         for key, value in before_totals["amounts"].items()}
+        after_counts = dict(before_totals["counts"])
+        for row in affected:
+            amount = money(row["amount"] or 0)
+            current = row["effective"]
+            if current in after_amounts:
+                after_amounts[current] = after_amounts[current] - amount
+                after_counts[current] -= 1
+            after_amounts[target_category] = after_amounts[target_category] + amount
+            after_counts[target_category] += 1
+        after_totals = {"amounts": after_amounts, "counts": after_counts}
+        before = _scenario_view(before_totals)
+        after = _scenario_view(after_totals)
+        if before["total_recorded"] != after["total_recorded"]:
+            raise ValueError(
+                "simulation failed: total recorded does not close "
+                "(%s != %s)" % (before["total_recorded"], after["total_recorded"]))
+        return {
+            "affected_count": len(ids),
+            "affected_amount": money(sum((money(r["amount"] or 0) for r in affected),
+                                         money(0))),
+            "target_category": target_category,
+            "before": before,
+            "after": after,
+        }
+
+    def _queue_component_rows(component_code=None, expense_only=False):
+        """拉取 effective=review 的队列组件明细（含 evidence 汇总所需字段）。"""
+        db = api["db"]()
+        rows = db.execute(f"""
+            with {_latest_review_cte()}
+            select c.id, c.component_code, c.source_type, c.amount, c.employee_id,
+                   c.service_date, c.work_order_id, c.daily_report_id, c.source_id,
+                   u.name as employee_name,
+                   coalesce(lr.new_tax_category, c.tax_category) as effective_tax_category
+            from employee_payment_components c
+            join users u on u.id = c.employee_id
+            left join latest_review lr on lr.component_id = c.id
+            where c.superseded_at is null
+              and coalesce(lr.new_tax_category, c.tax_category) = 'tax_review_required'
+        """).fetchall()
+        if expense_only:
+            return [dict(r) for r in rows
+                    if r["source_type"] in EXPENSE_COMPONENT_SOURCE_TYPES]
+        return [dict(r) for r in rows if r["component_code"] == component_code]
+
+    def _mileage_evidence_summary(mileage_rows):
+        """Decision A 佐证盘点：日报 driving_miles / 里程佐证 / 起终点存在性。"""
+        db = api["db"]()
+        report_ids = sorted({int(r["daily_report_id"]) for r in mileage_rows
+                             if r["daily_report_id"]})
+        worker_ids = sorted({int(r["employee_id"]) for r in mileage_rows})
+        summary = {
+            "daily_report_count": len(report_ids),
+            "driving_miles_present": 0,
+            "evidence_rows": 0,
+            "evidence_success_rows": 0,
+            "evidence_miles_total": money(0),
+            "origin_destination_reports": 0,
+            "miles_reliable": False,
+            "miles_total": money(0),
+        }
+        if not report_ids or not worker_ids:
+            return summary
+        rmarks = ",".join("?" * len(report_ids))
+        wmarks = ",".join("?" * len(worker_ids))
+        params = [*report_ids, *worker_ids]
+        row = db.execute(
+            f"""select count(*) as n from service_report_workers
+                where report_id in ({rmarks}) and user_id in ({wmarks})
+                  and driving_miles is not null""", params).fetchone()
+        summary["driving_miles_present"] = int(row["n"] or 0)
+        row = db.execute(
+            f"""select count(*) as n,
+                       coalesce(sum(coalesce(reported_miles, one_way_miles, 0)), 0) as m
+                from service_report_mileage_evidence
+                where report_id in ({rmarks}) and worker_user_id in ({wmarks})""",
+            params).fetchone()
+        summary["evidence_rows"] = int(row["n"] or 0)
+        summary["evidence_miles_total"] = money(row["m"] or 0)
+        row = db.execute(
+            f"""select count(*) as n from service_report_mileage_evidence
+                where report_id in ({rmarks}) and worker_user_id in ({wmarks})
+                  and status = 'success'""", params).fetchone()
+        summary["evidence_success_rows"] = int(row["n"] or 0)
+        row = db.execute(
+            f"""select count(distinct report_id) as n
+                from service_report_mileage_evidence
+                where report_id in ({rmarks}) and worker_user_id in ({wmarks})
+                  and coalesce(origin_address, '') <> ''
+                  and coalesce(destination_address, '') <> ''""", params).fetchone()
+        summary["origin_destination_reports"] = int(row["n"] or 0)
+        summary["miles_reliable"] = summary["evidence_success_rows"] > 0
+        summary["miles_total"] = (summary["evidence_miles_total"]
+                                  if summary["miles_reliable"] else money(0))
+        return summary
+
+    def _component_tax_config_snapshot(component_code):
+        row = api["db"]().execute(
+            """select component_code, display_name, default_tax_category,
+                      requires_substantiation, effective_from, effective_to
+               from payroll_component_tax_config
+               where component_code=? and is_active=1
+               order by effective_from desc limit 1""", (component_code,)).fetchone()
+        return dict(row) if row else None
+
+    def _expense_attachment_state(expense_rows):
+        """Decision C 凭证状态（只计数，不读内容）。"""
+        db = api["db"]()
+        states = []
+        for row in expense_rows:
+            item_id = row.get("source_id")
+            state = {"component_id": row["id"], "amount": money(row["amount"] or 0),
+                     "attachment_count": 0, "expense_number": "", "expense_date": ""}
+            if item_id:
+                detail = db.execute(
+                    """select e.expense_number, e.expense_date, i.line_key
+                       from expense_items i join expenses e on e.id = i.expense_id
+                       where i.id = ?""", (item_id,)).fetchone()
+                if detail:
+                    state["expense_number"] = detail["expense_number"]
+                    state["expense_date"] = detail["expense_date"] or ""
+                    att = db.execute(
+                        """select count(*) as n from expense_attachments
+                           where expense_id = (select expense_id from expense_items
+                                               where id = ?)
+                             and expense_item_key = ?
+                           and superseded_at is null""",
+                        (item_id, detail["line_key"])).fetchone()
+                    state["attachment_count"] = int(att["n"] or 0)
+            states.append(state)
+        return states
+
+    def _policy_options(ids, prefix, labels):
+        """三选项 scenario（只算影响，绝不执行）。"""
+        out = []
+        for key, (label, target) in labels:
+            try:
+                sim = _simulate_tax_policy_decision(ids, target)
+            except ValueError as exc:
+                sim = {"error": str(exc)}
+            out.append({"key": "%s%d" % (prefix, key), "label": label,
+                        "target_category": target, "simulation": sim})
+        return out
+
+    def _policy_decision_packages(default_year=None):
+        """Phase 6C：三个 Decision Package + Decision D + readiness checklist。
+
+        全只读；scenario 为纯内存模拟；Question for CPA 不替 CPA 回答。
+        """
+        db = api["db"]()
+        before = _scenario_view(_effective_category_totals())
+        mileage_rows = _queue_component_rows("self_drive_allowance")
+        meal_rows = _queue_component_rows("meal_allowance")
+        expense_rows = _queue_component_rows(expense_only=True)
+        mileage_ids = [r["id"] for r in mileage_rows]
+        meal_ids = [r["id"] for r in meal_rows]
+        expense_ids = [r["id"] for r in expense_rows]
+
+        def group(rows):
+            dates = [r["service_date"] for r in rows if r["service_date"]]
+            return {
+                "count": len(rows),
+                "amount": money(sum((money(r["amount"] or 0) for r in rows), money(0))),
+                "employee_count": len({r["employee_id"] for r in rows}),
+                "earliest_service_date": min(dates) if dates else "",
+                "latest_service_date": max(dates) if dates else "",
+                "work_order_count": len({r["work_order_id"] for r in rows
+                                         if r["work_order_id"]}),
+            }
+
+        mileage = group(mileage_rows)
+        mileage.update(_mileage_evidence_summary(mileage_rows))
+        mileage["tax_config"] = _component_tax_config_snapshot("self_drive_allowance")
+        meal = group(meal_rows)
+        meal["tax_config"] = _component_tax_config_snapshot("meal_allowance")
+        expense = group(expense_rows)
+        expense["attachments"] = _expense_attachment_state(expense_rows)
+
+        keep = ("Continue under tax review", "tax_review_required")
+        reimb = ("Reclassify to accountable_reimbursement",
+                 "accountable_reimbursement")
+        comp = ("Treat as compensation (taxable)", "taxable_compensation")
+        packages = {
+            "mileage": {
+                "label": "Decision A — Mileage Reimbursement",
+                "component_code": "self_drive_allowance",
+                "current": mileage,
+                "potential_1099_treatment": (
+                    "Excluded from Potential 1099 Candidate under "
+                    "service_compensation_v1 while effective category is "
+                    "tax_review_required."),
+                "question_for_cpa": (
+                    "How should these contractor mileage payments be treated for "
+                    "1099 reporting when mileage substantiation is incomplete?"),
+                "options": _policy_options(mileage_ids, "A", [(1, keep), (2, reimb),
+                                                              (3, comp)]),
+            },
+            "meal_allowance": {
+                "label": "Decision B — Meal Allowance Policy",
+                "component_code": "meal_allowance",
+                "current": meal,
+                "potential_1099_treatment": (
+                    "Excluded from Potential 1099 Candidate under "
+                    "service_compensation_v1 while effective category is "
+                    "tax_review_required."),
+                "question_for_cpa": (
+                    "Should the fixed meal allowance be treated as contractor "
+                    "compensation, reimbursement, or remain subject to "
+                    "documentation review?"),
+                "options": _policy_options(meal_ids, "B", [(1, keep), (2, comp),
+                                                           (3, reimb)]),
+            },
+            "expense_documentation": {
+                "label": "Decision C — Expense Missing Attachment",
+                "component_code": "expense_item",
+                "current": expense,
+                "potential_1099_treatment": (
+                    "Excluded from Potential 1099 Candidate under "
+                    "service_compensation_v1 while effective category is "
+                    "tax_review_required."),
+                "question_for_cpa": (
+                    "Can this expense be treated as reimbursement based on "
+                    "alternative documentation despite the missing attachment?"),
+                "options": _policy_options(expense_ids, "C", [(1, keep), (2, reimb),
+                                                              (3, comp)]),
+            },
+        }
+
+        # Decision D：Reporting Year Basis（不擅自决定）。
+        service_totals = _annual_tax_summary({"year_basis": "service_date"}, None)["totals"]
+        payment_totals = _annual_tax_summary({"year_basis": "payment_date"}, None)["totals"]
+        reporting_basis = {
+            "service_date": {"count": service_totals["component_count"],
+                             "amount": money(service_totals["total_amount"])},
+            "payment_date": {"count": payment_totals["component_count"],
+                             "amount": money(payment_totals["total_amount"])},
+            "payment_date_unresolved": {
+                "count": service_totals["component_count"] - payment_totals["component_count"],
+                "amount": money(service_totals["total_amount"]
+                                - payment_totals["total_amount"])},
+            "question_for_cpa": (
+                "Which date basis should control the year in the final 1099 "
+                "reporting workflow?"),
+        }
+
+        identity = _identity_readiness()
+        return {
+            "year": str(default_year or ""),
+            "generated_note": "Internal Tax Policy Decision Package — Not an IRS Filing",
+            "rule_version": POTENTIAL_1099_RULE_VERSION,
+            "totals_before": before,
+            "decisions": packages,
+            "reporting_basis": reporting_basis,
+            "identity_readiness": identity,
+            "readiness_checklist": _readiness_checklist(
+                identity, before["review_required"]),
+        }
+
+    def _setting_has_value(key):
+        """只检查 settings 值是否存在（非空），绝不返回真实值。"""
+        row = api["db"]().execute(
+            "select value from settings where key = ?", (key,)).fetchone()
+        return bool(row and str(row["value"] or "").strip())
+
+    def _identity_readiness():
+        """Payer / Recipient 身份就绪：只做字段存在性检查，不读敏感值。"""
+        payer = {
+            "legal_name": "available" if _setting_has_value("company_name") else "missing",
+            "ein": "available" if _setting_has_value("company_ein") else "missing",
+            "address": "available" if _setting_has_value("company_address") else "missing",
+        }
+        # Recipient 基于 schema 字段存在性：users.name / users.address 已有；
+        # TIN / SSN 目前没有任何存储字段 → not_implemented（Phase 7 再设计）。
+        recipient = {
+            "legal_name": "available",
+            "tin_storage": "not_implemented",
+            "address": "available",
+        }
+        return {"payer": payer, "recipient": recipient,
+                "note": "Field existence check only — no EIN/TIN/SSN values are read."}
+
+    def _readiness_checklist(identity, review_required_amount):
+        """1099 readiness checklist（明确不做百分比评分）。"""
+        db = api["db"]()
+        null_status = db.execute(
+            """select count(*) as n from employee_payment_components
+               where superseded_at is null
+                 and (tax_status_snapshot is null or tax_status_snapshot = '')"""
+        ).fetchone()["n"]
+        payer_ok = all(v == "available" for v in identity["payer"].values())
+        recipient_ok = all(v == "available" for v in identity["recipient"].values())
+        return [
+            {"item": "Tax status complete",
+             "status": "ready" if null_status == 0 else "missing_data",
+             "detail": "Components with NULL tax status: %d" % null_status},
+            {"item": "Classification review resolved",
+             "status": "pending_decision" if review_required_amount else "ready",
+             "detail": "Outstanding review amount: %s" % review_required_amount},
+            {"item": "Reporting basis confirmed", "status": "pending_decision",
+             "detail": "Decision D — service-date vs payment-date basis"},
+            {"item": "Payer identity available",
+             "status": "ready" if payer_ok else "missing_data",
+             "detail": "; ".join("%s=%s" % (k, v)
+                                 for k, v in identity["payer"].items())},
+            {"item": "Recipient identity available",
+             "status": "ready" if recipient_ok else "missing_data",
+             "detail": "; ".join("%s=%s" % (k, v)
+                                 for k, v in identity["recipient"].items())},
+            {"item": "Filing method confirmed", "status": "not_implemented",
+             "detail": "Out of scope for Phase 6 (future Phase 7)"},
+        ]
+
     def _iso_day_of(value):
         return value.isoformat() if hasattr(value, "isoformat") else value
 
@@ -1398,4 +1795,7 @@ def build_payroll_services(api):
         "tax_review_queue_summaries": _tax_review_queue_summaries,
         "closing_exceptions": _closing_exceptions,
         "cpa_workpaper": _cpa_workpaper,
+        # Phase 6C：CPA Policy Decision Package（只读决策包 + 纯内存模拟）
+        "tax_policy_decision_packages": _policy_decision_packages,
+        "simulate_tax_policy_decision": _simulate_tax_policy_decision,
     }

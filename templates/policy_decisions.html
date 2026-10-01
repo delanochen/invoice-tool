@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+{% block title %}Tax Policy Decisions{% endblock %}
+
+{% block content %}
+{# Phase 6C：CPA Policy Decision Package（只读决策包 + 纯内存模拟）。
+   第一版只有 Export，没有 Apply——任何分类变更等 CPA 拍板后走 Phase 6D。
+   绝不读取 SSN/TIN，绝不生成 1099 / IRS 文件。 #}
+<div class="erp-app" data-active-panel="policy">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">Tax Policy Decisions<small>财务管理 · CPA 决策包（非正式申报文件）</small></div>
+    <span class="erp-badge">Total Recorded {{ d.totals_before.total_recorded|money }}</span>
+    <span class="erp-badge">Review {{ d.totals_before.review_required|money }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+      {% if can_export %}<a class="erp-btn primary" href="{{ url_for('policy_decisions_export') }}">Export Decision Package</a>{% endif %}
+    </div>
+  </header>
+
+  <!-- ─────────────────────────────────── ERP Body ───────────────────────── -->
+  <div class="erp-body">
+    <div class="erp-notice warn no-print">
+      <strong>{{ not_filing_note }}</strong> · {{ potential_1099_note }}<br>
+      所有 Before / After 均为纯内存模拟（只读），未执行任何分类变更；本页面没有 Apply 操作。
+    </div>
+
+    <!-- ═════════════════════ Decision A / B / C cards ═════════════════════ -->
+    {% for key, decision in d.decisions.items() %}
+    {% set cur = decision.current %}
+    <section class="panel">
+      <div class="panel-title"><h2>{{ decision.label }}</h2></div>
+      <div class="summary-strip">
+        {{ summary_item('组件数', cur.count) }}
+        {{ summary_item('金额', cur.amount|money) }}
+        {{ summary_item('员工数', cur.employee_count) }}
+        {{ summary_item('服务日期', (cur.earliest_service_date or '—') ~ ' ~ ' ~ (cur.latest_service_date or '—')) }}
+        {% if key == 'mileage' %}
+        {{ summary_item('工单数', cur.work_order_count) }}
+        {{ summary_item('日报数', cur.daily_report_count) }}
+        {{ summary_item('miles total', (cur.miles_total|money) ~ ('（可靠）' if cur.miles_reliable else '（佐证缺失，不可靠）')) }}
+        {{ summary_item('日报 driving_miles 有值', cur.driving_miles_present) }}
+        {{ summary_item('起终点齐全日报', cur.origin_destination_reports) }}
+        {% elif key == 'meal_allowance' %}
+        {{ summary_item('工单数', cur.work_order_count) }}
+        {% else %}
+        {{ summary_item('工单数', cur.work_order_count) }}
+        {% endif %}
+      </div>
+
+      <table class="list-table">
+        <tbody>
+          <tr><td style="width:220px">Current Status</td>
+              <td>internal category = <strong>tax_review_required</strong>（全部组件）</td></tr>
+          <tr><td>Current tax config</td>
+              <td>{% if cur.tax_config %}{{ cur.tax_config.display_name }} · default={{ cur.tax_config.default_tax_category }} · requires_substantiation={{ '是' if cur.tax_config.requires_substantiation else '否' }}{% else %}未维护{% endif %}</td></tr>
+          {% if key == 'expense_documentation' %}
+          <tr><td>Attachment state</td>
+              <td>{% for a in cur.attachments %}{{ a.expense_number or '—' }}（{{ a.expense_date or '—' }}）：attachment_count = {{ a.attachment_count }}{% if not loop.last %}；{% endif %}{% else %}—{% endfor %}</td></tr>
+          {% endif %}
+          <tr><td>Potential 1099 treatment</td>
+              <td>{{ decision.potential_1099_treatment }}</td></tr>
+          <tr><td><strong>Question for CPA</strong></td>
+              <td><em>{{ decision.question_for_cpa }}</em></td></tr>
+        </tbody>
+      </table>
+
+      <table class="list-table">
+        <thead>
+          <tr>
+            <th>Scenario</th><th>Target Category</th>
+            <th class="num">Service Compensation</th>
+            <th class="num">Reimbursements</th>
+            <th class="num">Review Required</th>
+            <th class="num">Potential 1099 Candidate</th>
+            <th class="num">Total Recorded</th>
+          </tr>
+          <tr>
+            <td><strong>Before（当前）</strong></td><td>—</td>
+            <td class="num">{{ d.totals_before.service_compensation|money }}</td>
+            <td class="num">{{ d.totals_before.reimbursements|money }}</td>
+            <td class="num">{{ d.totals_before.review_required|money }}</td>
+            <td class="num">{{ d.totals_before.potential_1099_candidate|money }}</td>
+            <td class="num"><strong>{{ d.totals_before.total_recorded|money }}</strong></td>
+          </tr>
+        </thead>
+        <tbody>
+          {% for option in decision.options %}
+          {% set sim = option.simulation %}
+          {% set after = sim.after if sim.get('after') else None %}
+          <tr>
+            <td>{{ option.key }} — {{ option.label }}</td>
+            <td>{{ option.target_category }}</td>
+            {% if after %}
+            <td class="num">{{ after.service_compensation|money }}</td>
+            <td class="num">{{ after.reimbursements|money }}</td>
+            <td class="num">{{ after.review_required|money }}</td>
+            <td class="num">{{ after.potential_1099_candidate|money }}</td>
+            <td class="num"><strong>{{ after.total_recorded|money }}</strong>
+              {% if after.total_recorded != d.totals_before.total_recorded %}
+              <span class="erp-badge err">不闭合</span>{% endif %}</td>
+            {% else %}
+            <td colspan="4">模拟失败：{{ sim.get('error', 'unknown') }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted">影响仅为模拟展示——不执行任何 review / 分类变更。</p>
+    </section>
+    {% endfor %}
+
+    <!-- ═════════════════════ Decision D — Reporting Year Basis ═════════════════════ -->
+    <section class="panel">
+      <div class="panel-title"><h2>Decision D — Reporting Year Basis</h2></div>
+      <table class="list-table">
+        <thead>
+          <tr><th>Date Basis</th><th class="num">Component Count</th><th class="num">Amount</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Service-date basis（当前分析默认口径）</td>
+              <td class="num">{{ d.reporting_basis.service_date.count }}</td>
+              <td class="num">{{ d.reporting_basis.service_date.amount|money }}</td></tr>
+          <tr><td>Payment-date basis</td>
+              <td class="num">{{ d.reporting_basis.payment_date.count }}</td>
+              <td class="num">{{ d.reporting_basis.payment_date.amount|money }}</td></tr>
+          <tr><td><strong>Payment date unresolved</strong></td>
+              <td class="num">{{ d.reporting_basis.payment_date_unresolved.count }}</td>
+              <td class="num"><strong>{{ d.reporting_basis.payment_date_unresolved.amount|money }}</strong></td></tr>
+        </tbody>
+      </table>
+      <p><strong>Question for CPA：</strong><em>{{ d.reporting_basis.question_for_cpa }}</em></p>
+    </section>
+
+    <!-- ═════════════════════ Identity Readiness ═════════════════════ -->
+    <section class="panel">
+      <div class="panel-title"><h2>Payer / Recipient Identity Readiness</h2></div>
+      <p class="muted">{{ d.identity_readiness.note }}</p>
+      <table class="list-table">
+        <thead><tr><th>Side</th><th>Field</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for side, fields in [('Payer', d.identity_readiness.payer), ('Recipient', d.identity_readiness.recipient)] %}
+          {% for field, state in fields.items() %}
+          <tr><td>{{ side }}</td><td>{{ field }}</td>
+              <td><span class="erp-badge {{ 'ok' if state == 'available' else 'err' }}">{{ state }}</span></td></tr>
+          {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ═════════════════════ 1099 Readiness Checklist ═════════════════════ -->
+    <section class="panel">
+      <div class="panel-title"><h2>1099 Readiness Checklist</h2></div>
+      <table class="list-table">
+        <thead><tr><th>Item</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody>
+          {% for item in d.readiness_checklist %}
+          <tr><td>{{ item.item }}</td>
+              <td><span class="erp-badge {{ 'ok' if item.status == 'ready' else ('err' if item.status in ('missing_data', 'not_implemented') else 'warn') }}">{{ item.status }}</span></td>
+              <td>{{ item.detail }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted">Checklist 只给状态，不做百分比评分；正式 1099 属未来 Phase 7 范围。</p>
+    </section>
+  </div>
+</div>
+{% endblock %}

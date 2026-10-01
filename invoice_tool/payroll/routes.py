@@ -675,6 +675,142 @@ def register_payroll_routes(app, api):
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+    # ------------------------------------------------------------------
+    # Phase 6C：CPA Policy Decision Package（只读决策包 + 纯内存模拟）。
+    # 权限复用 annual_tax_summary（view/export）；第一版只有 Export，
+    # 没有 Apply——任何分类变更都必须等 CPA 拍板后走 Phase 6D。
+    # ------------------------------------------------------------------
+    @app.get("/finance/policy-decisions")
+    @api["login_required"]
+    def policy_decisions():
+        if not api["has_action_permission"]("annual_tax_summary", "view"):
+            api["abort"](403)
+        data = api["tax_policy_decision_packages"](str(date.today().year))
+        return api["render_template"](
+            "policy_decisions.html",
+            d=data,
+            not_filing_note=data["generated_note"],
+            rule_version=data["rule_version"],
+            potential_1099_note=POTENTIAL_1099_RULE_NOTE,
+            can_export=api["has_action_permission"]("annual_tax_summary", "export"),
+            today=date.today().isoformat(),
+        )
+
+    @app.get("/finance/policy-decisions/export.xlsx")
+    @api["login_required"]
+    def policy_decisions_export():
+        if not api["has_action_permission"]("annual_tax_summary", "export"):
+            api["abort"](403)
+        data = api["tax_policy_decision_packages"](str(date.today().year))
+        generated_at = api["now"]()
+        banner = [data["generated_note"],
+                  "generated_at=%s" % generated_at,
+                  "reporting_rule_version=%s" % data["rule_version"],
+                  "Preliminary — subject to CPA review",
+                  "No personally identifiable or financial account data is included."]
+
+        before = data["totals_before"]
+        exec_rows = [["Before totals (current effective classification)"]]
+        exec_rows.append(["Service Compensation", float(before["service_compensation"])])
+        exec_rows.append(["Reimbursements", float(before["reimbursements"])])
+        exec_rows.append(["Review Required", float(before["review_required"])])
+        exec_rows.append(["Total Recorded", float(before["total_recorded"])])
+        exec_rows.append(["Potential 1099 Candidate (Preliminary)",
+                          float(before["potential_1099_candidate"])])
+        exec_rows.append([])
+        exec_rows.append(["1099 Readiness Checklist"])
+        for item in data["readiness_checklist"]:
+            exec_rows.append([item["item"], item["status"], item["detail"]])
+        exec_rows.append([])
+        exec_rows.append(["Identity Readiness (field existence only)"])
+        for side in ("payer", "recipient"):
+            for field, state in data["identity_readiness"][side].items():
+                exec_rows.append([side.title(), field, state])
+        rb = data["reporting_basis"]
+        exec_rows.append([])
+        exec_rows.append(["Decision D — Reporting Year Basis"])
+        exec_rows.append(["Service-date basis", rb["service_date"]["count"],
+                          float(rb["service_date"]["amount"])])
+        exec_rows.append(["Payment-date basis", rb["payment_date"]["count"],
+                          float(rb["payment_date"]["amount"])])
+        exec_rows.append(["Payment date unresolved",
+                          rb["payment_date_unresolved"]["count"],
+                          float(rb["payment_date_unresolved"]["amount"])])
+
+        def detail_sheet(decision, extra_headers, extra_rows):
+            current = decision["current"]
+            rows = [[current["count"], float(current["amount"]),
+                     current["employee_count"],
+                     current.get("earliest_service_date", ""),
+                     current.get("latest_service_date", ""),
+                     current.get("work_order_count", 0)]]
+            rows.extend(extra_rows)
+            return rows
+
+        def component_rows(rows):
+            return [[r["employee_name"], r["service_date"] or "",
+                     float(r["amount"] or 0)] for r in rows]
+
+        mileage = data["decisions"]["mileage"]
+        mileage_rows = detail_sheet(mileage, [], [])
+        meal = data["decisions"]["meal_allowance"]
+        meal_rows = detail_sheet(meal, [], [])
+        expense = data["decisions"]["expense_documentation"]
+        expense_rows = detail_sheet(
+            expense, [], [[a.get("expense_number"), a.get("expense_date"),
+                           float(a.get("amount") or 0), a.get("attachment_count")]
+                          for a in expense["current"].get("attachments", [])])
+
+        scenario_rows = []
+        for name, decision in data["decisions"].items():
+            scenario_rows.append([decision["label"], "", "", "", "", "", ""])
+            scenario_rows.append(["Option", "Target Category", "Service Compensation",
+                                  "Reimbursements", "Review Required",
+                                  "Potential 1099", "Total Recorded"])
+            scenario_rows.append(["Before (current)", "", float(before["service_compensation"]),
+                                  float(before["reimbursements"]),
+                                  float(before["review_required"]),
+                                  float(before["potential_1099_candidate"]),
+                                  float(before["total_recorded"])])
+            for option in decision["options"]:
+                sim = option.get("simulation") or {}
+                after = sim.get("after") or {}
+                scenario_rows.append([
+                    option["key"], option["target_category"],
+                    float(after.get("service_compensation") or 0),
+                    float(after.get("reimbursements") or 0),
+                    float(after.get("review_required") or 0),
+                    float(after.get("potential_1099_candidate") or 0),
+                    float(after.get("total_recorded") or 0)])
+            scenario_rows.append(["Question for CPA", decision["question_for_cpa"]])
+            scenario_rows.append([])
+        scenario_rows.append(["Decision D — Reporting Year Basis",
+                              rb["question_for_cpa"]])
+
+        sheets = [
+            ("Executive Summary", ["Item", "Value 1", "Value 2"], exec_rows),
+            ("Mileage", ["Count", "Amount", "Employee Count", "Earliest Service Date",
+                         "Latest Service Date", "Work Order Count"], mileage_rows),
+            ("Meal Allowance", ["Count", "Amount", "Employee Count", "Earliest Service Date",
+                                "Latest Service Date", "Work Order Count"], meal_rows),
+            ("Expense Documentation", ["Count", "Amount", "Employee Count",
+                                       "Earliest Service Date", "Latest Service Date",
+                                       "Work Order Count"], expense_rows),
+            ("Scenario Comparison",
+             ["Option / Item", "Target / Note", "Service Compensation",
+              "Reimbursements", "Review Required", "Potential 1099",
+              "Total Recorded"], scenario_rows),
+        ]
+        workbook = api["build_multi_sheet_xlsx"](
+            [(name, banner + [""] + headers, rows)
+             for name, headers, rows in sheets])
+        return api["send_file"](
+            workbook,
+            as_attachment=True,
+            download_name="cpa-tax-policy-decision-package.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     return {
         "tax_review": tax_review,
         "tax_review_component": tax_review_component,
@@ -684,6 +820,8 @@ def register_payroll_routes(app, api):
         "annual_tax_summary_export": annual_tax_summary_export,
         "cpa_workpaper": cpa_workpaper,
         "cpa_workpaper_export": cpa_workpaper_export,
+        "policy_decisions": policy_decisions,
+        "policy_decisions_export": policy_decisions_export,
         "payroll_subsidies": payroll_subsidies,
         "labor_hours_report": labor_hours_report,
         "payroll_report": payroll_report,

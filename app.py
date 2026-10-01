@@ -1845,6 +1845,9 @@ def required_action_for_request():
         "annual_tax_summary": ("annual_tax_summary", "view"),
         "annual_tax_summary_components": ("annual_tax_summary", "view"),
         "annual_tax_summary_export": ("annual_tax_summary", "export"),
+        # Phase 6C：CPA Policy Decision Package（权限复用 annual_tax_summary）
+        "policy_decisions": ("annual_tax_summary", "view"),
+        "policy_decisions_export": ("annual_tax_summary", "export"),
         # Phase 6B：CPA Workpaper（只读 reporting，权限同 annual_tax_summary；
         # 导出额外要求 export。复核动作仍走 4A 的 tax_review.review。）
         "cpa_workpaper": ("annual_tax_summary", "view"),
@@ -17043,6 +17046,8 @@ payment_tax_components = _payroll_services["payment_tax_components"]
 annual_tax_summary_rows = _payroll_services["annual_tax_summary"]
 annual_tax_summary_options = _payroll_services["annual_tax_summary_options"]
 annual_tax_summary_component_rows = _payroll_services["annual_tax_summary_components"]
+tax_policy_decision_packages = _payroll_services["tax_policy_decision_packages"]
+tax_policy_simulation = _payroll_services["simulate_tax_policy_decision"]
 # Phase 6B：Resolution Queue 摘要 + CPA Workpaper（只读）
 tax_review_queue_summaries = _payroll_services["tax_review_queue_summaries"]
 closing_exceptions = _payroll_services["closing_exceptions"]
@@ -17062,6 +17067,8 @@ save_tax_review = _payroll_routes["save_tax_review"]
 annual_tax_summary = _payroll_routes["annual_tax_summary"]
 annual_tax_summary_components = _payroll_routes["annual_tax_summary_components"]
 annual_tax_summary_export = _payroll_routes["annual_tax_summary_export"]
+policy_decisions = _payroll_routes["policy_decisions"]
+policy_decisions_export = _payroll_routes["policy_decisions_export"]
 cpa_workpaper = _payroll_routes["cpa_workpaper"]
 cpa_workpaper_export = _payroll_routes["cpa_workpaper_export"]
 
