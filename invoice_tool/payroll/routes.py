@@ -227,6 +227,58 @@ def register_payroll_routes(app, api):
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+    # ------------------------------------------------------------------
+    # Phase 2B：员工 W-2 / 1099 税务身份历史。
+    # 当前身份一律按日期查 worker_tax_status_history，users 不加单值字段。
+    # ------------------------------------------------------------------
+    @app.get("/users/<int:user_id>/tax-status")
+    @app.post("/users/<int:user_id>/tax-status")
+    @api["login_required"]
+    def worker_tax_status_history(user_id):
+        request = api["request"]
+        user = api["db"]().execute(
+            "select id, name, role from users where id=?", (user_id,)
+        ).fetchone()
+        if not user:
+            api["abort"](404)
+        can_manage = api["can_manage_employee_grades"]()
+        if not can_manage and api["g"].user["id"] != user_id:
+            api["abort"](403)
+        if request.method == "POST":
+            if not can_manage:
+                api["abort"](403)
+            try:
+                effective_from = (request.form.get("effective_from", "") or "").strip()
+                effective_to = (request.form.get("effective_to", "") or "").strip() or None
+                date.fromisoformat(effective_from)
+                if effective_to is not None:
+                    date.fromisoformat(effective_to)
+                api["create_worker_tax_status_entry"](
+                    user_id,
+                    (request.form.get("tax_status", "") or "").strip(),
+                    effective_from,
+                    effective_to,
+                    (request.form.get("notes", "") or "").strip(),
+                    api["g"].user["id"],
+                )
+                api["db"]().commit()
+                api["log_action"]("create", "worker_tax_status", user_id, user["name"],
+                                  "新增税务身份 %s %s~%s" % (request.form.get("tax_status"), effective_from, effective_to or ""))
+                api["flash"]("税务身份已保存。", "success")
+            except ValueError as error:
+                api["db"]().rollback()
+                api["flash"](str(error), "error")
+            return api["redirect"](api["url_for"]("worker_tax_status_history", user_id=user_id))
+        entries = api["worker_tax_status_entries"](user_id)
+        return api["render_template"](
+            "worker_tax_status.html",
+            worker=user,
+            entries=entries,
+            current_status=api["worker_tax_status_current"](user_id),
+            today=date.today().isoformat(),
+            can_manage=can_manage,
+        )
+
     return {
         "payroll_subsidies": payroll_subsidies,
         "labor_hours_report": labor_hours_report,
@@ -235,4 +287,5 @@ def register_payroll_routes(app, api):
         "payroll_calendar": payroll_calendar,
         "payroll_calendar_batch": payroll_calendar_batch,
         "payroll_calendar_export": payroll_calendar_export,
+        "worker_tax_status_history": worker_tax_status_history,
     }

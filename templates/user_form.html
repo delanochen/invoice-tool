@@ -103,6 +103,11 @@
           {% else %}
             <label>员工等级 <input value="{{ user.employee_grade_name or '-' }}" readonly></label>
           {% endif %}
+          {% if user.role in ('employee', 'external_employee') %}
+            <label>W-2 / 1099 税务身份
+              <a class="erp-link" href="{{ url_for('worker_tax_status_history', user_id=user.id) }}">查看税务身份历史</a>
+            </label>
+          {% endif %}
           <label>新密码 <input type="password" name="password" minlength="8" placeholder="留空则不修改密码"></label>
           <label class="full-span">新增附件 <input type="file" name="attachments" multiple></label>
         </div>

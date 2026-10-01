@@ -331,6 +331,35 @@ def build_payroll_services(api):
             period_end=period_end,
         )
 
+    def _worker_tax_status_entries(employee_id):
+        return api["db"]().execute(
+            "select h.*, u.name created_by_name from worker_tax_status_history h"
+            " left join users u on u.id=h.created_by where h.employee_id=?"
+            " order by h.effective_from desc, h.id desc",
+            (employee_id,),
+        ).fetchall()
+
+    def _create_worker_tax_status_entry(employee_id, tax_status, effective_from, effective_to,
+                                        notes, created_by):
+        """新增税务身份有效期（写入前做区间重叠校验）。"""
+        from .tax import validate_tax_status_segment
+        existing = _worker_tax_status_entries(employee_id)
+        validate_tax_status_segment(existing, tax_status, effective_from, effective_to)
+        api["db"]().execute(
+            "insert into worker_tax_status_history (employee_id,tax_status,effective_from,"
+            "effective_to,notes,created_by,created_at) values (?,?,?,?,?,?,?)",
+            (employee_id, tax_status, effective_from, effective_to or None,
+             notes or None, created_by, api["now"]()),
+        )
+
+    def _worker_tax_status_current(employee_id, today=None):
+        from datetime import date as _date
+        day = _iso_day_of(today) if today else _date.today().isoformat()
+        return _worker_tax_status_lookup()(employee_id, day)
+
+    def _iso_day_of(value):
+        return value.isoformat() if hasattr(value, "isoformat") else value
+
     def _payroll_periods_for_month(year, month):
         month_start = date(year, month, 1)
         month_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
@@ -381,4 +410,7 @@ def build_payroll_services(api):
         "component_tax_config_lookup": _component_tax_config_lookup,
         "worker_tax_status_lookup": _worker_tax_status_lookup,
         "mileage_evidence_lookup": _mileage_evidence_lookup,
+        "worker_tax_status_entries": _worker_tax_status_entries,
+        "create_worker_tax_status_entry": _create_worker_tax_status_entry,
+        "worker_tax_status_current": _worker_tax_status_current,
     }

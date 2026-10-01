@@ -16889,6 +16889,10 @@ offline_salary_payment_components = _payroll_services["offline_salary_payment_co
 component_tax_config_lookup = _payroll_services["component_tax_config_lookup"]
 worker_tax_status_lookup = _payroll_services["worker_tax_status_lookup"]
 mileage_evidence_lookup = _payroll_services["mileage_evidence_lookup"]
+# Phase 2B：W-2 / 1099 税务身份历史（当前身份一律按日期查 history）
+worker_tax_status_entries = _payroll_services["worker_tax_status_entries"]
+create_worker_tax_status_entry = _payroll_services["create_worker_tax_status_entry"]
+worker_tax_status_current = _payroll_services["worker_tax_status_current"]
 _payroll_routes = register_payroll_routes(app, globals())
 payroll_subsidies = _payroll_routes["payroll_subsidies"]
 labor_hours_report = _payroll_routes["labor_hours_report"]
@@ -16897,6 +16901,7 @@ payroll_detail_report = _payroll_routes["payroll_detail_report"]
 payroll_calendar = _payroll_routes["payroll_calendar"]
 payroll_calendar_batch = _payroll_routes["payroll_calendar_batch"]
 payroll_calendar_export = _payroll_routes["payroll_calendar_export"]
+worker_tax_status_history = _payroll_routes["worker_tax_status_history"]
 
 register_employee_finance_routes(app, globals())
 

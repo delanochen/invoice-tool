@@ -22,6 +22,35 @@ CENT = Decimal("0.01")
 
 TAX_CATEGORIES = ("taxable_compensation", "accountable_reimbursement", "tax_review_required")
 
+WORKER_TAX_STATUSES = ("W2", "1099")
+
+
+def validate_tax_status_segment(existing_rows, tax_status, effective_from, effective_to):
+    """校验一条 W-2 / 1099 身份有效期（纯函数，供服务层在写入前调用）。
+
+    - tax_status 只允许 W2 / 1099；
+    - effective_from 必填、effective_to 可空，结束不得早于开始；
+    - 与任何已有有效期重叠 → 拒绝（不允许两个有效身份区间相交）。
+    返回 None 表示通过，否则抛 ValueError。
+    """
+    if tax_status not in WORKER_TAX_STATUSES:
+        raise ValueError("税务身份只能是 W2 或 1099。")
+    if not effective_from:
+        raise ValueError("必须填写生效日期（effective_from）。")
+    if effective_to and effective_to < effective_from:
+        raise ValueError("结束日期不能早于开始日期。")
+    for row in existing_rows:
+        row_from = _iso(row["effective_from"])
+        row_to = _iso(row["effective_to"]) if row["effective_to"] else None
+        # 开放段（effective_to 为空）视为延伸到无穷远。
+        overlaps = (effective_to is None or row_from <= effective_to) and \
+                   (row_to is None or row_to >= effective_from)
+        if overlaps:
+            raise ValueError(
+                "生效区间 %s ~ %s 与已有记录 %s ~ %s 重叠，员工同一时段只能有一个税务身份。"
+                % (effective_from, effective_to or "（至今）", row_from, row_to or "（至今）")
+            )
+
 # component_code -> 兜底展示名（config 缺失时使用，仅展示用，绝不参与判定）
 DEFAULT_COMPONENT_NAMES = {
     "standard_pay": "标准工资",

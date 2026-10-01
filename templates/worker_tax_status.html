@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}税务身份历史 - {{ worker.name }} - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+<div class="erp-app erp-app--flow erp-compact">
+
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      税务身份历史
+      <small>{{ worker.name }} · 当前身份按生效日期计算，不做单值存储</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <a class="erp-btn" href="{{ url_for('edit_user', user_id=worker.id) }}">返回员工资料</a>
+    </div>
+  </header>
+
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <div class="erp-current-status">
+        {% if current_status %}
+          当前税务身份：<b>{{ 'W-2 员工' if current_status == 'W2' else '1099 承包人' }}</b>
+        {% else %}
+          当前税务身份：<b class="erp-warn">未登记</b>
+          <small>未登记期间生成的工资组件会进入「税务待复核」。</small>
+        {% endif %}
+      </div>
+
+      <table class="system-grid">
+        <thead>
+          <tr>
+            <th>税务身份</th><th>生效开始</th><th>生效结束</th>
+            <th>备注</th><th>登记人</th><th>登记时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in entries %}
+          <tr>
+            <td>{{ 'W-2' if entry.tax_status == 'W2' else '1099' }}</td>
+            <td>{{ entry.effective_from }}</td>
+            <td>{{ entry.effective_to or '（至今）' }}</td>
+            <td>{{ entry.notes or '' }}</td>
+            <td>{{ entry.created_by_name or '' }}</td>
+            <td>{{ entry.created_at }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="muted">尚无记录。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% if can_manage %}
+      <form method="post" class="panel tax-status-form">
+        <h3>新增有效期</h3>
+        <label>税务身份
+          <select name="tax_status" required>
+            <option value="W2">W-2 员工</option>
+            <option value="1099">1099 承包人</option>
+          </select>
+        </label>
+        <label>生效开始
+          <input type="date" name="effective_from" required>
+        </label>
+        <label>生效结束
+          <input type="date" name="effective_to">
+          <small>留空表示持续至今；切换身份时请把上一段的结束日期填为切换前一天。</small>
+        </label>
+        <label class="full">备注
+          <input type="text" name="notes" maxlength="200">
+        </label>
+        <div class="form-actions full">
+          <button type="submit" class="erp-btn primary">保存</button>
+        </div>
+        <p class="muted full">不允许时间段重叠；历史工资组件的身份快照在生成时已冻结，修改历史不会改写旧快照。</p>
+      </form>
+      {% endif %}
+    </section>
+  </div>
+
+  <footer class="erp-status">
+    <span>员工 #{{ worker.id }} {{ worker.name }}</span>
+    <span class="sep"></span>
+    <span>当前身份 {{ current_status or '未登记' }}</span>
+    <span class="sep"></span>
+    <span>共 {{ entries|length }} 条记录</span>
+  </footer>
+</div>
+{% endblock %}
