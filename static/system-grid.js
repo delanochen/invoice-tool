@@ -5,7 +5,7 @@
   const instances = new Map();
   const text = node => (node?.textContent || '').trim();
   const t = value => window.uiTranslate ? window.uiTranslate(value) : value;
-  const monetary = /^(金额|明细金额|合同金额|税额|合计|总额|报销金额|报销总额|工时费|差旅费|里程费|基本工资|标准工资|交通工资|加班工资|假期工资|自驾车补|随行车补|随行补贴|租车驾驶补贴|补贴|餐补|报告撰写费|合计工资|住宿费|机票费|行李费|租车费|燃油费|停车费|出租车费|住宿|机票|行李|租车|燃油|停车|出租车|其他|收入|成本|利润|客户单价|员工\/实际成本单价|Amount|Tax|Line Total)$/;
+  const monetary = /^(金额|明细金额|合同金额|税额|合计|总额|报销金额|报销总额|工时费|差旅费|里程费|基本工资|标准工资|交通工资|加班工资|假期工资|自驾车补|随行车补|随行补贴|租车驾驶补贴|补贴|餐补|报告撰写费|合计工资|住宿费|机票费|行李费|租车费|燃油费|停车费|出租车费|住宿|机票|行李|租车|燃油|停车|出租车|其他|收入|成本|毛利润|利润|客户单价|员工\/实际成本单价|Amount|Tax|Line Total)$/;
   // 可分组维度：一级 / 二级分组下拉只列出命中这里的列。「类型」是明细账最常用的分组维度，
   // 原先漏了它 —— 员工往来账这类表就没法按「工资 / 员工报销」分组。
   const dimension = /姓名|工单|站点|客户|员工|人员|施工员|创建人|提交人|开票人|项目|类别|类型|日期|时间|状态|国家|业主|报销编号|发票编号|Description/;
@@ -27,7 +27,9 @@
   function total(values) {
     const sums = {};
     values.forEach(value => Object.entries(value || {}).forEach(([currency, cents]) => { sums[currency] = (sums[currency] || 0) + cents; }));
-    return Object.entries(sums).map(([currency, cents]) => `${currency} ${(cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`).join('\n');
+    // 合计行金额与数据单元格保持一致：显示货币符号（$）而不是 ISO 代码（USD）。
+    const symbols = {'USD':'$','EUR':'€','GBP':'£','CAD':'C$','CNY':'¥'};
+    return Object.entries(sums).map(([currency, cents]) => `${symbols[currency] || (currency + ' ')}${(cents / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`).join('\n');
   }
   function button(label, action) {
     const node = document.createElement('button'); node.type = 'button'; node.textContent = t(label);
