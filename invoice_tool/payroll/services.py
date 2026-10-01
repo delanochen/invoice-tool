@@ -1538,8 +1538,7 @@ def build_payroll_services(api):
                         """select count(*) as n from expense_attachments
                            where expense_id = (select expense_id from expense_items
                                                where id = ?)
-                             and expense_item_key = ?
-                           and superseded_at is null""",
+                             and expense_item_key = ?""",
                         (item_id, detail["line_key"])).fetchone()
                     state["attachment_count"] = int(att["n"] or 0)
             states.append(state)
