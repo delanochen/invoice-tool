@@ -1159,8 +1159,11 @@ def load_user():
         session["language"] = requested_language
     g.user = current_user()
     if request.method == "POST":
-        cl = request.content_length
-        app.logger.warning("POST diag: path=%s content_length=%s content_type=%s", request.path, cl, request.content_type)
+        app.logger.warning("POST diag: path=%s content_length=%s max_cl=%s max_fms=%s terminated=%s",
+            request.path, request.content_length,
+            getattr(request, 'max_content_length', 'N/A'),
+            getattr(request, 'max_form_memory_size', 'N/A'),
+            request.environ.get('wsgi.input_terminated'))
     if g.user:
         permission_rule = required_action_for_request()
         if permission_rule and not has_action_permission(*permission_rule):
