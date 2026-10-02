@@ -16743,7 +16743,9 @@ def internal_server_error(error):
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
-    app.logger.warning("413 caught: error=%r content_length=%s path=%s", error, request.content_length, request.path)
+    app.logger.warning("413 caught: error=%r content_length=%s max_content_length=%s path=%s environ=%s",
+        error, request.content_length, request.max_content_length, request.path,
+        {k:v for k,v in request.environ.items() if 'CONTENT' in k.upper() or 'MAX' in k.upper()})
     return (
         render_template(
             "error.html",
