@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item, tab_button %}
+{% block title %}{{ quotation.quotation_number }} - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{% set pricing = quotation.pricing_lines %}
+{% if pricing is string %}{% set pricing = [] %}{% endif %}
+<div class="erp-app" data-active-panel="info">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      {{ quotation.quotation_number }}
+      <small>{{ quotation.customer or quotation.client_name or "-" }} · {{ quotation.project_name or "-" }}</small>
+    </div>
+    <span class="status {{ quotation.status }}">{{ status_labels[quotation.status] }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('quotations') }}'">返回列表</button>
+      <button type="button" class="erp-btn primary" onclick="window.open('{{ url_for('quotation_pdf', quotation_id=quotation.id) }}', '_blank')">导出 PDF</button>
+      {% if can_manage_quotations() %}
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('edit_quotation', quotation_id=quotation.id) }}'">编辑报价单</button>
+        <form method="post" action="{{ url_for('delete_quotation', quotation_id=quotation.id) }}" style="display:inline;"
+              onsubmit="return confirm(window.uiTranslate('确定删除这份报价单吗？已被工单引用的报价单不能删除。'));">
+          <button class="erp-btn danger" type="submit">删除报价单</button>
+        </form>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    <nav class="erp-tabs no-print">
+      {{ tab_button('info', '报价信息', true) }}
+      {{ tab_button('pricing', '定价汇总', false) }}
+      {{ tab_button('assumptions', '费率与假设', false) }}
+      {{ tab_button('payment', '付款与开票', false) }}
+    </nav>
+
+    <!-- Panel 1：报价信息 -->
+    <section class="erp-panel active" data-erp-panel="info">
+      <div class="erp-detail-scroll">
+        <div class="detail-grid">
+          <p><strong>报价日期</strong><span>{{ quotation.quotation_date or "-" }}</span></p>
+          <p><strong>有效期至</strong><span>{{ quotation.valid_until or "-" }}</span></p>
+          <p><strong>编制人</strong><span>{{ quotation.prepared_by or "-" }}</span></p>
+          <p><strong>状态</strong><span class="status {{ quotation.status }}">{{ status_labels[quotation.status] }}</span></p>
+          <p><strong>客户</strong><span>{{ quotation.customer or quotation.client_name or "-" }}</span></p>
+          <p><strong>联系人</strong><span>{{ quotation.contact or "-" }}</span></p>
+          <p><strong>项目名称</strong><span>{{ quotation.project_name or "-" }}</span></p>
+          <p><strong>项目编号</strong><span>{{ quotation.project_no or "-" }}</span></p>
+          <p><strong>项目地点</strong><span>{{ quotation.project_location or "-" }}</span></p>
+          <p><strong>PO 编号</strong><span>{{ quotation.po_no or "-" }}</span></p>
+          <p><strong>货币</strong><span>{{ quotation.currency or "USD" }}</span></p>
+          <p><strong>预估总额</strong><span>{{ quotation.total|money(quotation.currency) }}</span></p>
+          {% if quotation.client_name %}
+            <p><strong>关联正式客户</strong><span>{{ quotation.client_number }} · {{ quotation.client_name }}</span></p>
+          {% endif %}
+          {% if quotation.notes %}
+            <p class="full-span"><strong>备注</strong><span class="pre-line">{{ quotation.notes }}</span></p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 2：工作范围与定价汇总 -->
+    <section class="erp-panel" data-erp-panel="pricing">
+      <div class="erp-detail-scroll">
+        {% if quotation.project_description or quotation.scope_1 or quotation.scope_2 or quotation.scope_3 %}
+        <h4 class="panel-title">工作范围</h4>
+        <div class="detail-grid">
+          {% if quotation.project_description %}
+            <p class="full-span"><strong>项目描述</strong><span class="pre-line">{{ quotation.project_description }}</span></p>
+          {% endif %}
+          {% if quotation.scope_1 %}<p class="full-span"><strong>范围 1</strong><span class="pre-line">{{ quotation.scope_1 }}</span></p>{% endif %}
+          {% if quotation.scope_2 %}<p class="full-span"><strong>范围 2</strong><span class="pre-line">{{ quotation.scope_2 }}</span></p>{% endif %}
+          {% if quotation.scope_3 %}<p class="full-span"><strong>范围 3</strong><span class="pre-line">{{ quotation.scope_3 }}</span></p>{% endif %}
+        </div>
+        {% endif %}
+        <h4 class="panel-title">定价汇总</h4>
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid" data-grid-height="auto">
+            <thead>
+              <tr><th>描述</th><th>数量 / 单位</th><th>费率</th><th>预估金额</th></tr>
+            </thead>
+            <tbody>
+              {% for line in pricing %}
+                <tr>
+                  <td>{{ line.label }}</td>
+                  <td>{% if line.qty %}{{ line.qty }}{% if line.unit and line.unit != "As required" %} {{ line.unit }}{% endif %}{% elif line.unit %}{{ line.unit }}{% endif %}</td>
+                  <td>{% if line.rate %}{{ line.rate|money(quotation.currency) }}{% if line.unit and line.unit != "As required" %} / {{ line.unit }}{% endif %}{% endif %}</td>
+                  <td class="num">{% if line.amount %}{{ line.amount|money(quotation.currency) }}{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="detail-grid">
+          <p><strong>预估小计</strong><span>{{ quotation.subtotal|money(quotation.currency) }}</span></p>
+          <p><strong>税</strong><span>{{ quotation.tax|money(quotation.currency) }}</span></p>
+          <p><strong>预估总额</strong><span>{{ quotation.total|money(quotation.currency) }}</span></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 3：费率与假设 -->
+    <section class="erp-panel" data-erp-panel="assumptions">
+      <div class="erp-detail-scroll">
+        {% set rates = quotation.rate_schedule %}
+        {% if rates is string %}{% set rates = [] %}{% endif %}
+        <h4 class="panel-title">费率表</h4>
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid" data-grid-height="auto">
+            <thead><tr><th>计费类别</th><th>费率</th><th>计费单位</th></tr></thead>
+            <tbody>
+              {% for line in rates %}
+                <tr>
+                  <td>{{ line.label }}</td>
+                  <td>{% if line.rate %}{{ line.rate|money(quotation.currency) }}{% endif %}</td>
+                  <td>{{ line.unit }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <h4 class="panel-title">项目假设</h4>
+        <div class="detail-grid">
+          <p><strong>预估人数</strong><span>{{ quotation.crew_size or "-" }}</span></p>
+          <p><strong>预估工作日</strong><span>{{ quotation.workdays or "-" }}</span></p>
+          <p><strong>每日工时</strong><span>{{ quotation.hours_per_day or "-" }}</span></p>
+          <p><strong>预计开始</strong><span>{{ quotation.expected_start_date or "-" }}</span></p>
+          <p><strong>预计完成</strong><span>{{ quotation.expected_completion or "-" }}</span></p>
+          <p><strong>正常工作时段</strong><span>{{ quotation.normal_working_hours or "-" }}</span></p>
+          {% if quotation.customer_provides %}
+            <p class="full-span"><strong>客户提供</strong><span>{{ quotation.customer_provides|replace(",", " · ") }}</span></p>
+          {% endif %}
+          {% if quotation.assumptions_other %}
+            <p class="full-span"><strong>其他</strong><span>{{ quotation.assumptions_other }}</span></p>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 4：付款与开票 -->
+    <section class="erp-panel" data-erp-panel="payment">
+      <div class="erp-detail-scroll">
+        <div class="detail-grid">
+          <p><strong>付款条款</strong><span>{{ payment_terms_labels[quotation.payment_terms] }}{% if quotation.payment_terms == "other" and quotation.payment_terms_other %}：{{ quotation.payment_terms_other }}{% endif %}</span></p>
+          <p><strong>报价有效期</strong><span>{{ quotation.quotation_validity or "-" }}</span></p>
+          <p><strong>开票频率</strong><span>{{ invoice_frequency_labels[quotation.invoice_frequency] }}</span></p>
+          <p><strong>货币</strong><span>{{ quotation.currency or "USD" }}</span></p>
+          <p><strong>定价类型</strong><span>{{ pricing_type_labels[quotation.pricing_type] }}</span></p>
+          <p><strong>税务</strong><span>{{ quotation.tax_note or "-" }}</span></p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('预估小计', quotation.subtotal|money(quotation.currency), 'muted') }}
+    {{ summary_item('税', quotation.tax|money(quotation.currency), 'muted') }}
+    {{ summary_item('预估总额', quotation.total|money(quotation.currency), '') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>报价单 <b>{{ quotation.quotation_number }}</b></span>
+    <span class="sep"></span>
+    <span>创建人 <b>{{ quotation.creator_name or "-" }}</b></span>
+    <span class="sep"></span>
+    <span>创建时间 <b>{{ quotation.created_at or "-" }}</b></span>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+{% endblock %}

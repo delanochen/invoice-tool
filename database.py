@@ -17,6 +17,7 @@ REQUIRED_PRODUCTION_TABLES = {
     'employee_payment_orders', 'payment_order_sources', 'payment_order_events',
     'employee_advance_applications', 'bank_transactions', 'assets',
     'asset_events', 'asset_photos',
+    'quotations',
 }
 REQUIRED_PRODUCTION_COLUMNS = {
     ('employee_payment_orders', 'external_transaction_id'),
@@ -25,6 +26,9 @@ REQUIRED_PRODUCTION_COLUMNS = {
     ('employee_advances', 'attachment_stored_filename'),
     ('bank_transactions', 'matched_payment_order_id'),
     ('assets', 'stable_id'),
+    ('quotations', 'quotation_number'),
+    ('quotations', 'client_id'),
+    ('service_orders', 'quotation_id'),
 }
 WRITER_LOCK = 733252001
 _PROTECTED = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*[\s\S]*?\*/")

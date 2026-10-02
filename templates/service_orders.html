@@ -64,7 +64,7 @@
                而 fitDataStretch 会把没声明宽度的列摊开，「工单结算」只有一个对勾会被撑成一大片，
                所以钉死在 Tabulator 的 minWidth（85）上。 #}
             {% if can_view_customer_reimbursement() %}<th data-grid-width="85">工单结算</th>{% endif %}
-            <th>配套机厂家</th><th>开始日期</th><th>服务订单号码</th><th>业主</th><th>合同</th><th>工单类型</th><th>服务现场地址</th>{% if can_view_invoices() %}<th>发票</th><th>已核销</th>{% endif %}<th>状态</th>
+            <th>配套机厂家</th><th>开始日期</th><th>服务订单号码</th><th>业主</th><th>合同</th><th>报价单</th><th>工单类型</th><th>服务现场地址</th>{% if can_view_invoices() %}<th>发票</th><th>已核销</th>{% endif %}<th>状态</th>
           </tr></thead>
           <tbody>
             {% for order in orders %}
@@ -94,6 +94,17 @@
                       <a href="{{ url_for('contract_detail', contract_id=order.contract_id) }}">{{ order.contract_number }}</a>
                     {% else %}
                       {{ order.contract_number }}
+                    {% endif %}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  {% if order.quotation_id %}
+                    {% if can_view_quotations() %}
+                      <a href="{{ url_for('quotation_detail', quotation_id=order.quotation_id) }}">{{ order.quotation_number }}</a>
+                    {% else %}
+                      {{ order.quotation_number }}
                     {% endif %}
                   {% else %}
                     -

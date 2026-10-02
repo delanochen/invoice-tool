@@ -61,6 +61,18 @@
           </select>
           <small>合同可选；所选合同必须属于上面的客户。</small>
         </label>
+        <label>关联报价单
+          <select name="quotation_id">
+            <option value="">不关联报价单</option>
+            {% for quotation in quotations %}
+              <option value="{{ quotation.id }}"
+                {% if (order and order.quotation_id == quotation.id) or (not order and request.args.get('quotation_id')|int == quotation.id) %}selected{% endif %}>
+                {{ quotation.quotation_number }} · {{ quotation.customer or quotation.client_name or "" }} · {{ quotation.project_name or "" }}
+              </option>
+            {% endfor %}
+          </select>
+          <small>报价单可选；已关联正式客户的报价单必须属于上面的客户。</small>
+        </label>
         <label>站点名称
           <select name="buyer_id" id="buyerSelect" required>
             <option value="">请选择站点</option>

@@ -83,6 +83,17 @@
               未关联
             {% endif %}
           </span></p>
+          <p><strong>报价单</strong><span>
+            {% if order.quotation_id %}
+              {% if can_view_quotations() %}
+                <a href="{{ url_for('quotation_detail', quotation_id=order.quotation_id) }}">{{ order.quotation_number }}{% if order.quotation_customer %} · {{ order.quotation_customer }}{% endif %}</a>
+              {% else %}
+                {{ order.quotation_number }}{% if order.quotation_customer %} · {{ order.quotation_customer }}{% endif %}
+              {% endif %}
+            {% else %}
+              未关联
+            {% endif %}
+          </span></p>
           <p><strong>站点名称</strong><span>{{ order.client_name }}</span></p>
           <p><strong>业主</strong><span>{{ order.buyer_owner or "-" }}</span></p>
           <p><strong>规模</strong><span>{{ order.buyer_site_size or "-" }}</span></p>

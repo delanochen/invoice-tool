@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% from "erp_ui.html" import summary_item %}
+{% block title %}报价单 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{% set active_count = quotations|selectattr('status', 'equalto', 'sent')|list|length %}
+{% set total_amount = quotations|map(attribute='total')|sum %}
+
+<div class="erp-app" data-active-panel="list">
+
+  <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      报价单管理
+      <small>报价单 · 网页填写并直接导出 PDF</small>
+    </div>
+    <span class="erp-badge">{{ quotations|length }} 份报价单</span>
+    {% if active_count %}<span class="erp-badge">{{ active_count }} 份已发送</span>{% endif %}
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      {% if can_manage_quotations() %}
+        <button type="button" class="erp-btn primary" onclick="window.location.href='{{ url_for('new_quotation') }}'">新建报价单</button>
+      {% endif %}
+      <button type="button" class="erp-btn" data-erp-action="query">查询</button>
+      <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
+      <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
+      <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      <button type="button" class="erp-btn" data-erp-action="print">打印</button>
+    </div>
+  </header>
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  <div class="erp-body">
+    <form class="erp-filter no-print" method="get" data-erp-filter>
+      <label class="erp-field">关键词 <input type="search" name="q" value="{{ q }}" placeholder="报价单编号 / 客户 / 项目 / 联系人"></label>
+      <label class="erp-field">状态
+        <select name="status">
+          <option value="">全部状态</option>
+          {% for value, label in status_labels.items() %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="erp-filter-note">关键词同时匹配报价单编号、客户名称、项目名称与联系人；列表按报价日期倒序排列。</p>
+    </form>
+
+    <!-- Panel：报价单清单（一份报价单一行） -->
+    <section class="erp-panel active" data-erp-panel="list">
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid" data-grid-height="100%">
+          <thead>
+            <tr><th>报价单编号</th><th>客户</th><th>项目名称</th><th>报价日期</th><th>有效期至</th><th>预估总额</th><th>编制人</th><th>状态</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            {% for quotation in quotations %}
+              <tr>
+                <td><a href="{{ url_for('quotation_detail', quotation_id=quotation.id) }}">{{ quotation.quotation_number }}</a></td>
+                <td>{{ quotation.customer or quotation.client_name or "-" }}</td>
+                <td>{{ quotation.project_name or "-" }}</td>
+                <td>{{ quotation.quotation_date or "-" }}</td>
+                <td>{{ quotation.valid_until or "-" }}</td>
+                <td class="num" data-grid-currency="{{ quotation.currency }}">{{ quotation.total|money(quotation.currency) }}</td>
+                <td>{{ quotation.creator_name or "-" }}</td>
+                <td><span class="status {{ quotation.status }}">{{ status_labels[quotation.status] }}</span></td>
+                <td>
+                  <div class="row-actions">
+                    <a class="erp-btn" href="{{ url_for('quotation_pdf', quotation_id=quotation.id) }}" target="_blank">导出 PDF</a>
+                    <a class="erp-btn" href="{{ url_for('quotation_detail', quotation_id=quotation.id) }}">详情</a>
+                  </div>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="9" class="empty">没有符合条件的报价单。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 手机端：卡片替代表格 -->
+      <div class="erp-cards">
+        {% for quotation in quotations %}
+          <article class="erp-card">
+            <div class="erp-card-head">
+              <span class="erp-card-code">{{ quotation.quotation_number }}</span>
+              <span class="erp-card-customer">{{ quotation.customer or quotation.client_name or "-" }}</span>
+            </div>
+            <div class="erp-card-sub">
+              <span>{{ quotation.project_name or "-" }}</span>
+              <span>{{ quotation.quotation_date or "-" }}</span>
+              <span>有效期至 {{ quotation.valid_until or "-" }}</span>
+            </div>
+            <div class="erp-cert-file">{{ quotation.total|money(quotation.currency) }} · {{ status_labels[quotation.status] }}</div>
+            <div class="erp-card-foot">
+              <a class="erp-btn" href="{{ url_for('quotation_pdf', quotation_id=quotation.id) }}" target="_blank">导出 PDF</a>
+              <a class="erp-btn" href="{{ url_for('quotation_detail', quotation_id=quotation.id) }}">详情</a>
+              <span class="status {{ quotation.status }}">{{ status_labels[quotation.status] }}</span>
+            </div>
+          </article>
+        {% else %}
+          <div class="erp-empty">没有符合条件的报价单。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
+  <footer class="erp-summary">
+    {{ summary_item('报价单数', quotations|length, 'muted') }}
+    {{ summary_item('已发送', active_count, 'muted') }}
+    {{ summary_item('预估总额', quotations|map(attribute='total')|sum|money('USD'), 'muted') }}
+  </footer>
+
+  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <footer class="erp-status">
+    <span>记录 <b data-erp-count>{{ quotations|length }}</b> 条</span>
+    <span class="sep"></span>
+    <span>状态 <b>{{ status_labels[selected_status] if selected_status else '全部' }}</b></span>
+    {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.reportExportConfig = {url: "{{ url_for('export_visible_report') }}", title: "报价单管理"};
+</script>
+<script src="{{ url_for('static', filename='report-export.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+{% endblock %}

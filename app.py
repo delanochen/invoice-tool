@@ -73,6 +73,7 @@ from invoice_tool.employees import (
     register_employee_user_routes,
 )
 from invoice_tool.payroll import build_payroll_services, register_payroll_routes
+from invoice_tool.quotations.routes import register_quotation_routes
 from field_work import register_field_routes
 from staff_reports import register_staff_reports
 from customer_report_logic import (
@@ -331,6 +332,7 @@ MENU_PERMISSION_GROUPS = [
         "items": [
             {"key": "dashboard", "label": "概览", "roles": {"admin", "manager", "finance"}},
             {"key": "contracts", "label": "合同", "roles": {"admin", "manager", "finance", "external_manager"}},
+            {"key": "quotations", "label": "报价单", "roles": {"admin", "manager", "finance", "external_manager"}},
             {"key": "service_orders", "label": "工单", "roles": set(ROLE_OPTIONS)},
             {"key": "field_work", "label": "现场工作", "roles": set(ROLE_OPTIONS)},
             {"key": "service_order_map", "label": "站点地图", "roles": {"admin", "manager", "finance", "employee", "external_manager"}},
@@ -449,6 +451,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
         "label": "主业务",
         "items": [
             {"key": "contracts", "label": "合同", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
+            {"key": "quotations", "label": "报价单", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}}},
             {"key": "service_orders", "label": "工单", "actions": {"view": set(ROLE_OPTIONS), "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee", "external_manager", "external_employee"}, "delete": {"admin", "manager", "finance"}}},
             {"key": "service_order_calendar", "label": "工单日历", "actions": {"view": set(ROLE_OPTIONS)}},
             {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee", "external_manager"}}},
@@ -1755,6 +1758,12 @@ def required_action_for_request():
         "edit_contract": ("contracts", "edit"),
         "delete_contract": ("contracts", "delete"),
         "delete_contract_attachment": ("contracts", "delete"),
+        "quotations": ("quotations", "view"),
+        "new_quotation": ("quotations", "create"),
+        "quotation_detail": ("quotations", "view"),
+        "edit_quotation": ("quotations", "edit"),
+        "delete_quotation": ("quotations", "delete"),
+        "quotation_pdf": ("quotations", "export"),
         "edit_client": ("clients", "edit"),
         "delete_client": ("clients", "delete"),
         "edit_owner": ("owners", "edit"),
@@ -2523,6 +2532,10 @@ def require_service_order(order_id):
                contracts.contract_number,
                contracts.title as contract_title,
                contracts.contract_type,
+               quotations.quotation_number,
+               quotations.customer as quotation_customer,
+               quotations.project_name as quotation_project_name,
+               quotations.status as quotation_status,
                coalesce(country_local.name, country_zh.name, country_en.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, country_en.region_name, service_orders.region_code) as region_name
         from service_orders
@@ -2532,6 +2545,7 @@ def require_service_order(order_id):
         left join owners on owners.id = buyers.owner_id
         left join clients on clients.id = service_orders.client_id
         left join contracts on contracts.id = service_orders.contract_id
+        left join quotations on quotations.id = service_orders.quotation_id
         left join country_translations buyer_country_local
           on buyer_country_local.country_code = buyers.country_code and buyer_country_local.language_code = ?
         left join country_translations buyer_country_zh
@@ -12185,6 +12199,8 @@ def service_orders():
                coalesce(owners.name, buyers.owner) as buyer_owner,
                coalesce(order_manufacturers.name, buyers.equipment_manufacturer) as buyer_equipment_manufacturer,
                contracts.contract_number,
+               quotations.quotation_number,
+               quotations.customer as quotation_customer,
                count(distinct service_reports.id) as report_count,
                -- 报销：该工单所有报销单的明细条目数之和（与「日报」列同为条数口径）。
                -- 用相关子查询而不是 join expenses，免得 group by 行集膨胀。
@@ -12204,10 +12220,11 @@ def service_orders():
         left join manufacturers as order_manufacturers on order_manufacturers.id = service_orders.manufacturer_id
         left join owners on owners.id = buyers.owner_id
         left join contracts on contracts.id = service_orders.contract_id
+        left join quotations on quotations.id = service_orders.quotation_id
         left join service_reports on service_reports.service_order_id = service_orders.id
         left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         where {" and ".join(clauses)}
-        group by service_orders.id, clients.id, work_order_types.id, owners.id, buyers.id, order_manufacturers.id, contracts.id
+        group by service_orders.id, clients.id, work_order_types.id, owners.id, buyers.id, order_manufacturers.id, contracts.id, quotations.id
         order by service_orders.created_at desc, service_orders.id desc
         """,
         params,
@@ -12648,6 +12665,15 @@ def new_service_order():
         order by clients.name, contracts.contract_number
         """
     ).fetchall()
+    quotations_rows = db().execute(
+        """
+        select quotations.*, clients.name as client_name
+        from quotations
+        left join clients on clients.id = quotations.client_id
+        where quotations.status in ('draft', 'sent', 'accepted')
+        order by quotations.quotation_date desc, quotations.id desc
+        """
+    ).fetchall()
     manufacturers_rows = manufacturer_options()
     if not buyers_rows:
         flash("请先由会计或经理维护站点资料。", "error")
@@ -12680,6 +12706,13 @@ def new_service_order():
                 "select * from contracts where id = ?",
                 (contract_id,),
             ).fetchone()
+        quotation_id = request.form.get("quotation_id") or None
+        quotation = None
+        if quotation_id:
+            quotation = db().execute(
+                "select * from quotations where id = ?",
+                (quotation_id,),
+            ).fetchone()
         site_address = request.form.get("site_address", "").strip()
         client_order_number = request.form.get("client_order_number", "").strip()
         if (
@@ -12695,19 +12728,26 @@ def new_service_order():
         if contract_id and (not contract or contract["client_id"] != client["id"]):
             flash("关联合同必须属于所选客户。", "error")
             return redirect(url_for("new_service_order"))
+        if quotation_id and (
+            not quotation
+            or (quotation["client_id"] and quotation["client_id"] != client["id"])
+        ):
+            flash("关联报价单必须属于所选客户。", "error")
+            return redirect(url_for("new_service_order"))
         order_number = next_service_order_number()
         cursor = db().execute(
             """
             insert into service_orders (
-                order_number, client_id, contract_id, buyer_id, manufacturer_id, client_name, buyer_contact_name, buyer_contact_details,
+                order_number, client_id, contract_id, quotation_id, buyer_id, manufacturer_id, client_name, buyer_contact_name, buyer_contact_details,
                 site_address, client_order_number, start_date, work_order_type_id,
                 region_code, country_code, created_by, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_number,
                 client["id"],
                 contract["id"] if contract else None,
+                quotation["id"] if quotation else None,
                 buyer["id"],
                 manufacturer["id"] if manufacturer else buyer["manufacturer_id"],
                 buyer["name"],
@@ -12742,6 +12782,7 @@ def new_service_order():
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         contracts=contracts_rows,
+        quotations=quotations_rows,
         manufacturers=manufacturers_rows,
         form_title="新建工单",
         start_date_only=False,
@@ -12816,6 +12857,16 @@ def edit_service_order(order_id):
         """,
         (order["contract_id"] or 0,),
     ).fetchall()
+    quotations_rows = db().execute(
+        """
+        select quotations.*, clients.name as client_name
+        from quotations
+        left join clients on clients.id = quotations.client_id
+        where quotations.status in ('draft', 'sent', 'accepted') or quotations.id = ?
+        order by quotations.quotation_date desc, quotations.id desc
+        """,
+        (order["quotation_id"] or 0,),
+    ).fetchall()
     manufacturers_rows = manufacturer_options()
     if request.method == "POST":
         country = country_from_form(order["country_code"])
@@ -12836,6 +12887,10 @@ def edit_service_order(order_id):
         contract = None
         if contract_id:
             contract = db().execute("select * from contracts where id = ?", (contract_id,)).fetchone()
+        quotation_id = request.form.get("quotation_id") or None
+        quotation = None
+        if quotation_id:
+            quotation = db().execute("select * from quotations where id = ?", (quotation_id,)).fetchone()
         site_address = request.form.get("site_address", "").strip()
         if (
             not buyer
@@ -12849,6 +12904,12 @@ def edit_service_order(order_id):
         if contract_id and (not contract or contract["client_id"] != client["id"]):
             flash("关联合同必须属于所选客户。", "error")
             return redirect(url_for("edit_service_order", order_id=order_id))
+        if quotation_id and (
+            not quotation
+            or (quotation["client_id"] and quotation["client_id"] != client["id"])
+        ):
+            flash("关联报价单必须属于所选客户。", "error")
+            return redirect(url_for("edit_service_order", order_id=order_id))
         if (
             request.form.get("status") == "closed"
             and order["status"] != "closed"
@@ -12859,7 +12920,7 @@ def edit_service_order(order_id):
         db().execute(
             """
             update service_orders
-            set client_id = ?, contract_id = ?, buyer_id = ?, manufacturer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
+            set client_id = ?, contract_id = ?, quotation_id = ?, buyer_id = ?, manufacturer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
                 site_address = ?, client_order_number = ?, start_date = ?,
                 work_order_type_id = ?, status = ?, region_code = ?, country_code = ?
             where id = ?
@@ -12867,6 +12928,7 @@ def edit_service_order(order_id):
             (
                 client["id"],
                 contract["id"] if contract else None,
+                quotation["id"] if quotation else None,
                 buyer["id"],
                 manufacturer["id"] if manufacturer else buyer["manufacturer_id"],
                 buyer["name"],
@@ -12893,6 +12955,7 @@ def edit_service_order(order_id):
         buyers=buyers_rows,
         work_order_types=work_order_types_rows,
         contracts=contracts_rows,
+        quotations=quotations_rows,
         manufacturers=manufacturers_rows,
         form_title="编辑工单",
         start_date_only=False,
@@ -17073,6 +17136,29 @@ cpa_workpaper = _payroll_routes["cpa_workpaper"]
 cpa_workpaper_export = _payroll_routes["cpa_workpaper_export"]
 
 register_employee_finance_routes(app, globals())
+
+# ---------------------------------------------------------------------------
+# Quotation / 报价单：业务模块在 invoice_tool/quotations/ 下，这里只做组装。
+#   - documents.py  模板版式常量与 PDF 生成（对齐 Quote Template v2）
+#   - routes.py     路由 / 表单解析 / 编号 / 权限判断
+# ---------------------------------------------------------------------------
+_quotation_exports = register_quotation_routes(app, globals())
+
+
+def can_view_quotations():
+    return _quotation_exports["can_view_quotations"](globals())
+
+
+def can_manage_quotations():
+    return _quotation_exports["can_manage_quotations"](globals())
+
+
+def next_quotation_number():
+    return _quotation_exports["next_quotation_number"](globals())
+
+
+app.jinja_env.globals["can_view_quotations"] = can_view_quotations
+app.jinja_env.globals["can_manage_quotations"] = can_manage_quotations
 
 
 if __name__ == "__main__":
