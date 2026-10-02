@@ -18,11 +18,12 @@
 .system-grid.photo-ledger-grid img,.system-grid.field-ledger-grid img{width:120px;height:120px;max-height:120px;object-fit:contain}.photo-query-table img{width:120px;height:120px;object-fit:contain}
 @media screen{html.grids-pending table:has(>thead>tr>th):not(.grid-source):not([data-grid-failed]):not(.system-grid table){visibility:hidden}}
 
-/* grid-building 期间 shell 保持可见但显示加载动画，避免大数据量时一片空白 */
-.system-grid.grid-building{min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
-.system-grid.grid-building::before{content:'';width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:#0f766e;border-radius:50%;animation:grid-loading-spin .7s linear infinite}
-.system-grid.grid-building::after{content:'正在加载数据…';color:#64748b;font-size:13px}
-@keyframes grid-loading-spin{to{transform:rotate(360deg)}}
+/* grid-building 期间显示骨架屏 shimmer，避免大数据量时一片空白 */
+.system-grid.grid-building{min-height:300px;position:relative}
+.grid-loading-overlay{position:absolute;inset:0;background:#fff;z-index:10;padding:12px;overflow:hidden;border:1px solid #d9e2e8;border-radius:4px}
+.grid-skeleton-header{height:38px;background:#edf3f5;border-radius:4px;margin-bottom:10px}
+.grid-skeleton-row{height:34px;margin-bottom:6px;border-radius:4px;background:linear-gradient(90deg,#f0f4f6 25%,#e2e8f0 50%,#f0f4f6 75%);background-size:200% 100%;animation:grid-shimmer 1.5s ease-in-out infinite}
+@keyframes grid-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
 @media screen and (max-width:640px) {
   .grid-tools button,.grid-tools select,.grid-tools input[type=search],.grid-columns summary { min-height:36px; height:auto; }

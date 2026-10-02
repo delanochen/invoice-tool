@@ -57,6 +57,11 @@
       if(source.classList.contains('ledger-table'))this.shell.classList.add('field-ledger-grid');
       this.tools = document.createElement('div'); this.tools.className = 'grid-tools no-print';
       this.host = document.createElement('div'); this.shell.append(this.tools, this.host); source.before(this.shell);
+      // 骨架屏 overlay：覆盖整个 shell，tableBuilt 后移除。大数据量时给用户明确的加载预期。
+      this.loadingOverlay = document.createElement('div');
+      this.loadingOverlay.className = 'grid-loading-overlay';
+      this.loadingOverlay.innerHTML = '<div class="grid-skeleton-header"></div>' + Array(12).fill('<div class="grid-skeleton-row"></div>').join('');
+      this.shell.appendChild(this.loadingOverlay);
       if(source.classList.contains('service-orders-table')) this.shell.classList.add('service-orders-grid');
       this.data = this.read();
       const columns = this.headers.map((title, index) => {
@@ -125,7 +130,7 @@
           ['closed-paid','closed-invoiced','open-invoiced'].forEach(className => element.classList.toggle(className, sourceRow?.classList.contains(className)));
         },
       });
-      this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); this.shell.classList.remove('grid-building'); settle(); });
+      this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); this.shell.classList.remove('grid-building'); this.loadingOverlay?.remove(); settle(); });
       this.grid.on('renderComplete', () => { this.scheduleParentTotals(); this.updateCount(); });
       this.grid.on('dataFiltered', () => this.updateCount());
       this.grid.on('dataProcessed', () => this.updateCount());
