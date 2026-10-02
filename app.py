@@ -13477,8 +13477,8 @@ def approve_customer_reimbursement(reimbursement_id):
 @app.post("/service-orders/<int:order_id>/customer-reimbursement/sync-sources")
 @login_required
 def sync_customer_reimbursement_sources(order_id):
-    """方案 A「计入并重算」：手动把已审核报销计入当前结算并重算快照。
-    仅在保存未提交/已退回状态可用；内部重跑 merge（已修翻倍）。"""
+    """方案 A「计入并重算」：把已审核但未计入的报销明细链接到本结算并重算快照。
+    manual_review 模式下 merge 只读 links 表，所以这里必须先补插 links。"""
     if not can_manage_customer_reimbursement():
         abort(403)
     require_service_order(order_id)
@@ -13488,9 +13488,71 @@ def sync_customer_reimbursement_sources(order_id):
     if reimbursement["status"] not in {"draft", "returned"}:
         flash("只有保存未提交或已退回的工单结算可以计入并重算。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+
+    sources = customer_reimbursement_pending_sources(reimbursement)
+    linked_count = 0
+    skipped_other = 0
+    for item in sources["includable"]:
+        row = db().execute(
+            """
+            select ei.id as expense_item_id, ei.amount,
+                   coalesce(p.name, ei.project) as project_name,
+                   e.status
+            from expense_items ei
+            join expenses e on e.id = ei.expense_id
+            left join projects p on p.id = ei.project_id
+            where ei.expense_id = ? and ei.line_key = ?
+            """,
+            (item["expense_id"], item["line_key"]),
+        ).fetchone()
+        if not row:
+            continue
+        already = db().execute(
+            "select 1 from customer_reimbursement_expense_links where customer_reimbursement_id = ? and expense_item_id = ?",
+            (reimbursement["id"], row["expense_item_id"]),
+        ).fetchone()
+        if already:
+            continue
+        other = db().execute(
+            "select 1 from customer_reimbursement_expense_links where expense_item_id = ? and customer_reimbursement_id != ? limit 1",
+            (row["expense_item_id"], reimbursement["id"]),
+        ).fetchone()
+        if other:
+            skipped_other += 1
+            continue
+        db().execute(
+            """
+            insert into customer_reimbursement_expense_links
+                (customer_reimbursement_id, expense_item_id, amount_snapshot, project_snapshot,
+                 expense_status_snapshot, selected_by, selected_at)
+            values (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reimbursement["id"],
+                row["expense_item_id"],
+                float(row["amount"] or 0),
+                row["project_name"] or "",
+                row["status"] or "approved",
+                g.user["id"],
+                now(),
+            ),
+        )
+        linked_count += 1
+
+    # 把 cutoff 推到现在，确保新链接的报销不被 reviewed_at <= cutoff 条件过滤
+    db().execute(
+        "update customer_reimbursements set expense_transfer_cutoff_at = ? where id = ?",
+        (now(), reimbursement["id"]),
+    )
+
     update_customer_reimbursement_totals(reimbursement["id"])
     db().commit()
-    flash("已将已审核报销计入工单结算并重算。", "success")
+    if linked_count:
+        flash(f"已将 {linked_count} 笔已审核报销计入工单结算并重算。", "success")
+    else:
+        flash("没有新的已审核报销需要计入。", "success")
+    if skipped_other:
+        flash(f"其中 {skipped_other} 笔已链接到其他结算单，已跳过。", "error")
     return redirect(url_for("customer_reimbursement_form", order_id=order_id))
 
 
