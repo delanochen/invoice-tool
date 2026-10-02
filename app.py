@@ -659,6 +659,7 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 # cookie is a browser-session cookie and iOS Safari discards it every time
 # the PWA is closed, forcing a re-login.
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
@@ -16737,6 +16738,20 @@ def internal_server_error(error):
             message="这个操作没能完成，数据没有被改动。请返回上一页重试；如果反复出现，请把当前页面地址和你做的操作发给管理员。",
         ),
         500,
+    )
+
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    app.logger.warning("413 caught: error=%r content_length=%s path=%s", error, request.content_length, request.path)
+    return (
+        render_template(
+            "error.html",
+            status_code="413",
+            title="提交内容过大",
+            message="提交的数据超过了服务器限制。请减少同时编辑的行数或稍后重试。",
+        ),
+        413,
     )
 
 
