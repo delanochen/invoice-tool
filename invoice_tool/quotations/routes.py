@@ -299,6 +299,10 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         rates = {str(item.get("key")): item for item in raw if isinstance(item, dict)}
     except (ValueError, TypeError):
         rates = {}
+    client_id = defaults.get("client_id")
+    if not client_id and quotation:
+        # quotation 可能是 dict 或 psycopg Row；Row 没有 .get，统一按索引访问
+        client_id = quotation["client_id"] if "client_id" in quotation.keys() else None
     return render_template(
         "quotation_form.html",
         quotation=quotation,
@@ -306,9 +310,7 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         defaults=defaults,
         pricing=pricing,
         rates=rates,
-        contract_rates=client_contract_rates(
-            api, defaults.get("client_id") or (quotation or {}).get("client_id")
-        ),
+        contract_rates=client_contract_rates(api, client_id),
         pricing_lines=PRICING_LINES,
         rate_schedule_lines=RATE_SCHEDULE_LINES,
         payment_terms_labels=PAYMENT_TERMS_LABELS,

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "erp_ui.html" import tab_button %}
 {% block title %}{{ form_title }} - 发票工具{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
@@ -17,11 +18,14 @@
   .erp-app .quotation-form .totals { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: 11.5px; }
   .erp-app .quotation-form .totals b { font-size: 13px; color: #163e36; }
   .erp-app .quotation-form .unit { font-size: 10px; color: var(--erp-muted); }
+  /* 表单面板内：字段两列网格 + 区块小节标题，与查看页信息架构一致 */
+  .erp-app .quotation-form .panel-title { font-size: 12px; font-weight: 600; color: #163e36; margin: 8px 0 6px; }
+  .erp-app .quotation-form .panel-title:first-child { margin-top: 0; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="erp-app erp-app--flow erp-compact" data-active-panel="form">
+<div class="erp-app" data-active-panel="info">
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       {{ form_title }}
@@ -36,161 +40,175 @@
   </header>
 
   <div class="erp-body">
+    <nav class="erp-tabs no-print">
+      {{ tab_button('info', '报价信息', true) }}
+      {{ tab_button('pricing', '定价汇总', false) }}
+      {{ tab_button('assumptions', '费率与假设', false) }}
+      {{ tab_button('payment', '付款与开票', false) }}
+    </nav>
+
     <form method="post" class="quotation-form" id="quotationForm" data-erp-form>
-
-      <fieldset>
-        <legend>报价信息</legend>
-        <div class="fields-2col">
-          <label class="erp-field">报价单编号 <input name="quotation_number" value="{{ defaults.quotation_number or '' }}" required></label>
-          <label class="erp-field">报价日期 <input type="date" name="quotation_date" value="{{ defaults.quotation_date or '' }}" required></label>
-          <label class="erp-field">有效期至 <input type="date" name="valid_until" value="{{ defaults.valid_until or '' }}"></label>
-          <label class="erp-field">编制人 <input name="prepared_by" value="{{ defaults.prepared_by or '' }}"></label>
-          <label class="erp-field">客户 <input name="customer" value="{{ defaults.customer or '' }}" placeholder="报价单上的客户名称"></label>
-          <label class="erp-field">关联正式客户
-            <select name="client_id">
-              <option value="">不关联</option>
-              {% for client in clients %}
-                <option value="{{ client.id }}" {% if defaults.client_id|string == client.id|string %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
-              {% endfor %}
-            </select>
-            <small>关联后工单可引用本报价单</small>
+      <!-- Panel 1：报价信息 -->
+      <section class="erp-panel active" data-erp-panel="info">
+        <div class="erp-detail-scroll">
+          <div class="fields-2col">
+            <label class="erp-field">报价单编号 <input name="quotation_number" value="{{ defaults.quotation_number or '' }}" required></label>
+            <label class="erp-field">报价日期 <input type="date" name="quotation_date" value="{{ defaults.quotation_date or '' }}" required></label>
+            <label class="erp-field">有效期至 <input type="date" name="valid_until" value="{{ defaults.valid_until or '' }}"></label>
+            <label class="erp-field">编制人 <input name="prepared_by" value="{{ defaults.prepared_by or '' }}"></label>
+            <label class="erp-field">客户 <input name="customer" value="{{ defaults.customer or '' }}" placeholder="报价单上的客户名称"></label>
+            <label class="erp-field">关联正式客户
+              <select name="client_id">
+                <option value="">不关联</option>
+                {% for client in clients %}
+                  <option value="{{ client.id }}" {% if defaults.client_id|string == client.id|string %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
+                {% endfor %}
+              </select>
+              <small>关联后工单可引用本报价单</small>
+            </label>
+            <label class="erp-field">联系人 <input name="contact" value="{{ defaults.contact or '' }}"></label>
+            <label class="erp-field">项目名称 <input name="project_name" value="{{ defaults.project_name or '' }}"></label>
+            <label class="erp-field">项目编号 <input name="project_no" value="{{ defaults.project_no or '' }}"></label>
+            <label class="erp-field">项目地点 <input name="project_location" value="{{ defaults.project_location or '' }}"></label>
+            <label class="erp-field">PO 编号 <input name="po_no" value="{{ defaults.po_no or '' }}"></label>
+            <label class="erp-field">状态
+              <select name="status">
+                {% for value, label in status_labels.items() %}
+                  <option value="{{ value }}" {% if (defaults.status or 'draft') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">货币
+              <select name="currency">
+                {% for currency in ["USD", "CAD", "EUR", "GBP", "CNY"] %}
+                  <option value="{{ currency }}" {% if (defaults.currency or "USD") == currency %}selected{% endif %}>{{ currency }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+          <label class="erp-field" style="margin-top:6px">备注
+            <textarea name="notes" rows="3">{{ defaults.notes or '' }}</textarea>
           </label>
-          <label class="erp-field">联系人 <input name="contact" value="{{ defaults.contact or '' }}"></label>
-          <label class="erp-field">项目名称 <input name="project_name" value="{{ defaults.project_name or '' }}"></label>
-          <label class="erp-field">项目编号 <input name="project_no" value="{{ defaults.project_no or '' }}"></label>
-          <label class="erp-field">项目地点 <input name="project_location" value="{{ defaults.project_location or '' }}"></label>
-          <label class="erp-field">PO 编号 <input name="po_no" value="{{ defaults.po_no or '' }}"></label>
-          <label class="erp-field">状态
-            <select name="status">
-              {% for value, label in status_labels.items() %}
-                <option value="{{ value }}" {% if (defaults.status or 'draft') == value %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
+        </div>
+      </section>
+
+      <!-- Panel 2：工作范围与定价汇总 -->
+      <section class="erp-panel" data-erp-panel="pricing">
+        <div class="erp-detail-scroll">
+          <h4 class="panel-title">工作范围</h4>
+          <label class="erp-field">项目描述
+            <textarea name="project_description" rows="3" placeholder="Project Description">{{ defaults.project_description or '' }}</textarea>
           </label>
-          <label class="erp-field">货币
-            <select name="currency">
-              {% for currency in ["USD", "CAD", "EUR", "GBP", "CNY"] %}
-                <option value="{{ currency }}" {% if (defaults.currency or "USD") == currency %}selected{% endif %}>{{ currency }}</option>
-              {% endfor %}
+          <label class="erp-field">范围 1 <textarea name="scope_1" rows="2">{{ defaults.scope_1 or '' }}</textarea></label>
+          <label class="erp-field">范围 2 <textarea name="scope_2" rows="2">{{ defaults.scope_2 or '' }}</textarea></label>
+          <label class="erp-field">范围 3 <textarea name="scope_3" rows="2">{{ defaults.scope_3 or '' }}</textarea></label>
+
+          <h4 class="panel-title">定价汇总</h4>
+          <label class="erp-field">结算方式
+            <select name="pricing_type" id="pricingType">
+              <option value="estimated" {% if (defaults.pricing_type or 'estimated') == 'estimated' %}selected{% endif %}>按工时结算（Time &amp; Expense）· 填写预估报价</option>
+              <option value="fixed" {% if (defaults.pricing_type or '') == 'fixed' %}selected{% endif %}>总价合同（Fixed Price）· 填写合同总价</option>
             </select>
+            <small>按工时结算：填写预估数量与费率，系统自动计算预估金额；总价合同：直接填写合同总价。</small>
           </label>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>工作范围（Scope of Work）</legend>
-        <label class="erp-field">项目描述
-          <textarea name="project_description" rows="3" placeholder="Project Description">{{ defaults.project_description or '' }}</textarea>
-        </label>
-        <label class="erp-field">范围 1 <textarea name="scope_1" rows="2">{{ defaults.scope_1 or '' }}</textarea></label>
-        <label class="erp-field">范围 2 <textarea name="scope_2" rows="2">{{ defaults.scope_2 or '' }}</textarea></label>
-        <label class="erp-field">范围 3 <textarea name="scope_3" rows="2">{{ defaults.scope_3 or '' }}</textarea></label>
-      </fieldset>
-
-      <fieldset>
-        <legend>定价汇总（Pricing Summary）</legend>
-        <label class="erp-field">结算方式
-          <select name="pricing_type" id="pricingType">
-            <option value="estimated" {% if (defaults.pricing_type or 'estimated') == 'estimated' %}selected{% endif %}>按工时结算（Time &amp; Expense）· 填写预估报价</option>
-            <option value="fixed" {% if (defaults.pricing_type or '') == 'fixed' %}selected{% endif %}>总价合同（Fixed Price）· 填写合同总价</option>
-          </select>
-          <small>按工时结算：填写预估数量与费率，系统自动计算预估金额；总价合同：直接填写合同总价。</small>
-        </label>
-        <!-- .system-grid 包裹：阻止全局 system-grid 将本表 Tabulator 化，
-             保持原生表格交互（金额自动计算 / 费率带出 / 表单提交）不受镜像影响。 -->
-        <div class="system-grid">
-        <table class="pricing" id="pricingTable">
-          <thead>
-            <tr><th style="width:38%">描述</th><th style="width:18%">数量</th><th style="width:22%">费率</th><th>预估金额</th></tr>
-          </thead>
-          <tbody>
-            {% for key, label, unit in pricing_lines %}
-              <tr>
-                <td>{{ label }} <small class="unit">({{ unit }})</small></td>
-                <td><input type="number" step="any" min="0" name="pricing_qty_{{ key }}" class="qty" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('qty') or '' }}"></td>
-                <td><input type="number" step="any" min="0" name="pricing_rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('rate') or '' }}"></td>
-                <td><input type="number" step="any" min="0" name="pricing_amount_{{ key }}" class="amount" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('amount') or '' }}" readonly></td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        </div>
-        <div class="totals">
-          <span id="fixedTotalWrap" hidden>合同总价 <input type="number" step="0.01" min="0" name="total" id="totalInput" value="{{ defaults.total if defaults.total is not none else '' }}" style="width:140px"></span>
-          <span>预估小计 <b id="subtotalText">$0.00</b></span>
-          <span>税 <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}" style="width:110px"></span>
-          <span>预估总额 <b id="totalText">$0.00</b></span>
-        </div>
-        <small>金额列只读：按 数量 × 费率 自动计算，预估小计按各行金额自动累计；费率会优先从客户合同费率带出，可手动修正。</small>
-      </fieldset>
-
-      <fieldset id="rateSchedulePanel">
-        <legend>费率表（Rate Schedule）</legend>
-        <div class="system-grid">
-        <table class="pricing">
-          <thead>
-            <tr><th style="width:34%">计费类别</th><th style="width:22%">费率</th><th>计费单位</th></tr>
-          </thead>
-          <tbody>
-            {% for key, label, unit in rate_schedule_lines %}
-              <tr>
-                <td>{{ label }}</td>
-                <td><input type="number" step="any" min="0" name="rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ rates.get(key, {}).get('rate') or '' }}"></td>
-                <td>{{ unit }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        </div>
-        <small>Minimum billing increment: 15 minutes.</small>
-      </fieldset>
-
-      <fieldset>
-        <legend>项目假设（Project Assumptions）</legend>
-        <div class="fields-2col">
-          <label class="erp-field">预估人数（Crew Size） <input name="crew_size" value="{{ defaults.crew_size or '' }}" placeholder="persons"></label>
-          <label class="erp-field">预估工作日（Workdays） <input name="workdays" value="{{ defaults.workdays or '' }}" placeholder="days"></label>
-          <label class="erp-field">每日工时（Hours / Day） <input name="hours_per_day" value="{{ defaults.hours_per_day or '' }}"></label>
-          <label class="erp-field">预计开始日期 <input type="date" name="expected_start_date" value="{{ defaults.expected_start_date or '' }}"></label>
-          <label class="erp-field">预计完成日期 <input type="date" name="expected_completion" value="{{ defaults.expected_completion or '' }}"></label>
-          <label class="erp-field">正常工作时段 <input name="normal_working_hours" value="{{ defaults.normal_working_hours or '' }}"></label>
-        </div>
-        <label class="erp-field">客户提供
-          <span class="check-row">
-            {% for key, label in [("access", "Access"), ("escort", "Escort"), ("loto", "LOTO")] %}
-              <label><input type="checkbox" name="customer_provides" value="{{ key }}"
-                {% if key in (defaults.customer_provides or '').split(',') %}checked{% endif %}> {{ label }}</label>
-            {% endfor %}
-          </span>
-        </label>
-        <label class="erp-field">其他 <input name="assumptions_other" value="{{ defaults.assumptions_other or '' }}"></label>
-      </fieldset>
-
-      <fieldset>
-        <legend>付款与开票（Payment &amp; Invoicing）</legend>
-        <div class="fields-2col">
-          <label class="erp-field">付款条款
-            <select name="payment_terms" id="paymentTerms">
-              {% for value, label in payment_terms_labels.items() %}
-                <option value="{{ value }}" {% if (defaults.payment_terms or 'net_30') == value %}selected{% endif %}>{{ label }}</option>
+          <!-- .system-grid 包裹：阻止全局 system-grid 将本表 Tabulator 化，
+               保持原生表格交互（金额自动计算 / 费率带出 / 表单提交）不受镜像影响。 -->
+          <div class="system-grid">
+          <table class="pricing" id="pricingTable">
+            <thead>
+              <tr><th style="width:38%">描述</th><th style="width:18%">数量</th><th style="width:22%">费率</th><th>预估金额</th></tr>
+            </thead>
+            <tbody>
+              {% for key, label, unit in pricing_lines %}
+                <tr>
+                  <td>{{ label }} <small class="unit">({{ unit }})</small></td>
+                  <td><input type="number" step="any" min="0" name="pricing_qty_{{ key }}" class="qty" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('qty') or '' }}"></td>
+                  <td><input type="number" step="any" min="0" name="pricing_rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('rate') or '' }}"></td>
+                  <td><input type="number" step="any" min="0" name="pricing_amount_{{ key }}" class="amount" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('amount') or '' }}" readonly></td>
+                </tr>
               {% endfor %}
-            </select>
-          </label>
-          <label class="erp-field" id="paymentOtherField" {% if (defaults.payment_terms or 'net_30') != 'other' %}hidden{% endif %}>其他条款 <input name="payment_terms_other" value="{{ defaults.payment_terms_other or '' }}"></label>
-          <label class="erp-field">报价有效期 <input name="quotation_validity" value="{{ defaults.quotation_validity or '30 calendar days' }}"></label>
-          <label class="erp-field">开票频率
-            <select name="invoice_frequency">
-              {% for value, label in invoice_frequency_labels.items() %}
-                <option value="{{ value }}" {% if (defaults.invoice_frequency or 'upon_completion') == value %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label class="erp-field">税务说明 <input name="tax_note" value="{{ defaults.tax_note or 'Excluded unless stated' }}"></label>
+            </tbody>
+          </table>
+          </div>
+          <div class="totals">
+            <span id="fixedTotalWrap" hidden>合同总价 <input type="number" step="0.01" min="0" name="total" id="totalInput" value="{{ defaults.total if defaults.total is not none else '' }}" style="width:140px"></span>
+            <span>预估小计 <b id="subtotalText">$0.00</b></span>
+            <span>税 <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}" style="width:110px"></span>
+            <span>预估总额 <b id="totalText">$0.00</b></span>
+          </div>
+          <small>金额列只读：按 数量 × 费率 自动计算，预估小计按各行金额自动累计；费率会优先从客户合同费率带出，可手动修正。</small>
         </div>
-        <label class="erp-field">备注
-          <textarea name="notes" rows="3">{{ defaults.notes or '' }}</textarea>
-        </label>
-      </fieldset>
+      </section>
+
+      <!-- Panel 3：费率与假设 -->
+      <section class="erp-panel" data-erp-panel="assumptions">
+        <div class="erp-detail-scroll">
+          <div id="rateSchedulePanel">
+            <h4 class="panel-title">费率表</h4>
+            <div class="system-grid">
+            <table class="pricing">
+              <thead>
+                <tr><th style="width:34%">计费类别</th><th style="width:22%">费率</th><th>计费单位</th></tr>
+              </thead>
+              <tbody>
+                {% for key, label, unit in rate_schedule_lines %}
+                  <tr>
+                    <td>{{ label }}</td>
+                    <td><input type="number" step="any" min="0" name="rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ rates.get(key, {}).get('rate') or '' }}"></td>
+                    <td>{{ unit }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            </div>
+            <small>Minimum billing increment: 15 minutes.</small>
+          </div>
+
+          <h4 class="panel-title">项目假设</h4>
+          <div class="fields-2col">
+            <label class="erp-field">预估人数（Crew Size） <input name="crew_size" value="{{ defaults.crew_size or '' }}" placeholder="persons"></label>
+            <label class="erp-field">预估工作日（Workdays） <input name="workdays" value="{{ defaults.workdays or '' }}" placeholder="days"></label>
+            <label class="erp-field">每日工时（Hours / Day） <input name="hours_per_day" value="{{ defaults.hours_per_day or '' }}"></label>
+            <label class="erp-field">预计开始日期 <input type="date" name="expected_start_date" value="{{ defaults.expected_start_date or '' }}"></label>
+            <label class="erp-field">预计完成日期 <input type="date" name="expected_completion" value="{{ defaults.expected_completion or '' }}"></label>
+            <label class="erp-field">正常工作时段 <input name="normal_working_hours" value="{{ defaults.normal_working_hours or '' }}"></label>
+          </div>
+          <label class="erp-field">客户提供
+            <span class="check-row">
+              {% for key, label in [("access", "Access"), ("escort", "Escort"), ("loto", "LOTO")] %}
+                <label><input type="checkbox" name="customer_provides" value="{{ key }}"
+                  {% if key in (defaults.customer_provides or '').split(',') %}checked{% endif %}> {{ label }}</label>
+              {% endfor %}
+            </span>
+          </label>
+          <label class="erp-field">其他 <input name="assumptions_other" value="{{ defaults.assumptions_other or '' }}"></label>
+        </div>
+      </section>
+
+      <!-- Panel 4：付款与开票 -->
+      <section class="erp-panel" data-erp-panel="payment">
+        <div class="erp-detail-scroll">
+          <div class="fields-2col">
+            <label class="erp-field">付款条款
+              <select name="payment_terms" id="paymentTerms">
+                {% for value, label in payment_terms_labels.items() %}
+                  <option value="{{ value }}" {% if (defaults.payment_terms or 'net_30') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field" id="paymentOtherField" {% if (defaults.payment_terms or 'net_30') != 'other' %}hidden{% endif %}>其他条款 <input name="payment_terms_other" value="{{ defaults.payment_terms_other or '' }}"></label>
+            <label class="erp-field">报价有效期 <input name="quotation_validity" value="{{ defaults.quotation_validity or '30 calendar days' }}"></label>
+            <label class="erp-field">开票频率
+              <select name="invoice_frequency">
+                {% for value, label in invoice_frequency_labels.items() %}
+                  <option value="{{ value }}" {% if (defaults.invoice_frequency or 'upon_completion') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">税务说明 <input name="tax_note" value="{{ defaults.tax_note or 'Excluded unless stated' }}"></label>
+          </div>
+        </div>
+      </section>
     </form>
   </div>
 
@@ -203,6 +221,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 <script>
   (() => {
     const money = (v) => "$" + (Number(v) || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
