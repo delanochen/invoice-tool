@@ -45,7 +45,7 @@
         <div class="erp-grid-wrap">
           <table class="list-table erp-grid users-table selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>
-              <tr><th>姓名</th><th>手机号</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th></tr>
+              <tr><th>姓名</th><th>英文名</th><th>手机号</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th></tr>
             </thead>
             <tbody>
               {% for user in users %}
@@ -59,7 +59,7 @@
                   data-status-url-label="{{ '停用' if user.is_active else '批准启用' }}"
                   data-delete-url="{% if can_manage %}{{ url_for('delete_user', user_id=user.id) }}{% endif %}"
                 >
-                  <td>{{ user.name }}</td><td>{{ user.phone or "-" }}</td>
+                  <td>{{ user.name }}</td><td>{{ user.english_name or "-" }}</td><td>{{ user.phone or "-" }}</td>
                   <td>{{ user.email }}</td>
                   <td>{{ user.role|role_label }}</td>
                   <td>{{ user.employee_grade_name or "-" }}</td>
