@@ -1,0 +1,78 @@
+/* ==========================================================================
+ * 报价单品牌主题（Prasinos Power）
+ * 覆盖 erp-ui 的蓝色系为品牌绿，仅作用于 .erp-app 作用域。
+ * 引用页面：quotations.html / quotation_form.html / quotation_detail.html
+ * ========================================================================== */
+
+.erp-app {
+  --erp-accent: #163e36;
+  --erp-accent-soft: #e3efe9;
+  --erp-select: #cfdfd6;
+  --erp-hover: #eaf3ee;
+  --erp-line: #b8ccc2;
+  --erp-line-soft: #dfe9e3;
+  --erp-total: #f2f7f3;
+}
+
+/* 工具栏 */
+.erp-toolbar-title { color: #163e36; }
+.erp-toolbar-title small { color: #5e6b66; }
+.erp-badge { border-color: #b8ccc2; color: #1e6b52; background: #f2f7f3; }
+
+/* 主按钮（新建/保存/导出 PDF） */
+.erp-btn.primary {
+  background: #163e36;
+  border-color: #163e36;
+}
+.erp-btn.primary:hover { background: #1e6b52; border-color: #1e6b52; }
+
+/* 页签 */
+.erp-tabs .erp-tab[aria-selected="true"],
+.erp-tabs .erp-tab.active {
+  color: #163e36;
+  border-bottom-color: #1e6b52;
+}
+
+/* 表格选中/悬停 */
+.erp-grid tr:hover td { background: #eaf3ee; }
+.erp-grid thead th {
+  background: linear-gradient(180deg, #f7faf8 0%, #e4ece7 100%);
+  color: #163e36;
+}
+
+/* 筛选输入聚焦 */
+.erp-field input:focus, .erp-field select:focus, .erp-field textarea:focus {
+  border-color: #1e6b52;
+  box-shadow: 0 0 0 2px rgba(30, 107, 82, 0.15);
+}
+
+/* 表单区块：绿色分隔标题 */
+.quotation-form fieldset {
+  border: 1px solid #dfe9e3;
+  border-radius: 4px;
+}
+.quotation-form fieldset legend {
+  color: #1e6b52;
+  font-weight: 600;
+  padding: 0 8px;
+}
+.quotation-form .totals b { color: #163e36; }
+
+/* 详情面板标题 */
+.erp-panel .panel-title {
+  color: #163e36;
+  border-bottom: 1px solid #dfe9e3;
+}
+
+/* 报价单状态徽章（复用 erp-ui / styles.css 之外的报价单状态） */
+.erp-app .status.sent { background: #eff8ff; color: #1d4ed8; }
+.erp-app .status.accepted { background: #ecfdf3; color: #15803d; }
+.erp-app .status.expired { background: #f4f4f5; color: #71717a; }
+.erp-app .status.cancelled { background: #fff4ed; color: #b42318; }
+
+/* 报价单编号链接 */
+.erp-app a { color: #1e6b52; }
+.erp-app a:hover { color: #163e36; }
+
+/* 详情页信息网格：标签加粗品牌色 */
+.erp-app .detail-grid p strong { color: #163e36; }

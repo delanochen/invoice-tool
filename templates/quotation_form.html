@@ -2,23 +2,24 @@
 {% block title %}{{ form_title }} - 发票工具{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='quotations.css', v=app_version) }}">
 <style>
   .erp-app .quotation-form textarea { min-height: 56px; width: 260px; padding: 2px 5px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); font: inherit; font-size: 12px; box-sizing: border-box; }
   .erp-app .quotation-form input[type=number], .erp-app .quotation-form input[type=text], .erp-app .quotation-form input[type=date] { width: 160px; padding: 2px 5px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); font: inherit; font-size: 12px; box-sizing: border-box; }
   .erp-app .quotation-form .full-span { flex: 1 1 100%; }
   .erp-app .quotation-form .full-span textarea { width: 100%; }
   .erp-app .quotation-form small { color: var(--erp-muted); }
-  .erp-app .quotation-form fieldset { border: 1px solid #d6dee8; border-radius: var(--erp-radius); padding: 8px 10px; margin: 0 0 12px; }
-  .erp-app .quotation-form legend { font-size: 12px; font-weight: 600; color: #10233f; padding: 0 6px; }
+  .erp-app .quotation-form fieldset { border: 1px solid #dfe9e3; border-radius: var(--erp-radius); padding: 8px 10px; margin: 0 0 12px; }
+  .erp-app .quotation-form legend { font-size: 12px; font-weight: 600; color: #1e6b52; padding: 0 6px; }
   .erp-app .quotation-form table.pricing { border-collapse: collapse; width: 100%; font-size: 12px; }
-  .erp-app .quotation-form table.pricing th, .erp-app .quotation-form table.pricing td { border: 1px solid #d6dee8; padding: 3px 6px; text-align: left; }
-  .erp-app .quotation-form table.pricing th { background: #eef3f9; color: #10233f; font-weight: 600; }
+  .erp-app .quotation-form table.pricing th, .erp-app .quotation-form table.pricing td { border: 1px solid #dfe9e3; padding: 3px 6px; text-align: left; }
+  .erp-app .quotation-form table.pricing th { background: #e4ece7; color: #163e36; font-weight: 600; }
   .erp-app .quotation-form table.pricing input { width: 110px; }
   .erp-app .quotation-form table.pricing .amount { width: 130px; }
   .erp-app .quotation-form .check-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
   .erp-app .quotation-form .check-row label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; }
   .erp-app .quotation-form .totals { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
-  .erp-app .quotation-form .totals b { font-size: 14px; color: #10233f; }
+  .erp-app .quotation-form .totals b { font-size: 14px; color: #163e36; }
 </style>
 {% endblock %}
 
@@ -142,7 +143,7 @@
         <label class="erp-field">正常工作时段 <input name="normal_working_hours" value="{{ defaults.normal_working_hours or '' }}"></label>
         <label class="erp-field full-span">客户提供
           <span class="check-row">
-            {% for key, label in [("access", "Access"), ("escort", "Escort"), ("loto", "LOTO"), ("permits", "Permits")] %}
+            {% for key, label in [("access", "Access"), ("escort", "Escort"), ("loto", "LOTO")] %}
               <label><input type="checkbox" name="customer_provides" value="{{ key }}"
                 {% if key in (defaults.customer_provides or '').split(',') %}checked{% endif %}> {{ label }}</label>
             {% endfor %}

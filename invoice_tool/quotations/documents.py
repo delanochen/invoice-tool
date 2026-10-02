@@ -253,7 +253,6 @@ CUSTOMER_PROVIDES_OPTIONS = [
     ("access", "Access"),
     ("escort", "Escort"),
     ("loto", "LOTO"),
-    ("permits", "Permits"),
 ]
 
 
@@ -298,17 +297,23 @@ def _amount_text(line, quote):
 
 
 # ---------------------------------------------------------------------------
-# PDF generation
+# Brand palette (from Prasinos_Power_Quote_Template_v2.docx)
 # ---------------------------------------------------------------------------
 
-DARK = colors.HexColor("#10233F")
-MID = colors.HexColor("#475467")
-BORDER = colors.HexColor("#C9D2DE")
-HEADER_BG = colors.HexColor("#E8EEF6")
-LIGHT_BG = colors.HexColor("#F7F9FC")
+DARK_GREEN = colors.HexColor("#163E36")   # heading1 / pricing header / total band
+MID_GREEN = colors.HexColor("#1E6B52")    # label band / heading2 / travel header
+VALUE_BG = colors.HexColor("#F4F7F5")     # info-grid value fill
+VALUE_BG2 = colors.HexColor("#F7F9F8")    # assumptions / payment value fill
+ZEBRA_BG = colors.HexColor("#F8FAF9")     # pricing zebra rows
+BORDER = colors.HexColor("#D9E2DE")       # hairline grid
+TITLE_GRAY = colors.HexColor("#66736D")   # "| PROFESSIONAL SERVICES"
+HEADER_GRAY = colors.HexColor("#5E6B66")  # header tagline
+TEXT_DARK = colors.HexColor("#1F2937")
+WHITE = colors.white
 
 DOC_MARGIN = 11 * mm
 PAGE_W, PAGE_H = A4
+PAGE_W_MM = 188.0  # usable width in mm (210 - 2*11)
 
 
 def _esc(text):
@@ -324,37 +329,55 @@ def _esc(text):
 def _styles():
     base = dict(fontName="Helvetica")
     return {
-        "title": ParagraphStyle("QTitle", **base, fontSize=15, leading=18, alignment=TA_CENTER, textColor=DARK),
-        "subtitle": ParagraphStyle("QSubtitle", **base, fontSize=8, leading=10, alignment=TA_CENTER, textColor=MID),
-        "section": ParagraphStyle("QSection", **base, fontSize=10, leading=13, textColor=DARK, spaceBefore=6, spaceAfter=3),
-        "label": ParagraphStyle("QLabel", **base, fontSize=7.5, leading=10, textColor=MID),
-        "value": ParagraphStyle("QValue", **base, fontSize=7.5, leading=10, textColor=colors.HexColor("#101828")),
-        "cell": ParagraphStyle("QCell", **base, fontSize=7.5, leading=10),
-        "cell_center": ParagraphStyle("QCellCenter", **base, fontSize=7.5, leading=10, alignment=TA_CENTER),
-        "cell_right": ParagraphStyle("QCellRight", **base, fontSize=7.5, leading=10, alignment=TA_RIGHT),
-        "head": ParagraphStyle("QHead", **base, fontSize=7.5, leading=10, textColor=colors.white, alignment=TA_CENTER),
-        "body": ParagraphStyle("QBody", **base, fontSize=7.5, leading=10.5, spaceAfter=2),
-        "clause": ParagraphStyle("QClause", **base, fontSize=7.5, leading=10.5, alignment=TA_JUSTIFY, spaceAfter=3),
-        "clause_title": ParagraphStyle("QClauseTitle", **base, fontSize=8, leading=11, textColor=DARK, spaceBefore=4, spaceAfter=1),
-        "small": ParagraphStyle("QSmall", **base, fontSize=7, leading=9.5, textColor=MID),
-        "total": ParagraphStyle("QTotal", **base, fontSize=9, leading=12, textColor=DARK),
+        "title": ParagraphStyle("QTitle", **base, fontSize=24, leading=28, alignment=TA_CENTER, textColor=DARK_GREEN),
+        "subtitle": ParagraphStyle("QSubtitle", **base, fontSize=10, leading=13, alignment=TA_CENTER, textColor=TITLE_GRAY),
+        "section": ParagraphStyle("QSection", **base, fontSize=14, leading=17, textColor=DARK_GREEN, spaceBefore=12, spaceAfter=5),
+        "section2": ParagraphStyle("QSection2", **base, fontSize=11, leading=14, textColor=MID_GREEN, spaceBefore=10, spaceAfter=5),
+        "label": ParagraphStyle("QLabel", **base, fontSize=8.5, leading=11, textColor=WHITE),
+        "value": ParagraphStyle("QValue", **base, fontSize=8.5, leading=11, textColor=TEXT_DARK),
+        "cell": ParagraphStyle("QCell", **base, fontSize=8, leading=10.5),
+        "cell_center": ParagraphStyle("QCellCenter", **base, fontSize=8, leading=10.5, alignment=TA_CENTER),
+        "cell_right": ParagraphStyle("QCellRight", **base, fontSize=8, leading=10.5, alignment=TA_RIGHT),
+        "head": ParagraphStyle("QHead", **base, fontSize=8, leading=10.5, textColor=WHITE, alignment=TA_CENTER),
+        "body": ParagraphStyle("QBody", **base, fontSize=8, leading=11, spaceAfter=2),
+        "clause": ParagraphStyle("QClause", **base, fontSize=8, leading=11, alignment=TA_JUSTIFY, spaceAfter=3),
+        "clause_title": ParagraphStyle("QClauseTitle", **base, fontSize=9, leading=12, textColor=DARK_GREEN, spaceBefore=5, spaceAfter=1),
+        "small": ParagraphStyle("QSmall", **base, fontSize=7.5, leading=10, textColor=colors.HexColor("#5E6B66")),
+        "total": ParagraphStyle("QTotal", **base, fontSize=9, leading=12, textColor=WHITE),
+        "total_value": ParagraphStyle("QTotalValue", **base, fontSize=11, leading=14, textColor=WHITE, alignment=TA_RIGHT),
     }
+
+
+def _band_style(fill):
+    """Table style for a labelled band: header row solid fill, thin border."""
+    style = _table_style()
+    style.add("BACKGROUND", (0, 0), (-1, 0), fill)
+    return style
 
 
 def _table_style(borders=True):
     cmds = [
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]
     if borders:
         cmds += [
-            ("GRID", (0, 0), (-1, -1), 0.4, BORDER),
-            ("BOX", (0, 0), (-1, -1), 0.6, MID),
+            ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
         ]
     return TableStyle(cmds)
+
+
+def _label_value_row(label_a, value_a, label_b, value_b, styles, label_fill=MID_GREEN, value_fill=VALUE_BG):
+    """One 4-column label/value row; labels solid green, values light green."""
+    return [
+        Paragraph(_esc(label_a), styles["label"]),
+        Paragraph(_esc(value_a) or "&nbsp;", styles["value"]),
+        Paragraph(_esc(label_b), styles["label"]),
+        Paragraph(_esc(value_b) or "&nbsp;", styles["value"]),
+    ]
 
 
 def _info_grid(quote, styles):
@@ -366,20 +389,20 @@ def _info_grid(quote, styles):
         ("Project Name", quote.get("project_name") or "", "Project No.", quote.get("project_no") or ""),
         ("Project Location", quote.get("project_location") or "", "PO No.", quote.get("po_no") or ""),
     ]
-    data = []
-    for label_a, value_a, label_b, value_b in rows:
-        data.append([
-            Paragraph(_esc(label_a), styles["label"]),
-            Paragraph(_esc(value_a) or "&nbsp;", styles["value"]),
-            Paragraph(_esc(label_b), styles["label"]),
-            Paragraph(_esc(value_b) or "&nbsp;", styles["value"]),
-        ])
-    table = Table(data, colWidths=[26 * mm, 62 * mm, 26 * mm, 62 * mm], repeatRows=0)
-    table.setStyle(_table_style())
+    data = [_label_value_row(a, b, c, d, styles) for a, b, c, d in rows]
+    table = Table(data, colWidths=[27 * mm, 63 * mm, 27 * mm, 69 * mm], repeatRows=0)
+    style = _table_style()
+    style.add("BACKGROUND", (0, 0), (0, -1), MID_GREEN)
+    style.add("BACKGROUND", (2, 0), (2, -1), MID_GREEN)
+    style.add("BACKGROUND", (1, 0), (1, -1), VALUE_BG)
+    style.add("BACKGROUND", (3, 0), (3, -1), VALUE_BG)
+    table.setStyle(style)
     return table
 
 
-def _section(title, styles):
+def _section(title, styles, level=1):
+    if level == 2:
+        return Paragraph(_esc(title), styles["section2"])
     return Paragraph(_esc(title), styles["section"])
 
 
@@ -391,38 +414,40 @@ def _pricing_table(quote, lines, styles):
         Paragraph("Estimated Amount", styles["head"]),
     ]
     data = [header]
-    for line in lines:
+    for idx, line in enumerate(lines):
         data.append([
             Paragraph(_esc(line.get("label") or ""), styles["cell"]),
             Paragraph(_esc(_qty_text(line, quote)), styles["cell_center"]),
             Paragraph(_esc(_rate_text(line, quote)), styles["cell_center"]),
             Paragraph(_esc(_amount_text(line, quote)), styles["cell_right"]),
         ])
-    table = Table(data, colWidths=[60 * mm, 36 * mm, 44 * mm, 36 * mm], repeatRows=1)
+    table = Table(data, colWidths=[47 * mm, 47 * mm, 47 * mm, 47 * mm], repeatRows=1)
     style = _table_style()
-    style.add("BACKGROUND", (0, 0), (-1, 0), DARK)
+    style.add("BACKGROUND", (0, 0), (-1, 0), DARK_GREEN)
+    # zebra striping: odd data rows (index 1,3,5,7) get light fill
+    for idx in range(1, len(data)):
+        if idx % 2 == 1:
+            style.add("BACKGROUND", (0, idx), (-1, idx), ZEBRA_BG)
     table.setStyle(style)
     return table
 
 
 def _totals_table(quote, subtotal, tax, total, styles):
-    def row(label, value, bold=False):
-        s = styles["total"] if bold else styles["cell"]
+    def row(label, value, text_style, value_style):
         return [
-            Paragraph(_esc(label), s),
-            Paragraph(_esc(f"$ {_money(value)}"), s if bold else styles["cell_right"]),
+            Paragraph(_esc(label), text_style),
+            Paragraph(_esc(f"$ {_money(value)}"), value_style),
         ]
 
     data = [
-        row("Estimated Subtotal", subtotal),
-        row("Tax", tax),
-        row("ESTIMATED TOTAL", total, bold=True),
+        row("Estimated Subtotal", subtotal, styles["cell"], styles["cell_right"]),
+        row("Tax", tax, styles["cell"], styles["cell_right"]),
+        row("ESTIMATED TOTAL", total, styles["total"], styles["total_value"]),
     ]
-    table = Table(data, colWidths=[100 * mm, 50 * mm], repeatRows=0)
+    table = Table(data, colWidths=[118 * mm, 68 * mm], repeatRows=0)
     style = _table_style(borders=False)
-    style.add("LINEABOVE", (0, 0), (-1, 0), 0.6, MID)
-    style.add("LINEABOVE", (0, 2), (-1, 2), 1.0, DARK)
-    style.add("LINEBELOW", (0, 2), (-1, 2), 1.0, DARK)
+    style.add("LINEABOVE", (0, 0), (-1, 0), 0.5, BORDER)
+    style.add("BACKGROUND", (0, 2), (-1, 2), DARK_GREEN)
     table.setStyle(style)
     return table
 
@@ -433,16 +458,18 @@ def _rate_table(quote, lines, styles):
         Paragraph("Rate", styles["head"]),
         Paragraph("Billing Unit", styles["head"]),
     ]
+    rate_style = ParagraphStyle("QRateCell", parent=styles["cell"], fontSize=8.5, leading=11)
+    rate_center = ParagraphStyle("QRateCenter", parent=styles["cell_center"], fontSize=8.5, leading=11)
     data = [header]
     for line in lines:
         data.append([
-            Paragraph(_esc(line.get("label") or ""), styles["cell"]),
-            Paragraph(_esc(f"$ {_money(line.get('rate') or 0)}"), styles["cell_center"]),
-            Paragraph(_esc(line.get("unit") or ""), styles["cell_center"]),
+            Paragraph(_esc(line.get("label") or ""), rate_style),
+            Paragraph(_esc(f"$ {_money(line.get('rate') or 0)}"), rate_center),
+            Paragraph(_esc(line.get("unit") or ""), rate_center),
         ])
-    table = Table(data, colWidths=[70 * mm, 45 * mm, 45 * mm], repeatRows=1)
+    table = Table(data, colWidths=[63 * mm, 62.5 * mm, 62.5 * mm], repeatRows=1)
     style = _table_style()
-    style.add("BACKGROUND", (0, 0), (-1, 0), DARK)
+    style.add("BACKGROUND", (0, 0), (-1, 0), DARK_GREEN)
     table.setStyle(style)
     return table
 
@@ -458,9 +485,9 @@ def _travel_table(styles):
             Paragraph(_esc(label), styles["cell"]),
             Paragraph(_esc(method), styles["cell"]),
         ])
-    table = Table(data, colWidths=[70 * mm, 70 * mm], repeatRows=1)
+    table = Table(data, colWidths=[93 * mm, 93 * mm], repeatRows=1)
     style = _table_style()
-    style.add("BACKGROUND", (0, 0), (-1, 0), DARK)
+    style.add("BACKGROUND", (0, 0), (-1, 0), MID_GREEN)
     table.setStyle(style)
     return table
 
@@ -478,16 +505,15 @@ def _assumptions_grid(quote, styles):
         ("Expected Completion", quote.get("expected_completion") or "", "Normal Working Hours", quote.get("normal_working_hours") or ""),
         ("Customer Provides", provided_text, "Other", quote.get("assumptions_other") or ""),
     ]
-    data = []
-    for label_a, value_a, label_b, value_b in rows:
-        data.append([
-            Paragraph(_esc(label_a), styles["label"]),
-            Paragraph(_esc(value_a) or "&nbsp;", styles["value"]),
-            Paragraph(_esc(label_b), styles["label"]),
-            Paragraph(_esc(value_b) or "&nbsp;", styles["value"]),
-        ])
-    table = Table(data, colWidths=[26 * mm, 62 * mm, 26 * mm, 62 * mm], repeatRows=0)
-    table.setStyle(_table_style())
+    data = [_label_value_row(a, b, c, d, styles, label_fill=MID_GREEN, value_fill=VALUE_BG2)
+            for a, b, c, d in rows]
+    table = Table(data, colWidths=[47 * mm, 47 * mm, 47 * mm, 47 * mm], repeatRows=0)
+    style = _table_style()
+    style.add("BACKGROUND", (0, 0), (0, -1), MID_GREEN)
+    style.add("BACKGROUND", (2, 0), (2, -1), MID_GREEN)
+    style.add("BACKGROUND", (1, 0), (1, -1), VALUE_BG2)
+    style.add("BACKGROUND", (3, 0), (3, -1), VALUE_BG2)
+    table.setStyle(style)
     return table
 
 
@@ -505,16 +531,15 @@ def _payment_grid(quote, styles):
         ("Invoice Frequency", INVOICE_FREQUENCY_LABELS.get(frequency, frequency), "Currency", quote.get("currency") or "USD"),
         ("Pricing Type", PRICING_TYPE_LABELS.get(pricing_type, pricing_type), "Tax", quote.get("tax_note") or "Excluded unless stated"),
     ]
-    data = []
-    for label_a, value_a, label_b, value_b in rows:
-        data.append([
-            Paragraph(_esc(label_a), styles["label"]),
-            Paragraph(_esc(value_a) or "&nbsp;", styles["value"]),
-            Paragraph(_esc(label_b), styles["label"]),
-            Paragraph(_esc(value_b) or "&nbsp;", styles["value"]),
-        ])
-    table = Table(data, colWidths=[26 * mm, 62 * mm, 26 * mm, 62 * mm], repeatRows=0)
-    table.setStyle(_table_style())
+    data = [_label_value_row(a, b, c, d, styles, label_fill=DARK_GREEN, value_fill=VALUE_BG2)
+            for a, b, c, d in rows]
+    table = Table(data, colWidths=[47 * mm, 47 * mm, 47 * mm, 47 * mm], repeatRows=0)
+    style = _table_style()
+    style.add("BACKGROUND", (0, 0), (0, -1), DARK_GREEN)
+    style.add("BACKGROUND", (2, 0), (2, -1), DARK_GREEN)
+    style.add("BACKGROUND", (1, 0), (1, -1), VALUE_BG2)
+    style.add("BACKGROUND", (3, 0), (3, -1), VALUE_BG2)
+    table.setStyle(style)
     return table
 
 
@@ -527,9 +552,10 @@ def _signature_table(styles):
             Paragraph(_esc(label), styles["label"]),
             Paragraph(_esc(label), styles["label"]),
         ])
-    table = Table(data, colWidths=[75 * mm, 75 * mm], repeatRows=0)
+    table = Table(data, colWidths=[93 * mm, 93 * mm], repeatRows=0)
     style = _table_style()
-    style.add("BACKGROUND", (0, 0), (-1, 0), DARK)
+    style.add("BACKGROUND", (0, 0), (-1, 0), MID_GREEN)
+    style.add("BACKGROUND", (0, 1), (-1, -1), MID_GREEN)
     style.add("VALIGN", (0, 0), (-1, -1), "TOP")
     style.add("TOPPADDING", (0, 1), (-1, -1), 8)
     style.add("BOTTOMPADDING", (0, 1), (-1, -1), 8)
@@ -538,8 +564,9 @@ def _signature_table(styles):
 
 
 def _terms_block(styles):
-    story = [Paragraph("PRASINOS POWER", styles["title"]), Spacer(1, 2)]
-    story.append(Paragraph("STANDARD QUOTATION TERMS AND CONDITIONS", styles["subtitle"]))
+    story = [Paragraph("PRASINOS POWER", ParagraphStyle("QTermsTitle", parent=styles["subtitle"], fontSize=15, leading=19, textColor=DARK_GREEN))]
+    story.append(Spacer(1, 2))
+    story.append(Paragraph("STANDARD QUOTATION TERMS AND CONDITIONS", ParagraphStyle("QTermsSub", parent=styles["clause_title"], fontSize=10, leading=13, alignment=TA_CENTER, textColor=MID_GREEN)))
     story.append(Spacer(1, 4))
     story.append(Paragraph(_esc(
         "These Terms are incorporated into and form part of each quotation issued by Prasinos Power."
@@ -552,6 +579,30 @@ def _terms_block(styles):
     story.append(Paragraph("CUSTOMER ACKNOWLEDGEMENT", styles["section"]))
     story.append(Paragraph(_esc(CUSTOMER_ACKNOWLEDGEMENT), styles["clause"]))
     return story
+
+
+def _draw_header_footer(canvas, doc):
+    """Page header (PRASINOS POWER + tagline) and footer (confidential + page)."""
+    canvas.saveState()
+    # --- header ---
+    canvas.setFillColor(DARK_GREEN)
+    canvas.setFont("Helvetica-Bold", 14)
+    canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
+    canvas.setFillColor(HEADER_GRAY)
+    canvas.setFont("Helvetica-Bold", 7.5)
+    canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, "FIELD SERVICES \u2022 RETROFIT \u2022 COMMISSIONING")
+    canvas.setStrokeColor(BORDER)
+    canvas.setLineWidth(0.5)
+    canvas.line(DOC_MARGIN, PAGE_H - 24.5 * mm, PAGE_W - DOC_MARGIN, PAGE_H - 24.5 * mm)
+    # --- footer ---
+    canvas.setFillColor(HEADER_GRAY)
+    canvas.setFont("Helvetica", 8)
+    canvas.drawString(DOC_MARGIN, 7 * mm, "Prasinos Power  |  Standard Quotation Template  |  Confidential")
+    canvas.drawRightString(PAGE_W - DOC_MARGIN, 7 * mm, "Page %d" % doc.page)
+    canvas.setStrokeColor(BORDER)
+    canvas.setLineWidth(0.5)
+    canvas.line(DOC_MARGIN, 10 * mm, PAGE_W - DOC_MARGIN, 10 * mm)
+    canvas.restoreState()
 
 
 def build_quotation_pdf(quote, path):
@@ -614,17 +665,23 @@ def build_quotation_pdf(quote, path):
         pagesize=A4,
         leftMargin=DOC_MARGIN,
         rightMargin=DOC_MARGIN,
-        topMargin=DOC_MARGIN,
-        bottomMargin=DOC_MARGIN,
+        topMargin=28 * mm,
+        bottomMargin=14 * mm,
         title=f"Quotation {quote.get('quotation_number') or ''}",
         author="Prasinos Power",
     )
-
     story = []
-    story.append(Paragraph("QUOTATION&nbsp;&nbsp;|&nbsp;&nbsp;PROFESSIONAL SERVICES", styles["title"]))
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(_esc("Prasinos Power"), styles["subtitle"]))
-    story.append(Spacer(1, 5))
+    story.append(Paragraph(
+        "QUOTATION"
+        "&nbsp;&nbsp;<font color='#66736D' size='10'><b>|&nbsp;&nbsp;PROFESSIONAL SERVICES</b></font>",
+        styles["title"],
+    ))
+    story.append(Spacer(1, 3))
+    story.append(Paragraph(
+        "<font color='#66736D'><b>Prasinos Power</b></font>",
+        styles["subtitle"],
+    ))
+    story.append(Spacer(1, 6))
     story.append(_info_grid(quote, styles))
 
     story.append(_section("SCOPE OF WORK", styles))
@@ -634,14 +691,19 @@ def build_quotation_pdf(quote, path):
         ("Scope 2", quote.get("scope_2") or ""),
         ("Scope 3", quote.get("scope_3") or ""),
     ]
-    scope_data = []
-    for label, value in scope_rows:
-        scope_data.append([
-            Paragraph(_esc(label), styles["label"]),
-            Paragraph(_esc(value) or "&nbsp;", styles["value"]),
-        ])
-    scope_table = Table(scope_data, colWidths=[30 * mm, 120 * mm], repeatRows=0)
-    scope_table.setStyle(_table_style())
+    scope_rows = [pair for pair in scope_rows if str(pair[1]).strip()]
+    if not scope_rows:
+        scope_rows = [("Project Description", "")]
+    scope_data = [
+        [Paragraph(_esc(label), styles["label"]),
+         Paragraph(_esc(value) or "&nbsp;", styles["value"])]
+        for label, value in scope_rows
+    ]
+    scope_table = Table(scope_data, colWidths=[35 * mm, 153 * mm], repeatRows=0)
+    style = _table_style()
+    style.add("BACKGROUND", (0, 0), (0, -1), MID_GREEN)
+    style.add("BACKGROUND", (1, 0), (1, -1), VALUE_BG)
+    scope_table.setStyle(style)
     story.append(scope_table)
 
     story.append(_section("PRICING SUMMARY", styles))
@@ -657,17 +719,17 @@ def build_quotation_pdf(quote, path):
     story.append(Paragraph(_esc(MINIMUM_BILLING_INCREMENT), styles["small"]))
 
     story.append(KeepTogether([
-        _section("TRAVEL & REIMBURSABLE EXPENSES", styles),
+        _section("TRAVEL & REIMBURSABLE EXPENSES", styles, level=2),
         _travel_table(styles),
     ]))
 
     story.append(KeepTogether([
-        _section("PROJECT ASSUMPTIONS", styles),
+        _section("PROJECT ASSUMPTIONS", styles, level=2),
         _assumptions_grid(quote, styles),
     ]))
 
     story.append(KeepTogether([
-        _section("PAYMENT & INVOICING", styles),
+        _section("PAYMENT & INVOICING", styles, level=2),
         _payment_grid(quote, styles),
     ]))
 
@@ -679,5 +741,5 @@ def build_quotation_pdf(quote, path):
     story.append(PageBreak())
     story.extend(_terms_block(styles))
 
-    document.build(story)
+    document.build(story, onFirstPage=_draw_header_footer, onLaterPages=_draw_header_footer)
     return path
