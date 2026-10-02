@@ -1157,6 +1157,9 @@ def load_user():
     if requested_language in SUPPORTED_LANGUAGES:
         session["language"] = requested_language
     g.user = current_user()
+    if request.method == "POST":
+        cl = request.content_length
+        app.logger.warning("POST diag: path=%s content_length=%s content_type=%s", request.path, cl, request.content_type)
     if g.user:
         permission_rule = required_action_for_request()
         if permission_rule and not has_action_permission(*permission_rule):
