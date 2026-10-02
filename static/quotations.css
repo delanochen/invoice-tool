@@ -58,6 +58,50 @@
 }
 .quotation-form .totals b { color: #163e36; }
 
+/* ── 报价单表单：ERP 面板化网格布局 ─────────────────────────────────────
+   3 列等高面板（报价信息 | 工作范围 | 定价汇总 / 费率表 | 项目假设 | 付款），
+   每个 fieldset 是白底细边框面板，字段以两列子网格密集排布。 */
+.erp-app .quotation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0 2px;
+  background: transparent;
+  border: none;
+}
+.erp-app .quotation-form fieldset {
+  margin: 0;
+  background: var(--erp-panel);
+  border: 1px solid var(--erp-line-soft);
+  border-radius: 3px;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.erp-app .quotation-form .fields-2col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+.erp-app .quotation-form .erp-field > input,
+.erp-app .quotation-form .erp-field > select,
+.erp-app .quotation-form .erp-field > textarea {
+  width: 100%;
+  min-width: 0;
+}
+.erp-app .quotation-form table.pricing input { width: 110px; }
+.erp-app .quotation-form table.pricing .amount { width: 130px; }
+@media (max-width: 1180px) {
+  .erp-app .quotation-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .erp-app .quotation-form { grid-template-columns: 1fr; }
+  .erp-app .quotation-form .fields-2col { grid-template-columns: 1fr; }
+}
+
 /* 详情面板标题 */
 .erp-panel .panel-title {
   color: #163e36;
