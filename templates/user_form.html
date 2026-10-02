@@ -45,6 +45,7 @@
         <div class="erp-detail-section-title">基本资料</div>
         <div class="user-field-grid">
           <label>姓名 <input name="name" value="{{ user.name }}" required></label>
+          <label>英文名 <input name="english_name" value="{{ user.english_name or '' }}" autocomplete="off"></label>
           <label>邮箱 <input type="email" name="email" value="{{ user.email }}" {% if not can_manage %}readonly{% endif %} required></label>
           <label>手机号 <input type="tel" name="phone" value="{{ user.phone or '' }}" autocomplete="off" placeholder="例如 +1 713 555 1234"></label>
           <label class="full-span"><span>地址 <span class="required-mark">*</span></span>

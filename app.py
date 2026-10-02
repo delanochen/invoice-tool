@@ -6418,6 +6418,7 @@ def mobile_app_ipa():
 def register():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
+        english_name = request.form.get("english_name", "").strip()
         address = request.form.get("address", "").strip()
         email = request.form.get("registration_email", "").strip().lower()
         password = request.form.get("registration_password", "")
@@ -6448,13 +6449,14 @@ def register():
             cursor = db().execute(
                 """
                 insert into users (
-                    name, email, password_hash, role, is_active, default_language, region_code, country_code,
+                    name, english_name, email, password_hash, role, is_active, default_language, region_code, country_code,
                     created_at, address, phone, preferred_communication_language, communication_languages
                 )
-                values (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name or email,
+                    english_name,
                     email,
                     generate_password_hash(password),
                     account_type,

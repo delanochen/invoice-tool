@@ -58,6 +58,7 @@ def register_employee_user_routes(
         if request.method == "POST":
             email = request.form.get("email", "").strip().lower()
             name = request.form.get("name", "").strip() or email
+            english_name = request.form.get("english_name", "").strip()
             address = request.form.get("address", "").strip()
             password = request.form.get("password", "")
             role = request.form.get("role", "employee")
@@ -92,13 +93,14 @@ def register_employee_user_routes(
                 cursor = db().execute(
                     """
                     insert into users (
-                        name, email, password_hash, role, address, default_language, employee_grade_id, client_id, region_code, country_code, created_at,
+                        name, english_name, email, password_hash, role, address, default_language, employee_grade_id, client_id, region_code, country_code, created_at,
                         preferred_communication_language, communication_languages
                     )
-                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         name,
+                        english_name,
                         email,
                         generate_password_hash(password),
                         role,
@@ -252,6 +254,7 @@ def register_employee_user_routes(
         if request.method == "POST":
             email = request.form.get("email", user["email"]).strip().lower() if can_manage_users() else user["email"]
             name = request.form.get("name", "").strip() or email
+            english_name = request.form.get("english_name", "").strip()
             role = request.form.get("role", normalized_role(user["role"])) if can_manage_users() else user["role"]
             address = request.form.get("address", "").strip()
             default_language = language_from_form(user["default_language"] or default_language_code)
@@ -293,12 +296,13 @@ def register_employee_user_routes(
                 db().execute(
                     """
                     update users
-                    set name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?, phone = ?,
+                    set name = ?, english_name = ?, email = ?, role = ?, address = ?, default_language = ?, employee_grade_id = ?, client_id = ?, region_code = ?, country_code = ?, phone = ?,
                         preferred_communication_language = ?, communication_languages = ?
                     where id = ?
                     """,
                     (
                         name,
+                        english_name,
                         email,
                         role,
                         address,
