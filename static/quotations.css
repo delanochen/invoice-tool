@@ -58,12 +58,12 @@
 }
 .quotation-form .totals b { color: #163e36; }
 
-/* ── 报价单表单：ERP 面板化网格布局 ─────────────────────────────────────
-   3 列等高面板（报价信息 | 工作范围 | 定价汇总 / 费率表 | 项目假设 | 付款），
-   每个 fieldset 是白底细边框面板，字段以两列子网格密集排布。 */
+/* ── 报价单表单：板块纵向排列 ────────────────────────────────────────────
+   6 个板块（报价信息 / 工作范围 / 定价汇总 / 费率表 / 项目假设 / 付款与开票）
+   从上到下整行堆叠；面板内字段仍以两列子网格密集排布。 */
 .erp-app .quotation-form {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
   align-items: start;
   padding: 8px 0 2px;
@@ -96,11 +96,7 @@
 .erp-app .quotation-form table.pricing .amount { width: 130px; }
 /* 表单内用 .system-grid 仅作“跳过全局表格镜像”的标记容器，恢复普通块级布局 */
 .erp-app .quotation-form .system-grid { display: block; flex: none; min-height: 0; }
-@media (max-width: 1180px) {
-  .erp-app .quotation-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 860px) {
-  .erp-app .quotation-form { grid-template-columns: 1fr; }
   .erp-app .quotation-form .fields-2col { grid-template-columns: 1fr; }
 }
 
