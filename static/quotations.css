@@ -75,16 +75,16 @@
   background: var(--erp-panel);
   border: 1px solid var(--erp-line-soft);
   border-radius: 3px;
-  padding: 8px 10px 10px;
+  padding: 5px 10px 7px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
 }
 .erp-app .quotation-form .fields-2col {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 10px;
+  gap: 3px 8px;
 }
 .erp-app .quotation-form .erp-field > input,
 .erp-app .quotation-form .erp-field > select,

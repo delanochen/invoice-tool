@@ -4,16 +4,19 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='quotations.css', v=app_version) }}">
 <style>
-  .erp-app .quotation-form textarea { min-height: 56px; padding: 2px 5px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); font: inherit; font-size: 12px; box-sizing: border-box; }
-  .erp-app .quotation-form input[type=number], .erp-app .quotation-form input[type=text], .erp-app .quotation-form input[type=date] { padding: 2px 5px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); font: inherit; font-size: 12px; box-sizing: border-box; }
+  .erp-app .quotation-form textarea { min-height: 42px; padding: 1px 4px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); font: inherit; font-size: 11.5px; box-sizing: border-box; }
+  .erp-app .quotation-form input[type=number], .erp-app .quotation-form input[type=text], .erp-app .quotation-form input[type=date] { min-height: 20px; padding: 1px 4px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); font: inherit; font-size: 11.5px; box-sizing: border-box; }
+  .erp-app .quotation-form select { min-height: 20px; padding: 1px 3px; font-size: 11.5px; }
+  .erp-app .quotation-form .erp-field { gap: 1px; font-size: 10.5px; }
   .erp-app .quotation-form small { color: var(--erp-muted); }
-  .erp-app .quotation-form table.pricing { border-collapse: collapse; width: 100%; font-size: 12px; }
-  .erp-app .quotation-form table.pricing th, .erp-app .quotation-form table.pricing td { border: 1px solid #dfe9e3; padding: 3px 6px; text-align: left; }
+  .erp-app .quotation-form table.pricing { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+  .erp-app .quotation-form table.pricing th, .erp-app .quotation-form table.pricing td { border: 1px solid #dfe9e3; padding: 2px 5px; text-align: left; }
   .erp-app .quotation-form table.pricing th { background: #e4ece7; color: #163e36; font-weight: 600; }
-  .erp-app .quotation-form .check-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
-  .erp-app .quotation-form .check-row label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; }
-  .erp-app .quotation-form .totals { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-top: 6px; font-size: 12px; }
-  .erp-app .quotation-form .totals b { font-size: 14px; color: #163e36; }
+  .erp-app .quotation-form .check-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .erp-app .quotation-form .check-row label { display: inline-flex; align-items: center; gap: 3px; font-weight: normal; }
+  .erp-app .quotation-form .totals { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: 11.5px; }
+  .erp-app .quotation-form .totals b { font-size: 13px; color: #163e36; }
+  .erp-app .quotation-form .unit { font-size: 10px; color: var(--erp-muted); }
 </style>
 {% endblock %}
 
