@@ -16,9 +16,11 @@ from .calculations import (
 )
 from .routes import register_payroll_routes
 from .services import build_payroll_services
+from .correction import build_payroll_correction_services
 
 __all__ = [
     "aggregate_payroll_rows",
+    "build_payroll_correction_services",
     "build_payroll_services",
     "effective_display_rate",
     "payroll_calendar_weeks",

@@ -550,8 +550,10 @@ def build_payroll_services(api):
         """
         from .tax import money
         filters = dict(filters or {})
-        clauses = ["c.superseded_at is null"]
-        params = []
+        # Decision 4：复核队列也必须走统一读层 —— 否则 159 条 duplicate 会以
+        # 「待复核」的名义留在队列里，金额还会被重复计入 totals。
+        clauses = ["c.superseded_at is null", api["excluded_component_clause"]("c")]
+        params = api["excluded_component_params"]()
         year = (filters.get("year") or "").strip()
         if year:
             clauses.append("left(coalesce(c.service_date, o.created_at), 4) = ?")
@@ -788,19 +790,26 @@ def build_payroll_services(api):
         return previous
 
     def _payment_tax_components(payment_id):
-        """付款单的组件 + 原始/有效两套税务合计（页面展示用，改库一律不发生）。"""
+        """付款单的组件 + 原始/有效两套税务合计（页面展示用，改库一律不发生）。
+
+        Decision 3/4：replacement SL 名下只有 correction-generated 组件，被保留的
+        冻结组件仍挂在原 SL 上，所以这里必须走统一读层（按 effectivePaymentOrder
+        归集，并排除 duplicate_superseded）而不是「自己订单的组件」。
+        Allocation 表为空时结果逐分等于旧行为。
+        """
         from .tax import money
         rows = [dict(row) for row in api["db"]().execute(
             f"""
-            with {_latest_review_cte()}
+            with {_latest_review_cte()},
+            {api['correction_component_cte']()}
             select c.*, coalesce(lr.new_tax_category, c.tax_category) as effective_tax_category,
                    lr.reviewed_at as last_reviewed_at, lr.reason as last_review_reason,
                    u.name as last_reviewed_by_name, so.order_number, so.client_name
-            from employee_payment_components c
+            from effective_components c
             left join latest_review lr on lr.component_id = c.id
             left join users u on u.id = lr.reviewed_by
             left join service_orders so on so.id = c.work_order_id
-            where c.payment_order_id = ? and c.superseded_at is null
+            where c.effective_payment_order_id = ?
             order by c.id
             """,
             (payment_id,),
@@ -854,12 +863,23 @@ def build_payroll_services(api):
         """
 
     def _annual_base_cte():
-        """年度汇总与 drill-down 共用的 base：生效快照 + 有效分类 + 付款日。"""
+        """年度汇总与 drill-down 共用的 base：生效快照 + 有效分类 + 付款日。
+
+        Decision 4：base 一律建在统一读层 `effective_components` 上。
+        - 被 `duplicate_superseded` 的冻结组件不再进任何年度合计；
+        - `payment_order_id`（原始父单）保留用于溯源，但payment/批次/付款日等
+          显示维度取 `effective_payment_order_id`，否则被纠偏的工资会永远显示成
+          一张作废 draft 单（无付款日、状态 superseded）。
+        """
         return f"""
             with {_latest_review_cte()},
+            {api['correction_component_cte']()},
             base as (
-                select c.id as component_id, c.payment_order_id, c.employee_id,
-                       c.component_code, c.component_name, c.amount, c.quantity, c.unit,
+                select c.id as component_id, c.payment_order_id,
+                       c.effective_payment_order_id,
+                       c.allocation_disposition, c.allocation_group_id,
+                       c.employee_id, c.component_code, c.component_name, c.amount,
+                       c.quantity, c.unit,
                        c.unit_rate, c.service_date, c.work_order_id, c.source_type,
                        c.source_id, c.daily_report_id, c.tax_category, c.tax_status_snapshot,
                        c.substantiated, c.review_status, c.created_at,
@@ -874,8 +894,8 @@ def build_payroll_services(api):
                        u.name as employee_name,
                        so.order_number, so.client_name,
                        {_payment_date_expr()} as payment_date
-                from employee_payment_components c
-                join employee_payment_orders o on o.id = c.payment_order_id
+                from effective_components c
+                join employee_payment_orders o on o.id = c.effective_payment_order_id
                 join users u on u.id = c.employee_id
                 left join employee_payment_batches b on b.id = o.batch_id
                 left join lateral (
@@ -889,9 +909,11 @@ def build_payroll_services(api):
                 left join service_orders so on so.id = c.work_order_id
                 left join latest_review lr on lr.component_id = c.id
                 left join users ru on ru.id = lr.reviewed_by
-                where c.superseded_at is null
+                where 1 = 1
             )
         """
+        # superseded_at 过滤已由 effective_components 承担（连同工资侧的
+        # duplicate_superseded），这里不能再加一层，否则等于两处各自解释分配层。
 
     def _annual_year_expr(basis):
         """年度口径表达式（唯一来源，杜绝把口径散落硬编码到各处 SQL）。"""

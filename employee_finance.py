@@ -1363,6 +1363,11 @@ def register_employee_finance_routes(app, api):
 
                 写入前做最后一道 sum(components) == gross 硬校验（ROUND_HALF_UP），
                 任何不一致都拒绝写快照并回滚整个生成操作。
+
+                Decision 8：带 `correction_pre_existing` 标记的行代表
+                carry-forward 的冻结组件（例如 09-29 已经存在于旧 SL）。它们继续
+                参与上面的 sum == gross 闭合校验，但**不重复 INSERT**，而是通过
+                allocation 行把已有 frozenc 组件纳进这张 canonical SL 的 payable。
                 """
                 gross = _money(gross_amount)
                 line_sum = sum((line["amount"] for line in components), Decimal("0"))
@@ -1373,6 +1378,8 @@ def register_employee_finance_routes(app, api):
                     )
                 db = api["db"]()
                 for line in components:
+                    if line.get("correction_pre_existing"):
+                        continue
                     db.execute(
                         """
                         insert into employee_payment_components
@@ -1407,6 +1414,18 @@ def register_employee_finance_routes(app, api):
                 else:
                     components, totals = api["offline_salary_payment_components"](
                         row["worker_id"], amount, batch["period_end"])
+                # Decision 8：这一段里已经存在 carry-forward 冻结组件的（例如未闭合
+                # P7 的 09-29），必须当作 already existing —— 不重造第二份 component，
+                # 生成成功后再把它们 allocate 到这张新 SL。判定在统一读层里，这里不重复实现。
+                # （生产由 app.py _install_payroll_correction_services 恒安装；api.get 容忍
+                #   最小 stub 的单元测试按旧语义跑。调用时解析，不在 register 时缓存。）
+                flag_carry_forward = api.get("flag_carry_forward_components")
+                carry_forward = (
+                    flag_carry_forward(
+                        row["worker_id"], components,
+                        period_start.isoformat(), batch["period_end"].isoformat())
+                    if flag_carry_forward else []
+                )
                 payment_id, inserted = _insert_payment(
                     api, employee_id=row["worker_id"], payment_type="salary", gross_amount=amount,
                     source_type=source_kind, source_id=agreement["id"] if agreement else None,
@@ -1416,6 +1435,10 @@ def register_employee_finance_routes(app, api):
                 )
                 if inserted:
                     _write_components(payment_id, row["worker_id"], components, totals, amount)
+                    if carry_forward:
+                        api["attach_carry_forward"](
+                            payment_id, [item["component_id"] for item in carry_forward],
+                            reason=f"carry forward into canonical period {period_start.isoformat()}")
                 created += int(inserted)
             # Offline-only employees may have no service-report row in this period.
             worker_ids = {row["worker_id"] for row in batch["rows"]}
@@ -1472,7 +1495,11 @@ def register_employee_finance_routes(app, api):
                                tax_components=tax_components,
                                tax_category_labels=TAX_CATEGORY_LABELS,
                                status_labels=PAYMENT_STATUS_LABELS,
-                               type_labels=PAYMENT_TYPE_LABELS, method_labels=PAYMENT_METHOD_LABELS)
+                               type_labels=PAYMENT_TYPE_LABELS, method_labels=PAYMENT_METHOD_LABELS,
+                               correction=(
+                                   api["correction_banner"](payment)
+                                   if api.get("correction_banner") else None),
+                               correction_status_labels=api.get("correction_status_labels", {}))
 
     @app.post("/employee-payments/<int:payment_id>/transition")
     @api["login_required"]
@@ -1662,6 +1689,17 @@ def register_employee_finance_routes(app, api):
                        if order["status"] not in BATCHABLE_PAYMENT_STATUSES]
             if blocked:
                 raise ValueError("只有「已批准」或「待付款」的付款单可以合并发放：" + "、".join(blocked))
+            # Decision 8 / 2：已被工资周期纠偏作废（或只做标签纠偏的已付款单）
+            # 一律不许再合并发放 —— 这些单里含确认过的重复工资，发第二次就是重复付款。
+            # 判定走统一读层，不在页面里重写一遍 correction_status 语义。
+            # （生产恒安装；api.get 容忍最小 stub。调用时解析。）
+            block_reason_fn = api.get("payment_batch_block_reason")
+            correction_blocked = (
+                [reason for reason in (block_reason_fn(order) for order in orders) if reason]
+                if block_reason_fn else []
+            )
+            if correction_blocked:
+                raise ValueError(correction_blocked[0])
             # 一张支票只有一名收款人 —— 跨员工必须先按人分批，否则支票抬头没法写。
             if len({order["employee_id"] for order in orders}) > 1:
                 raise ValueError("一张支票只能开给一名员工，请不要跨员工勾选。")
@@ -2114,12 +2152,23 @@ def register_employee_finance_routes(app, api):
             api["db"]().execute("select * from bank_accounts where is_active=1 order by account_name").fetchall()
             if can_pay else []
         )
+        # Decision 12：纠偏后绝不允许「旧应付 + replacement 应付」双份存在。
+        # 往来账这里给出的是 effective payable —— 已作废 / 待纠偏的单据不计入，
+        # 页面可以拿它对账 canonical payable。
+        # （生产恒安装；api.get 容忍最小 stub。调用时解析。）
+        payable_totals_fn = api.get("payable_totals")
+        payable = (
+            payable_totals_fn({"employee_id": employee_id} if employee_id.isdigit() else None)
+            if payable_totals_fn else None
+        )
         return render_template("employee_ledger.html", employees=employees, employee_id=employee_id,
                                payments=payments, advances=advances, status_labels=PAYMENT_STATUS_LABELS,
                                type_labels=PAYMENT_TYPE_LABELS, payment_type=payment_type, status=status,
                                total_count=total_count, salary_count=type_counts["salary"],
                                expense_count=type_counts["expense"], can_view_all=can_view_all,
-                               can_pay=can_pay, accounts=accounts, method_labels=PAYMENT_METHOD_LABELS)
+                               can_pay=can_pay, accounts=accounts, method_labels=PAYMENT_METHOD_LABELS,
+                               payable=payable,
+                               correction_status_labels=api.get("correction_status_labels", {}))
 
     @app.route("/assets", methods=["GET", "POST"])
     @api["login_required"]

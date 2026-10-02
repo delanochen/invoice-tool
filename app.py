@@ -72,7 +72,11 @@ from invoice_tool.employees import (
     register_employee_grade_routes,
     register_employee_user_routes,
 )
-from invoice_tool.payroll import build_payroll_services, register_payroll_routes
+from invoice_tool.payroll import (
+    build_payroll_correction_services,
+    build_payroll_services,
+    register_payroll_routes,
+)
 from invoice_tool.quotations.routes import register_quotation_routes
 from field_work import register_field_routes
 from staff_reports import register_staff_reports
@@ -17076,6 +17080,40 @@ register_travel_tools_routes(app, globals())
 # 下面这些名字保留在根模块：既不给外部调用方（scripts、employee_finance、
 # 既有测试）制造断层，也让 monkeypatch 继续生效（所有依赖都在调用时解析）。
 # ---------------------------------------------------------------------------
+# Payroll Cycle Correction（Option C）：冻结保全纠偏的统一读层。
+# 工资明细的有效归属一律经过它 —— Annual / CPA / Statement / Batch / Ledger /
+# Payroll totals / integrity 都从这里取，任何页面不得自己解释
+# payroll_component_correction_allocations。
+_payroll_correction_services = build_payroll_correction_services(globals())
+correction_component_cte = _payroll_correction_services["correction_component_cte"]
+standalone_component_cte = _payroll_correction_services["standalone_component_cte"]
+excluded_component_clause = _payroll_correction_services["excluded_component_clause"]
+choose_duplicate_keeper = _payroll_correction_services["choose_duplicate_keeper"]
+excluded_component_params = _payroll_correction_services["excluded_component_params"]
+component_correction_state = _payroll_correction_services["component_correction_state"]
+payable_order_clause = _payroll_correction_services["payable_order_clause"]
+payable_order_params = _payroll_correction_services["payable_order_params"]
+payable_totals = _payroll_correction_services["payable_totals"]
+payment_batch_block_reason = _payroll_correction_services["payment_batch_block_reason"]
+correction_banner = _payroll_correction_services["correction_banner"]
+applied_correction_group = _payroll_correction_services["applied_correction_group"]
+attach_carry_forward = _payroll_correction_services["attach_carry_forward"]
+flag_carry_forward_components = _payroll_correction_services["flag_carry_forward_components"]
+carry_forward_identities = _payroll_correction_services["carry_forward_identities"]
+carry_forward_amount = _payroll_correction_services["carry_forward_amount"]
+replacement_closure_report = _payroll_correction_services["replacement_closure_report"]
+payroll_correction_integrity_check = _payroll_correction_services[
+    "payroll_correction_integrity_check"]
+correction_dispositions = _payroll_correction_services["correction_dispositions"]
+excluded_dispositions = _payroll_correction_services["excluded_dispositions"]
+correction_statuses = _payroll_correction_services["correction_statuses"]
+non_payable_correction_statuses = _payroll_correction_services[
+    "non_payable_correction_statuses"]
+batch_blocked_correction_statuses = _payroll_correction_services[
+    "batch_blocked_correction_statuses"]
+correction_status_labels = _payroll_correction_services["correction_status_labels"]
+correction_disposition_labels = _payroll_correction_services["correction_disposition_labels"]
+
 _payroll_services = build_payroll_services(globals())
 split_report_labor_hours = _payroll_services["split_report_labor_hours"]
 labor_report_entries = _payroll_services["labor_report_entries"]

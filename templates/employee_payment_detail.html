@@ -6,6 +6,27 @@
 {% endblock %}
 
 {% block content %}
+{# Payroll Cycle Correction（Decision 2）：单据被纠偏作废后仍然可查原始 snapshot，
+   但必须在最上面说明它已经不再代表应付义务，并指canonical replacement。 #}
+{% if correction %}
+<div class="erp-panel" style="border-left:4px solid #b26a00;margin-bottom:8px">
+  <div class="panel-title"><h2>{{ correction.status_label }}</h2></div>
+  <div class="panel-body">
+    <div>Superseded by Payroll Cycle Correction</div>
+    {% if correction.replacement %}
+      <div>Canonical replacement：<a href="{{ url_for('employee_payment_detail', payment_id=correction.replacement.id) }}">{{ correction.replacement.payment_number }}</a>
+        （{{ correction.replacement.source_number }}）</div>
+    {% endif %}
+    {% if correction.group %}
+      <div>Correction group：<code>{{ correction.group.correction_code }}</code>
+        · policy <code>{{ correction.group.policy_version }}</code>
+        · cycle start {{ correction.group.canonical_cycle_start }}</div>
+    {% endif %}
+    {% if correction.reason %}<div>Reason：{{ correction.reason }}</div>{% endif %}
+    <div style="opacity:.7">原始 component snapshot 保留不变，仅不再计入 effective payroll / 年度合计 / 往来账应付。</div>
+  </div>
+</div>
+{% endif %}
 {# ERP 详情页范式（对齐 expense_detail）：erp-app--flow 整页滚动，工具栏/汇总/状态栏 sticky；
    流程按钮在工具栏按权限逐项显示（提交/取消→edit、批准/驳回→approve、进入待付款/发放/失败→pay），
    后端 transition 权限判定不变。 #}
