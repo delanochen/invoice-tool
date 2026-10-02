@@ -13,8 +13,14 @@ CONTRACT_RATE_TYPES = (
     ("holiday_hours", "节假日工时", "hour"),
     ("travel_hours", "交通工时", "hour"),
     ("public_transport_hours", "公共交通工时", "hour"),
+    # 以下三项与报价单费率表（Regular Labor / Overtime / Holiday / Travel /
+    # Waiting & Standby / Technical Support / Mileage / Per Diem）对齐，
+    # 合同与报价单费率口径统一。
+    ("waiting_standby_hours", "等待/待命工时", "hour"),
+    ("technical_support_hours", "技术支持工时", "hour"),
     ("mileage", "里程补贴", "mile"),
     ("lodging_cap", "住宿实报实销上限", "person_night"),
+    ("per_diem", "每日津贴", "day"),
 )
 
 EMPLOYEE_RATE_TYPES = (

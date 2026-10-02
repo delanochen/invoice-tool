@@ -89,21 +89,30 @@
               <tr><th>描述</th><th>数量 / 单位</th><th>费率</th><th>预估金额</th></tr>
             </thead>
             <tbody>
-              {% for line in pricing %}
+              {% if quotation.pricing_type == "fixed" %}
                 <tr>
-                  <td>{{ line.label }}</td>
-                  <td>{% if line.qty %}{{ line.qty }}{% if line.unit and line.unit != "As required" %} {{ line.unit }}{% endif %}{% elif line.unit %}{{ line.unit }}{% endif %}</td>
-                  <td>{% if line.rate %}{{ line.rate|money(quotation.currency) }}{% if line.unit and line.unit != "As required" %} / {{ line.unit }}{% endif %}{% endif %}</td>
-                  <td class="num">{% if line.amount %}{{ line.amount|money(quotation.currency) }}{% endif %}</td>
+                  <td>Fixed Price（合同总价）</td>
+                  <td>—</td>
+                  <td>—</td>
+                  <td class="num">{{ quotation.total|money(quotation.currency) }}</td>
                 </tr>
-              {% endfor %}
+              {% else %}
+                {% for line in pricing %}
+                  <tr>
+                    <td>{{ line.label }}</td>
+                    <td>{% if line.qty %}{{ line.qty }}{% if line.unit and line.unit != "As required" %} {{ line.unit }}{% endif %}{% elif line.unit %}{{ line.unit }}{% endif %}</td>
+                    <td>{% if line.rate %}{{ line.rate|money(quotation.currency) }}{% if line.unit and line.unit != "As required" %} / {{ line.unit }}{% endif %}{% endif %}</td>
+                    <td class="num">{% if line.amount %}{{ line.amount|money(quotation.currency) }}{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              {% endif %}
             </tbody>
           </table>
         </div>
         <div class="detail-grid">
           <p><strong>预估小计</strong><span>{{ quotation.subtotal|money(quotation.currency) }}</span></p>
           <p><strong>税</strong><span>{{ quotation.tax|money(quotation.currency) }}</span></p>
-          <p><strong>预估总额</strong><span>{{ quotation.total|money(quotation.currency) }}</span></p>
+          <p><strong>{{ '合同总价' if quotation.pricing_type == "fixed" else '预估总额' }}</strong><span>{{ quotation.total|money(quotation.currency) }}</span></p>
         </div>
       </div>
     </section>
@@ -113,6 +122,7 @@
       <div class="erp-detail-scroll">
         {% set rates = quotation.rate_schedule %}
         {% if rates is string %}{% set rates = [] %}{% endif %}
+        {% if quotation.pricing_type != "fixed" %}
         <h4 class="panel-title">费率表</h4>
         <div class="erp-grid-wrap">
           <table class="list-table erp-grid" data-grid-height="auto">
@@ -128,6 +138,7 @@
             </tbody>
           </table>
         </div>
+        {% endif %}
         <h4 class="panel-title">项目假设</h4>
         <div class="detail-grid">
           <p><strong>预估人数</strong><span>{{ quotation.crew_size or "-" }}</span></p>

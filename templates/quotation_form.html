@@ -86,32 +86,44 @@
 
       <fieldset>
         <legend>定价汇总（Pricing Summary）</legend>
-        <table class="pricing">
+        <label class="erp-field">结算方式
+          <select name="pricing_type" id="pricingType">
+            <option value="estimated" {% if (defaults.pricing_type or 'estimated') == 'estimated' %}selected{% endif %}>按工时结算（Time &amp; Expense）· 填写预估报价</option>
+            <option value="fixed" {% if (defaults.pricing_type or '') == 'fixed' %}selected{% endif %}>总价合同（Fixed Price）· 填写合同总价</option>
+          </select>
+          <small>按工时结算：填写预估数量与费率，系统自动计算预估金额；总价合同：直接填写合同总价。</small>
+        </label>
+        <!-- .system-grid 包裹：阻止全局 system-grid 将本表 Tabulator 化，
+             保持原生表格交互（金额自动计算 / 费率带出 / 表单提交）不受镜像影响。 -->
+        <div class="system-grid">
+        <table class="pricing" id="pricingTable">
           <thead>
-            <tr><th style="width:34%">描述</th><th style="width:16%">数量</th><th style="width:16%">单位</th><th style="width:18%">费率</th><th>预估金额</th></tr>
+            <tr><th style="width:38%">描述</th><th style="width:18%">数量</th><th style="width:22%">费率</th><th>预估金额</th></tr>
           </thead>
           <tbody>
             {% for key, label, unit in pricing_lines %}
               <tr>
-                <td>{{ label }}</td>
+                <td>{{ label }} <small class="unit">({{ unit }})</small></td>
                 <td><input type="number" step="any" min="0" name="pricing_qty_{{ key }}" class="qty" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('qty') or '' }}"></td>
-                <td>{{ unit }}</td>
                 <td><input type="number" step="any" min="0" name="pricing_rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('rate') or '' }}"></td>
-                <td><input type="number" step="any" min="0" name="pricing_amount_{{ key }}" class="amount" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('amount') or '' }}"></td>
+                <td><input type="number" step="any" min="0" name="pricing_amount_{{ key }}" class="amount" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('amount') or '' }}" readonly></td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
+        </div>
         <div class="totals">
+          <span id="fixedTotalWrap" hidden>合同总价 <input type="number" step="0.01" min="0" name="total" id="totalInput" value="{{ defaults.total if defaults.total is not none else '' }}" style="width:140px"></span>
           <span>预估小计 <b id="subtotalText">$0.00</b></span>
           <span>税 <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}" style="width:110px"></span>
           <span>预估总额 <b id="totalText">$0.00</b></span>
         </div>
-        <small>金额为空且数量与费率均已填写时，自动按 数量 × 费率 计算；税手动填写。</small>
+        <small>金额列只读：按 数量 × 费率 自动计算，预估小计按各行金额自动累计；费率会优先从客户合同费率带出，可手动修正。</small>
       </fieldset>
 
-      <fieldset>
+      <fieldset id="rateSchedulePanel">
         <legend>费率表（Rate Schedule）</legend>
+        <div class="system-grid">
         <table class="pricing">
           <thead>
             <tr><th style="width:34%">计费类别</th><th style="width:22%">费率</th><th>计费单位</th></tr>
@@ -120,12 +132,13 @@
             {% for key, label, unit in rate_schedule_lines %}
               <tr>
                 <td>{{ label }}</td>
-                <td><input type="number" step="any" min="0" name="rate_{{ key }}" value="{{ rates.get(key, {}).get('rate') or '' }}"></td>
+                <td><input type="number" step="any" min="0" name="rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ rates.get(key, {}).get('rate') or '' }}"></td>
                 <td>{{ unit }}</td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
+        </div>
         <small>Minimum billing increment: 15 minutes.</small>
       </fieldset>
 
@@ -135,8 +148,8 @@
           <label class="erp-field">预估人数（Crew Size） <input name="crew_size" value="{{ defaults.crew_size or '' }}" placeholder="persons"></label>
           <label class="erp-field">预估工作日（Workdays） <input name="workdays" value="{{ defaults.workdays or '' }}" placeholder="days"></label>
           <label class="erp-field">每日工时（Hours / Day） <input name="hours_per_day" value="{{ defaults.hours_per_day or '' }}"></label>
-          <label class="erp-field">预计开始日期 <input name="expected_start_date" value="{{ defaults.expected_start_date or '' }}"></label>
-          <label class="erp-field">预计完成日期 <input name="expected_completion" value="{{ defaults.expected_completion or '' }}"></label>
+          <label class="erp-field">预计开始日期 <input type="date" name="expected_start_date" value="{{ defaults.expected_start_date or '' }}"></label>
+          <label class="erp-field">预计完成日期 <input type="date" name="expected_completion" value="{{ defaults.expected_completion or '' }}"></label>
           <label class="erp-field">正常工作时段 <input name="normal_working_hours" value="{{ defaults.normal_working_hours or '' }}"></label>
         </div>
         <label class="erp-field">客户提供
@@ -169,13 +182,6 @@
               {% endfor %}
             </select>
           </label>
-          <label class="erp-field">定价类型
-            <select name="pricing_type">
-              {% for value, label in pricing_type_labels.items() %}
-                <option value="{{ value }}" {% if (defaults.pricing_type or 'estimated') == value %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </label>
           <label class="erp-field">税务说明 <input name="tax_note" value="{{ defaults.tax_note or 'Excluded unless stated' }}"></label>
         </div>
         <label class="erp-field">备注
@@ -197,19 +203,31 @@
 <script>
   (() => {
     const money = (v) => "$" + (Number(v) || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    const rows = Array.from(document.querySelectorAll("table.pricing tbody tr"));
-    const amountInputs = rows.map((tr) => tr.querySelector(".amount"));
+    const rows = Array.from(document.querySelectorAll("#pricingTable tbody tr"));
     const taxInput = document.getElementById("taxInput");
+    const pricingType = document.getElementById("pricingType");
+    const pricingTable = document.getElementById("pricingTable");
+    const fixedTotalWrap = document.getElementById("fixedTotalWrap");
+    const totalInput = document.getElementById("totalInput");
+    const ratePanel = document.getElementById("rateSchedulePanel");
+    const clientSelect = document.querySelector('select[name="client_id"]');
+    const contractRates = {{ contract_rates|tojson }};
 
+    // 定价汇总金额列只读：金额 = 数量 × 费率，始终自动重算（不手写）。
     const recalc = () => {
+      if (pricingType.value === "fixed") {
+        const total = Number(totalInput.value) || 0;
+        const tax = Number(taxInput.value) || 0;
+        document.getElementById("subtotalText").textContent = money(total - tax);
+        document.getElementById("totalText").textContent = money(total);
+        return;
+      }
       let subtotal = 0;
       rows.forEach((tr) => {
         const qty = Number(tr.querySelector(".qty").value) || 0;
         const rate = Number(tr.querySelector(".rate").value) || 0;
         const amountEl = tr.querySelector(".amount");
-        if (amountEl.value === "") {
-          amountEl.value = qty && rate ? (qty * rate).toFixed(2) : "";
-        }
+        amountEl.value = qty && rate ? (qty * rate).toFixed(2) : "";
         subtotal += Number(amountEl.value) || 0;
       });
       document.getElementById("subtotalText").textContent = money(subtotal);
@@ -217,11 +235,45 @@
       document.getElementById("totalText").textContent = money(subtotal + tax);
     };
 
-    document.querySelectorAll("table.pricing .qty, table.pricing .rate, table.pricing .amount").forEach((el) => {
+    // 费率自动带出：把客户合同费率映射填进定价汇总费率列与费率表。
+    const applyRates = (rates, onlyEmpty) => {
+      document.querySelectorAll("table.pricing .rate").forEach((el) => {
+        const key = el.dataset.key;
+        if (rates && key in rates && (!onlyEmpty || el.value === "")) {
+          el.value = rates[key];
+        }
+      });
+      recalc();
+    };
+
+    const fetchRates = async (clientId) => {
+      if (!clientId) return;
+      try {
+        const resp = await fetch(`/quotations/rates?client_id=${encodeURIComponent(clientId)}`);
+        const data = await resp.json();
+        applyRates(data.rates || {}, false);
+      } catch (e) { /* 网络异常时静默，允许手填费率 */ }
+    };
+
+    const refreshMode = () => {
+      const fixed = pricingType.value === "fixed";
+      pricingTable.hidden = fixed;
+      fixedTotalWrap.hidden = !fixed;
+      ratePanel.hidden = fixed;
+      recalc();
+    };
+
+    document.querySelectorAll("table.pricing .qty, table.pricing .rate").forEach((el) => {
       el.addEventListener("input", recalc);
     });
     taxInput.addEventListener("input", recalc);
+    totalInput.addEventListener("input", recalc);
+    pricingType.addEventListener("change", refreshMode);
+    if (clientSelect) clientSelect.addEventListener("change", () => fetchRates(clientSelect.value));
     recalc();
+    refreshMode();
+    // 页面加载时只填充空行，不覆盖已保存/手填的费率。
+    applyRates(contractRates, true);
 
     const terms = document.getElementById("paymentTerms");
     const otherField = document.getElementById("paymentOtherField");

@@ -233,6 +233,75 @@ class TestQuotations(unittest.TestCase):
         # subtotal 增加 1440 → 6675.50
         self.assertEqual(float(updated["subtotal"]), 6675.50)
 
+    def test_fixed_price_quotation_stores_total_only(self):
+        self._login_admin()
+        row = self._create_quotation(pricing_type="fixed", total="15000", tax="0")
+        self.assertEqual(row["pricing_type"], "fixed")
+        # 总价合同：subtotal = 总价 - 税；明细与费率表不保留
+        self.assertEqual(float(row["subtotal"]), 15000.00)
+        self.assertEqual(float(row["total"]), 15000.00)
+        self.assertEqual(json.loads(row["pricing_lines"]), [])
+        self.assertEqual(json.loads(row["rate_schedule"]), [])
+        response = self.client.get(f"/quotations/{row['id']}")
+        html = response.get_data(as_text=True)
+        self.assertIn("Fixed Price（合同总价）", html)
+        self.assertIn("合同总价", html)
+
+    def test_fixed_price_with_tax_subtracts_from_total(self):
+        self._login_admin()
+        row = self._create_quotation(pricing_type="fixed", total="15000", tax="1000")
+        self.assertEqual(float(row["subtotal"]), 14000.00)
+        self.assertEqual(float(row["tax"]), 1000.00)
+        self.assertEqual(float(row["total"]), 15000.00)
+
+    def test_quotation_number_follows_service_order_rule(self):
+        """编号规则与工单一致：PP-Q-YYMM + 3 位序号。"""
+        self._login_admin()
+        row = self._create_quotation()
+        import re
+
+        self.assertRegex(row["quotation_number"], r"^PP-Q-\d{7}$")
+
+    def test_client_rates_endpoint_maps_contract_rates(self):
+        """/quotations/rates 把客户合同费率映射到报价单费率表 key。"""
+        self._login_admin()
+        NOW = "2026-01-01T00:00:00"
+        with _db() as db:
+            contract_id = db.execute(
+                "insert into contracts (contract_number, client_id, contract_type, title, "
+                "status, currency, created_by, created_at, updated_at) "
+                "values (?, ?, 'service', 'Alpha O&M', 'active', 'USD', ?, ?, ?) returning id",
+                ("CT-QR1", self.client_a_id, self.admin_id, NOW, NOW),
+            ).fetchone()["id"]
+            version_id = db.execute(
+                "insert into contract_rate_versions (contract_id, version_no, effective_from, "
+                "effective_to, status, notes, created_by, created_at, updated_at) "
+                "values (?, 1, '2026-01-01', NULL, 'active', '', ?, ?, ?) returning id",
+                (contract_id, self.admin_id, NOW, NOW),
+            ).fetchone()["id"]
+            for rate_type, rate in (("regular_hours", 125), ("travel_hours", 90),
+                                    ("waiting_standby_hours", 75), ("mileage", 0.67),
+                                    ("per_diem", 55)):
+                db.execute(
+                    "insert into contract_rate_items (version_id, rate_type, unit, rate) "
+                    "values (?, ?, ?, ?)",
+                    (version_id, rate_type, "hour" if rate_type != "mileage" else "mile", rate),
+                )
+        response = self.client.get(f"/quotations/rates?client_id={self.client_a_id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        rates = data["rates"]
+        self.assertEqual(rates["regular_labor"], 125.0)
+        self.assertEqual(rates["travel_time"], 90.0)
+        self.assertEqual(rates["waiting_standby"], 75.0)
+        self.assertEqual(rates["mileage"], 0.67)
+        self.assertEqual(rates["per_diem"], 55.0)
+        # 未配置的项不出现在结果里
+        self.assertNotIn("technical_support", rates)
+        # 无客户参数返回空
+        response = self.client.get("/quotations/rates")
+        self.assertEqual(response.get_json(), {"rates": {}})
+
     def test_delete_quotation(self):
         self._login_admin()
         row = self._create_quotation()

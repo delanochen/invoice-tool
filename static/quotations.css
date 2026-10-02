@@ -94,6 +94,8 @@
 }
 .erp-app .quotation-form table.pricing input { width: 110px; }
 .erp-app .quotation-form table.pricing .amount { width: 130px; }
+/* 表单内用 .system-grid 仅作“跳过全局表格镜像”的标记容器，恢复普通块级布局 */
+.erp-app .quotation-form .system-grid { display: block; flex: none; min-height: 0; }
 @media (max-width: 1180px) {
   .erp-app .quotation-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

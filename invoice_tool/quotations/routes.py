@@ -45,6 +45,62 @@ _QUOTATION_COLUMNS = (
 # created_by / created_at / updated_at 由后端补充，不属于表单。
 _FORM_COLUMNS = _QUOTATION_COLUMNS
 
+# 报价单费率表 key → 合同费率版本 rate_type 映射。
+# 合同与报价单费率口径统一：报价单定价汇总/费率表的费率自动从客户的
+# 当前生效合同费率版本带出（带不出的行允许手填）。
+QUOTATION_RATE_TO_CONTRACT = {
+    "regular_labor": "regular_hours",
+    "overtime_labor": "overtime_hours",
+    "holiday_labor": "holiday_hours",
+    "travel_time": "travel_hours",
+    "waiting_standby": "waiting_standby_hours",
+    "technical_support": "technical_support_hours",
+    "mileage": "mileage",
+    "lodging": "lodging_cap",
+    "per_diem": "per_diem",
+}
+
+
+def client_contract_rates(api, client_id):
+    """按客户当前生效的合同费率版本取费率，映射到报价单费率表 key。
+
+    取该客户全部合同中今天生效的最新费率版本（跨合同合并，最新版本优先）；
+    版本缺条目或数值为空时对应 key 不出现在结果里（表单留空，允许手填）。
+    """
+    if not client_id:
+        return {}
+    today = date.today().isoformat()
+    version = api["db"]().execute(
+        """
+        select contract_rate_versions.id, contract_rate_versions.version_no
+        from contract_rate_versions
+        join contracts on contracts.id = contract_rate_versions.contract_id
+        where contracts.client_id = ?
+          and contract_rate_versions.status = 'active'
+          and contract_rate_versions.effective_from <= ?
+          and (contract_rate_versions.effective_to is null
+               or contract_rate_versions.effective_to = ''
+               or contract_rate_versions.effective_to >= ?)
+        order by contract_rate_versions.effective_from desc,
+                 contract_rate_versions.version_no desc,
+                 contract_rate_versions.id desc
+        limit 1
+        """,
+        (client_id, today, today),
+    ).fetchone()
+    if not version:
+        return {}
+    items = api["db"]().execute(
+        "select rate_type, rate from contract_rate_items where version_id = ?",
+        (version["id"],),
+    ).fetchall()
+    by_type = {item["rate_type"]: item["rate"] for item in items}
+    return {
+        key: float(by_type[rate_type])
+        for key, rate_type in QUOTATION_RATE_TO_CONTRACT.items()
+        if rate_type in by_type and by_type[rate_type] is not None
+    }
+
 
 def _decimal(value, default=None):
     """Parse a form number into Decimal, tolerating empty/invalid input."""
@@ -88,42 +144,54 @@ def quotation_form_values(api, quotation=None):
     def field(name, default=""):
         return str(form.get(name, default)).strip()
 
-    pricing_lines = []
-    for key, label, unit in PRICING_LINES:
-        qty = field(f"pricing_qty_{key}")
-        rate = field(f"pricing_rate_{key}")
-        amount_input = field(f"pricing_amount_{key}")
-        qty_decimal = _decimal(qty)
-        rate_decimal = _decimal(rate)
-        amount_decimal = _decimal(amount_input)
-        if amount_decimal is None and qty_decimal is not None and rate_decimal is not None:
-            amount_decimal = (qty_decimal * rate_decimal).quantize(Decimal("0.01"))
-        pricing_lines.append({
-            "key": key,
-            "label": label,
-            "unit": unit,
-            "qty": qty,
-            "rate": rate,
-            "amount": "" if amount_decimal is None else _fmt_decimal(amount_decimal),
-        })
+    pricing_type = field("pricing_type", "estimated") or "estimated"
+    if pricing_type == "fixed":
+        # 总价合同（Fixed Price）：不逐行填报，直接给合同总价；
+        # subtotal = 总价 - 税，明细与费率表不保留。
+        total = _decimal(field("total"), Decimal("0")) or Decimal("0")
+        total = total.quantize(Decimal("0.01"))
+        tax = _decimal(field("tax"), Decimal("0")) or Decimal("0")
+        tax = tax.quantize(Decimal("0.01"))
+        subtotal = (total - tax).quantize(Decimal("0.01"))
+        pricing_lines = []
+        rate_schedule = []
+    else:
+        pricing_lines = []
+        for key, label, unit in PRICING_LINES:
+            qty = field(f"pricing_qty_{key}")
+            rate = field(f"pricing_rate_{key}")
+            amount_input = field(f"pricing_amount_{key}")
+            qty_decimal = _decimal(qty)
+            rate_decimal = _decimal(rate)
+            amount_decimal = _decimal(amount_input)
+            if amount_decimal is None and qty_decimal is not None and rate_decimal is not None:
+                amount_decimal = (qty_decimal * rate_decimal).quantize(Decimal("0.01"))
+            pricing_lines.append({
+                "key": key,
+                "label": label,
+                "unit": unit,
+                "qty": qty,
+                "rate": rate,
+                "amount": "" if amount_decimal is None else _fmt_decimal(amount_decimal),
+            })
 
-    rate_schedule = []
-    for key, label, unit in RATE_SCHEDULE_LINES:
-        rate = field(f"rate_{key}")
-        rate_schedule.append({
-            "key": key,
-            "label": label,
-            "unit": unit,
-            "rate": rate,
-        })
+        rate_schedule = []
+        for key, label, unit in RATE_SCHEDULE_LINES:
+            rate = field(f"rate_{key}")
+            rate_schedule.append({
+                "key": key,
+                "label": label,
+                "unit": unit,
+                "rate": rate,
+            })
 
-    subtotal = sum(
-        (Decimal(str(line["amount"])) for line in pricing_lines if line["amount"]),
-        Decimal("0"),
-    ).quantize(Decimal("0.01"))
-    tax = _decimal(field("tax"), Decimal("0")) or Decimal("0")
-    tax = tax.quantize(Decimal("0.01"))
-    total = (subtotal + tax).quantize(Decimal("0.01"))
+        subtotal = sum(
+            (Decimal(str(line["amount"])) for line in pricing_lines if line["amount"]),
+            Decimal("0"),
+        ).quantize(Decimal("0.01"))
+        tax = _decimal(field("tax"), Decimal("0")) or Decimal("0")
+        tax = tax.quantize(Decimal("0.01"))
+        total = (subtotal + tax).quantize(Decimal("0.01"))
     client_id = field("client_id")
     return {
         "quotation_number": field("quotation_number"),
@@ -172,24 +240,27 @@ def quotation_form_values(api, quotation=None):
 
 
 def next_quotation_number(api):
+    """编号规则与工单一致：前缀 PP-Q-YYMM + 3 位序号，取最小未用序号。"""
     db = api["db"]
     api["lock_number_allocation"](db())
-    prefix = f"PP-Q-{date.today():%y}"
-    row = db().execute(
+    prefix = f"PP-Q-{date.today():%y%m}"
+    rows = db().execute(
         """
         select quotation_number from quotations
         where quotation_number like ?
-        order by quotation_number desc limit 1
+        order by quotation_number
         """,
         (f"{prefix}%",),
-    ).fetchone()
-    if not row:
-        return f"{prefix}001"
-    suffix = row["quotation_number"][len(prefix):]
-    try:
-        return f"{prefix}{int(suffix) + 1:03d}"
-    except ValueError:
-        return f"{prefix}001"
+    ).fetchall()
+    used = set()
+    for row in rows:
+        suffix = row["quotation_number"][len(prefix):]
+        if suffix.isdigit() and int(suffix) > 0:
+            used.add(int(suffix))
+    sequence = 1
+    while sequence in used:
+        sequence += 1
+    return f"{prefix}{sequence:03d}"
 
 
 def _quotation_or_404(api, quotation_id):
@@ -235,6 +306,9 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         defaults=defaults,
         pricing=pricing,
         rates=rates,
+        contract_rates=client_contract_rates(
+            api, defaults.get("client_id") or (quotation or {}).get("client_id")
+        ),
         pricing_lines=PRICING_LINES,
         rate_schedule_lines=RATE_SCHEDULE_LINES,
         payment_terms_labels=PAYMENT_TERMS_LABELS,
@@ -285,6 +359,17 @@ def register_quotation_routes(app, api):
             selected_status=status,
             status_labels=QUOTATION_STATUS_LABELS,
         )
+
+    @app.get("/quotations/rates")
+    @login_required
+    def quotation_client_rates():
+        """报价单表单按客户自动带出合同费率（映射到报价单费率表 key）。"""
+        if not can_view_quotations(api):
+            abort(403)
+        client_id = request.args.get("client_id", "").strip()
+        if not client_id.isdigit():
+            return api["jsonify"]({"rates": {}})
+        return api["jsonify"]({"rates": client_contract_rates(api, int(client_id))})
 
     @app.route("/quotations/new", methods=["GET", "POST"])
     @login_required

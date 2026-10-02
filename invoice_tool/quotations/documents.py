@@ -432,6 +432,28 @@ def _pricing_table(quote, lines, styles):
     return table
 
 
+def _fixed_price_table(quote, total, styles):
+    """Fixed-price quotations render a single total row instead of line items."""
+    header = [
+        Paragraph("Description", styles["head"]),
+        Paragraph("Qty / Unit", styles["head"]),
+        Paragraph("Rate", styles["head"]),
+        Paragraph("Amount", styles["head"]),
+    ]
+    data = [header, [
+        Paragraph("Fixed Price", styles["cell"]),
+        Paragraph("—", styles["cell_center"]),
+        Paragraph("—", styles["cell_center"]),
+        Paragraph(_esc(f"$ {_money(total)}"), styles["cell_right"]),
+    ]]
+    table = Table(data, colWidths=[47 * mm, 47 * mm, 47 * mm, 47 * mm], repeatRows=1)
+    style = _table_style()
+    style.add("BACKGROUND", (0, 0), (-1, 0), DARK_GREEN)
+    style.add("BACKGROUND", (0, 1), (-1, 1), ZEBRA_BG)
+    table.setStyle(style)
+    return table
+
+
 def _totals_table(quote, subtotal, tax, total, styles):
     def row(label, value, text_style, value_style):
         return [
@@ -706,17 +728,23 @@ def build_quotation_pdf(quote, path):
     scope_table.setStyle(style)
     story.append(scope_table)
 
+    pricing_type = quote.get("pricing_type") or "estimated"
+
     story.append(_section("PRICING SUMMARY", styles))
-    story.append(_pricing_table(quote, pricing_lines, styles))
+    if pricing_type == "fixed":
+        story.append(_fixed_price_table(quote, total, styles))
+    else:
+        story.append(_pricing_table(quote, pricing_lines, styles))
     story.append(Spacer(1, 2))
     story.append(_totals_table(quote, subtotal, tax, total, styles))
     story.append(Spacer(1, 2))
     story.append(Paragraph(_esc(PRICING_BASIS), styles["small"]))
 
-    story.append(_section("RATE SCHEDULE & PROJECT ASSUMPTIONS", styles))
-    story.append(_rate_table(quote, rate_lines, styles))
-    story.append(Spacer(1, 2))
-    story.append(Paragraph(_esc(MINIMUM_BILLING_INCREMENT), styles["small"]))
+    if pricing_type != "fixed":
+        story.append(_section("RATE SCHEDULE & PROJECT ASSUMPTIONS", styles))
+        story.append(_rate_table(quote, rate_lines, styles))
+        story.append(Spacer(1, 2))
+        story.append(Paragraph(_esc(MINIMUM_BILLING_INCREMENT), styles["small"]))
 
     story.append(KeepTogether([
         _section("TRAVEL & REIMBURSABLE EXPENSES", styles, level=2),

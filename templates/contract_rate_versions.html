@@ -37,7 +37,7 @@
       <label class="erp-field">生效日期 <input type="date" name="effective_from" required></label>
       <label class="erp-field">结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不允许与其他有效版本重叠。</small></label>
       {% for key, label, unit in rate_types %}
-      <label class="erp-field">{{ label }} <input type="number" name="{{ key }}" step="0.01" min="0" value="{{ 100 if key == 'lodging_cap' else '' }}" required><small>单位：{{ {'hour':'小时','mile':'英里','person_night':'人晚'}.get(unit, unit) }}</small></label>
+      <label class="erp-field">{{ label }} <input type="number" name="{{ key }}" step="0.01" min="0" value="{{ 100 if key == 'lodging_cap' else '' }}" required><small>单位：{{ {'hour':'小时','mile':'英里','person_night':'人晚','day':'每天'}.get(unit, unit) }}</small></label>
       {% endfor %}
       <label class="erp-field full-span">备注 <textarea name="notes" rows="3" placeholder="例如 2027 年续签合同新费率"></textarea></label>
       <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">创建新版本</button></div>
