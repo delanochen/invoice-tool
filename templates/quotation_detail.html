@@ -8,8 +8,7 @@
 {% endblock %}
 
 {% block content %}
-{% set pricing = quotation.pricing_lines %}
-{% if pricing is string %}{% set pricing = [] %}{% endif %}
+{% set pricing = quotation.pricing %}
 <div class="erp-app" data-active-panel="info">
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
@@ -120,8 +119,7 @@
     <!-- Panel 3：费率与假设 -->
     <section class="erp-panel" data-erp-panel="assumptions">
       <div class="erp-detail-scroll">
-        {% set rates = quotation.rate_schedule %}
-        {% if rates is string %}{% set rates = [] %}{% endif %}
+        {% set rates = quotation.rates %}
         {% if quotation.pricing_type != "fixed" %}
         <h4 class="panel-title">费率表</h4>
         <div class="erp-grid-wrap">
