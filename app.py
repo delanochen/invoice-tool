@@ -663,6 +663,10 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+from settlement_request_limits import register_settlement_request_limits
+
+register_settlement_request_limits(app)
+
 
 def now():
     return datetime.now(app_timezone()).replace(microsecond=0).isoformat()
