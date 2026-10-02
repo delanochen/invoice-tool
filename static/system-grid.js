@@ -124,10 +124,12 @@
           return label;
         },
         rowFormatter: row => {
-          const sourceRow = this.rows.get(row.getData()._id);
+          const data = row.getData();
           const element = row.getElement();
-          element.classList.toggle('is-selected', sourceRow?.classList.contains('is-selected'));
-          ['closed-paid','closed-invoiced','open-invoiced'].forEach(className => element.classList.toggle(className, sourceRow?.classList.contains(className)));
+          element.classList.toggle('is-selected', this.rows.get(data._id)?.classList.contains('is-selected'));
+          // 行底色 class（open-invoiced / closed-invoiced / closed-paid）直接从数据读，
+          // 不依赖 sourceRow DOM 元素查找——read() 重建 Map 后索引错位会导致丢 class。
+          ['closed-paid','closed-invoiced','open-invoiced'].forEach(className => element.classList.toggle(className, (data._rowClass || '').includes(className)));
         },
       });
       this.grid.on('tableBuilt', () => { this.ready=true; source.classList.add('grid-source'); this.controls(); this.sync(); this.shell.classList.remove('grid-building'); this.loadingOverlay?.remove(); settle(); });
@@ -252,7 +254,7 @@
       return [...this.source.tBodies].flatMap(body => [...body.rows]).filter(row => !row.querySelector('td.empty') && !row.matches('.report-total,.table-summary-row') && !row.hidden && row.style.display !== 'none').map(row => {
         if(!row._gridId) row._gridId = ++this.nextId;
         this.rows.set(row._gridId,row);
-        const data = {_id:row._gridId};
+        const data = {_id:row._gridId, _rowClass: row.className};
         this.headers.forEach((_,index) => {
           data[`c${index}`]=valueOf(row.cells[index]);
           // 结算单金额单元格的 input.value 已是「实际生效金额」（来源 + 人工调整），
