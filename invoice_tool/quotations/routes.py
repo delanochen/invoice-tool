@@ -240,10 +240,10 @@ def quotation_form_values(api, quotation=None):
 
 
 def next_quotation_number(api):
-    """编号规则与工单同构：Q + YYMM + 3 位序号，取最小未用序号（工单为 SO + YYMM）。"""
+    """编号规则与工单同构：QT + YYMM + 3 位序号，取最小未用序号（工单为 SO + YYMM）。"""
     db = api["db"]
     api["lock_number_allocation"](db())
-    prefix = f"Q{date.today():%y%m}"
+    prefix = f"QT{date.today():%y%m}"
     rows = db().execute(
         """
         select quotation_number from quotations

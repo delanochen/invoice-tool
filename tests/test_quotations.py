@@ -197,7 +197,7 @@ class TestQuotations(unittest.TestCase):
     def test_create_quotation_generates_number_and_auto_totals(self):
         self._login_admin()
         row = self._create_quotation()
-        self.assertTrue(row["quotation_number"].startswith("Q"))
+        self.assertTrue(row["quotation_number"].startswith("QT"))
         # 40 * 120 = 4800；650 * 0.67 = 435.50 → subtotal 5235.50
         self.assertEqual(float(row["subtotal"]), 5235.50)
         self.assertEqual(float(row["total"]), 5235.50)
@@ -255,12 +255,12 @@ class TestQuotations(unittest.TestCase):
         self.assertEqual(float(row["total"]), 15000.00)
 
     def test_quotation_number_follows_service_order_rule(self):
-        """编号规则与工单同构：Q + YYMM + 3 位序号，取最小未用。"""
+        """编号规则与工单同构：QT + YYMM + 3 位序号，取最小未用。"""
         self._login_admin()
         row = self._create_quotation()
         import re
 
-        self.assertRegex(row["quotation_number"], r"^Q\d{7}$")
+        self.assertRegex(row["quotation_number"], r"^QT\d{7}$")
 
     def test_client_rates_endpoint_maps_contract_rates(self):
         """/quotations/rates 把客户合同费率映射到报价单费率表 key。"""
