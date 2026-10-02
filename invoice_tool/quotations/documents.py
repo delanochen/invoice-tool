@@ -19,12 +19,15 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
+import os
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
+    Image,
     KeepTogether,
     PageBreak,
     Paragraph,
@@ -33,6 +36,9 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static")
+SIGNATURE_IMAGE = os.path.join(_STATIC_DIR, "signature-yongming.png")
 
 # ---------------------------------------------------------------------------
 # Fixed template rows (labels and billing units come from the Word template).
@@ -565,20 +571,49 @@ def _payment_grid(quote, styles):
     return table
 
 
-def _signature_table(styles):
+def _signature_table(quote, styles):
     header = [Paragraph("Customer / Company", styles["head"]), Paragraph("Prasinos Power", styles["head"])]
-    rows = ["Authorized Representative", "Title", "Signature", "Date"]
+
+    sig_img = None
+    if os.path.isfile(SIGNATURE_IMAGE):
+        sig_img = Image(SIGNATURE_IMAGE, width=55 * mm, height=15 * mm)
+
+    rep_value = "Yongming Chen"
+    title_value = "CEO"
+    date_value = quote.get("quotation_date") or ""
+
+    left_label_style = ParagraphStyle("SigLeft", parent=styles["label"], textColor=colors.HexColor("#66736D"))
+    right_value_style = ParagraphStyle("SigRight", parent=styles["body"], fontSize=10, leading=13)
+
     data = [header]
-    for label in rows:
-        data.append([
-            Paragraph(_esc(label), styles["label"]),
-            Paragraph(_esc(label), styles["label"]),
-        ])
-    table = Table(data, colWidths=[93 * mm, 93 * mm], repeatRows=0)
+    # Authorized Representative
+    data.append([
+        Paragraph(_esc("Authorized Representative"), left_label_style),
+        Paragraph(_esc(rep_value), right_value_style),
+    ])
+    # Title
+    data.append([
+        Paragraph(_esc("Title"), left_label_style),
+        Paragraph(_esc(title_value), right_value_style),
+    ])
+    # Signature
+    sig_cell = sig_img if sig_img else Paragraph(" ", right_value_style)
+    data.append([
+        Paragraph(_esc("Signature"), left_label_style),
+        sig_cell,
+    ])
+    # Date
+    data.append([
+        Paragraph(_esc("Date"), left_label_style),
+        Paragraph(_esc(date_value), right_value_style),
+    ])
+
+    table = Table(data, colWidths=[93 * mm, 93 * mm], repeatRows=0, rowHeights=[None, None, None, 20 * mm, None])
     style = _table_style()
     style.add("BACKGROUND", (0, 0), (-1, 0), MID_GREEN)
-    style.add("BACKGROUND", (0, 1), (-1, -1), MID_GREEN)
+    style.add("BACKGROUND", (0, 1), (-1, -1), colors.white)
     style.add("VALIGN", (0, 0), (-1, -1), "TOP")
+    style.add("VALIGN", (1, 3), (1, 3), "MIDDLE")
     style.add("TOPPADDING", (0, 1), (-1, -1), 8)
     style.add("BOTTOMPADDING", (0, 1), (-1, -1), 8)
     table.setStyle(style)
@@ -764,7 +799,7 @@ def build_quotation_pdf(quote, path):
     story.append(_section("CUSTOMER ACCEPTANCE", styles))
     story.append(Paragraph(_esc(CUSTOMER_ACCEPTANCE_TEXT), styles["body"]))
     story.append(Spacer(1, 4))
-    story.append(_signature_table(styles))
+    story.append(_signature_table(quote, styles))
 
     story.append(PageBreak())
     story.extend(_terms_block(styles))
