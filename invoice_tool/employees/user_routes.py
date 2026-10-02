@@ -1,6 +1,7 @@
 """Explicit registration for employee and user-management endpoints."""
 
 import os
+import re
 
 from flask import (
     abort,
@@ -82,6 +83,9 @@ def register_employee_user_routes(
             )
             if "�" in name:
                 flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
+                return redirect(url_for("users"))
+            if english_name and not re.fullmatch(r"[A-Za-z ]+", english_name):
+                flash("英文名只能包含英文字母和空格，不能包含中文、数字或其他符号。", "error")
                 return redirect(url_for("users"))
             if requires_user_address(role) and not address:
                 flash("内部员工必须填写地址。", "error")
@@ -281,6 +285,9 @@ def register_employee_user_routes(
             admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
             if "�" in name:
                 flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
+                return redirect(url_for("edit_user", user_id=user_id))
+            if english_name and not re.fullmatch(r"[A-Za-z ]+", english_name):
+                flash("英文名只能包含英文字母和空格，不能包含中文、数字或其他符号。", "error")
                 return redirect(url_for("edit_user", user_id=user_id))
             if can_manage_users() and user["role"] == "admin" and role != "admin" and admin_count <= 1:
                 flash("至少需要保留一个管理员。", "error")

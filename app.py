@@ -6439,6 +6439,9 @@ def register():
         if "�" in name:
             flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
             return redirect(url_for("register"))
+        if english_name and not re.fullmatch(r"[A-Za-z ]+", english_name):
+            flash("英文名只能包含英文字母和空格，不能包含中文、数字或其他符号。", "error")
+            return redirect(url_for("register"))
         if len(password) < 8:
             flash("密码至少需要 8 位。", "error")
             return redirect(url_for("register"))
