@@ -93,6 +93,47 @@ class ServiceReportNavigationTest(unittest.TestCase):
             [f"/service-reports/{self.reports[0][0]}/view", f"/service-reports/{self.reports[2][0]}/view"],
         )
 
+    def test_gap_dates_previous_is_nearest_not_first(self):
+        """日期跳跃时，「上一个」必须取紧邻那条，而不是全局列表第 1 条。
+
+        v0.1.361 之前 adjacent_service_report_ids 的 previous 候选集排序误用
+        desc，跳到的是全局最新的日报。种 4 张跳跃日期（列表顺序
+        08-20 / 08-15 / 08-10 / 08-05），09-01 的上一个必须是 09-05。
+        """
+        with self.module.app.app_context():
+            db = self.module.db()
+            gap_order = db.execute(
+                """
+                insert into service_orders
+                    (order_number, client_name, site_address, client_order_number, start_date, created_by, created_at)
+                values ('SO-NAV-GAP', 'Gap Site', 'Elsewhere', 'GAP', '2026-09-01', ?, ?)
+                """,
+                (self.fixture.people["Submitter"], self.module.now()),
+            ).lastrowid
+            gap_reports = []
+            for day in ("2026-08-20", "2026-08-15", "2026-08-10", "2026-08-05"):
+                report_id = db.execute(
+                    """
+                    insert into service_reports
+                        (service_order_id, report_date, actual_work_date, total_service_hours,
+                         travel_hours, service_description, created_by, created_at, updated_at)
+                    values (?, ?, ?, 8, 1, 'gap fixture', ?, ?, ?)
+                    """,
+                    (gap_order, day, day, self.fixture.people["Submitter"],
+                     self.module.now(), self.module.now()),
+                ).lastrowid
+                gap_reports.append(report_id)
+            db.commit()
+        _, _, block = self._cells(gap_reports[2])
+        hrefs = re.findall(r'href="([^"]+)"', block)
+        self.assertEqual(
+            hrefs,
+            [
+                f"/service-reports/{gap_reports[1]}/view",
+                f"/service-reports/{gap_reports[3]}/view",
+            ],
+        )
+
     def test_same_day_reports_order_by_id(self):
         """同日多条日报：上一个/下一个按 id 衔接，不跳过也不重复。"""
         with self.module.app.app_context():

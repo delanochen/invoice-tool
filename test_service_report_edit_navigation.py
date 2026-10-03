@@ -128,6 +128,50 @@ class ServiceReportEditNavigationTest(unittest.TestCase):
             ],
         )
 
+    def test_gap_dates_previous_is_nearest_not_first(self):
+        """日期有跳跃时，「上一条」必须取紧邻的那条，而不是工单第 1 条。
+
+        v0.1.361 之前的 bug：previous 的候选集（日期比当前大）排序误用 desc，
+        导致除紧邻第 1 条之外的所有日报「上一条」都直接跳到工单最新一条。
+        种 4 张跳跃日期的日报（列表顺序 09-10 / 09-05 / 09-01 / 08-28），
+        第 3 张（09-01）的上一条必须是 09-05，而非 09-10。
+        """
+        self.fixture.login("Submitter")
+        with self.module.app.app_context():
+            db = self.module.db()
+            gap_order = db.execute(
+                """
+                insert into service_orders
+                    (order_number, client_name, site_address, client_order_number, start_date, created_by, created_at)
+                values ('SO-EDIT-NAV-GAP', 'Gap Site', 'Elsewhere', 'GAP', '2026-09-01', ?, ?)
+                """,
+                (self.fixture.people["Submitter"], self.module.now()),
+            ).lastrowid
+            gap_reports = []
+            for day in ("2026-09-10", "2026-09-05", "2026-09-01", "2026-08-28"):
+                report_id = db.execute(
+                    """
+                    insert into service_reports
+                        (service_order_id, report_date, actual_work_date, total_service_hours,
+                         travel_hours, service_description, created_by, created_at, updated_at)
+                    values (?, ?, ?, 8, 1, 'gap fixture', ?, ?, ?)
+                    """,
+                    (gap_order, day, day, self.fixture.people["Submitter"],
+                     self.module.now(), self.module.now()),
+                ).lastrowid
+                gap_reports.append(report_id)
+            db.commit()
+        # 列表第 3 张 = 09-01；上一条 = 09-05，下一条 = 08-28。
+        _, _, block = self._cells(gap_reports[2])
+        hrefs = re.findall(r'href="([^"]+)"', block)
+        self.assertEqual(
+            hrefs,
+            [
+                f"/service-reports/{gap_reports[1]}/edit",
+                f"/service-reports/{gap_reports[3]}/edit",
+            ],
+        )
+
     def test_same_day_reports_order_by_id(self):
         """同日多条日报：上一条/下一条按 id 衔接，不跳过也不重复。"""
         self.fixture.login("Submitter")

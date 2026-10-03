@@ -14554,6 +14554,11 @@ def adjacent_service_report_ids(report_id):
 
     def fetch(direction):
         # previous：列表中更靠上 = 日期更大，或同日 id 更大
+        # previous：列表中更靠上 = 日期更大，或同日 id 更大。
+        # v0.1.361 修复：previous 的候选集是「日期比当前大」的全体，要取其中
+        # **最靠近当前**的一条（日期最小、同日 id 最小）才是紧邻的上一条；
+        # 之前误用 desc 取了集合里最新的那条，导致除第 2 条外所有日报的
+        # 「上一条」都直接跳到工单第 1 条。
         if direction == "previous":
             comparison = (
                 "(coalesce(service_reports.actual_work_date, service_reports.report_date) > ? "
@@ -14561,8 +14566,8 @@ def adjacent_service_report_ids(report_id):
                 "and service_reports.id > ?))"
             )
             ordering = (
-                "order by coalesce(service_reports.actual_work_date, service_reports.report_date) desc, "
-                "service_reports.id desc limit 1"
+                "order by coalesce(service_reports.actual_work_date, service_reports.report_date) asc, "
+                "service_reports.id asc limit 1"
             )
         else:
             comparison = (
@@ -14616,22 +14621,25 @@ def same_order_adjacent_report_ids(report_id):
         scope_params = [g.user["id"]]
 
     def fetch(direction):
+        # v0.1.361 修复：previous 必须在「日期比当前大」的候选集里取**最靠近当前**
+        # 的一条（asc），desc 会取到工单最新一条，导致「上一条」永远是第 1 条。
         if direction == "previous":
             comparison = (
                 "(coalesce(actual_work_date, report_date) > ? "
                 "or (coalesce(actual_work_date, report_date) = ? and id > ?))"
             )
+            ordering = "order by coalesce(actual_work_date, report_date) asc, id asc limit 1"
         else:
             comparison = (
                 "(coalesce(actual_work_date, report_date) < ? "
                 "or (coalesce(actual_work_date, report_date) = ? and id < ?))"
             )
+            ordering = "order by coalesce(actual_work_date, report_date) desc, id desc limit 1"
         row = db().execute(
             """
             select id from service_reports
             where service_order_id = ?""" + scope_sql + """ and """ + comparison + """
-            order by coalesce(actual_work_date, report_date) desc, id desc limit 1
-            """,
+            """ + ordering,
             (
                 current["service_order_id"],
                 *scope_params,
