@@ -37,6 +37,15 @@ PASS_THROUGH_EXPENSE_FIELDS = {
     "baggage",     # 托运行李费
 }
 
+# v0.1.360：补贴类成本。这两类在工资里真实发放（employee_payment_components 的
+# meal_allowance / report_writing_fee），但以前利润表一行都不计 —— 利润被高估。
+# 它们不是合同费率项目（工单结算单没有对应行，客户不承担），因此收入恒为 0，
+# 只能挂在「补贴」分类下做纯成本行。
+SUBSIDY_ITEM_LABELS = {
+    "meal_allowance": "餐补",
+    "report_writing_fee": "复杂日报补贴",
+}
+
 
 def _money(value):
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -113,6 +122,62 @@ def _employee_cost_rate_type(item_type, worker):
     return item_type
 
 
+def _subsidy_line(report, worker, work_date, item_type, quantity, unit, rate):
+    """一条补贴成本行：客户不承担，收入恒 0，利润 = -成本。"""
+    amount = _money(quantity) * _money(rate)
+    return {
+        "work_date": work_date,
+        "service_order_id": report["service_order_id"],
+        "order_number": report["order_number"],
+        "client_name": report["client_name"],
+        "employee_id": worker["user_id"],
+        "employee_name": worker["worker_name"],
+        "category": "allowance",
+        "item_type": item_type,
+        "item_label": SUBSIDY_ITEM_LABELS.get(item_type, item_type),
+        "quantity": float(quantity),
+        "unit": unit,
+        "client_rate": 0.0,
+        "employee_rate": float(rate),
+        "revenue": 0.0,
+        "cost": float(amount),
+        "profit": -float(amount),
+        "client_rate_source": "not_client_billed",
+        "employee_rate_source": "employee_grade_subsidy",
+        "contract_rate_version_id": None,
+        "employee_rate_version_id": None,
+        "source_type": "service_report",
+        "source_id": report["id"],
+        "source_line_id": worker["id"],
+        "allocation_method": "direct",
+        "status": _line_status(report["order_status"], report["has_settlement"], report["has_invoice"]),
+        "incomplete": False,
+    }
+
+
+def _append_subsidy_lines(lines, report, worker, work_date, writing_fee, seen_meal_days):
+    """餐补 / 复杂日报补贴（v0.1.360）。
+
+    口径与工资引擎（invoice_tool/payroll/calculations.aggregate_payroll_rows）对齐：
+      - 餐补 = 出勤天数 × employee_grades.meal_daily_amount，同一员工同一工作日
+        只算一份（一个人一天可能有多张日报，必须去重）；
+      - 复杂日报补贴 = 该员工担任 report_writer_id 的日报份数 × 设置里的
+        payroll_report_writing_fee。
+
+    注意：随行补贴**不在这里** —— 它已经作为 travel_hours 的成本计入（travel_mode
+    = following 的交通工时 × travel_hours 费率），再补一次就是重复计成本。
+    """
+    meal_rate = _money(worker["meal_daily_amount"])
+    if meal_rate > 0:
+        key = (worker["user_id"], work_date)
+        if key not in seen_meal_days:
+            seen_meal_days.add(key)
+            lines.append(_subsidy_line(report, worker, work_date, "meal_allowance", 1.0, "day", meal_rate))
+    fee = _money(writing_fee)
+    if fee > 0 and report["report_writer_id"] and worker["user_id"] == report["report_writer_id"]:
+        lines.append(_subsidy_line(report, worker, work_date, "report_writing_fee", 1.0, "report", fee))
+
+
 def _line_status(order_status, has_settlement, has_invoice):
     """按工单维度判定利润行状态（业务规则，2026-09-17 用户确认）：
     - 工单已完成（closed）→ 客户已确认（甲方确认金额后我们才把工单改为已完成）
@@ -148,13 +213,20 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
         """,
         params,
     ).fetchall()
+    subsidy_settings = api.get("payroll_subsidy_settings")
+    writing_fee = 0.0
+    if subsidy_settings:
+        writing_fee = float((subsidy_settings() or {}).get("report_writing_fee") or 0)
+    seen_meal_days = set()
     lines = []
     for report in reports:
         workers = api["db"]().execute(
             """
-            select service_report_workers.*, users.name as worker_name
+            select service_report_workers.*, users.name as worker_name,
+                   coalesce(employee_grades.meal_daily_amount, 0) as meal_daily_amount
             from service_report_workers
             join users on users.id = service_report_workers.user_id
+            left join employee_grades on employee_grades.id = users.employee_grade_id
             where service_report_workers.report_id = ?
             order by users.name, users.id
             """,
@@ -216,6 +288,8 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
                     "status": _line_status(report["order_status"], report["has_settlement"], report["has_invoice"]),
                     "incomplete": missing,
                 })
+            # 补贴类成本（餐补 / 复杂日报补贴）与上面 6 类工时无关，独立成行。
+            _append_subsidy_lines(lines, report, worker, work_date, writing_fee, seen_meal_days)
     return lines
 
 

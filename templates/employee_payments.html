@@ -37,7 +37,9 @@
     <form method="get" class="erp-filter no-print" data-erp-filter>
       <label class="erp-field">状态 <select name="status"><option value="">全部</option>{% for value,label in status_labels.items() %}<option value="{{ value }}" {% if status==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
       {% if can_view_all %}<label class="erp-field">员工 <select name="employee_id"><option value="">全部</option>{% for employee in employees %}<option value="{{ employee.id }}" {% if employee_id|string==employee.id|string %}selected{% endif %}>{{ employee.name }}</option>{% endfor %}</select></label>{% endif %}
-      <p class="erp-filter-note">付款单由工资生成或报销审核自动创建；「进入待付款」及发放操作需管理员/财务权限。</p>
+      <label class="erp-field">创建日期 从 <input type="date" name="date_from" value="{{ date_from }}"></label>
+      <label class="erp-field">到 <input type="date" name="date_to" value="{{ date_to }}"></label>
+      <p class="erp-filter-note">付款单由工资生成或报销审核自动创建；「进入待付款」及发放操作需管理员/财务权限。日期按<b>付款单创建时间</b>过滤，与工资的服务期、报销的发生日期不是同一个口径。</p>
     </form>
 
     {% if can_view_all %}

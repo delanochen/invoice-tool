@@ -1253,6 +1253,15 @@ def statement_email_last_sent(api, batch_id):
         return None
 
 
+def _is_day(value):
+    """YYYY-MM-DD 校验（v0.1.360 付款单日期筛选）：非法输入直接忽略，不报错。"""
+    try:
+        date.fromisoformat(str(value or "")[:10])
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def register_employee_finance_routes(app, api):
     app.jinja_env.globals["employee_finance_summary"] = lambda employee_id: employee_finance_summary(api, employee_id)
 
@@ -1262,6 +1271,18 @@ def register_employee_finance_routes(app, api):
         _require(api, "employee_payments")
         status = request.args.get("status", "")
         employee_id = request.args.get("employee_id", "")
+        # v0.1.360：付款单此前只有状态 / 员工两个筛选，页脚「应付合计 / 实付合计」
+        # 因此是**全库累计**，拿它跟任何期间报表相减必然对不上。这里补上创建日期
+        # 区间（与列表「创建时间」列同口径）。注意付款单创建日期 ≠ 工资的
+        # service_date / 报销的 expense_date —— 想跟利润表对齐要看后者。
+        date_from = request.args.get("date_from", "").strip()
+        date_to = request.args.get("date_to", "").strip()
+        if date_from and not _is_day(date_from):
+            date_from = ""
+        if date_to and not _is_day(date_to):
+            date_to = ""
+        if date_from and date_to and date_to < date_from:
+            date_from, date_to = date_to, date_from
         clauses, params = ["1=1"], []
         can_view_all = _can_view_all_payments(api)
         if not can_view_all:
@@ -1269,6 +1290,10 @@ def register_employee_finance_routes(app, api):
             params.append(g.user["id"])
         if status in PAYMENT_STATUS_LABELS:
             clauses.append("p.status=?"); params.append(status)
+        if date_from:
+            clauses.append("date(p.created_at)>=?"); params.append(date_from)
+        if date_to:
+            clauses.append("date(p.created_at)<=?"); params.append(date_to)
         if can_view_all and employee_id.isdigit():
             clauses.append("p.employee_id=?"); params.append(int(employee_id))
         elif not can_view_all:
@@ -1289,6 +1314,7 @@ def register_employee_finance_routes(app, api):
         ).fetchall() if can_view_all else []
         return render_template("employee_payments.html", rows=rows, employees=employees, accounts=accounts,
                                advances=advances, agreements=agreements, status=status, employee_id=employee_id,
+                               date_from=date_from, date_to=date_to,
                                status_labels=PAYMENT_STATUS_LABELS, type_labels=PAYMENT_TYPE_LABELS,
                                method_labels=PAYMENT_METHOD_LABELS, can_view_all=can_view_all)
 
