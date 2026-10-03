@@ -500,7 +500,7 @@ ROLE_ACTION_PERMISSION_GROUPS = [
         "label": "财务与资产",
         "items": [
             {"key": "finance_overview", "label": "财务总览", "actions": {"view": {"admin", "manager", "finance"}}},
-            {"key": "employee_payments", "label": "员工付款单", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "approve": {"admin", "manager", "finance"}, "pay": {"admin", "finance"}, "reconcile": {"admin", "finance"}}},
+            {"key": "employee_payments", "label": "员工付款单", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "approve": {"admin", "manager", "finance"}, "pay": {"admin", "finance"}, "reconcile": {"admin", "finance"}, "email_statement": {"admin", "finance", "manager"}}},
             {"key": "employee_advances", "label": "员工借款", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "bank_accounts", "label": "银行账户", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
             {"key": "bank_transactions", "label": "银行流水", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},

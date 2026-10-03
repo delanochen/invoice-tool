@@ -288,15 +288,20 @@ class PaymentStatementEmailTest(unittest.TestCase):
             self.assertIn(b"Send Again", follow.data)
 
     # ------------------------------------------------------------------
-    # 3/4 manager / employee 403（且绝不触发 SMTP）
+    # 3 manager 可发送 / 4 employee 403（且绝不触发 SMTP）
     # ------------------------------------------------------------------
-    def test_manager_and_employee_cannot_send(self):
+    def test_manager_can_send_and_employee_cannot(self):
         batch_id = self._seed_issued()
-        for user_id in (self.manager_id, self.employee_id, self.other_id):
-            self.send_calls.clear()
-            self._login(user_id)
-            self.assertEqual(self._post(batch_id).status_code, 403, f"user {user_id}")
-            self.assertEqual(self.send_calls, [], f"user {user_id}")
+        # manager 默认有 email_statement 权限
+        self.send_calls.clear()
+        self._login(self.manager_id)
+        self.assertEqual(self._post(batch_id).status_code, 302)
+        self.assertEqual(len(self.send_calls), 1)
+        # employee 仍然 403
+        self.send_calls.clear()
+        self._login(self.employee_id)
+        self.assertEqual(self._post(batch_id).status_code, 403)
+        self.assertEqual(self.send_calls, [])
 
     # ------------------------------------------------------------------
     # 5 missing email：不调用 SMTP，页面有提示
@@ -579,11 +584,11 @@ class PaymentStatementEmailTest(unittest.TestCase):
         self.assertIn(b"Send Again", page.data)
 
     # ------------------------------------------------------------------
-    # 按钮：manager / employee 不显示（其他角色不显示 Send 按钮）
+    # 按钮：employee 不显示（manager 默认有权限可见）
     # ------------------------------------------------------------------
-    def test_send_button_hidden_for_non_admin_roles(self):
+    def test_send_button_hidden_for_employee(self):
         batch_id = self._seed_issued()
-        for user_id in (self.manager_id, self.employee_id):
+        for user_id in (self.employee_id,):
             self._login(user_id)
             page = self.http.get(f"/finance/payment-batches/{batch_id}/statement")
             self.assertNotIn(b"Email Payment Statement", page.data, f"user {user_id}")

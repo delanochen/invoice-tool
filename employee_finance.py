@@ -1161,8 +1161,8 @@ STATEMENT_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 
 def statement_email_can_send(api):
-    """Email Statement 只允许 admin / finance（manager / employee 绝不允许）。"""
-    return api["normalized_role"]() in {"admin", "finance"}
+    """Email Statement 发送权限由权限管理配置（employee_payments.email_statement）。"""
+    return api["has_action_permission"]("employee_payments", "email_statement")
 
 
 def send_payment_statement_email(api, batch_id):
