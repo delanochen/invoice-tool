@@ -59,7 +59,7 @@
            「应付 / 借款抵扣 / 其他调整 / 实付」不在名单里，必须用 data-grid-money 显式声明；
            ② 可分组维度也要命中白名单（员工 / 类型 / 状态 / 创建时间）。 #}
         <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
-          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th data-grid-money>应付</th><th data-grid-money>借款抵扣</th><th data-grid-money>其他调整</th><th data-grid-money>实付</th><th>状态</th><th>创建时间</th></tr></thead>
+          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th data-grid-money>应付</th><th data-grid-money>借款抵扣</th><th data-grid-money>其他调整</th><th data-grid-money>实付</th><th>状态</th><th>来源编号</th><th>创建时间</th></tr></thead>
           <tbody>{% for row in rows %}<tr>
             <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td>
             <td>{{ row.employee_name }}</td>
@@ -69,8 +69,9 @@
             <td>{{ row.other_adjustment|money }}</td>
             <td><strong>{{ row.net_amount|money }}</strong></td>
             <td><span class="status {{ row.status }}">{{ status_labels[row.status] }}</span></td>
+            <td>{{ row.source_number or '—' }}</td>
             <td>{{ row.created_at|local_datetime }}</td>
-          </tr>{% else %}<tr><td colspan="9" class="empty">暂无付款单。</td></tr>{% endfor %}</tbody>
+          </tr>{% else %}<tr><td colspan="10" class="empty">暂无付款单。</td></tr>{% endfor %}</tbody>
         </table>
       </div>
     </section>
