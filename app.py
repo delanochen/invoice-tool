@@ -2151,15 +2151,24 @@ app.jinja_env.globals["contract_status_labels"] = CONTRACT_STATUS_LABELS
 
 
 def next_invoice_number():
+    # 新单据统一规则：IN-YYMM-4位流水（与 SL/ER/EA/AS 同构）。
+    # 历史发票号为 PP-YYMM-随机6位，存量不动；新号只统计 IN- 前缀同月份的最大流水。
     lock_number_allocation(db())
-    prefix = f"PP-{date.today():%y%m}"
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    for _ in range(30):
-        code = "".join(secrets.choice(alphabet) for _ in range(6))
-        invoice_number = f"{prefix}-{code}"
-        if not db().execute("select id from invoices where invoice_number = ?", (invoice_number,)).fetchone():
-            return invoice_number
-    raise RuntimeError("Unable to generate a unique invoice number.")
+    stamp = date.today().strftime("%y%m")
+    root = f"IN-{stamp}-"
+    rows = db().execute(
+        "select invoice_number from invoices where invoice_number like ?",
+        (root + "%",),
+    ).fetchall()
+    sequence = 1
+    for row in rows:
+        try:
+            value = int(str(row["invoice_number"]).rsplit("-", 1)[1])
+        except (ValueError, IndexError):
+            continue
+        if value >= sequence:
+            sequence = value + 1
+    return f"{root}{sequence:04d}"
 
 
 def next_contract_number():
@@ -2314,6 +2323,7 @@ def next_service_order_number():
 def next_expense_number():
     lock_number_allocation(db())
     prefix = f"EX{date.today():%y%m}"
+    # 现存最大号；删除报销会让它下降，不能单独作为下一号依据，否则被删的号会被复用。
     row = db().execute(
         """
         select expense_number from expenses
@@ -2322,13 +2332,25 @@ def next_expense_number():
         """,
         (f"{prefix}%",),
     ).fetchone()
-    if not row:
-        return f"{prefix}001"
-    suffix = row["expense_number"][len(prefix):]
-    try:
-        return f"{prefix}{int(suffix) + 1:03d}"
-    except ValueError:
-        return f"{prefix}{secrets.randbelow(900) + 100}"
+    current_max = 0
+    if row:
+        try:
+            current_max = int(row["expense_number"][len(prefix):])
+        except (TypeError, ValueError):
+            current_max = 0
+    # 持久化水位：只增不减。已发过的号（包括已被删除报销曾经占用的号）
+    # 永远不再分配给新报销，避免历史号段撞单。
+    hw_key = f"expense_high_water_{prefix}"
+    high_water = setting_int(hw_key, 0)
+    n = max(current_max, high_water) + 1
+    # 防御：理论上不会撞号，历史数据/并发下跳过任何已占用号。
+    while db().execute(
+        "select id from expenses where expense_number = ?",
+        (f"{prefix}{n:03d}",),
+    ).fetchone():
+        n += 1
+    set_setting(hw_key, str(n))
+    return f"{prefix}{n:03d}"
 
 
 def invoice_number_exists(invoice_number, exclude_invoice_id=None):
@@ -15235,8 +15257,49 @@ def delete_expense(expense_id):
             flash("只有保存未提交或被退回的报销可以删除。", "error")
             return redirect(url_for("expense_detail", expense_id=expense_id))
         abort(403)
+    # 上游报销删除前，先看它是否已生成员工付款单。已发放/已对账的付款单是
+    # 财务凭证，绝不随报销单删除（先在付款中心作废/冲销）；未付款的付款单
+    # 则随报销单一并清理，避免在员工付款中心留下指向已删报销的孤儿单。
+    payment = db().execute(
+        "select id,payment_number,status from employee_payment_orders where source_key=?",
+        (f"expense:{expense_id}",),
+    ).fetchone()
+    if payment and payment["status"] in {"paid", "reconciled"}:
+        flash(
+            f"该报销已关联已发放的付款单 {payment['payment_number']}，不能删除。"
+            "请先在员工付款中心作废/冲销该付款单。",
+            "error",
+        )
+        return redirect(url_for("expense_detail", expense_id=expense_id))
     shutil.rmtree(expense_attachment_dir(expense_id), ignore_errors=True)
     try:
+        if payment:
+            # 未付款单：复用取消逻辑（自动冲销借款抵扣），再连同子表彻底删除。
+            cancel_expense_payment_order(globals(), expense_id)
+            component_ids = [
+                row["id"] for row in db().execute(
+                    "select id from employee_payment_components where payment_order_id=?",
+                    (payment["id"],),
+                ).fetchall()
+            ]
+            if component_ids:
+                marks = ",".join("?" for _ in component_ids)
+                try:
+                    db().execute(
+                        f"delete from payroll_component_correction_allocations where component_id in ({marks})",
+                        component_ids,
+                    )
+                except Exception:
+                    # 新建/旧库可能尚未建纠偏分配表；未付款的报销 ER 也不可能进入
+                    # 工资纠偏循环，此处缺表不影响主流程。
+                    app.logger.exception("清理付款单 %s 的纠偏分配记录时跳过（表可能不存在）", payment["id"])
+            db().execute("delete from employee_advance_applications where payment_order_id=?", (payment["id"],))
+            db().execute("delete from employee_payment_components where payment_order_id=?", (payment["id"],))
+            db().execute("delete from payment_order_events where payment_order_id=?", (payment["id"],))
+            db().execute("delete from payment_order_sources where payment_order_id=?", (payment["id"],))
+            db().execute("delete from employee_payment_orders where id=?", (payment["id"],))
+            log_action("delete", "employee_payment", payment["id"], payment["payment_number"],
+                       f"关联报销单 {expense['expense_number']} 已删除，未付款付款单一并清理")
         # 依赖行逐个显式删除，不依赖外键级联；漏掉任何一张（尤其
         # 「重复报销检查」里被别人 matched_expense_id
         # 指到这条报销的记录）就会在 delete 时抛外键错误，用户只看到 500。

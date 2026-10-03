@@ -36,11 +36,15 @@ class WorkspaceTest(unittest.TestCase):
         css = (Path(__file__).resolve().parent / 'static' / 'workspace.css').read_text(encoding='utf-8')
 
         self.assertIn('function pageLoadFailed(tab)', js)
-        self.assertIn('setTimeout(() => retryLoad(tab, true), 1200)', js)
+        self.assertIn('const AUTO_RETRY_DELAYS = [1200, 3000, 7000]', js)
+        self.assertIn('const LOAD_TIMEOUT = 15000', js)
+        self.assertIn('setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT)', js)
         self.assertIn('页面加载失败', js)
         self.assertIn('Cloudflare 隧道短暂中断', js)
         self.assertIn('data-workspace-retry', js)
         self.assertIn("frame.addEventListener('error'", js)
+        self.assertIn("window.addEventListener('online', retryFailedTabs)", js)
+        self.assertIn("document.addEventListener('visibilitychange'", js)
         self.assertIn('.workspace-load-failure[hidden]', css)
 
 

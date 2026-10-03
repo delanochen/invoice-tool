@@ -31,7 +31,7 @@ class ExpenseDeleteDependenciesTest(unittest.TestCase):
         with self.m.app.app_context():
             db = self.m.db()
             self.people = {}
-            for name, role in [("Submitter", "employee"), ("Manager", "manager")]:
+            for name, role in [("Submitter", "employee"), ("Manager", "manager"), ("Admin", "admin")]:
                 self.people[name] = db.execute(
                     "insert into users (name,email,password_hash,role,is_active,created_at) values (?,?,?,?,1,?)",
                     (name, name.lower() + "@test.invalid", "unused", role, self.m.now()),
@@ -100,6 +100,31 @@ class ExpenseDeleteDependenciesTest(unittest.TestCase):
             )
             db.commit()
 
+    def create_payment(self, expense_id, status="cancelled"):
+        """造一张与该报销关联的员工付款单（source_key = expense:<id>）。"""
+        with self.m.app.app_context():
+            db = self.m.db()
+            pid = db.execute(
+                """insert into employee_payment_orders
+                   (payment_number,employee_id,payment_type,status,currency,gross_amount,
+                    advance_offset,other_adjustment,net_amount,description,source_type,
+                    source_id,source_number,source_key,created_at,updated_at)
+                   values (?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?)""",
+                (f"ER-DEL-{self.counter}", self.people["Submitter"], "expense", status, "USD",
+                 10, 10, f"报销单 EX-DEL-{self.counter}", "expense", expense_id,
+                 f"EX-DEL-{self.counter}", f"expense:{expense_id}", self.m.now(), self.m.now()),
+            ).lastrowid
+            db.execute(
+                "insert into payment_order_sources (payment_order_id,source_type,source_id,source_number,amount,created_at) values (?, 'expense', ?, ?, 10, ?)",
+                (pid, expense_id, f"EX-DEL-{self.counter}", self.m.now()),
+            )
+            db.execute(
+                "insert into payment_order_events (payment_order_id,event_type,from_status,to_status,details,created_at,created_by) values (?, 'cancel','approved','cancelled','test',?,?)",
+                (pid, self.m.now(), self.people["Submitter"]),
+            )
+            db.commit()
+        return pid
+
     def flashes(self):
         with self.http.session_transaction() as session:
             return [text for _, text in session.get("_flashes", [])]
@@ -153,6 +178,39 @@ class ExpenseDeleteDependenciesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(any("删除报销失败" in text for text in self.flashes()), self.flashes())
         self.assertNotEqual(self.rows("select id from expenses where id = ?", (expense_id,)), [])
+
+    def test_delete_cascades_unpaid_payment_order(self):
+        """上游报销删除时，未付款/已取消的员工付款单及其子表一并清理。"""
+        expense_id = self.create_expense(status="returned")
+        pid = self.create_payment(expense_id, status="cancelled")
+
+        response = self.http.post(f"/expenses/{expense_id}/delete")
+        self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(self.rows("select id from expenses where id = ?", (expense_id,)), [])
+        self.assertEqual(
+            self.rows("select id from employee_payment_orders where id = ?", (pid,)), []
+        )
+        self.assertEqual(
+            self.rows("select id from payment_order_sources where payment_order_id = ?", (pid,)), []
+        )
+        self.assertEqual(
+            self.rows("select id from payment_order_events where payment_order_id = ?", (pid,)), []
+        )
+
+    def test_delete_blocked_when_payment_order_paid(self):
+        """已发放/已对账的付款单是财务凭证，报销单不允许被删除。"""
+        expense_id = self.create_expense(status="approved")
+        pid = self.create_payment(expense_id, status="paid")
+        self.login("Admin")  # 只有 admin 能删 approved 报销，以此触达付款单守卫
+
+        response = self.http.post(f"/expenses/{expense_id}/delete")
+        self.assertEqual(response.status_code, 302)
+
+        # 报销单仍在，付款单也原样保留
+        self.assertNotEqual(self.rows("select id from expenses where id = ?", (expense_id,)), [])
+        self.assertNotEqual(self.rows("select id from employee_payment_orders where id = ?", (pid,)), [])
+        self.assertTrue(any("已发放" in text for text in self.flashes()), self.flashes())
 
     def test_attachment_delete_clears_duplicate_checks(self):
         expense_id = self.create_expense()
