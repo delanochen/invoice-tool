@@ -52,8 +52,14 @@
 
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid" data-grid-height="100%">
-          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th>应付</th><th>借款抵扣</th><th>其他调整</th><th>实付</th><th>状态</th><th>创建时间</th></tr></thead>
+        {# data-grid-calcs="bottom"：小计 / 合计只留在表尾一行（ERP 紧凑观感）；
+           默认 both 会在表头上方再压一行黄底合计，与页面底部汇总栏重复。
+           分组 / 二级分组 + 分组小计由 system-grid.js 的表格工具栏提供（两个下拉 + 展开/折叠）。
+           前提：① 表里有金额列才有小计 / 合计，分组入口才出现 —— 金额列默认按列名白名单识别，
+           「应付 / 借款抵扣 / 其他调整 / 实付」不在名单里，必须用 data-grid-money 显式声明；
+           ② 可分组维度也要命中白名单（员工 / 类型 / 状态 / 创建时间）。 #}
+        <table class="list-table erp-grid" data-grid-height="100%" data-grid-calcs="bottom">
+          <thead><tr><th>付款单</th><th>员工</th><th>类型</th><th data-grid-money>应付</th><th data-grid-money>借款抵扣</th><th data-grid-money>其他调整</th><th data-grid-money>实付</th><th>状态</th><th>创建时间</th></tr></thead>
           <tbody>{% for row in rows %}<tr>
             <td><a href="{{ url_for('employee_payment_detail',payment_id=row.id) }}">{{ row.payment_number }}</a></td>
             <td>{{ row.employee_name }}</td>

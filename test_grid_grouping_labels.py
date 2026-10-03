@@ -75,6 +75,20 @@ class GridMoneyOptInTest(unittest.TestCase):
         for label in ["员工", "类型", "状态"]:
             self.assertNotIn(f'<th data-grid-money>{label}</th>', html)
 
+    def test_employee_payments_declares_money_columns(self):
+        """v0.1.359：员工付款中心的付款单表要和员工往来账一样能按员工 / 类型分组小计。
+
+        该表列名是「应付 / 借款抵扣 / 其他调整 / 实付」，全部不在 monetary 白名单里，
+        不声明 data-grid-money 就整张表没有分组入口 / 小计行（实测 selects=0）。
+        """
+        html = (self.root / "templates" / "employee_payments.html").read_text(encoding="utf-8")
+        for label in ["应付", "借款抵扣", "其他调整", "实付"]:
+            self.assertIn(f'<th data-grid-money>{label}</th>', html, f"{label} 必须声明为金额列")
+        for label in ["员工", "类型", "状态", "创建时间"]:
+            self.assertNotIn(f'<th data-grid-money>{label}</th>', html)
+        # 合计行只留表尾一行；默认 both 会在表头上方再压一行黄底合计，与底部汇总栏重复
+        self.assertIn('data-grid-calcs="bottom"', html)
+
 
 class DialogBackdropFixTest(unittest.TestCase):
     """v0.1.247: 编辑用户等弹窗不得因点击内部留白而关闭（仅真正点遮罩才关）。"""
