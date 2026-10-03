@@ -4,11 +4,11 @@
   background: #fff;
 }
 .service-orders-grid .tabulator-row.closed-paid,
-.service-orders-grid .tabulator-row.closed-paid:hover { background: #f2f4f7; }
+.service-orders-grid .tabulator-row.closed-paid:hover { background: #f2f4f7 !important; }
 .service-orders-grid .tabulator-row.closed-invoiced,
-.service-orders-grid .tabulator-row.closed-invoiced:hover { background: #fff1f0; }
+.service-orders-grid .tabulator-row.closed-invoiced:hover { background: #fff1f0 !important; }
 .service-orders-grid .tabulator-row.open-invoiced,
-.service-orders-grid .tabulator-row.open-invoiced:hover { background: #ecfdf3; }
+.service-orders-grid .tabulator-row.open-invoiced:hover { background: #ecfdf3 !important; }
 @media print{.system-grid{display:none!important}.grid-source{display:table!important}}@media(max-width:650px){.grid-tools{gap:5px}.grid-tools input[type=search]{width:120px}.system-grid .tabulator{font-size:12px}}
 .system-grid .tabulator .tabulator-placeholder span{font-size:13px;font-weight:400;color:#70858e}.system-grid .grid-parent-calc{background:#fff0bb!important;font-weight:700}.system-grid .grid-parent-calc .tabulator-cell{height:auto;min-height:32px}.system-grid .tabulator-col-title{font-size:13px}@media(max-width:899px){.field-ledger-grid{display:none}}
 .system-grid .tabulator-group .grid-group-toggle{font:inherit;color:inherit;background:transparent;border:0;padding:2px 4px;min-height:24px;line-height:1.4}
