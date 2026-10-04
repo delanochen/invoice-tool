@@ -47,18 +47,26 @@
       {% if invoice.paid_at and g.user.role in ["admin", "manager"] %}
         <form method="post" action="{{ url_for('unmark_invoice_paid', invoice_id=invoice.id) }}" onsubmit="return confirm('确定取消这张发票的核销记录吗？');"><button type="submit">取消核销</button></form>
       {% endif %}
-      {% if g.user.role == "admin" and not invoice.paid_at and invoice.status != "draft" %}
+      {% if g.user.role == "admin" and not invoice.paid_at and invoice.status != "draft" and not has_accounting_voucher %}
         <button type="button" onclick="document.querySelector('#adminStatusDialog').showModal()">管理员改状态</button>
+      {% endif %}
+      {% if has_accounting_voucher and invoice.status == "completed" and not invoice.paid_at and has_action_permission("accounting_corrections", "create") %}
+        <a class="button" href="{{ url_for('accounting_invoice_correct', invoice_id=invoice.id) }}">会计更正</a>
       {% endif %}
       {% if invoice.status == "draft" and (invoice.created_by == g.user.id or g.user.role in ["admin", "manager"]) %}
         <button class="primary" type="button" onclick="window.location.href='{{ url_for('edit_invoice', invoice_id=invoice.id) }}'">编辑</button>
       {% endif %}
-      {% if invoice.status not in ["void", "completed"] %}
-        <form method="post" action="{{ url_for('void_invoice', invoice_id=invoice.id) }}"><button class="danger" type="submit">作废</button></form>
+      {% if invoice.status not in ["void", "completed"] or (accounting_enabled and invoice.status == "completed") %}
+        <form method="post" action="{{ url_for('void_invoice', invoice_id=invoice.id) }}">
+          {% if accounting_enabled and invoice.status == "completed" %}
+            <input name="reason_code" required placeholder="作废原因" aria-label="作废原因">
+          {% endif %}
+          <button class="danger" type="submit">作废</button>
+        </form>
       {% endif %}
       {# v0.1.239: 删除按钮完全由菜单权限「发票-删除」决定（默认财务/经理/管理员），
          不再按角色写死；无权限时后端也会拦截。 #}
-      {% if has_action_permission("invoices", "delete") %}
+      {% if has_action_permission("invoices", "delete") and not has_accounting_voucher %}
         <form method="post" action="{{ url_for('delete_invoice', invoice_id=invoice.id) }}" onsubmit="return confirm('确定删除这张发票吗？');"><button class="danger" type="submit">删除</button></form>
       {% endif %}
     </div>

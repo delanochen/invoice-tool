@@ -239,6 +239,9 @@ def build_payroll_correction_services(api):
             after  = 排除 superseded / correction_pending / partially_superseded 之后
         要求 after == canonical 重算结果，绝不允许「旧应付 + 新应付」双份存在。
         """
+        # 员工往来账默认展示全部员工，此时调用方不带任何筛选条件。
+        # 将 None 归一化为空字典，避免页面首次打开时在 filters.get() 处报错。
+        filters = filters or {}
         # 由 SQL 侧的 CASE WHEN 换成 Python 侧聚合：美元赔付的计算不需要在 SQL 里重复
         # 四次占位符（每重复一次就多一份参数），累积 bijection 出错的机会。
         clauses = ["1 = 1"]

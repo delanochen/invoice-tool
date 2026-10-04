@@ -87,7 +87,7 @@
       {% if can_edit %}
         <button type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_expense_review', order_id=order.id) }}'">选择报销来源</button>
         <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
-        <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit"{% if pending_sources.pending %} data-confirm-pending="有报销仍在待审核状态，确认忽略并提交经理审核吗？"{% endif %}>提交经理审核</button>
+        <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit">提交经理审核</button>
       {% endif %}
       {# v0.1.239: 删除工单结算由菜单权限「工单结算-删除」控制（默认财务/经理/管理员）。 #}
       {% if has_action_permission("customer_reimbursements", "delete") and reimbursement.status in ["draft", "returned"] %}
@@ -158,7 +158,7 @@
     {% endif %}
     {% if pending_sources.pending %}
     <div class="flash">
-      有 <strong>{{ pending_sources.pending|length }}</strong> 笔报销仍在待审核状态（合计 {{ pending_sources.pending_total|money }}）。提交经理审核时会再次确认是否忽略。
+      有 <strong>{{ pending_sources.pending|length }}</strong> 笔报销仍在待审核状态（合计 {{ pending_sources.pending_total|money }}）。必须先完成报销审核，才能提交工单结算审核。
     </div>
     {% endif %}
     {% if pending_sources.returned %}

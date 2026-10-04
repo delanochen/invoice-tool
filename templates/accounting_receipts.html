@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}客户收款{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>客户收款与预收</h1><p class="muted">收款可分配至已确认发票；未分配余额必须说明原因并进入预收负债。</p></div></div>
+{% if can_edit %}<section class="card"><h2>登记收款</h2><form method="post" class="form-grid">
+  <label>收款编号<input name="receipt_no" required placeholder="例如 RCT-2026-001"></label>
+  <label>收款日期<input type="date" name="receipt_date" value="{{ today }}" required></label>
+  <label>客户<select name="customer_id" required><option value="">请选择</option>{% for row in customers %}<option value="{{ row.id }}">{{ row.name }}</option>{% endfor %}</select></label>
+  <label>银行账户<select name="bank_account_id" required><option value="">请选择</option>{% for row in banks %}<option value="{{ row.id }}">{{ row.account_name }}</option>{% endfor %}</select></label>
+  <label>收款金额<input type="number" min="0.01" step="0.01" name="amount" required></label>
+  <label>分配发票（可选）<select name="invoice_id"><option value="">不分配，转预收</option>{% for row in invoices %}<option value="{{ row.id }}">{{ row.invoice_number }} · ${{ '%.2f'|format(row.total) }}</option>{% endfor %}</select></label>
+  <label>分配金额<input type="number" min="0.01" step="0.01" name="allocation_amount"></label>
+  <label>预收原因<input name="prepayment_reason" placeholder="存在未分配余额时必填"></label>
+  <div class="form-actions"><button class="primary" type="submit">登记并过账</button></div>
+</form></section>{% endif %}
+<section class="card table-card"><h2>收款记录</h2><div class="table-wrap"><table><thead><tr><th>编号</th><th>日期</th><th>客户</th><th>银行</th><th>收款</th><th>已分配</th><th>未分配/预收</th><th>凭证</th><th></th></tr></thead><tbody>
+{% for row in rows %}{% set unallocated = row.amount - row.allocated_amount %}<tr><td><strong>{{ row.receipt_no }}</strong></td><td>{{ row.receipt_date }}</td><td>{{ row.customer_name }}</td><td>{{ row.account_name }}</td><td class="money">{{ '%.2f'|format(row.amount) }}</td><td class="money">{{ '%.2f'|format(row.allocated_amount) }}</td><td class="money">{{ '%.2f'|format(unallocated) }}</td><td>{% if row.voucher_id %}<a href="{{ url_for('accounting_voucher_detail', voucher_id=row.voucher_id) }}">{{ row.voucher_number }}</a>{% else %}—{% endif %}</td><td>{% if can_edit and row.prepayment_id and row.prepayment_status == 'open' %}<a class="button" href="{{ url_for('accounting_prepayment_apply', prepayment_id=row.prepayment_id) }}">应用预收</a>{% endif %}</td></tr>{% else %}<tr><td colspan="9" class="empty">暂无客户收款</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

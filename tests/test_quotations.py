@@ -205,6 +205,15 @@ class TestQuotations(unittest.TestCase):
         by_key = {line["key"]: line for line in lines}
         self.assertEqual(by_key["regular_labor"]["amount"], "4800.00")
         self.assertEqual(by_key["mileage"]["amount"], "435.50")
+        with _db() as db:
+            revisions = db.execute(
+                "select * from quotation_revisions where quotation_id = ? order by revision_no",
+                (row["id"],),
+            ).fetchall()
+        self.assertEqual(row["current_revision_no"], 1)
+        self.assertEqual(len(revisions), 1)
+        self.assertEqual(revisions[0]["revision_no"], 1)
+        self.assertEqual(float(revisions[0]["total"]), 5235.50)
 
     def test_quotation_detail_page_renders(self):
         self._login_admin()
@@ -232,6 +241,15 @@ class TestQuotations(unittest.TestCase):
         self.assertEqual(updated["customer"], "Sunfield Solar LLC (updated)")
         # subtotal 增加 1440 → 6675.50
         self.assertEqual(float(updated["subtotal"]), 6675.50)
+        with _db() as db:
+            revisions = db.execute(
+                "select * from quotation_revisions where quotation_id = ? order by revision_no",
+                (row["id"],),
+            ).fetchall()
+        self.assertEqual(updated["current_revision_no"], 2)
+        self.assertEqual([item["revision_no"] for item in revisions], [1, 2])
+        self.assertEqual(float(revisions[0]["total"]), 5235.50)
+        self.assertEqual(float(revisions[1]["total"]), 6675.50)
 
     def test_fixed_price_quotation_stores_total_only(self):
         self._login_admin()
@@ -354,6 +372,7 @@ class TestQuotations(unittest.TestCase):
                 "select service_orders.* from service_orders order by id desc limit 1"
             ).fetchone()
         self.assertEqual(order["quotation_id"], row["id"])
+        self.assertEqual(order["settlement_basis"], "quotation")
         # 详情页展示报价单链接
         detail = self.client.get(f"/service-orders/{order['id']}")
         self.assertEqual(detail.status_code, 200)

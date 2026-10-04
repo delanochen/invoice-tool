@@ -259,6 +259,15 @@ class PayrollCycleCorrectionTest(unittest.TestCase):
     # ------------------------------------------------------------------
     # 0. migration
     # ------------------------------------------------------------------
+    def test_payable_totals_accepts_no_filters_for_employee_ledger(self):
+        """往来账默认的“全部员工”视图必须能直接取得统一应付汇总。"""
+        totals = self._payable()
+        self.assertEqual(totals["payable_count"], 0)
+        self.assertEqual(str(totals["effective_net"]), "0.00")
+        response = self.http.get("/finance/employee-ledger")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("员工往来账", response.get_data(as_text=True))
+
     def test_migration_is_additive_and_idempotent(self):
         with tests_pg.connection() as conn:
             names = {row[0] for row in conn.execute(

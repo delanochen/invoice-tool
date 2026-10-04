@@ -282,41 +282,39 @@ class PaymentBatchPayoutTest(unittest.TestCase):
         self._post("create_payment_batch", self._payable())
         return self.batches()[0]
 
-    def test_void_returns_orders_to_pending_payment(self):
+    def test_issued_batch_with_paid_members_cannot_be_voided(self):
         batch = self._create_batch()
         self._post("void_payment_batch", {"reason": "支票填错"}, batch_id=batch["id"])
         batch_after = self.batches()[0]
-        self.assertEqual(batch_after["status"], "void")
+        self.assertEqual(batch_after["status"], "issued")
         for order_id in (1, 2):
             order = self.order(order_id)
-            self.assertEqual(order["status"], "pending_payment")
-            self.assertIsNone(order["paid_at"])
-            self.assertIsNone(order["payment_method"])
-        self.assertEqual(self.expense()["payout_status"], "pending")
+            self.assertEqual(order["status"], "paid")
+            self.assertIsNotNone(order["paid_at"])
+            self.assertEqual(order["payment_method"], "check")
+        self.assertEqual(self.expense()["payout_status"], "paid")
         kinds = [event["event_type"] for event in self.events(2)]
-        self.assertIn("void", kinds)
+        self.assertNotIn("void", kinds)
 
-    def test_voided_batch_can_be_re_issued(self):
-        """作废后重新合并发放：不能因为「已属于其它批次」被卡住。"""
+    def test_paid_batch_cannot_be_reissued_through_void(self):
         batch = self._create_batch()
         self._post("void_payment_batch", {"reason": "重开"}, batch_id=batch["id"])
         self._post("create_payment_batch", self._payable(check_number="1002"))
-        self.assertEqual(len(self.batches()), 2)
+        self.assertEqual(len(self.batches()), 1)
         self.assertEqual(self.order(1)["status"], "paid")
-        self.assertEqual(self.order(1)["batch_id"], self.batches()[1]["id"])
+        self.assertEqual(self.order(1)["batch_id"], batch["id"])
 
     def test_void_requires_reason(self):
         batch = self._create_batch()
         self._post("void_payment_batch", {"reason": "  "}, batch_id=batch["id"])
         self.assertEqual(self.batches()[0]["status"], "issued")
 
-    def test_void_twice_is_rejected(self):
+    def test_repeated_void_attempts_do_not_change_paid_fact(self):
         batch = self._create_batch()
         self._post("void_payment_batch", {"reason": "第一次"}, batch_id=batch["id"])
         self._post("void_payment_batch", {"reason": "第二次"}, batch_id=batch["id"])
-        self.assertEqual(self.batches()[0]["status"], "void")
-        # 第二次不该再动付款单
-        self.assertEqual(self.order(1)["status"], "pending_payment")
+        self.assertEqual(self.batches()[0]["status"], "issued")
+        self.assertEqual(self.order(1)["status"], "paid")
 
     # ────────────────────────────── 批次级对账 ──────────────────────────────
     def test_batch_reconciliation_matches_one_transaction(self):
@@ -342,6 +340,85 @@ class PaymentBatchPayoutTest(unittest.TestCase):
         self._post("bank_reconciliation", {"transaction_id": "1", "batch_id": str(batch["id"])})
         self._post("void_payment_batch", {"reason": "反悔"}, batch_id=batch["id"])
         self.assertEqual(self.batches()[0]["status"], "reconciled")
+
+    def test_unmatch_preserves_paid_fact_and_creates_no_voucher(self):
+        batch = self._create_batch()
+        self._post("bank_reconciliation", {"transaction_id": "1", "batch_id": str(batch["id"])})
+        before_vouchers = len(_rows("select id from vouchers"))
+        self._post("bank_reconciliation_unmatch", {}, transaction_id=1)
+        tx = _rows("select * from bank_transactions where id=1")[0]
+        self.assertIsNone(tx["matched_batch_id"])
+        self.assertIsNone(tx["matched_payment_order_id"])
+        self.assertEqual(tx["sync_status"], "imported")
+        self.assertEqual(self.batches()[0]["status"], "issued")
+        for order_id in (1, 2):
+            order = self.order(order_id)
+            self.assertEqual(order["status"], "paid")
+            self.assertIsNotNone(order["paid_at"])
+            self.assertIn("unmatch", [event["event_type"] for event in self.events(order_id)])
+        self.assertEqual(len(_rows("select id from vouchers")), before_vouchers)
+
+    def test_unmatched_paid_batch_still_cannot_be_voided(self):
+        batch = self._create_batch()
+        self._post("bank_reconciliation", {"transaction_id": "1", "batch_id": str(batch["id"])})
+        self._post("bank_reconciliation_unmatch", {}, transaction_id=1)
+        self._post("void_payment_batch", {"reason": "解除匹配后尝试作废"}, batch_id=batch["id"])
+        self.assertEqual(self.batches()[0]["status"], "issued")
+        self.assertEqual(self.order(1)["status"], "paid")
+
+    def test_enabled_accounting_records_unmatch_as_non_gl_event(self):
+        batch = self._create_batch()
+        self._post("bank_reconciliation", {"transaction_id": "1", "batch_id": str(batch["id"])})
+        with tests_pg.connection() as conn:
+            conn.execute(
+                "insert into settings(key,value) values('accounting_base_enabled','1') "
+                "on conflict(key) do update set value='1'"
+            )
+        self._post("bank_reconciliation_unmatch", {}, transaction_id=1)
+        events = _rows("select * from posting_events where event_type='bank.unmatched'")
+        self.assertEqual(len(events), 1)
+        self.assertFalse(events[0]["requires_gl"])
+        self.assertIsNone(events[0]["voucher_id"])
+        self.assertEqual(len(_rows("select id from vouchers")), 0)
+        self.assertEqual(len(_rows("select id from posting_audit where action='recorded'")), 1)
+
+    def test_enabled_accounting_records_match_and_unmatch_without_gl(self):
+        with tests_pg.connection() as conn:
+            conn.execute(
+                "insert into settings(key,value) values('accounting_base_enabled','1') "
+                "on conflict(key) do update set value='1'"
+            )
+        batch = self._create_batch()
+        self._post("bank_reconciliation", {"transaction_id": "1", "batch_id": str(batch["id"])})
+        self._post("bank_reconciliation_unmatch", {}, transaction_id=1)
+        events = _rows("select event_type,requires_gl,voucher_id from posting_events order by id")
+        self.assertEqual([event["event_type"] for event in events],
+                         ["bank.matched", "bank.unmatched"])
+        self.assertTrue(all(not event["requires_gl"] for event in events))
+        self.assertTrue(all(event["voucher_id"] is None for event in events))
+        self.assertEqual(len(_rows("select id from vouchers")), 0)
+        self.assertEqual(len(_rows("select id from posting_audit where action='recorded'")), 2)
+
+    def test_single_payment_unmatch_returns_to_paid_without_clearing_paid_at(self):
+        with tests_pg.connection() as conn:
+            conn.execute(
+                "update employee_payment_orders set status='reconciled',bank_account_id=1,"
+                "payment_method='check',paid_by=1,paid_at=%s,reconciled_by=1,reconciled_at=%s "
+                "where id=1", (NOW, NOW),
+            )
+            conn.execute(
+                "update bank_transactions set matched_payment_order_id=1,matched_by=1,"
+                "matched_at=%s,sync_status='matched' where id=1", (NOW,),
+            )
+        self._post("bank_reconciliation_unmatch", {}, transaction_id=1)
+        tx = _rows("select * from bank_transactions where id=1")[0]
+        order = self.order(1)
+        self.assertIsNone(tx["matched_payment_order_id"])
+        self.assertEqual(tx["sync_status"], "imported")
+        self.assertEqual(order["status"], "paid")
+        self.assertEqual(order["paid_at"], NOW)
+        self.assertEqual(order["payment_method"], "check")
+        self.assertIn("unmatch", [event["event_type"] for event in self.events(1)])
 
 
 class PaymentBatchPageRenderTest(unittest.TestCase):

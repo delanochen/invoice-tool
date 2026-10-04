@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}应用预收款{% endblock %}
+{% block content %}
+<div class="page-header"><div><a href="{{ url_for('accounting_receipts') }}">← 返回客户收款</a><h1>应用预收款</h1><p class="muted">{{ prepayment.customer_name }} · 收款 {{ prepayment.receipt_no }}</p></div></div>
+<section class="card"><div class="detail-grid"><div><span class="muted">原始预收</span><strong>${{ '%.2f'|format(prepayment.original_amount) }}</strong></div><div><span class="muted">剩余可用</span><strong>${{ '%.2f'|format(remaining) }}</strong></div><div><span class="muted">原因</span><strong>{{ prepayment.reason_code }}</strong></div></div></section>
+<section class="card"><form method="post" class="form-grid"><label>目标发票<select name="invoice_id" required><option value="">请选择</option>{% for row in invoices %}<option value="{{ row.id }}">{{ row.invoice_number }} · ${{ '%.2f'|format(row.total) }}</option>{% endfor %}</select></label><label>应用金额<input type="number" min="0.01" max="{{ remaining }}" step="0.01" name="amount" required></label><label>会计日期<input type="date" name="accounting_date" value="{{ today }}" required></label><div class="form-actions"><button class="primary" type="submit">应用并过账</button></div></form></section>
+{% endblock %}

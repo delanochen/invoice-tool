@@ -1389,6 +1389,15 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .status.pending { background: #fff7e6; color: #9a6700; }
 .status.paid { background: #ecfdf3; color: var(--ok); }
 .status.void { background: #fff4ed; color: var(--warn); }
+.status.posted { background: #ecfdf3; color: var(--ok); }
+.status.reversed { background: #fff4ed; color: var(--warn); }
+.money { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table-card h2 { margin: 0 0 14px; }
+.detail-grid > div { display: grid; gap: 4px; }
+.status.open { background: #ecfdf3; color: var(--ok); }
+.status.closed { background: #f2f4f7; color: var(--muted); }
+.inline-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.inline-form input { min-width: 140px; }
 /* 服务端提示浮层：位置见 static/flash-notice.js（把 --flash-top 设成顶部常驻栏底边 + 8px）。
    top 用变量而不是写死值 —— 工具栏高度随页面/窗口宽度变化，写死不是被盖就是反过来压住它。
    z-index 45：高于所有贴顶常驻栏（erp-toolbar 12、窄屏 erp-nav 40、erp-status 10），

@@ -78,6 +78,12 @@ from invoice_tool.payroll import (
     register_payroll_routes,
 )
 from invoice_tool.quotations.routes import register_quotation_routes
+from invoice_tool.accounting import (
+    InvoiceRecognitionService,
+    InvoiceVoidError,
+    PostingError,
+)
+from invoice_tool.accounting.routes import register_accounting_routes
 from field_work import register_field_routes
 from staff_reports import register_staff_reports
 from customer_report_logic import (
@@ -383,6 +389,10 @@ MENU_PERMISSION_GROUPS = [
             {"key": "tax_review", "label": "税务复核", "roles": {"admin", "manager", "finance"}},
             {"key": "annual_tax_summary", "label": "年度税务汇总", "roles": {"admin", "manager", "finance"}},
             {"key": "bank_reconciliation", "label": "银行对账", "roles": {"admin", "finance"}},
+            {"key": "accounting_vouchers", "label": "会计凭证", "roles": {"admin", "manager", "finance"}},
+            {"key": "accounting_receipts", "label": "客户收款", "roles": {"admin", "manager", "finance"}},
+            {"key": "accounting_periods", "label": "会计期间", "roles": {"admin", "finance"}},
+            {"key": "accounting_reports", "label": "会计报表", "roles": {"admin", "manager", "finance"}},
         ],
     },
     {
@@ -512,6 +522,11 @@ ROLE_ACTION_PERMISSION_GROUPS = [
             # 普通员工一律不给（要看自己的年度汇总以后单独做 self-only 权限）。
             {"key": "annual_tax_summary", "label": "年度税务汇总", "actions": {"view": {"admin", "manager", "finance"}, "export": {"admin", "finance"}}},
             {"key": "bank_reconciliation", "label": "银行对账", "actions": {"view": {"admin", "finance"}, "reconcile": {"admin", "finance"}}},
+            {"key": "accounting_vouchers", "label": "会计凭证", "actions": {"view": {"admin", "manager", "finance"}}},
+            {"key": "accounting_receipts", "label": "客户收款", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
+            {"key": "accounting_corrections", "label": "发票会计更正", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}}},
+            {"key": "accounting_periods", "label": "会计期间", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "close": {"admin", "finance"}, "reopen": {"admin"}}},
+            {"key": "accounting_reports", "label": "会计报表", "actions": {"view": {"admin", "manager", "finance"}, "export": {"admin", "finance"}}},
             {"key": "assets", "label": "资产档案", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin"}}},
         ],
     },
@@ -1725,6 +1740,14 @@ def required_action_for_request():
     if endpoint == "edit_user" and request.view_args and request.view_args.get("user_id") == g.user["id"]:
         return None
     method_rules = {
+        ("accounting_receipts", "GET"): ("accounting_receipts", "view"),
+        ("accounting_receipts", "POST"): ("accounting_receipts", "create"),
+        ("accounting_prepayment_apply", "GET"): ("accounting_receipts", "edit"),
+        ("accounting_prepayment_apply", "POST"): ("accounting_receipts", "edit"),
+        ("accounting_invoice_correct", "GET"): ("accounting_corrections", "create"),
+        ("accounting_invoice_correct", "POST"): ("accounting_corrections", "create"),
+        ("accounting_periods", "GET"): ("accounting_periods", "view"),
+        ("accounting_periods", "POST"): ("accounting_periods", "view"),
         ("clients", "GET"): ("clients", "view"),
         ("clients", "POST"): ("clients", "create"),
         ("owners", "GET"): ("owners", "view"),
@@ -1846,6 +1869,14 @@ def required_action_for_request():
         "export_invoice": ("invoices", "export"),
         "export_invoice_pdf": ("invoices", "export"),
         "delete_attachment": ("invoices", "edit"),
+        "accounting_vouchers": ("accounting_vouchers", "view"),
+        "accounting_voucher_detail": ("accounting_vouchers", "view"),
+        "accounting_receipts": ("accounting_receipts", "view"),
+        "accounting_prepayment_apply": ("accounting_receipts", "edit"),
+        "accounting_invoice_correct": ("accounting_corrections", "create"),
+        "accounting_periods": ("accounting_periods", "view"),
+        "accounting_trial_balance": ("accounting_reports", "view"),
+        "accounting_account_ledger": ("accounting_reports", "view"),
         "customer_reimbursement_query": ("customer_reimbursements", "view"),
         "download_customer_reimbursement": ("customer_reimbursements", "export"),
         "download_customer_reimbursement_excel": ("customer_reimbursements", "export"),
@@ -2011,6 +2042,23 @@ def invoice_totals(invoice_id):
     subtotal = sum(float(row["amount"] or 0) for row in rows)
     tax = sum(float(row["amount"] or 0) * float(row["tax_rate"] or 0) / 100 for row in rows)
     return {"subtotal": subtotal, "tax": tax, "total": max(subtotal + tax, 0)}
+
+
+def accounting_base_enabled(connection=None):
+    connection = connection or db()
+    row = connection.execute(
+        "select value from settings where key='accounting_base_enabled'"
+    ).fetchone()
+    return bool(row and row[0] == "1")
+
+
+def recognize_invoice_if_accounting_enabled(invoice_id, *, source_version=1):
+    connection = db()
+    if not accounting_base_enabled(connection):
+        return None
+    return InvoiceRecognitionService(connection).recognize(
+        invoice_id, source_version=source_version, actor_id=g.user["id"]
+    )
 
 
 def payment_label(invoice):
@@ -2573,6 +2621,9 @@ def require_service_order(order_id):
                quotations.customer as quotation_customer,
                quotations.project_name as quotation_project_name,
                quotations.status as quotation_status,
+               quotations.current_revision_no as quotation_revision_no,
+               quotations.total as quotation_current_total,
+               quotations.currency as quotation_currency,
                coalesce(country_local.name, country_zh.name, country_en.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, country_en.region_name, service_orders.region_code) as region_name
         from service_orders
@@ -4340,10 +4391,10 @@ def customer_reimbursement_pending_sources(reimbursement):
     }
 
 
-def customer_reimbursement_gate_error(reimbursement, allow_pending=False):
+def customer_reimbursement_gate_error(reimbursement):
     """三出口 gate：提交/开票/发邮件/审核前校验未计入的报销。
-    - 已审核未计入（includable 非空）→ 硬拦截（无论 allow_pending）
-    - 待审核（pending 非空）→ 默认拦截；allow_pending=True 放行
+    - 已审核未计入（includable 非空）→ 硬拦截
+    - 待审核（pending 非空）→ 硬拦截
     - 已退回（returned 非空）→ 不拦（退回提示由横幅呈现）
     返回 (error_code, message) 或 None。"""
     sources = customer_reimbursement_pending_sources(reimbursement)
@@ -4354,7 +4405,7 @@ def customer_reimbursement_gate_error(reimbursement, allow_pending=False):
             f"（合计 {money(sources['includable_total'])}）。请先在结算页面点击"
             f"「计入并重算」或确认无需计入后再继续。",
         )
-    if sources["pending"] and not allow_pending:
+    if sources["pending"]:
         return (
             "pending_approval",
             f"有 {len(sources['pending'])} 笔报销仍在待审核状态"
@@ -4797,13 +4848,35 @@ def customer_reimbursement_invoice_items(reimbursement):
 
 def create_customer_reimbursement(order, expense_selection_mode="legacy"):
     file_name = f"费用报销单{order['client_order_number']}.pdf"
+    quotation_revision = None
+    if order["settlement_basis"] == "quotation":
+        if not order["quotation_id"]:
+            raise ValueError("该工单设置为按报价结算，但没有关联报价单。")
+        quotation_revision = db().execute(
+            """
+            select quotation_revisions.*
+            from quotation_revisions
+            join quotations on quotations.id = quotation_revisions.quotation_id
+            where quotation_revisions.quotation_id = ?
+              and quotation_revisions.revision_no = quotations.current_revision_no
+            """,
+            (order["quotation_id"],),
+        ).fetchone()
+        if not quotation_revision:
+            raise ValueError("关联报价单还没有可用于结算的修订版本，请先保存报价单。")
+        raise ValueError("报价结算项目尚未完成映射，不能静默改用合同费率生成结算。")
     cursor = db().execute(
         """
         insert into customer_reimbursements (
-            service_order_id, file_name, stored_filename, expense_selection_mode, created_by, created_at
-        ) values (?, ?, ?, ?, ?, ?)
+            service_order_id, file_name, stored_filename, expense_selection_mode,
+            settlement_basis, quotation_revision_id, created_by, created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (order["id"], file_name, f"{secrets.token_hex(12)}.pdf", expense_selection_mode, g.user["id"], now()),
+        (
+            order["id"], file_name, f"{secrets.token_hex(12)}.pdf", expense_selection_mode,
+            order["settlement_basis"], quotation_revision["id"] if quotation_revision else None,
+            g.user["id"], now(),
+        ),
     )
     reimbursement_id = cursor.lastrowid
     rows = customer_reimbursement_seed_rows(order["id"])
@@ -12780,16 +12853,17 @@ def new_service_order():
         cursor = db().execute(
             """
             insert into service_orders (
-                order_number, client_id, contract_id, quotation_id, buyer_id, manufacturer_id, client_name, buyer_contact_name, buyer_contact_details,
+                order_number, client_id, contract_id, quotation_id, settlement_basis, buyer_id, manufacturer_id, client_name, buyer_contact_name, buyer_contact_details,
                 site_address, client_order_number, start_date, work_order_type_id,
                 region_code, country_code, created_by, created_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_number,
                 client["id"],
                 contract["id"] if contract else None,
                 quotation["id"] if quotation else None,
+                "quotation" if quotation else "contract_actual",
                 buyer["id"],
                 manufacturer["id"] if manufacturer else buyer["manufacturer_id"],
                 buyer["name"],
@@ -13177,7 +13251,7 @@ def customer_reimbursement_form(order_id):
                 if action == "send_email":
                     if reimbursement["status"] != "approved":
                         raise ValueError("工单结算审核通过后才能发送邮件。")
-                    gate = customer_reimbursement_gate_error(reimbursement, allow_pending=False)
+                    gate = customer_reimbursement_gate_error(reimbursement)
                     if gate:
                         flash(gate[1], "error")
                         return redirect(url_for("customer_reimbursement_form", order_id=order_id))
@@ -13190,7 +13264,7 @@ def customer_reimbursement_form(order_id):
                         raise ValueError("工单结算审核通过后才能生成发票。")
                     if not can_create_invoice():
                         abort(403)
-                    gate = customer_reimbursement_gate_error(reimbursement, allow_pending=False)
+                    gate = customer_reimbursement_gate_error(reimbursement)
                     if gate:
                         flash(gate[1], "error")
                         return redirect(url_for("customer_reimbursement_form", order_id=order_id))
@@ -13212,9 +13286,7 @@ def customer_reimbursement_form(order_id):
                     )
                 raise ValueError("只有保存未提交或已退回的工单结算可以修改。")
             if action == "submit":
-                gate = customer_reimbursement_gate_error(
-                    reimbursement, allow_pending=request.form.get("confirm_pending") == "1"
-                )
+                gate = customer_reimbursement_gate_error(reimbursement)
                 if gate:
                     flash(gate[1], "error")
                     return redirect(url_for("customer_reimbursement_form", order_id=order_id))
@@ -13473,7 +13545,7 @@ def approve_customer_reimbursement(reimbursement_id):
     if reimbursement["status"] != "submitted":
         flash("只有待经理审核的工单结算可以审核通过。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    gate = customer_reimbursement_gate_error(reimbursement, allow_pending=False)
+    gate = customer_reimbursement_gate_error(reimbursement)
     if gate:
         flash(gate[1], "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
@@ -15843,6 +15915,7 @@ def create_invoice_from_form(save_token=None):
             """,
             (invoice_id, project["id"], project["name"], to_float(amount), project["tax_rate"]),
         )
+    recognize_invoice_if_accounting_enabled(invoice_id)
     for uploaded in uploaded_attachments_from_request():
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
@@ -15940,6 +16013,11 @@ def update_invoice_from_form(invoice_id):
         abort(403)
     service_order_id = posted_service_order_id()
     item_rows = invoice_items_from_form()
+    if accounting_base_enabled() and db().execute(
+        "select 1 from posting_events where source_type='invoice' and source_id=? "
+        "and event_type='invoice.confirmed' limit 1", (invoice_id,),
+    ).fetchone():
+        raise ValueError("该发票已完成会计确认，不能直接覆盖修改；请走更正流程。")
     db().execute(
         """
         update invoices
@@ -15966,10 +16044,11 @@ def update_invoice_from_form(invoice_id):
             """,
             (invoice_id, project["id"], project["name"], amount, project["tax_rate"]),
         )
+    db().execute("update invoices set status = 'completed', return_reason = null where id = ?", (invoice_id,))
+    recognize_invoice_if_accounting_enabled(invoice_id)
     for uploaded in uploaded_attachments_from_request():
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
-    db().execute("update invoices set status = 'completed', return_reason = null where id = ?", (invoice_id,))
 
 
 @app.route("/invoices/<int:invoice_id>")
@@ -15980,6 +16059,10 @@ def invoice_detail(invoice_id):
         return redirect(url_for("edit_invoice", invoice_id=invoice_id))
     creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
     service_order = invoice_service_order(invoice)
+    has_accounting_voucher = bool(db().execute(
+        "select 1 from posting_events where source_type='invoice' and source_id=? "
+        "and event_type='invoice.confirmed' limit 1", (invoice_id,),
+    ).fetchone())
     return render_template(
         "invoice_detail.html",
         invoice=invoice,
@@ -15990,6 +16073,8 @@ def invoice_detail(invoice_id):
         service_order=service_order,
         attachments=get_invoice_attachments(invoice_id),
         company=get_company_profile(),
+        accounting_enabled=accounting_base_enabled(),
+        has_accounting_voucher=has_accounting_voucher,
         terms=get_invoice_terms(),
         payment=get_payment_instructions(),
         labels=STATUS_LABELS,
@@ -16032,7 +16117,36 @@ def admin_update_invoice_status(invoice_id):
 def void_invoice(invoice_id):
     invoice = require_invoice_access(invoice_id)
     if invoice["status"] == "completed":
-        flash("审核完成后的发票不能作废。", "error")
+        recognition = db().execute(
+            "select 1 from posting_events where source_type='invoice' and source_id=? "
+            "and event_type='invoice.confirmed' limit 1", (invoice_id,),
+        ).fetchone()
+        if not recognition:
+            flash("审核完成后的发票不能直接作废。", "error")
+            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+        reason_code = request.form.get("reason_code", "").strip()
+        if not reason_code:
+            flash("已过账发票作废必须填写原因。", "error")
+            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+        try:
+            InvoiceRecognitionService(db()).void(
+                invoice_id, accounting_date=date.today(), reason_code=reason_code,
+                actor_id=g.user["id"],
+            )
+            log_action("void", "invoice", invoice_id, invoice["invoice_number"],
+                       f"会计冲销：{reason_code}")
+            db().commit()
+        except (InvoiceVoidError, PostingError, ValueError) as error:
+            db().rollback()
+            flash(str(error), "error")
+            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+        flash("发票已作废，原凭证已保留并生成冲销凭证。", "success")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    if db().execute(
+        "select 1 from posting_events where source_type='invoice' and source_id=? "
+        "and event_type='invoice.confirmed' limit 1", (invoice_id,),
+    ).fetchone():
+        flash("该发票已有会计凭证，不能改回草稿；请走作废或更正流程。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     db().execute("update invoices set status = 'void' where id = ?", (invoice_id,))
     log_action("void", "invoice", invoice_id, invoice["invoice_number"], "作废发票")
@@ -16050,15 +16164,28 @@ def delete_invoice(invoice_id):
     if not has_action_permission("invoices", "delete"):
         flash("你没有删除发票的权限，请联系管理员在权限管理中开启。", "error")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    recognition = db().execute(
+        "select 1 from posting_events where source_type='invoice' and source_id=? "
+        "and event_type='invoice.confirmed' limit 1", (invoice_id,),
+    ).fetchone()
+    if recognition:
+        flash("该发票已有会计凭证，不能物理删除；请使用作废并生成冲销凭证。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+    try:
+        db().execute(
+            "update messages set link = null where link = ? or link = ?",
+            (url_for("invoice_detail", invoice_id=invoice_id),
+             url_for("edit_invoice", invoice_id=invoice_id)),
+        )
+        db().execute("update customer_reimbursements set invoice_id = null where invoice_id = ?", (invoice_id,))
+        db().execute("delete from invoices where id = ?", (invoice_id,))
+        log_action("delete", "invoice", invoice_id, invoice["invoice_number"], f"删除状态为 {invoice['status']} 的发票")
+        db().commit()
+    except IntegrityError:
+        db().rollback()
+        flash("该发票仍有关联业务记录，不能删除；请先解除关联或走作废流程。", "error")
+        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
     shutil.rmtree(invoice_attachment_path(invoice_id), ignore_errors=True)
-    db().execute(
-        "update messages set link = null where link = ? or link = ?",
-        (url_for("invoice_detail", invoice_id=invoice_id), url_for("edit_invoice", invoice_id=invoice_id)),
-    )
-    db().execute("update customer_reimbursements set invoice_id = null where invoice_id = ?", (invoice_id,))
-    db().execute("delete from invoices where id = ?", (invoice_id,))
-    log_action("delete", "invoice", invoice_id, invoice["invoice_number"], f"删除状态为 {invoice['status']} 的发票")
-    db().commit()
     flash("发票已删除。", "success")
     return redirect(url_for("invoices"))
 
@@ -17346,6 +17473,7 @@ register_employee_finance_routes(app, globals())
 #   - routes.py     路由 / 表单解析 / 编号 / 权限判断
 # ---------------------------------------------------------------------------
 _quotation_exports = register_quotation_routes(app, globals())
+_accounting_route_exports = register_accounting_routes(app, globals())
 
 
 def can_view_quotations():

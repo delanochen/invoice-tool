@@ -239,6 +239,61 @@ def quotation_form_values(api, quotation=None):
     }
 
 
+def create_quotation_revision(api, quotation_id, values):
+    """Append an immutable commercial snapshot after each create/edit.
+
+    Work orders reference the quotation itself and therefore see its current
+    revision until a settlement is created.  The settlement stores this row's
+    id, which is the freeze boundary for financial history.
+    """
+    connection = api["db"]()
+    current = connection.execute(
+        "select current_revision_no from quotations where id = ? for update",
+        (quotation_id,),
+    ).fetchone()
+    revision_no = int(current["current_revision_no"] or 0) + 1
+    snapshot = {}
+    for column in (item.strip() for item in _QUOTATION_COLUMNS.split(",")):
+        value = values.get(column)
+        snapshot[column] = str(value) if isinstance(value, Decimal) else value
+    cursor = connection.execute(
+        """
+        insert into quotation_revisions (
+            quotation_id, revision_no, snapshot_json, subtotal, tax, total,
+            created_by, created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            quotation_id,
+            revision_no,
+            json.dumps(snapshot, ensure_ascii=False, sort_keys=True),
+            values["subtotal"],
+            values["tax"],
+            values["total"],
+            api["g"].user["id"],
+            api["now"](),
+        ),
+    )
+    connection.execute(
+        "update quotations set current_revision_no = ? where id = ?",
+        (revision_no, quotation_id),
+    )
+    return cursor.lastrowid
+
+
+def current_quotation_revision(api, quotation_id):
+    return api["db"]().execute(
+        """
+        select quotation_revisions.*
+        from quotation_revisions
+        join quotations on quotations.id = quotation_revisions.quotation_id
+        where quotation_revisions.quotation_id = ?
+          and quotation_revisions.revision_no = quotations.current_revision_no
+        """,
+        (quotation_id,),
+    ).fetchone()
+
+
 def next_quotation_number(api):
     """编号规则与工单同构：QT + YYMM + 3 位序号，取最小未用序号（工单为 SO + YYMM）。"""
     db = api["db"]
@@ -404,6 +459,7 @@ def register_quotation_routes(app, api):
                 + (values["created_by"], values["created_at"], values["updated_at"]),
             )
             quotation_id = cursor.lastrowid
+            create_quotation_revision(api, quotation_id, values)
             api["log_action"](
                 "create",
                 "quotation",
@@ -469,6 +525,7 @@ def register_quotation_routes(app, api):
                 """,
                 (tuple(values[column] for column in columns) + (api["now"](), quotation_id)),
             )
+            revision_id = create_quotation_revision(api, quotation_id, values)
             api["log_action"](
                 "update",
                 "quotation",
@@ -476,6 +533,18 @@ def register_quotation_routes(app, api):
                 values["quotation_number"],
                 "修改报价单",
             )
+            linked_orders = api["db"]().execute(
+                "select count(*) as count from service_orders where quotation_id = ? and settlement_basis = 'quotation'",
+                (quotation_id,),
+            ).fetchone()["count"]
+            if linked_orders:
+                api["log_action"](
+                    "sync",
+                    "quotation_revision",
+                    revision_id,
+                    values["quotation_number"],
+                    f"报价修订 v{api['db']().execute('select current_revision_no from quotations where id = ?', (quotation_id,)).fetchone()['current_revision_no']} 已同步到 {linked_orders} 个未按结算快照读取的工单",
+                )
             api["db"]().commit()
             flash("报价单已更新。", "success")
             return redirect(api["url_for"]("quotation_detail", quotation_id=quotation_id))

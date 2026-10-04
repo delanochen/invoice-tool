@@ -94,6 +94,12 @@
               未关联
             {% endif %}
           </span></p>
+          {% if order.settlement_basis == "quotation" and order.quotation_id %}
+            <p><strong>结算依据</strong><span>报价单当前修订 v{{ order.quotation_revision_no or 0 }}</span></p>
+            <p><strong>当前报价金额</strong><span>{{ order.quotation_current_total|money(order.quotation_currency or "USD") }}</span></p>
+          {% else %}
+            <p><strong>结算依据</strong><span>合同费率＋实际日报/报销</span></p>
+          {% endif %}
           <p><strong>站点名称</strong><span>{{ order.client_name }}</span></p>
           <p><strong>业主</strong><span>{{ order.buyer_owner or "-" }}</span></p>
           <p><strong>规模</strong><span>{{ order.buyer_site_size or "-" }}</span></p>

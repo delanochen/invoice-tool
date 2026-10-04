@@ -18,6 +18,7 @@
       <small>{{ quotation.customer or quotation.client_name or "-" }} · {{ quotation.project_name or "-" }}</small>
     </div>
     <span class="status {{ quotation.status }}">{{ status_labels[quotation.status] }}</span>
+    <span class="erp-badge">修订 v{{ quotation.current_revision_no or 0 }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('quotations') }}'">返回列表</button>
@@ -180,6 +181,8 @@
   <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
   <footer class="erp-status">
     <span>报价单 <b>{{ quotation.quotation_number }}</b></span>
+    <span class="sep"></span>
+    <span>当前修订 <b>v{{ quotation.current_revision_no or 0 }}</b></span>
     <span class="sep"></span>
     <span>创建人 <b>{{ quotation.creator_name or "-" }}</b></span>
     <span class="sep"></span>

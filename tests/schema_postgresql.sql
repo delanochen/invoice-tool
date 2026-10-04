@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict ZbtvlukXPf7P73kt4Glgg2BDKearSJgRZaOjr8Wssn4qSggdg0fY6qIIvVfBbF7
+\restrict xeme7SwRytJyMQuiuJ6uzcofeV3vCcjd8iZTCJnqx9AqadbFIaKZNSSOZ5na2Rf
 
 -- Dumped from database version 17.11 (Debian 17.11-1.pgdg13+2)
 -- Dumped by pg_dump version 17.11 (Debian 17.11-1.pgdg13+2)
@@ -18,6 +18,154 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: enforce_voucher_balance(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_voucher_balance() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE target_id bigint; debits numeric(14,2); credits numeric(14,2);
+BEGIN
+    IF TG_TABLE_NAME = 'vouchers' THEN
+        IF TG_OP = 'DELETE' THEN target_id := OLD.id; ELSE target_id := NEW.id; END IF;
+    ELSE
+        IF TG_OP = 'DELETE' THEN target_id := OLD.voucher_id;
+        ELSE target_id := NEW.voucher_id;
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM vouchers WHERE id=target_id AND status IN ('posted','reversed')) THEN
+        SELECT COALESCE(sum(debit),0),COALESCE(sum(credit),0)
+          INTO debits,credits FROM voucher_entries WHERE voucher_id=target_id;
+        IF debits = 0 OR debits <> credits THEN
+            RAISE EXCEPTION 'voucher % is not balanced: debit %, credit %',target_id,debits,credits;
+        END IF;
+    END IF;
+    RETURN NULL;
+END $$;
+
+
+--
+-- Name: guard_accounting_period(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.guard_accounting_period() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE expected_end date;
+BEGIN
+    IF NEW.period_start <> date_trunc('month',NEW.period_start)::date THEN
+        RAISE EXCEPTION 'accounting period must start on the first day of a month'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    expected_end := (NEW.period_start + interval '1 month - 1 day')::date;
+    IF NEW.period_end <> expected_end THEN
+        RAISE EXCEPTION 'accounting period must end on %', expected_end
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM accounting_periods p
+        WHERE p.id <> COALESCE(NEW.id,0)
+          AND daterange(p.period_start,p.period_end,'[]') &&
+              daterange(NEW.period_start,NEW.period_end,'[]')
+    ) THEN
+        RAISE EXCEPTION 'accounting period overlaps an existing period'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END $$;
+
+
+--
+-- Name: guard_posted_invoice(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.guard_posted_invoice() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE recognition_exists boolean;
+BEGIN
+    SELECT EXISTS(
+        SELECT 1 FROM posting_events
+        WHERE source_type='invoice' AND source_id=OLD.id
+          AND event_type='invoice.confirmed'
+    ) INTO recognition_exists;
+    IF NOT recognition_exists THEN
+        RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+    END IF;
+    IF TG_OP='DELETE' THEN
+        RAISE EXCEPTION 'posted invoice cannot be deleted' USING ERRCODE='integrity_constraint_violation';
+    END IF;
+    IF NEW.invoice_number IS DISTINCT FROM OLD.invoice_number OR
+       NEW.client_id IS DISTINCT FROM OLD.client_id OR
+       NEW.issue_date IS DISTINCT FROM OLD.issue_date OR
+       NEW.currency IS DISTINCT FROM OLD.currency THEN
+        RAISE EXCEPTION 'posted invoice accounting fields are immutable'
+            USING ERRCODE='integrity_constraint_violation';
+    END IF;
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+        IF NOT (OLD.status='completed' AND NEW.status='void' AND EXISTS(
+            SELECT 1 FROM posting_events
+            WHERE source_type='invoice' AND source_id=OLD.id
+              AND event_type='invoice.voided'
+        )) THEN
+            RAISE EXCEPTION 'illegal posted invoice status transition'
+                USING ERRCODE='integrity_constraint_violation';
+        END IF;
+    END IF;
+    RETURN NEW;
+END $$;
+
+
+--
+-- Name: guard_posted_invoice_item(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.guard_posted_invoice_item() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE target_invoice_id bigint;
+BEGIN
+    target_invoice_id := CASE WHEN TG_OP='INSERT' THEN NEW.invoice_id ELSE OLD.invoice_id END;
+    IF EXISTS(
+        SELECT 1 FROM posting_events
+        WHERE source_type='invoice' AND source_id=target_invoice_id
+          AND event_type='invoice.confirmed'
+    ) THEN
+        RAISE EXCEPTION 'posted invoice items are immutable'
+            USING ERRCODE='integrity_constraint_violation';
+    END IF;
+    RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+END $$;
+
+
+--
+-- Name: guard_voucher_mutation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.guard_voucher_mutation() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF TG_OP = 'DELETE' AND OLD.status IN ('posted','reversed') THEN
+        RAISE EXCEPTION 'posted or reversed vouchers cannot be deleted';
+    END IF;
+    IF TG_OP = 'UPDATE' AND OLD.status = 'posted' THEN
+        IF NEW.status <> 'reversed' OR NEW.reversed_at IS NULL OR
+           NEW.reversed_by IS NULL OR NEW.reason_code = '' OR
+           (to_jsonb(NEW) - ARRAY['status','reversed_by','reversed_at','reason_code']) <>
+           (to_jsonb(OLD) - ARRAY['status','reversed_by','reversed_at','reason_code']) THEN
+            RAISE EXCEPTION 'illegal posted voucher mutation';
+        END IF;
+    ELSIF TG_OP = 'UPDATE' AND OLD.status = 'reversed' AND to_jsonb(NEW) <> to_jsonb(OLD) THEN
+        RAISE EXCEPTION 'reversed vouchers are immutable';
+    ELSIF TG_OP = 'UPDATE' AND OLD.status = 'draft' AND NEW.status NOT IN ('draft','posted') THEN
+        RAISE EXCEPTION 'illegal voucher status transition: % -> %', OLD.status, NEW.status;
+    END IF;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END $$;
+
 
 --
 -- Name: invoice_sqlite_date(text); Type: FUNCTION; Schema: public; Owner: -
@@ -57,9 +205,191 @@ EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN RETURN NU
 END $$;
 
 
+--
+-- Name: protect_posted_voucher_child(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_posted_voucher_child() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE old_voucher_id bigint; new_voucher_id bigint;
+BEGIN
+    old_voucher_id := CASE WHEN TG_OP IN ('UPDATE','DELETE') THEN OLD.voucher_id ELSE NULL END;
+    new_voucher_id := CASE WHEN TG_OP IN ('INSERT','UPDATE') THEN NEW.voucher_id ELSE NULL END;
+    IF EXISTS (SELECT 1 FROM vouchers
+               WHERE id IN (old_voucher_id,new_voucher_id) AND status='posted') THEN
+        RAISE EXCEPTION 'posted voucher children are immutable';
+    END IF;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END $$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: accounting_base_check_report; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.accounting_base_check_report (
+    id bigint NOT NULL,
+    checked_at text NOT NULL,
+    schema_ok boolean NOT NULL,
+    report jsonb NOT NULL,
+    saved_by bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL
+);
+
+
+--
+-- Name: accounting_base_check_report_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.accounting_base_check_report ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.accounting_base_check_report_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: accounting_opening_cutover; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.accounting_opening_cutover (
+    id bigint NOT NULL,
+    cutover_date date NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    voucher_id bigint,
+    created_by bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    posted_by bigint,
+    posted_at text,
+    CONSTRAINT accounting_opening_cutover_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text])))
+);
+
+
+--
+-- Name: accounting_opening_cutover_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.accounting_opening_cutover ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.accounting_opening_cutover_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: accounting_opening_lines; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.accounting_opening_lines (
+    id bigint NOT NULL,
+    cutover_id bigint NOT NULL,
+    origin_type text NOT NULL,
+    origin_id bigint NOT NULL,
+    account_id bigint NOT NULL,
+    amount numeric(14,2) NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    reason_code text NOT NULL,
+    voucher_entry_id bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT accounting_opening_lines_amount_check CHECK ((amount > (0)::numeric)),
+    CONSTRAINT accounting_opening_lines_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT accounting_opening_lines_reason_code_check CHECK ((reason_code = ANY (ARRAY['prior_period_error'::text, 'post_cutover_new'::text, 'cutover_reclassification'::text])))
+);
+
+
+--
+-- Name: accounting_opening_lines_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.accounting_opening_lines ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.accounting_opening_lines_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: accounting_periods; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.accounting_periods (
+    id bigint NOT NULL,
+    period_start date NOT NULL,
+    period_end date NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    closed_by bigint,
+    closed_at text,
+    reopened_by bigint,
+    reopened_at text,
+    reason_code text DEFAULT ''::text NOT NULL,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT accounting_periods_check CHECK ((period_end >= period_start)),
+    CONSTRAINT accounting_periods_status_check CHECK ((status = ANY (ARRAY['open'::text, 'closed'::text])))
+);
+
+
+--
+-- Name: accounting_periods_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.accounting_periods ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.accounting_periods_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: accounts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.accounts (
+    id bigint NOT NULL,
+    account_code text NOT NULL,
+    account_name text NOT NULL,
+    account_type text NOT NULL,
+    normal_balance text NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    is_system boolean DEFAULT true NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT accounts_account_type_check CHECK ((account_type = ANY (ARRAY['asset'::text, 'liability'::text, 'equity'::text, 'revenue'::text, 'expense'::text]))),
+    CONSTRAINT accounts_check CHECK ((((account_type = ANY (ARRAY['asset'::text, 'expense'::text])) AND (normal_balance = 'debit'::text)) OR ((account_type = ANY (ARRAY['liability'::text, 'equity'::text, 'revenue'::text])) AND (normal_balance = 'credit'::text)))),
+    CONSTRAINT accounts_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT accounts_normal_balance_check CHECK ((normal_balance = ANY (ARRAY['debit'::text, 'credit'::text])))
+);
+
+
+--
+-- Name: accounts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.accounts ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.accounts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
 
 --
 -- Name: ai_daily_report_actions; Type: TABLE; Schema: public; Owner: -
@@ -849,6 +1179,115 @@ CREATE TABLE public.country_translations (
 
 
 --
+-- Name: customer_prepayment_applications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customer_prepayment_applications (
+    id bigint NOT NULL,
+    prepayment_id bigint NOT NULL,
+    invoice_id bigint NOT NULL,
+    amount numeric(14,2) NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    occurrence_no integer NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    posting_event_id bigint,
+    voucher_id bigint,
+    created_by bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT customer_prepayment_applications_amount_check CHECK ((amount > (0)::numeric)),
+    CONSTRAINT customer_prepayment_applications_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT customer_prepayment_applications_occurrence_no_check CHECK ((occurrence_no >= 1)),
+    CONSTRAINT customer_prepayment_applications_status_check CHECK ((status = ANY (ARRAY['active'::text, 'reversed'::text])))
+);
+
+
+--
+-- Name: customer_prepayment_applications_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.customer_prepayment_applications ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.customer_prepayment_applications_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: customer_prepayments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customer_prepayments (
+    id bigint NOT NULL,
+    customer_id bigint NOT NULL,
+    receipt_id bigint NOT NULL,
+    original_amount numeric(14,2) NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    reason_code text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    posting_event_id bigint,
+    voucher_id bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT customer_prepayments_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT customer_prepayments_original_amount_check CHECK ((original_amount > (0)::numeric)),
+    CONSTRAINT customer_prepayments_reason_code_check CHECK ((reason_code <> ''::text)),
+    CONSTRAINT customer_prepayments_status_check CHECK ((status = ANY (ARRAY['open'::text, 'applied'::text, 'reversed'::text])))
+);
+
+
+--
+-- Name: customer_prepayments_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.customer_prepayments ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.customer_prepayments_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: customer_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.customer_receipts (
+    id bigint NOT NULL,
+    receipt_no text NOT NULL,
+    customer_id bigint NOT NULL,
+    receipt_date date NOT NULL,
+    amount numeric(14,2) NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    bank_account_id bigint NOT NULL,
+    reason_code text DEFAULT ''::text NOT NULL,
+    posting_event_id bigint,
+    voucher_id bigint,
+    created_by bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT customer_receipts_amount_check CHECK ((amount > (0)::numeric)),
+    CONSTRAINT customer_receipts_currency_check CHECK ((currency = 'USD'::text))
+);
+
+
+--
+-- Name: customer_receipts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.customer_receipts ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.customer_receipts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: customer_reimbursement_attachments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -996,7 +1435,9 @@ CREATE TABLE public.customer_reimbursements (
     contract_rate_version_id bigint,
     lodging_person_nights bigint DEFAULT 0 NOT NULL,
     lodging_cap_rate_snapshot double precision DEFAULT 0 NOT NULL,
-    expense_selection_mode text DEFAULT 'legacy'::text NOT NULL
+    expense_selection_mode text DEFAULT 'legacy'::text NOT NULL,
+    settlement_basis text DEFAULT 'contract_actual'::text NOT NULL,
+    quotation_revision_id bigint
 );
 
 
@@ -1092,6 +1533,10 @@ CREATE TABLE public.employee_advance_applications (
     notes text DEFAULT ''::text NOT NULL,
     created_by bigint,
     created_at text NOT NULL,
+    posting_event_id bigint,
+    voucher_id bigint,
+    occurrence_no integer,
+    legacy_anchor boolean DEFAULT false NOT NULL,
     CONSTRAINT employee_advance_applications_amount_check CHECK ((amount <> (0)::numeric)),
     CONSTRAINT employee_advance_applications_entry_type_check CHECK ((entry_type = ANY (ARRAY['application'::text, 'reversal'::text])))
 );
@@ -1318,6 +1763,11 @@ CREATE TABLE public.employee_payment_orders (
     taxable_compensation_total numeric(14,2) DEFAULT 0 NOT NULL,
     accountable_reimbursement_total numeric(14,2) DEFAULT 0 NOT NULL,
     tax_review_required_total numeric(14,2) DEFAULT 0 NOT NULL,
+    correction_status text DEFAULT 'none'::text NOT NULL,
+    correction_group_id bigint,
+    superseded_by_id bigint,
+    correction_reason text DEFAULT ''::text NOT NULL,
+    CONSTRAINT ck_employee_payments_correction_status CHECK ((correction_status = ANY (ARRAY['none'::text, 'correction_pending'::text, 'partially_superseded'::text, 'superseded'::text, 'replacement'::text, 'period_label_corrected'::text]))),
     CONSTRAINT employee_payment_orders_advance_offset_check CHECK ((advance_offset >= (0)::numeric)),
     CONSTRAINT employee_payment_orders_check CHECK ((net_amount = ((gross_amount - advance_offset) + other_adjustment))),
     CONSTRAINT employee_payment_orders_gross_amount_check CHECK ((gross_amount >= (0)::numeric)),
@@ -1786,6 +2236,44 @@ ALTER TABLE public.field_photos ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDEN
 
 
 --
+-- Name: invoice_accounting_corrections; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.invoice_accounting_corrections (
+    id bigint NOT NULL,
+    invoice_id bigint NOT NULL,
+    correction_no integer NOT NULL,
+    accounting_date date NOT NULL,
+    revenue_delta numeric(14,2) DEFAULT 0 NOT NULL,
+    sales_tax_delta numeric(14,2) DEFAULT 0 NOT NULL,
+    reason_code text NOT NULL,
+    status text DEFAULT 'posted'::text NOT NULL,
+    posting_event_id bigint,
+    voucher_id bigint,
+    created_by bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT invoice_accounting_corrections_check CHECK (((revenue_delta <> (0)::numeric) OR (sales_tax_delta <> (0)::numeric))),
+    CONSTRAINT invoice_accounting_corrections_correction_no_check CHECK ((correction_no >= 1)),
+    CONSTRAINT invoice_accounting_corrections_reason_code_check CHECK ((reason_code <> ''::text)),
+    CONSTRAINT invoice_accounting_corrections_status_check CHECK ((status = ANY (ARRAY['posted'::text, 'reversed'::text])))
+);
+
+
+--
+-- Name: invoice_accounting_corrections_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.invoice_accounting_corrections ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.invoice_accounting_corrections_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: invoice_attachments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1972,7 +2460,7 @@ ALTER TABLE public.knowledge_document_versions ALTER COLUMN id ADD GENERATED BY 
 CREATE TABLE public.knowledge_documents (
     id bigint NOT NULL,
     title text NOT NULL,
-    category text DEFAULT '鍏朵粬'::text NOT NULL,
+    category text DEFAULT '其他'::text NOT NULL,
     description text DEFAULT ''::text NOT NULL,
     original_filename text NOT NULL,
     stored_filename text NOT NULL,
@@ -2218,6 +2706,46 @@ ALTER TABLE public.payment_terms ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDE
 
 
 --
+-- Name: payroll_component_correction_allocations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_component_correction_allocations (
+    id bigint NOT NULL,
+    correction_group_id bigint NOT NULL,
+    component_id bigint NOT NULL,
+    canonical_payment_order_id bigint,
+    canonical_period_start text,
+    canonical_period_end text,
+    disposition text NOT NULL,
+    keeper_component_id bigint,
+    reason text DEFAULT ''::text NOT NULL,
+    created_by bigint,
+    created_at text NOT NULL,
+    CONSTRAINT ck_correction_allocation_canonical_period CHECK ((((canonical_period_start IS NULL) AND (canonical_period_end IS NULL)) OR ((canonical_period_start IS NOT NULL) AND (canonical_period_end IS NOT NULL) AND (((canonical_period_end)::date - (canonical_period_start)::date) = 13)))),
+    CONSTRAINT ck_correction_allocation_keeper CHECK (
+CASE disposition
+    WHEN 'duplicate_superseded'::text THEN (keeper_component_id IS NOT NULL)
+    ELSE (keeper_component_id IS NULL)
+END),
+    CONSTRAINT payroll_component_correction_allocations_disposition_check CHECK ((disposition = ANY (ARRAY['retained'::text, 'duplicate_superseded'::text, 'carry_forward'::text, 'pre_canonical_legacy'::text])))
+);
+
+
+--
+-- Name: payroll_component_correction_allocations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.payroll_component_correction_allocations ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.payroll_component_correction_allocations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: payroll_component_tax_config; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2246,6 +2774,117 @@ CREATE TABLE public.payroll_component_tax_config (
 
 ALTER TABLE public.payroll_component_tax_config ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
     SEQUENCE NAME public.payroll_component_tax_config_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: payroll_correction_groups; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payroll_correction_groups (
+    id bigint NOT NULL,
+    correction_code text NOT NULL,
+    correction_type text DEFAULT 'payroll_cycle_realignment'::text NOT NULL,
+    policy_version text DEFAULT ''::text NOT NULL,
+    canonical_cycle_start text,
+    canonical_cycle_days integer DEFAULT 14 NOT NULL,
+    canonical_period_start text,
+    canonical_period_end text,
+    status text DEFAULT 'draft'::text NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    created_by bigint,
+    created_at text NOT NULL,
+    updated_at text NOT NULL,
+    CONSTRAINT payroll_correction_groups_canonical_cycle_days_check CHECK ((canonical_cycle_days > 0)),
+    CONSTRAINT payroll_correction_groups_correction_type_check CHECK ((correction_type = ANY (ARRAY['payroll_cycle_realignment'::text, 'other'::text]))),
+    CONSTRAINT payroll_correction_groups_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'applied'::text, 'rolled_back'::text])))
+);
+
+
+--
+-- Name: payroll_correction_groups_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.payroll_correction_groups ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.payroll_correction_groups_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: posting_audit; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.posting_audit (
+    id bigint NOT NULL,
+    posting_event_id bigint,
+    voucher_id bigint,
+    action text NOT NULL,
+    old_value jsonb,
+    new_value jsonb,
+    reason_code text DEFAULT ''::text NOT NULL,
+    actor_id bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL
+);
+
+
+--
+-- Name: posting_audit_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.posting_audit ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.posting_audit_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: posting_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.posting_events (
+    id bigint NOT NULL,
+    source_type text NOT NULL,
+    source_id bigint NOT NULL,
+    source_version bigint NOT NULL,
+    event_type text NOT NULL,
+    occurrence_no integer NOT NULL,
+    requires_gl boolean NOT NULL,
+    payload_hash text NOT NULL,
+    business_anchor_type text NOT NULL,
+    business_anchor_id bigint NOT NULL,
+    idempotency_key text,
+    voucher_id bigint,
+    created_by bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    related_source_id bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT ck_posting_events_related_source_id CHECK ((related_source_id >= 0)),
+    CONSTRAINT posting_events_check CHECK (((requires_gl AND (voucher_id IS NOT NULL)) OR ((NOT requires_gl) AND (voucher_id IS NULL)))),
+    CONSTRAINT posting_events_occurrence_no_check CHECK ((occurrence_no >= 1)),
+    CONSTRAINT posting_events_payload_hash_check CHECK ((payload_hash ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT posting_events_source_version_check CHECK ((source_version >= 1))
+);
+
+
+--
+-- Name: posting_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.posting_events ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.posting_events_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -2330,6 +2969,37 @@ ALTER TABLE public.projects ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY
 
 
 --
+-- Name: quotation_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quotation_revisions (
+    id bigint NOT NULL,
+    quotation_id bigint NOT NULL,
+    revision_no bigint NOT NULL,
+    snapshot_json text NOT NULL,
+    subtotal numeric(14,2) DEFAULT 0 NOT NULL,
+    tax numeric(14,2) DEFAULT 0 NOT NULL,
+    total numeric(14,2) DEFAULT 0 NOT NULL,
+    created_by bigint NOT NULL,
+    created_at text NOT NULL
+);
+
+
+--
+-- Name: quotation_revisions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.quotation_revisions ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.quotation_revisions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: quotations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2375,6 +3045,7 @@ CREATE TABLE public.quotations (
     created_at text NOT NULL,
     updated_at text NOT NULL,
     client_id bigint,
+    current_revision_no bigint DEFAULT 0 NOT NULL,
     CONSTRAINT quotations_invoice_frequency_check CHECK ((invoice_frequency = ANY (ARRAY['weekly'::text, 'biweekly'::text, 'monthly'::text, 'upon_completion'::text]))),
     CONSTRAINT quotations_payment_terms_check CHECK ((payment_terms = ANY (ARRAY['net_15'::text, 'net_30'::text, 'net_45'::text, 'other'::text]))),
     CONSTRAINT quotations_pricing_type_check CHECK ((pricing_type = ANY (ARRAY['fixed'::text, 'estimated'::text]))),
@@ -2388,6 +3059,42 @@ CREATE TABLE public.quotations (
 
 ALTER TABLE public.quotations ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
     SEQUENCE NAME public.quotations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: receipt_allocations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.receipt_allocations (
+    id bigint NOT NULL,
+    receipt_id bigint NOT NULL,
+    invoice_id bigint NOT NULL,
+    amount numeric(14,2) NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    reversed_by bigint,
+    redirected_to bigint,
+    source_event_id bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT receipt_allocations_amount_check CHECK ((amount > (0)::numeric)),
+    CONSTRAINT receipt_allocations_check CHECK (((id IS DISTINCT FROM reversed_by) AND (id IS DISTINCT FROM redirected_to))),
+    CONSTRAINT receipt_allocations_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT receipt_allocations_status_check CHECK ((status = ANY (ARRAY['active'::text, 'reversed'::text, 'redirected'::text])))
+);
+
+
+--
+-- Name: receipt_allocations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.receipt_allocations ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.receipt_allocations_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -2452,7 +3159,8 @@ CREATE TABLE public.service_orders (
     country_code text DEFAULT 'US'::text NOT NULL,
     contract_id bigint,
     manufacturer_id bigint,
-    quotation_id bigint
+    quotation_id bigint,
+    settlement_basis text DEFAULT 'contract_actual'::text NOT NULL
 );
 
 
@@ -2782,6 +3490,189 @@ ALTER TABLE public.users ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
 
 
 --
+-- Name: voucher_attachment_links; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.voucher_attachment_links (
+    id bigint NOT NULL,
+    voucher_id bigint NOT NULL,
+    source_type text NOT NULL,
+    source_id bigint NOT NULL,
+    content_sha256 text NOT NULL,
+    stored_filename text NOT NULL,
+    byte_size bigint NOT NULL,
+    row_version bigint NOT NULL,
+    captured_at text NOT NULL,
+    CONSTRAINT voucher_attachment_links_byte_size_check CHECK ((byte_size >= 0)),
+    CONSTRAINT voucher_attachment_links_content_sha256_check CHECK ((content_sha256 ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT voucher_attachment_links_row_version_check CHECK ((row_version >= 1))
+);
+
+
+--
+-- Name: voucher_attachment_links_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.voucher_attachment_links ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.voucher_attachment_links_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: voucher_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.voucher_entries (
+    id bigint NOT NULL,
+    voucher_id bigint NOT NULL,
+    line_no integer NOT NULL,
+    account_id bigint NOT NULL,
+    debit numeric(14,2) DEFAULT 0 NOT NULL,
+    credit numeric(14,2) DEFAULT 0 NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    source_line_type text DEFAULT ''::text NOT NULL,
+    source_line_id bigint,
+    memo text DEFAULT ''::text NOT NULL,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT voucher_entries_check CHECK ((((debit > (0)::numeric) AND (credit = (0)::numeric)) OR ((credit > (0)::numeric) AND (debit = (0)::numeric)))),
+    CONSTRAINT voucher_entries_credit_check CHECK ((credit >= (0)::numeric)),
+    CONSTRAINT voucher_entries_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT voucher_entries_debit_check CHECK ((debit >= (0)::numeric)),
+    CONSTRAINT voucher_entries_line_no_check CHECK ((line_no >= 1))
+);
+
+
+--
+-- Name: voucher_entries_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.voucher_entries ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.voucher_entries_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: voucher_settlement_lines; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.voucher_settlement_lines (
+    id bigint NOT NULL,
+    voucher_id bigint NOT NULL,
+    voucher_entry_id bigint NOT NULL,
+    target_type text NOT NULL,
+    target_id bigint NOT NULL,
+    amount numeric(14,2) NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    reversed_by bigint,
+    redirected_to bigint,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    source_event_id bigint NOT NULL,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT voucher_settlement_lines_amount_check CHECK ((amount > (0)::numeric)),
+    CONSTRAINT voucher_settlement_lines_check CHECK (((id IS DISTINCT FROM reversed_by) AND (id IS DISTINCT FROM redirected_to))),
+    CONSTRAINT voucher_settlement_lines_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT voucher_settlement_lines_status_check CHECK ((status = ANY (ARRAY['active'::text, 'reversed'::text, 'redirected'::text]))),
+    CONSTRAINT voucher_settlement_lines_target_type_check CHECK ((target_type = ANY (ARRAY['payable'::text, 'receivable'::text, 'prepayment'::text])))
+);
+
+
+--
+-- Name: voucher_settlement_lines_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.voucher_settlement_lines ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.voucher_settlement_lines_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: voucher_source_links; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.voucher_source_links (
+    id bigint NOT NULL,
+    voucher_id bigint NOT NULL,
+    source_type text NOT NULL,
+    source_id bigint NOT NULL,
+    source_version bigint NOT NULL,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    CONSTRAINT voucher_source_links_source_version_check CHECK ((source_version >= 1))
+);
+
+
+--
+-- Name: voucher_source_links_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.voucher_source_links ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.voucher_source_links_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: vouchers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vouchers (
+    id bigint NOT NULL,
+    voucher_number text NOT NULL,
+    voucher_type text NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    business_date date NOT NULL,
+    accounting_date date NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    source_snapshot jsonb DEFAULT '{}'::jsonb NOT NULL,
+    reversal_of bigint,
+    corrects_opening_line bigint,
+    reason_code text DEFAULT ''::text NOT NULL,
+    created_by bigint,
+    created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    posted_by bigint,
+    posted_at text,
+    reversed_by bigint,
+    reversed_at text,
+    CONSTRAINT vouchers_check CHECK ((id IS DISTINCT FROM reversal_of)),
+    CONSTRAINT vouchers_currency_check CHECK ((currency = 'USD'::text)),
+    CONSTRAINT vouchers_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text, 'reversed'::text])))
+);
+
+
+--
+-- Name: vouchers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.vouchers ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.vouchers_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: work_order_types; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2867,6 +3758,78 @@ ALTER TABLE ONLY public.expense_settlement_invoice_map ALTER COLUMN id SET DEFAU
 --
 
 ALTER TABLE ONLY public.llm_configs ALTER COLUMN id SET DEFAULT nextval('public.llm_configs_id_seq'::regclass);
+
+
+--
+-- Name: accounting_base_check_report accounting_base_check_report_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_base_check_report
+    ADD CONSTRAINT accounting_base_check_report_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: accounting_opening_cutover accounting_opening_cutover_cutover_date_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_cutover
+    ADD CONSTRAINT accounting_opening_cutover_cutover_date_key UNIQUE (cutover_date);
+
+
+--
+-- Name: accounting_opening_cutover accounting_opening_cutover_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_cutover
+    ADD CONSTRAINT accounting_opening_cutover_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: accounting_opening_lines accounting_opening_lines_origin_type_origin_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_lines
+    ADD CONSTRAINT accounting_opening_lines_origin_type_origin_id_key UNIQUE (origin_type, origin_id);
+
+
+--
+-- Name: accounting_opening_lines accounting_opening_lines_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_lines
+    ADD CONSTRAINT accounting_opening_lines_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: accounting_periods accounting_periods_period_start_period_end_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_periods
+    ADD CONSTRAINT accounting_periods_period_start_period_end_key UNIQUE (period_start, period_end);
+
+
+--
+-- Name: accounting_periods accounting_periods_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_periods
+    ADD CONSTRAINT accounting_periods_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: accounts accounts_account_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounts
+    ADD CONSTRAINT accounts_account_code_key UNIQUE (account_code);
+
+
+--
+-- Name: accounts accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounts
+    ADD CONSTRAINT accounts_pkey PRIMARY KEY (id);
 
 
 --
@@ -3107,6 +4070,54 @@ ALTER TABLE ONLY public.countries
 
 ALTER TABLE ONLY public.country_translations
     ADD CONSTRAINT country_translations_pkey PRIMARY KEY (country_code, language_code);
+
+
+--
+-- Name: customer_prepayment_applications customer_prepayment_applicati_prepayment_id_invoice_id_occu_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayment_applications
+    ADD CONSTRAINT customer_prepayment_applicati_prepayment_id_invoice_id_occu_key UNIQUE (prepayment_id, invoice_id, occurrence_no);
+
+
+--
+-- Name: customer_prepayment_applications customer_prepayment_applications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayment_applications
+    ADD CONSTRAINT customer_prepayment_applications_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: customer_prepayments customer_prepayments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayments
+    ADD CONSTRAINT customer_prepayments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: customer_prepayments customer_prepayments_receipt_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayments
+    ADD CONSTRAINT customer_prepayments_receipt_id_key UNIQUE (receipt_id);
+
+
+--
+-- Name: customer_receipts customer_receipts_customer_id_receipt_no_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_receipts
+    ADD CONSTRAINT customer_receipts_customer_id_receipt_no_key UNIQUE (customer_id, receipt_no);
+
+
+--
+-- Name: customer_receipts customer_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_receipts
+    ADD CONSTRAINT customer_receipts_pkey PRIMARY KEY (id);
 
 
 --
@@ -3366,6 +4377,22 @@ ALTER TABLE ONLY public.field_photos
 
 
 --
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_invoice_id_correction_no_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_invoice_id_correction_no_key UNIQUE (invoice_id, correction_no);
+
+
+--
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: invoice_attachments invoice_attachments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3494,6 +4521,14 @@ ALTER TABLE ONLY public.payment_terms
 
 
 --
+-- Name: payroll_component_correction_allocations payroll_component_correction_allocations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_component_correction_allocations
+    ADD CONSTRAINT payroll_component_correction_allocations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: payroll_component_tax_config payroll_component_tax_config_component_code_effective_from_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3507,6 +4542,38 @@ ALTER TABLE ONLY public.payroll_component_tax_config
 
 ALTER TABLE ONLY public.payroll_component_tax_config
     ADD CONSTRAINT payroll_component_tax_config_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_correction_groups payroll_correction_groups_correction_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_correction_groups
+    ADD CONSTRAINT payroll_correction_groups_correction_code_key UNIQUE (correction_code);
+
+
+--
+-- Name: payroll_correction_groups payroll_correction_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_correction_groups
+    ADD CONSTRAINT payroll_correction_groups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: posting_audit posting_audit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.posting_audit
+    ADD CONSTRAINT posting_audit_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: posting_events posting_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.posting_events
+    ADD CONSTRAINT posting_events_pkey PRIMARY KEY (id);
 
 
 --
@@ -3526,6 +4593,22 @@ ALTER TABLE ONLY public.projects
 
 
 --
+-- Name: quotation_revisions quotation_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotation_revisions
+    ADD CONSTRAINT quotation_revisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: quotation_revisions quotation_revisions_quotation_id_revision_no_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotation_revisions
+    ADD CONSTRAINT quotation_revisions_quotation_id_revision_no_key UNIQUE (quotation_id, revision_no);
+
+
+--
 -- Name: quotations quotations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3539,6 +4622,14 @@ ALTER TABLE ONLY public.quotations
 
 ALTER TABLE ONLY public.quotations
     ADD CONSTRAINT quotations_quotation_number_key UNIQUE (quotation_number);
+
+
+--
+-- Name: receipt_allocations receipt_allocations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipt_allocations
+    ADD CONSTRAINT receipt_allocations_pkey PRIMARY KEY (id);
 
 
 --
@@ -3563,6 +4654,14 @@ ALTER TABLE ONLY public.role_menu_permissions
 
 ALTER TABLE ONLY public.service_orders
     ADD CONSTRAINT service_orders_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: service_orders service_orders_settlement_basis_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.service_orders
+    ADD CONSTRAINT service_orders_settlement_basis_check CHECK ((settlement_basis = ANY (ARRAY['contract_actual'::text, 'quotation'::text]))) NOT VALID;
 
 
 --
@@ -3638,6 +4737,14 @@ ALTER TABLE ONLY public.settings
 
 
 --
+-- Name: payroll_component_correction_allocations uq_correction_allocation_component; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_component_correction_allocations
+    ADD CONSTRAINT uq_correction_allocation_component UNIQUE (correction_group_id, component_id);
+
+
+--
 -- Name: user_attachments user_attachments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3659,6 +4766,86 @@ ALTER TABLE ONLY public.user_service_orders
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: voucher_attachment_links voucher_attachment_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_attachment_links
+    ADD CONSTRAINT voucher_attachment_links_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: voucher_attachment_links voucher_attachment_links_voucher_id_source_type_source_id_r_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_attachment_links
+    ADD CONSTRAINT voucher_attachment_links_voucher_id_source_type_source_id_r_key UNIQUE (voucher_id, source_type, source_id, row_version);
+
+
+--
+-- Name: voucher_entries voucher_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_entries
+    ADD CONSTRAINT voucher_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: voucher_entries voucher_entries_voucher_id_line_no_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_entries
+    ADD CONSTRAINT voucher_entries_voucher_id_line_no_key UNIQUE (voucher_id, line_no);
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_settlement_lines
+    ADD CONSTRAINT voucher_settlement_lines_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_voucher_entry_id_source_event_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_settlement_lines
+    ADD CONSTRAINT voucher_settlement_lines_voucher_entry_id_source_event_id_key UNIQUE (voucher_entry_id, source_event_id);
+
+
+--
+-- Name: voucher_source_links voucher_source_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_source_links
+    ADD CONSTRAINT voucher_source_links_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: voucher_source_links voucher_source_links_voucher_id_source_type_source_id_sourc_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_source_links
+    ADD CONSTRAINT voucher_source_links_voucher_id_source_type_source_id_sourc_key UNIQUE (voucher_id, source_type, source_id, source_version);
+
+
+--
+-- Name: vouchers vouchers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vouchers
+    ADD CONSTRAINT vouchers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: vouchers vouchers_voucher_number_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vouchers
+    ADD CONSTRAINT vouchers_voucher_number_key UNIQUE (voucher_number);
 
 
 --
@@ -3783,6 +4970,34 @@ CREATE INDEX idx_contract_rate_versions_lookup ON public.contract_rate_versions 
 
 
 --
+-- Name: idx_corr_alloc_canonical_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_corr_alloc_canonical_order ON public.payroll_component_correction_allocations USING btree (canonical_payment_order_id);
+
+
+--
+-- Name: idx_corr_alloc_component; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_corr_alloc_component ON public.payroll_component_correction_allocations USING btree (component_id);
+
+
+--
+-- Name: idx_corr_alloc_disposition; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_corr_alloc_disposition ON public.payroll_component_correction_allocations USING btree (disposition);
+
+
+--
+-- Name: idx_corr_alloc_group; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_corr_alloc_group ON public.payroll_component_correction_allocations USING btree (correction_group_id, disposition);
+
+
+--
 -- Name: idx_customer_reimbursement_attachment_expense_source; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3804,6 +5019,13 @@ CREATE INDEX idx_customer_reimbursement_expense_links_reimbursement ON public.cu
 
 
 --
+-- Name: idx_customer_reimbursements_quote_revision; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_customer_reimbursements_quote_revision ON public.customer_reimbursements USING btree (quotation_revision_id);
+
+
+--
 -- Name: idx_email_delivery_entity; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3822,6 +5044,20 @@ CREATE INDEX idx_employee_advances_employee ON public.employee_advances USING bt
 --
 
 CREATE INDEX idx_employee_payments_batch ON public.employee_payment_orders USING btree (batch_id);
+
+
+--
+-- Name: idx_employee_payments_correction_group; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_employee_payments_correction_group ON public.employee_payment_orders USING btree (correction_group_id);
+
+
+--
+-- Name: idx_employee_payments_correction_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_employee_payments_correction_status ON public.employee_payment_orders USING btree (correction_status);
 
 
 --
@@ -3972,6 +5208,13 @@ CREATE INDEX idx_payroll_component_tax_config_lookup ON public.payroll_component
 
 
 --
+-- Name: idx_payroll_correction_groups_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payroll_correction_groups_status ON public.payroll_correction_groups USING btree (status, correction_code);
+
+
+--
 -- Name: idx_profit_ledger_date; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3983,6 +5226,13 @@ CREATE INDEX idx_profit_ledger_date ON public.profit_ledger USING btree (work_da
 --
 
 CREATE INDEX idx_profit_ledger_order ON public.profit_ledger USING btree (service_order_id, work_date);
+
+
+--
+-- Name: idx_quotation_revisions_quote; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_quotation_revisions_quote ON public.quotation_revisions USING btree (quotation_id, revision_no DESC);
 
 
 --
@@ -4032,6 +5282,20 @@ CREATE INDEX idx_sr_mileage_evidence_report ON public.service_report_mileage_evi
 --
 
 CREATE INDEX idx_worker_tax_status_employee ON public.worker_tax_status_history USING btree (employee_id, effective_from);
+
+
+--
+-- Name: ix_invoice_accounting_corrections_invoice; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_invoice_accounting_corrections_invoice ON public.invoice_accounting_corrections USING btree (invoice_id, status);
+
+
+--
+-- Name: ix_prepayment_applications_invoice; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_prepayment_applications_invoice ON public.customer_prepayment_applications USING btree (invoice_id, status);
 
 
 --
@@ -4210,6 +5474,27 @@ CREATE UNIQUE INDEX uq_9f319d5fa6e43bab02e2 ON public.knowledge_document_version
 
 
 --
+-- Name: uq_active_receipt_invoice_allocation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_active_receipt_invoice_allocation ON public.receipt_allocations USING btree (receipt_id, invoice_id) WHERE (status = 'active'::text);
+
+
+--
+-- Name: uq_active_voucher_settlement_target_event; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_active_voucher_settlement_target_event ON public.voucher_settlement_lines USING btree (target_type, target_id, source_event_id) WHERE (status = 'active'::text);
+
+
+--
+-- Name: uq_advance_application_occurrence; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_advance_application_occurrence ON public.employee_advance_applications USING btree (advance_id, payment_order_id, occurrence_no) WHERE (occurrence_no IS NOT NULL);
+
+
+--
 -- Name: uq_af526c6836bd29281cf9; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4298,6 +5583,162 @@ CREATE UNIQUE INDEX uq_fbde7bff2f60b84f54df ON public.invoices USING btree (invo
 --
 
 CREATE UNIQUE INDEX uq_fd298cf8a507528f9664 ON public.ai_daily_report_manifest_sources USING btree (manifest_id, source_identity);
+
+
+--
+-- Name: uq_posting_events_business_event; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_posting_events_business_event ON public.posting_events USING btree (source_type, source_id, related_source_id, source_version, event_type, occurrence_no);
+
+
+--
+-- Name: uq_posting_events_idempotency_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_posting_events_idempotency_key ON public.posting_events USING btree (idempotency_key) WHERE (idempotency_key IS NOT NULL);
+
+
+--
+-- Name: accounting_periods accounting_periods_integrity_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER accounting_periods_integrity_guard BEFORE INSERT OR UPDATE OF period_start, period_end ON public.accounting_periods FOR EACH ROW EXECUTE FUNCTION public.guard_accounting_period();
+
+
+--
+-- Name: invoice_items invoice_items_posted_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER invoice_items_posted_guard BEFORE INSERT OR DELETE OR UPDATE ON public.invoice_items FOR EACH ROW EXECUTE FUNCTION public.guard_posted_invoice_item();
+
+
+--
+-- Name: invoices invoices_posted_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER invoices_posted_guard BEFORE DELETE OR UPDATE ON public.invoices FOR EACH ROW EXECUTE FUNCTION public.guard_posted_invoice();
+
+
+--
+-- Name: voucher_attachment_links voucher_attachment_links_protect_posted; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER voucher_attachment_links_protect_posted BEFORE INSERT OR DELETE OR UPDATE ON public.voucher_attachment_links FOR EACH ROW EXECUTE FUNCTION public.protect_posted_voucher_child();
+
+
+--
+-- Name: voucher_entries voucher_entries_balance_check; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER voucher_entries_balance_check AFTER INSERT OR DELETE OR UPDATE ON public.voucher_entries DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.enforce_voucher_balance();
+
+
+--
+-- Name: voucher_entries voucher_entries_protect_posted; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER voucher_entries_protect_posted BEFORE INSERT OR DELETE OR UPDATE ON public.voucher_entries FOR EACH ROW EXECUTE FUNCTION public.protect_posted_voucher_child();
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_protect_posted; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER voucher_settlement_lines_protect_posted BEFORE INSERT OR DELETE OR UPDATE ON public.voucher_settlement_lines FOR EACH ROW EXECUTE FUNCTION public.protect_posted_voucher_child();
+
+
+--
+-- Name: voucher_source_links voucher_source_links_protect_posted; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER voucher_source_links_protect_posted BEFORE INSERT OR DELETE OR UPDATE ON public.voucher_source_links FOR EACH ROW EXECUTE FUNCTION public.protect_posted_voucher_child();
+
+
+--
+-- Name: vouchers vouchers_balance_check; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER vouchers_balance_check AFTER INSERT OR UPDATE OF status ON public.vouchers DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.enforce_voucher_balance();
+
+
+--
+-- Name: vouchers vouchers_mutation_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER vouchers_mutation_guard BEFORE DELETE OR UPDATE ON public.vouchers FOR EACH ROW EXECUTE FUNCTION public.guard_voucher_mutation();
+
+
+--
+-- Name: accounting_base_check_report accounting_base_check_report_saved_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_base_check_report
+    ADD CONSTRAINT accounting_base_check_report_saved_by_fkey FOREIGN KEY (saved_by) REFERENCES public.users(id);
+
+
+--
+-- Name: accounting_opening_cutover accounting_opening_cutover_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_cutover
+    ADD CONSTRAINT accounting_opening_cutover_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: accounting_opening_cutover accounting_opening_cutover_posted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_cutover
+    ADD CONSTRAINT accounting_opening_cutover_posted_by_fkey FOREIGN KEY (posted_by) REFERENCES public.users(id);
+
+
+--
+-- Name: accounting_opening_cutover accounting_opening_cutover_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_cutover
+    ADD CONSTRAINT accounting_opening_cutover_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: accounting_opening_lines accounting_opening_lines_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_lines
+    ADD CONSTRAINT accounting_opening_lines_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id);
+
+
+--
+-- Name: accounting_opening_lines accounting_opening_lines_cutover_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_lines
+    ADD CONSTRAINT accounting_opening_lines_cutover_id_fkey FOREIGN KEY (cutover_id) REFERENCES public.accounting_opening_cutover(id);
+
+
+--
+-- Name: accounting_opening_lines accounting_opening_lines_voucher_entry_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_opening_lines
+    ADD CONSTRAINT accounting_opening_lines_voucher_entry_id_fkey FOREIGN KEY (voucher_entry_id) REFERENCES public.voucher_entries(id);
+
+
+--
+-- Name: accounting_periods accounting_periods_closed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_periods
+    ADD CONSTRAINT accounting_periods_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES public.users(id);
+
+
+--
+-- Name: accounting_periods accounting_periods_reopened_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounting_periods
+    ADD CONSTRAINT accounting_periods_reopened_by_fkey FOREIGN KEY (reopened_by) REFERENCES public.users(id);
 
 
 --
@@ -4597,6 +6038,118 @@ ALTER TABLE ONLY public.country_translations
 
 
 --
+-- Name: customer_prepayment_applications customer_prepayment_applications_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayment_applications
+    ADD CONSTRAINT customer_prepayment_applications_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: customer_prepayment_applications customer_prepayment_applications_invoice_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayment_applications
+    ADD CONSTRAINT customer_prepayment_applications_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES public.invoices(id);
+
+
+--
+-- Name: customer_prepayment_applications customer_prepayment_applications_posting_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayment_applications
+    ADD CONSTRAINT customer_prepayment_applications_posting_event_id_fkey FOREIGN KEY (posting_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: customer_prepayment_applications customer_prepayment_applications_prepayment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayment_applications
+    ADD CONSTRAINT customer_prepayment_applications_prepayment_id_fkey FOREIGN KEY (prepayment_id) REFERENCES public.customer_prepayments(id);
+
+
+--
+-- Name: customer_prepayment_applications customer_prepayment_applications_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayment_applications
+    ADD CONSTRAINT customer_prepayment_applications_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: customer_prepayments customer_prepayments_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayments
+    ADD CONSTRAINT customer_prepayments_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.clients(id);
+
+
+--
+-- Name: customer_prepayments customer_prepayments_posting_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayments
+    ADD CONSTRAINT customer_prepayments_posting_event_id_fkey FOREIGN KEY (posting_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: customer_prepayments customer_prepayments_receipt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayments
+    ADD CONSTRAINT customer_prepayments_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES public.customer_receipts(id);
+
+
+--
+-- Name: customer_prepayments customer_prepayments_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_prepayments
+    ADD CONSTRAINT customer_prepayments_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: customer_receipts customer_receipts_bank_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_receipts
+    ADD CONSTRAINT customer_receipts_bank_account_id_fkey FOREIGN KEY (bank_account_id) REFERENCES public.bank_accounts(id);
+
+
+--
+-- Name: customer_receipts customer_receipts_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_receipts
+    ADD CONSTRAINT customer_receipts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: customer_receipts customer_receipts_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_receipts
+    ADD CONSTRAINT customer_receipts_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.clients(id);
+
+
+--
+-- Name: customer_receipts customer_receipts_posting_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_receipts
+    ADD CONSTRAINT customer_receipts_posting_event_id_fkey FOREIGN KEY (posting_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: customer_receipts customer_receipts_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_receipts
+    ADD CONSTRAINT customer_receipts_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
 -- Name: customer_reimbursement_attachments customer_reimbursement_attachmen_customer_reimbursement_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4661,6 +6214,14 @@ ALTER TABLE ONLY public.customer_reimbursements
 
 
 --
+-- Name: customer_reimbursements customer_reimbursements_quotation_revision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.customer_reimbursements
+    ADD CONSTRAINT customer_reimbursements_quotation_revision_id_fkey FOREIGN KEY (quotation_revision_id) REFERENCES public.quotation_revisions(id);
+
+
+--
 -- Name: customer_reimbursements customer_reimbursements_service_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4706,6 +6267,22 @@ ALTER TABLE ONLY public.employee_advance_applications
 
 ALTER TABLE ONLY public.employee_advance_applications
     ADD CONSTRAINT employee_advance_applications_payment_order_id_fkey FOREIGN KEY (payment_order_id) REFERENCES public.employee_payment_orders(id);
+
+
+--
+-- Name: employee_advance_applications employee_advance_applications_posting_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_advance_applications
+    ADD CONSTRAINT employee_advance_applications_posting_event_id_fkey FOREIGN KEY (posting_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: employee_advance_applications employee_advance_applications_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_advance_applications
+    ADD CONSTRAINT employee_advance_applications_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
 
 
 --
@@ -5069,6 +6646,54 @@ ALTER TABLE ONLY public.field_photos
 
 
 --
+-- Name: employee_payment_orders fk_employee_payments_correction_group; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_payment_orders
+    ADD CONSTRAINT fk_employee_payments_correction_group FOREIGN KEY (correction_group_id) REFERENCES public.payroll_correction_groups(id);
+
+
+--
+-- Name: employee_payment_orders fk_employee_payments_superseded_by; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.employee_payment_orders
+    ADD CONSTRAINT fk_employee_payments_superseded_by FOREIGN KEY (superseded_by_id) REFERENCES public.employee_payment_orders(id);
+
+
+--
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_invoice_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES public.invoices(id);
+
+
+--
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_posting_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_posting_event_id_fkey FOREIGN KEY (posting_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
 -- Name: invoice_attachments invoice_attachments_invoice_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5181,11 +6806,99 @@ ALTER TABLE ONLY public.payment_order_sources
 
 
 --
+-- Name: payroll_component_correction_allocations payroll_component_correction_al_canonical_payment_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_component_correction_allocations
+    ADD CONSTRAINT payroll_component_correction_al_canonical_payment_order_id_fkey FOREIGN KEY (canonical_payment_order_id) REFERENCES public.employee_payment_orders(id);
+
+
+--
+-- Name: payroll_component_correction_allocations payroll_component_correction_allocatio_correction_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_component_correction_allocations
+    ADD CONSTRAINT payroll_component_correction_allocatio_correction_group_id_fkey FOREIGN KEY (correction_group_id) REFERENCES public.payroll_correction_groups(id);
+
+
+--
+-- Name: payroll_component_correction_allocations payroll_component_correction_allocatio_keeper_component_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_component_correction_allocations
+    ADD CONSTRAINT payroll_component_correction_allocatio_keeper_component_id_fkey FOREIGN KEY (keeper_component_id) REFERENCES public.employee_payment_components(id);
+
+
+--
+-- Name: payroll_component_correction_allocations payroll_component_correction_allocations_component_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_component_correction_allocations
+    ADD CONSTRAINT payroll_component_correction_allocations_component_id_fkey FOREIGN KEY (component_id) REFERENCES public.employee_payment_components(id);
+
+
+--
+-- Name: payroll_component_correction_allocations payroll_component_correction_allocations_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_component_correction_allocations
+    ADD CONSTRAINT payroll_component_correction_allocations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
 -- Name: payroll_component_tax_config payroll_component_tax_config_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.payroll_component_tax_config
     ADD CONSTRAINT payroll_component_tax_config_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: payroll_correction_groups payroll_correction_groups_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payroll_correction_groups
+    ADD CONSTRAINT payroll_correction_groups_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: posting_audit posting_audit_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.posting_audit
+    ADD CONSTRAINT posting_audit_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id);
+
+
+--
+-- Name: posting_audit posting_audit_posting_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.posting_audit
+    ADD CONSTRAINT posting_audit_posting_event_id_fkey FOREIGN KEY (posting_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: posting_audit posting_audit_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.posting_audit
+    ADD CONSTRAINT posting_audit_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: posting_events posting_events_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.posting_events
+    ADD CONSTRAINT posting_events_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: posting_events posting_events_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.posting_events
+    ADD CONSTRAINT posting_events_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
 
 
 --
@@ -5221,6 +6934,22 @@ ALTER TABLE ONLY public.profit_ledger
 
 
 --
+-- Name: quotation_revisions quotation_revisions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotation_revisions
+    ADD CONSTRAINT quotation_revisions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: quotation_revisions quotation_revisions_quotation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quotation_revisions
+    ADD CONSTRAINT quotation_revisions_quotation_id_fkey FOREIGN KEY (quotation_id) REFERENCES public.quotations(id) ON DELETE CASCADE;
+
+
+--
 -- Name: quotations quotations_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5234,6 +6963,46 @@ ALTER TABLE ONLY public.quotations
 
 ALTER TABLE ONLY public.quotations
     ADD CONSTRAINT quotations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: receipt_allocations receipt_allocations_invoice_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipt_allocations
+    ADD CONSTRAINT receipt_allocations_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES public.invoices(id);
+
+
+--
+-- Name: receipt_allocations receipt_allocations_receipt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipt_allocations
+    ADD CONSTRAINT receipt_allocations_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES public.customer_receipts(id);
+
+
+--
+-- Name: receipt_allocations receipt_allocations_redirected_to_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipt_allocations
+    ADD CONSTRAINT receipt_allocations_redirected_to_fkey FOREIGN KEY (redirected_to) REFERENCES public.receipt_allocations(id);
+
+
+--
+-- Name: receipt_allocations receipt_allocations_reversed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipt_allocations
+    ADD CONSTRAINT receipt_allocations_reversed_by_fkey FOREIGN KEY (reversed_by) REFERENCES public.receipt_allocations(id);
+
+
+--
+-- Name: receipt_allocations receipt_allocations_source_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.receipt_allocations
+    ADD CONSTRAINT receipt_allocations_source_event_id_fkey FOREIGN KEY (source_event_id) REFERENCES public.posting_events(id);
 
 
 --
@@ -5397,6 +7166,118 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: voucher_attachment_links voucher_attachment_links_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_attachment_links
+    ADD CONSTRAINT voucher_attachment_links_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: voucher_entries voucher_entries_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_entries
+    ADD CONSTRAINT voucher_entries_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id);
+
+
+--
+-- Name: voucher_entries voucher_entries_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_entries
+    ADD CONSTRAINT voucher_entries_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_redirected_to_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_settlement_lines
+    ADD CONSTRAINT voucher_settlement_lines_redirected_to_fkey FOREIGN KEY (redirected_to) REFERENCES public.voucher_settlement_lines(id);
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_reversed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_settlement_lines
+    ADD CONSTRAINT voucher_settlement_lines_reversed_by_fkey FOREIGN KEY (reversed_by) REFERENCES public.voucher_settlement_lines(id);
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_source_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_settlement_lines
+    ADD CONSTRAINT voucher_settlement_lines_source_event_id_fkey FOREIGN KEY (source_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_voucher_entry_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_settlement_lines
+    ADD CONSTRAINT voucher_settlement_lines_voucher_entry_id_fkey FOREIGN KEY (voucher_entry_id) REFERENCES public.voucher_entries(id);
+
+
+--
+-- Name: voucher_settlement_lines voucher_settlement_lines_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_settlement_lines
+    ADD CONSTRAINT voucher_settlement_lines_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: voucher_source_links voucher_source_links_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.voucher_source_links
+    ADD CONSTRAINT voucher_source_links_voucher_id_fkey FOREIGN KEY (voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: vouchers vouchers_corrects_opening_line_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vouchers
+    ADD CONSTRAINT vouchers_corrects_opening_line_fkey FOREIGN KEY (corrects_opening_line) REFERENCES public.accounting_opening_lines(id);
+
+
+--
+-- Name: vouchers vouchers_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vouchers
+    ADD CONSTRAINT vouchers_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: vouchers vouchers_posted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vouchers
+    ADD CONSTRAINT vouchers_posted_by_fkey FOREIGN KEY (posted_by) REFERENCES public.users(id);
+
+
+--
+-- Name: vouchers vouchers_reversal_of_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vouchers
+    ADD CONSTRAINT vouchers_reversal_of_fkey FOREIGN KEY (reversal_of) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: vouchers vouchers_reversed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vouchers
+    ADD CONSTRAINT vouchers_reversed_by_fkey FOREIGN KEY (reversed_by) REFERENCES public.users(id);
+
+
+--
 -- Name: worker_tax_status_history worker_tax_status_history_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5416,7 +7297,7 @@ ALTER TABLE ONLY public.worker_tax_status_history
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ZbtvlukXPf7P73kt4Glgg2BDKearSJgRZaOjr8Wssn4qSggdg0fY6qIIvVfBbF7
+\unrestrict xeme7SwRytJyMQuiuJ6uzcofeV3vCcjd8iZTCJnqx9AqadbFIaKZNSSOZ5na2Rf
 
 INSERT INTO public.invoice_sqlite_columns VALUES ('ai_daily_report_actions', 0, 'id', 'INTEGER', 0, NULL, 1);
 INSERT INTO public.invoice_sqlite_columns VALUES ('ai_daily_report_actions', 1, 'draft_id', 'INTEGER', 1, NULL, 0);

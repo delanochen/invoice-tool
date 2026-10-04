@@ -147,8 +147,14 @@ upgrade_postgresql_schema() {
   python3 "$APP_DIR/scripts/upgrade_postgresql_0293.py" --database "$PG_DATABASE" || return 1
   python3 "$APP_DIR/scripts/upgrade_postgresql_0294.py" --database "$PG_DATABASE" || return 1
   python3 "$APP_DIR/scripts/upgrade_postgresql_0295.py" --database "$PG_DATABASE" || return 1
-  python3 "$APP_DIR/scripts/upgrade_postgresql_0297.py" --database "$PG_DATABASE" || return 1
   python3 "$APP_DIR/scripts/upgrade_postgresql_0296.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0297.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0298.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0299.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0300.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0301.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0302.py" --database "$PG_DATABASE" || return 1
+  python3 "$APP_DIR/scripts/upgrade_postgresql_0303.py" --database "$PG_DATABASE" || return 1
 }
 build_current_version() {
   APP_VERSION="$(tr -d '\r\n' < VERSION)"

@@ -33,6 +33,7 @@ from invoice_tool.payroll.tax import (
     EXPENSE_CLASSIFICATION_CURRENT,
     EXPENSE_CLASSIFICATION_LEGACY_BACKFILL,
 )
+from invoice_tool.accounting import EventKey, PostingError, PostingService
 
 
 PAYMENT_STATUS_LABELS = {
@@ -80,6 +81,113 @@ def _csv_value(row, *names, default=""):
         if value is not None and str(value).strip() != "":
             return str(value).strip()
     return default
+
+
+def _unmatch_bank_transaction(api, transaction_id, actor_id):
+    """Remove a bank association without changing the underlying paid fact.
+
+    Returns the newly-created payment-order event used as the accounting
+    business anchor plus the target identity. The caller owns the transaction.
+    """
+    tx = api["db"]().execute(
+        "select * from bank_transactions where id=?", (transaction_id,)
+    ).fetchone()
+    if not tx:
+        raise ValueError("银行流水不存在。")
+    payment_id = tx["matched_payment_order_id"]
+    batch_id = tx["matched_batch_id"]
+    if bool(payment_id) == bool(batch_id):
+        raise ValueError("银行流水没有唯一有效的匹配目标。")
+    timestamp = api["now"]()
+    api["db"]().execute(
+        "update bank_transactions set matched_payment_order_id=null,matched_batch_id=null,"
+        "matched_by=null,matched_at=null,sync_status='imported' where id=?",
+        (transaction_id,),
+    )
+    anchor_id = None
+    if payment_id:
+        payment = _payment_order(api, payment_id)
+        if payment["status"] != "reconciled":
+            raise ValueError("匹配付款单当前不是已对账状态。")
+        api["db"]().execute(
+            "update employee_payment_orders set status='paid',reconciled_by=null,"
+            "reconciled_at=null,updated_at=? where id=?", (timestamp, payment_id),
+        )
+        cursor = api["db"]().execute(
+            "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,"
+            "details,created_by,created_at) values(?,'unmatch','reconciled','paid',?,?,?)",
+            (payment_id, f"解除银行流水 #{transaction_id} 匹配", actor_id, timestamp),
+        )
+        anchor_id = cursor.lastrowid
+        target_type, target_id, target_number = "payment", payment_id, payment["payment_number"]
+    else:
+        batch = _load_batch(api, batch_id)
+        if batch["status"] != "reconciled":
+            raise ValueError("匹配付款批次当前不是已对账状态。")
+        orders = _batch_orders(api, batch_id)
+        if not orders:
+            raise ValueError("付款批次没有成员，不能解除匹配。")
+        api["db"]().execute(
+            "update employee_payment_batches set status='issued',reconciled_by=null,"
+            "reconciled_at=null,updated_at=? where id=?", (timestamp, batch_id),
+        )
+        for order in orders:
+            if order["status"] != "reconciled":
+                raise ValueError("付款批次包含非已对账成员，不能解除匹配。")
+            api["db"]().execute(
+                "update employee_payment_orders set status='paid',reconciled_by=null,"
+                "reconciled_at=null,updated_at=? where id=?", (timestamp, order["id"]),
+            )
+            cursor = api["db"]().execute(
+                "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,"
+                "details,created_by,created_at) values(?,'unmatch','reconciled','paid',?,?,?)",
+                (order["id"], f"批次 {batch['batch_number']} 解除银行流水 #{transaction_id} 匹配",
+                 actor_id, timestamp),
+            )
+            if anchor_id is None:
+                anchor_id = cursor.lastrowid
+        target_type, target_id, target_number = "batch", batch_id, batch["batch_number"]
+    return {
+        "transaction": tx,
+        "target_type": target_type,
+        "target_id": target_id,
+        "target_number": target_number,
+        "business_anchor_id": anchor_id,
+    }
+
+
+def _record_bank_accounting_event(
+    api, posting, *, enabled, tx, target_type, target_id, business_anchor_id,
+    event_type, actor_id, reason_code,
+):
+    """Record a matched/unmatched audit event without touching the ledger."""
+    if not enabled:
+        return None
+    source_type = f"bank_transaction.{target_type}"
+    occurrence = api["db"]().execute(
+        "select count(*) from posting_events where source_type=? and source_id=? "
+        "and related_source_id=? and event_type=?",
+        (source_type, tx["id"], target_id, event_type),
+    ).fetchone()[0] + 1
+    return posting.post_event(
+        key=EventKey(source_type, tx["id"], 1, event_type,
+                     occurrence_no=occurrence, related_source_id=target_id),
+        business_anchor_type="payment_order_event",
+        business_anchor_id=business_anchor_id,
+        business_date=tx["transaction_date"],
+        accounting_date=date.today().isoformat(),
+        requires_gl=False,
+        source_snapshot={
+            "bank_transaction_id": tx["id"],
+            "target_type": target_type,
+            "target_id": target_id,
+            "amount": str(tx["amount"]),
+            "currency": tx["currency"],
+        },
+        actor_id=actor_id,
+        idempotency_key=request.headers.get("Idempotency-Key") or None,
+        reason_code=reason_code,
+    )
 
 
 def _csv_rows(upload):
@@ -1807,10 +1915,14 @@ def register_employee_finance_routes(app, api):
             batch = _load_batch(api, batch_id)
             if batch["status"] != "issued":
                 raise ValueError("只有「已发放」的批次可以作废。")
+            orders = _batch_orders(api, batch_id)
+            paid_members = [order["payment_number"] for order in orders
+                            if order["status"] in {"paid", "reconciled"} or order["paid_at"]]
+            if paid_members:
+                raise ValueError("批次包含已实付付款单，不能作废；资金回流请走退款：" + "、".join(paid_members))
             reason = request.form.get("reason", "").strip()
             if not reason:
                 raise ValueError("请填写作废原因。")
-            orders = _batch_orders(api, batch_id)
             now = api["now"]()
             for order in orders:
                 # 借款抵扣要冲销（发放时落过一笔 application），否则借款余额虚低。
@@ -2047,7 +2159,9 @@ def register_employee_finance_routes(app, api):
         if request.method == "POST":
             _require(api, "bank_reconciliation", "reconcile")
             _require(api, "employee_payments", "reconcile")
+            posting = PostingService(api["db"]())
             try:
+                accounting_enabled = posting.require_posting_ready()
                 transaction_id = int(request.form.get("transaction_id", ""))
                 tx = api["db"]().execute("select * from bank_transactions where id=?", (transaction_id,)).fetchone()
                 if not tx or tx["matched_payment_order_id"] or tx["matched_batch_id"]:
@@ -2069,19 +2183,29 @@ def register_employee_finance_routes(app, api):
                         "update bank_transactions set matched_batch_id=?,matched_by=?,matched_at=?,sync_status='matched' where id=?",
                         (batch["id"], g.user["id"], api["now"](), transaction_id),
                     )
+                    business_anchor_id = None
                     for order in orders:
                         api["db"]().execute(
                             "update employee_payment_orders set status='reconciled',reconciled_by=?,reconciled_at=?,updated_at=? where id=?",
                             (g.user["id"], api["now"](), api["now"](), order["id"]),
                         )
-                        api["db"]().execute(
+                        cursor = api["db"]().execute(
                             "insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,?,?,?,?,?,?)",
                             (order["id"], "reconcile", order["status"], "reconciled",
                              f"批次 {batch['batch_number']} 匹配银行流水 #{transaction_id}", g.user["id"], api["now"]()),
                         )
+                        if business_anchor_id is None:
+                            business_anchor_id = cursor.lastrowid
                     api["db"]().execute(
                         "update employee_payment_batches set status='reconciled',reconciled_by=?,reconciled_at=?,updated_at=? where id=?",
                         (g.user["id"], api["now"](), api["now"](), batch["id"]),
+                    )
+                    _record_bank_accounting_event(
+                        api, posting, enabled=accounting_enabled, tx=tx,
+                        target_type="batch", target_id=batch["id"],
+                        business_anchor_id=business_anchor_id,
+                        event_type="bank.matched", actor_id=g.user["id"],
+                        reason_code="bank_matched",
                     )
                     api["log_action"]("reconcile", "payment_batch", batch["id"], batch["batch_number"], f"银行流水 #{transaction_id}")
                     api["db"]().commit()
@@ -2098,13 +2222,28 @@ def register_employee_finance_routes(app, api):
                     raise ValueError("流水金额必须与付款单实付金额一致。")
                 api["db"]().execute("update bank_transactions set matched_payment_order_id=?,matched_by=?,matched_at=?,sync_status='matched' where id=?", (payment_id,g.user["id"],api["now"](),transaction_id))
                 api["db"]().execute("update employee_payment_orders set status='reconciled',reconciled_by=?,reconciled_at=?,updated_at=? where id=?", (g.user["id"],api["now"](),api["now"](),payment_id))
-                api["db"]().execute("insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,'reconcile','paid','reconciled',?,?,?)", (payment_id,f"匹配银行流水 #{transaction_id}",g.user["id"],api["now"]()))
+                anchor = api["db"]().execute("insert into payment_order_events(payment_order_id,event_type,from_status,to_status,details,created_by,created_at) values(?,'reconcile','paid','reconciled',?,?,?)", (payment_id,f"匹配银行流水 #{transaction_id}",g.user["id"],api["now"]()))
+                _record_bank_accounting_event(
+                    api, posting, enabled=accounting_enabled, tx=tx,
+                    target_type="payment", target_id=payment_id,
+                    business_anchor_id=anchor.lastrowid,
+                    event_type="bank.matched", actor_id=g.user["id"],
+                    reason_code="bank_matched",
+                )
                 api["log_action"]("reconcile", "employee_payment", payment_id, payment["payment_number"], f"银行流水 #{transaction_id}")
                 api["db"]().commit(); flash("付款单与银行流水已完成对账。", "success")
-            except (ValueError, TypeError) as error:
+            except (ValueError, TypeError, PostingError) as error:
                 api["db"]().rollback(); flash(str(error), "error")
             return redirect(url_for("bank_reconciliation"))
         transactions = api["db"]().execute("select t.*,a.account_name from bank_transactions t join bank_accounts a on a.id=t.bank_account_id where t.matched_payment_order_id is null and t.matched_batch_id is null and t.direction='debit' order by t.transaction_date desc").fetchall()
+        matched_transactions = api["db"]().execute(
+            """select t.*,a.account_name,p.payment_number,b.batch_number
+               from bank_transactions t join bank_accounts a on a.id=t.bank_account_id
+               left join employee_payment_orders p on p.id=t.matched_payment_order_id
+               left join employee_payment_batches b on b.id=t.matched_batch_id
+               where t.matched_payment_order_id is not null or t.matched_batch_id is not null
+               order by t.matched_at desc,t.id desc"""
+        ).fetchall()
         payments = api["db"]().execute("select p.*,u.name employee_name from employee_payment_orders p join users u on u.id=p.employee_id where p.status='paid' order by p.paid_at desc").fetchall()
         batches = api["db"]().execute(
             """select b.*,u.name employee_name,a.account_name from employee_payment_batches b
@@ -2112,7 +2251,38 @@ def register_employee_finance_routes(app, api):
             where b.status='issued' order by b.issued_at desc,b.id desc"""
         ).fetchall()
         return render_template("bank_reconciliation.html", transactions=transactions, payments=payments,
-                               batches=batches, method_labels=PAYMENT_METHOD_LABELS)
+                               matched_transactions=matched_transactions, batches=batches,
+                               method_labels=PAYMENT_METHOD_LABELS)
+
+    @app.post("/finance/reconciliation/<int:transaction_id>/unmatch")
+    @api["login_required"]
+    def bank_reconciliation_unmatch(transaction_id):
+        _require(api, "bank_reconciliation", "reconcile")
+        _require(api, "employee_payments", "reconcile")
+        posting = PostingService(api["db"]())
+        try:
+            accounting_enabled = posting.require_posting_ready()
+            result = _unmatch_bank_transaction(api, transaction_id, g.user["id"])
+            if accounting_enabled:
+                tx = result["transaction"]
+                _record_bank_accounting_event(
+                    api, posting, enabled=True, tx=tx,
+                    target_type=result["target_type"], target_id=result["target_id"],
+                    business_anchor_id=result["business_anchor_id"],
+                    event_type="bank.unmatched", actor_id=g.user["id"],
+                    reason_code="bank_unmatched",
+                )
+            api["log_action"](
+                "unmatch", f"{result['target_type']}_bank_reconciliation",
+                result["target_id"], result["target_number"],
+                f"解除银行流水 #{transaction_id} 匹配",
+            )
+            api["db"]().commit()
+            flash("银行匹配已解除；付款事实与付款凭证保持不变。", "success")
+        except (ValueError, TypeError, PostingError) as error:
+            api["db"]().rollback()
+            flash(str(error), "error")
+        return redirect(url_for("bank_reconciliation"))
 
     @app.get("/finance/employee-ledger")
     @api["login_required"]

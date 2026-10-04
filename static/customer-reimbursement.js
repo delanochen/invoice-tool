@@ -207,21 +207,6 @@ reimbursementForm?.addEventListener("submit", (event) => {
     action.dataset.submitAction = "true";
     reimbursementForm.appendChild(action);
   }
-  // 方案 A gate：有待审核报销时，提交/开票按钮带 data-confirm-pending，
-  // 二次确认后再注入 confirm_pending=1 放行（已审核未计入是硬拦，不会到这）。
-  if (submitter?.dataset.confirmPending) {
-    if (!window.confirm(submitter.dataset.confirmPending)) {
-      event.preventDefault();
-      reimbursementSubmitting = false;
-      return;
-    }
-    const confirmInput = document.createElement("input");
-    confirmInput.type = "hidden";
-    confirmInput.name = "confirm_pending";
-    confirmInput.value = "1";
-    confirmInput.dataset.submitAction = "true";
-    reimbursementForm.appendChild(confirmInput);
-  }
   document.querySelectorAll(`button[form="${reimbursementForm.id}"]`).forEach((button) => {
     button.dataset.originalText = button.textContent;
     button.disabled = true;

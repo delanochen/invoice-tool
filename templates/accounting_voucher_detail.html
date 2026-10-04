@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}凭证 {{ voucher.voucher_number }}{% endblock %}
+{% block content %}
+<div class="page-header"><div><a href="{{ url_for('accounting_vouchers') }}">← 返回凭证列表</a><h1>{{ voucher.voucher_number }}</h1><p class="muted">{{ voucher.description or voucher.voucher_type }}</p></div><span class="status {{ voucher.status }}">{{ {'posted':'已过账','reversed':'已冲销','draft':'草稿'}.get(voucher.status,voucher.status) }}</span></div>
+<section class="card"><div class="detail-grid">
+  <div><span class="muted">会计日期</span><strong>{{ voucher.accounting_date }}</strong></div><div><span class="muted">业务日期</span><strong>{{ voucher.business_date }}</strong></div>
+  <div><span class="muted">事件类型</span><strong>{{ voucher.voucher_type }}</strong></div><div><span class="muted">币种</span><strong>{{ voucher.currency }}</strong></div>
+  <div><span class="muted">过账人</span><strong>{{ voucher.poster_name or '系统' }}</strong></div><div><span class="muted">冲销原凭证</span><strong>{% if voucher.reversal_of %}<a href="{{ url_for('accounting_voucher_detail', voucher_id=voucher.reversal_of) }}">#{{ voucher.reversal_of }}</a>{% else %}—{% endif %}</strong></div>
+</div></section>
+<section class="card table-card"><h2>会计分录</h2><div class="table-wrap"><table><thead><tr><th>行</th><th>科目</th><th>摘要</th><th>来源</th><th>借方</th><th>贷方</th></tr></thead><tbody>
+{% for row in entries %}<tr><td>{{ row.line_no }}</td><td><strong>{{ row.account_code }}</strong> {{ row.account_name }}</td><td>{{ row.memo or '—' }}</td><td>{{ row.source_line_type }}{% if row.source_line_id %} #{{ row.source_line_id }}{% endif %}</td><td class="money">{% if row.debit %}{{ '%.2f'|format(row.debit) }}{% endif %}</td><td class="money">{% if row.credit %}{{ '%.2f'|format(row.credit) }}{% endif %}</td></tr>{% endfor %}
+<tr class="total"><td colspan="4">合计</td><td class="money">{{ '%.2f'|format(entries|sum(attribute='debit')) }}</td><td class="money">{{ '%.2f'|format(entries|sum(attribute='credit')) }}</td></tr>
+</tbody></table></div></section>
+{% if sources %}<section class="card"><h2>业务来源</h2>{% for row in sources %}<p><code>{{ row.source_type }}</code> #{{ row.source_id }} · 版本 {{ row.source_version }}</p>{% endfor %}</section>{% endif %}
+{% if settlements %}<section class="card table-card"><h2>核销记录</h2><div class="table-wrap"><table><thead><tr><th>分录行</th><th>目标</th><th>金额</th><th>状态</th></tr></thead><tbody>{% for row in settlements %}<tr><td>{{ row.line_no }}</td><td>{{ row.target_type }} #{{ row.target_id }}</td><td class="money">{{ '%.2f'|format(row.amount) }}</td><td>{{ row.status }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+{% if audits %}<section class="card"><h2>审计轨迹</h2>{% for row in audits %}<p><strong>{{ row.action }}</strong> · {{ row.actor_name or '系统' }} · {{ row.created_at }}{% if row.reason_code %} · {{ row.reason_code }}{% endif %}</p>{% endfor %}</section>{% endif %}
+{% endblock %}

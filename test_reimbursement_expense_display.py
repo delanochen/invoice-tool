@@ -468,10 +468,10 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
         diff = a["total_amount"] - (a["labor_total"] + a["lodging_total"] + a["other_total"] + a["mileage_total"])
         self.assertAlmostEqual(diff, 155.5, places=4)
 
-    def _gate(self, allow_pending=False):
+    def _gate(self):
         # gate 内部调 db()/money()，必须在 app context 内执行。
         with self.module.app.app_context():
-            return self.module.customer_reimbursement_gate_error(self._reimb_row(), allow_pending=allow_pending)
+            return self.module.customer_reimbursement_gate_error(self._reimb_row())
 
     # ---- gate 三出口 ----
     def test_gate_includable_hard_block(self):
@@ -480,16 +480,28 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
         self.assertIsNotNone(gate)
         self.assertEqual(gate[0], "pending_sources")
 
-    def test_gate_pending_soft_block_default(self):
+    def test_gate_pending_hard_block(self):
         self._make_expense("2026-09-20", 300, status="pending")
         gate = self._gate()
         self.assertIsNotNone(gate)
         self.assertEqual(gate[0], "pending_approval")
 
-    def test_gate_pending_allowed_with_confirm(self):
+    def test_route_submit_pending_cannot_be_bypassed_with_confirm_field(self):
         self._make_expense("2026-09-20", 300, status="pending")
-        gate = self._gate(allow_pending=True)
-        self.assertIsNone(gate)
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user_id"] = self.user_id
+            response = client.post(
+                f"/service-orders/{self.order_id}/customer-reimbursement",
+                data={"action": "submit", "confirm_pending": "1"},
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 302)
+        with self.module.app.app_context():
+            status = self.module.db().execute(
+                "select status from customer_reimbursements where id = ?", (self.reimb_id,)
+            ).fetchone()["status"]
+        self.assertEqual(status, "draft")
 
     def test_gate_returned_not_blocked(self):
         self._make_expense("2026-09-20", 300, status="returned")

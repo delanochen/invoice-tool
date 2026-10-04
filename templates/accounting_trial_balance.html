@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}试算平衡表{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>试算平衡表</h1><p class="muted">按会计日期汇总已过账及已冲销凭证；原凭证和冲销凭证共同参与期间净额。</p></div><span class="status {{ 'posted' if balanced else 'void' }}">{{ '借贷平衡' if balanced else '借贷不平衡' }}</span></div>
+<section class="card"><form method="get" class="filter-bar"><label>会计日期起<input type="date" name="date_from" value="{{ filters.date_from }}"></label><label>会计日期止<input type="date" name="date_to" value="{{ filters.date_to }}"></label><button class="primary" type="submit">生成报表</button><a class="button" href="{{ url_for('accounting_trial_balance') }}">重置</a></form></section>
+<section class="card table-card"><div class="table-wrap"><table><thead><tr><th>科目代码</th><th>科目名称</th><th>类型</th><th>正常余额</th><th>借方发生</th><th>贷方发生</th><th>净余额</th></tr></thead><tbody>
+{% for row in rows %}{% set net = row.debit_total - row.credit_total %}<tr><td><a href="{{ url_for('accounting_account_ledger', account_id=row.id, date_from=filters.date_from, date_to=filters.date_to) }}"><strong>{{ row.account_code }}</strong></a></td><td>{{ row.account_name }}</td><td>{{ row.account_type }}</td><td>{{ '借' if row.normal_balance == 'debit' else '贷' }}</td><td class="money">{{ '%.2f'|format(row.debit_total) }}</td><td class="money">{{ '%.2f'|format(row.credit_total) }}</td><td class="money">{{ '%.2f'|format(net if row.normal_balance == 'debit' else -net) }}</td></tr>{% endfor %}
+<tr class="total"><td colspan="4">合计</td><td class="money">{{ '%.2f'|format(debit_total) }}</td><td class="money">{{ '%.2f'|format(credit_total) }}</td><td></td></tr>
+</tbody></table></div></section>
+{% endblock %}

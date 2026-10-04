@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}会计凭证{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>会计凭证</h1><p class="muted">已过账凭证只读；更正与冲销始终生成新凭证。</p></div>
+</div>
+<section class="card">
+  <form method="get" class="filter-bar">
+    <label>会计日期起<input type="date" name="date_from" value="{{ filters.date_from }}"></label>
+    <label>会计日期止<input type="date" name="date_to" value="{{ filters.date_to }}"></label>
+    <label>状态<select name="status"><option value="">全部</option>{% for value,label in [('posted','已过账'),('reversed','已冲销'),('draft','草稿')] %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label>事件<select name="event_type"><option value="">全部</option>{% for row in voucher_types %}<option value="{{ row.voucher_type }}" {% if filters.event_type == row.voucher_type %}selected{% endif %}>{{ row.voucher_type }}</option>{% endfor %}</select></label>
+    <button class="primary" type="submit">筛选</button>
+    <a class="button" href="{{ url_for('accounting_vouchers') }}">重置</a>
+  </form>
+</section>
+<section class="card table-card">
+  <div class="table-wrap"><table>
+    <thead><tr><th>凭证号</th><th>会计日期</th><th>业务日期</th><th>事件</th><th>摘要</th><th>借方</th><th>贷方</th><th>状态</th></tr></thead>
+    <tbody>{% for row in rows %}<tr>
+      <td><a href="{{ url_for('accounting_voucher_detail', voucher_id=row.id) }}"><strong>{{ row.voucher_number }}</strong></a></td>
+      <td>{{ row.accounting_date }}</td><td>{{ row.business_date }}</td><td><code>{{ row.voucher_type }}</code></td>
+      <td>{{ row.description or '—' }}</td><td class="money">{{ '%.2f'|format(row.debit_total) }}</td><td class="money">{{ '%.2f'|format(row.credit_total) }}</td>
+      <td><span class="status {{ row.status }}">{{ {'posted':'已过账','reversed':'已冲销','draft':'草稿'}.get(row.status,row.status) }}</span></td>
+    </tr>{% else %}<tr><td colspan="8" class="empty">没有符合条件的凭证</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}
