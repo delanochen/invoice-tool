@@ -12,6 +12,7 @@ from .openings import OpeningBalanceError, OpeningBalanceService, REASON_CODES
 from .reports import FinancialReportService
 from .receivables import ReceivableAgingService
 from .statements import CustomerStatementService
+from .sales_tax import SalesTaxReportService
 from .receipts import (
     CustomerReceiptService,
     ReceiptAllocation,
@@ -464,6 +465,20 @@ def register_accounting_routes(app, api):
             filters={"customer_id": customer_id, "date_from": date_from, "date_to": date_to},
         )
 
+    @app.get("/finance/accounting/sales-tax-liability")
+    @login_required
+    def accounting_sales_tax_liability():
+        require_view()
+        date_from = request.args.get("date_from", "").strip()
+        date_to = request.args.get("date_to", "").strip()
+        report = SalesTaxReportService(api["db"]()).report(
+            date_from=date_from or None, date_to=date_to or None,
+        )
+        return render_template(
+            "accounting_sales_tax_liability.html", report=report,
+            filters={"date_from": date_from, "date_to": date_to},
+        )
+
     @app.get("/finance/accounting/accounts/<int:account_id>/ledger")
     @login_required
     def accounting_account_ledger(account_id):
@@ -603,6 +618,7 @@ def register_accounting_routes(app, api):
         "accounting_balance_sheet": accounting_balance_sheet,
         "accounting_receivable_aging": accounting_receivable_aging,
         "accounting_customer_statement": accounting_customer_statement,
+        "accounting_sales_tax_liability": accounting_sales_tax_liability,
         "accounting_account_ledger": accounting_account_ledger,
         "accounting_invoice_correct": accounting_invoice_correct,
         "accounting_invoice_correction_reverse": accounting_invoice_correction_reverse,

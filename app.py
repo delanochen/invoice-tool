@@ -1914,6 +1914,7 @@ def required_action_for_request():
         "accounting_balance_sheet": ("accounting_reports", "view"),
         "accounting_receivable_aging": ("accounting_reports", "view"),
         "accounting_customer_statement": ("accounting_reports", "view"),
+        "accounting_sales_tax_liability": ("accounting_reports", "view"),
         "accounting_account_ledger": ("accounting_reports", "view"),
         "customer_reimbursement_query": ("customer_reimbursements", "view"),
         "download_customer_reimbursement": ("customer_reimbursements", "export"),

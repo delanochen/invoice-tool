@@ -130,6 +130,9 @@ class AccountingVoucherUiTest(unittest.TestCase):
         statement = client.get("/finance/accounting/customer-statements")
         self.assertEqual(statement.status_code, 200)
         self.assertIn("客户对账单", statement.get_data(as_text=True))
+        sales_tax = client.get("/finance/accounting/sales-tax-liability")
+        self.assertEqual(sales_tax.status_code, 200)
+        self.assertIn("销售税负债明细", sales_tax.get_data(as_text=True))
         ledger = client.get(
             f"/finance/accounting/accounts/{self.bank_account_id}/ledger"
         )
@@ -171,6 +174,9 @@ class AccountingVoucherUiTest(unittest.TestCase):
         )
         self.assertEqual(
             employee_client.get("/finance/accounting/customer-statements").status_code, 403
+        )
+        self.assertEqual(
+            employee_client.get("/finance/accounting/sales-tax-liability").status_code, 403
         )
         self.assertEqual(
             employee_client.get(
