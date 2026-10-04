@@ -10,6 +10,7 @@ from .periods import AccountingPeriodService, PeriodStateError
 from .invoices import InvoiceRecognitionError, InvoiceRecognitionService
 from .openings import OpeningBalanceError, OpeningBalanceService, REASON_CODES
 from .reports import FinancialReportService
+from .receivables import ReceivableAgingService
 from .receipts import (
     CustomerReceiptService,
     ReceiptAllocation,
@@ -420,6 +421,24 @@ def register_accounting_routes(app, api):
             "accounting_balance_sheet.html", report=report, as_of=as_of,
         )
 
+    @app.get("/finance/accounting/receivable-aging")
+    @login_required
+    def accounting_receivable_aging():
+        require_view()
+        as_of = request.args.get("as_of", "").strip() or date.today().isoformat()
+        customer_id = request.args.get("customer_id", "").strip()
+        report = ReceivableAgingService(api["db"]()).report(
+            as_of=as_of,
+            customer_id=int(customer_id) if customer_id.isdigit() else None,
+        )
+        customers = api["db"]().execute(
+            "select id,name from clients order by name"
+        ).fetchall()
+        return render_template(
+            "accounting_receivable_aging.html", report=report, customers=customers,
+            filters={"as_of": as_of, "customer_id": customer_id},
+        )
+
     @app.get("/finance/accounting/accounts/<int:account_id>/ledger")
     @login_required
     def accounting_account_ledger(account_id):
@@ -557,6 +576,7 @@ def register_accounting_routes(app, api):
         "accounting_trial_balance": accounting_trial_balance,
         "accounting_income_statement": accounting_income_statement,
         "accounting_balance_sheet": accounting_balance_sheet,
+        "accounting_receivable_aging": accounting_receivable_aging,
         "accounting_account_ledger": accounting_account_ledger,
         "accounting_invoice_correct": accounting_invoice_correct,
         "accounting_invoice_correction_reverse": accounting_invoice_correction_reverse,

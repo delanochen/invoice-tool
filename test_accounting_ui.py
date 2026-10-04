@@ -124,6 +124,9 @@ class AccountingVoucherUiTest(unittest.TestCase):
         balance_sheet = client.get("/finance/accounting/balance-sheet")
         self.assertEqual(balance_sheet.status_code, 200)
         self.assertIn("资产负债平衡", balance_sheet.get_data(as_text=True))
+        aging = client.get("/finance/accounting/receivable-aging?as_of=2026-10-31")
+        self.assertEqual(aging.status_code, 200)
+        self.assertIn("应收账龄", aging.get_data(as_text=True))
         ledger = client.get(
             f"/finance/accounting/accounts/{self.bank_account_id}/ledger"
         )
@@ -159,6 +162,9 @@ class AccountingVoucherUiTest(unittest.TestCase):
         )
         self.assertEqual(
             employee_client.get("/finance/accounting/balance-sheet").status_code, 403
+        )
+        self.assertEqual(
+            employee_client.get("/finance/accounting/receivable-aging").status_code, 403
         )
         self.assertEqual(
             employee_client.get(
