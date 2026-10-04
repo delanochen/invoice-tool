@@ -105,7 +105,7 @@
         {% set report_endpoints = ["invoices", "invoice_query", "buyer_query", "service_order_query", "service_report_query", "customer_reimbursement_query", "profitability_report", "expense_query", "audit_log_report", "user_certificate_query"] %}
         {% set payroll_endpoints = ["labor_hours_report", "payroll_report", "payroll_detail_report", "payroll_calendar", "employee_grades", "payroll_subsidies", "employee_payments", "employee_payment_detail"] %}
         {% set payroll_parameter_endpoints = ["employee_grades", "payroll_subsidies"] %}
-        {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "payment_batches", "payment_batch_detail", "bank_reconciliation", "accounting_vouchers", "accounting_voucher_detail", "accounting_receipts", "accounting_prepayment_apply", "accounting_periods", "accounting_trial_balance", "accounting_account_ledger", "tax_review", "tax_review_component", "save_tax_review", "annual_tax_summary", "annual_tax_summary_components", "annual_tax_summary_export", "cpa_workpaper", "cpa_workpaper_export", "policy_decisions", "policy_decisions_export"] %}
+        {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "payment_batches", "payment_batch_detail", "bank_reconciliation", "accounting_vouchers", "accounting_voucher_detail", "accounting_receipts", "accounting_prepayment_apply", "accounting_periods", "accounting_opening_balances", "accounting_trial_balance", "accounting_account_ledger", "tax_review", "tax_review_component", "save_tax_review", "annual_tax_summary", "annual_tax_summary_components", "annual_tax_summary_export", "cpa_workpaper", "cpa_workpaper_export", "policy_decisions", "policy_decisions_export"] %}
         {% set asset_endpoints = ["assets", "asset_detail"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
         {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions"] %}
@@ -246,6 +246,7 @@
             or (has_menu_permission("accounting_vouchers") and has_action_permission("accounting_vouchers", "view"))
             or (has_menu_permission("accounting_receipts") and has_action_permission("accounting_receipts", "view"))
             or (has_menu_permission("accounting_periods") and has_action_permission("accounting_periods", "view"))
+            or (has_menu_permission("accounting_opening") and has_action_permission("accounting_opening", "view"))
             or (has_menu_permission("accounting_reports") and has_action_permission("accounting_reports", "view"))
             or (has_menu_permission("tax_review") and has_action_permission("tax_review", "view"))
             or (has_menu_permission("annual_tax_summary") and has_action_permission("annual_tax_summary", "view"))
@@ -265,6 +266,7 @@
                 {% if has_menu_permission("accounting_vouchers") and has_action_permission("accounting_vouchers", "view") %}{{ nav_link("accounting_vouchers", "会计凭证", ["accounting_vouchers", "accounting_voucher_detail"], icon="receipt") }}{% endif %}
                 {% if has_menu_permission("accounting_receipts") and has_action_permission("accounting_receipts", "view") %}{{ nav_link("accounting_receipts", "客户收款", ["accounting_receipts", "accounting_prepayment_apply"], icon="receipt") }}{% endif %}
                 {% if has_menu_permission("accounting_periods") and has_action_permission("accounting_periods", "view") %}{{ nav_link("accounting_periods", "会计期间", icon="calendar") }}{% endif %}
+                {% if has_menu_permission("accounting_opening") and has_action_permission("accounting_opening", "view") %}{{ nav_link("accounting_opening_balances", "期初建账", icon="table") }}{% endif %}
                 {% if has_menu_permission("accounting_reports") and has_action_permission("accounting_reports", "view") %}{{ nav_link("accounting_trial_balance", "试算平衡表", ["accounting_trial_balance", "accounting_account_ledger"], icon="report") }}{% endif %}
                 {# Phase 4A：税务复核工作台。金额与付款单不变，只改「有效税务分类」。 #}
                 {% if has_menu_permission("tax_review") and has_action_permission("tax_review", "view") %}{{ nav_link("tax_review", "税务复核", ["tax_review", "tax_review_component"], icon="audit") }}{% endif %}

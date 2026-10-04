@@ -110,6 +110,9 @@ class AccountingVoucherUiTest(unittest.TestCase):
         periods = client.get("/finance/accounting/periods")
         self.assertEqual(periods.status_code, 200)
         self.assertIn("会计期间", periods.get_data(as_text=True))
+        openings = client.get("/finance/accounting/opening-balances")
+        self.assertEqual(openings.status_code, 200)
+        self.assertIn("期初建账", openings.get_data(as_text=True))
         trial_balance = client.get("/finance/accounting/trial-balance")
         self.assertEqual(trial_balance.status_code, 200)
         trial_html = trial_balance.get_data(as_text=True)
@@ -138,6 +141,9 @@ class AccountingVoucherUiTest(unittest.TestCase):
         )
         self.assertEqual(
             employee_client.get("/finance/accounting/periods").status_code, 403
+        )
+        self.assertEqual(
+            employee_client.get("/finance/accounting/opening-balances").status_code, 403
         )
         self.assertEqual(
             employee_client.get("/finance/accounting/trial-balance").status_code, 403

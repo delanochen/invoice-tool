@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict FBqsy74t2T1FX45Omq4hxuBNz0ShSMjokmoAgXn6ZUHoLWEKPeDRM6JT12ag5UU
+\restrict 4691BZmTy3eqmlcPKNvileBjsyqhGjRqwoWks1FLhOsq1cQvzIKNTE5geW18d7V
 
 -- Dumped from database version 17.11 (Debian 17.11-1.pgdg13+2)
 -- Dumped by pg_dump version 17.11 (Debian 17.11-1.pgdg13+2)
@@ -203,6 +203,53 @@ BEGIN
   RETURN extract(epoch FROM value::timestamptz)::double precision / 86400.0 + 2440587.5;
 EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN RETURN NULL;
 END $$;
+
+
+--
+-- Name: protect_accounting_opening_line(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_accounting_opening_line() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  target_cutover_id bigint;
+  cutover_status text;
+BEGIN
+  target_cutover_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.cutover_id ELSE NEW.cutover_id END;
+  SELECT status INTO cutover_status FROM accounting_opening_cutover
+   WHERE id = target_cutover_id FOR UPDATE;
+  IF cutover_status IS DISTINCT FROM 'draft' THEN
+    RAISE EXCEPTION 'posted opening balances are immutable';
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.cutover_id IS DISTINCT FROM OLD.cutover_id THEN
+    RAISE EXCEPTION 'opening line cannot move between cutovers';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+
+--
+-- Name: protect_posted_accounting_opening_cutover(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_posted_accounting_opening_cutover() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' AND OLD.status = 'posted' THEN
+    RAISE EXCEPTION 'posted opening cutover is immutable';
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.status = 'posted' AND NEW IS DISTINCT FROM OLD THEN
+    RAISE EXCEPTION 'posted opening cutover is immutable';
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.status = 'draft' AND NEW.status NOT IN ('draft','posted') THEN
+    RAISE EXCEPTION 'invalid opening cutover transition';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
 
 
 --
@@ -5605,6 +5652,20 @@ CREATE UNIQUE INDEX uq_posting_events_idempotency_key ON public.posting_events U
 
 
 --
+-- Name: accounting_opening_cutover accounting_opening_cutover_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER accounting_opening_cutover_guard BEFORE DELETE OR UPDATE ON public.accounting_opening_cutover FOR EACH ROW EXECUTE FUNCTION public.protect_posted_accounting_opening_cutover();
+
+
+--
+-- Name: accounting_opening_lines accounting_opening_lines_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER accounting_opening_lines_guard BEFORE INSERT OR DELETE OR UPDATE ON public.accounting_opening_lines FOR EACH ROW EXECUTE FUNCTION public.protect_accounting_opening_line();
+
+
+--
 -- Name: accounting_periods accounting_periods_integrity_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -7326,7 +7387,7 @@ ALTER TABLE ONLY public.worker_tax_status_history
 -- PostgreSQL database dump complete
 --
 
-\unrestrict FBqsy74t2T1FX45Omq4hxuBNz0ShSMjokmoAgXn6ZUHoLWEKPeDRM6JT12ag5UU
+\unrestrict 4691BZmTy3eqmlcPKNvileBjsyqhGjRqwoWks1FLhOsq1cQvzIKNTE5geW18d7V
 
 INSERT INTO public.invoice_sqlite_columns VALUES ('ai_daily_report_actions', 0, 'id', 'INTEGER', 0, NULL, 1);
 INSERT INTO public.invoice_sqlite_columns VALUES ('ai_daily_report_actions', 1, 'draft_id', 'INTEGER', 1, NULL, 0);

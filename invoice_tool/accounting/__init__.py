@@ -15,6 +15,11 @@ from .posting import (  # noqa: F401
     SettlementLine,
 )
 from .periods import AccountingPeriodService, PeriodStateError  # noqa: F401
+from .openings import (  # noqa: F401
+    OpeningBalanceError,
+    OpeningBalanceService,
+    OpeningPostResult,
+)
 from .receipts import (  # noqa: F401
     CustomerReceiptService,
     InvoiceNotReceivable,

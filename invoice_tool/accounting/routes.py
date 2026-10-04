@@ -8,6 +8,7 @@ from flask import abort, flash, redirect, render_template, request, url_for
 from .prepayments import CustomerPrepaymentService, PrepaymentApplicationError
 from .periods import AccountingPeriodService, PeriodStateError
 from .invoices import InvoiceRecognitionError, InvoiceRecognitionService
+from .openings import OpeningBalanceError, OpeningBalanceService, REASON_CODES
 from .receipts import (
     CustomerReceiptService,
     ReceiptAllocation,
@@ -279,6 +280,82 @@ def register_accounting_routes(app, api):
             current_month=date.today().strftime("%Y-%m"),
         )
 
+    @app.route("/finance/accounting/opening-balances", methods=["GET", "POST"])
+    @login_required
+    def accounting_opening_balances():
+        if not api["has_action_permission"]("accounting_opening", "view"):
+            abort(403)
+        service = OpeningBalanceService(api["db"]())
+        if request.method == "POST":
+            action = request.form.get("action", "").strip()
+            permission = "post" if action == "post" else "create"
+            if not api["has_action_permission"]("accounting_opening", permission):
+                abort(403)
+            try:
+                if action == "create":
+                    cutover_id = service.create_cutover(
+                        request.form.get("cutover_date", ""),
+                        actor_id=api["g"].user["id"],
+                    )
+                    message = "期初批次已创建。"
+                elif action == "add_line":
+                    cutover_id = int(request.form.get("cutover_id", ""))
+                    service.add_line(
+                        cutover_id,
+                        origin_type=request.form.get("origin_type", ""),
+                        origin_id=request.form.get("origin_id", ""),
+                        account_id=request.form.get("account_id", ""),
+                        amount=request.form.get("amount", ""),
+                        reason_code=request.form.get("reason_code", ""),
+                    )
+                    message = "期初余额行已添加。"
+                elif action == "remove_line":
+                    cutover_id = int(request.form.get("cutover_id", ""))
+                    service.remove_line(int(request.form.get("line_id", "")))
+                    message = "期初余额行已移除。"
+                elif action == "post":
+                    cutover_id = int(request.form.get("cutover_id", ""))
+                    service.post(cutover_id, actor_id=api["g"].user["id"])
+                    message = "期初余额已过账，后续不可修改。"
+                else:
+                    raise ValueError("unknown opening action")
+                api["db"]().commit()
+                flash(message, "success")
+                return redirect(url_for("accounting_opening_balances", cutover_id=cutover_id))
+            except (OpeningBalanceError, ValueError) as error:
+                api["db"]().rollback()
+                flash(str(error), "error")
+        cutovers = api["db"]().execute(
+            "select c.*,v.voucher_number,u.name as creator_name,p.name as poster_name "
+            "from accounting_opening_cutover c left join vouchers v on v.id=c.voucher_id "
+            "left join users u on u.id=c.created_by left join users p on p.id=c.posted_by "
+            "order by c.cutover_date desc,c.id desc"
+        ).fetchall()
+        selected_id = request.args.get("cutover_id", "").strip()
+        selected = None
+        if selected_id.isdigit():
+            selected = next((row for row in cutovers if row["id"] == int(selected_id)), None)
+        if selected is None and cutovers:
+            selected = cutovers[0]
+        lines = []
+        if selected:
+            lines = api["db"]().execute(
+                "select l.*,a.account_code,a.account_name,a.normal_balance "
+                "from accounting_opening_lines l join accounts a on a.id=l.account_id "
+                "where l.cutover_id=? order by l.id", (selected["id"],),
+            ).fetchall()
+        accounts = api["db"]().execute(
+            "select id,account_code,account_name,normal_balance from accounts "
+            "where is_active=true and account_code<>'3000' order by account_code"
+        ).fetchall()
+        return render_template(
+            "accounting_opening_balances.html", cutovers=cutovers, selected=selected,
+            lines=lines, accounts=accounts, reason_codes=sorted(REASON_CODES),
+            today=date.today().isoformat(),
+            can_create=api["has_action_permission"]("accounting_opening", "create"),
+            can_post=api["has_action_permission"]("accounting_opening", "post"),
+        )
+
     @app.get("/finance/accounting/trial-balance")
     @login_required
     def accounting_trial_balance():
@@ -445,6 +522,7 @@ def register_accounting_routes(app, api):
         "accounting_receipts": accounting_receipts,
         "accounting_prepayment_apply": accounting_prepayment_apply,
         "accounting_periods": accounting_periods,
+        "accounting_opening_balances": accounting_opening_balances,
         "accounting_trial_balance": accounting_trial_balance,
         "accounting_account_ledger": accounting_account_ledger,
         "accounting_invoice_correct": accounting_invoice_correct,
