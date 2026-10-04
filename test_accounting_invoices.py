@@ -227,6 +227,47 @@ class InvoiceRecognitionServiceTest(unittest.TestCase):
              ("2100", Decimal("1"), Decimal("0"))],
         )
 
+    def test_correction_reversal_posts_exact_opposite_and_restores_receivable(self):
+        self.add_item("100.00")
+        self.recognize()
+        correction = self.service.correct(
+            self.invoice_id, revenue_delta="20.00", sales_tax_delta="2.00",
+            accounting_date=date(2026, 10, 9), reason_code="scope_increase",
+            actor_id=self.actor_id,
+        )
+        reversed_result = self.service.reverse_correction(
+            correction.correction_id, accounting_date=date(2026, 10, 10),
+            reason_code="change_order_withdrawn", actor_id=self.actor_id,
+        )
+        row = self.db.execute(
+            "select status,reversal_voucher_id,reversal_reason from "
+            "invoice_accounting_corrections where id=?", (correction.correction_id,),
+        ).fetchone()
+        self.assertEqual(
+            (row["status"], row["reversal_voucher_id"], row["reversal_reason"]),
+            ("reversed", reversed_result.voucher_id, "change_order_withdrawn"),
+        )
+        vouchers = self.db.execute(
+            "select id,status,reversal_of from vouchers where id in (?,?) order by id",
+            (correction.voucher_id, reversed_result.voucher_id),
+        ).fetchall()
+        self.assertEqual(
+            [(item["id"], item["status"], item["reversal_of"]) for item in vouchers],
+            [(correction.voucher_id, "reversed", None),
+             (reversed_result.voucher_id, "posted", correction.voucher_id)],
+        )
+        net = self.db.execute(
+            "select coalesce(sum(revenue_delta+sales_tax_delta),0) from "
+            "invoice_accounting_corrections where invoice_id=? and status='posted'",
+            (self.invoice_id,),
+        ).fetchone()[0]
+        self.assertEqual(Decimal(str(net)), Decimal("0"))
+        with self.assertRaises(InvoiceRecognitionError):
+            self.service.reverse_correction(
+                correction.correction_id, accounting_date=date(2026, 10, 10),
+                reason_code="duplicate", actor_id=self.actor_id,
+            )
+
     def test_receipt_can_allocate_increased_corrected_receivable(self):
         self.add_item("100.00")
         self.recognize()

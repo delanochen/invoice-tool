@@ -45,6 +45,14 @@ class InvoiceCorrectionResult:
     receivable_delta: Decimal
 
 
+@dataclass(frozen=True)
+class InvoiceCorrectionReversalResult:
+    correction_id: int
+    event_id: int
+    voucher_id: int
+    original_voucher_id: int
+
+
 def _money(value):
     return Decimal(str(value or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
 
@@ -316,4 +324,87 @@ class InvoiceRecognitionService:
         except Exception:
             self.connection.execute("ROLLBACK TO SAVEPOINT invoice_correction")
             self.connection.execute("RELEASE SAVEPOINT invoice_correction")
+            raise
+
+    def reverse_correction(self, correction_id, *, accounting_date, reason_code,
+                           actor_id=None):
+        if not str(reason_code or "").strip():
+            raise ValueError("reason_code is required")
+        accounting_date = date.fromisoformat(str(accounting_date)).isoformat()
+        self.connection.execute("BEGIN IMMEDIATE")
+        self.connection.execute("SAVEPOINT invoice_correction_reversal")
+        try:
+            self.connection.execute(
+                "select pg_advisory_xact_lock(hashtextextended(?,0))",
+                (f"invoice-correction-reversal:{correction_id}",),
+            )
+            correction = self.connection.execute(
+                "select c.*,i.invoice_number,i.status as invoice_status "
+                "from invoice_accounting_corrections c "
+                "join invoices i on i.id=c.invoice_id where c.id=?",
+                (correction_id,),
+            ).fetchone()
+            if not correction or correction["status"] != "posted":
+                raise InvoiceRecognitionError("only a posted correction can be reversed")
+            if correction["invoice_status"] != "completed":
+                raise InvoiceRecognitionError("invoice is not active")
+            if self.connection.execute(
+                "select 1 from voucher_settlement_lines where target_type='receivable' "
+                "and target_id=? and status='active' limit 1",
+                (correction["invoice_id"],),
+            ).fetchone():
+                raise InvoiceRecognitionError(
+                    "invoice with active settlements must be unallocated before reversal"
+                )
+            original_entries = self.connection.execute(
+                "select a.account_code,e.debit,e.credit,e.source_line_type,e.source_line_id "
+                "from voucher_entries e join accounts a on a.id=e.account_id "
+                "where e.voucher_id=? order by e.line_no",
+                (correction["voucher_id"],),
+            ).fetchall()
+            if not original_entries:
+                raise InvoiceRecognitionError("correction voucher has no entries")
+            lines = tuple(PostingLine(
+                row["account_code"], debit=row["credit"], credit=row["debit"],
+                source_line_type="invoice_correction_reversal",
+                source_line_id=correction_id,
+            ) for row in original_entries)
+            result = self.posting.post_event(
+                key=EventKey("invoice_correction", correction_id, 1,
+                             "invoice.correction_reversed", 1),
+                business_anchor_type="invoice_correction",
+                business_anchor_id=correction_id,
+                business_date=accounting_date, accounting_date=accounting_date,
+                lines=lines,
+                description=(f"Reverse invoice {correction['invoice_number']} "
+                             f"correction {correction['correction_no']}"),
+                source_snapshot={
+                    "invoice_id": int(correction["invoice_id"]),
+                    "correction_id": correction_id,
+                    "correction_no": int(correction["correction_no"]),
+                    "original_voucher_id": int(correction["voucher_id"]),
+                    "reason_code": reason_code.strip(),
+                },
+                actor_id=actor_id, reversal_of=correction["voucher_id"],
+                reason_code=reason_code.strip(),
+            )
+            self.posting.mark_reversed(
+                int(correction["voucher_id"]), actor_id=actor_id,
+                reason_code=reason_code.strip(),
+            )
+            self.connection.execute(
+                "update invoice_accounting_corrections set status='reversed',"
+                "reversal_event_id=?,reversal_voucher_id=?,reversed_by=?,"
+                "reversed_at=CURRENT_TIMESTAMP::text,reversal_reason=? where id=?",
+                (result.event_id, result.voucher_id, actor_id,
+                 reason_code.strip(), correction_id),
+            )
+            self.connection.execute("RELEASE SAVEPOINT invoice_correction_reversal")
+            return InvoiceCorrectionReversalResult(
+                correction_id, result.event_id, result.voucher_id,
+                int(correction["voucher_id"]),
+            )
+        except Exception:
+            self.connection.execute("ROLLBACK TO SAVEPOINT invoice_correction_reversal")
+            self.connection.execute("RELEASE SAVEPOINT invoice_correction_reversal")
             raise

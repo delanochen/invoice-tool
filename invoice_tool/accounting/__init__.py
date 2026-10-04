@@ -34,6 +34,7 @@ from .invoices import (  # noqa: F401
     InvoiceRecognitionResult,
     InvoiceRecognitionService,
     InvoiceCorrectionResult,
+    InvoiceCorrectionReversalResult,
     InvoiceVoidError,
     InvoiceVoidResult,
 )

@@ -444,6 +444,10 @@ DEFAULT_MENU_ROLES = {
     for group in MENU_PERMISSION_GROUPS
     for item in group["items"]
 }
+# 经理是财务权限的超集：今后新增任何默认财务菜单时，无需再手工重复补经理。
+for _roles in DEFAULT_MENU_ROLES.values():
+    if "finance" in _roles:
+        _roles.add("manager")
 
 ACTION_LABELS = {
     "view": "查看",
@@ -538,6 +542,10 @@ DEFAULT_ACTION_ROLES = {
     for item in group["items"]
     for action, roles in item["actions"].items()
 }
+# 操作权限同样保持 manager >= finance，避免新增财务动作时遗漏经理。
+for _roles in DEFAULT_ACTION_ROLES.values():
+    if "finance" in _roles:
+        _roles.add("manager")
 
 def permission_tree_groups():
     menu_labels = {
@@ -1675,6 +1683,16 @@ def has_menu_permission(menu_key, role=None):
     overrides = menu_permission_overrides()
     override_key = (role, menu_key)
     action_overrides = action_permission_overrides()
+    if role == "manager" and (
+        overrides.get(("finance", menu_key), False)
+        or any(
+            enabled
+            for (permission_role, resource_key, _action_key), enabled
+            in action_overrides.items()
+            if permission_role == "finance" and resource_key == menu_key
+        )
+    ):
+        return True
     if any(
         enabled
         for (permission_role, resource_key, _action_key), enabled in action_overrides.items()
@@ -1711,6 +1729,14 @@ def has_action_permission(resource_key, action_key, role=None):
     overrides = action_permission_overrides()
     override_key = (role, resource_key, action_key)
     menu_overrides = menu_permission_overrides()
+    if role == "manager" and (
+        overrides.get(("finance", resource_key, action_key), False)
+        or (
+            action_key == "view"
+            and menu_overrides.get(("finance", resource_key), False)
+        )
+    ):
+        return True
     if action_key == "view" and menu_overrides.get((role, resource_key), False):
         return True
     if action_key == "view" and any(
@@ -1746,6 +1772,7 @@ def required_action_for_request():
         ("accounting_prepayment_apply", "POST"): ("accounting_receipts", "edit"),
         ("accounting_invoice_correct", "GET"): ("accounting_corrections", "create"),
         ("accounting_invoice_correct", "POST"): ("accounting_corrections", "create"),
+        ("accounting_invoice_correction_reverse", "POST"): ("accounting_corrections", "create"),
         ("accounting_periods", "GET"): ("accounting_periods", "view"),
         ("accounting_periods", "POST"): ("accounting_periods", "view"),
         ("clients", "GET"): ("clients", "view"),
@@ -1874,6 +1901,7 @@ def required_action_for_request():
         "accounting_receipts": ("accounting_receipts", "view"),
         "accounting_prepayment_apply": ("accounting_receipts", "edit"),
         "accounting_invoice_correct": ("accounting_corrections", "create"),
+        "accounting_invoice_correction_reverse": ("accounting_corrections", "create"),
         "accounting_periods": ("accounting_periods", "view"),
         "accounting_trial_balance": ("accounting_reports", "view"),
         "accounting_account_ledger": ("accounting_reports", "view"),

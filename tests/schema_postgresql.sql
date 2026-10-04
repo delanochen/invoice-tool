@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict xeme7SwRytJyMQuiuJ6uzcofeV3vCcjd8iZTCJnqx9AqadbFIaKZNSSOZ5na2Rf
+\restrict FBqsy74t2T1FX45Omq4hxuBNz0ShSMjokmoAgXn6ZUHoLWEKPeDRM6JT12ag5UU
 
 -- Dumped from database version 17.11 (Debian 17.11-1.pgdg13+2)
 -- Dumped by pg_dump version 17.11 (Debian 17.11-1.pgdg13+2)
@@ -2252,6 +2252,11 @@ CREATE TABLE public.invoice_accounting_corrections (
     voucher_id bigint,
     created_by bigint,
     created_at text DEFAULT (CURRENT_TIMESTAMP)::text NOT NULL,
+    reversal_event_id bigint,
+    reversal_voucher_id bigint,
+    reversed_by bigint,
+    reversed_at text,
+    reversal_reason text DEFAULT ''::text NOT NULL,
     CONSTRAINT invoice_accounting_corrections_check CHECK (((revenue_delta <> (0)::numeric) OR (sales_tax_delta <> (0)::numeric))),
     CONSTRAINT invoice_accounting_corrections_correction_no_check CHECK ((correction_no >= 1)),
     CONSTRAINT invoice_accounting_corrections_reason_code_check CHECK ((reason_code <> ''::text)),
@@ -6686,6 +6691,30 @@ ALTER TABLE ONLY public.invoice_accounting_corrections
 
 
 --
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_reversal_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_reversal_event_id_fkey FOREIGN KEY (reversal_event_id) REFERENCES public.posting_events(id);
+
+
+--
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_reversal_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_reversal_voucher_id_fkey FOREIGN KEY (reversal_voucher_id) REFERENCES public.vouchers(id);
+
+
+--
+-- Name: invoice_accounting_corrections invoice_accounting_corrections_reversed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invoice_accounting_corrections
+    ADD CONSTRAINT invoice_accounting_corrections_reversed_by_fkey FOREIGN KEY (reversed_by) REFERENCES public.users(id);
+
+
+--
 -- Name: invoice_accounting_corrections invoice_accounting_corrections_voucher_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7297,7 +7326,7 @@ ALTER TABLE ONLY public.worker_tax_status_history
 -- PostgreSQL database dump complete
 --
 
-\unrestrict xeme7SwRytJyMQuiuJ6uzcofeV3vCcjd8iZTCJnqx9AqadbFIaKZNSSOZ5na2Rf
+\unrestrict FBqsy74t2T1FX45Omq4hxuBNz0ShSMjokmoAgXn6ZUHoLWEKPeDRM6JT12ag5UU
 
 INSERT INTO public.invoice_sqlite_columns VALUES ('ai_daily_report_actions', 0, 'id', 'INTEGER', 0, NULL, 1);
 INSERT INTO public.invoice_sqlite_columns VALUES ('ai_daily_report_actions', 1, 'draft_id', 'INTEGER', 1, NULL, 0);

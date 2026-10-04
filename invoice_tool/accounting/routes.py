@@ -387,10 +387,13 @@ def register_accounting_routes(app, api):
                 api["db"]().rollback()
                 flash(str(error), "error")
         corrections = api["db"]().execute(
-            "select c.*,v.voucher_number,u.name as creator_name "
+            "select c.*,v.voucher_number,rv.voucher_number as reversal_voucher_number,"
+            "u.name as creator_name,ru.name as reverser_name "
             "from invoice_accounting_corrections c "
             "left join vouchers v on v.id=c.voucher_id "
-            "left join users u on u.id=c.created_by where c.invoice_id=? "
+            "left join vouchers rv on rv.id=c.reversal_voucher_id "
+            "left join users u on u.id=c.created_by "
+            "left join users ru on ru.id=c.reversed_by where c.invoice_id=? "
             "order by c.correction_no desc", (invoice_id,),
         ).fetchall()
         base_total = api["db"]().execute(
@@ -409,6 +412,33 @@ def register_accounting_routes(app, api):
             today=date.today().isoformat(),
         )
 
+    @app.post("/finance/accounting/invoice-corrections/<int:correction_id>/reverse")
+    @login_required
+    def accounting_invoice_correction_reverse(correction_id):
+        if not api["has_action_permission"]("accounting_corrections", "create"):
+            abort(403)
+        correction = api["db"]().execute(
+            "select invoice_id from invoice_accounting_corrections where id=?",
+            (correction_id,),
+        ).fetchone()
+        if not correction:
+            abort(404)
+        try:
+            InvoiceRecognitionService(api["db"]()).reverse_correction(
+                correction_id,
+                accounting_date=request.form.get("accounting_date") or date.today().isoformat(),
+                reason_code=request.form.get("reason_code", "").strip(),
+                actor_id=api["g"].user["id"],
+            )
+            api["db"]().commit()
+            flash("发票更正已通过反向凭证撤销。", "success")
+        except (InvoiceRecognitionError, ValueError) as error:
+            api["db"]().rollback()
+            flash(str(error), "error")
+        return redirect(url_for(
+            "accounting_invoice_correct", invoice_id=correction["invoice_id"]
+        ))
+
     return {
         "accounting_vouchers": accounting_vouchers,
         "accounting_voucher_detail": accounting_voucher_detail,
@@ -418,4 +448,5 @@ def register_accounting_routes(app, api):
         "accounting_trial_balance": accounting_trial_balance,
         "accounting_account_ledger": accounting_account_ledger,
         "accounting_invoice_correct": accounting_invoice_correct,
+        "accounting_invoice_correction_reverse": accounting_invoice_correction_reverse,
     }
