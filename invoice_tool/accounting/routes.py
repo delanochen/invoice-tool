@@ -272,8 +272,14 @@ def register_accounting_routes(app, api):
             "left join users reopener on reopener.id=p.reopened_by "
             "order by p.period_start desc"
         ).fetchall()
+        period_service = AccountingPeriodService(api["db"]())
+        close_checks = {
+            row["id"]: period_service.close_check(row["id"], period=row)
+            for row in periods if row["status"] == "open"
+        }
         return render_template(
             "accounting_periods.html", periods=periods,
+            close_checks=close_checks,
             can_create=api["has_action_permission"]("accounting_periods", "create"),
             can_close=api["has_action_permission"]("accounting_periods", "close"),
             can_reopen=api["has_action_permission"]("accounting_periods", "reopen"),

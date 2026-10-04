@@ -8,6 +8,7 @@ from invoice_tool.accounting import (
     EventKey,
     PostingLine,
     PostingService,
+    PeriodStateError,
 )
 
 
@@ -108,6 +109,43 @@ class AccountingPeriodServiceTest(unittest.TestCase):
         self.periods.close(period_id, actor_id=self.actor_id)
         with self.assertRaisesRegex(ValueError, "reason_code"):
             self.periods.reopen(period_id, actor_id=self.actor_id, reason_code="  ")
+
+    def test_close_is_blocked_by_draft_voucher(self):
+        period_id = self.periods.create_month("2026-10-01", actor_id=self.actor_id)
+        self.db.execute(
+            "insert into vouchers(voucher_number,voucher_type,status,business_date,"
+            "accounting_date,currency,description,source_snapshot,reason_code,created_by) "
+            "values('JV-2610-DRAFT','manual','draft','2026-10-15','2026-10-15',"
+            "'USD','Draft close blocker','{}'::jsonb,'',?)", (self.actor_id,)
+        )
+        check = self.periods.close_check(period_id)
+        self.assertFalse(check.ready)
+        self.assertEqual(check.draft_vouchers, 1)
+        with self.assertRaisesRegex(PeriodStateError, "draft voucher"):
+            self.periods.close(period_id, actor_id=self.actor_id)
+        self.assertEqual(
+            self.db.execute("select status from accounting_periods where id=?", (period_id,))
+            .fetchone()[0],
+            "open",
+        )
+
+    def test_close_is_blocked_by_unposted_opening_cutover(self):
+        period_id = self.periods.create_month("2026-10-01", actor_id=self.actor_id)
+        self.db.execute(
+            "insert into accounting_opening_cutover(cutover_date,created_by) values(?,?)",
+            ("2026-10-01", self.actor_id),
+        )
+        check = self.periods.close_check(period_id)
+        self.assertEqual(check.draft_openings, 1)
+        with self.assertRaisesRegex(PeriodStateError, "draft opening"):
+            self.periods.close(period_id, actor_id=self.actor_id)
+
+    def test_close_check_is_ready_after_balanced_posting(self):
+        period_id = self.periods.create_month("2026-10-01", actor_id=self.actor_id)
+        self._post_gl(50)
+        check = self.periods.close_check(period_id)
+        self.assertTrue(check.ready)
+        self.assertEqual(check.blockers, ())
 
 
 if __name__ == "__main__":

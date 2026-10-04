@@ -14,7 +14,11 @@ from .posting import (  # noqa: F401
     SettlementExceeded,
     SettlementLine,
 )
-from .periods import AccountingPeriodService, PeriodStateError  # noqa: F401
+from .periods import (  # noqa: F401
+    AccountingPeriodService,
+    PeriodCloseCheck,
+    PeriodStateError,
+)
 from .openings import (  # noqa: F401
     OpeningBalanceError,
     OpeningBalanceService,
