@@ -11,6 +11,7 @@ from .invoices import InvoiceRecognitionError, InvoiceRecognitionService
 from .openings import OpeningBalanceError, OpeningBalanceService, REASON_CODES
 from .reports import FinancialReportService
 from .receivables import ReceivableAgingService
+from .statements import CustomerStatementService
 from .receipts import (
     CustomerReceiptService,
     ReceiptAllocation,
@@ -439,6 +440,30 @@ def register_accounting_routes(app, api):
             filters={"as_of": as_of, "customer_id": customer_id},
         )
 
+    @app.get("/finance/accounting/customer-statements")
+    @login_required
+    def accounting_customer_statement():
+        require_view()
+        customer_id = request.args.get("customer_id", "").strip()
+        date_from = request.args.get("date_from", "").strip()
+        date_to = request.args.get("date_to", "").strip()
+        customers = api["db"]().execute(
+            "select id,name from clients order by name"
+        ).fetchall()
+        statement = None
+        if customer_id.isdigit():
+            try:
+                statement = CustomerStatementService(api["db"]()).statement(
+                    int(customer_id), date_from=date_from or None, date_to=date_to or None,
+                )
+            except ValueError:
+                abort(404)
+        return render_template(
+            "accounting_customer_statement.html", customers=customers,
+            statement=statement,
+            filters={"customer_id": customer_id, "date_from": date_from, "date_to": date_to},
+        )
+
     @app.get("/finance/accounting/accounts/<int:account_id>/ledger")
     @login_required
     def accounting_account_ledger(account_id):
@@ -577,6 +602,7 @@ def register_accounting_routes(app, api):
         "accounting_income_statement": accounting_income_statement,
         "accounting_balance_sheet": accounting_balance_sheet,
         "accounting_receivable_aging": accounting_receivable_aging,
+        "accounting_customer_statement": accounting_customer_statement,
         "accounting_account_ledger": accounting_account_ledger,
         "accounting_invoice_correct": accounting_invoice_correct,
         "accounting_invoice_correction_reverse": accounting_invoice_correction_reverse,

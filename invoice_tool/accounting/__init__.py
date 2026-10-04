@@ -26,6 +26,7 @@ from .openings import (  # noqa: F401
 )
 from .reports import FinancialReportService  # noqa: F401
 from .receivables import ReceivableAgingService  # noqa: F401
+from .statements import CustomerStatementService  # noqa: F401
 from .receipts import (  # noqa: F401
     CustomerReceiptService,
     InvoiceNotReceivable,

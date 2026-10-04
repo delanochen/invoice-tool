@@ -5,6 +5,7 @@ from decimal import Decimal
 from database import PostgreSQLConnection
 from invoice_tool.accounting import (
     CustomerReceiptService,
+    CustomerStatementService,
     InvoiceRecognitionService,
     ReceiptAllocation,
     ReceivableAgingService,
@@ -72,6 +73,7 @@ class ReceivableAgingServiceTest(unittest.TestCase):
             actor_id=self.actor_id,
         )
         self.aging = ReceivableAgingService(self.db)
+        self.statements = CustomerStatementService(self.db)
 
     def tearDown(self):
         self.db.rollback()
@@ -106,6 +108,19 @@ class ReceivableAgingServiceTest(unittest.TestCase):
         self.assertEqual([row["invoice_number"] for row in before_second_invoice["rows"]],
                          ["INV-AGING-1"])
         self.assertEqual(before_second_invoice["grand_total"], Decimal("90.00"))
+
+    def test_customer_statement_tracks_charges_credits_and_opening_balance(self):
+        statement = self.statements.statement(
+            self.customer_id, date_from="2026-02-01", date_to="2026-03-31"
+        )
+        self.assertEqual(statement["opening_balance"], Decimal("100"))
+        self.assertEqual(statement["charges"], Decimal("20"))
+        self.assertEqual(statement["credits"], Decimal("30"))
+        self.assertEqual(statement["closing_balance"], Decimal("90"))
+        self.assertEqual(
+            [row["event_type"] for row in statement["rows"]],
+            ["invoice.corrected", "customer.received"],
+        )
 
 
 if __name__ == "__main__":
