@@ -118,6 +118,12 @@ class AccountingVoucherUiTest(unittest.TestCase):
         trial_html = trial_balance.get_data(as_text=True)
         self.assertIn("试算平衡表", trial_html)
         self.assertIn("借贷平衡", trial_html)
+        income = client.get("/finance/accounting/income-statement")
+        self.assertEqual(income.status_code, 200)
+        self.assertIn("利润表", income.get_data(as_text=True))
+        balance_sheet = client.get("/finance/accounting/balance-sheet")
+        self.assertEqual(balance_sheet.status_code, 200)
+        self.assertIn("资产负债平衡", balance_sheet.get_data(as_text=True))
         ledger = client.get(
             f"/finance/accounting/accounts/{self.bank_account_id}/ledger"
         )
@@ -147,6 +153,12 @@ class AccountingVoucherUiTest(unittest.TestCase):
         )
         self.assertEqual(
             employee_client.get("/finance/accounting/trial-balance").status_code, 403
+        )
+        self.assertEqual(
+            employee_client.get("/finance/accounting/income-statement").status_code, 403
+        )
+        self.assertEqual(
+            employee_client.get("/finance/accounting/balance-sheet").status_code, 403
         )
         self.assertEqual(
             employee_client.get(

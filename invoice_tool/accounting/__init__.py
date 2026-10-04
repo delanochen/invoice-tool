@@ -24,6 +24,7 @@ from .openings import (  # noqa: F401
     OpeningBalanceService,
     OpeningPostResult,
 )
+from .reports import FinancialReportService  # noqa: F401
 from .receipts import (  # noqa: F401
     CustomerReceiptService,
     InvoiceNotReceivable,

@@ -9,6 +9,7 @@ from .prepayments import CustomerPrepaymentService, PrepaymentApplicationError
 from .periods import AccountingPeriodService, PeriodStateError
 from .invoices import InvoiceRecognitionError, InvoiceRecognitionService
 from .openings import OpeningBalanceError, OpeningBalanceService, REASON_CODES
+from .reports import FinancialReportService
 from .receipts import (
     CustomerReceiptService,
     ReceiptAllocation,
@@ -395,6 +396,30 @@ def register_accounting_routes(app, api):
             filters={"date_from": date_from, "date_to": date_to},
         )
 
+    @app.get("/finance/accounting/income-statement")
+    @login_required
+    def accounting_income_statement():
+        require_view()
+        date_from = request.args.get("date_from", "").strip()
+        date_to = request.args.get("date_to", "").strip()
+        report = FinancialReportService(api["db"]()).income_statement(
+            date_from=date_from or None, date_to=date_to or None,
+        )
+        return render_template(
+            "accounting_income_statement.html", report=report,
+            filters={"date_from": date_from, "date_to": date_to},
+        )
+
+    @app.get("/finance/accounting/balance-sheet")
+    @login_required
+    def accounting_balance_sheet():
+        require_view()
+        as_of = request.args.get("as_of", "").strip()
+        report = FinancialReportService(api["db"]()).balance_sheet(as_of=as_of or None)
+        return render_template(
+            "accounting_balance_sheet.html", report=report, as_of=as_of,
+        )
+
     @app.get("/finance/accounting/accounts/<int:account_id>/ledger")
     @login_required
     def accounting_account_ledger(account_id):
@@ -530,6 +555,8 @@ def register_accounting_routes(app, api):
         "accounting_periods": accounting_periods,
         "accounting_opening_balances": accounting_opening_balances,
         "accounting_trial_balance": accounting_trial_balance,
+        "accounting_income_statement": accounting_income_statement,
+        "accounting_balance_sheet": accounting_balance_sheet,
         "accounting_account_ledger": accounting_account_ledger,
         "accounting_invoice_correct": accounting_invoice_correct,
         "accounting_invoice_correction_reverse": accounting_invoice_correction_reverse,
