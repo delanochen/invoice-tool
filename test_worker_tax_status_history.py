@@ -167,7 +167,15 @@ class WorkerTaxStatusHistoryTest(unittest.TestCase):
     def test_employee_form_links_to_tax_status_page(self):
         page = self.http.get(f"/users/{self.worker_id}/edit")
         self.assertEqual(page.status_code, 200)
-        self.assertIn(f"/users/{self.worker_id}/tax-status", page.get_data(as_text=True))
+        text = page.get_data(as_text=True)
+        self.assertIn(f"/users/{self.worker_id}/tax-status", text)
+        self.assertIn("未登记", text, "未登记身份应在编辑页显示当前税务身份")
+
+    def test_employee_form_shows_current_tax_status_after_registration(self):
+        self._add()  # W2 2026-07-01~ 至今
+        page = self.http.get(f"/users/{self.worker_id}/edit")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("W-2 员工", page.get_data(as_text=True))
 
     def test_legacy_role_value_user_still_shows_tax_status_entry(self):
         """旧角色值 'user'（normalized_role 后为 employee）也必须显示税务身份入口。"""
@@ -187,7 +195,9 @@ class WorkerTaxStatusHistoryTest(unittest.TestCase):
             self.module.db().commit()
         page = self.http.get("/users")
         self.assertEqual(page.status_code, 200)
-        self.assertIn(f"/users/{self.worker_id}/tax-status", page.get_data(as_text=True))
+        text = page.get_data(as_text=True)
+        self.assertIn(f"/users/{self.worker_id}/tax-status", text)
+        self.assertIn("未登记", text, "未登记身份应在列表弹窗显示当前税务身份")
 
     def test_empty_notes_is_accepted(self):
         """备注留空必须可保存（notes 列 NOT NULL，空字符串合法，不得转 None）。"""

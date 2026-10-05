@@ -17349,6 +17349,8 @@ _employee_user_exports = register_employee_user_routes(
     can_manage_user_record=can_manage_user_record,
     safe_attachment_response=safe_attachment_response,
     create_message=create_message,
+    # payroll 服务在下方才构建；延迟到请求期取用，避免注册时的名称顺序问题
+    worker_tax_status_current=lambda uid: _payroll_services["worker_tax_status_current"](uid),
 )
 users = _employee_user_exports["users"]
 edit_user = _employee_user_exports["edit_user"]

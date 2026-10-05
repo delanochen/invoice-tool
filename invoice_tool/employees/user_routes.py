@@ -51,6 +51,7 @@ def register_employee_user_routes(
     can_manage_user_record,
     safe_attachment_response,
     create_message,
+    worker_tax_status_current,
 ):
     @login_required
     def users():
@@ -229,6 +230,7 @@ def register_employee_user_routes(
             service_orders=service_orders_rows,
             user_attachments={user["id"]: get_user_attachments(user["id"]) for user in rows},
             user_order_ids={user["id"]: assigned_service_order_ids(user["id"]) for user in rows},
+            tax_status_by_user={user["id"]: worker_tax_status_current(user["id"]) for user in rows},
             role_options=role_options,
             can_manage=can_manage_users(),
             can_assign=can_assign_external_employees(),
@@ -374,6 +376,7 @@ def register_employee_user_routes(
             service_orders=service_orders_rows,
             selected_order_ids=assigned_service_order_ids(user_id),
             attachments=get_user_attachments(user_id),
+            current_tax_status=worker_tax_status_current(user_id),
             role_options=role_options,
             can_manage=can_manage_users(),
             can_assign=can_assign_external_employees(),

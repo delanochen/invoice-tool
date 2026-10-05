@@ -252,7 +252,9 @@
             <label>员工等级 <input value="{{ user.employee_grade_name or '-' }}" readonly></label>
           {% endif %}
           {% if normalized_role(user.role) in ('employee', 'external_employee') %}
-            <label>W-2 / 1099 税务身份
+            <label>税务身份
+              {% set current_tax = tax_status_by_user.get(user.id) %}
+              <span>{{ 'W-2 员工' if current_tax == 'W2' else ('1099 承包人' if current_tax == '1099' else '未登记') }}</span>
               <a class="erp-link" href="{{ url_for('worker_tax_status_history', user_id=user.id) }}">查看税务身份历史</a>
             </label>
           {% endif %}
