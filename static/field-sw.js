@@ -1,5 +1,5 @@
-const FIELD_CACHE = 'prasinos-field-51';
-const ASSETS = ['/field/', '/static/field-i18n.js', '/static/field-watermark.js', '/static/field-work.js', '/static/field-work.css', '/static/device-identifiers.js', '/static/ledger-download.js', '/static/logo.svg', '/static/field-icon-192.png', '/static/field-icon-512.png'];
+const FIELD_CACHE = 'prasinos-field-52';
+const ASSETS = ['/field/', '/static/ui-i18n-supplement.js', '/static/field-i18n.js', '/static/field-watermark.js', '/static/field-work.js', '/static/field-work.css', '/static/device-identifiers.js', '/static/ledger-download.js', '/static/logo.svg', '/static/field-icon-192.png', '/static/field-icon-512.png'];
 ASSETS.push('/static/vendor/tabulator/tabulator.min.js', '/static/vendor/tabulator/tabulator.min.css', '/static/system-grid.js', '/static/system-grid.css');
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(FIELD_CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));

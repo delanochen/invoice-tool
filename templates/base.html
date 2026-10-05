@@ -466,6 +466,7 @@
       <iframe id="documentAttachmentPreviewFrame" title="附件预览"></iframe>
     </dialog>
     <script>document.querySelectorAll('thead th').forEach(cell => { cell.dataset.gridLabel = cell.textContent.trim(); });</script>
+    <script src="{{ url_for('static', filename='ui-i18n-supplement.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='ui-i18n.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='navigation.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='erp-topnav.js', v=app_version) }}"></script>

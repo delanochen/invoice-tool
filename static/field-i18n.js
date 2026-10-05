@@ -112,7 +112,15 @@
     "来源":"Fuente"
   };
   const language = document.documentElement.lang;
-  const dictionary = language === 'es' ? es : language === 'zh-CN' ? {} : en;
+  const supplement = globalThis.uiI18nSupplement || {};
+  const fieldOverrides = {
+    nl: { '待上传照片': 'Foto\'s in afwachting van upload' },
+    de: { '待上传照片': 'Fotos zum Hochladen' }
+  };
+  const dictionary = language === 'zh-CN' ? {}
+    : language === 'en' ? Object.assign({}, supplement.en || {}, en)
+    : language === 'es' ? Object.assign({}, supplement.es || {}, es)
+    : Object.assign({}, supplement[language] || supplement.en || {}, fieldOverrides[language] || {});
   const entries = Object.entries(dictionary).sort(([a],[b]) => b.length - a.length);
   const translate = value => {
     const text = String(value ?? '');

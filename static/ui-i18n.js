@@ -2832,6 +2832,30 @@
   [en, nl, de, es].forEach((dictionary, index) => {
     Object.entries(registrationTranslations).forEach(([key, values]) => { dictionary[key] = values[index]; });
   });
+  const supplement = typeof module !== "undefined" && module.exports
+    ? require("./ui-i18n-supplement.js")
+    : (globalThis.uiI18nSupplement || {});
+  for (const [languageCode, dictionary] of Object.entries({ en, nl, de, es })) {
+    Object.assign(dictionary, supplement[languageCode] || {});
+  }
+  // Reviewed business terminology overrides machine-generated wording where
+  // accounting/payroll terms have a specific product meaning.
+  const reviewedTerms = {
+    "会计凭证": ["Accounting vouchers", "Boekingsstukken", "Buchungsbelege", "Comprobantes contables"],
+    "凭证": ["Voucher", "Boekingsstuk", "Buchungsbeleg", "Comprobante"],
+    "试算平衡表": ["Trial balance", "Proefbalans", "Saldenbilanz", "Balance de comprobación"],
+    "资产负债表": ["Balance sheet", "Balans", "Bilanz", "Balance general"],
+    "利润表": ["Income statement", "Winst-en-verliesrekening", "Gewinn- und Verlustrechnung", "Estado de resultados"],
+    "客户对账单": ["Customer statement", "Klantoverzicht", "Kundenkontoauszug", "Estado de cuenta del cliente"],
+    "应收账龄": ["Accounts receivable aging", "Ouderdomsanalyse debiteuren", "Fälligkeitsanalyse der Forderungen", "Antigüedad de cuentas por cobrar"],
+    "销售税负债": ["Sales tax liability", "Omzetbelastingverplichting", "Umsatzsteuerverbindlichkeit", "Pasivo por impuesto sobre ventas"],
+    "报价单": ["Quotation", "Offerte", "Angebot", "Cotización"],
+    "工资付款单": ["Payroll payment order", "Loonbetalingsopdracht", "Lohnzahlungsauftrag", "Orden de pago de nómina"],
+    "税务身份": ["Tax status", "Fiscale status", "Steuerstatus", "Estado fiscal"]
+  };
+  [en, nl, de, es].forEach((dictionary, index) => {
+    Object.entries(reviewedTerms).forEach(([key, values]) => { dictionary[key] = values[index]; });
+  });
   const language = typeof document === "undefined" ? "en" : document.documentElement.lang;
   const dictionaries = { en, nl, de, es };
   const isChinese = language === "zh-CN";
@@ -2845,7 +2869,7 @@
     if (!allowPartial) return null;
     let result = value;
     for (const [source, target] of translationEntries) {
-      if (source.length >= 2 && result.includes(source)) result = result.split(source).join(target);
+      if (source.length >= 1 && result.includes(source)) result = result.split(source).join(target);
     }
     return result === value ? null : result;
   };
