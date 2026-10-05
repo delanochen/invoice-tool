@@ -15,7 +15,7 @@
             <img class="inline-thumb" src="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
           </a>
         {% endif %}
-        <a class="expense-line-attachment-name" href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}data-image-preview data-preview-name="{{ attachment.original_filename }}"{% else %}target="_blank"{% endif %}>{{ attachment.original_filename }}</a>
+        <a class="expense-line-attachment-name" href="{{ url_for('preview_expense_attachment', attachment_id=attachment.id) }}" {% if is_image_attachment(attachment.content_type, attachment.original_filename) %}data-image-preview{% else %}data-document-preview{% endif %} data-preview-name="{{ attachment.original_filename }}">{{ attachment.original_filename }}</a>
         <div class="row-actions">
           <button class="small" type="button" onclick="window.location.href='{{ url_for('download_expense_attachment', attachment_id=attachment.id) }}'">下载</button>
           {{ interpretation_controls(attachment) }}
@@ -38,7 +38,7 @@
   {% endmacro %}
   {# 疑点附件：和本页「报销明细」里的附件同一套规矩 —— 图片走系统统一预览弹窗
      （data-image-preview，由 attachment-preview.js 接管，缩略图与文件名都可点），
-     非图片（PDF/Word/Excel）才新开标签页：弹窗里只有一个 <img>，装不下 Word。
+     非图片（PDF/Word/Excel）走通用文档弹窗，在 PWA 模式中始终保留关闭按钮。
      原来两个链接都是 target="_blank"，点一下整页跳走、看完还要按返回 ——
      审核员本来就是要「对着两对附件比一比」，来回跳页把动作切碎了。
      注：表格会被 system-grid.js 镜像成 Tabulator，镜像按 innerHTML 复制并转发点击，
@@ -48,7 +48,7 @@
     {%- if is_image %}
     <a class="suspect-thumb-link" href="{{ href }}" data-image-preview data-preview-name="{{ name }}" title="预览 {{ name }}"><img class="inline-thumb" src="{{ href }}" alt="{{ name }}"></a>
     {%- endif %}
-    <a{% if extra_class %} class="{{ extra_class }}"{% endif %} href="{{ href }}"{% if is_image %} data-image-preview data-preview-name="{{ name }}"{% else %} target="_blank" rel="noopener"{% endif %}>{{ name }}</a>
+    <a{% if extra_class %} class="{{ extra_class }}"{% endif %} href="{{ href }}"{% if is_image %} data-image-preview{% else %} data-document-preview{% endif %} data-preview-name="{{ name }}">{{ name }}</a>
   {% endmacro %}
 
 {# 展示层改造：所有 ID（#runAiReviewBtn / #aiReviewBody / #returnExpenseDialog /

@@ -455,6 +455,16 @@
       </div>
       <div class="image-preview-wrap"><img id="imageAttachmentPreviewImage" alt="附件预览"></div>
     </dialog>
+    <dialog id="documentAttachmentPreviewDialog" class="modal preview-modal document-attachment-preview-modal no-print">
+      <div class="modal-header">
+        <h2 id="documentAttachmentPreviewTitle">附件预览</h2>
+        <div class="preview-tools">
+          <a id="documentAttachmentPreviewDownload" class="button small" href="#" download>下载</a>
+          <button type="button" data-document-preview-close>关闭</button>
+        </div>
+      </div>
+      <iframe id="documentAttachmentPreviewFrame" title="附件预览"></iframe>
+    </dialog>
     <script>document.querySelectorAll('thead th').forEach(cell => { cell.dataset.gridLabel = cell.textContent.trim(); });</script>
     <script src="{{ url_for('static', filename='ui-i18n.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='navigation.js', v=app_version) }}"></script>

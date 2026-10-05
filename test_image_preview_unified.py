@@ -107,6 +107,21 @@ class SharedPreviewDialogContract(unittest.TestCase):
         self.assertIn("height:min(78vh,760px)", self.css)
         self.assertIn("attachment-image-viewport", self.css)
 
+    def test_09_document_preview_keeps_pwa_navigation_available(self):
+        self.assertIn('id="documentAttachmentPreviewDialog"', self.base)
+        self.assertIn('id="documentAttachmentPreviewFrame"', self.base)
+        self.assertIn("data-document-preview-close", self.base)
+        self.assertIn('event.target.closest?.("[data-document-preview]")', self.js)
+        self.assertIn("documentAttachmentPreviewDialog.showModal()", self.js)
+        self.assertIn("documentAttachmentPreviewFrame?.removeAttribute", self.js)
+        self.assertIn(".modal.document-attachment-preview-modal", self.css)
+
+    def test_10_company_documents_use_in_app_preview(self):
+        company = read("templates", "company_info.html")
+        non_image = company.split("{% else %}", 1)[1].split("{% endif %}", 1)[0]
+        self.assertIn("data-document-preview", non_image)
+        self.assertNotIn('target="_blank"', non_image)
+
 
 class ServiceReportPreviewDelegationContract(unittest.TestCase):
     """工单日报 NAS 照片预览并入共享弹窗，重复实现全部移除。"""
@@ -172,7 +187,8 @@ class SuspiciousAttachmentPreviewContract(unittest.TestCase):
         block = self.html.split("{% macro suspect_attachment(")[1].split("{% endmacro %}")[0]
         self.assertIn("is_image_attachment(content_type, name)", block)
         self.assertIn("data-image-preview", block)
-        self.assertIn('target="_blank"', block)
+        self.assertIn("data-document-preview", block)
+        self.assertNotIn('target="_blank"', block)
         self.assertIn("inline-thumb", block)      # 图片旁边给缩略图，和「报销明细」一个样子
 
     def test_02_query_carries_attachment_content_type(self):

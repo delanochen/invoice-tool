@@ -140,7 +140,7 @@
                 <td>
                   <div class="row-actions">
                     {% if row.attachment_id %}
-                      <a class="erp-btn" href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" target="_blank" rel="noopener">预览</a>
+                      <a class="erp-btn" href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" data-document-preview data-preview-name="{{ row.original_filename or '证书附件' }}">预览</a>
                       <a class="erp-btn" href="{{ url_for('download_user_attachment', attachment_id=row.attachment_id) }}">下载</a>
                     {% endif %}
                   </div>
@@ -171,7 +171,7 @@
             <div class="erp-cert-file">{{ row.original_filename or '没有附件' }}</div>
             <div class="erp-card-foot">
               {% if row.attachment_id %}
-                <a class="erp-btn" href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" target="_blank" rel="noopener">预览</a>
+                <a class="erp-btn" href="{{ url_for('preview_user_attachment', attachment_id=row.attachment_id) }}" data-document-preview data-preview-name="{{ row.original_filename or '证书附件' }}">预览</a>
                 <a class="erp-btn primary" href="{{ url_for('download_user_attachment', attachment_id=row.attachment_id) }}">下载</a>
               {% else %}
                 <span class="erp-meta">未上传附件</span>

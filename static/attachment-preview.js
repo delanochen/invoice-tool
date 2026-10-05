@@ -192,3 +192,38 @@ imageAttachmentPreviewImage?.addEventListener('load',() => {
 if(imageAttachmentViewport) new ResizeObserver(()=>{
   if(imageAttachmentPreviewDialog.open) applyImageAttachmentPreviewZoom();
 }).observe(imageAttachmentViewport);
+
+const documentAttachmentPreviewDialog = document.getElementById("documentAttachmentPreviewDialog");
+const documentAttachmentPreviewTitle = document.getElementById("documentAttachmentPreviewTitle");
+const documentAttachmentPreviewFrame = document.getElementById("documentAttachmentPreviewFrame");
+const documentAttachmentPreviewDownload = document.getElementById("documentAttachmentPreviewDownload");
+let documentPreviewReturn = null;
+
+function closeDocumentAttachmentPreview() {
+  if (documentAttachmentPreviewDialog?.open) documentAttachmentPreviewDialog.close();
+}
+
+function openDocumentAttachmentPreview(link, event) {
+  if (!link || !documentAttachmentPreviewDialog || !documentAttachmentPreviewFrame) return;
+  if (typeof documentAttachmentPreviewDialog.showModal !== "function") return;
+  event.preventDefault();
+  event.stopPropagation();
+  documentPreviewReturn = link;
+  documentAttachmentPreviewTitle.textContent = link.dataset.previewName || link.textContent.trim() || "附件预览";
+  documentAttachmentPreviewFrame.src = link.href;
+  documentAttachmentPreviewDownload.href = link.dataset.downloadUrl || link.href;
+  if (!documentAttachmentPreviewDialog.open) documentAttachmentPreviewDialog.showModal();
+}
+
+document.addEventListener("click", event => {
+  openDocumentAttachmentPreview(event.target.closest?.("[data-document-preview]"), event);
+}, true);
+document.querySelector("[data-document-preview-close]")?.addEventListener("click", closeDocumentAttachmentPreview);
+documentAttachmentPreviewDialog?.addEventListener("click", event => {
+  if (event.target === documentAttachmentPreviewDialog) closeDocumentAttachmentPreview();
+});
+documentAttachmentPreviewDialog?.addEventListener("close", () => {
+  documentAttachmentPreviewFrame?.removeAttribute("src");
+  if (documentPreviewReturn?.isConnected) documentPreviewReturn.focus({preventScroll: true});
+  documentPreviewReturn = null;
+});

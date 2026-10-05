@@ -15,3 +15,18 @@
   border:1px solid var(--line);border-radius:8px;
   background:#0f172a;
 }
+
+/* PDF / office document preview stays inside the PWA shell so iOS standalone
+   mode always retains a visible Close action instead of entering a toolbar-less
+   target=_blank window. */
+.modal.document-attachment-preview-modal{width:min(1180px,calc(100% - 20px));height:min(92dvh,900px);padding:12px}
+.document-attachment-preview-modal .modal-header{align-items:center}
+.document-attachment-preview-modal .modal-header h2{min-width:0;margin:0;overflow-wrap:anywhere}
+.document-attachment-preview-modal .preview-tools{display:flex;align-items:center;gap:8px}
+.document-attachment-preview-modal iframe{display:block;width:100%;height:calc(100% - 48px);border:1px solid var(--line);border-radius:8px;background:#fff}
+@media(max-width:760px){
+  .modal.document-attachment-preview-modal{width:100%;max-width:none;height:100dvh;max-height:none;margin:0;padding:calc(8px + env(safe-area-inset-top)) 8px calc(8px + env(safe-area-inset-bottom));border:0;border-radius:0}
+  .document-attachment-preview-modal .modal-header{gap:6px}
+  .document-attachment-preview-modal .modal-header h2{font-size:15px}
+  .document-attachment-preview-modal iframe{height:calc(100% - 44px)}
+}

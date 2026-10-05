@@ -312,7 +312,8 @@
                     data-image-preview
                     data-preview-name="{{ attachment.original_filename }}"
                   {% else %}
-                    target="_blank"
+                    data-document-preview
+                    data-preview-name="{{ attachment.original_filename }}"
                   {% endif %}
                 >
                   {% if (attachment.content_type or '').startswith('image/') %}
