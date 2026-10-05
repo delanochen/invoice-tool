@@ -17040,6 +17040,16 @@ def get_metrics():
         """
     ).fetchone()["total"]
     pending_expenses = sum(float(row["amount"] or 0) for row in expense_rows if row["status"] != "approved")
+    unpaid_payroll = 0
+    if has_action_permission("payroll_report", "view"):
+        unpaid_payroll = db().execute(
+            """
+            select coalesce(sum(net_amount), 0) as total
+            from employee_payment_orders
+            where payment_type = 'salary'
+              and status in ('pending_review', 'approved', 'pending_payment', 'payment_failed')
+            """
+        ).fetchone()["total"]
     if is_external_user():
         pending_reimbursement = 0
         reimbursed_expenses = 0
@@ -17053,6 +17063,7 @@ def get_metrics():
         "pending_reimbursement": float(pending_reimbursement or 0),
         "reimbursed_expenses": float(reimbursed_expenses or 0),
         "pending_expenses": pending_expenses,
+        "unpaid_payroll": float(unpaid_payroll or 0),
     }
 
 

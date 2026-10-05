@@ -104,8 +104,20 @@ def test_dashboard_shows_pending_review_expenses():
     # 指标区改成 ERP 的紧凑磁贴网格（原 .metric-grid.compact 大卡片版式已随 ERP 化下线）
     assert 'class="dash-metrics"' in html
     assert "<span>待审核报销</span><strong>{{ metrics.pending_expenses|money }}</strong>" in html
-    # 发票数量保留（缩小字号方案）
-    assert "开票数量" in html
+    # 指标区用未付工资金额替换发票数量；工具栏/汇总栏仍可显示发票总数。
+    metrics_block = html.split('class="dash-metrics"', 1)[1].split('class="dash-charts"', 1)[0]
+    assert "未付工资金额" in metrics_block
+    assert "metrics.unpaid_payroll|money" in metrics_block
+    assert "开票数量" not in metrics_block
+
+
+def test_dashboard_unpaid_payroll_uses_active_unpaid_salary_orders():
+    source = _read("app.py")
+    block = source.split("def get_metrics():", 1)[1].split("def monthly_chart():", 1)[0]
+    assert "payment_type = 'salary'" in block
+    assert "sum(net_amount)" in block
+    assert "'pending_review', 'approved', 'pending_payment', 'payment_failed'" in block
+    assert 'has_action_permission("payroll_report", "view")' in block
 
 
 def test_dashboard_compact_css_exists():
