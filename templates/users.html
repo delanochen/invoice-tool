@@ -45,7 +45,7 @@
         <div class="erp-grid-wrap">
           <table class="list-table erp-grid users-table selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>
-              <tr><th>姓名</th><th>英文名</th><th>手机号</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th></tr>
+              <tr><th>姓名</th><th>英文名</th><th>手机号</th><th>邮箱</th><th>角色</th><th>员工等级</th><th>税务身份</th><th>状态</th><th>区域 / 国家</th><th>绑定客户</th><th>附件</th><th>创建时间</th></tr>
             </thead>
             <tbody>
               {% for user in users %}
@@ -63,6 +63,14 @@
                   <td>{{ user.email }}</td>
                   <td>{{ user.role|role_label }}</td>
                   <td>{{ user.employee_grade_name or "-" }}</td>
+                  <td>
+                    {%- if normalized_role(user.role) in ('employee', 'external_employee') -%}
+                      {%- set current_tax = tax_status_by_user.get(user.id) -%}
+                      {{ 'W-2 员工' if current_tax == 'W2' else ('1099 承包人' if current_tax == '1099' else '未登记') }}
+                    {%- else -%}
+                      -
+                    {%- endif -%}
+                  </td>
                   <td><span class="status {{ 'completed' if user.is_active else 'returned' }}">{{ "启用" if user.is_active else "停用" }}</span></td>
                   <td>{{ user.region_name }} / {{ user.country_name }}</td>
                   <td>{{ user.client_name or "-" }}</td>
@@ -70,7 +78,7 @@
                   <td>{{ user.created_at[:10] }}</td>
                 </tr>
               {% else %}
-                <tr><td colspan="10" class="empty">还没有用户。</td></tr>
+                <tr><td colspan="11" class="empty">还没有用户。</td></tr>
               {% endfor %}
             </tbody>
           </table>
