@@ -20,7 +20,7 @@ class TestPwaEndpoints(Phase9TestBase):
         resp = self.client.get("/manifest.webmanifest")
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
-        self.assertEqual(data["start_url"], "/")
+        self.assertEqual(data["start_url"], "/field/")
         self.assertEqual(data["scope"], "/")
         self.assertEqual(data["display"], "standalone")
         self.assertEqual(data["id"], "/")
@@ -100,6 +100,25 @@ class TestPwaSafeAreaTopbar(unittest.TestCase):
         html = (PROJECT_ROOT / "templates" / "base.html").read_text(encoding="utf-8")
         self.assertIn("black-translucent", html)
         self.assertIn("viewport-fit=cover", html)
+
+    def test_mobile_menu_button_is_not_stretched_to_full_row_height(self):
+        block = self._rule_block(self.css, ".topbar-brand")
+        self.assertIn(
+            "align-items: center", block,
+            "移动端菜单按钮会被 flex 默认的 stretch 拉到整行高度，无法与退出按钮对齐",
+        )
+        import re
+        mobile_button_blocks = re.findall(
+            r"\.topbar\s+\.mobile-menu-toggle\s*\{([^}]*)\}", self.css, re.S
+        )
+        declarations = next(
+            (candidate for candidate in mobile_button_blocks if "height: 26px" in candidate),
+            "",
+        )
+        self.assertTrue(declarations, "没有找到移动端菜单按钮的固定高度规则")
+        self.assertIn("align-self: center", declarations)
+        self.assertIn("height: 26px", declarations)
+        self.assertIn("min-height: 26px", declarations)
 
 
 if __name__ == "__main__":

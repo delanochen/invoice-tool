@@ -6766,13 +6766,14 @@ def app_manifest():
 
     With this manifest, "添加到主屏幕 / 安装应用" creates a real standalone
     app: the phone keeps a single app window that RESUMES where the user left
-    off, instead of stacking a new browser tab on every tap.
+    off, instead of stacking a new browser tab on every tap. A fresh launch
+    starts in the field-work workspace, which is the mobile/PWA home screen.
     """
     response = jsonify(
         name="Prasinos Power",
         short_name="Prasinos",
         id="/",
-        start_url="/",
+        start_url="/field/",
         scope="/",
         display="standalone",
         background_color="#0f766e",
