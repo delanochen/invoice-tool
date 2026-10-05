@@ -145,7 +145,7 @@ def _pdf_text(path):
     return "\n".join(chunks).strip()[:MAX_PDF_CHARS]
 
 
-def _attachment_messages(attachment, path):
+def _attachment_messages(attachment, path, prompt=PROMPT):
     content_type = (attachment["content_type"] or "").lower()
     filename = (attachment["original_filename"] or "").lower()
     if content_type in SUPPORTED_IMAGE_TYPES or (
@@ -158,7 +158,7 @@ def _attachment_messages(attachment, path):
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": PROMPT},
+                    {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
                 ],
             }
@@ -167,7 +167,7 @@ def _attachment_messages(attachment, path):
         text = _pdf_text(path)
         if not text:
             raise RuntimeError("PDF 内没有可提取的文本（可能是扫描件），当前本地模型无法解读图片型 PDF。")
-        return [{"role": "user", "content": f"{PROMPT}\n\n以下是从 PDF 提取的文本：\n{text}"}]
+        return [{"role": "user", "content": f"{prompt}\n\n以下是从 PDF 提取的文本：\n{text}"}]
     raise RuntimeError("只支持解读图片与 PDF 附件。")
 
 
@@ -201,6 +201,31 @@ def interpret_attachment(connection, attachment_id, attachments_root, force=Fals
         return {"ok": False, "status": "failed", "content": "", "model": settings["model"], "error": message}
     _save_result(connection, attachment_id, settings["model"], "done", content, "")
     return {"ok": True, "status": "done", "content": content, "model": settings["model"], "error": ""}
+
+
+def analyze_expense_file(connection, path, original_filename, content_type, project_names):
+    """Classify a not-yet-saved expense attachment and return structured fields."""
+    project_list = "\n".join(f"- {name}" for name in project_names)
+    prompt = f"""你是员工报销录入助理。识别附件中的消费凭证，并严格返回一个 JSON 对象，不要 markdown。
+JSON 字段：project_name、amount、currency、expense_date、description、is_fuel、confidence。
+project_name 必须从下面系统项目中原样选择；无法可靠匹配时返回空字符串：
+{project_list}
+amount 是单据应报销总额（数字）；currency 是币种；expense_date 使用 YYYY-MM-DD；description 用简体中文概括供应商、单据类型、单据号和消费内容；is_fuel 是布尔值；confidence 是 0 到 1。
+无法识别时不要猜测，字段可为空。"""
+    attachment = {"content_type": content_type or "", "original_filename": original_filename}
+    settings = effective_settings(connection)
+    content = call_chat_completion(settings, _attachment_messages(attachment, path, prompt))
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1]
+        cleaned = cleaned.rsplit("```", 1)[0].strip()
+    try:
+        result = json.loads(cleaned)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("大模型没有返回有效的结构化解析结果，请人工干预。") from error
+    if not isinstance(result, dict):
+        raise RuntimeError("大模型解析结果格式不正确，请人工干预。")
+    return result
 
 
 def pending_attachment_ids(connection, limit=None):

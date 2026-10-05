@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}智能填报 - 发票工具{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+{% block content %}
+<div class="erp-app erp-app--flow erp-compact">
+  <header class="erp-toolbar">
+    <div class="erp-toolbar-title">员工报销智能填报<small>{{ order.order_number }} · {{ order.client_name }}</small></div>
+    <span class="erp-toolbar-spacer"></span>
+    <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
+  </header>
+  <div class="erp-body"><section class="erp-panel active"><div class="panel form-stack">
+  {% if stage == 'upload' %}
+    <h2>1. 选择员工并上传附件</h2>
+    <form method="post" enctype="multipart/form-data" class="form-stack">
+      <label>报销归属员工<select name="beneficiary_id" required>{% for person in beneficiaries %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}</select></label>
+      <label>发票或收据附件<input type="file" name="attachments" accept=".pdf,image/*" multiple required></label>
+      <p class="muted-line">支持一次上传多个 PDF 或图片。上传后将在确认生成前暂存，不会立即创建报销单。</p>
+      <div><button class="erp-btn primary" type="submit">上传并继续</button></div>
+    </form>
+  {% else %}
+    <h2>2. 解析并核对</h2>
+    <div class="erp-toolbar-group no-print"><button class="erp-btn primary" id="parseSmartExpenses" type="button">解析</button><span id="parseSmartStatus" class="muted-line">点击解析，由大模型识别类别、金额和说明。</span></div>
+    <form method="post" action="{{ url_for('expense_smart_fill_generate', token=manifest.token) }}" class="form-stack" id="smartGenerateForm">
+      <div class="line-table-wrap"><table class="list-table line-entry-table"><thead><tr><th>附件 / 状态</th><th>报销项目</th><th>金额</th><th>日期</th><th>说明</th><th>加油车辆</th></tr></thead><tbody>
+      {% for item in manifest.files %}<tr>
+        <td>{{ item.original_filename }}<br>{% if item.status == 'done' %}<span class="status approved">已解析</span>{% elif item.status == 'needs_manual' %}<span class="status returned">需人工干预</span><small class="muted-line">{{ item.error }}</small>{% else %}<span class="status draft">待解析</span>{% endif %}</td>
+        <td><select name="project_id_{{ item.id }}" class="smart-project" required><option value="">请选择</option>{% for project in projects %}<option value="{{ project.id }}" data-fuel="{{ '1' if is_fuel_project_name(project.name) else '0' }}" {% if item.project_id|string == project.id|string %}selected{% endif %}>{{ project.name }}</option>{% endfor %}</select></td>
+        <td><input type="number" min="0.01" step="0.01" name="amount_{{ item.id }}" value="{{ item.amount }}" required></td>
+        <td><input type="date" name="expense_date_{{ item.id }}" value="{{ item.expense_date }}" required></td>
+        <td><input name="description_{{ item.id }}" value="{{ item.description }}" required></td>
+        <td><select name="fuel_vehicle_type_{{ item.id }}" class="smart-fuel"><option value="">不适用／请选择</option><option value="personal" {% if item.fuel_vehicle_type == 'personal' %}selected{% endif %}>自驾油费</option><option value="rental" {% if item.fuel_vehicle_type == 'rental' %}selected{% endif %}>租车油费</option></select></td>
+      </tr>{% endfor %}
+      </tbody></table></div>
+      {% if manifest.files|length > 1 %}<fieldset><legend>生成方式</legend><label><input type="radio" name="generation_mode" value="single" checked> 生成一张报销单</label><label><input type="radio" name="generation_mode" value="category"> 按类别分成多个报销单</label></fieldset>{% else %}<input type="hidden" name="generation_mode" value="single">{% endif %}
+      <p class="muted-line">无法解析的单据会标为“需人工干预”。请人工选择项目并补全金额、日期和说明后再生成。</p>
+      <div><button class="erp-btn primary" type="submit">生成报销单</button></div>
+    </form>
+  {% endif %}
+  </div></section></div>
+</div>
+{% if stage == 'review' %}<script>
+document.getElementById('parseSmartExpenses')?.addEventListener('click', async (event) => {
+  const button = event.currentTarget, status = document.getElementById('parseSmartStatus');
+  button.disabled = true; status.textContent = '正在解析，请稍候…';
+  try { const response = await fetch({{ url_for('expense_smart_fill_parse', token=manifest.token)|tojson }}, {method:'POST'}); const data = await response.json(); if (!response.ok || !data.ok) throw new Error(data.error || '解析失败'); window.location.href = data.redirect; }
+  catch (error) { status.textContent = `${error.message}，请人工干预。`; button.disabled = false; }
+});
+document.querySelectorAll('.smart-project').forEach((select) => { const sync=()=>{const fuel=select.closest('tr').querySelector('.smart-fuel'); const needed=select.selectedOptions[0]?.dataset.fuel==='1'; fuel.required=needed; if(!needed) fuel.value='';}; select.addEventListener('change',sync); sync(); });
+</script>{% endif %}
+{% endblock %}

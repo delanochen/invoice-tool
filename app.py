@@ -108,6 +108,7 @@ from settlement_review import (
 from profitability import register_profitability_routes
 from order_data_transfer import register_order_data_transfer_routes
 from employee_finance import cancel_expense_payment_order, ensure_expense_payment_order, register_employee_finance_routes
+from expense_smart_fill import register_expense_smart_fill_routes
 from trip_policy import DEFAULT_TRIP_TYPE, ROUND_TRIP, ONE_WAY, TRIP_TYPES, normalize_trip_type, trip_label, trip_multiplier
 from service_report_assist import ServiceReportAssistService, ServiceReportEvidenceService
 import llm_config
@@ -17507,6 +17508,7 @@ cpa_workpaper = _payroll_routes["cpa_workpaper"]
 cpa_workpaper_export = _payroll_routes["cpa_workpaper_export"]
 
 register_employee_finance_routes(app, globals())
+register_expense_smart_fill_routes(app, globals())
 
 # ---------------------------------------------------------------------------
 # Quotation / 报价单：业务模块在 invoice_tool/quotations/ 下，这里只做组装。

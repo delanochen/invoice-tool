@@ -97,7 +97,7 @@
         {% set order_endpoints = ["service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report"] %}
         {% set order_calendar_endpoints = ["service_order_calendar"] %}
         {% set map_endpoints = ["service_order_map"] %}
-        {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense"] %}
+        {% set expense_processing_endpoints = ["expense_processing", "expense_detail", "new_expense", "edit_expense", "expense_smart_fill", "expense_smart_fill_review"] %}
         {% set knowledge_base_endpoints = ["knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document"] %}
         {% set ai_assistant_endpoints = ["ai_assistant", "ai_assistant_chat"] %}
         {% set utility_endpoints = ["ai_daily_report_drafts_page", "ai_daily_report_draft_detail_page", "travel_tools_page", "knowledge_base", "preview_knowledge_document", "download_knowledge_document", "edit_knowledge_document", "upload_knowledge_document_version", "preview_knowledge_document_version", "download_knowledge_document_version", "delete_knowledge_document", "ai_assistant", "ai_assistant_chat", "database_console", "order_data_transfer"] %}
@@ -117,7 +117,7 @@
           <a href="{{ url_for(endpoint) }}" class="translatable-text {{ 'active' if active_endpoint in targets else '' }}" {% if active_endpoint in targets %}aria-current="page"{% endif %} {{ attrs|safe }}>{{ nav_icon(icon) }}{{ label }}</a>
         {%- endmacro %}
         <nav id="topnav">
-          {% set main_endpoints = ["field_work", "field_photo_query", "user_certificate_query", "dashboard", "contracts", "new_contract", "contract_detail", "edit_contract", "quotations", "new_quotation", "quotation_detail", "edit_quotation", "service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report", "service_order_calendar", "service_order_map", "expense_processing", "expense_detail", "new_expense", "edit_expense", "clients", "buyers", "users"] %}
+          {% set main_endpoints = ["field_work", "field_photo_query", "user_certificate_query", "dashboard", "contracts", "new_contract", "contract_detail", "edit_contract", "quotations", "new_quotation", "quotation_detail", "edit_quotation", "service_orders", "new_service_order", "service_order_detail", "edit_service_order", "new_service_report", "edit_service_report", "service_order_calendar", "service_order_map", "expense_processing", "expense_detail", "new_expense", "edit_expense", "expense_smart_fill", "expense_smart_fill_review", "clients", "buyers", "users"] %}
           {# v0.1.307: messages 不再属于主菜单组 —— 消息提升为菜单栏上的一级入口（见 nav 末尾），
              访问消息页时高亮的是那个入口，不是「主菜单」。 #}
           <details class="nav-group main-group {{ 'active' if active_endpoint in main_endpoints else '' }}" {% if active_endpoint in main_endpoints %}open{% endif %}>

@@ -215,6 +215,7 @@
         <span class="erp-badge" data-selected-label>{{ expense_summary|trim }}</span>
         {% if can_create_expense() %}
           <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
+          <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('expense_smart_fill', order_id=order.id) }}'">智能填报</button>
         {% endif %}
         <button class="erp-btn" type="button" data-row-action="detailUrl" disabled>查看</button>
       </div>
