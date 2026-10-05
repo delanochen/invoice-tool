@@ -85,6 +85,12 @@
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-row-action]");
     if (!button || button.disabled) return;
+    // 表单里的提交按钮（用户管理的「停用 / 批准启用」）必须让表单自己走原生 POST：
+    // 它带 data-row-action 只是为了在选中行时同步 action/label/文案。若在这里把它当
+    // 「打开链接」处理，会用 GET 去请求只允许 POST 的地址（/users/<id>/status）→
+    // 405，而 werkzeug 的 405 错误页没有 .main，工作区外壳会误判成「页面加载失败」。
+    // 注意：这里不能 preventDefault，否则表单反而不提交了。
+    if (button.type === "submit") return;
     const value = button.dataset.selectedValue || "";
     if (!value) return;
     const mode = button.dataset.actionMode || "navigate";
