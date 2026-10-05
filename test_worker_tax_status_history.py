@@ -189,6 +189,16 @@ class WorkerTaxStatusHistoryTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(f"/users/{self.worker_id}/tax-status", page.get_data(as_text=True))
 
+    def test_empty_notes_is_accepted(self):
+        """备注留空必须可保存（notes 列 NOT NULL，空字符串合法，不得转 None）。"""
+        page = self._add(notes="")
+        self.assertEqual(self._count(), 1)
+        with self.module.app.app_context():
+            row = self.module.db().execute(
+                "select notes from worker_tax_status_history where employee_id=?",
+                (self.worker_id,)).fetchone()
+        self.assertEqual(row["notes"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -379,7 +379,7 @@ def build_payroll_services(api):
             "insert into worker_tax_status_history (employee_id,tax_status,effective_from,"
             "effective_to,notes,created_by,created_at) values (?,?,?,?,?,?,?)",
             (employee_id, tax_status, effective_from, effective_to or None,
-             notes or None, created_by, api["now"]()),
+             notes or "", created_by, api["now"]()),
         )
 
     def _worker_tax_status_current(employee_id, today=None):
