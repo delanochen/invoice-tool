@@ -179,6 +179,16 @@ class WorkerTaxStatusHistoryTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(f"/users/{self.worker_id}/tax-status", page.get_data(as_text=True))
 
+    def test_users_list_dialog_links_to_tax_status_page(self):
+        """用户列表页的编辑弹窗（users.html）也必须显示税务身份入口。"""
+        with self.module.app.app_context():
+            self.module.db().execute(
+                "update users set role='user' where id=?", (self.worker_id,))
+            self.module.db().commit()
+        page = self.http.get("/users")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(f"/users/{self.worker_id}/tax-status", page.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()
