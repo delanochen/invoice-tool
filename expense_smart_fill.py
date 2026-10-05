@@ -12,7 +12,8 @@ from pathlib import Path
 from flask import abort, flash, g, jsonify, redirect, render_template, request, url_for
 from ai_interpretation import analyze_expense_file
 
-ALLOWED = {"pdf", "png", "jpg", "jpeg", "webp", "gif"}
+ALLOWED = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
+ALLOWED_LABEL = "PDF、PNG、JPG、JPEG、WEBP、GIF、HEIC、HEIF"
 
 
 def _json_write(path, value):
@@ -94,12 +95,31 @@ def register_expense_smart_fill_routes(app, deps):
                     original = os.path.basename(upload.filename).strip()
                     extension = original.rsplit(".", 1)[-1].lower() if "." in original else ""
                     if extension not in ALLOWED:
-                        raise ValueError("智能填报附件仅支持 PDF 和图片。")
-                    stored = f"{index + 1:03d}-{secrets.token_hex(8)}.{extension}"
-                    upload.save(folder / stored)
+                        raise ValueError(f"智能填报附件仅支持 {ALLOWED_LABEL}。")
+                    stored_extension = "jpg" if extension in {"heic", "heif"} else extension
+                    stored = f"{index + 1:03d}-{secrets.token_hex(8)}.{stored_extension}"
+                    stored_path = folder / stored
+                    if extension in {"heic", "heif"}:
+                        from PIL import Image, ImageOps
+                        from pillow_heif import register_heif_opener
+
+                        register_heif_opener()
+                        try:
+                            with Image.open(upload.stream) as image:
+                                ImageOps.exif_transpose(image).convert("RGB").save(
+                                    stored_path, format="JPEG", quality=90
+                                )
+                        except Exception as error:
+                            raise ValueError(
+                                f"附件 {original} 无法转换为 JPG，请确认文件完整后重试。"
+                            ) from error
+                        original = f"{Path(original).stem}.jpg"
+                    else:
+                        upload.save(stored_path)
                     files.append({
                         "id": index + 1, "original_filename": original,
-                        "stored_filename": stored, "content_type": upload.content_type or "",
+                        "stored_filename": stored,
+                        "content_type": "image/jpeg" if stored_extension == "jpg" else (upload.content_type or ""),
                         "status": "pending", "project_id": "", "amount": "",
                         "expense_date": date.today().isoformat(), "description": "",
                         "fuel_vehicle_type": "", "error": "",
@@ -109,9 +129,15 @@ def register_expense_smart_fill_routes(app, deps):
                     "beneficiary_id": int(raw_beneficiary), "created_at": now(), "files": files,
                 }
                 _json_write(folder / "manifest.json", manifest)
-            except Exception:
+            except ValueError as error:
                 shutil.rmtree(folder, ignore_errors=True)
-                raise
+                flash(str(error), "error")
+                return redirect(request.url)
+            except OSError as error:
+                shutil.rmtree(folder, ignore_errors=True)
+                app.logger.exception("Failed to save smart-fill uploads for order %s", order_id)
+                flash(f"附件保存失败，请重试或更换文件。({error})", "error")
+                return redirect(request.url)
             return redirect(url_for("expense_smart_fill_review", token=token))
         return render_template(
             "expense_smart_fill.html", order=order, beneficiaries=expense_beneficiary_options(),

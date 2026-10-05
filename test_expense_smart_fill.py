@@ -39,6 +39,10 @@ class ExpenseSmartFillTests(unittest.TestCase):
         self.assertIn("生成一张报销单", template)
         self.assertIn("按类别分成多个报销单", template)
         self.assertIn("需人工干预", template)
+        self.assertIn("HEIC、HEIF", module)
+        self.assertIn('stored_extension = "jpg"', module)
+        self.assertIn("except ValueError as error", module)
+        self.assertIn("flash(str(error)", module)
         self.assertIn('{"personal", "rental"}', module)
 
 

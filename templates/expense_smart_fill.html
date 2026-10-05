@@ -13,8 +13,8 @@
     <h2>1. 选择员工并上传附件</h2>
     <form method="post" enctype="multipart/form-data" class="form-stack">
       <label>报销归属员工<select name="beneficiary_id" required>{% for person in beneficiaries %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}</select></label>
-      <label>发票或收据附件<input type="file" name="attachments" accept=".pdf,image/*" multiple required></label>
-      <p class="muted-line">支持一次上传多个 PDF 或图片。上传后将在确认生成前暂存，不会立即创建报销单。</p>
+      <label>发票或收据附件<input type="file" name="attachments" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.heic,.heif,application/pdf,image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" multiple required></label>
+      <p class="muted-line">支持一次上传多个 PDF 或图片；HEIC/HEIF 会自动转换为 JPG。上传后将在确认生成前暂存，不会立即创建报销单。</p>
       <div><button class="erp-btn primary" type="submit">上传并继续</button></div>
     </form>
   {% else %}
