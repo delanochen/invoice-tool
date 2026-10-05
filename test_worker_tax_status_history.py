@@ -169,6 +169,16 @@ class WorkerTaxStatusHistoryTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(f"/users/{self.worker_id}/tax-status", page.get_data(as_text=True))
 
+    def test_legacy_role_value_user_still_shows_tax_status_entry(self):
+        """旧角色值 'user'（normalized_role 后为 employee）也必须显示税务身份入口。"""
+        with self.module.app.app_context():
+            self.module.db().execute(
+                "update users set role='user' where id=?", (self.worker_id,))
+            self.module.db().commit()
+        page = self.http.get(f"/users/{self.worker_id}/edit")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(f"/users/{self.worker_id}/tax-status", page.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()
