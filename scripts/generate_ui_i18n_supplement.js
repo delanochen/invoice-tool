@@ -9,6 +9,7 @@ const https = require("https");
 const root = path.resolve(__dirname, "..");
 const input = path.resolve(process.env.AUDIT_JSON || path.join(root, ".i18n-audit.json"));
 const output = path.join(root, "static", "ui-i18n-supplement.js");
+const existingSupplement = fs.existsSync(output) ? require(output) : {};
 const targets = { en: "en", nl: "nl", de: "de", es: "es" };
 const findings = JSON.parse(fs.readFileSync(input, "utf8"));
 const sources = [...new Set(findings.map(item => item.value))];
@@ -67,7 +68,12 @@ async function translateBatch(batch, language) {
 }
 
 (async () => {
-  const supplement = { en: {}, nl: {}, de: {}, es: {} };
+  const supplement = {
+    en: { ...(existingSupplement.en || {}) },
+    nl: { ...(existingSupplement.nl || {}) },
+    de: { ...(existingSupplement.de || {}) },
+    es: { ...(existingSupplement.es || {}) },
+  };
   for (const [name, language] of Object.entries(targets)) {
     process.stderr.write(`Translating ${sources.length} strings to ${name}...\n`);
     const sourceBatches = batches(sources, 24);

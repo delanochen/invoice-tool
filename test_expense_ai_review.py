@@ -220,8 +220,8 @@ class ExpenseAiReviewTest(unittest.TestCase):
         self.assertIn('data-preview-name="receipt.png"', panel)
         self.assertIn('data-preview-name="matched.png"', panel)
 
-    def test_suspicious_non_image_attachment_keeps_new_tab(self):
-        """非图片（PDF/Word/Excel）仍旧新开标签页 —— 弹窗里只有一个 <img>，装不下它们。"""
+    def test_suspicious_non_image_attachment_uses_document_preview(self):
+        """非图片（PDF/Word/Excel）使用支持 iframe 的通用文档预览。"""
         current_id = self.add_attachment("invoice.pdf", "application/pdf")
         matched_id = self.add_attachment("invoice-copy.pdf", "application/pdf")
         self.seed_duplicate_check(current_id, matched_id)
@@ -229,7 +229,8 @@ class ExpenseAiReviewTest(unittest.TestCase):
         panel = self.duplicate_panel(self.http.get(f"/expenses/{self.expense_id}").get_data(as_text=True))
         self.assertNotIn("data-image-preview", panel)
         self.assertNotIn("inline-thumb", panel)
-        self.assertEqual(panel.count('target="_blank"'), 2)
+        self.assertEqual(panel.count("data-document-preview"), 2)
+        self.assertNotIn('target="_blank"', panel)
         self.assertIn(f'href="/expense-attachments/{current_id}"', panel)
 
     def test_duplicate_checks_query_carries_attachment_content_type(self):

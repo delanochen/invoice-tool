@@ -2851,10 +2851,66 @@
     "销售税负债": ["Sales tax liability", "Omzetbelastingverplichting", "Umsatzsteuerverbindlichkeit", "Pasivo por impuesto sobre ventas"],
     "报价单": ["Quotation", "Offerte", "Angebot", "Cotización"],
     "工资付款单": ["Payroll payment order", "Loonbetalingsopdracht", "Lohnzahlungsauftrag", "Orden de pago de nómina"],
-    "税务身份": ["Tax status", "Fiscale status", "Steuerstatus", "Estado fiscal"]
+    "税务身份": ["Tax status", "Fiscale status", "Steuerstatus", "Estado fiscal"],
+    "工单信息": ["Work order information", "Werkorderinformatie", "Arbeitsauftragsinformationen", "Información de la orden de trabajo"],
+    "报价信息": ["Quotation information", "Offertegegevens", "Angebotsinformationen", "Información de cotización"],
+    "费率与假设": ["Rates & assumptions", "Tarieven en aannames", "Sätze und Annahmen", "Tarifas y supuestos"],
+    "付款与开票": ["Payment & invoicing", "Betaling en facturering", "Zahlung und Rechnungsstellung", "Pago y facturación"],
+    "发票正文": ["Invoice", "Factuur", "Rechnung", "Factura"],
+    "附件清单": ["Attachment list", "Bijlagenlijst", "Anhangsliste", "Lista de archivos adjuntos"],
+    "明细行数": ["Line items", "Aantal regels", "Positionen", "Partidas"],
+    "应收合计": ["Amount due", "Te ontvangen", "Forderungsbetrag", "Importe adeudado"],
+    "列设置": ["Column settings", "Kolominstellingen", "Spalteneinstellungen", "Configuración de columnas"]
   };
   [en, nl, de, es].forEach((dictionary, index) => {
     Object.entries(reviewedTerms).forEach(([key, values]) => { dictionary[key] = values[index]; });
+  });
+  Object.assign(en, {
+    "资产负债平衡": "Assets and liabilities balanced", "不平衡": "Out of balance",
+    "已撤销": "Reversed", "已过账": "Posted", "系统": "System", "借": "Debit", "贷": "Credit",
+    "开放": "Open", "已关账": "Closed", "借贷平衡": "Debits and credits balanced",
+    "借贷不平衡": "Debits and credits out of balance", "已冲销": "Reversed", "闭合": "Closed",
+    "已对账": "Reconciled", "已解析付款日": "Payment date resolved", "记录数": "Records",
+    "操作者数": "Operators", "不限": "Any", "未初始化": "Not initialized",
+    "未匹配流水": "Unmatched transactions", "支出": "Expense", "未匹配": "Unmatched",
+    "流水记录": "Transactions", "CPA 工作底稿": "CPA workpapers", "税务政策决策": "Tax policy decisions",
+    "条未读）": " unread)", "站点数": "Sites", "无配套机厂家": "No equipment manufacturer",
+    "涉及国家": "Countries", "工单完成": "Work orders completed", "工单总数": "Total work orders",
+    "公司资料": "Company profile", "已启用": "Enabled", "已停用": "Disabled", "合同数": "Contracts",
+    "生效中": "Active", "合同信息": "Contract information", "未填写服务订单号码": "No service order number",
+    "人晚": "person-nights", "每天": "Per day", "长期": "Ongoing", "实报实销上限": "Reimbursement cap",
+    "国家数": "Countries", "无服务订单号": "No service order number", "结算数": "Settlements",
+    "开票与核销趋势": "Invoice and payment trend", "SQL 控制台": "SQL console", "数据库对象": "Database objects",
+    "返回行数": "Rows returned", "影响行数": "Rows affected", "每次执行": "Per execution", "1 条 SQL": "1 SQL statement",
+    "版本 v": "Version v", "静态费率": "Fixed rates", "无描述": "No description", "启用中": "Enabled",
+    "员工分配": "Employee assignments", "等级资料": "Grade details", "在职": "Active",
+    "工资 / 员工报销": "Payroll / employee expenses", "通过": "Pass", "需人工复核": "Manual review required",
+    "高": "High", "中": "Medium", "明细条数": "Line items", "重复疑点": "Duplicate flags",
+    "已付款合计": "Total paid", "报销单数": "Expense claims", "照片数": "Photos", "涉及工单": "Work orders",
+    "无铭牌号": "No nameplate number", "维修记录": "Repair records", "发票数": "Invoices",
+    "厂家数": "Manufacturers", "消息数": "Messages", "业主数": "Owners", "工资": "Payroll",
+    "到期日重算预览": "Due-date recalculation preview", "待重算发票": "Invoices awaiting recalculation",
+    "一": "Mon", "二": "Tue", "三": "Wed", "四": "Thu", "五": "Fri", "六": "Sat", "日": "Sun",
+    "非工单": "Not linked to a work order", "人数": "Employees", "员工数": "Employees",
+    "（可靠）": " (reliable)", "（佐证缺失，不可靠）": " (evidence missing, unreliable)",
+    "日报 driving_miles 有值": "Daily reports with driving_miles", "起终点齐全日报": "Daily reports with complete origin and destination",
+    "按工时分摊": "Allocate by labor hours", "直接归属": "Directly assigned", "报销项目映射": "Expense project mappings",
+    "项目数": "Projects", "映射数": "Mappings", "报价单数": "Quotations", "已发送": "Sent",
+    "价税合计": "Total including tax", "未排期": "Unscheduled", "无服务订单号码": "No service order number",
+    "无业主": "No owner", "排期天数": "Scheduled days", "排期条数": "Scheduled entries", "新建": "New",
+    "交互地图密钥无效或被限制，已切换为静态模式": "The interactive map key is invalid or restricted; switched to static mode",
+    "交互地图渲染脚本加载失败，已自动切换为静态模式": "The interactive map renderer failed to load; switched to static mode",
+    "交互地图脚本未能加载（网络不可达），已自动切换为静态模式": "The interactive map script could not load (network unavailable); switched to static mode",
+    "日报清单": "Daily report list", "按站点汇总": "Summary by site", "未填写服务人员": "No service personnel",
+    "涉及站点": "Sites", "更新结算草稿": "Update settlement draft", "旧规则回退值": "Legacy fallback value",
+    "尚未审核通过": "Not yet approved", "按当前合同规则不进入客户实报实销": "Excluded from customer reimbursement under current contract rules",
+    "候选条数": "Candidates", "实时：无佐证": "Live: no evidence", "实时：佐证成功": "Live: evidence verified",
+    "实时：佐证失败": "Live: evidence failed", "SL 工资": "SL payroll", "NULL（缺身份）": "NULL (tax status missing)",
+    "（当前分类已确认，无待办原因）": " (current classification confirmed; no pending reason)", "（未填写）": " (not provided)",
+    "复核次数": "Review count", "就绪": "Ready", "用户数": "Users", "没有附件": "No attachment",
+    "证书附件": "Certificate attachment", "未上传": "Not uploaded", "附件行": "Attachment rows",
+    "缺附件行": "Missing-attachment rows", "停用账号行": "Disabled-account rows", "（至今）": " (present)",
+    "类型数": "Types"
   });
   const language = typeof document === "undefined" ? "en" : document.documentElement.lang;
   const dictionaries = { en, nl, de, es };
@@ -2887,15 +2943,14 @@
   }
   if (typeof document === "undefined" || language === "zh-CN") return;
 
+  const partialSelector = "label, button, option, summary, th, h1, h2, h3, legend, small, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text, .erp-badge, .erp-summary-item, .erp-status";
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentElement?.closest("script, style")) continue;
     const allowPartial = Boolean(
-      node.parentElement?.closest(
-        "label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text"
-      )
+      node.parentElement?.closest(partialSelector)
     );
     const translated = translate(node.nodeValue, allowPartial);
     if (translated) {
@@ -2915,7 +2970,7 @@
 
   document.title = translate(document.title, true) || document.title;
 
-  for (const input of document.querySelectorAll("form.filter-bar input[type='date']")) {
+  for (const input of document.querySelectorAll("form.filter-bar input[type='date'], form.erp-filter input[type='date']")) {
     input.lang = { nl: "nl-NL", de: "de-DE", es: "es-ES" }[language] || "en-US";
     if (input.value) continue;
     input.type = "text";
@@ -2961,15 +3016,15 @@
   const translateElement = (element) => {
     if (element.nodeType === Node.TEXT_NODE) {
       const parent = element.parentElement;
-      if (!parent?.closest("label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text")) return;
+      if (!parent?.closest(partialSelector)) return;
       const translated = translate(element.nodeValue, true);
       if (translated) element.nodeValue = translated;
       return;
     }
     if (!(element instanceof Element)) return;
-    const targets = element.matches("label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text")
+    const targets = element.matches(partialSelector)
       ? [element]
-      : [...element.querySelectorAll("label, button, option, summary, th, h1, h2, h3, legend, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text")];
+      : [...element.querySelectorAll(partialSelector)];
     for (const target of targets) {
       for (const node of [...target.childNodes]) {
         if (node.nodeType !== Node.TEXT_NODE) continue;

@@ -46,3 +46,6 @@ recover_out.txt
 restore_out.txt
 evidence_probe.png
 
+# Local spreadsheet API exports may contain employee/customer business data.
+sheets/
+

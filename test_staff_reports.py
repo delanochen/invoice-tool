@@ -1,8 +1,19 @@
+import re
 import unittest
 import test_expense_on_behalf as fixture
 
 
 class StaffCertificateReportTest(unittest.TestCase):
+    @staticmethod
+    def sidebar_counts(html):
+        return {
+            label: int(count)
+            for label, count in re.findall(
+                r'<span>(全部清单|已有附件|缺少附件|停用账号)</span><span class="count">(\d+)</span>',
+                html,
+            )
+        }
+
     def setUp(self):
         self.fixture = fixture.ExpenseOnBehalfTest()
         self.addCleanup(self.fixture.doCleanups)
@@ -39,6 +50,22 @@ class StaffCertificateReportTest(unittest.TestCase):
         self.assertNotIn('Driving licence.pdf',response.text)
         filtered = self.http.get('/reports/user-certificates?user_id='+str(self.fixture.people['Beneficiary']))
         self.assertNotIn('Driving licence.pdf',filtered.text)
+
+    def test_sidebar_counts_do_not_depend_on_current_presence_view(self):
+        self.fixture.login('Manager')
+        attached_page = self.http.get('/reports/user-certificates?presence=yes').text
+        missing_page = self.http.get('/reports/user-certificates?presence=no').text
+
+        attached_counts = self.sidebar_counts(attached_page)
+        missing_counts = self.sidebar_counts(missing_page)
+
+        self.assertEqual(attached_counts, missing_counts)
+        self.assertGreater(attached_counts['已有附件'], 0)
+        self.assertGreater(attached_counts['缺少附件'], 0)
+        self.assertEqual(
+            attached_counts['全部清单'],
+            attached_counts['已有附件'] + attached_counts['缺少附件'],
+        )
 
 
 if __name__ == '__main__':

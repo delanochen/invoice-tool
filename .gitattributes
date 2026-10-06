@@ -4,3 +4,4 @@
 *.timer text eol=lf
 deploy/authorized_keys.invoice text eol=lf
 deploy/docker-compose.postgresql.yml text eol=lf
+*.pdf binary

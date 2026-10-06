@@ -50,25 +50,25 @@
       <li>
         <a class="erp-nav-item{% if flag_presence == '' and flag_active == '' %} active{% endif %}"
            href="{{ url_for('user_certificate_query', presence='', active='', user_id=person, q=keyword) }}">
-          <span>全部清单</span><span class="count">{{ rows|length }}</span>
+          <span>全部清单</span><span class="count">{{ navigation_counts.all }}</span>
         </a>
       </li>
       <li>
         <a class="erp-nav-item{% if flag_presence == 'yes' %} active{% endif %}"
            href="{{ url_for('user_certificate_query', presence='yes', active=flag_active, user_id=person, q=keyword) }}">
-          <span>已有附件</span><span class="count">{{ attached_rows|length }}</span>
+          <span>已有附件</span><span class="count">{{ navigation_counts.attached }}</span>
         </a>
       </li>
       <li>
         <a class="erp-nav-item{% if flag_presence == 'no' %} active{% endif %}"
            href="{{ url_for('user_certificate_query', presence='no', active=flag_active, user_id=person, q=keyword) }}">
-          <span>缺少附件</span><span class="count">{{ missing_rows|length }}</span>
+          <span>缺少附件</span><span class="count">{{ navigation_counts.missing }}</span>
         </a>
       </li>
       <li>
         <a class="erp-nav-item{% if flag_active == '0' %} active{% endif %}"
            href="{{ url_for('user_certificate_query', presence='', active='0', user_id=person, q=keyword) }}">
-          <span>停用账号</span><span class="count">{{ rows|selectattr('is_active', 'equalto', 0)|list|length }}</span>
+          <span>停用账号</span><span class="count">{{ navigation_counts.inactive }}</span>
         </a>
       </li>
     </ul>

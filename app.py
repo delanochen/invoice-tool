@@ -546,9 +546,16 @@ DEFAULT_ACTION_ROLES = {
     for item in group["items"]
     for action, roles in item["actions"].items()
 }
+MANAGER_FINANCE_INHERITANCE_EXCEPTIONS = {
+    # Tax workspaces are intentionally manager-read-only. Review and export
+    # remain restricted to finance/admin even though managers generally inherit
+    # finance permissions elsewhere.
+    ("tax_review", "review"),
+    ("annual_tax_summary", "export"),
+}
 # 操作权限同样保持 manager >= finance，避免新增财务动作时遗漏经理。
-for _roles in DEFAULT_ACTION_ROLES.values():
-    if "finance" in _roles:
+for _permission_key, _roles in DEFAULT_ACTION_ROLES.items():
+    if "finance" in _roles and _permission_key not in MANAGER_FINANCE_INHERITANCE_EXCEPTIONS:
         _roles.add("manager")
 
 def permission_tree_groups():
@@ -1733,7 +1740,9 @@ def has_action_permission(resource_key, action_key, role=None):
     overrides = action_permission_overrides()
     override_key = (role, resource_key, action_key)
     menu_overrides = menu_permission_overrides()
-    if role == "manager" and (
+    if action_key != "view" and override_key in overrides:
+        return overrides[override_key]
+    if role == "manager" and (resource_key, action_key) not in MANAGER_FINANCE_INHERITANCE_EXCEPTIONS and (
         overrides.get(("finance", resource_key, action_key), False)
         or (
             action_key == "view"
@@ -16203,8 +16212,7 @@ def delete_invoice(invoice_id):
     # v0.1.239: 删除权限完全由菜单配置「发票-删除」决定（默认财务/经理/管理员），
     # 不再按角色写死；无权限时集中式路由闸门会先行拦截（403）。
     if not has_action_permission("invoices", "delete"):
-        flash("你没有删除发票的权限，请联系管理员在权限管理中开启。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+        abort(403)
     recognition = db().execute(
         "select 1 from posting_events where source_type='invoice' and source_id=? "
         "and event_type='invoice.confirmed' limit 1", (invoice_id,),

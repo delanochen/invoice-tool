@@ -16,10 +16,15 @@ class ManagerFinancePermissionInheritanceTest(unittest.TestCase):
             f"{resource}:{action}"
             for (resource, action), roles in app_module.DEFAULT_ACTION_ROLES.items()
             if "finance" in roles and "manager" not in roles
+            and (resource, action) not in app_module.MANAGER_FINANCE_INHERITANCE_EXCEPTIONS
         )
         self.assertEqual(missing, [])
 
-    def test_finance_override_is_effectively_inherited_by_manager(self):
+    def test_sensitive_tax_actions_are_not_inherited(self):
+        self.assertNotIn("manager", app_module.DEFAULT_ACTION_ROLES[("tax_review", "review")])
+        self.assertNotIn("manager", app_module.DEFAULT_ACTION_ROLES[("annual_tax_summary", "export")])
+
+    def test_explicit_manager_action_override_wins_over_finance_inheritance(self):
         with app_module.app.test_request_context("/"):
             app_module.g.user = {"id": 1, "role": "manager"}
             app_module.g._menu_permission_overrides = {
@@ -31,7 +36,7 @@ class ManagerFinancePermissionInheritanceTest(unittest.TestCase):
                 ("finance", "bank_accounts", "edit"): True,
             }
             self.assertTrue(app_module.has_menu_permission("bank_accounts"))
-            self.assertTrue(app_module.has_action_permission("bank_accounts", "edit"))
+            self.assertFalse(app_module.has_action_permission("bank_accounts", "edit"))
 
 
 if __name__ == "__main__":
