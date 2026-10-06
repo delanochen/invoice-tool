@@ -36,6 +36,19 @@ def selected_expense_count(connection, reimbursement_id):
 
 def settlement_expense_candidates(api, order_id, reimbursement_id=None):
     selected = selected_expense_item_ids(api["db"](), reimbursement_id) if reimbursement_id else set()
+    snapshots = {}
+    if reimbursement_id:
+        snapshots = {
+            row["expense_item_id"]: dict(row)
+            for row in api["db"]().execute(
+                """
+                select expense_item_id, amount_snapshot, project_snapshot, expense_status_snapshot
+                from customer_reimbursement_expense_links
+                where customer_reimbursement_id = ?
+                """,
+                (reimbursement_id,),
+            ).fetchall()
+        }
     rows = api["db"]().execute(
         """
         select expense_items.id as expense_item_id,
@@ -50,6 +63,8 @@ def settlement_expense_candidates(api, order_id, reimbursement_id=None):
                expenses.status,
                expenses.payout_status,
                expenses.reviewed_at,
+               expenses.created_at as expense_created_at,
+               expenses.updated_at as expense_updated_at,
                coalesce(beneficiaries.name, creators.name) as worker_name,
                creators.name as creator_name
         from expenses
@@ -72,6 +87,15 @@ def settlement_expense_candidates(api, order_id, reimbursement_id=None):
         data["eligible"] = bool(field_name)
         data["selectable"] = bool(field_name) and data["status"] == ELIGIBLE_STATUS
         data["selected"] = data["expense_item_id"] in selected
+        snapshot = snapshots.get(data["expense_item_id"])
+        data["amount_snapshot"] = snapshot.get("amount_snapshot") if snapshot else None
+        data["project_snapshot"] = snapshot.get("project_snapshot") if snapshot else None
+        data["status_snapshot"] = snapshot.get("expense_status_snapshot") if snapshot else None
+        data["source_changed"] = bool(snapshot) and (
+            _money(data["amount"]) != _money(snapshot.get("amount_snapshot"))
+            or (data["project_name"] or "") != (snapshot.get("project_snapshot") or "")
+            or (data["status"] or "") != (snapshot.get("expense_status_snapshot") or "")
+        )
         data["group_key"] = field_name or "excluded"
         data["group_label"] = {
             "lodging": "住宿费",
@@ -315,13 +339,14 @@ def register_settlement_review_routes(app, api):
                     """
                     update customer_reimbursements
                     set lodging_person_nights = ?, lodging_cap_rate_snapshot = ?, contract_rate_version_id = ?,
-                        expense_selection_mode = 'manual_review'
+                        expense_selection_mode = 'manual_review', expense_transfer_cutoff_at = ?
                     where id = ?
                     """,
                     (
                         person_nights,
                         lodging_rate["rate"],
                         lodging_rate["version_id"],
+                        api["now"](),
                         reimbursement["id"],
                     ),
                 )

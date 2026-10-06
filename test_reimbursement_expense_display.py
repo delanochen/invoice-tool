@@ -613,7 +613,7 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
                 ).fetchone()["status"]
                 self.assertEqual(status, "submitted")
 
-    # ---- 结算页横幅：已审核未计入时渲染「计入并重算」按钮 ----
+    # ---- 结算页横幅：已审核未计入时引导到内嵌标签选择 ----
     def test_pending_sources_banner_renders(self):
         self._make_expense("2026-09-20", 300, status="approved")
         with self.module.app.test_client() as client:
@@ -623,8 +623,14 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             html = resp.get_data(as_text=True)
             self.assertIn("已审核报销尚未计入", html)
-            self.assertIn("计入并重算", html)
-            self.assertIn("sync-sources", html)
+            self.assertIn("差旅", html)
+            self.assertIn("工时", html)
+            self.assertIn("里程", html)
+            self.assertIn("其他", html)
+            self.assertIn("工单结算", html)
+            self.assertIn("settlementSourceSelectionForm", html)
+            self.assertNotIn("计入并重算", html)
+            self.assertNotIn("sync-sources", html)
 
 
 if __name__ == "__main__":

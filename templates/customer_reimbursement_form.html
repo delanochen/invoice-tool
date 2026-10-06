@@ -3,6 +3,9 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .settlement-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.settlement-tab{border-bottom:3px solid transparent}.settlement-tab.is-active{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}.settlement-tab-badge{display:inline-block;min-width:18px;padding:1px 5px;margin-left:4px;border-radius:9px;background:#d97706;color:#fff;font-size:11px}.settlement-tab-panel[hidden]{display:none}.settlement-source-table{max-height:52vh;overflow:auto}.settlement-source-table table{min-width:900px}#customerReimbursementForm>.plain-fieldset>.table-scroll{max-height:62vh;overflow:auto}.source-change-banner{margin-bottom:10px}.source-choice{width:18px;height:18px}.source-status-new{color:#047857}.source-status-warning{color:#b45309}.source-status-error{color:#b91c1c}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -85,7 +88,6 @@
         <button type="submit" form="customerReimbursementForm" name="action" value="generate_pdf">生成 PDF</button>
       {% endif %}
       {% if can_edit %}
-        <button type="button" onclick="window.location.href='{{ url_for('customer_reimbursement_expense_review', order_id=order.id) }}'">选择报销来源</button>
         <button type="submit" form="customerReimbursementForm" name="action" value="save">保存</button>
         <button class="primary" type="submit" form="customerReimbursementForm" name="action" value="submit">提交经理审核</button>
       {% endif %}
@@ -127,6 +129,69 @@
     </div>
   </header>
 
+  <nav class="settlement-tabs" aria-label="工单结算内容">
+    <button type="button" class="settlement-tab is-active" data-settlement-tab="labor">工时{% if workspace.report_change_count %}<span class="settlement-tab-badge">{{ workspace.report_change_count }}</span>{% endif %}</button>
+    <button type="button" class="settlement-tab" data-settlement-tab="travel">差旅{% if workspace.expense_change_count %}<span class="settlement-tab-badge">{{ workspace.expense_change_count }}</span>{% endif %}</button>
+    <button type="button" class="settlement-tab" data-settlement-tab="mileage">里程{% if workspace.report_change_count %}<span class="settlement-tab-badge">{{ workspace.report_change_count }}</span>{% endif %}</button>
+    <button type="button" class="settlement-tab" data-settlement-tab="other">其他{% if workspace.expense_change_count %}<span class="settlement-tab-badge">{{ workspace.expense_change_count }}</span>{% endif %}</button>
+    <button type="button" class="settlement-tab" data-settlement-tab="settlement">工单结算</button>
+  </nav>
+
+  {% if workspace.report_change_count or workspace.expense_change_count %}
+  <div class="flash source-change-banner {{ 'error' if reimbursement.status not in ['draft','returned'] else '' }}">
+    检测到来源变化：日报 {{ workspace.report_change_count }} 项，报销 {{ workspace.expense_change_count }} 项。
+    {% if reimbursement.status in ['draft','returned'] %}工时和里程显示当前日报数据；保存结算时将同步到结算表。{% else %}当前结算使用历史快照；请先退回或重置后再同步。{% endif %}
+  </div>
+  {% else %}
+  <div class="flash success source-change-banner">日报和报销来源均为最新。</div>
+  {% endif %}
+
+  <section class="panel settlement-tab-panel" data-settlement-tab-panel="labor">
+    <div class="panel-title"><h2>工时</h2><span class="muted-line">按员工汇总；数据来自当前日报</span></div>
+    {% if workspace.report_changes %}<div class="flash"><strong>日报差异：</strong>{% for change in workspace.report_changes %}<span class="source-status-warning">{{ change.worker_name }} {{ change.project_date }}（{{ change.type }}）</span>{% if not loop.last %}；{% endif %}{% endfor %}{% if can_edit %} <button class="small" type="submit" form="customerReimbursementForm" name="action" value="save">同步日报变化</button>{% endif %}</div>{% endif %}
+    <div class="table-scroll settlement-source-table"><table class="list-table compact-table">
+      <thead><tr><th>员工</th><th>标准工时 / 金额</th><th>加班工时 / 金额</th><th>交通工时 / 金额</th><th>假期工时 / 金额</th><th>公共交通工时 / 金额</th><th>工时金额</th></tr></thead>
+      <tbody>{% for row in workspace.labor_rows %}<tr>
+        <td>{{ row.worker_name }}</td>
+        <td>{{ row.standard_hours|hours }} / {{ row.standard_amount|money }}</td><td>{{ row.overtime_hours|hours }} / {{ row.overtime_amount|money }}</td>
+        <td>{{ row.transport_hours|hours }} / {{ row.transport_amount|money }}</td><td>{{ row.holiday_hours|hours }} / {{ row.holiday_amount|money }}</td>
+        <td>{{ row.public_transport_hours|hours }} / {{ row.public_transport_amount|money }}</td><td>{{ row.amount|money }}</td>
+      </tr>{% else %}<tr><td colspan="7" class="empty">暂无日报工时。</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+
+  <form id="settlementSourceSelectionForm" method="post" action="{{ url_for('customer_reimbursement_expense_review', order_id=order.id) }}">
+    <input type="hidden" name="action" value="generate"><input type="hidden" name="lodging_person_nights" value="{{ reimbursement.lodging_person_nights or lodging_range.minimum }}">
+    <section class="panel settlement-tab-panel" data-settlement-tab-panel="travel" hidden>
+      <div class="panel-title"><h2>差旅</h2><span class="muted-line">住宿区间按日报推导；勾选已审核住宿发票后自动重算</span></div>
+      {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
+      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>合理住宿区间</th></tr></thead><tbody>
+        {% for row in workspace.lodging_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ row.minimum }}–{{ row.maximum }} 人晚</td></tr>{% else %}<tr><td colspan="2" class="empty">暂无人员住宿数据。</td></tr>{% endfor %}
+      </tbody></table></div>
+      <h3>住宿发票明细</h3>
+      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
+        {% for row in workspace.lodging_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
+        {% else %}<tr><td colspan="7" class="empty">暂无住宿发票。</td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+
+    <section class="panel settlement-tab-panel" data-settlement-tab-panel="other" hidden>
+      <div class="panel-title"><h2>其他报销</h2><span class="muted-line">按员工显示；勾选或取消后自动重算工单结算</span></div>
+      {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
+      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>类别</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
+        {% for row in workspace.other_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td>{{ row.group_label }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
+        {% else %}<tr><td colspan="8" class="empty">暂无其他报销明细。</td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+  </form>
+
+  <section class="panel settlement-tab-panel" data-settlement-tab-panel="mileage" hidden>
+    <div class="panel-title"><h2>里程</h2><span class="muted-line">按员工汇总；数据来自当前日报</span></div>
+    <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>计费里程</th><th>里程金额</th></tr></thead><tbody>
+      {% for row in workspace.mileage_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ "%g"|format(row.miles) }} 英里</td><td>{{ row.amount|money }}</td></tr>{% else %}<tr><td colspan="3" class="empty">暂无里程数据。</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
   {# 客户费率一律来自合同费率版本：缺哪些费率就醒目列出哪些，未配置时相关金额按 0 显示且无法保存 #}
   {% if missing_rate_summary %}
   <section class="panel" id="missingRatesNotice">
@@ -148,12 +213,7 @@
     {% if pending_sources.includable %}
     <div class="flash error">
       有 <strong>{{ pending_sources.includable|length }}</strong> 笔已审核报销尚未计入本工单结算（合计 {{ pending_sources.includable_total|money }}）。
-      提交经理审核前必须先计入或确认无需计入。
-      {% if can_edit %}
-      <form method="post" action="{{ url_for('sync_customer_reimbursement_sources', order_id=order.id) }}" style="display:inline;margin-left:8px">
-        <button class="primary" type="submit">计入并重算</button>
-      </form>
-      {% endif %}
+      请在“差旅”或“其他”标签中选择需要计入的明细。
     </div>
     {% endif %}
     {% if pending_sources.pending %}
@@ -208,6 +268,7 @@
     </dialog>
   {% endif %}
 
+  <div class="settlement-tab-panel" data-settlement-tab-panel="settlement" hidden>
   <section class="panel">
     <div class="metric-grid">
       <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>
@@ -344,6 +405,7 @@
       ></form>
     {% endfor %}
   {% endif %}
+  </div>
 
   <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
   <footer class="erp-status">
@@ -363,6 +425,24 @@
     window.customerReimbursementMro = {{ totals.mro_supplies_total|tojson }};
     window.customerReimbursementRentalFuel = {{ totals.rental_fuel_total|tojson }};
     window.customerReimbursementLodgingLimit = {{ lodging_reimbursement_limit()|tojson }};
+    (() => {
+      const storageKey = `settlement-tab-{{ order.id }}`;
+      const buttons = [...document.querySelectorAll("[data-settlement-tab]")];
+      const panels = [...document.querySelectorAll("[data-settlement-tab-panel]")];
+      const activate = (name) => {
+        buttons.forEach((button) => button.classList.toggle("is-active", button.dataset.settlementTab === name));
+        panels.forEach((panel) => { panel.hidden = panel.dataset.settlementTabPanel !== name; });
+        sessionStorage.setItem(storageKey, name);
+      };
+      buttons.forEach((button) => button.addEventListener("click", () => activate(button.dataset.settlementTab)));
+      activate(sessionStorage.getItem(storageKey) || "labor");
+      document.querySelectorAll("#settlementSourceSelectionForm .source-choice").forEach((choice) => {
+        choice.addEventListener("change", () => {
+          sessionStorage.setItem(storageKey, choice.closest("[data-settlement-tab-panel]").dataset.settlementTabPanel);
+          choice.form.requestSubmit();
+        });
+      });
+    })();
   </script>
   <script src="{{ url_for('static', filename='customer-reimbursement.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='download-all-attachments.js', v=app_version) }}"></script>
