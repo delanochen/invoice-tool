@@ -2970,23 +2970,66 @@
 
   document.title = translate(document.title, true) || document.title;
 
-  for (const input of document.querySelectorAll("form.filter-bar input[type='date'], form.erp-filter input[type='date']")) {
-    input.lang = { nl: "nl-NL", de: "de-DE", es: "es-ES" }[language] || "en-US";
-    if (input.value) continue;
+  // Native date pickers follow the operating-system locale, not the page locale.
+  // On an English page under Chinese Windows they therefore switch from an ISO
+  // placeholder to a Chinese 年/月/日 picker when focused.  Keep all date inputs
+  // as locale-independent ISO text fields instead of briefly restoring `date`.
+  const dateValidationMessages = {
+    en: "Enter a valid date in YYYY-MM-DD format.",
+    nl: "Voer een geldige datum in de notatie JJJJ-MM-DD in.",
+    de: "Geben Sie ein gültiges Datum im Format JJJJ-MM-TT ein.",
+    es: "Introduce una fecha válida con el formato AAAA-MM-DD."
+  };
+  const dateRangeMessages = {
+    en: "Enter a date within the allowed range.",
+    nl: "Voer een datum binnen het toegestane bereik in.",
+    de: "Geben Sie ein Datum innerhalb des zulässigen Bereichs ein.",
+    es: "Introduce una fecha dentro del intervalo permitido."
+  };
+  const isValidIsoDate = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year
+      && parsed.getUTCMonth() === month - 1
+      && parsed.getUTCDate() === day;
+  };
+  const validateDateInput = (input) => {
+    input.setCustomValidity("");
+    if (!input.value) return;
+    if (!isValidIsoDate(input.value)) {
+      input.setCustomValidity(dateValidationMessages[language] || dateValidationMessages.en);
+      return;
+    }
+    if ((input.min && input.value < input.min) || (input.max && input.value > input.max)) {
+      input.setCustomValidity(dateRangeMessages[language] || dateRangeMessages.en);
+    }
+  };
+  const enhanceDateInput = (input) => {
+    if (!(input instanceof HTMLInputElement) || input.dataset.uiDateInput === "true") return;
+    input.dataset.uiDateInput = "true";
     input.type = "text";
-    input.placeholder = "YYYY-MM-DD";
+    input.placeholder ||= "YYYY-MM-DD";
     input.inputMode = "numeric";
-    input.addEventListener("focus", () => {
-      input.type = "date";
-      input.showPicker?.();
-    });
-    input.addEventListener("blur", () => {
-      if (!input.value) {
-        input.type = "text";
-        input.placeholder = "YYYY-MM-DD";
+    input.autocomplete = "off";
+    input.pattern = "[0-9]{4}-[0-9]{2}-[0-9]{2}";
+    input.addEventListener("input", () => validateDateInput(input));
+    input.addEventListener("change", () => validateDateInput(input));
+    validateDateInput(input);
+  };
+  document.querySelectorAll("input[type='date']").forEach(enhanceDateInput);
+  new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches("input[type='date']")) enhanceDateInput(node);
+        node.querySelectorAll?.("input[type='date']").forEach(enhanceDateInput);
       }
-    });
-  }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 
   for (const input of document.querySelectorAll("input[type='file']")) {
     // These inputs already have a translated, clickable label and photo previews.

@@ -154,7 +154,7 @@ function cloneCustomerReimbursementRow() {
   if (!body || !lastRow) return;
   const nextRow = lastRow.cloneNode(true);
   nextRow.querySelectorAll("input").forEach((input) => {
-    input.value = input.type === "date" ? input.value : "";
+    input.value = input.type === "date" || input.dataset.uiDateInput === "true" ? input.value : "";
     if (input.dataset.autoAmount !== undefined) input.dataset.autoAmount = "0";
   });
   nextRow.querySelectorAll(".auto-expense-amount").forEach((label) => label.remove());
