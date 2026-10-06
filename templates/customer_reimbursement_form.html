@@ -4,7 +4,7 @@
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <style>
-  .settlement-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.settlement-tab{border-bottom:3px solid transparent}.settlement-tab.is-active{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}.settlement-tab-badge{display:inline-block;min-width:18px;padding:1px 5px;margin-left:4px;border-radius:9px;background:#d97706;color:#fff;font-size:11px}.settlement-tab-panel[hidden]{display:none}.settlement-source-table{max-height:52vh;overflow:auto}.settlement-source-table table{min-width:900px}#customerReimbursementForm>.plain-fieldset>.table-scroll{max-height:62vh;overflow:auto}.source-change-banner{margin-bottom:10px}.source-choice{width:18px;height:18px}.source-status-new{color:#047857}.source-status-warning{color:#b45309}.source-status-error{color:#b91c1c}
+  .settlement-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.settlement-tab{border-bottom:3px solid transparent}.settlement-tab.is-active{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}.settlement-tab-badge{display:inline-block;min-width:18px;padding:1px 5px;margin-left:4px;border-radius:9px;background:#d97706;color:#fff;font-size:11px}.settlement-tab-panel[hidden]{display:none!important}.settlement-source-table{max-height:52vh;overflow:auto}.settlement-source-table table{min-width:900px}#customerReimbursementForm>.plain-fieldset>.table-scroll{max-height:62vh;overflow:auto}.settlement-status-panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 18px;padding:9px 14px;margin-bottom:10px}.settlement-status-item{display:flex;align-items:center;gap:6px;min-width:0}.settlement-status-item--wide{grid-column:1/-1}.settlement-status-ok{color:#047857}.settlement-status-error{color:#b91c1c}.source-choice{width:18px;height:18px}.source-status-new{color:#047857}.source-status-warning{color:#b45309}.source-status-error{color:#b91c1c}
 </style>
 {% endblock %}
 
@@ -137,14 +137,15 @@
     <button type="button" class="settlement-tab" data-settlement-tab="settlement">工单结算</button>
   </nav>
 
-  {% if workspace.report_change_count or workspace.expense_change_count %}
-  <div class="flash source-change-banner {{ 'error' if reimbursement.status not in ['draft','returned'] else '' }}">
-    检测到来源变化：日报 {{ workspace.report_change_count }} 项，报销 {{ workspace.expense_change_count }} 项。
-    {% if reimbursement.status in ['draft','returned'] %}工时和里程显示当前日报数据；保存结算时将同步到结算表。{% else %}当前结算使用历史快照；请先退回或重置后再同步。{% endif %}
-  </div>
-  {% else %}
-  <div class="flash success source-change-banner">日报和报销来源均为最新。</div>
-  {% endif %}
+  <section class="panel settlement-status-panel">
+    <div class="settlement-status-item {{ 'settlement-status-error' if workspace.report_change_count or workspace.expense_change_count else 'settlement-status-ok' }}">
+      <strong>来源：</strong>{% if workspace.report_change_count or workspace.expense_change_count %}日报 {{ workspace.report_change_count }} 项、报销 {{ workspace.expense_change_count }} 项变化{% else %}日报和报销均为最新{% endif %}
+    </div>
+    {% if linked_invoice %}<div class="settlement-status-item settlement-status-error"><strong>发票：</strong>{{ linked_invoice.invoice_number }}；重新编辑前须先删除对应发票</div>{% else %}<div class="settlement-status-item settlement-status-ok"><strong>发票：</strong>尚未生成</div>{% endif %}
+    {% if reviewer %}<div class="settlement-status-item"><strong>审核：</strong>{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</div>{% endif %}
+    <div class="settlement-status-item settlement-status-ok"><strong>住宿：</strong>{{ lodging_range.minimum }}–{{ lodging_range.maximum }} 人晚 · {{ totals.lodging_total|money }}</div>
+    {% if workspace.report_change_count or workspace.expense_change_count %}<div class="settlement-status-item settlement-status-item--wide">{% if reimbursement.status in ['draft','returned'] %}当前页签显示最新来源；同步后更新结算表。{% else %}当前结算使用历史快照；请先退回或重置后再同步。{% endif %}</div>{% endif %}
+  </section>
 
   <section class="panel settlement-tab-panel" data-settlement-tab-panel="labor">
     <div class="panel-title"><h2>工时</h2><span class="muted-line">按员工汇总；数据来自当前日报</span></div>
@@ -249,31 +250,10 @@
   </section>
   {% endif %}
 
-  {% if reimbursement.status == "approved" and linked_invoice %}
-    <section class="panel" id="resetCustomerReimbursementNotice">
-      <div class="flash error">
-        工单结算已生成对应发票 {{ linked_invoice.invoice_number }}。如果需要重新编辑工单结算，请先删除对应发票，再返回本页重置工单结算。
-      </div>
-    </section>
-  {% elif reimbursement.status == "approved" and has_action_permission("customer_reimbursements", "reset") %}
-    <section class="panel">
-      <div class="flash success">这份工单结算已审核通过但尚未生成发票。如需修改，可以先重置为可编辑状态，修改后需要重新提交经理审核。</div>
-    </section>
-  {% endif %}
-
   {% if reimbursement.status == "returned" and reimbursement.return_reason %}
     <section class="panel"><div class="flash error">退回原因：{{ reimbursement.return_reason }}</div></section>
   {% endif %}
-  {% if reviewer %}
-    <p class="muted-line">最近审核人：{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</p>
-  {% endif %}
-  <section class="panel"><div class="flash {{ 'error' if excessive_following_mileage else 'success' }}">
-    <strong>住宿人晚合理区间 {{ lodging_range.minimum }}–{{ lodging_range.maximum }}，住宿费 <span data-reimbursement-total="lodging">{{ totals.lodging_total|money }}</span></strong>
-    {% if excessive_following_mileage %}<br>
-      随行人员的里程数超过500英里，请维护后再确认结算：
-      {% for row in excessive_following_mileage %}<a href="{{ url_for('edit_service_report', report_id=row.report_id) }}">{{ row.report_date }} {{ row.worker_name }}（{{ row.driving_miles }}英里）</a>{% if not loop.last %}；{% endif %}{% endfor %}
-    {% endif %}
-  </div></section>
+  {% if excessive_following_mileage %}<section class="panel"><div class="flash error">随行人员的里程数超过500英里，请维护后再确认结算：{% for row in excessive_following_mileage %}<a href="{{ url_for('edit_service_report', report_id=row.report_id) }}">{{ row.report_date }} {{ row.worker_name }}（{{ row.driving_miles }}英里）</a>{% if not loop.last %}；{% endif %}{% endfor %}</div></section>{% endif %}
 
   {% if reimbursement.status == "submitted" and has_action_permission("customer_reimbursements", "approve") %}
     <dialog id="returnCustomerReimbursementDialog" class="modal">
