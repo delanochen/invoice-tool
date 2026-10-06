@@ -370,6 +370,51 @@ class PaymentTermsTest(unittest.TestCase):
                 self.module.customer_reimbursement_person_days(self.open_order_id), 1
             )
 
+    def test_lodging_range_bridges_report_free_weekend_and_splits_on_absence(self):
+        with self.module.app.app_context():
+            connection = self.module.db()
+            second_employee_id = connection.execute(
+                """
+                insert into users (name, email, password_hash, role, is_active, country_code, created_at)
+                values ('Second Technician', 'tech2@example.com', 'unused', 'employee', 1, 'US',
+                        '2026-08-13T00:00:00')
+                """
+            ).lastrowid
+
+            attendance = {
+                "2026-08-03": (self.employee_id,),
+                "2026-08-04": (self.employee_id,),
+                "2026-08-05": (self.employee_id,),
+                "2026-08-07": (second_employee_id,),
+                "2026-08-10": (second_employee_id,),
+            }
+            for report_date, worker_ids in attendance.items():
+                report_id = connection.execute(
+                    """
+                    insert into service_reports (
+                        service_order_id, report_date, actual_work_date, created_by,
+                        created_at, updated_at
+                    ) values (?, ?, ?, ?, '2026-08-13T00:00:00', '2026-08-13T00:00:00')
+                    """,
+                    (self.open_order_id, report_date, report_date, self.user_id),
+                ).lastrowid
+                for worker_id in worker_ids:
+                    connection.execute(
+                        """
+                        insert into service_report_workers (report_id, user_id, work_description)
+                        values (?, ?, '住宿区间测试')
+                        """,
+                        (report_id, worker_id),
+                    )
+            connection.commit()
+
+            # Mon-Wed is 2-3 nights. Fri-Mon bridges the report-free weekend
+            # and is 3-4 nights, producing a total range of 5-7.
+            self.assertEqual(
+                self.module.customer_reimbursement_lodging_range(self.open_order_id),
+                {"minimum": 5, "maximum": 7},
+            )
+
     def test_employee_grade_saves_rental_driving_hourly_rate(self):
         response = self.http.post(
             "/employee-grades",

@@ -188,7 +188,7 @@
     <p class="muted-line">最近审核人：{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</p>
   {% endif %}
   <section class="panel"><div class="flash {{ 'error' if excessive_following_mileage else 'success' }}">
-    <strong>{{ person_days }}个人天，住宿费 <span data-reimbursement-total="lodging">{{ totals.lodging_total|money }}</span></strong>
+    <strong>住宿人晚合理区间 {{ lodging_range.minimum }}–{{ lodging_range.maximum }}，住宿费 <span data-reimbursement-total="lodging">{{ totals.lodging_total|money }}</span></strong>
     {% if excessive_following_mileage %}<br>
       随行人员的里程数超过500英里，请维护后再确认结算：
       {% for row in excessive_following_mileage %}<a href="{{ url_for('edit_service_report', report_id=row.report_id) }}">{{ row.report_date }} {{ row.worker_name }}（{{ row.driving_miles }}英里）</a>{% if not loop.last %}；{% endif %}{% endfor %}

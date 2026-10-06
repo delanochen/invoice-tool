@@ -4482,6 +4482,60 @@ def customer_reimbursement_person_days(order_id):
     return int(row["count"] or 0)
 
 
+def customer_reimbursement_lodging_range(order_id):
+    """Estimate a reasonable person-night range from daily-report attendance.
+
+    Report-free calendar gaps (including weekends) remain inside a stay when a
+    worker appears on the adjacent report dates.  A stay is split only when an
+    intervening report exists for the order and that worker is absent.  The
+    lower bound assumes departure after the final work day; the upper bound
+    allows one final night's stay for each distinct stay.  Travel mode is
+    intentionally ignored because a round trip may be hotel-to-site travel.
+    """
+    rows = db().execute(
+        """
+        select distinct
+               date(coalesce(service_reports.actual_work_date, service_reports.report_date)) as work_date,
+               service_report_workers.user_id
+        from service_reports
+        join service_report_workers on service_report_workers.report_id = service_reports.id
+        where service_reports.service_order_id = ?
+          and coalesce(service_reports.actual_work_date, service_reports.report_date) is not null
+        order by work_date, service_report_workers.user_id
+        """,
+        (order_id,),
+    ).fetchall()
+    if not rows:
+        return {"minimum": 0, "maximum": 0}
+
+    report_dates = sorted({date.fromisoformat(str(row["work_date"])[:10]) for row in rows})
+    report_date_index = {work_date: index for index, work_date in enumerate(report_dates)}
+    worker_dates = {}
+    for row in rows:
+        work_date = date.fromisoformat(str(row["work_date"])[:10])
+        worker_dates.setdefault(row["user_id"], set()).add(work_date)
+
+    minimum = 0
+    maximum = 0
+    for dates in worker_dates.values():
+        ordered_dates = sorted(dates)
+        stay_start = ordered_dates[0]
+        previous_date = ordered_dates[0]
+        previous_index = report_date_index[previous_date]
+        for work_date in ordered_dates[1:]:
+            current_index = report_date_index[work_date]
+            if current_index != previous_index + 1:
+                minimum += (previous_date - stay_start).days
+                maximum += (previous_date - stay_start).days + 1
+                stay_start = work_date
+            previous_date = work_date
+            previous_index = current_index
+        minimum += (previous_date - stay_start).days
+        maximum += (previous_date - stay_start).days + 1
+
+    return {"minimum": minimum, "maximum": maximum}
+
+
 def customer_reimbursement_column_totals(items):
     totals = {}
     for field in ("standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours", "miles"):
@@ -13513,7 +13567,7 @@ def customer_reimbursement_form(order_id):
         reviewer=reviewer,
         email_delivery=email_delivery_summary("customer_reimbursement", reimbursement["id"]),
         excessive_following_mileage=excessive_following_mileage_rows(order_id),
-        person_days=customer_reimbursement_person_days(order_id),
+        lodging_range=customer_reimbursement_lodging_range(order_id),
         column_totals=customer_reimbursement_column_totals(items),
         can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
         pending_sources=customer_reimbursement_pending_sources(reimbursement),
