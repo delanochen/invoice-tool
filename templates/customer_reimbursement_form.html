@@ -158,6 +158,16 @@
         <td>{{ row.public_transport_hours|hours }} / {{ row.public_transport_amount|money }}</td><td>{{ row.amount|money }}</td>
       </tr>{% else %}<tr><td colspan="7" class="empty">暂无日报工时。</td></tr>{% endfor %}</tbody>
     </table></div>
+    <h3>日报工时明细</h3>
+    <div class="table-scroll settlement-source-table"><table class="list-table compact-table">
+      <thead><tr><th>员工</th><th>日期 / 日报</th><th>标准工时 / 金额</th><th>加班工时 / 金额</th><th>交通工时 / 金额</th><th>假期工时 / 金额</th><th>公共交通工时 / 金额</th><th>行合计</th></tr></thead>
+      <tbody>{% for row in workspace.labor_detail_rows %}<tr>
+        <td>{{ row.worker_name }}</td><td>{{ row.project_date }}{% if row.source_report_id %} · <a href="{{ url_for('edit_service_report', report_id=row.source_report_id) }}">日报 #{{ row.source_report_id }}</a>{% endif %}</td>
+        <td>{{ row.standard_hours|hours }} / {{ row.standard_amount|money }}</td><td>{{ row.overtime_hours|hours }} / {{ row.overtime_amount|money }}</td>
+        <td>{{ row.transport_hours|hours }} / {{ row.transport_amount|money }}</td><td>{{ row.holiday_hours|hours }} / {{ row.holiday_amount|money }}</td>
+        <td>{{ row.public_transport_hours|hours }} / {{ row.public_transport_amount|money }}</td><td>{{ row.labor_total|money }}</td>
+      </tr>{% else %}<tr><td colspan="8" class="empty">暂无日报工时明细。</td></tr>{% endfor %}</tbody>
+    </table></div>
   </section>
 
   <form id="settlementSourceSelectionForm" method="post" action="{{ url_for('customer_reimbursement_expense_review', order_id=order.id) }}">
@@ -167,6 +177,10 @@
       {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>合理住宿区间</th></tr></thead><tbody>
         {% for row in workspace.lodging_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ row.minimum }}–{{ row.maximum }} 人晚</td></tr>{% else %}<tr><td colspan="2" class="empty">暂无人员住宿数据。</td></tr>{% endfor %}
+      </tbody></table></div>
+      <h3>住宿区间明细</h3>
+      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>进场日期</th><th>最后工作日期</th><th>合理住宿区间</th></tr></thead><tbody>
+        {% for worker in workspace.lodging_rows %}{% for stay in worker.stays %}<tr><td>{{ worker.worker_name }}</td><td>{{ stay.entry_date }}</td><td>{{ stay.exit_date }}</td><td>{{ stay.minimum }}–{{ stay.maximum }} 人晚</td></tr>{% endfor %}{% else %}<tr><td colspan="4" class="empty">暂无住宿区间明细。</td></tr>{% endfor %}
       </tbody></table></div>
       <h3>住宿发票明细</h3>
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
@@ -190,7 +204,13 @@
     <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>计费里程</th><th>里程金额</th></tr></thead><tbody>
       {% for row in workspace.mileage_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ "%g"|format(row.miles) }} 英里</td><td>{{ row.amount|money }}</td></tr>{% else %}<tr><td colspan="3" class="empty">暂无里程数据。</td></tr>{% endfor %}
     </tbody></table></div>
+    <h3>日报里程明细</h3>
+    <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>日期 / 日报</th><th>计费里程</th><th>费率</th><th>金额</th></tr></thead><tbody>
+      {% for row in workspace.mileage_detail_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ row.project_date }}{% if row.source_report_id %} · <a href="{{ url_for('edit_service_report', report_id=row.source_report_id) }}">日报 #{{ row.source_report_id }}</a>{% endif %}</td><td>{{ "%g"|format(row.miles) }} 英里</td><td>{{ row.mileage_rate|money }} / 英里</td><td>{{ row.mileage_total|money }}</td></tr>{% else %}<tr><td colspan="5" class="empty">暂无日报里程明细。</td></tr>{% endfor %}
+    </tbody></table></div>
   </section>
+
+  <div class="settlement-tab-panel" data-settlement-tab-panel="settlement" hidden>
 
   {# 客户费率一律来自合同费率版本：缺哪些费率就醒目列出哪些，未配置时相关金额按 0 显示且无法保存 #}
   {% if missing_rate_summary %}
@@ -268,7 +288,6 @@
     </dialog>
   {% endif %}
 
-  <div class="settlement-tab-panel" data-settlement-tab-panel="settlement" hidden>
   <section class="panel">
     <div class="metric-grid">
       <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>

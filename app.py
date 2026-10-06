@@ -4553,6 +4553,8 @@ def customer_reimbursement_workspace_data(order_id, reimbursement_id, saved_item
     }
     labor_rows = {}
     mileage_rows = {}
+    labor_detail_rows = []
+    mileage_detail_rows = []
     for item in live_items:
         worker_id = item.get("source_worker_user_id")
         key = worker_id or item.get("worker_name")
@@ -4574,6 +4576,14 @@ def customer_reimbursement_workspace_data(order_id, reimbursement_id, saved_item
         })
         mileage["miles"] += float(item.get("miles") or 0)
         mileage["amount"] += float(item.get("mileage_total") or 0)
+        detail = dict(item)
+        for field in hours_fields:
+            detail[field.replace("_hours", "_amount")] = (
+                float(item.get(field) or 0) * float(item.get(rate_fields[field]) or 0)
+            )
+        labor_detail_rows.append(detail)
+        if float(item.get("miles") or 0) or float(item.get("mileage_total") or 0):
+            mileage_detail_rows.append(detail)
 
     lodging_rows = []
     attendance = db().execute(
@@ -4600,21 +4610,30 @@ def customer_reimbursement_workspace_data(order_id, reimbursement_id, saved_item
     for worker_id, bucket in by_worker.items():
         dates = sorted(bucket["dates"])
         minimum = maximum = 0
+        stays = []
         start = previous = dates[0]
         previous_index = date_indexes[previous]
         for current in dates[1:]:
             current_index = date_indexes[current]
             if current_index != previous_index + 1:
-                minimum += (previous - start).days
-                maximum += (previous - start).days + 1
+                stay_minimum = (previous - start).days
+                stay_maximum = stay_minimum + 1
+                minimum += stay_minimum
+                maximum += stay_maximum
+                stays.append({"entry_date": start, "exit_date": previous,
+                              "minimum": stay_minimum, "maximum": stay_maximum})
                 start = current
             previous = current
             previous_index = current_index
-        minimum += (previous - start).days
-        maximum += (previous - start).days + 1
+        stay_minimum = (previous - start).days
+        stay_maximum = stay_minimum + 1
+        minimum += stay_minimum
+        maximum += stay_maximum
+        stays.append({"entry_date": start, "exit_date": previous,
+                      "minimum": stay_minimum, "maximum": stay_maximum})
         lodging_rows.append({
             "worker_id": worker_id, "worker_name": bucket["worker_name"],
-            "minimum": minimum, "maximum": maximum,
+            "minimum": minimum, "maximum": maximum, "stays": stays,
         })
 
     compare_fields = hours_fields + ("miles", "labor_total", "mileage_total")
@@ -4661,7 +4680,15 @@ def customer_reimbursement_workspace_data(order_id, reimbursement_id, saved_item
         )
     return {
         "labor_rows": sorted(labor_rows.values(), key=lambda row: row["worker_name"]),
+        "labor_detail_rows": sorted(
+            labor_detail_rows,
+            key=lambda row: (row.get("worker_name") or "", row.get("project_date") or "", row.get("source_report_id") or 0),
+        ),
         "mileage_rows": sorted(mileage_rows.values(), key=lambda row: row["worker_name"]),
+        "mileage_detail_rows": sorted(
+            mileage_detail_rows,
+            key=lambda row: (row.get("worker_name") or "", row.get("project_date") or "", row.get("source_report_id") or 0),
+        ),
         "lodging_rows": sorted(lodging_rows, key=lambda row: row["worker_name"]),
         "lodging_candidates": sorted(
             (row for row in candidates if row["group_key"] == "lodging"),
