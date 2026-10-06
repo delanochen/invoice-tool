@@ -90,6 +90,7 @@ class UtilityMenuTest(unittest.TestCase):
                 "ai_assistant",
                 "database_console",
                 "order_data_transfer",
+                "airbnb_receipt",
             ],
         )
 

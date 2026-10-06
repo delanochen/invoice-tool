@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Airbnb 收据生成 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .ar-wrap { max-width: 620px; margin: 10px auto; }
+  .ar-panel { background: #fff; border: 1px solid #d0d5dd; border-radius: 4px; padding: 16px 18px; margin-bottom: 12px; }
+  .ar-panel h2 { margin: 0 0 12px; font-size: 16px; color: #0f766e; }
+  .ar-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; color: #344054; font-weight: 600; }
+  .ar-field input, .ar-field select {
+    padding: 8px 10px; border: 1px solid #98a2b3; border-radius: 4px;
+    font-size: 14px; background: #fff; color: #101828; font-weight: 400;
+  }
+  .ar-row { display: flex; gap: 16px; }
+  .ar-row > * { flex: 1; }
+  .ar-hint { color: #8a4b00; background: #fff4e5; border: 1px solid #f0c48a; border-radius: 3px; padding: 8px 10px; font-size: 12px; margin-bottom: 14px; }
+  .ar-worker-list { margin: 10px 0; }
+  .ar-worker-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border: 1px solid #e4e7ec; border-radius: 4px; margin-bottom: 6px; cursor: pointer; font-size: 13px; }
+  .ar-worker-item:hover { background: #f0f9ff; border-color: #0ea5e9; }
+  .ar-worker-item.selected { background: #ecfdf5; border-color: #0f766e; }
+  .ar-worker-name { font-weight: 600; }
+  .ar-worker-info { color: #667085; font-size: 12px; }
+  .ar-actions { margin-top: 16px; }
+  .ar-actions button {
+    padding: 10px 24px; border: none; border-radius: 4px;
+    background: #0f766e; color: #fff; font-size: 14px; cursor: pointer; font-weight: 600;
+  }
+  .ar-actions button:hover { background: #115e59; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="ar-wrap">
+  <div class="ar-panel">
+    <h2>第一步：选择工单</h2>
+    <div class="ar-field">工单
+      <select id="woSelect">
+        <option value="">-- 选择工单 --</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="ar-panel" id="workerPanel" style="display:none">
+    <h2>第二步：选择员工</h2>
+    <div class="ar-hint" id="woInfo"></div>
+    <div class="ar-worker-list" id="workerList"></div>
+  </div>
+
+  <div class="ar-panel" id="formPanel" style="display:none">
+    <h2>第三步：核对并生成</h2>
+    <form method="POST" action="/airbnb-receipt/generate">
+      <div class="ar-row">
+        <label class="ar-field">地点
+          <input type="text" name="location" id="f_location" required>
+        </label>
+        <label class="ar-field">房客姓名
+          <input type="text" name="guest" id="f_guest" required>
+        </label>
+      </div>
+      <div class="ar-row">
+        <label class="ar-field">入住日期
+          <input type="date" name="checkin" id="f_checkin" required>
+        </label>
+        <label class="ar-field">晚数
+          <input type="number" name="nights" id="f_nights" min="1" max="60" required>
+        </label>
+      </div>
+      <div class="ar-row">
+        <label class="ar-field">床数
+          <input type="number" name="beds" id="f_beds" min="1" max="10" value="6" required>
+        </label>
+        <label class="ar-field">客人数
+          <input type="number" name="guests" id="f_guests" min="1" max="16" value="1" required>
+        </label>
+      </div>
+      <div class="ar-actions">
+        <button type="submit">生成收据 PDF</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const woSelect = document.getElementById('woSelect');
+const workerPanel = document.getElementById('workerPanel');
+const formPanel = document.getElementById('formPanel');
+const workerList = document.getElementById('workerList');
+const woInfo = document.getElementById('woInfo');
+
+fetch('/airbnb-receipt/api/workorders').then(r => r.json()).then(list => {
+  list.forEach(wo => {
+    const opt = document.createElement('option');
+    opt.value = wo.id;
+    opt.textContent = wo.order_number + ' - ' + wo.client_name + ' (' + wo.first_report + ' ~ ' + wo.last_report + ')';
+    woSelect.appendChild(opt);
+  });
+});
+
+woSelect.addEventListener('change', function() {
+  const woId = this.value;
+  workerPanel.style.display = woId ? 'block' : 'none';
+  formPanel.style.display = 'none';
+  workerList.innerHTML = '';
+  if (!woId) return;
+
+  fetch('/airbnb-receipt/api/workorders/' + woId + '/workers').then(r => r.json()).then(data => {
+    woInfo.textContent = '站点：' + data.site_address + '（' + data.workers.length + ' 名自驾员工）';
+    data.workers.forEach(w => {
+      const div = document.createElement('div');
+      div.className = 'ar-worker-item';
+      let detail = w.first_day + ' ~ ' + w.last_day + ' · ' + w.nights + '晚（出勤' + w.work_days;
+      if (w.weekend_days > 0) detail += '+周末' + w.weekend_days;
+      if (w.cutoff_days > 0) detail += '+截止' + w.cutoff_days;
+      detail += '）';
+      div.innerHTML = '<span class="ar-worker-name">' + w.name + '</span>' +
+        '<span class="ar-worker-info">' + detail + '</span>';
+      div.onclick = () => {
+        document.querySelectorAll('.ar-worker-item').forEach(el => el.classList.remove('selected'));
+        div.classList.add('selected');
+        document.getElementById('f_location').value = data.city;
+        document.getElementById('f_guest').value = w.name;
+        document.getElementById('f_checkin').value = w.first_day;
+        document.getElementById('f_nights').value = w.nights;
+        formPanel.style.display = 'block';
+      };
+      workerList.appendChild(div);
+    });
+  });
+});
+</script>
+{% endblock %}

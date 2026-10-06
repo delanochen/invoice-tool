@@ -140,6 +140,7 @@ from ai_daily_report import (
     DraftStateError,
 )
 from ai_daily_report.schemas import WorkerTravel
+from airbnb_receipt_tool import register_airbnb_receipt_routes
 from travel_tools import register_travel_tools_routes
 from ai_daily_report.attachment_manifest import (
     AttachmentManifestService,
@@ -427,6 +428,7 @@ MENU_PERMISSION_GROUPS = [
             {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
             {"key": "database_console", "label": "数据库工具", "roles": {"admin"}},
             {"key": "order_data_transfer", "label": "工单数据转移", "roles": {"admin"}},
+            {"key": "airbnb_receipt", "label": "Airbnb 收据", "roles": {"admin", "manager", "finance"}},
         ],
     },
     {
@@ -17624,6 +17626,7 @@ register_settlement_review_routes(app, globals())
 register_profitability_routes(app, globals())
 register_order_data_transfer_routes(app, globals())
 register_travel_tools_routes(app, globals())
+register_airbnb_receipt_routes(app, globals())
 
 # ---------------------------------------------------------------------------
 # Payroll / 工时：计算与服务实现放在 invoice_tool/payroll/ 下，这里只做组装。

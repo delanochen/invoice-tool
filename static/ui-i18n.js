@@ -13,6 +13,8 @@
     "SMTP 发件人": "SMTP From",
     "现场工作": "Field work", "员工证书查询": "Employee certificates", "工单拍照": "Take job photos", "照片台账": "Photo register", "工单照片台账": "Job photo register",
     "实用工具": "Utilities", "AI 日报审查": "AI daily report review", "数据库工具": "Database console",
+    "Airbnb 收据": "Airbnb receipt", "第一步：选择工单": "Step 1: Select work order", "第二步：选择员工": "Step 2: Select employee", "第三步：核对并生成": "Step 3: Review and generate",
+    "房客姓名": "Guest name", "入住日期": "Check-in date", "晚数": "Nights", "床数": "Beds", "客人数": "Guests", "生成收据 PDF": "Generate receipt PDF", "地点": "Location",
     "请填写地址。": "Please enter an address.",
     "菜单": "Menu",
     "报销归属员工": "Expense beneficiary",
