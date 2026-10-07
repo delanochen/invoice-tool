@@ -2189,6 +2189,7 @@ app.jinja_env.globals["can_create_service_order"] = can_create_service_order
 app.jinja_env.globals["can_delete_service_order"] = can_delete_service_order
 app.jinja_env.globals["can_create_expense"] = can_create_expense
 app.jinja_env.globals["can_manage_customer_reimbursement"] = can_manage_customer_reimbursement
+app.jinja_env.globals["is_external_user"] = is_external_user
 app.jinja_env.globals["is_customer_reimbursement_image_attachment"] = is_customer_reimbursement_image_attachment
 app.jinja_env.globals["can_manage_employee_grades"] = can_manage_employee_grades
 app.jinja_env.globals["can_view_labor_payroll_reports"] = can_view_labor_payroll_reports
@@ -4130,10 +4131,10 @@ def customer_reimbursement_expense_field(project_name, fuel_vehicle_type=None):
     return field_name
 
 
-def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
+def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None, exclude_ignored_for_reimbursement_id=None):
     return db().execute(
         """
-        select expense_items.amount, expense_items.fuel_vehicle_type,
+        select expense_items.id as expense_item_id, expense_items.amount, expense_items.fuel_vehicle_type,
                expenses.id as expense_id, expenses.expense_number, expense_items.line_key,
                expense_items.description as item_description,
                (select count(*) from expense_items ordinal where ordinal.expense_id = expenses.id
@@ -4146,9 +4147,17 @@ def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None):
         left join projects on projects.id = expense_items.project_id
         where expenses.service_order_id = ? and expenses.status = 'approved'
           and (? is null or coalesce(expenses.reviewed_at, expenses.updated_at, expenses.created_at) <= ?)
+          and (? is null or not exists (
+                select 1 from customer_reimbursement_expense_ignores ig
+                where ig.customer_reimbursement_id = ? and ig.expense_item_id = expense_items.id
+          ))
         order by expenses.expense_date, expenses.id, expense_items.sort_order, expense_items.id
         """,
-        (order_id, cutoff_at, cutoff_at),
+        (
+            order_id,
+            cutoff_at, cutoff_at,
+            exclude_ignored_for_reimbursement_id, exclude_ignored_for_reimbursement_id,
+        ),
     ).fetchall()
 
 
@@ -4212,7 +4221,9 @@ def merge_approved_expenses_into_customer_reimbursement(
     if selection_mode == "manual_review":
         expense_rows = linked_approved_expense_rows(globals(), reimbursement_id, order_id, cutoff_at)
     else:
-        expense_rows = approved_customer_reimbursement_expense_rows(order_id, cutoff_at)
+        expense_rows = approved_customer_reimbursement_expense_rows(
+            order_id, cutoff_at, exclude_ignored_for_reimbursement_id=reimbursement_id
+        )
 
     for row in merged:
         row["auto_expense_sources"] = {}
@@ -4284,11 +4295,13 @@ def merge_approved_expenses_into_customer_reimbursement(
     return [calculate_customer_reimbursement_item(row, index) for index, row in enumerate(merged)]
 
 
-def approved_mro_supplies_total(order_id, cutoff_at=None):
+def approved_mro_supplies_total(order_id, cutoff_at=None, exclude_ignored_for_reimbursement_id=None):
     total = sum(
         (
             money_decimal(row["amount"])
-            for row in approved_customer_reimbursement_expense_rows(order_id, cutoff_at)
+            for row in approved_customer_reimbursement_expense_rows(
+                order_id, cutoff_at, exclude_ignored_for_reimbursement_id=exclude_ignored_for_reimbursement_id
+            )
             if customer_reimbursement_expense_field(row["project_name"]) == "other"
             and project_name_key(row["project_name"]).startswith(project_name_key("MRO Supplies"))
         ),
@@ -4370,10 +4383,21 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
 
 
 def customer_reimbursement_pending_sources(reimbursement):
-    """只读比对：该工单下尚未计入当前结算的报销明细，按报销状态分三档。
+    """只读比对：该工单下尚未计入当前结算的报销明细，按报销状态分四档。
+
+    - includable（已审核未计入且未标记忽略）：硬拦提交
+    - ignored（已审核未计入但已被显式标记忽略）：不拦，横幅展示可取消
+    - pending（待审核）：默认拦（confirm_pending=1 可放行）
+    - returned（已退回）：不拦（退回提示由横幅呈现）
     零写库，仅用于结算页横幅与 gate 校验。"""
     order_id = reimbursement["service_order_id"]
     reimb_id = reimbursement["id"]
+    ignored_rows = db().execute(
+        "select expense_item_id, reason from customer_reimbursement_expense_ignores where customer_reimbursement_id=?",
+        (reimb_id,),
+    ).fetchall()
+    ignored_set = {row["expense_item_id"] for row in ignored_rows}
+    ignored_reasons = {row["expense_item_id"]: (row["reason"] or "") for row in ignored_rows}
     included_keys = set()
     for item in customer_reimbursement_items(reimb_id):
         sources = item["auto_expense_sources"]
@@ -4389,6 +4413,7 @@ def customer_reimbursement_pending_sources(reimbursement):
     rows = db().execute(
         """
         select expenses.id as expense_id, expenses.expense_number, expenses.status,
+               expense_items.id as expense_item_id,
                expense_items.line_key, expense_items.amount, expense_items.description as item_description,
                (select count(*) from expense_items ordinal where ordinal.expense_id = expenses.id
                 and (ordinal.sort_order < expense_items.sort_order or (ordinal.sort_order = expense_items.sort_order and ordinal.id <= expense_items.id))) as line_number,
@@ -4404,7 +4429,7 @@ def customer_reimbursement_pending_sources(reimbursement):
         """,
         (order_id,),
     ).fetchall()
-    includable, pending, returned = [], [], []
+    includable, ignored, pending, returned = [], [], [], []
     for row in rows:
         field_name = customer_reimbursement_expense_field(row["project_name"], row["fuel_vehicle_type"])
         if not field_name:
@@ -4414,6 +4439,7 @@ def customer_reimbursement_pending_sources(reimbursement):
             continue
         entry = {
             "expense_id": row["expense_id"],
+            "expense_item_id": row["expense_item_id"],
             "expense_number": row["expense_number"],
             "line_key": row["line_key"],
             "line_number": row["line_number"],
@@ -4425,7 +4451,10 @@ def customer_reimbursement_pending_sources(reimbursement):
             "status": row["status"],
         }
         status = row["status"]
-        if status == "approved":
+        if row["expense_item_id"] in ignored_set:
+            entry["ignore_reason"] = ignored_reasons[row["expense_item_id"]]
+            ignored.append(entry)
+        elif status == "approved":
             includable.append(entry)
         elif status in ("pending", "submitted"):
             pending.append(entry)
@@ -4435,9 +4464,11 @@ def customer_reimbursement_pending_sources(reimbursement):
         return money_float(sum((money_decimal(e["amount"]) for e in entries), Decimal("0")))
     return {
         "includable": includable,
+        "ignored": ignored,
         "pending": pending,
         "returned": returned,
         "includable_total": bucket_total(includable),
+        "ignored_total": bucket_total(ignored),
         "pending_total": bucket_total(pending),
         "returned_total": bucket_total(returned),
     }
@@ -4445,7 +4476,7 @@ def customer_reimbursement_pending_sources(reimbursement):
 
 def customer_reimbursement_gate_error(reimbursement):
     """三出口 gate：提交/开票/发邮件/审核前校验未计入的报销。
-    - 已审核未计入（includable 非空）→ 硬拦截
+    - 已审核未计入且未标记忽略（includable 非空）→ 硬拦截
     - 待审核（pending 非空）→ 硬拦截
     - 已退回（returned 非空）→ 不拦（退回提示由横幅呈现）
     返回 (error_code, message) 或 None。"""
@@ -4455,7 +4486,7 @@ def customer_reimbursement_gate_error(reimbursement):
             "pending_sources",
             f"仍有 {len(sources['includable'])} 笔已审核报销未计入工单结算"
             f"（合计 {money(sources['includable_total'])}）。请先在结算页面点击"
-            f"「计入并重算」或确认无需计入后再继续。",
+            f"「计入并重算」，或将该报销明细标记为无需计入后再继续。",
         )
     if sources["pending"]:
         return (
@@ -5256,7 +5287,9 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
         selected_expense_total(globals(), reimbursement_id, "other")
         if reimbursement["expense_selection_mode"] == "manual_review"
         else approved_mro_supplies_total(
-            reimbursement["service_order_id"], reimbursement["expense_transfer_cutoff_at"]
+            reimbursement["service_order_id"],
+            reimbursement["expense_transfer_cutoff_at"],
+            exclude_ignored_for_reimbursement_id=reimbursement_id,
         )
     )
     totals = customer_reimbursement_totals(rows, mro_total)
@@ -13925,6 +13958,8 @@ def sync_customer_reimbursement_sources(order_id):
                 now(),
             ),
         )
+        # 注意：被「标记无需计入」的明细已从 includable 排除，不会走到这里；
+        # 手动勾选计入（settlement_review.replace_expense_links 分支）会单独取消忽略。
         linked_count += 1
 
     # 把 cutoff 推到现在，确保新链接的报销不被 reviewed_at <= cutoff 条件过滤
@@ -13942,6 +13977,133 @@ def sync_customer_reimbursement_sources(order_id):
     if skipped_other:
         flash(f"其中 {skipped_other} 笔已链接到其他结算单，已跳过。", "error")
     return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+
+
+@app.post("/service-orders/<int:order_id>/customer-reimbursement/ignore-source")
+@login_required
+def ignore_customer_reimbursement_source(order_id):
+    """方案 B「标记无需计入」：显式确认某笔已审核报销明细不计入本工单结算。
+
+    与方案 A（计入并重算）互斥：已计入当前结算的明细不能标记忽略；
+    标记后 gate 不再拦截该明细，操作人/时间/原因写入忽略表并留审计日志。
+    仅保存未提交或已退回的结算可标记（提交后来源已冻结）。"""
+    if not can_manage_customer_reimbursement():
+        abort(403)
+    require_service_order(order_id)
+    reimbursement = latest_customer_reimbursement(order_id)
+    if not reimbursement:
+        abort(404)
+    if reimbursement["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或已退回的工单结算可以标记忽略。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+    try:
+        expense_item_id = int(request.form.get("expense_item_id", ""))
+    except (TypeError, ValueError):
+        flash("请选择要标记忽略的报销明细。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+    reason = request.form.get("reason", "").strip()
+    try:
+        row = db().execute(
+            """
+            select expense_items.id as expense_item_id, expenses.id as expense_id,
+                   expenses.expense_number, expense_items.amount
+            from expense_items
+            join expenses on expenses.id = expense_items.expense_id
+            where expense_items.id = ? and expenses.service_order_id = ? and expenses.status = 'approved'
+            """,
+            (expense_item_id, order_id),
+        ).fetchone()
+        if not row:
+            raise ValueError("该报销明细不属于本工单，或不是已审核状态。")
+        # 已计入校验分两种来源口径，都命中即拒绝：
+        # - manual_review 模式：customer_reimbursement_expense_links 链接表；
+        # - legacy 模式：结算明细行 auto_expense_sources 快照（JSON）。
+        linked = db().execute(
+            "select 1 from customer_reimbursement_expense_links where customer_reimbursement_id=? and expense_item_id=?",
+            (reimbursement["id"], expense_item_id),
+        ).fetchone()
+        if not linked:
+            source_key = db().execute(
+                "select expense_id, line_key from expense_items where id=?", (expense_item_id,)
+            ).fetchone()
+            if source_key:
+                for item in customer_reimbursement_items(reimbursement["id"]):
+                    sources = item["auto_expense_sources"]
+                    if isinstance(sources, str):
+                        try:
+                            sources = json.loads(sources or "{}")
+                        except (ValueError, TypeError):
+                            sources = {}
+                    for field_sources in (sources or {}).values():
+                        for source in field_sources:
+                            if (source.get("expense_id") == source_key["expense_id"]
+                                    and source.get("line_key") == source_key["line_key"]):
+                                linked = True
+                                break
+                        if linked:
+                            break
+                    if linked:
+                        break
+        if linked:
+            raise ValueError("该明细已计入本工单结算，不能标记忽略；如需不计入请先取消勾选。")
+        db().execute(
+            """
+            insert into customer_reimbursement_expense_ignores
+                (customer_reimbursement_id, expense_item_id, reason, ignored_by, ignored_at)
+            values (?, ?, ?, ?, ?)
+            on conflict (customer_reimbursement_id, expense_item_id)
+            do update set reason = excluded.reason, ignored_by = excluded.ignored_by,
+                          ignored_at = excluded.ignored_at
+            """,
+            (reimbursement["id"], expense_item_id, reason, g.user["id"], now()),
+        )
+        log_action(
+            "ignore",
+            "customer_reimbursement",
+            reimbursement["id"],
+            reimbursement["file_name"],
+            f"报销 {row['expense_number']} 明细标记无需计入（{money(row['amount'])}）：{reason}",
+        )
+        db().commit()
+        flash("该报销明细已标记为无需计入，提交经理审核时不再拦截。", "success")
+    except ValueError as error:
+        db().rollback()
+        flash(str(error), "error")
+    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+
+
+@app.post("/customer-reimbursements/<int:reimbursement_id>/unignore-source")
+@login_required
+def unignore_customer_reimbursement_source(reimbursement_id):
+    """取消「标记无需计入」，让该明细重新参与结算来源校验。"""
+    if not can_manage_customer_reimbursement():
+        abort(403)
+    reimbursement, order = require_customer_reimbursement(reimbursement_id)
+    if reimbursement["status"] not in {"draft", "returned"}:
+        flash("只有保存未提交或已退回的工单结算可以取消忽略。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    try:
+        expense_item_id = int(request.form.get("expense_item_id", ""))
+    except (TypeError, ValueError):
+        flash("请选择要取消忽略的报销明细。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+    deleted = db().execute(
+        "delete from customer_reimbursement_expense_ignores where customer_reimbursement_id=? and expense_item_id=?",
+        (reimbursement["id"], expense_item_id),
+    ).rowcount
+    if deleted:
+        log_action(
+            "unignore",
+            "customer_reimbursement",
+            reimbursement["id"],
+            reimbursement["file_name"],
+            f"取消报销明细 {expense_item_id} 的无需计入标记",
+        )
+        db().commit()
+        flash("已取消忽略，该报销明细重新参与结算校验。", "success")
+    else:
+        flash("该明细没有忽略标记，无需取消。", "error")
+    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
 @app.post("/customer-reimbursements/<int:reimbursement_id>/return")

@@ -4,7 +4,7 @@
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <style>
-  .settlement-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.settlement-tab{border-bottom:3px solid transparent}.settlement-tab.is-active{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}.settlement-tab-badge{display:inline-block;min-width:18px;padding:1px 5px;margin-left:4px;border-radius:9px;background:#d97706;color:#fff;font-size:11px}.settlement-tab-panel[hidden]{display:none!important}.settlement-tab-panel{position:relative}.settlement-tab-loading{position:absolute;inset:0;z-index:20;display:grid;place-content:center;justify-items:center;gap:12px;min-height:190px;border-radius:10px;background:linear-gradient(135deg,rgba(248,250,252,.97),rgba(239,246,255,.94));color:#1e3a5f;font-weight:700;letter-spacing:.03em;box-shadow:inset 0 0 0 1px rgba(147,197,253,.45)}.settlement-tab-loading::before{content:"";width:42px;height:42px;border:4px solid #bfdbfe;border-top-color:#2563eb;border-right-color:#60a5fa;border-radius:50%;animation:settlement-grid-spin .72s linear infinite;box-shadow:0 0 22px rgba(37,99,235,.18)}@keyframes settlement-grid-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.settlement-tab-loading::before{animation-duration:1.8s}}.settlement-source-table{max-height:52vh;overflow:auto}.settlement-source-table table{min-width:900px}#customerReimbursementForm>.plain-fieldset>.table-scroll{max-height:62vh;overflow:auto}.settlement-status-panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 18px;padding:9px 14px;margin-bottom:10px}.settlement-status-item{display:flex;align-items:center;gap:6px;min-width:0}.settlement-status-item--wide{grid-column:1/-1}.settlement-status-ok{color:#047857}.settlement-status-error{color:#b91c1c}.source-choice{width:18px;height:18px}.source-status-new{color:#047857}.source-status-warning{color:#b45309}.source-status-error{color:#b91c1c}
+  .settlement-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.settlement-tab{border-bottom:3px solid transparent}.settlement-tab.is-active{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}.settlement-tab-badge{display:inline-block;min-width:18px;padding:1px 5px;margin-left:4px;border-radius:9px;background:#d97706;color:#fff;font-size:11px}.settlement-tab-panel[hidden]{display:none!important}.settlement-tab-panel{position:relative}.settlement-tab-loading{position:absolute;inset:0;z-index:20;display:grid;place-content:center;justify-items:center;gap:12px;min-height:190px;border-radius:10px;background:linear-gradient(135deg,rgba(248,250,252,.97),rgba(239,246,255,.94));color:#1e3a5f;font-weight:700;letter-spacing:.03em;box-shadow:inset 0 0 0 1px rgba(147,197,253,.45)}.settlement-tab-loading::before{content:"";width:42px;height:42px;border:4px solid #bfdbfe;border-top-color:#2563eb;border-right-color:#60a5fa;border-radius:50%;animation:settlement-grid-spin .72s linear infinite;box-shadow:0 0 22px rgba(37,99,235,.18)}@keyframes settlement-grid-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.settlement-tab-loading::before{animation-duration:1.8s}}.settlement-source-table{max-height:52vh;overflow:auto}.settlement-source-table table{min-width:900px}#customerReimbursementForm>.plain-fieldset>.table-scroll{max-height:62vh;overflow:auto}.settlement-status-panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 18px;padding:9px 14px;margin-bottom:10px}.settlement-status-item{display:flex;align-items:center;gap:6px;min-width:0}.settlement-status-item--wide{grid-column:1/-1}.settlement-status-ok{color:#047857}.settlement-status-error{color:#b91c1c}.source-choice{width:18px;height:18px}.source-status-new{color:#047857}.source-status-warning{color:#b45309}.source-status-error{color:#b91c1c}.inline-form{display:inline}.settlement-pending-sources{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}.settlement-pending-sources li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 </style>
 {% endblock %}
 
@@ -143,7 +143,9 @@
     </div>
     {% if linked_invoice %}<div class="settlement-status-item settlement-status-error"><strong>发票：</strong>{{ linked_invoice.invoice_number }}；重新编辑前须先删除对应发票</div>{% else %}<div class="settlement-status-item settlement-status-ok"><strong>发票：</strong>尚未生成</div>{% endif %}
     {% if reviewer %}<div class="settlement-status-item"><strong>审核：</strong>{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</div>{% endif %}
+{% if not is_external_user() %}
     <div class="settlement-status-item settlement-status-ok"><strong>住宿：</strong>{{ lodging_range.minimum }}–{{ lodging_range.maximum }} 人晚 · {{ totals.lodging_total|money }}</div>
+    {% endif %}
     {% if workspace.report_change_count or workspace.expense_change_count %}<div class="settlement-status-item settlement-status-item--wide">{% if reimbursement.status in ['draft','returned'] %}当前页签显示最新来源；同步后更新结算表。{% else %}当前结算使用历史快照；请先退回或重置后再同步。{% endif %}</div>{% endif %}
   </section>
 
@@ -176,13 +178,17 @@
     <section class="panel settlement-tab-panel" data-settlement-tab-panel="travel" hidden>
       <div class="panel-title"><h2>差旅</h2><span class="muted-line">住宿区间按日报推导；勾选已审核住宿发票后自动重算</span></div>
       {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
+{% if not is_external_user() %}
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>合理住宿区间</th></tr></thead><tbody>
         {% for row in workspace.lodging_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ row.minimum }}–{{ row.maximum }} 人晚</td></tr>{% else %}<tr><td colspan="2" class="empty">暂无人员住宿数据。</td></tr>{% endfor %}
       </tbody></table></div>
+      {% endif %}
+{% if not is_external_user() %}
       <h3>住宿区间明细</h3>
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>进场日期</th><th>最后工作日期</th><th>合理住宿区间</th></tr></thead><tbody>
         {% for worker in workspace.lodging_rows %}{% for stay in worker.stays %}<tr><td>{{ worker.worker_name }}</td><td>{{ stay.entry_date }}</td><td>{{ stay.exit_date }}</td><td>{{ stay.minimum }}–{{ stay.maximum }} 人晚</td></tr>{% endfor %}{% else %}<tr><td colspan="4" class="empty">暂无住宿区间明细。</td></tr>{% endfor %}
       </tbody></table></div>
+      {% endif %}
       <h3>住宿发票明细</h3>
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
         {% for row in workspace.lodging_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
@@ -229,12 +235,46 @@
   {# 方案 A：结算页报销来源比对横幅（只读三档，零写库）。
      - includable（已审核未计入）：硬拦提交，提供「计入并重算」自助化解。
      - pending（待审核）/ returned（已退回）：仅提示。 #}
-  {% if pending_sources.includable or pending_sources.pending or pending_sources.returned %}
+  {% if pending_sources.includable or pending_sources.ignored or pending_sources.pending or pending_sources.returned %}
   <section class="panel" id="pendingSourcesNotice">
     {% if pending_sources.includable %}
     <div class="flash error">
       有 <strong>{{ pending_sources.includable|length }}</strong> 笔已审核报销尚未计入本工单结算（合计 {{ pending_sources.includable_total|money }}）。
-      请在“差旅”或“其他”标签中选择需要计入的明细。
+      {% if can_edit %}请选择需要计入的明细，或将确属无需计入的明细标记为无需计入：{% else %}请先在"差旅"或"其他"标签中选择需要计入的明细。{% endif %}
+      {% if can_edit %}
+      <ul class="settlement-pending-sources">
+        {% for entry in pending_sources.includable %}
+        <li>
+          <a href="{{ url_for('expense_detail', expense_id=entry.expense_id) }}">{{ entry.expense_number }}</a>
+          · {{ entry.worker_name }} · {{ entry.description or entry.project_name }} · {{ entry.amount|money }}
+          <form method="post" action="{{ url_for('ignore_customer_reimbursement_source', order_id=order.id) }}" class="inline-form" onsubmit="return uiConfirm('确定将该报销明细标记为无需计入本工单结算吗？提交经理审核时将不再拦截。');">
+            <input type="hidden" name="expense_item_id" value="{{ entry.expense_item_id }}">
+            <button class="small" type="submit">标记无需计入</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endif %}
+{% if pending_sources.ignored %}
+    <div class="flash">
+      已标记无需计入 <strong>{{ pending_sources.ignored|length }}</strong> 笔（合计 {{ pending_sources.ignored_total|money }}）：
+      <ul class="settlement-pending-sources">
+        {% for entry in pending_sources.ignored %}
+        <li>
+          <a href="{{ url_for('expense_detail', expense_id=entry.expense_id) }}">{{ entry.expense_number }}</a>
+          · {{ entry.worker_name }} · {{ entry.description or entry.project_name }} · {{ entry.amount|money }}
+          {% if entry.ignore_reason %}<span class="muted-line">原因：{{ entry.ignore_reason }}</span>{% endif %}
+          {% if can_edit %}
+          <form method="post" action="{{ url_for('unignore_customer_reimbursement_source', reimbursement_id=reimbursement.id) }}" class="inline-form" onsubmit="return uiConfirm('确定取消忽略，让该明细重新参与结算校验吗？');">
+            <input type="hidden" name="expense_item_id" value="{{ entry.expense_item_id }}">
+            <button class="small" type="submit">取消忽略</button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
     </div>
     {% endif %}
     {% if pending_sources.pending %}
@@ -464,3 +504,4 @@
   <script src="{{ url_for('static', filename='expense-sources.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}
+

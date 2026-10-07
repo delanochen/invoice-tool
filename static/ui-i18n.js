@@ -787,7 +787,14 @@
     '请选择': 'Select',
     '已复制': 'Copied',
     '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': 'daily report content. Date defaults to today. Photos and attachments must be re-uploaded; saving creates a new daily report.',
-    "确定删除这份合同吗？有关联工单的合同不能删除。": "Delete this contract? Contracts linked to work orders cannot be deleted."
+    "确定删除这份合同吗？有关联工单的合同不能删除。": "Delete this contract? Contracts linked to work orders cannot be deleted.",
+    "笔已审核报销尚未计入本工单结算（合计 ）": "approved reimbursement(s) not yet included in this work order settlement (total )",
+    "请选择需要计入的明细，或将确属无需计入的明细标记为无需计入：": "Select the items to include, or mark items that truly need not be included:",
+    "请先在\"差旅\"或\"其他\"标签中选择需要计入的明细。": "Select the items to include in the \"Travel\" or \"Other\" tab.",
+    "笔（合计 ）：": "item(s) (total ): ",
+    "标记无需计入": "Mark as not needed",
+    "已标记无需计入": "Marked as not needed",
+    "取消忽略": "Cancel ignore"
   };
 
   const nl = {
@@ -1402,7 +1409,14 @@
     '请选择': 'Selecteer',
     '已复制': 'Gekopieerd',
     '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': "dagrapportinhoud. Datum staat standaard op vandaag. Foto's en bijlagen moeten opnieuw worden geüpload; opslaan maakt een nieuw dagrapport.",
-    "已读": "Gelezen"
+    "已读": "Gelezen",
+    "笔已审核报销尚未计入本工单结算（合计 ）": "goedgekeurde vergoeding(en) nog niet meegenomen in deze werkorderafrekening (totaal )",
+    "请选择需要计入的明细，或将确属无需计入的明细标记为无需计入：": "Selecteer de posten die moeten worden meegenomen, of markeer posten die echt niet hoeven te worden opgenomen:",
+    "请先在\"差旅\"或\"其他\"标签中选择需要计入的明细。": "Selecteer eerst de op te nemen posten in het tabblad \"Reizen\" of \"Overig\".",
+    "笔（合计 ）：": "post(en) (totaal ): ",
+    "标记无需计入": "Markeren als niet nodig",
+    "已标记无需计入": "Gemarkeerd als niet nodig",
+    "取消忽略": "Negeren annuleren"
   };
 
   const de = {
@@ -2004,7 +2018,14 @@
     '请选择': 'Auswählen',
     '已复制': 'Kopiert',
     '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': 'Tagesberichtinhalt. Datum ist standardmäßig heute. Fotos und Anhänge müssen erneut hochgeladen werden; Speichern erstellt einen neuen Tagesbericht.',
-    "确定删除这份合同吗？有关联工单的合同不能删除。": "Diesen Vertrag löschen? Verträge mit verknüpften Arbeitsaufträgen können nicht gelöscht werden."
+    "确定删除这份合同吗？有关联工单的合同不能删除。": "Diesen Vertrag löschen? Verträge mit verknüpften Arbeitsaufträgen können nicht gelöscht werden.",
+    "笔已审核报销尚未计入本工单结算（合计 ）": "genehmigte Erstattung(en) noch nicht in dieser Auftragsabrechnung enthalten (Gesamt )",
+    "请选择需要计入的明细，或将确属无需计入的明细标记为无需计入：": "Wählen Sie die aufzunehmenden Positionen aus oder markieren Sie Positionen, die wirklich nicht aufgenommen werden müssen:",
+    "请先在\"差旅\"或\"其他\"标签中选择需要计入的明细。": "Wählen Sie die aufzunehmenden Positionen zuerst im Register \"Reisen\" oder \"Sonstiges\".",
+    "笔（合计 ）：": "Position(en) (Gesamt ): ",
+    "标记无需计入": "Als nicht benötigt markieren",
+    "已标记无需计入": "Als nicht benötigt markiert",
+    "取消忽略": "Ignorieren aufheben"
   };
 
   const es = {
@@ -2606,7 +2627,14 @@
     '请选择': 'Seleccionar',
     '已复制': 'Copiado',
     '的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。': 'contenido del informe diario. La fecha se establece por defecto en hoy. Las fotos y adjuntos deben volver a cargarse; guardar crea un nuevo informe diario.',
-    "确定删除这份合同吗？有关联工单的合同不能删除。": "¿Eliminar este contrato? No se pueden eliminar contratos vinculados a órdenes de trabajo."
+    "确定删除这份合同吗？有关联工单的合同不能删除。": "¿Eliminar este contrato? No se pueden eliminar contratos vinculados a órdenes de trabajo.",
+    "笔已审核报销尚未计入本工单结算（合计 ）": "reembolso(s) aprobado(s) aún no incluido(s) en esta liquidación de orden de trabajo (total )",
+    "请选择需要计入的明细，或将确属无需计入的明细标记为无需计入：": "Seleccione las partidas a incluir o marque las que realmente no necesitan incluirse:",
+    "请先在\"差旅\"或\"其他\"标签中选择需要计入的明细。": "Seleccione las partidas a incluir en la pestaña \"Viajes\" u \"Otros\".",
+    "笔（合计 ）：": "partida(s) (total ): ",
+    "标记无需计入": "Marcar como no necesario",
+    "已标记无需计入": "Marcado como no necesario",
+    "取消忽略": "Cancelar ignorar"
   };
 
   Object.assign(en, {

@@ -312,6 +312,11 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
             so_id = so_row[0] if so_row else None
             if so_id is not None:
                 db.execute(
+                    "delete from customer_reimbursement_expense_ignores where customer_reimbursement_id in "
+                    "(select id from customer_reimbursements where service_order_id=?)",
+                    (so_id,),
+                )
+                db.execute(
                     "delete from customer_reimbursement_items where customer_reimbursement_id in "
                     "(select id from customer_reimbursements where service_order_id=?)",
                     (so_id,),
@@ -612,6 +617,193 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
                     "select status from customer_reimbursements where id=?", (self.reimb_id,)
                 ).fetchone()["status"]
                 self.assertEqual(status, "submitted")
+
+    # ---- 标记无需计入（方案 B）：gate 放行、取消恢复、互斥与清理 ----
+    def _expense_item_id(self, expense_id):
+        with self.module.app.app_context():
+            return self.module.db().execute(
+                "select id from expense_items where expense_id=?", (expense_id,)
+            ).fetchone()["id"]
+
+    def _ignore_via_route(self, expense_item_id, reason="不计入"):
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            return client.post(
+                f"/service-orders/{self.order_id}/customer-reimbursement/ignore-source",
+                data={"expense_item_id": str(expense_item_id), "reason": reason},
+                follow_redirects=False,
+            )
+
+    def _ignored_ids(self):
+        with self.module.app.app_context():
+            rows = self.module.db().execute(
+                "select expense_item_id from customer_reimbursement_expense_ignores where customer_reimbursement_id=?",
+                (self.reimb_id,),
+            ).fetchall()
+            return {row["expense_item_id"] for row in rows}
+
+    def test_gate_ignored_not_blocked(self):
+        eid, _ = self._make_expense("2026-09-20", 300, status="approved")
+        item_id = self._expense_item_id(eid)
+        self.assertEqual(self._ignore_via_route(item_id, reason="已线下处理").status_code, 302)
+        self.assertEqual(self._ignored_ids(), {item_id})
+        gate = self._gate()
+        self.assertIsNone(gate, "标记忽略后已审核未计入不应再拦截")
+
+    def test_route_ignore_then_submit_succeeds(self):
+        eid, _ = self._make_expense("2026-09-20", 300, status="approved")
+        item_id = self._expense_item_id(eid)
+        self.assertEqual(self._ignore_via_route(item_id).status_code, 302)
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            resp = client.post(
+                f"/service-orders/{self.order_id}/customer-reimbursement",
+                data={
+                    "action": "submit",
+                    "worker_name": ["Plan A Admin"],
+                    "project_date": ["2026-09-15"],
+                    "standard_hours": ["0"],
+                    "transport_hours": ["0"],
+                    "public_transport_hours": ["0"],
+                    "overtime_hours": ["0"],
+                    "holiday_hours": ["0"],
+                    "lodging": ["0"], "auto_lodging": ["0"],
+                    "airfare": ["0"], "auto_airfare": ["0"],
+                    "baggage": ["0"], "auto_baggage": ["0"],
+                    "rental_car": ["0"], "auto_rental_car": ["0"],
+                    "fuel": ["0"], "auto_fuel": ["0"],
+                    "parking": ["0"], "auto_parking": ["0"],
+                    "taxi": ["0"], "auto_taxi": ["0"],
+                    "miles": ["0"],
+                    "other": ["0"], "auto_other": ["0"],
+                    "source_report_id": [""],
+                    "source_worker_user_id": [""],
+                },
+                follow_redirects=False,
+            )
+            self.assertEqual(resp.status_code, 302)
+            with self.module.app.app_context():
+                status = self.module.db().execute(
+                    "select status from customer_reimbursements where id=?", (self.reimb_id,)
+                ).fetchone()["status"]
+                self.assertEqual(status, "submitted", "标记忽略后提交应放行")
+
+    def test_route_unignore_restores_block(self):
+        eid, _ = self._make_expense("2026-09-20", 300, status="approved")
+        item_id = self._expense_item_id(eid)
+        self._ignore_via_route(item_id)
+        self.assertIsNone(self._gate())
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            resp = client.post(
+                f"/customer-reimbursements/{self.reimb_id}/unignore-source",
+                data={"expense_item_id": str(item_id)},
+                follow_redirects=False,
+            )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self._ignored_ids(), set())
+        gate = self._gate()
+        self.assertIsNotNone(gate)
+        self.assertEqual(gate[0], "pending_sources")
+
+    def test_ignore_rejects_linked_item(self):
+        eid, line_key = self._make_expense("2026-09-20", 300, status="approved")
+        item_id = self._expense_item_id(eid)
+        self._seed_item("Plan A Admin", "2026-09-15", with_source={"expense_id": eid, "line_key": line_key, "amount": 300})
+        self.assertIsNone(self._gate(), "已计入来源后不应有 includable")
+        self.assertEqual(self._ignore_via_route(item_id).status_code, 302)
+        self.assertEqual(self._ignored_ids(), set(), "已计入的明细不能标记忽略")
+
+    def test_ignore_rejects_non_approved_expense(self):
+        eid, _ = self._make_expense("2026-09-20", 300, status="pending")
+        item_id = self._expense_item_id(eid)
+        self._ignore_via_route(item_id)
+        self.assertEqual(self._ignored_ids(), set(), "非已审核明细不能标记忽略")
+
+    def test_sync_sources_skips_ignored(self):
+        eid, _ = self._make_expense("2026-09-20", 300, status="approved")
+        item_id = self._expense_item_id(eid)
+        self._ignore_via_route(item_id)
+        self.assertEqual(self._ignored_ids(), {item_id})
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            resp = client.post(
+                f"/service-orders/{self.order_id}/customer-reimbursement/sync-sources",
+                data={}, follow_redirects=False,
+            )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self._ignored_ids(), {item_id}, "被忽略的明细不应被计入并重算清除")
+        with self.module.app.app_context():
+            items = self.module.customer_reimbursement_items(self.reimb_id)
+            self.assertEqual(items, [], "被忽略的明细不应被计入结算明细")
+            row = self.module.db().execute(
+                "select 1 from customer_reimbursement_expense_links where customer_reimbursement_id=? and expense_item_id=?",
+                (self.reimb_id, item_id),
+            ).fetchone()
+            self.assertIsNone(row, "被忽略的明细不应建立来源链接")
+
+    def test_ignored_banner_renders(self):
+        eid, _ = self._make_expense("2026-09-20", 300, status="approved")
+        item_id = self._expense_item_id(eid)
+        self._ignore_via_route(item_id)
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            resp = client.get(f"/service-orders/{self.order_id}/customer-reimbursement")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.get_data(as_text=True)
+            self.assertIn("已标记无需计入", html)
+            self.assertIn("取消忽略", html)
+            self.assertIn("unignore-source", html)
+
+    # ---- 外部管理员只读查看：隐藏住宿区间板块，保留来源/发票状态 ----
+    def test_external_manager_hides_lodging_sections(self):
+        with self.module.app.app_context():
+            db = self.module.db()
+            client_id = db.execute(
+                """
+                insert into clients (client_number, name, short_name, created_at)
+                values ('CLI-EXT', 'External Client', 'EC', '2026-09-15T12:00:00')
+                """
+            ).lastrowid
+            external_id = db.execute(
+                """
+                insert into users (name, email, password_hash, role, client_id, created_at)
+                values ('External Mgr', 'external-mgr@example.com', 'unused', 'external_manager', ?, '2026-09-15T12:00:00')
+                """,
+                (client_id,),
+            ).lastrowid
+            # 外部管理员只能访问自己客户名下的工单
+            db.execute(
+                "update service_orders set client_id = ? where id = ?",
+                (client_id, self.order_id),
+            )
+            db.commit()
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = external_id
+            resp = client.get(f"/service-orders/{self.order_id}/customer-reimbursement")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.get_data(as_text=True)
+            self.assertNotIn("住宿区间明细", html, "外部管理员不应看到住宿区间明细表")
+            self.assertNotIn("合理住宿区间", html, "外部管理员不应看到住宿区间汇总表")
+            self.assertNotIn("人晚", html, "外部管理员不应看到顶部状态条的住宿区间指标")
+            self.assertIn("日报和报销均为最新", html, "来源状态对外部管理员可见")
+            self.assertIn("<strong>发票：</strong>尚未生成", html, "发票状态对外部管理员可见")
+            self.assertIn("住宿发票明细", html, "住宿发票明细表应保留")
+        with self.module.app.test_client() as client:
+            with client.session_transaction() as s:
+                s["user_id"] = self.user_id
+            resp = client.get(f"/service-orders/{self.order_id}/customer-reimbursement")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.get_data(as_text=True)
+            self.assertIn("住宿区间明细", html, "内部管理员仍应看到住宿区间明细表")
+            self.assertIn("合理住宿区间", html, "内部管理员仍应看到住宿区间汇总表")
+            self.assertIn("人晚", html, "内部管理员仍应看到顶部状态条的住宿区间指标")
 
     # ---- 结算页横幅：已审核未计入时引导到内嵌标签选择 ----
     def test_pending_sources_banner_renders(self):

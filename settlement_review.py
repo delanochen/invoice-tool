@@ -335,6 +335,13 @@ def register_settlement_review_routes(app, api):
                 if not reimbursement:
                     reimbursement = api["create_customer_reimbursement"](order, "manual_review")
                 replace_expense_links(api, reimbursement["id"], candidate_map, selected_ids)
+                # 勾选计入与标记忽略互斥：被重新选中的明细自动取消忽略标记。
+                if selected_ids:
+                    marks = ",".join("?" for _ in selected_ids)
+                    api["db"]().execute(
+                        f"delete from customer_reimbursement_expense_ignores where customer_reimbursement_id=? and expense_item_id in ({marks})",
+                        (reimbursement["id"], *selected_ids),
+                    )
                 api["db"]().execute(
                     """
                     update customer_reimbursements
