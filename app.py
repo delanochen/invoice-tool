@@ -15165,6 +15165,26 @@ def expense_items_from_form(expense_id=None):
 
 def save_expense_items(expense_id, item_rows):
     retained_keys = {item["line_key"] for item in item_rows}
+    existing_items = db().execute(
+        "select * from expense_items where expense_id = ? order by id",
+        (expense_id,),
+    ).fetchall()
+    existing_by_key = {item["line_key"]: item for item in existing_items}
+    removed_items = [item for item in existing_items if item["line_key"] not in retained_keys]
+
+    # Settlement links point at expense_items.id.  Replacing every row during an
+    # edit breaks those links (and PostgreSQL correctly rejects the delete).
+    # Keep retained rows in place; a linked row may not be removed from the form.
+    for item in removed_items:
+        linked = db().execute(
+            "select 1 from customer_reimbursement_expense_links where expense_item_id = ? limit 1",
+            (item["id"],),
+        ).fetchone()
+        if linked:
+            raise ValueError(
+                f"报销项目“{item['project']}”已被客户结算引用，不能删除；请保留该项目后再提交。"
+            )
+
     existing_attachments = get_expense_attachments(expense_id)
     for attachment in existing_attachments:
         attachment_key = (attachment["expense_item_key"] or "").strip()
@@ -15174,27 +15194,39 @@ def save_expense_items(expense_id, item_rows):
             except FileNotFoundError:
                 pass
             db().execute("delete from expense_attachments where id = ?", (attachment["id"],))
-    db().execute("delete from expense_items where expense_id = ?", (expense_id,))
+    for item in removed_items:
+        db().execute("delete from expense_items where id = ?", (item["id"],))
     for item in item_rows:
         project = item["project"]
-        db().execute(
-            """
-            insert into expense_items (
-                expense_id, line_key, project_id, project, amount, description,
-                fuel_vehicle_type, sort_order
-            ) values (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                expense_id,
-                item["line_key"],
-                project["id"],
-                project["name"],
-                item["amount"],
-                item["description"],
-                item["fuel_vehicle_type"],
-                item["sort_order"],
-            ),
+        existing = existing_by_key.get(item["line_key"])
+        values = (
+            project["id"],
+            project["name"],
+            item["amount"],
+            item["description"],
+            item["fuel_vehicle_type"],
+            item["sort_order"],
         )
+        if existing:
+            db().execute(
+                """
+                update expense_items
+                set project_id = ?, project = ?, amount = ?, description = ?,
+                    fuel_vehicle_type = ?, sort_order = ?
+                where id = ?
+                """,
+                values + (existing["id"],),
+            )
+        else:
+            db().execute(
+                """
+                insert into expense_items (
+                    expense_id, line_key, project_id, project, amount, description,
+                    fuel_vehicle_type, sort_order
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (expense_id, item["line_key"]) + values,
+            )
 
 
 @app.route("/service-orders/<int:order_id>/expenses/new", methods=["GET", "POST"])

@@ -340,6 +340,45 @@ class RobustExpenseSaveTest(ExpenseReturnAdminTestBase):
             ).fetchone()["status"]
         self.assertEqual(status, "draft")
 
+    def test_edit_save_preserves_item_referenced_by_settlement(self):
+        module = self.module
+        admin_id, order_id, project_id, expense_id = self._make_expense()
+        with module.app.app_context():
+            connection = module.db()
+            item_id = connection.execute(
+                "select id from expense_items where expense_id = ? and line_key = 'line-a'",
+                (expense_id,),
+            ).fetchone()["id"]
+            reimbursement_id = connection.execute(
+                """
+                insert into customer_reimbursements (
+                    service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, 'settle.pdf', 'linked-settle.pdf', ?, '2026-09-19T08:00:00')
+                """,
+                (order_id, admin_id),
+            ).lastrowid
+            connection.execute(
+                """
+                insert into customer_reimbursement_expense_links (
+                    customer_reimbursement_id, expense_item_id, amount_snapshot,
+                    project_snapshot, expense_status_snapshot, selected_by, selected_at
+                ) values (?, ?, 100, 'Lodging', 'draft', ?, '2026-09-19T08:00:00')
+                """,
+                (reimbursement_id, item_id, admin_id),
+            )
+            connection.commit()
+
+        response = self._post_save(self._login(), expense_id, project_id, admin_id)
+
+        self.assertEqual(response.status_code, 302)
+        with module.app.app_context():
+            row = module.db().execute(
+                "select id, description from expense_items where expense_id = ?",
+                (expense_id,),
+            ).fetchone()
+        self.assertEqual(row["id"], item_id)
+        self.assertEqual(row["description"], "hotel")
+
 
 class NewExpenseRobustSaveTest(ExpenseReturnAdminTestBase):
     """v0.1.260 补漏：new_expense（新建报销保存）与 edit_expense 同样兜底。"""
