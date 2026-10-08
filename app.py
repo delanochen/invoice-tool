@@ -5297,13 +5297,13 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
         """
         update customer_reimbursements
         set labor_total = ?, lodging_total = ?, travel_total = ?, mileage_total = ?,
-            mro_supplies_total = ?, rental_fuel_total = ?, total_amount = ?
+            mro_supplies_total = ?, rental_fuel_total = ?, total_amount = ?, other_total = ?
         where id = ?
         """,
         (
             totals["labor_total"], totals["lodging_total"], totals["travel_total"],
             totals["mileage_total"], totals["mro_supplies_total"], totals["rental_fuel_total"],
-            totals["total_amount"], reimbursement_id,
+            totals["total_amount"], totals["other_total"], reimbursement_id,
         ),
     )
     return totals
@@ -12256,6 +12256,7 @@ def customer_reimbursement_query():
         "labor_total": sum(float(row["labor_total"] or 0) for row in rows),
         "travel_total": sum(float(row["travel_total"] or 0) for row in rows),
         "mileage_total": sum(float(row["mileage_total"] or 0) for row in rows),
+        "other_total": sum(float(row["other_total"] or 0) for row in rows),
         "total_amount": sum(float(row["total_amount"] or 0) for row in rows),
     }
     return render_template(

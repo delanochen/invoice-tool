@@ -203,6 +203,31 @@ class SettlementPanelTest(unittest.TestCase):
         self.assertIn("工时费小计", panel)
         self.assertIn("差旅费小计", panel)
         self.assertIn("里程费小计", panel)
+        self.assertIn("其他小计", panel)
+
+    def test_panel_other_subtotal_reconciles_with_total(self):
+        """面板小计含「其他」，四个小计之和等于合计（合计≠小计之和修复）。"""
+        with self.module.app.app_context():
+            connection = self.module.db()
+            connection.execute(
+                """
+                update customer_reimbursements
+                set labor_total = ?, travel_total = ?, mileage_total = ?, other_total = ?, total_amount = ?
+                where id = ?
+                """,
+                (100.0, 20.0, 10.0, 5.0, 135.0, self.rid),
+            )
+            connection.commit()
+        panel = _settlement_panel(self._page(self.settled_order))
+        metrics = dict(re.findall(r"<span>([^<]+)</span><strong>([^<]+)</strong>", panel))
+        self.assertEqual(metrics["工时费小计"], "$100.00")
+        self.assertEqual(metrics["差旅费小计"], "$20.00")
+        self.assertEqual(metrics["里程费小计"], "$10.00")
+        self.assertEqual(metrics["其他小计"], "$5.00")
+        self.assertEqual(metrics["合计"], "$135.00")
+        values = [float(metrics[key].replace("$", "").replace(",", ""))
+                  for key in ("工时费小计", "差旅费小计", "里程费小计", "其他小计")]
+        self.assertEqual(sum(values), float(metrics["合计"].replace("$", "").replace(",", "")))
 
     # --- 需求 2：编辑按钮新开标签页 ---
 

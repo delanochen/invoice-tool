@@ -1506,6 +1506,7 @@ CREATE TABLE public.customer_reimbursements (
     reviewed_at text,
     mro_supplies_total double precision DEFAULT 0 NOT NULL,
     rental_fuel_total double precision DEFAULT 0 NOT NULL,
+    other_total double precision DEFAULT 0 NOT NULL,
     expense_transfer_cutoff_at text,
     contract_rate_version_id bigint,
     lodging_person_nights bigint DEFAULT 0 NOT NULL,
