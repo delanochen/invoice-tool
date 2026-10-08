@@ -58,7 +58,7 @@
               <strong><input id="lodgingPersonNights" name="lodging_person_nights" type="number" min="0" step="1" value="{{ person_nights }}" style="width:7rem"></strong>
               <small>系统根据工作日期估算：{{ default_person_nights }} 人晚，可人工修正</small>
             </div>
-            <div class="metric"><span>合同住宿上限</span><strong id="lodgingRate" data-value="{{ lodging_rate.rate }}">{{ lodging_rate.rate|money }} / 人晚</strong><small>{{ '合同费率版本 v' ~ lodging_rate.version_no if lodging_rate.version_no else '旧规则回退值' }}</small></div>
+            <div class="metric"><span>合同住宿上限</span><strong id="lodgingRate" data-value="{{ lodging_rate.rate }}" class="translatable-text">{{ lodging_rate.rate|money }} / 人晚</strong><small>{{ '合同费率版本 v' ~ lodging_rate.version_no if lodging_rate.version_no else '旧规则回退值' }}</small></div>
             <div class="metric"><span>本次最高额度</span><strong id="lodgingCap">{{ summary.lodging_cap|money }}</strong></div>
             <div class="metric"><span>当前勾选住宿</span><strong id="selectedLodging">{{ summary.selected_lodging|money }}</strong></div>
             <div class="metric"><span>未使用额度</span><strong id="unusedLodgingCap">{{ summary.unused_lodging_cap|money }}</strong><small>仅提示，不会自动补齐</small></div>

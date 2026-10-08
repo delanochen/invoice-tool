@@ -28,7 +28,7 @@
   <!-- ─────────────────────────────── Resolution Queues ───────────────────── -->
   {% if queues %}
   <div class="erp-notice no-print" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-    <div style="flex:1;min-width:220px;">
+    <div class="translatable-text" style="flex:1;min-width:220px;">
       <strong>Queue A — Mileage Evidence</strong><br>
       {{ queues.queue_a_mileage.count }} 条 / {{ queues.queue_a_mileage.amount|money }} · {{ queues.queue_a_mileage.employee_count }} 人 ·
       {{ queues.queue_a_mileage.earliest_service_date or '—' }} ~ {{ queues.queue_a_mileage.latest_service_date or '—' }}<br>
@@ -37,7 +37,7 @@
       {% endif %}
       <a class="erp-btn" href="{{ url_for('tax_review', component_code='self_drive_allowance', effective_category='tax_review_required') }}">打开队列</a>
     </div>
-    <div style="flex:1;min-width:220px;">
+    <div class="translatable-text" style="flex:1;min-width:220px;">
       <strong>Queue B — Meal Allowance Policy</strong>
       <span class="erp-badge err">CPA POLICY DECISION REQUIRED</span><br>
       {{ queues.queue_b_meal.count }} 条 / {{ queues.queue_b_meal.amount|money }} · {{ queues.queue_b_meal.employee_count }} 人 ·
@@ -47,7 +47,7 @@
       <small class="muted">批量决策预览：Option A→taxable / Option B→reimbursement / Option C→keep，影响即上列 count / amount / 人数；执行须二次确认，本版未开放批量。</small><br>
       <a class="erp-btn" href="{{ url_for('tax_review', component_code='meal_allowance', effective_category='tax_review_required') }}">打开队列</a>
     </div>
-    <div style="flex:1;min-width:220px;">
+    <div class="translatable-text" style="flex:1;min-width:220px;">
       <strong>Queue C — Expense Documentation</strong><br>
       {{ queues.queue_c_expense.count }} 条 / {{ queues.queue_c_expense.amount|money }} · {{ queues.queue_c_expense.employee_count }} 人 ·
       {{ queues.queue_c_expense.earliest_service_date or '—' }} ~ {{ queues.queue_c_expense.latest_service_date or '—' }}<br>

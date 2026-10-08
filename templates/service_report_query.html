@@ -120,8 +120,8 @@
             <div class="erp-card-sub">
               <span>{{ row.buyer_owner or '-' }}</span>
               <span>{{ row.country_name or '-' }}</span>
-              <span>工时 {{ (row.total_service_hours or 0)|hours }}</span>
-              <span>交通 {{ (row.travel_hours or 0)|hours }}</span>
+              <span class="translatable-text">工时 {{ (row.total_service_hours or 0)|hours }}</span>
+              <span class="translatable-text">交通 {{ (row.travel_hours or 0)|hours }}</span>
             </div>
             <div class="erp-cert-file">{{ row.worker_names or '未填写服务人员' }}</div>
             <div class="erp-card-foot">

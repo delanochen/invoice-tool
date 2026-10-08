@@ -71,7 +71,7 @@
             <div class="erp-card-sub">
               <span>{{ row.attendance_date or '期间基本工资' }}</span>
               <span>{{ row.order_number or '非工单' }}</span>
-              <span>标准 {{ row.standard_hours|hours }}</span>
+              <span class="translatable-text">标准 {{ row.standard_hours|hours }}</span>
             </div>
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>基本工资</span><strong>{{ row.base_salary|money }}</strong></div>

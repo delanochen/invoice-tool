@@ -69,7 +69,7 @@
         <div class="statement-block">
           <p class="statement-block-title">
             <strong><a href="{{ url_for('employee_payment_detail', payment_id=order.id) }}">{{ order.payment_number }}</a></strong>
-            {% if order.pay_period %}<span class="muted">期间 {{ order.pay_period }}</span>{% endif %}
+            {% if order.pay_period %}<span class="muted translatable-text">期间 {{ order.pay_period }}</span>{% endif %}
             <span class="status {{ order.status }}">{{ status_labels[order.status] }}</span>
           </p>
           {% if not order.has_components %}
@@ -100,7 +100,7 @@
                   <td>{% if bucket.has_quantity %}{{ bucket.quantity }}{% if bucket.unit %} {{ bucket.unit }}{% endif %}{% else %}—{% endif %}</td>
                   <td>{{ bucket.amount|money }}</td>
                 </tr>{% endfor %}
-                <tr><td><strong>{{ order.payment_number }} 小计</strong></td><td></td><td><strong>{{ order.net_amount|money }}</strong></td></tr>
+                <tr><td><strong class="translatable-text">{{ order.payment_number }} 小计</strong></td><td></td><td><strong>{{ order.net_amount|money }}</strong></td></tr>
               </tbody>
             </table>
           {% endif %}
@@ -119,7 +119,7 @@
             <strong><a href="{{ url_for('employee_payment_detail', payment_id=order.id) }}">{{ order.payment_number }}</a></strong>
             {% if order.expense %}
               <a href="{{ url_for('expense_detail', expense_id=order.expense.id) }}">{{ order.expense.expense_number }}</a>
-              <span class="muted">费用日期 {{ order.expense.expense_date }}{% if order.expense.order_number %} · 工单 {{ order.expense.order_number }}{% endif %}</span>
+              <span class="muted translatable-text">费用日期 {{ order.expense.expense_date }}{% if order.expense.order_number %} · 工单 {{ order.expense.order_number }}{% endif %}</span>
             {% else %}
               <span class="muted">来源报销单不可用</span>
             {% endif %}
@@ -134,7 +134,7 @@
                   <td>{{ item.description or '—' }}</td>
                   <td><strong>{{ item.amount|money }}</strong></td>
                 </tr>{% endfor %}
-                <tr><td><strong>{{ order.payment_number }} 小计</strong></td><td></td><td><strong>{{ order.net_amount|money }}</strong></td></tr>
+                <tr><td><strong class="translatable-text">{{ order.payment_number }} 小计</strong></td><td></td><td><strong>{{ order.net_amount|money }}</strong></td></tr>
               </tbody>
             </table>
           {% elif order.expense %}

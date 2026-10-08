@@ -76,7 +76,7 @@
                 <td>{{ contract.client_name }}</td>
                 <td>{{ contract_type_labels[contract.contract_type] }}</td>
                 <td class="num" data-grid-currency="{{ contract.currency }}">{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}-{% endif %}</td>
-                <td>{{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</td>
+                <td class="translatable-text">{{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</td>
                 <td class="num">{{ contract.work_order_count }}</td>
                 <td><span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span></td>
               </tr>
@@ -98,9 +98,9 @@
             <div class="erp-card-sub">
               <span>{{ contract.client_name }}</span>
               <span>{{ contract_type_labels[contract.contract_type] }}</span>
-              <span>工单 {{ contract.work_order_count }}</span>
+              <span class="translatable-text">工单 {{ contract.work_order_count }}</span>
             </div>
-            <div class="erp-cert-file">{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}金额未填{% endif %} · {{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</div>
+            <div class="erp-cert-file translatable-text">{% if contract.amount is not none %}{{ contract.amount|money(contract.currency) }}{% else %}金额未填{% endif %} · {{ contract.start_date or "-" }} 至 {{ contract.end_date or "-" }}</div>
             <div class="erp-card-foot">
               <a class="erp-btn" href="{{ url_for('contract_detail', contract_id=contract.id) }}">合同详情</a>
               <span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span>

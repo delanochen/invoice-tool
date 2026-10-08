@@ -56,14 +56,11 @@
 
   <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
   <div class="erp-body">
-    <p class="tt-intro no-print">
-      复用智能日报的 Google 路线 / 静态地图能力：① 起点、终点、中间停靠点生成路线地图佐证；② 已知终点、总距离与大概方位时，在推算出的起点附近随机找一家宾馆并验证实际驾车距离。
-      所有 Google 调用在服务端完成，API Key 不会暴露给浏览器。
-    </p>
+    <p class="tt-intro no-print translatable-text">复用智能日报的 Google 路线 / 静态地图能力：① 起点、终点、中间停靠点生成路线地图佐证；② 已知终点、总距离与大概方位时，在推算出的起点附近随机找一家宾馆并验证实际驾车距离。 所有 Google 调用在服务端完成，API Key 不会暴露给浏览器。</p>
     <section class="erp-panel active" data-erp-panel="tools">
       <div class="erp-detail-scroll">
 {% if not keys_ready.routes or not keys_ready.static_maps or not keys_ready.places %}
-<div class="tt-hint" style="margin:10px 10px 0;">
+<div class="tt-hint translatable-text" style="margin:10px 10px 0;">
   ⚠️ 尚未配置的 Key：
   {% if not keys_ready.routes %}Google Routes{% endif %}
   {% if not keys_ready.static_maps %} / Static Maps{% endif %}

@@ -113,7 +113,7 @@
             <div class="erp-card-sub">
               <span>{{ buyer.country_name or buyer.country_code or buyer.country or '-' }}</span>
               <span>{{ buyer.owner_name or '-' }}</span>
-              <span>工单 {{ buyer.work_order_completed }}/{{ buyer.work_order_total }}</span>
+              <span class="translatable-text">工单 {{ buyer.work_order_completed }}/{{ buyer.work_order_total }}</span>
             </div>
             <div class="erp-cert-file">{{ buyer.detailed_address }}</div>
             <div class="erp-card-foot">

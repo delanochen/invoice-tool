@@ -93,7 +93,7 @@
   <form method="post" action="{{ url_for('void_payment_batch', batch_id=batch.id) }}" class="form-stack">
     <div class="dialog-header"><h2>作废支票 {{ batch.batch_number }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
     <label>作废原因<textarea name="reason" rows="4" required placeholder="必填，会写入审计轨迹"></textarea></label>
-    <p class="erp-filter-note">
+    <p class="erp-filter-note translatable-text">
       批次内 {{ orders|length }} 张付款单会退回「待付款」，已抵扣的借款与已回写的报销付款状态同时冲销，
       可重新勾选合并发放。
     </p>

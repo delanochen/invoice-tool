@@ -29,9 +29,9 @@
       <section class="erp-panel active">
         <div class="erp-detail-section-title">员工财务与资产</div>
         <div class="user-fact-grid">
-          <p><strong>待付款</strong><span>{{ finance.pending_count }} 笔 · {{ finance.pending_total|money }}</span></p>
+          <p><strong>待付款</strong><span class="translatable-text">{{ finance.pending_count }} 笔 · {{ finance.pending_total|money }}</span></p>
           <p><strong>未结清借款</strong><span>{{ finance.advance_balance|money }}</span></p>
-          <p><strong>历史付款</strong><span>{{ finance.paid_count }} 笔 · {{ finance.paid_total|money }}</span></p>
+          <p><strong>历史付款</strong><span class="translatable-text">{{ finance.paid_count }} 笔 · {{ finance.paid_total|money }}</span></p>
           <p><strong>当前持有资产</strong><span>{% for asset in finance.assets %}<a href="{{ url_for('asset_detail',asset_id=asset.id) }}">{{ asset.asset_number }} {{ asset.name }}</a>{% if not loop.last %}、{% endif %}{% else %}无{% endfor %}</span></p>
         </div>
         <div class="user-fact-actions">

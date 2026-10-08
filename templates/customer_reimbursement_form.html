@@ -43,9 +43,9 @@
           <div class="expense-source-item">
             <div class="expense-source-row">
               {% if source.expense_url %}
-              <a href="{{ source.expense_url }}" target="_blank" rel="noopener" class="expense-source-link">{{ source.expense_number }} · 第{{ source.line_number }}项</a>
+              <a href="{{ source.expense_url }}" target="_blank" rel="noopener" class="expense-source-link translatable-text">{{ source.expense_number }} · 第{{ source.line_number }}项</a>
               {% else %}
-              <span>{{ source.expense_number }} · 第{{ source.line_number }}项</span>
+              <span class="translatable-text">{{ source.expense_number }} · 第{{ source.line_number }}项</span>
               {% endif %}
               <span class="expense-source-amount">{{ source.amount|money }}</span>
             </div>
@@ -138,15 +138,15 @@
   </nav>
 
   <section class="panel settlement-status-panel">
-    <div class="settlement-status-item {{ 'settlement-status-error' if workspace.report_change_count or workspace.expense_change_count else 'settlement-status-ok' }}">
+    <div class="settlement-status-item translatable-text {{ 'settlement-status-error' if workspace.report_change_count or workspace.expense_change_count else 'settlement-status-ok' }}">
       <strong>来源：</strong>{% if workspace.report_change_count or workspace.expense_change_count %}日报 {{ workspace.report_change_count }} 项、报销 {{ workspace.expense_change_count }} 项变化{% else %}日报和报销均为最新{% endif %}
     </div>
-    {% if linked_invoice %}<div class="settlement-status-item settlement-status-error"><strong>发票：</strong>{{ linked_invoice.invoice_number }}；重新编辑前须先删除对应发票</div>{% else %}<div class="settlement-status-item settlement-status-ok"><strong>发票：</strong>尚未生成</div>{% endif %}
-    {% if reviewer %}<div class="settlement-status-item"><strong>审核：</strong>{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</div>{% endif %}
+    {% if linked_invoice %}<div class="settlement-status-item settlement-status-error translatable-text"><strong>发票：</strong>{{ linked_invoice.invoice_number }}；重新编辑前须先删除对应发票</div>{% else %}<div class="settlement-status-item settlement-status-ok translatable-text"><strong>发票：</strong>尚未生成</div>{% endif %}
+    {% if reviewer %}<div class="settlement-status-item translatable-text"><strong>审核：</strong>{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</div>{% endif %}
 {% if not is_external_user() %}
-    <div class="settlement-status-item settlement-status-ok"><strong>住宿：</strong>{{ lodging_range.minimum }}–{{ lodging_range.maximum }} 人晚 · {{ totals.lodging_total|money }}</div>
+    <div class="settlement-status-item settlement-status-ok translatable-text"><strong>住宿：</strong>{{ lodging_range.minimum }}–{{ lodging_range.maximum }} 人晚 · {{ totals.lodging_total|money }}</div>
     {% endif %}
-    {% if workspace.report_change_count or workspace.expense_change_count %}<div class="settlement-status-item settlement-status-item--wide">{% if reimbursement.status in ['draft','returned'] %}当前页签显示最新来源；同步后更新结算表。{% else %}当前结算使用历史快照；请先退回或重置后再同步。{% endif %}</div>{% endif %}
+    {% if workspace.report_change_count or workspace.expense_change_count %}<div class="settlement-status-item settlement-status-item--wide translatable-text">{% if reimbursement.status in ['draft','returned'] %}当前页签显示最新来源；同步后更新结算表。{% else %}当前结算使用历史快照；请先退回或重置后再同步。{% endif %}</div>{% endif %}
   </section>
 
   <section class="panel settlement-tab-panel" data-settlement-tab-panel="labor">
@@ -165,7 +165,7 @@
     <div class="table-scroll settlement-source-table"><table class="list-table compact-table">
       <thead><tr><th>员工</th><th>日期 / 日报</th><th>标准工时 / 金额</th><th>加班工时 / 金额</th><th>交通工时 / 金额</th><th>假期工时 / 金额</th><th>公共交通工时 / 金额</th><th>行合计</th></tr></thead>
       <tbody>{% for row in workspace.labor_detail_rows %}<tr>
-        <td>{{ row.worker_name }}</td><td>{{ row.project_date }}{% if row.source_report_id %} · <a href="{{ url_for('edit_service_report', report_id=row.source_report_id) }}">日报 #{{ row.source_report_id }}</a>{% endif %}</td>
+        <td>{{ row.worker_name }}</td><td>{{ row.project_date }}{% if row.source_report_id %} · <a href="{{ url_for('edit_service_report', report_id=row.source_report_id) }}" class="translatable-text">日报 #{{ row.source_report_id }}</a>{% endif %}</td>
         <td>{{ row.standard_hours|hours }} / {{ row.standard_amount|money }}</td><td>{{ row.overtime_hours|hours }} / {{ row.overtime_amount|money }}</td>
         <td>{{ row.transport_hours|hours }} / {{ row.transport_amount|money }}</td><td>{{ row.holiday_hours|hours }} / {{ row.holiday_amount|money }}</td>
         <td>{{ row.public_transport_hours|hours }} / {{ row.public_transport_amount|money }}</td><td>{{ row.labor_total|money }}</td>
@@ -180,18 +180,18 @@
       {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
 {% if not is_external_user() %}
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>合理住宿区间</th></tr></thead><tbody>
-        {% for row in workspace.lodging_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ row.minimum }}–{{ row.maximum }} 人晚</td></tr>{% else %}<tr><td colspan="2" class="empty">暂无人员住宿数据。</td></tr>{% endfor %}
+        {% for row in workspace.lodging_rows %}<tr><td>{{ row.worker_name }}</td><td class="translatable-text">{{ row.minimum }}–{{ row.maximum }} 人晚</td></tr>{% else %}<tr><td colspan="2" class="empty">暂无人员住宿数据。</td></tr>{% endfor %}
       </tbody></table></div>
       {% endif %}
 {% if not is_external_user() %}
       <h3>住宿区间明细</h3>
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>进场日期</th><th>最后工作日期</th><th>合理住宿区间</th></tr></thead><tbody>
-        {% for worker in workspace.lodging_rows %}{% for stay in worker.stays %}<tr><td>{{ worker.worker_name }}</td><td>{{ stay.entry_date }}</td><td>{{ stay.exit_date }}</td><td>{{ stay.minimum }}–{{ stay.maximum }} 人晚</td></tr>{% endfor %}{% else %}<tr><td colspan="4" class="empty">暂无住宿区间明细。</td></tr>{% endfor %}
+        {% for worker in workspace.lodging_rows %}{% for stay in worker.stays %}<tr><td>{{ worker.worker_name }}</td><td>{{ stay.entry_date }}</td><td>{{ stay.exit_date }}</td><td class="translatable-text">{{ stay.minimum }}–{{ stay.maximum }} 人晚</td></tr>{% endfor %}{% else %}<tr><td colspan="4" class="empty">暂无住宿区间明细。</td></tr>{% endfor %}
       </tbody></table></div>
       {% endif %}
       <h3>住宿发票明细</h3>
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
-        {% for row in workspace.lodging_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
+        {% for row in workspace.lodging_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning translatable-text">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
         {% else %}<tr><td colspan="7" class="empty">暂无住宿发票。</td></tr>{% endfor %}
       </tbody></table></div>
     </section>
@@ -200,7 +200,7 @@
       <div class="panel-title"><h2>其他报销</h2><span class="muted-line">按员工显示；勾选或取消后自动重算工单结算</span></div>
       {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>类别</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
-        {% for row in workspace.other_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td>{{ row.group_label }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
+        {% for row in workspace.other_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td>{{ row.group_label }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning translatable-text">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
         {% else %}<tr><td colspan="8" class="empty">暂无其他报销明细。</td></tr>{% endfor %}
       </tbody></table></div>
     </section>
@@ -209,11 +209,11 @@
   <section class="panel settlement-tab-panel" data-settlement-tab-panel="mileage" hidden>
     <div class="panel-title"><h2>里程</h2><span class="muted-line">按员工汇总；数据来自当前日报</span></div>
     <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>计费里程</th><th>里程金额</th></tr></thead><tbody>
-      {% for row in workspace.mileage_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ "%g"|format(row.miles) }} 英里</td><td>{{ row.amount|money }}</td></tr>{% else %}<tr><td colspan="3" class="empty">暂无里程数据。</td></tr>{% endfor %}
+      {% for row in workspace.mileage_rows %}<tr><td>{{ row.worker_name }}</td><td class="translatable-text">{{ "%g"|format(row.miles) }} 英里</td><td>{{ row.amount|money }}</td></tr>{% else %}<tr><td colspan="3" class="empty">暂无里程数据。</td></tr>{% endfor %}
     </tbody></table></div>
     <h3>日报里程明细</h3>
     <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>日期 / 日报</th><th>计费里程</th><th>费率</th><th>金额</th></tr></thead><tbody>
-      {% for row in workspace.mileage_detail_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ row.project_date }}{% if row.source_report_id %} · <a href="{{ url_for('edit_service_report', report_id=row.source_report_id) }}">日报 #{{ row.source_report_id }}</a>{% endif %}</td><td>{{ "%g"|format(row.miles) }} 英里</td><td>{{ row.mileage_rate|money }} / 英里</td><td>{{ row.mileage_total|money }}</td></tr>{% else %}<tr><td colspan="5" class="empty">暂无日报里程明细。</td></tr>{% endfor %}
+      {% for row in workspace.mileage_detail_rows %}<tr><td>{{ row.worker_name }}</td><td>{{ row.project_date }}{% if row.source_report_id %} · <a href="{{ url_for('edit_service_report', report_id=row.source_report_id) }}" class="translatable-text">日报 #{{ row.source_report_id }}</a>{% endif %}</td><td class="translatable-text">{{ "%g"|format(row.miles) }} 英里</td><td class="translatable-text">{{ row.mileage_rate|money }} / 英里</td><td>{{ row.mileage_total|money }}</td></tr>{% else %}<tr><td colspan="5" class="empty">暂无日报里程明细。</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 

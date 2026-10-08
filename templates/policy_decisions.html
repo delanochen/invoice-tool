@@ -104,7 +104,7 @@
               {% if after.total_recorded != d.totals_before.total_recorded %}
               <span class="erp-badge err">不闭合</span>{% endif %}</td>
             {% else %}
-            <td colspan="4">模拟失败：{{ sim.get('error', 'unknown') }}</td>
+            <td colspan="4" class="translatable-text">模拟失败：{{ sim.get('error', 'unknown') }}</td>
             {% endif %}
           </tr>
           {% endfor %}

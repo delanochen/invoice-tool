@@ -102,9 +102,9 @@
               <span class="erp-card-customer">{{ row.grade_name }}</span>
             </div>
             <div class="erp-card-sub">
-              <span>出勤 {{ row.attendance_days }} 天</span>
-              <span>里程 {{ "%.1f"|format(row.driving_miles) }}</span>
-              <span>标准工时 {{ row.standard_hours|hours }}</span>
+              <span class="translatable-text">出勤 {{ row.attendance_days }} 天</span>
+              <span class="translatable-text">里程 {{ "%.1f"|format(row.driving_miles) }}</span>
+              <span class="translatable-text">标准工时 {{ row.standard_hours|hours }}</span>
             </div>
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>基本工资</span><strong>{{ row.base_salary|money }}</strong></div>

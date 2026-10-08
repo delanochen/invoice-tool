@@ -95,7 +95,7 @@
             {% endif %}
           </span></p>
           {% if order.settlement_basis == "quotation" and order.quotation_id %}
-            <p><strong>结算依据</strong><span>报价单当前修订 v{{ order.quotation_revision_no or 0 }}</span></p>
+            <p><strong>结算依据</strong><span class="translatable-text">报价单当前修订 v{{ order.quotation_revision_no or 0 }}</span></p>
             <p><strong>当前报价金额</strong><span>{{ order.quotation_current_total|money(order.quotation_currency or "USD") }}</span></p>
           {% else %}
             <p><strong>结算依据</strong><span>合同费率＋实际日报/报销</span></p>
@@ -193,9 +193,9 @@
               <span class="erp-card-customer">{{ report.worker_names or '-' }}</span>
             </div>
             <div class="erp-card-sub">
-              <span>实际 {{ report.actual_work_date or report.report_date }}</span>
-              <span>工时 {{ report.total_service_hours|hours }}</span>
-              <span>交通 {{ report.travel_hours|hours }}</span>
+              <span class="translatable-text">实际 {{ report.actual_work_date or report.report_date }}</span>
+              <span class="translatable-text">工时 {{ report.total_service_hours|hours }}</span>
+              <span class="translatable-text">交通 {{ report.travel_hours|hours }}</span>
             </div>
             <div class="erp-card-foot">
               <a class="erp-btn" href="{{ url_for('view_service_report', report_id=report.id) }}">查看日报</a>
@@ -341,9 +341,9 @@
                   <span class="erp-card-customer">{{ item.project_date }}</span>
                 </div>
                 <div class="erp-card-sub">
-                  <span>工时 {{ item.labor_total|money }}</span>
-                  <span>里程 {{ item.mileage_total|money }}</span>
-                  <span>合计 {{ item.total|money }}</span>
+                  <span class="translatable-text">工时 {{ item.labor_total|money }}</span>
+                  <span class="translatable-text">里程 {{ item.mileage_total|money }}</span>
+                  <span class="translatable-text">合计 {{ item.total|money }}</span>
                 </div>
               </article>
             {% endfor %}

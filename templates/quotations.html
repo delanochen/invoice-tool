@@ -93,7 +93,7 @@
             <div class="erp-card-sub">
               <span>{{ quotation.project_name or "-" }}</span>
               <span>{{ quotation.quotation_date or "-" }}</span>
-              <span>有效期至 {{ quotation.valid_until or "-" }}</span>
+              <span class="translatable-text">有效期至 {{ quotation.valid_until or "-" }}</span>
             </div>
             <div class="erp-cert-file">{{ quotation.total|money(quotation.currency) }} · {{ status_labels[quotation.status] }}</div>
             <div class="erp-card-foot">

@@ -106,7 +106,7 @@
         <li><p class="erp-nav-meta">还没有员工等级。</p></li>
       {% endfor %}
     </ul>
-    <p class="erp-nav-meta" data-unassigned-meta>{{ unassigned }} 名员工未分配等级</p>
+    <p class="erp-nav-meta translatable-text" data-unassigned-meta>{{ unassigned }} 名员工未分配等级</p>
   </nav>
 
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
@@ -179,10 +179,10 @@
         <section class="erp-panel" data-erp-panel="rates">
           <div class="erp-detail-scroll">
             {% if panel.overlapping_versions %}
-              <p class="erp-warn">以下版本的有效期互相重叠（重叠期间工资按生效日期较晚的版本取值），请点对应版本的「编辑」修正：{{ panel.overlapping_versions|join('；') }}。</p>
+              <p class="erp-warn translatable-text">以下版本的有效期互相重叠（重叠期间工资按生效日期较晚的版本取值），请点对应版本的「编辑」修正：{{ panel.overlapping_versions|join('；') }}。</p>
             {% endif %}
             <div class="erp-section-title" style="display:flex;align-items:center;gap:8px;">
-              <span>费率版本（{{ panel.versions|length }}）</span>
+              <span class="translatable-text">费率版本（{{ panel.versions|length }}）</span>
               <span class="erp-toolbar-spacer"></span>
               {% if can_edit %}<button type="button" class="erp-btn primary" data-dialog-open="newRateVersionDialog{{ grade.id }}">新增版本</button>{% endif %}
             </div>
@@ -235,8 +235,8 @@
               <p><strong>等级名称</strong><span>{{ grade.grade_name }}</span></p>
               <p><strong>状态</strong><span class="status {{ 'completed' if grade.is_active else 'returned' }}">{{ '启用' if grade.is_active else '停用' }}</span></p>
               <p class="full-span"><strong>等级描述</strong><span>{{ grade.description or '-' }}</span></p>
-              <p><strong>员工人数</strong><span>{{ panel.total }} 名（在职 {{ panel.active }}）</span></p>
-              <p><strong>费率版本</strong><span>{{ panel.versions|length }} 个{% if panel.current_version %}（当前 v{{ panel.current_version.version_no }}）{% endif %}</span></p>
+              <p><strong>员工人数</strong><span class="translatable-text">{{ panel.total }} 名（在职 {{ panel.active }}）</span></p>
+              <p><strong>费率版本</strong><span class="translatable-text">{{ panel.versions|length }} 个{% if panel.current_version %}（当前 v{{ panel.current_version.version_no }}）{% endif %}</span></p>
               <p><strong>基本工资</strong><span>{{ grade.base_salary|money }}</span></p>
               <p><strong>餐费补贴/天</strong><span>{{ grade.meal_daily_amount|money }}</span></p>
               <p><strong>车补计算方式</strong><span>{{ '按时长' if grade.car_allowance_method == 'hourly' else '按里程' }}</span></p>
@@ -263,7 +263,7 @@
   {% if selected %}
     <footer class="erp-summary">
       <div class="erp-summary-item"><span>当前等级</span><strong data-grade-field="name">{{ selected.grade.grade_name }}</strong></div>
-      <div class="erp-summary-item"><span>该等级员工</span><strong data-grade-field="headcount">{{ selected.total }} 名（在职 {{ selected.active }}）</strong></div>
+      <div class="erp-summary-item"><span>该等级员工</span><strong data-grade-field="headcount" class="translatable-text">{{ selected.total }} 名（在职 {{ selected.active }}）</strong></div>
       <div class="erp-summary-item muted"><span>费率版本</span><strong data-grade-field="versions">{{ selected.versions|length }}</strong></div>
       <div class="erp-summary-item muted"><span>生效费率来源</span><strong data-grade-field="source">{{ ('版本 v' ~ selected.current_version.version_no) if selected.current_version else '静态费率' }}</strong></div>
       <div class="erp-summary-item muted"><span>未分配等级</span><strong data-unassigned-count>{{ unassigned }}</strong></div>
@@ -272,7 +272,7 @@
     <footer class="erp-status">
       <span>等级 <b data-grade-field="name">{{ selected.grade.grade_name }}</b></span>
       <span class="sep"></span>
-      <span>员工 <b data-grade-field="headcount">{{ selected.total }} 名（在职 {{ selected.active }}）</b></span>
+      <span>员工 <b data-grade-field="headcount" class="translatable-text">{{ selected.total }} 名（在职 {{ selected.active }}）</b></span>
       <span class="sep"></span>
       <span>费率版本 <b data-grade-field="versions">{{ selected.versions|length }}</b></span>
       <span class="sep"></span>

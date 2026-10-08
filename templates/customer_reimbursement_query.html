@@ -129,7 +129,7 @@
             </div>
             <div class="erp-card-foot">
               <a class="erp-btn" href="{{ url_for('customer_reimbursement_form', order_id=row.service_order_id) }}">结算单</a>
-              <span class="erp-meta">发票 {{ row.invoice_number or '未关联' }}</span>
+              <span class="erp-meta translatable-text">发票 {{ row.invoice_number or '未关联' }}</span>
             </div>
           </article>
         {% else %}

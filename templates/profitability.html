@@ -141,7 +141,7 @@
           </tbody>
           <tfoot>
             <tr class="table-summary-row">
-              <td colspan="3">合计（{{ summary_rows|length }} 个工单）</td>
+              <td colspan="3" class="translatable-text">合计（{{ summary_rows|length }} 个工单）</td>
               <td class="num">{{ summary_rows|sum(attribute='line_count') }}</td>
               <td class="num">{{ summary.revenue|money }}</td>
               <td class="num">{{ summary.cost|money }}</td>

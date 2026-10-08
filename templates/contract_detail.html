@@ -203,7 +203,7 @@
               <div class="erp-card-sub">
                 <span class="status {{ invoice.status }}">{{ labels[invoice.status] }}</span>
                 <span>{{ invoice|payment_label }}</span>
-                <span>到期 {{ invoice.due_date or '-' }}</span>
+                <span class="translatable-text">到期 {{ invoice.due_date or '-' }}</span>
               </div>
               <div class="erp-card-foot">
                 <a class="erp-btn" href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">发票详情</a>

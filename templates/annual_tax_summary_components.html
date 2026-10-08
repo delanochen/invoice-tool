@@ -117,7 +117,7 @@
             </div>
             <div class="erp-card-sub">
               <span>{{ row.component_name or row.component_code }}</span>
-              <span>服务 {{ row.service_date or '—' }} · 付款 {{ row.payment_date or '未付款' }}</span>
+              <span class="translatable-text">服务 {{ row.service_date or '—' }} · 付款 {{ row.payment_date or '未付款' }}</span>
             </div>
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>金额</span><strong>{{ row.amount|money }}</strong></div>

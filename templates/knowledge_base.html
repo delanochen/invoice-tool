@@ -84,15 +84,15 @@
                   <div class="muted-line">{{ ((document.file_size or 0) / 1048576)|round(2) }} MB</div>
                   {% if document.expires_on %}
                     {% if document.expires_on < today_date %}
-                      <span class="knowledge-expiry expired">已过期 {{ document.expires_on }}</span>
+                      <span class="knowledge-expiry expired translatable-text">已过期 {{ document.expires_on }}</span>
                     {% elif document.expires_on <= upcoming_date %}
-                      <span class="knowledge-expiry soon">即将到期 {{ document.expires_on }}</span>
+                      <span class="knowledge-expiry soon translatable-text">即将到期 {{ document.expires_on }}</span>
                     {% else %}
-                      <span class="knowledge-expiry">到期 {{ document.expires_on }}</span>
+                      <span class="knowledge-expiry translatable-text">到期 {{ document.expires_on }}</span>
                     {% endif %}
                   {% else %}<span class="muted-line">长期有效</span>{% endif %}
                 </td>
-                <td><span>预览 {{ document.view_count }}</span><div class="muted-line">下载 {{ document.download_count }}</div></td>
+                <td><span class="translatable-text">预览 {{ document.view_count }}</span><div class="muted-line">下载 {{ document.download_count }}</div></td>
                 <td>{{ document.uploader_name or "-" }}</td>
                 <td>{{ document.updated_at|local_datetime }}</td>
                 <td><div class="row-actions">

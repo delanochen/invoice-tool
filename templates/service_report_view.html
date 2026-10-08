@@ -147,15 +147,15 @@
   <table>
     <colgroup><col></colgroup>
     <tr><td class="desc-cell">{{ description_text }}</td></tr>
-    <tr><td><strong>机柜编号：{{ report.cabinet_number or "" }}</strong></td></tr>
+    <tr><td class="translatable-text"><strong>机柜编号：{{ report.cabinet_number or "" }}</strong></td></tr>
   </table>
 
   <h2 class="report-section">公共交通时长及自驾车里程细节</h2>
   <table>
     <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
-    <tr><td colspan="2"><strong>公共交通时长：{{ (report.public_transport_hours or 0)|hours }} 小时&nbsp;&nbsp;&nbsp;&nbsp;自驾里程总计：{{ report.driving_miles or 0 }} 英里</strong></td></tr>
-    <tr><td>出发地址：{{ report.departure_address or "" }}</td><td>场地地址：{{ report.site_address or order.site_address or "" }}</td></tr>
-    <tr><td colspan="2">合计用时：{{ report.total_time or "" }}</td></tr>
+    <tr><td colspan="2" class="translatable-text"><strong>公共交通时长：{{ (report.public_transport_hours or 0)|hours }} 小时&nbsp;&nbsp;&nbsp;&nbsp;自驾里程总计：{{ report.driving_miles or 0 }} 英里</strong></td></tr>
+    <tr><td class="translatable-text">出发地址：{{ report.departure_address or "" }}</td><td class="translatable-text">场地地址：{{ report.site_address or order.site_address or "" }}</td></tr>
+    <tr><td colspan="2" class="translatable-text">合计用时：{{ report.total_time or "" }}</td></tr>
   </table>
 
   {% macro parts_table(title, headers, rows) %}
@@ -208,7 +208,7 @@
   <table class="sign-grid" style="margin-top:1rem;">
     <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
     <tr><td>报告人签字：</td><td>现场服务人员：</td></tr>
-    <tr><td>报告时间：{{ report.report_date or "" }}</td><td>公司：{{ company.name }}</td></tr>
+    <tr><td class="translatable-text">报告时间：{{ report.report_date or "" }}</td><td class="translatable-text">公司：{{ company.name }}</td></tr>
   </table>
 </div>
       </div>

@@ -132,11 +132,11 @@
           <button class="small" type="button" data-dialog-close>关闭</button>
         </div>
         <div class="import-result-grid">
-          <span>总行数：{{ import_result.total }}</span>
-          <span>新增站点：{{ import_result.created }}</span>
-          <span>跳过重复：{{ import_result.skipped }}</span>
-          <span>错误：{{ import_result.errors }}</span>
-          <span>自动创建业主：{{ import_result.owners_created }}</span>
+          <span class="translatable-text">总行数：{{ import_result.total }}</span>
+          <span class="translatable-text">新增站点：{{ import_result.created }}</span>
+          <span class="translatable-text">跳过重复：{{ import_result.skipped }}</span>
+          <span class="translatable-text">错误：{{ import_result.errors }}</span>
+          <span class="translatable-text">自动创建业主：{{ import_result.owners_created }}</span>
         </div>
         {% if import_result.details %}
           <div class="subsection">

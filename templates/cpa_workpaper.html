@@ -62,7 +62,7 @@
     </form>
 
     {% if filters.year_basis == 'payment_date' and excluded.count %}
-      <div class="erp-notice warn">
+      <div class="erp-notice warn translatable-text">
         Payment-date basis：付款日无法解析的组件不计入任何年度 —— 排除 {{ excluded.count }} 条 / {{ excluded.amount|money }}（{{ excluded.reason }}）。
       </div>
     {% endif %}
