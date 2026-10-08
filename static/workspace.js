@@ -13,10 +13,11 @@
     } catch { return null; }
   };
   const key = value => { const url = new URL(value, location.origin); return url.pathname + url.search; };
+  const T = (zh) => (window.uiTranslate ? window.uiTranslate(zh) : zh);
   function paint(tab) {
     tab.button.textContent = (tab.dirty ? '● ' : '') + tab.title;
-    tab.button.title = tab.title + (tab.dirty ? '（有未保存内容）' : '');
-    tab.close.setAttribute('aria-label', '关闭 ' + tab.title);
+    tab.button.title = tab.title + (tab.dirty ? T('（有未保存内容）') : '');
+    tab.close.setAttribute('aria-label', T('关闭 ') + tab.title);
   }
   function activate(tab) {
     active = tab;
@@ -29,7 +30,7 @@
     });
     notice.hidden = !tab.stale;
     history.replaceState(null, '', '/workspace#' + encodeURIComponent(tab.url));
-    document.title = tab.title + ' - 工作区';
+    document.title = tab.title + ' - ' + T('工作区');
     tab.node.scrollIntoView({block: 'nearest', inline: 'nearest'});
     document.querySelectorAll('#topnav a').forEach(link => {
       const match = key(link.href) === key(tab.url);
@@ -37,7 +38,7 @@
       if (match) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     });
   }
-  const allowDiscard = tab => !tab.dirty || window.uiConfirm('"' + tab.title + '"有未保存的修改或已选文件，是否放弃这些内容？');
+  const allowDiscard = tab => !tab.dirty || window.uiConfirm('"' + tab.title + T('"有未保存的修改或已选文件，是否放弃这些内容？'));
   function close(tab) {
     if (!allowDiscard(tab)) return;
     const index = tabs.indexOf(tab);
@@ -53,8 +54,8 @@
   function showLoadFailure(tab, final = false, message = '') {
     tab.failed = true;
     tab.failure.querySelector('[data-workspace-load-message]').textContent = message || (final
-      ? '该页面未能从服务器加载。可能是网络或 Cloudflare 隧道短暂中断；如果正在上传附件，也请确认所选本地文件仍然存在。'
-      : '页面连接短暂中断，系统正在自动重新加载…');
+      ? T('该页面未能从服务器加载。可能是网络或 Cloudflare 隧道短暂中断；如果正在上传附件，也请确认所选本地文件仍然存在。')
+      : T('页面连接短暂中断，系统正在自动重新加载…'));
     tab.failure.querySelector('[data-workspace-retry]').hidden = !final;
     if (active === tab) activate(tab);
   }
@@ -65,7 +66,7 @@
     tab.loadTimer = null;
     if (!automatic) tab.loadFailures = 0;
     tab.failed = true;
-    tab.failure.querySelector('[data-workspace-load-message]').textContent = '正在重新连接服务器并加载页面…';
+    tab.failure.querySelector('[data-workspace-load-message]').textContent = T('正在重新连接服务器并加载页面…');
     tab.failure.querySelector('[data-workspace-retry]').hidden = true;
     if (active === tab) activate(tab);
     tab.frame.src = tab.url;
@@ -156,7 +157,7 @@
     frame.id = 'workspace-page-' + (++serial); frame.title = title; frame.setAttribute('role', 'tabpanel');
     frame.setAttribute('allow', 'web-share; clipboard-write');
     failure.className = 'workspace-load-failure'; failure.hidden = true;
-    failure.innerHTML = '<div class="workspace-load-failure-card"><div class="workspace-load-failure-icon" aria-hidden="true">!</div><h2>页面加载失败</h2><p data-workspace-load-message></p><button type="button" data-workspace-retry hidden>重新加载</button><small>如果仍然失败，请检查网络后稍候再试；已经选择的本地附件可能需要重新选择。</small></div>';
+    failure.innerHTML = '<div class="workspace-load-failure-card"><div class="workspace-load-failure-icon" aria-hidden="true">!</div><h2>' + T('页面加载失败') + '</h2><p data-workspace-load-message></p><button type="button" data-workspace-retry hidden>' + T('重新加载') + '</button><small>' + T('如果仍然失败，请检查网络后稍候再试；已经选择的本地附件可能需要重新选择。') + '</small></div>';
     button.id = 'workspace-tab-' + serial; button.setAttribute('aria-controls', frame.id); frame.setAttribute('aria-labelledby', button.id);
     closeButton.className = 'workspace-close'; closeButton.textContent = '×';
     const tab = {url, title, node, button, close: closeButton, frame, failure, dirty: false, stale: false, failed: false, loadFailures: 0, retryTimer: null, loadTimer: null};

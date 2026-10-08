@@ -75,7 +75,7 @@
             <td>{{ row.employee_name }}</td>
             <td>{{ type_labels[row.payment_type] }}</td>
             {# 报销类付款单的说明带来源报销单号，直接点开对应报销单，省一次复制单号再查的操作 #}
-            <td>{% if row.source_type=='expense' and row.source_id %}<a href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</td>
+            <td>{% if row.source_type=='expense' and row.source_id %}<a class="translatable-text" href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</td>
             <td>{{ row.gross_amount|money }}</td>
             <td>{{ row.advance_offset|money }}</td>
             <td>{{ row.other_adjustment|money }}</td>
@@ -100,7 +100,7 @@
               <span>{{ type_labels[row.payment_type] }}</span>
               <span>{{ row.created_at|local_datetime }}</span>
             </div>
-            {% if row.description %}<div class="erp-card-sub">{% if row.source_type=='expense' and row.source_id %}<a href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</div>{% endif %}
+            {% if row.description %}<div class="erp-card-sub">{% if row.source_type=='expense' and row.source_id %}<a class="translatable-text" href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</div>{% endif %}
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>应付</span><strong>{{ row.gross_amount|money }}</strong></div>
               <div class="erp-card-metric"><span>抵扣</span><strong>{{ row.advance_offset|money }}</strong></div>

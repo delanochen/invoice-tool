@@ -265,7 +265,7 @@
       });
     }
     mirror(source, cell) {
-      const wrapper = document.createElement('div'); wrapper.className='grid-cell-content';
+      const wrapper = document.createElement('div'); wrapper.className='grid-cell-content translatable-text';
       if (!source) return wrapper;
       wrapper.innerHTML = source.innerHTML;
       const originals = [...source.querySelectorAll('*')];
