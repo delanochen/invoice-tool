@@ -1929,6 +1929,7 @@
     "接收：": "Receive:",
     "现场坐标：": "Site coordinates:",
     "工作说明：": "Job Description:",
+  "付款单详情": "Payment details",
   "工作区": "Workspace",
   "（有未保存内容）": "(unsaved changes)",
   "关闭 ": "Close ",

@@ -100,7 +100,7 @@
               <span>{{ type_labels[row.payment_type] }}</span>
               <span>{{ row.created_at|local_datetime }}</span>
             </div>
-            {% if row.description %}<div class="erp-card-sub">{% if row.source_type=='expense' and row.source_id %}<a class="translatable-text" href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</div>{% endif %}
+            {% if row.description %}<div class="erp-card-sub translatable-text">{% if row.source_type=='expense' and row.source_id %}<a href="{{ url_for('expense_detail', expense_id=row.source_id) }}">{{ row.description }}</a>{% else %}{{ row.description }}{% endif %}</div>{% endif %}
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>应付</span><strong>{{ row.gross_amount|money }}</strong></div>
               <div class="erp-card-metric"><span>抵扣</span><strong>{{ row.advance_offset|money }}</strong></div>

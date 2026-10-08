@@ -2942,6 +2942,7 @@
     "证书附件": "Certificate attachment", "未上传": "Not uploaded", "附件行": "Attachment rows",
     "缺附件行": "Missing-attachment rows", "停用账号行": "Disabled-account rows", "（至今）": " (present)",
     "类型数": "Types",
+  "付款单详情": "Payment details",
   "工作区": "Workspace",
   "（有未保存内容）": "(unsaved changes)",
   "关闭 ": "Close ",
