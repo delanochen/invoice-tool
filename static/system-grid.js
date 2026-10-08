@@ -268,6 +268,16 @@
       const wrapper = document.createElement('div'); wrapper.className='grid-cell-content translatable-text';
       if (!source) return wrapper;
       wrapper.innerHTML = source.innerHTML;
+      // v0.1.387: translate dynamically mirrored content (i18n pass ran before this mirror existed)
+      if (window.uiTranslate) {
+        const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
+        let textNode;
+        while ((textNode = walker.nextNode())) {
+          if (textNode.textContent && /[\u4e00-\u9fff]/.test(textNode.textContent)) {
+            textNode.textContent = window.uiTranslate(textNode.textContent, true);
+          }
+        }
+      }
       const originals = [...source.querySelectorAll('*')];
       [...wrapper.querySelectorAll('*')].forEach((copy,index) => {
         const original=originals[index]; copy.removeAttribute('id'); copy.removeAttribute('name'); copy.removeAttribute('form');
