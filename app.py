@@ -78,6 +78,18 @@ from invoice_tool.payroll import (
     register_payroll_routes,
 )
 from invoice_tool.quotations.routes import register_quotation_routes
+from invoice_tool.commercial_documents import (
+    document_config,
+    document_rates,
+    ensure_commercial_document,
+    sync_order_commercial_document,
+)
+from invoice_tool.commercial_billing import (
+    driving_rate_missing,
+    driving_transport_amount,
+    quote_amounts,
+    resolve_quote_settlement,
+)
 from invoice_tool.accounting import (
     InvoiceRecognitionService,
     InvoiceVoidError,
@@ -3876,7 +3888,150 @@ def report_actual_date(report):
     return report["actual_work_date"] or report["report_date"]
 
 
+def _parse_quotation_revision_snapshot(quotation_revision):
+    import json as _json
+    try:
+        data = _json.loads(quotation_revision["snapshot_json"] or "{}")
+        return data if isinstance(data, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def build_quotation_settlement_rows(order, quotation_revision):
+    """按报价单修订快照生成结算行。
+
+    费率、自驾交通计费方式、折扣、结算方式全部来自报价单修订快照（不可变），
+    保证结算可追溯；后续修改报价不影响已生成结算。
+    自驾计费：自驾里程单价取自费率表 mileage（Per Mile），自驾交通工时单价取自
+    费率表 travel_time（Per Hour）。启用项目但对应费率未明确填写时阻止生成，
+    避免漏收费；明确填 0 视为已配置。
+    """
+    snapshot = _parse_quotation_revision_snapshot(quotation_revision)
+    rate_schedule = snapshot.get("rate_schedule") or []
+    by_key = {str(item.get("key")): item for item in rate_schedule if isinstance(item, dict)}
+
+    def qrate(key, default=0.0):
+        item = by_key.get(key)
+        if item and item.get("rate") not in (None, ""):
+            return money_float(item["rate"])
+        return default
+
+    driving_mode = normalize_driving_mode(snapshot.get("driving_billing_mode"))
+    settlement_mode = normalize_settlement_mode(snapshot.get("settlement_mode"))
+    gross_total = money_decimal(snapshot.get("gross_total") or quotation_revision["total"] or 0)
+    discount_amount = money_decimal(snapshot.get("discount_amount") or 0)
+    mileage_rate = qrate("mileage")                 # 自驾里程单价（Per Mile）
+    driving_time_rate = qrate("travel_time")        # 自驾交通工时单价（Per Hour）
+    missing = driving_rate_missing(driving_mode, mileage_rate, driving_time_rate)
+    if missing:
+        raise ValueError(
+            "报价单自驾计费费率未配置：" + "、".join(missing)
+            + "。请先在报价单费率表中填写对应费率后再保存工单结算。"
+        )
+    standard_rate = qrate("regular_labor")
+    overtime_rate = qrate("overtime_labor")
+    holiday_rate = qrate("holiday_labor")
+    transport_rate = qrate("travel_time")
+    public_rate = qrate("public_transport", 0.0)
+
+    order_id = order["id"]
+    reports = db().execute(
+        """
+        select service_reports.*
+        from service_reports
+        where service_reports.service_order_id = ?
+        order by service_reports.report_date asc, service_reports.id asc
+        """,
+        (order_id,),
+    ).fetchall()
+    rows = []
+    for report in reports:
+        workers = db().execute(
+            """
+            select users.id as worker_user_id, users.name, service_report_workers.driving_miles,
+                   service_report_workers.travel_mode, service_report_workers.travel_hours,
+                   service_report_workers.public_transport_hours as worker_public_transport_hours
+            from service_report_workers
+            join users on users.id = service_report_workers.user_id
+            where service_report_workers.report_id = ?
+            order by users.name
+            """,
+            (report["id"],),
+        ).fetchall()
+        if not workers:
+            continue
+        for worker in workers:
+            mode = worker["travel_mode"] or "legacy"
+            worker_report = dict(report)
+            worker_report["worker_travel_hours"] = (
+                0 if mode in {"self_drive", "legacy"} else worker["travel_hours"]
+            )
+            worker_report["worker_public_transport_hours"] = worker["worker_public_transport_hours"]
+            labor_hours = split_report_labor_hours(worker_report, len(workers))
+            work_date = report_actual_date(report)
+            # 自驾实际时长：仅取自「自驾 / 历史」模式（其交通时长未另按 transport 计费）。
+            # following / 公共交通等模式的交通时长已计入 transport_hours×transport_rate，
+            # 若再按自驾工时计费会双重收费，故不计入自驾时长。
+            driving_hours = (
+                to_float(worker["travel_hours"]) if mode in {"self_drive", "legacy"} else 0.0
+            )
+            if mode == "rental_drive":
+                billing_miles = 0
+            elif report["mileage_billing_method"] == "per_vehicle":
+                billing_miles = worker["driving_miles"] if mode in {"self_drive", "legacy"} else 0
+            else:
+                billing_miles = worker["driving_miles"] if mode in {"self_drive", "following", "legacy"} else 0
+            driving_amount = driving_transport_amount(
+                driving_mode, billing_miles, driving_hours, mileage_rate, driving_time_rate
+            )
+            row = {
+                "source_report_id": report["id"],
+                "source_worker_user_id": worker["worker_user_id"],
+                "worker_name": worker["name"],
+                "project_date": work_date,
+                "standard_hours": labor_hours["standard_hours"],
+                "transport_hours": labor_hours["travel_hours"],
+                "public_transport_hours": labor_hours["public_transport_hours"],
+                "overtime_hours": labor_hours["overtime_hours"],
+                "holiday_hours": labor_hours["holiday_hours"],
+                "standard_rate": standard_rate,
+                "transport_rate": transport_rate,
+                "public_transport_rate": public_rate,
+                "overtime_rate": overtime_rate,
+                "holiday_rate": holiday_rate,
+                "lodging": 0, "airfare": 0, "baggage": 0, "rental_car": 0, "fuel": 0,
+                "parking": 0, "taxi": 0,
+                "miles": billing_miles or 0,
+                "mileage_rate": mileage_rate,
+                "driving_amount": money_float(driving_amount),
+                "other": 0,
+            }
+            rows.append(calculate_customer_reimbursement_item(row, len(rows)))
+    return rows
+
+
 def customer_reimbursement_seed_rows(order_id):
+    order = db().execute(
+        "select id, settlement_basis, quotation_id from service_orders where id = ?",
+        (order_id,),
+    ).fetchone()
+    if order and order["settlement_basis"] == "quotation":
+        # 按报价单修订快照生成结算行（费率/自驾方式/折扣/结算方式取自不可变快照）
+        if not order["quotation_id"]:
+            raise ValueError("该工单设置为按报价结算，但没有关联报价单。")
+        quotation_revision = db().execute(
+            """
+            select quotation_revisions.*
+            from quotation_revisions
+            join quotations on quotations.id = quotation_revisions.quotation_id
+            where quotation_revisions.quotation_id = ?
+              and quotation_revisions.revision_no = quotations.current_revision_no
+            """,
+            (order["quotation_id"],),
+        ).fetchone()
+        if not quotation_revision:
+            raise ValueError("关联报价单还没有可用于结算的修订版本，请先保存报价单。")
+        return build_quotation_settlement_rows(order, quotation_revision)
     reports = db().execute(
         """
         select service_reports.*
@@ -4039,7 +4194,14 @@ def calculate_customer_reimbursement_item(row, sort_order=0):
         + decimal_value(row.get("overtime_hours")) * money_decimal(row.get("overtime_rate"))
         + decimal_value(row.get("holiday_hours")) * money_decimal(row.get("holiday_rate"))
     )
-    mileage_total = decimal_value(row.get("miles")) * money_decimal(row.get("mileage_rate"))
+    # 自驾交通计费：报价单/合同按自驾计费方式生成的行带 driving_amount，
+    # 直接采用（仅里程=里程×单价 / 仅时长=时长×单价 / 里程+时长=两项相加）。
+    # 未带 driving_amount 的行（既有合同路径）仍按 里程 × 里程单价 计费，口径不变。
+    driving_amount = _row_field(row, "driving_amount", None)
+    if driving_amount is not None:
+        mileage_total = money_decimal(driving_amount)
+    else:
+        mileage_total = decimal_value(row.get("miles")) * money_decimal(row.get("mileage_rate"))
     travel_fields = ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
     travel_total = sum(
         (
@@ -5170,7 +5332,6 @@ def create_customer_reimbursement(order, expense_selection_mode="legacy"):
         ).fetchone()
         if not quotation_revision:
             raise ValueError("关联报价单还没有可用于结算的修订版本，请先保存报价单。")
-        raise ValueError("报价结算项目尚未完成映射，不能静默改用合同费率生成结算。")
     cursor = db().execute(
         """
         insert into customer_reimbursements (
@@ -5185,11 +5346,13 @@ def create_customer_reimbursement(order, expense_selection_mode="legacy"):
         ),
     )
     reimbursement_id = cursor.lastrowid
+    # 按工单结算依据分流：报价单 → 报价单修订快照费率/自驾/折扣；合同 → 合同费率版本。
     rows = customer_reimbursement_seed_rows(order["id"])
     if not rows:
         raise ValueError("这个工单还没有可用于生成工单结算的工作日报。")
-    # 守门：生成的结算行用到的客户费率必须来自合同费率版本，缺失则阻止生成
-    assert_contract_rates_covered(order["id"], rows)
+    if order["settlement_basis"] != "quotation":
+        # 守门：合同路径用到的客户费率必须来自合同费率版本，缺失则阻止生成
+        assert_contract_rates_covered(order["id"], rows)
     save_customer_reimbursement_items(reimbursement_id, rows)
     copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, order["id"])
     update_customer_reimbursement_totals(reimbursement_id, rows)
@@ -5265,10 +5428,61 @@ def sync_expense_attachments_to_settlement(order_id):
     return copied
 
 
+def _quotation_totals_with_discount(reimbursement, totals):
+    """按报价单结算方式与折扣计算最终应收（折扣只应用一次）。
+
+    * 固定总价：基础客户应收＝最终报价金额（折扣前总额-折扣）；日报只记录实际
+      工作、报销只核算成本，不因日报增多重复累加；明确确认的增项另行处理。
+    * 按实际数量：实际数量×费率合计（totals["total_amount"]）减一次折扣，
+      折扣超过实际折扣前金额时按实际封顶，不产生负数应收。
+    """
+    if reimbursement["settlement_basis"] != "quotation":
+        return {
+            "gross_amount": totals["total_amount"],
+            "discount_amount": 0.0,
+            "total_amount": totals["total_amount"],
+        }
+    if not reimbursement["quotation_revision_id"]:
+        return {
+            "gross_amount": totals["total_amount"],
+            "discount_amount": 0.0,
+            "total_amount": totals["total_amount"],
+        }
+    quotation_revision = db().execute(
+        "select * from quotation_revisions where id = ?", (reimbursement["quotation_revision_id"],)
+    ).fetchone()
+    if not quotation_revision:
+        return {
+            "gross_amount": totals["total_amount"],
+            "discount_amount": 0.0,
+            "total_amount": totals["total_amount"],
+        }
+    snapshot = _parse_quotation_revision_snapshot(quotation_revision)
+    mode = normalize_settlement_mode(snapshot.get("settlement_mode"))
+    gross = money_decimal(snapshot.get("gross_total") or quotation_revision["total"] or 0)
+    discount = money_decimal(snapshot.get("discount_amount") or 0)
+    if mode == "fixed":
+        final = quote_amounts(gross, discount)["final_amount"]
+        return {
+            "gross_amount": money_float(final),
+            "discount_amount": money_float(discount),
+            "total_amount": money_float(final),
+        }
+    resolved = resolve_quote_settlement(
+        "actual", gross, discount, actual_gross_total=totals["total_amount"]
+    )
+    return {
+        "gross_amount": totals["total_amount"],
+        "discount_amount": money_float(resolved["discount_amount"]),
+        "total_amount": money_float(resolved["base_amount"]),
+    }
+
+
 def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     rows = rows if rows is not None else customer_reimbursement_items(reimbursement_id)
     reimbursement = db().execute(
-        "select service_order_id, expense_transfer_cutoff_at, expense_selection_mode from customer_reimbursements where id = ?",
+        "select service_order_id, expense_transfer_cutoff_at, expense_selection_mode, "
+        "settlement_basis, quotation_revision_id from customer_reimbursements where id = ?",
         (reimbursement_id,),
     ).fetchone()
     if not reimbursement:
@@ -5293,17 +5507,21 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
         )
     )
     totals = customer_reimbursement_totals(rows, mro_total)
+    # 报价单折扣 / 结算方式：折扣只应用一次，写入结算快照列供对账与追溯。
+    with_discount = _quotation_totals_with_discount(reimbursement, totals)
     db().execute(
         """
         update customer_reimbursements
         set labor_total = ?, lodging_total = ?, travel_total = ?, mileage_total = ?,
-            mro_supplies_total = ?, rental_fuel_total = ?, total_amount = ?, other_total = ?
+            mro_supplies_total = ?, rental_fuel_total = ?, total_amount = ?, other_total = ?,
+            gross_amount = ?, discount_amount = ?
         where id = ?
         """,
         (
             totals["labor_total"], totals["lodging_total"], totals["travel_total"],
             totals["mileage_total"], totals["mro_supplies_total"], totals["rental_fuel_total"],
-            totals["total_amount"], totals["other_total"], reimbursement_id,
+            with_discount["total_amount"], totals["other_total"],
+            with_discount["gross_amount"], with_discount["discount_amount"], reimbursement_id,
         ),
     )
     return totals
@@ -7191,6 +7409,14 @@ def new_contract():
             )
             contract_id = cursor.lastrowid
             save_contract_uploads(contract_id)
+            # 商务单据父行：现有合同迁移时已回填；新建合同确保存在，默认仅里程/按实际
+            ensure_commercial_document(
+                db(), "contract", contract_id,
+                client_id=values["client_id"],
+                currency=values["currency"],
+                driving_billing_mode="mileage_only",
+                settlement_mode="actual",
+            )
             log_action(
                 "create",
                 "contract",
@@ -13190,6 +13416,12 @@ def new_service_order():
             ),
         )
         log_action("create", "service_order", cursor.lastrowid, order_number, f"站点：{buyer['name']}")
+        # 工单统一绑定：同步到商务单据父表真实外键（合同或报价单二选一）
+        sync_order_commercial_document(
+            db(), cursor.lastrowid,
+            contract["id"] if contract else None,
+            quotation["id"] if quotation else None,
+        )
         folder_created = True
         try:
             ensure_service_order_picture_folder(order_number)
@@ -13371,6 +13603,11 @@ def edit_service_order(order_id):
             ),
         )
         log_action("update", "service_order", order_id, order["order_number"], "修改工单信息")
+        sync_order_commercial_document(
+            db(), order_id,
+            contract["id"] if contract else None,
+            quotation["id"] if quotation else None,
+        )
         db().commit()
         flash("工单已保存。", "success")
         return redirect(url_for("service_order_detail", order_id=order_id))
@@ -13755,16 +13992,20 @@ def customer_reimbursement_form(order_id):
         order_id, [item.get("project_date") for item in items] or [order["start_date"]]
     )
     workspace = customer_reimbursement_workspace_data(order_id, reimbursement["id"], items)
+    _form_totals = dict(customer_reimbursement_totals(
+        items,
+        reimbursement["mro_supplies_total"],
+        reimbursement["rental_fuel_total"],
+    ))
+    # 报价单折扣快照：工单结算展示 折扣前应收 / 折扣 / 最终应收
+    _form_totals["gross_amount"] = float(reimbursement["gross_amount"] or 0)
+    _form_totals["discount_amount"] = float(reimbursement["discount_amount"] or 0)
     return render_template(
         "customer_reimbursement_form.html",
         order=order,
         reimbursement=reimbursement,
         items=items,
-        totals=customer_reimbursement_totals(
-            items,
-            reimbursement["mro_supplies_total"],
-            reimbursement["rental_fuel_total"],
-        ),
+        totals=_form_totals,
         js_rates={
             "standard": js_rates["standard_rate"],
             "transport": js_rates["transport_rate"],

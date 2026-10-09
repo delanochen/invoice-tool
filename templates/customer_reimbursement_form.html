@@ -317,6 +317,10 @@
       {% if totals.rental_fuel_total %}
         <div class="metric"><span>历史独立转入</span><strong>{{ totals.rental_fuel_total|money }}</strong><small>旧版已锁定结算记录</small></div>
       {% endif %}
+      {% if reimbursement.settlement_basis == "quotation" %}
+        <div class="metric"><span>折扣前应收</span><strong>{{ totals.gross_amount|money }}</strong></div>
+        <div class="metric"><span>报价单折扣</span><strong>{{ totals.discount_amount|money }}</strong><small>折扣在工单结算中只应用一次，不影响员工待遇</small></div>
+      {% endif %}
       <div class="metric"><span>合计</span><strong data-reimbursement-total="total">{{ totals.total_amount|money }}</strong></div>
     </div>
   </section>

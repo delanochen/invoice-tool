@@ -55,7 +55,7 @@
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid" data-grid-height="100%">
           <thead>
-            <tr><th>报价单编号</th><th>客户</th><th>项目名称</th><th>报价日期</th><th>有效期至</th><th>预估总额</th><th>编制人</th><th>状态</th><th>操作</th></tr>
+            <tr><th>报价单编号</th><th>客户</th><th>项目名称</th><th>报价日期</th><th>有效期至</th><th>折扣前总额</th><th>折扣</th><th>最终报价</th><th>编制人</th><th>状态</th><th>操作</th></tr>
           </thead>
           <tbody>
             {% for quotation in quotations %}
@@ -65,7 +65,9 @@
                 <td>{{ quotation.project_name or "-" }}</td>
                 <td>{{ quotation.quotation_date or "-" }}</td>
                 <td>{{ quotation.valid_until or "-" }}</td>
-                <td class="num" data-grid-currency="{{ quotation.currency }}">{{ quotation.total|money(quotation.currency) }}</td>
+                <td class="num" data-grid-currency="{{ quotation.currency }}">{{ quotation.gross_total|money(quotation.currency) }}</td>
+                <td class="num" data-grid-currency="{{ quotation.currency }}">{{ quotation.discount_amount|money(quotation.currency) }}</td>
+                <td class="num" data-grid-currency="{{ quotation.currency }}">{{ quotation.final_amount|money(quotation.currency) }}</td>
                 <td>{{ quotation.creator_name or "-" }}</td>
                 <td><span class="status {{ quotation.status }}">{{ status_labels[quotation.status] }}</span></td>
                 <td>
