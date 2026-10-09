@@ -270,11 +270,17 @@
       wrapper.innerHTML = source.innerHTML;
       // v0.1.387: translate dynamically mirrored content (i18n pass ran before this mirror existed)
       if (window.uiTranslate) {
+        // 只翻译 UI 字面量上下文（标签/按钮/状态徽章/提示等）。数据值——
+        // 客户简称、人名、公司名、站点名、编码、日期、金额等——必须原样显示，
+        // 绝不能过 uiTranslate（否则 "同飞" 会被误翻成 "same 飞"）。
+        const uiLiteral = "label, button, option, summary, th, legend, small, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .erp-badge, .erp-summary-item, .erp-status";
         const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
         let textNode;
         while ((textNode = walker.nextNode())) {
           if (textNode.textContent && /[\u4e00-\u9fff]/.test(textNode.textContent)) {
-            textNode.textContent = window.uiTranslate(textNode.textContent, true);
+            if (textNode.parentElement?.closest(uiLiteral)) {
+              textNode.textContent = window.uiTranslate(textNode.textContent, true);
+            }
           }
         }
       }

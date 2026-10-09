@@ -794,7 +794,16 @@
     "笔（合计 ）：": "item(s) (total ): ",
     "标记无需计入": "Mark as not needed",
     "已标记无需计入": "Marked as not needed",
-    "取消忽略": "Cancel ignore"
+    "取消忽略": "Cancel ignore",
+    "折扣前应收": "Gross Receivable Before Discount",
+    "折扣在工单结算中只应用一次，不影响员工待遇": "Discount is applied once in settlement and does not affect employee pay",
+    "折扣前总额": "Total Before Discount",
+    "最终报价": "Final Quote",
+    "最终报价金额": "Final Quoted Amount",
+    "仅里程": "Mileage Only",
+    "按实际数量": "Actual Quantity",
+    "从历史报价单复制费率": "Copy Rates From a Previous Quote",
+    "自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。": "Driving billing affects customer revenue only; employee travel wages, mileage allowance, and reimbursements follow employee standards."
   };
 
   const nl = {
@@ -1416,7 +1425,16 @@
     "笔（合计 ）：": "post(en) (totaal ): ",
     "标记无需计入": "Markeren als niet nodig",
     "已标记无需计入": "Gemarkeerd als niet nodig",
-    "取消忽略": "Negeren annuleren"
+    "取消忽略": "Negeren annuleren",
+    "折扣前应收": "Brutovordering vóór korting",
+    "折扣在工单结算中只应用一次，不影响员工待遇": "Korting wordt één keer toegepast in de afrekening en heeft geen invloed op het loon van de medewerker",
+    "折扣前总额": "Totaal vóór korting",
+    "最终报价": "Definitieve offerte",
+    "最终报价金额": "Definitief offertebedrag",
+    "仅里程": "Alleen kilometers",
+    "按实际数量": "Werkelijke hoeveelheid",
+    "从历史报价单复制费率": "Tarieven kopiëren uit een eerdere offerte",
+    "自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。": "De rijfacturering heeft alleen invloed op de klantinkomsten; de reisuren, kilometervergoeding en declaraties van medewerkers volgen de normen voor medewerkers."
   };
 
   const de = {
@@ -2025,7 +2043,16 @@
     "笔（合计 ）：": "Position(en) (Gesamt ): ",
     "标记无需计入": "Als nicht benötigt markieren",
     "已标记无需计入": "Als nicht benötigt markiert",
-    "取消忽略": "Ignorieren aufheben"
+    "取消忽略": "Ignorieren aufheben",
+    "折扣前应收": "Forderung vor Rabatt",
+    "折扣在工单结算中只应用一次，不影响员工待遇": "Der Rabatt wird einmal in der Abrechnung angewendet und hat keinen Einfluss auf den Mitarbeiterlohn",
+    "折扣前总额": "Summe vor Rabatt",
+    "最终报价": "Endgültiges Angebot",
+    "最终报价金额": "Endgültiger Angebotsbetrag",
+    "仅里程": "Nur Kilometer",
+    "按实际数量": "Tatsächliche Menge",
+    "从历史报价单复制费率": "Tarife aus einem früheren Angebot kopieren",
+    "自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。": "Die Fahrzeugabrechnung betrifft nur die Kundeneinnahmen; Fahrerlöhne, Kilometerpauschale und Erstattungen der Mitarbeiter folgen den Mitarbeiterstandards."
   };
 
   const es = {
@@ -2858,7 +2885,16 @@
     "这个邮箱已经注册。": ["This email is already registered.", "Dit e-mailadres is al geregistreerd.", "Diese E-Mail-Adresse ist bereits registriert.", "Este correo electrónico ya está registrado."],
     "注册后账号默认为停用，需由管理员或经理批准启用后才能登录。": ["New accounts are disabled until approved by an administrator or manager.", "Nieuwe accounts zijn uitgeschakeld totdat een beheerder of manager ze goedkeurt.", "Neue Konten müssen vor der Anmeldung von einem Administrator oder Manager freigeschaltet werden.", "Las cuentas nuevas deben ser habilitadas por un administrador o gerente antes de iniciar sesión."],
     "注册成功，请等待管理员或经理批准启用。": ["Registration successful. Please wait for administrator or manager approval.", "Registratie geslaagd. Wacht op goedkeuring van een beheerder of manager.", "Registrierung erfolgreich. Bitte warten Sie auf die Freigabe durch einen Administrator oder Manager.", "Registro completado. Espere la aprobación de un administrador o gerente."],
-    "返回登录": ["Back to sign in", "Terug naar inloggen", "Zurück zur Anmeldung", "Volver al inicio de sesión"]
+    "返回登录": ["Back to sign in", "Terug naar inloggen", "Zurück zur Anmeldung", "Volver al inicio de sesión"],
+    "折扣前应收": ["Gross Receivable Before Discount", "Brutovordering vóór korting", "Forderung vor Rabatt", "Cobrable antes del descuento"],
+    "折扣在工单结算中只应用一次，不影响员工待遇": ["Discount is applied once in settlement and does not affect employee pay", "Korting wordt één keer toegepast in de afrekening en heeft geen invloed op het loon van de medewerker", "Der Rabatt wird einmal in der Abrechnung angewendet und hat keinen Einfluss auf den Mitarbeiterlohn", "El descuento se aplica una sola vez en la liquidación y no afecta la paga del empleado"],
+    "折扣前总额": ["Total Before Discount", "Totaal vóór korting", "Summe vor Rabatt", "Total antes del descuento"],
+    "最终报价": ["Final Quote", "Definitieve offerte", "Endgültiges Angebot", "Cotización final"],
+    "最终报价金额": ["Final Quoted Amount", "Definitief offertebedrag", "Endgültiger Angebotsbetrag", "Importe final de la cotización"],
+    "仅里程": ["Mileage Only", "Alleen kilometers", "Nur Kilometer", "Solo kilometraje"],
+    "按实际数量": ["Actual Quantity", "Werkelijke hoeveelheid", "Tatsächliche Menge", "Cantidad real"],
+    "从历史报价单复制费率": ["Copy Rates From a Previous Quote", "Tarieven kopiëren uit een eerdere offerte", "Tarife aus einem früheren Angebot kopieren", "Copiar tarifas de una cotización anterior"],
+    "自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。": ["Driving billing affects customer revenue only; employee travel wages, mileage allowance, and reimbursements follow employee standards.", "De rijfacturering heeft alleen invloed op de klantinkomsten; de reisuren, kilometervergoeding en declaraties van medewerkers volgen de normen voor medewerkers.", "Die Fahrzeugabrechnung betrifft nur die Kundeneinnahmen; Fahrerlöhne, Kilometerpauschale und Erstattungen der Mitarbeiter folgen den Mitarbeiterstandards.", "La facturación de conducción solo afecta a los ingresos del cliente; los salarios de viaje, la compensación por kilometraje y los reembolsos de los empleados siguen los estándares de los empleados."]
   };
   [en, nl, de, es].forEach((dictionary, index) => {
     Object.entries(registrationTranslations).forEach(([key, values]) => { dictionary[key] = values[index]; });
