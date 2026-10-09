@@ -29,7 +29,7 @@ def ensure_commercial_document(db, doc_type, doc_ref_id, client_id=None,
                                currency="USD", driving_billing_mode=None,
                                settlement_mode=None, created_at=None, updated_at=None):
     """确保商务单据父行存在并返回其 id（幂等；已存在则返回，不改既有配置）。"""
-    row = db().execute(
+    row = db.execute(
         "select id from commercial_documents where doc_type = ? and doc_ref_id = ?",
         (doc_type, doc_ref_id),
     ).fetchone()
@@ -38,7 +38,7 @@ def ensure_commercial_document(db, doc_type, doc_ref_id, client_id=None,
     now = created_at or _today()
     mode = driving_billing_mode or DRIVING_MODE_MILEAGE_ONLY
     settle = settlement_mode or SETTLEMENT_MODE_ACTUAL
-    cursor = db().execute(
+    cursor = db.execute(
         """
         insert into commercial_documents (
             doc_type, doc_ref_id, client_id, currency, status,
@@ -66,7 +66,7 @@ def update_document_config(db, doc_type, doc_ref_id, *, client_id=None, currency
     if not fields:
         return
     params.extend([doc_type, doc_ref_id])
-    db().execute(
+    db.execute(
         f"update commercial_documents set {', '.join(fields)} where doc_type = ? and doc_ref_id = ?",
         tuple(params),
     )
@@ -89,7 +89,7 @@ def order_document_refs(db, contract_id, quotation_id):
 def sync_order_commercial_document(db, order_id, contract_id, quotation_id):
     """把工单绑定同步写回 commercial_document_id / type（真实外键指向父表）。"""
     doc_id, doc_type = order_document_refs(db, contract_id, quotation_id)
-    db().execute(
+    db.execute(
         "update service_orders set commercial_document_id = ?, commercial_document_type = ? where id = ?",
         (doc_id, doc_type, order_id),
     )
@@ -105,7 +105,7 @@ def document_config(db, commercial_document_id):
             "currency": "USD",
             "client_id": None,
         }
-    row = db().execute(
+    row = db.execute(
         "select * from commercial_documents where id = ?", (commercial_document_id,)
     ).fetchone()
     if not row:
@@ -122,7 +122,7 @@ def document_rates(db, commercial_document_id):
     """读统一费率表，返回 {rate_type: rate}。"""
     if not commercial_document_id:
         return {}
-    rows = db().execute(
+    rows = db.execute(
         "select rate_type, rate from commercial_document_rates where commercial_document_id = ?",
         (commercial_document_id,),
     ).fetchall()
