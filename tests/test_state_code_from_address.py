@@ -66,6 +66,12 @@ def test_lowercase_input():
     assert state_code_from_address("123 Main St, houston, tx 77001") == "TX"
 
 
+def test_nbsp_in_address():
+    # 复制粘贴带入的 U+00A0 不间断空格（曾导致 SQL 回填漏填）
+    assert state_code_from_address("9181\u00a0County\u00a0Rd\u00a0196, Liverpool,\u00a0TX 77577") == "TX"
+    assert state_code_from_address("6006\u00a0Stage\u00a0Rd,\u00a0Potosi,\u00a0WI 53820") == "WI"
+
+
 def test_localized_state_name_zh():
     assert localized_state_name("TX", "zh-CN") == "得克萨斯州"
     assert localized_state_name("CA", "zh-CN") == "加利福尼亚州"

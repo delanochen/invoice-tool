@@ -10,11 +10,12 @@
 ALTER TABLE buyers ADD COLUMN IF NOT EXISTS state_code text NOT NULL DEFAULT '';
 
 -- 存量回填：只认地址尾部规则且属于美国州/领地清单，避免把街道后缀（ST/RD/NW）误当州。
+-- 先归一化 U+00A0 不间断空格（复制粘贴地址常见），因为 PostgreSQL 正则 \s 只匹配 ASCII 空白。
 UPDATE buyers
 SET state_code = upper(x.st)
 FROM (
     SELECT id,
-           (regexp_match(detailed_address,
+           (regexp_match(replace(detailed_address, chr(160), ' '),
                          ',\s*([A-Za-z]{2})\s*(?:[,.]?\s*\d{5}(?:-\d{4})?)?\s*$'))[1] AS st
     FROM buyers
     WHERE detailed_address IS NOT NULL
