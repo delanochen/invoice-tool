@@ -165,6 +165,7 @@ class TestQuotations(unittest.TestCase):
         data.update(overrides)
         response = self.client.post("/quotations/new", data=data)
         self.assertEqual(response.status_code, 302)
+        self.assertIn("/quotations/", response.headers.get("Location", ""))
         with _db() as db:
             row = db.execute(
                 "select * from quotations order by id desc limit 1"
@@ -205,15 +206,38 @@ class TestQuotations(unittest.TestCase):
         by_key = {line["key"]: line for line in lines}
         self.assertEqual(by_key["regular_labor"]["amount"], "4800.00")
         self.assertEqual(by_key["mileage"]["amount"], "435.50")
+        rate_schedule = json.loads(row["rate_schedule"])
+        rate_by_key = {line["key"]: line for line in rate_schedule}
+        self.assertEqual(len(rate_schedule), 10)
+        self.assertEqual(rate_by_key["regular_hours"]["label"], "Regular Labor")
+        self.assertEqual(rate_by_key["regular_hours"]["rate"], "120")
+        self.assertEqual(
+            rate_by_key["public_transport_hours"]["label"],
+            "Public Transportation Time",
+        )
         with _db() as db:
             revisions = db.execute(
                 "select * from quotation_revisions where quotation_id = ? order by revision_no",
+                (row["id"],),
+            ).fetchall()
+            mirrored_rates = db.execute(
+                """
+                select cdr.rate_type, cdr.rate
+                from commercial_document_rates cdr
+                join commercial_documents cd on cd.id = cdr.commercial_document_id
+                where cd.doc_type = 'quotation' and cd.doc_ref_id = ?
+                order by cdr.rate_type
+                """,
                 (row["id"],),
             ).fetchall()
         self.assertEqual(row["current_revision_no"], 1)
         self.assertEqual(len(revisions), 1)
         self.assertEqual(revisions[0]["revision_no"], 1)
         self.assertEqual(float(revisions[0]["total"]), 5235.50)
+        mirrored_by_key = {item["rate_type"]: float(item["rate"]) for item in mirrored_rates}
+        self.assertEqual(mirrored_by_key["regular_hours"], 120.0)
+        self.assertEqual(mirrored_by_key["mileage"], 0.67)
+        self.assertNotIn("regular_labor", mirrored_by_key)
 
     def test_quotation_detail_page_renders(self):
         self._login_admin()
@@ -309,13 +333,13 @@ class TestQuotations(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         rates = data["rates"]
-        self.assertEqual(rates["regular_labor"], 125.0)
-        self.assertEqual(rates["travel_time"], 90.0)
-        self.assertEqual(rates["waiting_standby"], 75.0)
+        self.assertEqual(rates["regular_hours"], 125.0)
+        self.assertEqual(rates["travel_hours"], 90.0)
+        self.assertEqual(rates["waiting_standby_hours"], 75.0)
         self.assertEqual(rates["mileage"], 0.67)
         self.assertEqual(rates["per_diem"], 55.0)
         # 未配置的项不出现在结果里
-        self.assertNotIn("technical_support", rates)
+        self.assertNotIn("technical_support_hours", rates)
         # 无客户参数返回空
         response = self.client.get("/quotations/rates")
         self.assertEqual(response.get_json(), {"rates": {}})

@@ -85,6 +85,7 @@ from invoice_tool.commercial_documents import (
     sync_order_commercial_document,
 )
 from invoice_tool.commercial_billing import (
+    canonical_commercial_rate_key,
     driving_rate_missing,
     driving_transport_amount,
     quote_amounts,
@@ -3903,12 +3904,15 @@ def build_quotation_settlement_rows(order, quotation_revision):
     费率、自驾交通计费方式、折扣、结算方式全部来自报价单修订快照（不可变），
     保证结算可追溯；后续修改报价不影响已生成结算。
     自驾计费：自驾里程单价取自费率表 mileage（Per Mile），自驾交通工时单价取自
-    费率表 travel_time（Per Hour）。启用项目但对应费率未明确填写时阻止生成，
+    费率表 Travel Time（内部 key 为 travel_hours，Per Hour）。启用项目但对应费率未明确填写时阻止生成，
     避免漏收费；明确填 0 视为已配置。
     """
     snapshot = _parse_quotation_revision_snapshot(quotation_revision)
     rate_schedule = snapshot.get("rate_schedule") or []
-    by_key = {str(item.get("key")): item for item in rate_schedule if isinstance(item, dict)}
+    by_key = {
+        canonical_commercial_rate_key(item.get("key")): item
+        for item in rate_schedule if isinstance(item, dict)
+    }
 
     def qrate(key, default=0.0):
         item = by_key.get(key)
@@ -3921,18 +3925,18 @@ def build_quotation_settlement_rows(order, quotation_revision):
     gross_total = money_decimal(snapshot.get("gross_total") or quotation_revision["total"] or 0)
     discount_amount = money_decimal(snapshot.get("discount_amount") or 0)
     mileage_rate = qrate("mileage")                 # 自驾里程单价（Per Mile）
-    driving_time_rate = qrate("travel_time")        # 自驾交通工时单价（Per Hour）
+    driving_time_rate = qrate("travel_hours")       # 自驾交通工时单价（Per Hour）
     missing = driving_rate_missing(driving_mode, mileage_rate, driving_time_rate)
     if missing:
         raise ValueError(
             "报价单自驾计费费率未配置：" + "、".join(missing)
             + "。请先在报价单费率表中填写对应费率后再保存工单结算。"
         )
-    standard_rate = qrate("regular_labor")
-    overtime_rate = qrate("overtime_labor")
-    holiday_rate = qrate("holiday_labor")
-    transport_rate = qrate("travel_time")
-    public_rate = qrate("public_transport", 0.0)
+    standard_rate = qrate("regular_hours")
+    overtime_rate = qrate("overtime_hours")
+    holiday_rate = qrate("holiday_hours")
+    transport_rate = qrate("travel_hours")
+    public_rate = qrate("public_transport_hours", 0.0)
 
     order_id = order["id"]
     reports = db().execute(

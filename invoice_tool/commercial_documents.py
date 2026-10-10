@@ -127,3 +127,28 @@ def document_rates(db, commercial_document_id):
         (commercial_document_id,),
     ).fetchall()
     return {row["rate_type"]: float(row["rate"] or 0) for row in rows}
+
+
+def sync_document_rates(db, doc_type, doc_ref_id, rates):
+    """Replace the current unified-rate mirror for one contract or quotation."""
+    document_id = ensure_commercial_document(db, doc_type, doc_ref_id)
+    db.execute(
+        "delete from commercial_document_rates where commercial_document_id = ?",
+        (document_id,),
+    )
+    for rate_type, item in rates.items():
+        db.execute(
+            """
+            insert into commercial_document_rates (
+                commercial_document_id, rate_type, unit, rate, billing_model
+            ) values (?, ?, ?, ?, ?)
+            """,
+            (
+                document_id,
+                rate_type,
+                item["unit"],
+                item["rate"],
+                item.get("billing_model", "rate"),
+            ),
+        )
+    return document_id

@@ -6,22 +6,11 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from flask import abort, flash, g, redirect, render_template, request, url_for
 
+from invoice_tool.commercial_billing import COMMERCIAL_RATE_TYPES
+from invoice_tool.commercial_documents import sync_document_rates
 
-CONTRACT_RATE_TYPES = (
-    ("regular_hours", "标准工时", "hour"),
-    ("overtime_hours", "加班工时", "hour"),
-    ("holiday_hours", "节假日工时", "hour"),
-    ("travel_hours", "交通工时", "hour"),
-    ("public_transport_hours", "公共交通工时", "hour"),
-    # 以下三项与报价单费率表（Regular Labor / Overtime / Holiday / Travel /
-    # Waiting & Standby / Technical Support / Mileage / Per Diem）对齐，
-    # 合同与报价单费率口径统一。
-    ("waiting_standby_hours", "等待/待命工时", "hour"),
-    ("technical_support_hours", "技术支持工时", "hour"),
-    ("mileage", "里程补贴", "mile"),
-    ("lodging_cap", "住宿实报实销上限", "person_night"),
-    ("per_diem", "每日津贴", "day"),
-)
+
+CONTRACT_RATE_TYPES = COMMERCIAL_RATE_TYPES
 
 EMPLOYEE_RATE_TYPES = (
     ("regular_hours", "标准工时", "hour"),
@@ -417,6 +406,17 @@ def register_rate_routes(app, api):
                         "insert into contract_rate_items (version_id, rate_type, unit, rate, billing_model) values (?, ?, ?, ?, ?)",
                         (version_id, key, unit, _float_form(key), "actual_with_cap" if key == "lodging_cap" else "rate"),
                     )
+                sync_document_rates(
+                    api["db"](), "contract", contract_id,
+                    {
+                        key: {
+                            "rate": _float_form(key),
+                            "unit": unit,
+                            "billing_model": "actual_with_cap" if key == "lodging_cap" else "rate",
+                        }
+                        for key, _label, unit in CONTRACT_RATE_TYPES
+                    },
+                )
                 api["log_action"]("create", "contract_rate_version", version_id, f"{contract['contract_number']} v{next_no}", f"生效：{effective_from} 至 {effective_to or '长期'}")
                 api["db"]().commit()
                 flash("合同费率版本已创建。", "success")

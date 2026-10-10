@@ -33,15 +33,19 @@ from .documents import (
     build_quotation_pdf,
 )
 from invoice_tool.commercial_billing import (
+    CANONICAL_TO_LEGACY_QUOTATION_RATE_KEYS,
     COMMERCIAL_RATE_LABELS,
+    COMMERCIAL_RATE_UNITS,
     DRIVING_MODE_LABELS,
     SETTLEMENT_MODE_LABELS,
+    canonical_commercial_rate_key,
     normalize_driving_mode,
     normalize_settlement_mode,
     quote_amounts,
 )
 from invoice_tool.commercial_documents import (
     ensure_commercial_document,
+    sync_document_rates,
     update_document_config,
 )
 
@@ -61,19 +65,6 @@ _FORM_COLUMNS = _QUOTATION_COLUMNS
 # 报价单费率表 key → 合同费率版本 rate_type 映射。
 # 合同与报价单费率口径统一：报价单定价汇总/费率表的费率自动从客户的
 # 当前生效合同费率版本带出（带不出的行允许手填）。
-QUOTATION_RATE_TO_CONTRACT = {
-    "regular_labor": "regular_hours",
-    "overtime_labor": "overtime_hours",
-    "holiday_labor": "holiday_hours",
-    "travel_time": "travel_hours",
-    "waiting_standby": "waiting_standby_hours",
-    "technical_support": "technical_support_hours",
-    "mileage": "mileage",
-    "lodging": "lodging_cap",
-    "per_diem": "per_diem",
-}
-
-
 def client_contract_rates(api, client_id):
     """按客户当前生效的合同费率版本取费率，映射到报价单费率表 key。
 
@@ -109,9 +100,9 @@ def client_contract_rates(api, client_id):
     ).fetchall()
     by_type = {item["rate_type"]: item["rate"] for item in items}
     return {
-        key: float(by_type[rate_type])
-        for key, rate_type in QUOTATION_RATE_TO_CONTRACT.items()
-        if rate_type in by_type and by_type[rate_type] is not None
+        key: float(by_type[key])
+        for key in COMMERCIAL_RATE_LABELS
+        if key in by_type and by_type[key] is not None
     }
 
 
@@ -134,7 +125,7 @@ def _rate_map_from_json(raw):
             payload = json.loads(payload) if payload.strip() else []
         for item in payload if isinstance(payload, list) else []:
             if isinstance(item, dict) and item.get("key"):
-                rates[str(item["key"])] = item.get("rate")
+                rates[canonical_commercial_rate_key(item["key"])] = item.get("rate")
     except (ValueError, TypeError):
         pass
     return rates
@@ -148,6 +139,35 @@ def _pricing_rate_map(api, quotation_id):
     if not row:
         return {}
     return _rate_map_from_json(row["rate_schedule"])
+
+
+def _sync_quotation_rates(api, quotation_id, raw_schedule):
+    """Mirror a quotation's current canonical rates into the shared model."""
+    rate_map = _rate_map_from_json(raw_schedule)
+    sync_document_rates(
+        api["db"](), "quotation", quotation_id,
+        {
+            key: {
+                "rate": rate,
+                "unit": COMMERCIAL_RATE_UNITS[key],
+                "billing_model": "actual_with_cap" if key == "lodging_cap" else "rate",
+            }
+            for key, rate in rate_map.items()
+            if key in COMMERCIAL_RATE_UNITS and rate not in (None, "")
+        },
+    )
+
+
+def _canonical_rate_schedule_json(raw_schedule):
+    """Return the complete current catalog while accepting legacy quote keys."""
+    rate_map = _rate_map_from_json(raw_schedule)
+    return json.dumps(
+        [
+            {"key": key, "label": label, "unit": unit, "rate": rate_map.get(key, "")}
+            for key, label, unit in RATE_SCHEDULE_LINES
+        ],
+        ensure_ascii=False,
+    )
 
 
 def _fmt_decimal(value):
@@ -216,6 +236,10 @@ def quotation_form_values(api, quotation=None):
         rate_schedule = []
         for key, label, unit in RATE_SCHEDULE_LINES:
             rate = field(f"rate_{key}")
+            if not rate:
+                legacy_key = CANONICAL_TO_LEGACY_QUOTATION_RATE_KEYS.get(key)
+                if legacy_key:
+                    rate = field(f"rate_{legacy_key}")
             rate_schedule.append({
                 "key": key,
                 "label": label,
@@ -402,7 +426,10 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         raw = defaults.get("rate_schedule") or "[]"
         if isinstance(raw, str):
             raw = json.loads(raw) if raw.strip() else []
-        rates = {str(item.get("key")): item for item in raw if isinstance(item, dict)}
+        rates = {
+            canonical_commercial_rate_key(item.get("key")): item
+            for item in raw if isinstance(item, dict)
+        }
     except (ValueError, TypeError):
         rates = {}
     client_id = defaults.get("client_id")
@@ -534,6 +561,7 @@ def register_quotation_routes(app, api):
                 created_at=values["created_at"],
                 updated_at=values["updated_at"],
             )
+            _sync_quotation_rates(api, quotation_id, values["rate_schedule"])
             api["log_action"](
                 "create",
                 "quotation",
@@ -611,6 +639,7 @@ def register_quotation_routes(app, api):
                 settlement_mode=values["settlement_mode"],
                 updated_at=api["now"](),
             )
+            _sync_quotation_rates(api, quotation_id, values["rate_schedule"])
             api["log_action"](
                 "update",
                 "quotation",
@@ -682,7 +711,9 @@ def register_quotation_routes(app, api):
         values["status"] = "draft"
         # 价格/费率复制自原单；折扣沿用原单（三金额后台统一重算一次）
         values["pricing_lines"] = source_dict.get("pricing_lines") or "[]"
-        values["rate_schedule"] = source_dict.get("rate_schedule") or "[]"
+        values["rate_schedule"] = _canonical_rate_schedule_json(
+            source_dict.get("rate_schedule") or "[]"
+        )
         values["subtotal"] = source_dict.get("subtotal") or 0
         values["tax"] = source_dict.get("tax") or 0
         values["total"] = source_dict.get("total") or 0
@@ -719,6 +750,7 @@ def register_quotation_routes(app, api):
             created_at=values["created_at"],
             updated_at=values["updated_at"],
         )
+        _sync_quotation_rates(api, new_id, values["rate_schedule"])
         api["log_action"](
             "create",
             "quotation",

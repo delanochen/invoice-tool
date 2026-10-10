@@ -45,29 +45,58 @@ SETTLEMENT_MODE_LABELS = {
     SETTLEMENT_MODE_FIXED: "固定总价",
 }
 
-# 统一费率模型：合同与报价单共用同一套「费用项目 + 计价方式」结构，价格各自独立。
-# key 与既有 CONTRACT_RATE_TYPES / 报价单费率表对齐，并新增两个自驾项目。
+# 统一商务费率目录：合同与报价单共用同一套「费用项目 + 计价方式」结构，
+# 价格各自独立。内部 key 沿用合同/结算已经使用的稳定 key；显示名称与报价单一致。
 COMMERCIAL_RATE_TYPES = (
-    ("regular_hours", "标准工时", "hour"),
-    ("overtime_hours", "加班工时", "hour"),
-    ("holiday_hours", "节假日工时", "hour"),
-    ("travel_hours", "交通工时", "hour"),
-    ("public_transport_hours", "公共交通工时", "hour"),
-    ("waiting_standby_hours", "等待/待命工时", "hour"),
-    ("technical_support_hours", "技术支持工时", "hour"),
-    ("mileage", "里程补贴", "mile"),
-    # 自驾两项独立费率（美元/英里、美元/小时）
-    ("driving_mileage", "自驾里程单价", "mile"),
-    ("driving_time", "自驾交通工时单价", "hour"),
-    ("lodging_cap", "住宿实报实销上限", "person_night"),
-    ("per_diem", "每日津贴", "day"),
+    ("regular_hours", "Regular Labor", "hour"),
+    ("overtime_hours", "Overtime Labor", "hour"),
+    ("holiday_hours", "Holiday Labor", "hour"),
+    ("travel_hours", "Travel Time", "hour"),
+    ("public_transport_hours", "Public Transportation Time", "hour"),
+    ("waiting_standby_hours", "Waiting / Standby Time", "hour"),
+    ("technical_support_hours", "Technical Support", "hour"),
+    ("mileage", "Mileage", "mile"),
+    ("lodging_cap", "Lodging", "person_night"),
+    ("per_diem", "Per Diem", "day"),
 )
 COMMERCIAL_RATE_LABELS = {key: label for key, label, _unit in COMMERCIAL_RATE_TYPES}
 COMMERCIAL_RATE_UNITS = {key: unit for key, _label, unit in COMMERCIAL_RATE_TYPES}
 
+COMMERCIAL_RATE_DISPLAY_UNITS = {
+    "hour": "Per Hour",
+    "mile": "Per Mile",
+    "person_night": "Person / Night",
+    "day": "Person / Day",
+}
+COMMERCIAL_RATE_FORM_LINES = tuple(
+    (key, label, COMMERCIAL_RATE_DISPLAY_UNITS[unit])
+    for key, label, unit in COMMERCIAL_RATE_TYPES
+)
+
+# 0.1.383 及以前的报价单 JSON 使用报价专属 key。读取历史报价、复制报价和
+# 生成历史修订 PDF 时统一归一化；历史快照本身不改写。
+LEGACY_QUOTATION_RATE_KEYS = {
+    "regular_labor": "regular_hours",
+    "overtime_labor": "overtime_hours",
+    "holiday_labor": "holiday_hours",
+    "travel_time": "travel_hours",
+    "public_transport": "public_transport_hours",
+    "waiting_standby": "waiting_standby_hours",
+    "technical_support": "technical_support_hours",
+    "lodging": "lodging_cap",
+}
+CANONICAL_TO_LEGACY_QUOTATION_RATE_KEYS = {
+    canonical: legacy for legacy, canonical in LEGACY_QUOTATION_RATE_KEYS.items()
+}
+
+
+def canonical_commercial_rate_key(key):
+    key = str(key or "")
+    return LEGACY_QUOTATION_RATE_KEYS.get(key, key)
+
 # 自驾计费依赖的费率 key
-DRIVING_MILEAGE_RATE_KEY = "driving_mileage"
-DRIVING_TIME_RATE_KEY = "driving_time"
+DRIVING_MILEAGE_RATE_KEY = "mileage"
+DRIVING_TIME_RATE_KEY = "travel_hours"
 
 
 def _dec(value, default=Decimal("0")):
@@ -106,9 +135,9 @@ def driving_rate_missing(mode, mileage_rate, driving_time_rate):
     mode = normalize_driving_mode(mode)
     missing = []
     if mode in (DRIVING_MODE_MILEAGE_ONLY, DRIVING_MODE_MILEAGE_AND_TIME) and _is_blank(mileage_rate):
-        missing.append(COMMERCIAL_RATE_LABELS[DRIVING_MILEAGE_RATE_KEY])
+        missing.append("自驾里程单价")
     if mode in (DRIVING_MODE_TIME_ONLY, DRIVING_MODE_MILEAGE_AND_TIME) and _is_blank(driving_time_rate):
-        missing.append(COMMERCIAL_RATE_LABELS[DRIVING_TIME_RATE_KEY])
+        missing.append("自驾交通工时单价")
     return missing
 
 

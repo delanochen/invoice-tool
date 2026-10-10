@@ -13,6 +13,33 @@ import unittest
 from decimal import Decimal
 
 from invoice_tool import commercial_billing as cb
+from invoice_tool.quotations.documents import RATE_SCHEDULE_LINES
+from rate_engine import CONTRACT_RATE_TYPES
+
+
+class CommercialRateCatalogTest(unittest.TestCase):
+    """合同和报价单必须共用一份报价术语费率目录。"""
+
+    def test_catalog_uses_quotation_names_and_union(self):
+        self.assertEqual(len(cb.COMMERCIAL_RATE_TYPES), 10)
+        self.assertEqual(cb.COMMERCIAL_RATE_LABELS["regular_hours"], "Regular Labor")
+        self.assertEqual(
+            cb.COMMERCIAL_RATE_LABELS["public_transport_hours"],
+            "Public Transportation Time",
+        )
+        self.assertEqual(cb.COMMERCIAL_RATE_UNITS["lodging_cap"], "person_night")
+        self.assertEqual(CONTRACT_RATE_TYPES, cb.COMMERCIAL_RATE_TYPES)
+        self.assertEqual(RATE_SCHEDULE_LINES, cb.COMMERCIAL_RATE_FORM_LINES)
+
+    def test_legacy_quotation_keys_normalize_without_rewriting_snapshots(self):
+        self.assertEqual(
+            cb.canonical_commercial_rate_key("regular_labor"), "regular_hours"
+        )
+        self.assertEqual(
+            cb.canonical_commercial_rate_key("public_transport"),
+            "public_transport_hours",
+        )
+        self.assertEqual(cb.canonical_commercial_rate_key("mileage"), "mileage")
 
 
 class DrivingTransportTest(unittest.TestCase):

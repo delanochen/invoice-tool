@@ -37,6 +37,11 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from invoice_tool.commercial_billing import (
+    COMMERCIAL_RATE_FORM_LINES,
+    canonical_commercial_rate_key,
+)
+
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static")
 SIGNATURE_IMAGE = os.path.join(_STATIC_DIR, "signature-yongming.png")
 
@@ -55,17 +60,7 @@ PRICING_LINES = [
     ("other", "Other", ""),
 ]
 
-RATE_SCHEDULE_LINES = [
-    ("regular_labor", "Regular Labor", "Per Hour"),
-    ("overtime_labor", "Overtime Labor", "Per Hour"),
-    ("holiday_labor", "Holiday Labor", "Per Hour"),
-    ("travel_time", "Travel Time", "Per Hour"),
-    ("waiting_standby", "Waiting / Standby Time", "Per Hour"),
-    ("technical_support", "Technical Support", "Per Hour"),
-    ("mileage", "Mileage", "Per Mile"),
-    ("lodging", "Lodging", "Person / Night"),
-    ("per_diem", "Per Diem", "Person / Day"),
-]
+RATE_SCHEDULE_LINES = COMMERCIAL_RATE_FORM_LINES
 
 TRAVEL_EXPENSES = [
     ("Airfare", "Actual Cost"),
@@ -705,7 +700,10 @@ def build_quotation_pdf(quote, path):
             raw = quote.get("rate_schedule") or "[]"
             if isinstance(raw, str):
                 raw = json.loads(raw) if raw.strip() else []
-            by_key = {str(item.get("key")): item for item in raw if isinstance(item, dict)}
+            by_key = {
+                canonical_commercial_rate_key(item.get("key")): item
+                for item in raw if isinstance(item, dict)
+            }
         except (ValueError, TypeError):
             by_key = {}
         for key, label, unit in RATE_SCHEDULE_LINES:
