@@ -4795,7 +4795,12 @@
     if (element.nodeType === Node.TEXT_NODE) {
       const parent = element.parentElement;
       if (!parent?.closest(partialSelector)) return;
-      const translated = translate(element.nodeValue, true);
+      // .grid-cell-content 是表格单元格的镜像容器：其直接文本是数据值（合同名称、
+      // 客户/员工姓名、厂家、日期、金额等），只允许整词精确翻译（完整字典键）。
+      // 若做子串部分翻译，"宁德时代" 会被 "时"→"when" 拆成 "宁德when代"，
+      // "2026新协议" 会被 "新"→"New" 拆成 "2026New协议"。
+      const partial = !(parent.classList?.contains("grid-cell-content"));
+      const translated = translate(element.nodeValue, partial);
       if (translated) element.nodeValue = translated;
       return;
     }
@@ -4804,9 +4809,12 @@
       ? [element]
       : [...element.querySelectorAll(partialSelector)];
     for (const target of targets) {
+      // 同上：单元格容器本身只整词翻译；容器内层 UI 元素（span.status / label /
+      // option / small 等）仍走部分翻译，因为它们由模板显式标记，不是数据值。
+      const partial = !target.classList.contains("grid-cell-content");
       for (const node of [...target.childNodes]) {
         if (node.nodeType !== Node.TEXT_NODE) continue;
-        const translated = translate(node.nodeValue, true);
+        const translated = translate(node.nodeValue, partial);
         if (translated) node.nodeValue = translated;
       }
     }

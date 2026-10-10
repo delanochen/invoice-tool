@@ -86,7 +86,7 @@
           <tbody>{% for row in agreements %}<tr>
             <td>{{ row.employee_name }}</td>
             <td>{{ row.amount|money }}</td>
-            <td>{{ row.effective_from }} ~ {{ row.effective_to or '长期' }}</td>
+            <td class="translatable-text">{{ row.effective_from }} ~ {{ row.effective_to or '长期' }}</td>
             <td>{{ '是' if row.replaces_system_payroll else '否' }}</td>
             <td>{{ '有效' if row.is_active else '停用' }}</td>
             <td>{{ row.notes }}</td>
