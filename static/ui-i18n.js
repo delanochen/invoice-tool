@@ -2894,7 +2894,15 @@
     "仅里程": ["Mileage Only", "Alleen kilometers", "Nur Kilometer", "Solo kilometraje"],
     "按实际数量": ["Actual Quantity", "Werkelijke hoeveelheid", "Tatsächliche Menge", "Cantidad real"],
     "从历史报价单复制费率": ["Copy Rates From a Previous Quote", "Tarieven kopiëren uit een eerdere offerte", "Tarife aus einem früheren Angebot kopieren", "Copiar tarifas de una cotización anterior"],
-    "自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。": ["Driving billing affects customer revenue only; employee travel wages, mileage allowance, and reimbursements follow employee standards.", "De rijfacturering heeft alleen invloed op de klantinkomsten; de reisuren, kilometervergoeding en declaraties van medewerkers volgen de normen voor medewerkers.", "Die Fahrzeugabrechnung betrifft nur die Kundeneinnahmen; Fahrerlöhne, Kilometerpauschale und Erstattungen der Mitarbeiter folgen den Mitarbeiterstandards.", "La facturación de conducción solo afecta a los ingresos del cliente; los salarios de viaje, la compensación por kilometraje y los reembolsos de los empleados siguen los estándares de los empleados."]
+    "自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。": ["Driving billing affects customer revenue only; employee travel wages, mileage allowance, and reimbursements follow employee standards.", "De rijfacturering heeft alleen invloed op de klantinkomsten; de reisuren, kilometervergoeding en declaraties van medewerkers volgen de normen voor medewerkers.", "Die Fahrzeugabrechnung betrifft nur die Kundeneinnahmen; Fahrerlöhne, Kilometerpauschale und Erstattungen der Mitarbeiter folgen den Mitarbeiterstandards.", "La facturación de conducción solo afecta a los ingresos del cliente; los salarios de viaje, la compensación por kilometraje y los reembolsos de los empleados siguen los estándares de los empleados."],
+    "结算配置": ["Settlement Configuration", "Afrekeningsconfiguratie", "Abrechnungskonfiguration", "Configuración de liquidación"],
+    "固定总价": ["Fixed Total Price", "Vaste totaalprijs", "Fester Gesamtpreis", "Precio total fijo"],
+    "仅时长": ["Travel Time Only", "Alleen reistijd", "Nur Fahrzeit", "Solo tiempo de viaje"],
+    "里程＋时长": ["Mileage + Travel Time", "Kilometers + reistijd", "Kilometer + Fahrzeit", "Kilometraje + tiempo de viaje"],
+    "自驾交通计费方式": ["Self-driving Transport Billing Method", "Factureringsmethode eigen vervoer", "Abrechnungsmethode für Selbstfahrertransport", "Método de facturación de transporte propio"],
+    "自驾里程单价（$/mile）": ["Self-driving Mileage Unit Price ($/mile)", "Eenheidsprijs eigen kilometers ($/mile)", "Einzelpreis eigene Kilometer ($/mile)", "Precio unitario de kilometraje propio ($/mile)"],
+    "自驾交通工时单价（$/hour）": ["Self-driving Transport Hours Unit Price ($/hour)", "Eenheidsprijs eigen transporturen ($/hour)", "Einzelpreis eigene Transportstunden ($/hour)", "Precio unitario de horas de transporte propio ($/hour)"],
+    "折扣金额": ["Discount Amount", "Kortingsbedrag", "Rabattbetrag", "Importe de descuento"]
   };
   [en, nl, de, es].forEach((dictionary, index) => {
     Object.entries(registrationTranslations).forEach(([key, values]) => { dictionary[key] = values[index]; });
