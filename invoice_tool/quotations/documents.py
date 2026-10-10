@@ -467,15 +467,23 @@ def _totals_table(quote, subtotal, tax, total, styles):
             Paragraph(_esc(f"$ {_money(value)}"), value_style),
         ]
 
+    discount_amount = _money(quote.get("discount_amount") or 0)
+    final_amount = quote.get("final_amount")
+    final_value = _money(final_amount if final_amount is not None else
+                         (total - (quote.get("discount_amount") or 0)))
+    discount_row = row("Discount", discount_amount, styles["cell"], styles["cell_right"])
+    final_row = row("FINAL QUOTED AMOUNT", final_value, styles["total"], styles["total_value"])
     data = [
         row("Estimated Subtotal", subtotal, styles["cell"], styles["cell_right"]),
         row("Tax", tax, styles["cell"], styles["cell_right"]),
-        row("ESTIMATED TOTAL", total, styles["total"], styles["total_value"]),
+        row("Estimated Total (before discount)", total, styles["cell"], styles["cell_right"]),
+        discount_row,
+        final_row,
     ]
     table = Table(data, colWidths=[118 * mm, 68 * mm], repeatRows=0)
     style = _table_style(borders=False)
     style.add("LINEABOVE", (0, 0), (-1, 0), 0.5, BORDER)
-    style.add("BACKGROUND", (0, 2), (-1, 2), DARK_GREEN)
+    style.add("BACKGROUND", (0, 4), (-1, 4), DARK_GREEN)
     table.setStyle(style)
     return table
 

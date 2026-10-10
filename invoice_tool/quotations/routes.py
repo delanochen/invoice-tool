@@ -32,11 +32,24 @@ from .documents import (
     RATE_SCHEDULE_LINES,
     build_quotation_pdf,
 )
+from invoice_tool.commercial_billing import (
+    COMMERCIAL_RATE_LABELS,
+    DRIVING_MODE_LABELS,
+    SETTLEMENT_MODE_LABELS,
+    normalize_driving_mode,
+    normalize_settlement_mode,
+    quote_amounts,
+)
+from invoice_tool.commercial_documents import (
+    ensure_commercial_document,
+    update_document_config,
+)
 
 _QUOTATION_COLUMNS = (
     "quotation_number, quotation_date, valid_until, prepared_by, customer, contact, "
     "project_name, project_no, project_location, po_no, status, currency, client_id, "
     "project_description, scope_1, scope_2, scope_3, pricing_lines, subtotal, tax, total, "
+    "gross_total, discount_amount, final_amount, driving_billing_mode, settlement_mode, "
     "rate_schedule, crew_size, workdays, hours_per_day, expected_start_date, "
     "expected_completion, normal_working_hours, customer_provides, assumptions_other, "
     "payment_terms, payment_terms_other, quotation_validity, invoice_frequency, "
@@ -110,6 +123,31 @@ def _decimal(value, default=None):
         return Decimal(str(value).strip().replace(",", ""))
     except (InvalidOperation, ValueError):
         return default
+
+
+def _rate_map_from_json(raw):
+    """把报价单 rate_schedule JSON 解析成 {key: 费率值}，供复制费率使用。"""
+    rates = {}
+    try:
+        payload = raw or "[]"
+        if isinstance(payload, str):
+            payload = json.loads(payload) if payload.strip() else []
+        for item in payload if isinstance(payload, list) else []:
+            if isinstance(item, dict) and item.get("key"):
+                rates[str(item["key"])] = item.get("rate")
+    except (ValueError, TypeError):
+        pass
+    return rates
+
+
+def _pricing_rate_map(api, quotation_id):
+    """取一份历史报价单的 rate_schedule，映射成 {费率表 key: 费率值}。"""
+    row = api["db"]().execute(
+        "select rate_schedule from quotations where id = ?", (quotation_id,)
+    ).fetchone()
+    if not row:
+        return {}
+    return _rate_map_from_json(row["rate_schedule"])
 
 
 def _fmt_decimal(value):
@@ -192,6 +230,14 @@ def quotation_form_values(api, quotation=None):
         tax = _decimal(field("tax"), Decimal("0")) or Decimal("0")
         tax = tax.quantize(Decimal("0.01"))
         total = (subtotal + tax).quantize(Decimal("0.01"))
+    # 折扣三金额：折扣前总额 = total；最终报价金额 = 折扣前总额 - 折扣金额。
+    # 后台统一计算，不信任前端；折扣默认 0，不得小于 0 或超过折扣前总额。
+    gross_total = total
+    discount_amount = _decimal(field("discount_amount"), Decimal("0")) or Decimal("0")
+    quote_amounts_result = quote_amounts(gross_total, discount_amount)
+    final_amount = quote_amounts_result["final_amount"]
+    driving_billing_mode = normalize_driving_mode(field("driving_billing_mode", "mileage_only"))
+    settlement_mode = normalize_settlement_mode(field("settlement_mode", "actual"))
     client_id = field("client_id")
     return {
         "quotation_number": field("quotation_number"),
@@ -215,6 +261,11 @@ def quotation_form_values(api, quotation=None):
         "subtotal": subtotal,
         "tax": tax,
         "total": total,
+        "gross_total": gross_total,
+        "discount_amount": discount_amount.quantize(Decimal("0.01")),
+        "final_amount": final_amount,
+        "driving_billing_mode": driving_billing_mode,
+        "settlement_mode": settlement_mode,
         "rate_schedule": json.dumps(rate_schedule, ensure_ascii=False),
         "crew_size": field("crew_size"),
         "workdays": field("workdays"),
@@ -372,6 +423,8 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         invoice_frequency_labels=INVOICE_FREQUENCY_LABELS,
         pricing_type_labels=PRICING_TYPE_LABELS,
         status_labels=QUOTATION_STATUS_LABELS,
+        driving_mode_labels=DRIVING_MODE_LABELS,
+        settlement_mode_labels=SETTLEMENT_MODE_LABELS,
         form_title=form_title,
         errors=errors or [],
     )
@@ -428,6 +481,17 @@ def register_quotation_routes(app, api):
             return api["jsonify"]({"rates": {}})
         return api["jsonify"]({"rates": client_contract_rates(api, int(client_id))})
 
+    @app.get("/quotations/rates-from-quote")
+    @login_required
+    def quotation_rates_from_quote():
+        """从一份历史报价单复制费率到表单（映射到费率表 key），生成独立草稿用。"""
+        if not can_view_quotations(api):
+            abort(403)
+        quotation_id = request.args.get("quotation_id", "").strip()
+        if not quotation_id.isdigit():
+            return api["jsonify"]({"rates": {}})
+        return api["jsonify"]({"rates": _pricing_rate_map(api, int(quotation_id))})
+
     @app.route("/quotations/new", methods=["GET", "POST"])
     @login_required
     def new_quotation():
@@ -460,6 +524,16 @@ def register_quotation_routes(app, api):
             )
             quotation_id = cursor.lastrowid
             create_quotation_revision(api, quotation_id, values)
+            # 商务单据父行：报价单统一绑定到父表（工单用 commercial_document_id 关联）
+            ensure_commercial_document(
+                api["db"](), "quotation", quotation_id,
+                client_id=values["client_id"],
+                currency=values["currency"],
+                driving_billing_mode=values["driving_billing_mode"],
+                settlement_mode=values["settlement_mode"],
+                created_at=values["created_at"],
+                updated_at=values["updated_at"],
+            )
             api["log_action"](
                 "create",
                 "quotation",
@@ -502,6 +576,8 @@ def register_quotation_routes(app, api):
             payment_terms_labels=PAYMENT_TERMS_LABELS,
             invoice_frequency_labels=INVOICE_FREQUENCY_LABELS,
             pricing_type_labels=PRICING_TYPE_LABELS,
+            driving_mode_labels=DRIVING_MODE_LABELS,
+            settlement_mode_labels=SETTLEMENT_MODE_LABELS,
         )
 
     @app.route("/quotations/<int:quotation_id>/edit", methods=["GET", "POST"])
@@ -526,6 +602,15 @@ def register_quotation_routes(app, api):
                 (tuple(values[column] for column in columns) + (api["now"](), quotation_id)),
             )
             revision_id = create_quotation_revision(api, quotation_id, values)
+            # 同步父行自驾/结算方式（编辑后工单结算按最新配置取价）
+            update_document_config(
+                api["db"](), "quotation", quotation_id,
+                client_id=values["client_id"],
+                currency=values["currency"],
+                driving_billing_mode=values["driving_billing_mode"],
+                settlement_mode=values["settlement_mode"],
+                updated_at=api["now"](),
+            )
             api["log_action"](
                 "update",
                 "quotation",
@@ -575,6 +660,75 @@ def register_quotation_routes(app, api):
         api["db"]().commit()
         flash("报价单已删除。", "success")
         return redirect(api["url_for"]("quotations"))
+
+    @app.post("/quotations/<int:quotation_id>/copy")
+    @login_required
+    def copy_quotation(quotation_id):
+        """复制整份报价单为独立草稿（含定价、费率、折扣、自驾/结算方式）。
+
+        所有复制都生成独立草稿：新编号、状态 draft、独立修订版本；不引用原单，
+        修改副本不影响原单价格。
+        """
+        if not api["has_action_permission"]("quotations", "create"):
+            abort(403)
+        source = _quotation_or_404(api, quotation_id)
+        source_dict = dict(source)
+        columns = [column.strip() for column in _FORM_COLUMNS.split(",")]
+        values = {column: source_dict.get(column) for column in columns}
+        # 独立草稿：重新编号、状态重置为草稿、重新计算三金额
+        values["quotation_number"] = next_quotation_number(api)
+        values["quotation_date"] = str(date.today())
+        values["valid_until"] = str(date.today() + timedelta(days=30))
+        values["status"] = "draft"
+        # 价格/费率复制自原单；折扣沿用原单（三金额后台统一重算一次）
+        values["pricing_lines"] = source_dict.get("pricing_lines") or "[]"
+        values["rate_schedule"] = source_dict.get("rate_schedule") or "[]"
+        values["subtotal"] = source_dict.get("subtotal") or 0
+        values["tax"] = source_dict.get("tax") or 0
+        values["total"] = source_dict.get("total") or 0
+        gross = Decimal(str(values.get("total") or 0))
+        discount = Decimal(str(values.get("discount_amount") or 0))
+        amounts = quote_amounts(gross, discount)
+        values["gross_total"] = amounts["gross_total"]
+        values["discount_amount"] = amounts["discount_amount"]
+        values["final_amount"] = amounts["final_amount"]
+        values["driving_billing_mode"] = source_dict.get("driving_billing_mode") or "mileage_only"
+        values["settlement_mode"] = source_dict.get("settlement_mode") or "actual"
+        values.update({
+            "created_by": api["g"].user["id"],
+            "created_at": api["now"](),
+            "updated_at": api["now"](),
+        })
+        cursor = api["db"]().execute(
+            f"""
+            insert into quotations (
+                {", ".join(columns)}, created_by, created_at, updated_at
+            ) values ({", ".join("?" for _ in columns)}, ?, ?, ?)
+            """,
+            tuple(values[column] for column in columns)
+            + (values["created_by"], values["created_at"], values["updated_at"]),
+        )
+        new_id = cursor.lastrowid
+        create_quotation_revision(api, new_id, values)
+        ensure_commercial_document(
+            api["db"](), "quotation", new_id,
+            client_id=values["client_id"],
+            currency=values["currency"],
+            driving_billing_mode=values["driving_billing_mode"],
+            settlement_mode=values["settlement_mode"],
+            created_at=values["created_at"],
+            updated_at=values["updated_at"],
+        )
+        api["log_action"](
+            "create",
+            "quotation",
+            new_id,
+            values["quotation_number"],
+            f"复制自 {source['quotation_number']}",
+        )
+        api["db"]().commit()
+        flash("已复制为独立草稿报价单。", "success")
+        return redirect(api["url_for"]("edit_quotation", quotation_id=new_id))
 
     @app.get("/quotations/<int:quotation_id>/pdf")
     @login_required

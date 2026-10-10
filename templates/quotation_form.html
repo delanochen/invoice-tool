@@ -134,7 +134,9 @@
             <span id="fixedTotalWrap" hidden>合同总价 <input type="number" step="0.01" min="0" name="total" id="totalInput" value="{{ defaults.total if defaults.total is not none else '' }}" style="width:140px"></span>
             <span>预估小计 <b id="subtotalText">$0.00</b></span>
             <span>税 <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}" style="width:110px"></span>
-            <span>预估总额 <b id="totalText">$0.00</b></span>
+            <span>折扣前总额 <b id="grossText">$0.00</b></span>
+            <span>折扣金额 <input type="number" step="0.01" min="0" name="discount_amount" id="discountInput" value="{{ defaults.discount_amount if defaults.discount_amount is not none else '' }}" style="width:110px"></span>
+            <span>最终报价金额 <b id="finalText">$0.00</b></span>
           </div>
           <small>金额列只读：按 数量 × 费率 自动计算，预估小计按各行金额自动累计；费率会优先从客户合同费率带出，可手动修正。</small>
         </div>
@@ -144,7 +146,9 @@
       <section class="erp-panel" data-erp-panel="assumptions">
         <div class="erp-detail-scroll">
           <div id="rateSchedulePanel">
-            <h4 class="panel-title">费率表</h4>
+            <h4 class="panel-title">费率表
+              <button type="button" id="copyRatesFromQuoteBtn" class="erp-btn" style="float:right">从历史报价单复制费率</button>
+            </h4>
             <div class="system-grid">
             <table class="pricing">
               <thead>
@@ -163,6 +167,31 @@
             </div>
             <small>Minimum billing increment: 15 minutes.</small>
           </div>
+
+          <h4 class="panel-title">结算配置</h4>
+          <div class="fields-2col">
+            <label class="erp-field">自驾交通计费方式
+              <select name="driving_billing_mode" id="drivingBillingMode">
+                {% for value, label in driving_mode_labels.items() %}
+                  <option value="{{ value }}" {% if (defaults.driving_billing_mode or 'mileage_only') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">结算方式
+              <select name="settlement_mode" id="settlementMode">
+                {% for value, label in settlement_mode_labels.items() %}
+                  <option value="{{ value }}" {% if (defaults.settlement_mode or 'actual') == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">自驾里程单价（$/mile）
+              <input type="number" step="any" min="0" name="driving_mileage_rate" id="drivingMileageRate" value="{{ rates.get('mileage', {}).get('rate') or '' }}">
+            </label>
+            <label class="erp-field">自驾交通工时单价（$/hour）
+              <input type="number" step="any" min="0" name="driving_time_rate" id="drivingTimeRate" value="{{ rates.get('travel_time', {}).get('rate') or '' }}">
+            </label>
+          </div>
+          <small>自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。</small>
 
           <h4 class="panel-title">项目假设</h4>
           <div class="fields-2col">
@@ -236,12 +265,21 @@
     const contractRates = {{ contract_rates|tojson }};
 
     // 定价汇总金额列只读：金额 = 数量 × 费率，始终自动重算（不手写）。
+    const discountInput = document.getElementById("discountInput");
+    const refreshFinal = (gross) => {
+      document.getElementById("grossText").textContent = money(gross);
+      const discount = Number(discountInput.value) || 0;
+      const final = gross - discount;
+      document.getElementById("finalText").textContent = money(Math.max(0, final));
+      if (discount > gross) discountInput.setCustomValidity("折扣不能超过折扣前总额");
+      else discountInput.setCustomValidity("");
+    };
     const recalc = () => {
       if (pricingType.value === "fixed") {
         const total = Number(totalInput.value) || 0;
         const tax = Number(taxInput.value) || 0;
         document.getElementById("subtotalText").textContent = money(total - tax);
-        document.getElementById("totalText").textContent = money(total);
+        refreshFinal(total);
         return;
       }
       let subtotal = 0;
@@ -254,10 +292,10 @@
       });
       document.getElementById("subtotalText").textContent = money(subtotal);
       const tax = Number(taxInput.value) || 0;
-      document.getElementById("totalText").textContent = money(subtotal + tax);
+      refreshFinal(subtotal + tax);
     };
 
-    // 费率自动带出：把客户合同费率映射填进定价汇总费率列与费率表。
+    // 费率自动带出：把客户合同费率映射填进定价汇总费率列与费率表，并同步自驾两项。
     const applyRates = (rates, onlyEmpty) => {
       document.querySelectorAll("table.pricing .rate").forEach((el) => {
         const key = el.dataset.key;
@@ -265,6 +303,12 @@
           el.value = rates[key];
         }
       });
+      if (rates) {
+        const dMileage = document.getElementById("drivingMileageRate");
+        const dTime = document.getElementById("drivingTimeRate");
+        if (onlyEmpty && dMileage.value === "" && "mileage" in rates) dMileage.value = rates.mileage;
+        if (onlyEmpty && dTime.value === "" && "travel_time" in rates) dTime.value = rates.travel_time;
+      }
       recalc();
     };
 
@@ -290,12 +334,30 @@
     });
     taxInput.addEventListener("input", recalc);
     totalInput.addEventListener("input", recalc);
+    discountInput.addEventListener("input", recalc);
     pricingType.addEventListener("change", refreshMode);
     if (clientSelect) clientSelect.addEventListener("change", () => fetchRates(clientSelect.value));
     recalc();
     refreshMode();
     // 页面加载时只填充空行，不覆盖已保存/手填的费率。
     applyRates(contractRates, true);
+
+    // 从历史报价单复制费率：填入费率表并同步自驾两项，生成独立草稿时互不影响。
+    const copyRatesFromQuoteBtn = document.getElementById("copyRatesFromQuoteBtn");
+    if (copyRatesFromQuoteBtn) {
+      copyRatesFromQuoteBtn.addEventListener("click", async () => {
+        const quotationId = prompt("粘贴要复制费率的报价单 ID（整数）：");
+        if (!quotationId || !/^\d+$/.test(quotationId)) return;
+        try {
+          const resp = await fetch(`/quotations/rates-from-quote?quotation_id=${encodeURIComponent(quotationId)}`);
+          const data = await resp.json();
+          const rates = data.rates || {};
+          if (!Object.keys(rates).length) { alert("未找到该报价单或没有费率数据。"); return; }
+          applyRates(rates, false);
+          alert("已复制费率，可在此基础上修改后保存为独立草稿。");
+        } catch (e) { alert("复制费率失败，请检查报价单 ID。"); }
+      });
+    }
 
     const terms = document.getElementById("paymentTerms");
     const otherField = document.getElementById("paymentOtherField");

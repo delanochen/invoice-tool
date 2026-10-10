@@ -165,6 +165,8 @@
           <p><strong>开票频率</strong><span>{{ invoice_frequency_labels[quotation.invoice_frequency] }}</span></p>
           <p><strong>货币</strong><span>{{ quotation.currency or "USD" }}</span></p>
           <p><strong>定价类型</strong><span>{{ pricing_type_labels[quotation.pricing_type] }}</span></p>
+          <p><strong>自驾交通计费</strong><span>{{ driving_mode_labels.get(quotation.driving_billing_mode, quotation.driving_billing_mode or '仅里程') }}</span></p>
+          <p><strong>结算方式</strong><span>{{ settlement_mode_labels.get(quotation.settlement_mode, quotation.settlement_mode or '按实际数量') }}</span></p>
           <p><strong>税务</strong><span>{{ quotation.tax_note or "-" }}</span></p>
         </div>
       </div>
@@ -175,7 +177,9 @@
   <footer class="erp-summary">
     {{ summary_item('预估小计', quotation.subtotal|money(quotation.currency), 'muted') }}
     {{ summary_item('税', quotation.tax|money(quotation.currency), 'muted') }}
-    {{ summary_item('预估总额', quotation.total|money(quotation.currency), '') }}
+    {{ summary_item('折扣前总额', quotation.gross_total|money(quotation.currency), 'muted') }}
+    {{ summary_item('折扣金额', quotation.discount_amount|money(quotation.currency), 'muted') }}
+    {{ summary_item('最终报价金额', quotation.final_amount|money(quotation.currency), '') }}
   </footer>
 
   <!-- ───────────────────────────────── StatusBar ────────────────────────── -->

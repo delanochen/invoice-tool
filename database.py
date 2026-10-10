@@ -17,7 +17,7 @@ REQUIRED_PRODUCTION_TABLES = {
     'employee_payment_orders', 'payment_order_sources', 'payment_order_events',
     'employee_advance_applications', 'bank_transactions', 'assets',
     'asset_events', 'asset_photos',
-    'quotations',
+    'quotations', 'commercial_documents', 'commercial_document_rates',
 }
 REQUIRED_PRODUCTION_COLUMNS = {
     ('employee_payment_orders', 'external_transaction_id'),
@@ -29,6 +29,17 @@ REQUIRED_PRODUCTION_COLUMNS = {
     ('quotations', 'quotation_number'),
     ('quotations', 'client_id'),
     ('service_orders', 'quotation_id'),
+    ('service_orders', 'commercial_document_id'),
+    ('service_orders', 'commercial_document_type'),
+    ('quotations', 'gross_total'),
+    ('quotations', 'discount_amount'),
+    ('quotations', 'final_amount'),
+    ('quotations', 'driving_billing_mode'),
+    ('quotations', 'settlement_mode'),
+    ('contracts', 'driving_billing_mode'),
+    ('contracts', 'settlement_mode'),
+    ('customer_reimbursements', 'gross_amount'),
+    ('customer_reimbursements', 'discount_amount'),
 }
 WRITER_LOCK = 733252001
 _PROTECTED = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|--[^\n]*|/\*[\s\S]*?\*/")
