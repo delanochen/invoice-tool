@@ -67,6 +67,7 @@ from invoice_tool.catalog import (
     register_catalog_routes,
 )
 from invoice_tool.customers import build_customer_services, register_customer_routes
+from invoice_tool.customers.services import localized_state_name, state_names_for_language
 from invoice_tool.employees import (
     build_user_services,
     register_employee_grade_routes,
@@ -2034,6 +2035,15 @@ def role_label(role):
     return labels.get(role, role)
 
 
+def state_label(state_code):
+    """站点州简写 + 当前语言的州名，如 "TX · 得克萨斯州"（en 下为 "TX · Texas"）。"""
+    code = (state_code or "").strip().upper()
+    if not code:
+        return ""
+    name = localized_state_name(code, current_language())
+    return f"{code} · {name}" if name else code
+
+
 def money(value, currency="USD"):
     symbols = {"USD": "$", "CNY": "¥", "EUR": "€", "GBP": "£", "JPY": "¥"}
     amount = float(value or 0)
@@ -2194,6 +2204,7 @@ app.jinja_env.filters["hours"] = hours
 app.jinja_env.filters["role_label"] = role_label
 app.jinja_env.filters["payment_label"] = payment_label
 app.jinja_env.filters["local_datetime"] = local_datetime
+app.jinja_env.globals["state_label"] = state_label
 app.jinja_env.globals["can_view_invoices"] = can_view_invoices
 app.jinja_env.globals["can_create_invoice"] = can_create_invoice
 app.jinja_env.globals["can_view_contracts"] = can_view_contracts
@@ -14960,11 +14971,11 @@ def clock_in_site_rows():
         if not g.user["client_id"]:
             return []
         return db().execute(
-            "select id, buyer_number, name, detailed_address from buyers where client_id = ? order by name",
+            "select id, buyer_number, name, state_code, detailed_address from buyers where client_id = ? order by name",
             (g.user["client_id"],),
         ).fetchall()
     return db().execute(
-        "select id, buyer_number, name, detailed_address from buyers order by name"
+        "select id, buyer_number, name, state_code, detailed_address from buyers order by name"
     ).fetchall()
 
 

@@ -2902,7 +2902,10 @@
     "自驾交通计费方式": ["Self-driving Transport Billing Method", "Factureringsmethode eigen vervoer", "Abrechnungsmethode für Selbstfahrertransport", "Método de facturación de transporte propio"],
     "自驾里程单价（$/mile）": ["Self-driving Mileage Unit Price ($/mile)", "Eenheidsprijs eigen kilometers ($/mile)", "Einzelpreis eigene Kilometer ($/mile)", "Precio unitario de kilometraje propio ($/mile)"],
     "自驾交通工时单价（$/hour）": ["Self-driving Transport Hours Unit Price ($/hour)", "Eenheidsprijs eigen transporturen ($/hour)", "Einzelpreis eigene Transportstunden ($/hour)", "Precio unitario de horas de transporte propio ($/hour)"],
-    "折扣金额": ["Discount Amount", "Kortingsbedrag", "Rabattbetrag", "Importe de descuento"]
+    "折扣金额": ["Discount Amount", "Kortingsbedrag", "Rabattbetrag", "Importe de descuento"],
+    "州（State）": ["State", "Staat", "Bundesstaat", "Estado"],
+    "州": ["State", "State", "Bundesstaat", "Estado"],
+    "从地址自动解析，可手动修改": ["Parsed automatically from the address; can be edited manually", "Automatisch uit het adres afgeleid; handmatig aanpasbaar", "Automatisch aus der Adresse abgeleitet; manuell änderbar", "Se deduce automáticamente de la dirección; se puede editar manualmente"]
   };
   [en, nl, de, es].forEach((dictionary, index) => {
     Object.entries(registrationTranslations).forEach(([key, values]) => { dictionary[key] = values[index]; });

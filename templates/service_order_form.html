@@ -89,7 +89,7 @@
                 data-manufacturer="{{ buyer.equipment_manufacturer or '' }}"
                 data-manufacturer-id="{{ buyer.manufacturer_id or '' }}"
                 {% if order and order.buyer_id == buyer.id %}selected{% endif %}
-              >{{ buyer.buyer_number }} · {{ buyer.name }}{% if buyer.owner_name %} · {{ buyer.owner_name }}{% endif %}</option>
+              >{{ buyer.buyer_number }} · {{ buyer.name }}{% if buyer.state_code %} ({{ state_label(buyer.state_code) }}){% endif %}{% if buyer.owner_name %} · {{ buyer.owner_name }}{% endif %}</option>
             {% endfor %}
           </select>
         </label>

@@ -3,6 +3,11 @@
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 
 from database import IntegrityError
+from invoice_tool.customers.services import (
+    localized_state_name,
+    state_code_from_address,
+    state_names_for_language,
+)
 
 
 def register_customer_routes(
@@ -408,9 +413,9 @@ def register_customer_routes(
                     """
                     insert into buyers (
                         buyer_number, client_id, country, country_code, name, owner_id, owner, manufacturer_id, contact_name, contact_details,
-                        email, site_size, detailed_address, equipment_manufacturer, latitude, longitude, geocode_address,
+                        email, site_size, detailed_address, equipment_manufacturer, state_code, latitude, longitude, geocode_address,
                         geocode_status, geocode_attempted_at, geocode_version, manual_coordinates, created_at
-                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         next_buyer_number(),
@@ -427,6 +432,8 @@ def register_customer_routes(
                         request.form.get("site_size", "").strip(),
                         detailed_address,
                         manufacturer["name"] if manufacturer else "",
+                        state_code_from_address(detailed_address)
+                        or request.form.get("state_code", "").strip().upper(),
                         manual_coordinates[0] if manual_coordinates else None,
                         manual_coordinates[1] if manual_coordinates else None,
                         detailed_address if manual_coordinates else None,
@@ -456,6 +463,7 @@ def register_customer_routes(
             "email": "buyers.email",
             "site_size": "buyers.site_size",
             "equipment_manufacturer": "buyers.equipment_manufacturer",
+            "state_code": "buyers.state_code",
             "detailed_address": "buyers.detailed_address",
         }
         if sort not in buyer_sort_columns:
@@ -510,6 +518,7 @@ def register_customer_routes(
             sort=sort,
             direction=direction,
             import_result=session.pop("buyer_import_result", None),
+            state_names=state_names_for_language(current_language()),
         )
 
     @login_required
@@ -593,7 +602,8 @@ def register_customer_routes(
                     """
                     update buyers
                     set buyer_number = ?, client_id = ?, country = ?, country_code = ?, name = ?, owner_id = ?, owner = ?, contact_name = ?,
-                        manufacturer_id = ?, contact_details = ?, email = ?, site_size = ?, detailed_address = ?, equipment_manufacturer = ?
+                        manufacturer_id = ?, contact_details = ?, email = ?, site_size = ?, detailed_address = ?, equipment_manufacturer = ?,
+                        state_code = ?
                     where id = ?
                     """,
                     (
@@ -613,6 +623,8 @@ def register_customer_routes(
                         request.form.get("site_size", "").strip(),
                         detailed_address,
                         manufacturer["name"] if manufacturer else "",
+                        state_code_from_address(detailed_address)
+                        or request.form.get("state_code", "").strip().upper(),
                         buyer_id,
                     ),
                 )
@@ -685,6 +697,7 @@ def register_customer_routes(
             owners=owners_rows,
             manufacturers=manufacturer_options(),
             countries=country_rows(),
+            state_names=state_names_for_language(current_language()),
         )
 
     @login_required

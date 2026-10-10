@@ -21,6 +21,125 @@ BUYER_IMPORT_FIELD_ALIASES = {
     "detailed_address": {"详细地址", "地址", "站点地址", "detailed_address", "address", "site_address"},
 }
 
+# 美国 50 州 + 华盛顿特区 + 常用领地简写。站点州简写只认这份清单，避免把街道后缀
+# （ST/RD/AVE/NW 等）或非美国地址（ON/BC/QC 等）误当作州。
+US_STATE_CODES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    "DC", "PR", "VI", "GU", "AS", "MP",
+}
+
+_STATE_TAIL_RE = re.compile(r"(?:^|[\s,])([A-Z]{2})\s*(?:[,.]?\s*\d{5}(?:-\d{4})?)?\s*$")
+_STANDALONE_CODE_RE = re.compile(r"(?<![A-Z])([A-Z]{2})(?![A-Z])")
+
+
+def state_code_from_address(address):
+    """从美国地址文本解析州简写（如 "Houston, TX 77001" → "TX"）。
+
+    优先匹配地址尾部的 "州简写 + 邮编" 或独立州简写；解析不到返回 None。
+    只接受 US_STATE_CODES 清单内的简写，街道后缀（ST/RD/NW）与非美国地址
+    （Toronto, ON / Vancouver, BC）不会被误判。
+    """
+    text = str(address or "").strip()
+    if not text:
+        return None
+    upper = re.sub(r"\s+", " ", text.upper()).strip()
+    match = _STATE_TAIL_RE.search(upper)
+    if match and match.group(1) in US_STATE_CODES:
+        return match.group(1)
+    for code in _STANDALONE_CODE_RE.findall(upper):
+        if code in US_STATE_CODES:
+            return code
+    return None
+
+
+# 美国州/领地简写 → 各语言州名。en 为英文名；zh 为中文译名；es 为西班牙语名；
+# nl/de 通常直接使用英文州名（语言代码未命中时统一回退 en）。
+US_STATE_NAMES = {
+    "AL": {"en": "Alabama", "zh": "阿拉巴马州", "es": "Alabama"},
+    "AK": {"en": "Alaska", "zh": "阿拉斯加州", "es": "Alaska"},
+    "AZ": {"en": "Arizona", "zh": "亚利桑那州", "es": "Arizona"},
+    "AR": {"en": "Arkansas", "zh": "阿肯色州", "es": "Arkansas"},
+    "CA": {"en": "California", "zh": "加利福尼亚州", "es": "California"},
+    "CO": {"en": "Colorado", "zh": "科罗拉多州", "es": "Colorado"},
+    "CT": {"en": "Connecticut", "zh": "康涅狄格州", "es": "Connecticut"},
+    "DE": {"en": "Delaware", "zh": "特拉华州", "es": "Delaware"},
+    "FL": {"en": "Florida", "zh": "佛罗里达州", "es": "Florida"},
+    "GA": {"en": "Georgia", "zh": "佐治亚州", "es": "Georgia"},
+    "HI": {"en": "Hawaii", "zh": "夏威夷州", "es": "Hawái"},
+    "ID": {"en": "Idaho", "zh": "爱达荷州", "es": "Idaho"},
+    "IL": {"en": "Illinois", "zh": "伊利诺伊州", "es": "Illinois"},
+    "IN": {"en": "Indiana", "zh": "印第安纳州", "es": "Indiana"},
+    "IA": {"en": "Iowa", "zh": "艾奥瓦州", "es": "Iowa"},
+    "KS": {"en": "Kansas", "zh": "堪萨斯州", "es": "Kansas"},
+    "KY": {"en": "Kentucky", "zh": "肯塔基州", "es": "Kentucky"},
+    "LA": {"en": "Louisiana", "zh": "路易斯安那州", "es": "Luisiana"},
+    "ME": {"en": "Maine", "zh": "缅因州", "es": "Maine"},
+    "MD": {"en": "Maryland", "zh": "马里兰州", "es": "Maryland"},
+    "MA": {"en": "Massachusetts", "zh": "马萨诸塞州", "es": "Massachusetts"},
+    "MI": {"en": "Michigan", "zh": "密歇根州", "es": "Míchigan"},
+    "MN": {"en": "Minnesota", "zh": "明尼苏达州", "es": "Minnesota"},
+    "MS": {"en": "Mississippi", "zh": "密西西比州", "es": "Misisipi"},
+    "MO": {"en": "Missouri", "zh": "密苏里州", "es": "Misuri"},
+    "MT": {"en": "Montana", "zh": "蒙大拿州", "es": "Montana"},
+    "NE": {"en": "Nebraska", "zh": "内布拉斯加州", "es": "Nebraska"},
+    "NV": {"en": "Nevada", "zh": "内华达州", "es": "Nevada"},
+    "NH": {"en": "New Hampshire", "zh": "新罕布什尔州", "es": "Nuevo Hampshire"},
+    "NJ": {"en": "New Jersey", "zh": "新泽西州", "es": "Nueva Jersey"},
+    "NM": {"en": "New Mexico", "zh": "新墨西哥州", "es": "Nuevo México"},
+    "NY": {"en": "New York", "zh": "纽约州", "es": "Nueva York"},
+    "NC": {"en": "North Carolina", "zh": "北卡罗来纳州", "es": "Carolina del Norte"},
+    "ND": {"en": "North Dakota", "zh": "北达科他州", "es": "Dakota del Norte"},
+    "OH": {"en": "Ohio", "zh": "俄亥俄州", "es": "Ohio"},
+    "OK": {"en": "Oklahoma", "zh": "俄克拉何马州", "es": "Oklahoma"},
+    "OR": {"en": "Oregon", "zh": "俄勒冈州", "es": "Oregón"},
+    "PA": {"en": "Pennsylvania", "zh": "宾夕法尼亚州", "es": "Pensilvania"},
+    "RI": {"en": "Rhode Island", "zh": "罗得岛州", "es": "Rhode Island"},
+    "SC": {"en": "South Carolina", "zh": "南卡罗来纳州", "es": "Carolina del Sur"},
+    "SD": {"en": "South Dakota", "zh": "南达科他州", "es": "Dakota del Sur"},
+    "TN": {"en": "Tennessee", "zh": "田纳西州", "es": "Tennessee"},
+    "TX": {"en": "Texas", "zh": "得克萨斯州", "es": "Texas"},
+    "UT": {"en": "Utah", "zh": "犹他州", "es": "Utah"},
+    "VT": {"en": "Vermont", "zh": "佛蒙特州", "es": "Vermont"},
+    "VA": {"en": "Virginia", "zh": "弗吉尼亚州", "es": "Virginia"},
+    "WA": {"en": "Washington", "zh": "华盛顿州", "es": "Washington"},
+    "WV": {"en": "West Virginia", "zh": "西弗吉尼亚州", "es": "Virginia Occidental"},
+    "WI": {"en": "Wisconsin", "zh": "威斯康星州", "es": "Wisconsin"},
+    "WY": {"en": "Wyoming", "zh": "怀俄明州", "es": "Wyoming"},
+    "DC": {"en": "District of Columbia", "zh": "华盛顿哥伦比亚特区", "es": "Distrito de Columbia"},
+    "PR": {"en": "Puerto Rico", "zh": "波多黎各", "es": "Puerto Rico"},
+    "VI": {"en": "U.S. Virgin Islands", "zh": "美属维尔京群岛", "es": "Islas Vírgenes de los Estados Unidos"},
+    "GU": {"en": "Guam", "zh": "关岛", "es": "Guam"},
+    "AS": {"en": "American Samoa", "zh": "美属萨摩亚", "es": "Samoa Americana"},
+    "MP": {"en": "Northern Mariana Islands", "zh": "北马里亚纳群岛", "es": "Islas Marianas del Norte"},
+}
+
+
+def _normalize_state_language(language):
+    lang = (language or "zh-CN").lower()
+    return "zh" if lang == "zh-cn" else lang
+
+
+def localized_state_name(state_code, language="zh-CN"):
+    """返回指定语言的州名（如 "TX" + "zh-CN" → "得克萨斯州"）；无此州或简写为空返回 ""。"""
+    names = US_STATE_NAMES.get((state_code or "").upper(), {})
+    if not names:
+        return ""
+    lang = _normalize_state_language(language)
+    return names.get(lang, names.get("en", ""))
+
+
+def state_names_for_language(language="zh-CN"):
+    """返回 州简写 → 本地化州名 的映射（供表单 JS 在地址变化时联动更新州名）。"""
+    lang = _normalize_state_language(language)
+    return {
+        code: names.get(lang, names.get("en", ""))
+        for code, names in US_STATE_NAMES.items()
+    }
+
 
 def build_customer_services(
     *, db, lock_number_allocation, now, normalized_address, country_by_code
@@ -247,8 +366,8 @@ def build_customer_services(
                 """
                 insert into buyers (
                     buyer_number, client_id, country, country_code, name, owner_id, owner, manufacturer_id, contact_name, contact_details,
-                    email, site_size, detailed_address, equipment_manufacturer, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    email, site_size, detailed_address, equipment_manufacturer, state_code, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     buyer_number or next_buyer_number(),
@@ -265,6 +384,7 @@ def build_customer_services(
                     row.get("site_size", ""),
                     detailed_address,
                     row.get("equipment_manufacturer", ""),
+                    state_code_from_address(detailed_address) or "",
                     now(),
                 ),
             )

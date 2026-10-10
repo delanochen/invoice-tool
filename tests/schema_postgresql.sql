@@ -958,6 +958,7 @@ CREATE TABLE public.buyers (
     owner_id bigint,
     email text,
     site_size text,
+    state_code text NOT NULL DEFAULT '',
     country_code text DEFAULT 'US'::text NOT NULL,
     manufacturer_id bigint,
     manual_coordinates bigint DEFAULT 0 NOT NULL

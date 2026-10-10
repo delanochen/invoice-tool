@@ -19,7 +19,7 @@
           <select id="clockSite" required>
             <option value="">请选择站点</option>
             {% for site in sites %}
-              <option value="{{ site.id }}" data-name="{{ site.name }}">{{ site.name }}{% if site.detailed_address %} · {{ site.detailed_address }}{% endif %}</option>
+              <option value="{{ site.id }}" data-name="{{ site.name }}">{{ site.name }}{% if site.state_code %} · {{ state_label(site.state_code) }}{% endif %}</option>
             {% endfor %}
           </select>
         </label>

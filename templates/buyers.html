@@ -54,6 +54,7 @@
                 {{ sortable_th("buyer_number", "编号") }}
                 {{ sortable_th("country_name", "国家") }}
                 {{ sortable_th("name", "站点名称") }}
+                {{ sortable_th("state_code", "州") }}
                 {{ sortable_th("owner_name", "业主") }}
                 {{ sortable_th("contact_name", "联系人") }}
                 {{ sortable_th("contact_details", "联系方式") }}
@@ -77,6 +78,7 @@
                   <td>{{ buyer.buyer_number }}</td>
                   <td>{{ buyer.country_name or buyer.country_code or buyer.country or "-" }}</td>
                   <td>{{ buyer.name }}</td>
+                  <td>{{ state_label(buyer.state_code) or "-" }}</td>
                   <td>{{ buyer.owner_name or "-" }}</td>
                   <td>{{ buyer.contact_name or "-" }}</td>
                   <td>{{ buyer.contact_details or "-" }}</td>
@@ -86,7 +88,7 @@
                   <td>{{ buyer.detailed_address or "-" }}</td>
                 </tr>
               {% else %}
-                <tr><td colspan="10" class="empty">还没有站点资料。</td></tr>
+                <tr><td colspan="11" class="empty">还没有站点资料。</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -197,6 +199,7 @@
           </select>
         </label>
         <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required></textarea></label>
+        <label>州（State）<input name="state_code" placeholder="从地址自动解析，可手动修改" maxlength="2" style="text-transform:uppercase"><small data-state-name></small></label>
         <label class="full-span">经纬度坐标（可选）
           <input name="coordinates" placeholder="从 Google 地图粘贴，例如：33.3252078, -112.7639562">
           <small>一次粘贴“纬度, 经度”；保存后将作为手工坐标，不再被自动定位覆盖。</small>
@@ -243,6 +246,7 @@
             </select>
           </label>
           <label class="full-span">详细地址 <textarea name="detailed_address" rows="4" required>{{ buyer.detailed_address or '' }}</textarea></label>
+          <label>州（State）<input name="state_code" value="{{ buyer.state_code or '' }}" placeholder="从地址自动解析，可手动修改" maxlength="2" style="text-transform:uppercase"><small data-state-name>{{ state_names.get(buyer.state_code or '', '') }}</small></label>
           <label class="full-span">经纬度坐标
             <input name="coordinates" value="{% if buyer.manual_coordinates and buyer.latitude is not none and buyer.longitude is not none %}{{ buyer.latitude }}, {{ buyer.longitude }}{% endif %}" placeholder="从 Google 地图粘贴，例如：33.3252078, -112.7639562">
             <small>
@@ -263,6 +267,8 @@
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20261004-status-submit-v1') }}"></script>
   <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+  <script>window.BUYER_STATE_NAMES = {{ state_names|tojson }};</script>
+  <script src="{{ url_for('static', filename='buyer-state-code.js', v=app_version) }}"></script>
   <script>
     (() => {
       const importResultDialog = document.getElementById("buyerImportResultDialog");
