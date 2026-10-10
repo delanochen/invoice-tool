@@ -4689,15 +4689,19 @@
   }
   if (typeof document === "undefined" || language === "zh-CN") return;
 
-  const partialSelector = "label, button, option, summary, th, h1, h2, h3, legend, small, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text, .erp-badge, .erp-summary-item, .erp-status";
+  // option 文本可能是数据（人名、站点名等），只做整词精确翻译，避免
+  // “高阳”→“High阳”这类部分翻译破坏；整词键（“请选择”→“Please select”）仍生效。
+  const partialSelector = "label, button, summary, th, h1, h2, h3, legend, small, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text, .erp-badge, .erp-summary-item, .erp-status";
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentElement?.closest("script, style")) continue;
+    // option 文本是数据（人名、站点名等），即使被 label/button 等部分翻译
+    // 容器包裹，也一律整词精确翻译，避免 “高阳”→“High阳” 这类拆坏。
     const allowPartial = Boolean(
       node.parentElement?.closest(partialSelector)
-    );
+    ) && !node.parentElement?.closest("option");
     const translated = translate(node.nodeValue, allowPartial);
     if (translated) {
       node.nodeValue = allowPartial
@@ -4716,10 +4720,10 @@
 
   document.title = translate(document.title, true) || document.title;
 
-  // Native date pickers follow the operating-system locale, not the page locale.
-  // On an English page under Chinese Windows they therefore switch from an ISO
-  // placeholder to a Chinese 年/月/日 picker when focused.  Keep all date inputs
-  // as locale-independent ISO text fields instead of briefly restoring `date`.
+  // Native date pickers let the user pick a date from the browser calendar.
+  // They must stay active on every page language: converting them to plain
+  // ISO text fields removed the picker on non-Chinese pages.  The custom
+  // validators below still enforce YYYY-MM-DD values and the min/max range.
   const dateValidationMessages = {
     en: "Enter a valid date in YYYY-MM-DD format.",
     nl: "Voer een geldige datum in de notatie JJJJ-MM-DD in.",
@@ -4757,11 +4761,6 @@
   const enhanceDateInput = (input) => {
     if (!(input instanceof HTMLInputElement) || input.dataset.uiDateInput === "true") return;
     input.dataset.uiDateInput = "true";
-    input.type = "text";
-    input.placeholder ||= "YYYY-MM-DD";
-    input.inputMode = "numeric";
-    input.autocomplete = "off";
-    input.pattern = "[0-9]{4}-[0-9]{2}-[0-9]{2}";
     input.addEventListener("input", () => validateDateInput(input));
     input.addEventListener("change", () => validateDateInput(input));
     validateDateInput(input);
@@ -4810,7 +4809,8 @@
       // 客户/员工姓名、厂家、日期、金额等），只允许整词精确翻译（完整字典键）。
       // 若做子串部分翻译，"宁德时代" 会被 "时"→"when" 拆成 "宁德when代"，
       // "2026新协议" 会被 "新"→"New" 拆成 "2026New协议"。
-      const partial = !(parent.classList?.contains("grid-cell-content"));
+      // option 同理（人名/站点名等数据），即使被 label 包裹也整词翻译。
+      const partial = !(parent.classList?.contains("grid-cell-content")) && !parent.closest("option");
       const translated = translate(element.nodeValue, partial);
       if (translated) element.nodeValue = translated;
       return;
