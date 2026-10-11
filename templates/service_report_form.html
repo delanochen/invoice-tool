@@ -468,6 +468,18 @@
       {% set _ = origin_map.update({user.id|string: user.address or ''}) %}
     {% endfor %}
     window.employeeOriginAddresses = {{ origin_map|tojson }};
+    // 页面加载：已保存行若「员工出发地」为空，默认带出员工主数据地址。
+    // 只填空值——用户手填或已保存的地址不被覆盖，仍允许手工修改。
+    document.addEventListener("DOMContentLoaded", () => {
+      document.querySelectorAll('#serviceWorkersTable tbody tr').forEach((row) => {
+        const select = row.querySelector('select[name="worker_user_id"]');
+        const origin = row.querySelector('input[name="worker_origin"]');
+        if (select && select.value && origin && !origin.value.trim()) {
+          origin.value = window.employeeOriginAddresses[select.value] || "";
+        }
+      });
+    });
+    // 切换服务人员时自动带出到「员工出发地」栏位（换人 = 换默认地址）。
     document.addEventListener("change", (event) => {
       const select = event.target.closest('select[name="worker_user_id"]');
       if (!select || !select.value) return;
