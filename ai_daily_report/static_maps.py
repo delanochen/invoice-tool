@@ -48,6 +48,11 @@ MAX_RETRIES = 2
 RETRY_BASE_DELAY = 1.0
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB max
 
+# Google Static Maps 对完整 GET URL 有长度上限（文档 8192，实测更高但不应依赖）。
+# 超过上限会返回 HTTP 400（static_maps_bad_request）。长路线（数百英里）的
+# 完整 polyline 可达 1 万+ 字符，必须按预算抽稀后再发送。
+MAX_URL_LENGTH = 8000
+
 # Allowed content types for Static Maps response
 ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/gif", "image/jpg"}
 
@@ -122,9 +127,29 @@ class GoogleStaticMapsService:
         # Markers and path are added separately (they can contain special chars)
         origin_marker = f"markers=color:green%7Clabel:A%7C{urllib.parse.quote(origin)}"
         dest_marker = f"markers=color:red%7Clabel:B%7C{urllib.parse.quote(destination)}"
-        path_param = f"path=enc:{urllib.parse.quote(encoded_polyline)}"
+        parts = [origin_marker, dest_marker]
+        fitted = self._fit_path(encoded_polyline, self._path_budget(query_string, parts))
+        if fitted is None:
+            logger.warning(
+                "Static Maps path too long even simplified (%s source chars)",
+                len(encoded_polyline),
+            )
+            return StaticMapResult(
+                success=False,
+                status="failed",
+                error="static_maps_url_too_long",
+            )
+        path_param = f"path=enc:{urllib.parse.quote(fitted)}"
 
-        full_url = f"{STATIC_MAPS_URL}?{query_string}&{origin_marker}&{dest_marker}&{path_param}"
+        full_url = f"{STATIC_MAPS_URL}?{query_string}&" + "&".join(parts + [path_param])
+        if len(full_url) > MAX_URL_LENGTH:
+            # Defensive: pathological addresses can also blow the limit.
+            logger.warning("Static Maps URL too long: %s chars", len(full_url))
+            return StaticMapResult(
+                success=False,
+                status="failed",
+                error="static_maps_url_too_long",
+            )
 
         last_error = None
         for attempt in range(MAX_RETRIES + 1):
@@ -211,3 +236,47 @@ class GoogleStaticMapsService:
         """Exponential backoff: 1s, 2s, 4s..."""
         delay = RETRY_BASE_DELAY * (2 ** attempt)
         time.sleep(delay)
+
+    def _path_budget(self, query_string: str, parts: list) -> int:
+        """Characters available for the quoted `path=enc:...` part."""
+        overhead = len(f"{STATIC_MAPS_URL}?{query_string}&")
+        overhead += sum(len(part) + 1 for part in parts)
+        overhead += len("path=enc:")
+        return MAX_URL_LENGTH - overhead
+
+    def _fit_path(self, encoded_polyline: str, budget: int) -> Optional[str]:
+        """Return a polyline whose URL-quoted form fits `budget`, else None.
+
+        The original polyline is kept when it already fits; otherwise it is
+        simplified with Douglas-Peucker at increasing tolerances. At evidence
+        map resolution the simplified geometry is visually equivalent, and it
+        keeps the URL under Google Static Maps' length limit (over-long URLs
+        return HTTP 400 / static_maps_bad_request, e.g. a ~600-mile route
+        whose full polyline is ~12k chars).
+        """
+        if len(urllib.parse.quote(encoded_polyline)) <= budget:
+            return encoded_polyline
+        from travel_tools.polyline import (
+            SIMPLIFY_TOLERANCES_M,
+            decode_polyline,
+            douglas_peucker,
+            encode_polyline,
+        )
+
+        try:
+            points = decode_polyline(encoded_polyline)
+        except ValueError:
+            return None
+        if len(points) < 2:
+            return None
+        for tolerance in SIMPLIFY_TOLERANCES_M:
+            candidate = encode_polyline(douglas_peucker(points, tolerance))
+            if len(urllib.parse.quote(candidate)) <= budget:
+                logger.info(
+                    "Static Maps polyline simplified: %s -> %s chars (tolerance %sm)",
+                    len(encoded_polyline),
+                    len(candidate),
+                    tolerance,
+                )
+                return candidate
+        return None
