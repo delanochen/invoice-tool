@@ -15,7 +15,7 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       {{ contract.contract_number }}
-      <small>{{ contract.title }} · {{ client.name }} · {{ contract_type_labels[contract.contract_type] }}</small>
+      <small><span data-i18n-skip translate="no">{{ contract.title }} · {{ client.name }}</span> · {{ contract_type_labels[contract.contract_type] }}</small>
     </div>
     <span class="status {{ contract.status }}">{{ contract_status_labels[contract.status] }}</span>
     <span class="erp-toolbar-spacer"></span>

@@ -84,7 +84,7 @@
     <div>
       <p class="eyebrow">工作日报</p>
       <h1>{{ "复制日报" if source_report else "工作日报" }}</h1>
-      <p class="muted-line">{{ order.client_name }} · {{ order.client_order_number }}</p>
+      <p class="muted-line" data-i18n-skip translate="no">{{ order.client_name }} · {{ order.client_order_number }}</p>
     </div>
     <div class="actions">
       {% if is_edit and adjacent_reports %}
@@ -215,7 +215,7 @@
             {% for worker in worker_rows %}
               {% set worker_trip = worker.trip_type or 'round_trip' %}
               <tr tabindex="0" aria-selected="false">
-                <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}" {% if worker.id == user.id %}selected{% endif %}>{{ user.name }}</option>{% endfor %}</select></td>
+                <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}" data-i18n-skip translate="no" {% if worker.id == user.id %}selected{% endif %}>{{ user.name }}</option>{% endfor %}</select></td>
                 <td><select name="worker_travel_mode"><option value="self_drive" {% if worker.travel_mode in ['self_drive', 'legacy'] %}selected{% endif %}>自驾</option><option value="rental_drive" {% if worker.travel_mode == 'rental_drive' %}selected{% endif %}>租车驾驶</option><option value="flight" {% if worker.travel_mode == 'flight' %}selected{% endif %}>飞机</option><option value="following" {% if worker.travel_mode == 'following' %}selected{% endif %}>随行</option></select></td>
                 <td><select name="worker_trip_type"><option value="round_trip" {% if worker_trip == 'round_trip' %}selected{% endif %}>往返</option><option value="one_way" {% if worker_trip == 'one_way' %}selected{% endif %}>单程</option></select></td>
                 <td><input name="worker_origin" value="{{ worker.origin_address or '' }}" placeholder="留空则由辅助填写取员工主数据地址"></td>
@@ -228,7 +228,7 @@
         </table>
       </div>
       <template id="serviceWorkerRowTemplate"><tr tabindex="0" aria-selected="false">
-        <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}">{{ user.name }}</option>{% endfor %}</select></td>
+        <td><select name="worker_user_id" required><option value="">请选择</option>{% for user in users %}<option value="{{ user.id }}" data-i18n-skip translate="no">{{ user.name }}</option>{% endfor %}</select></td>
         <td><select name="worker_travel_mode"><option value="self_drive">自驾</option><option value="rental_drive">租车驾驶</option><option value="flight">飞机</option><option value="following">随行</option></select></td>
         <td><select name="worker_trip_type"><option value="round_trip">往返</option><option value="one_way">单程</option></select></td>
         <td><input name="worker_origin" placeholder="留空则由辅助填写取员工主数据地址"></td>

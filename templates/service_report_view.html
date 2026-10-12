@@ -78,7 +78,7 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       现场服务日报
-      <small>{{ order.client_name }}{% if order.client_order_number %} · {{ order.client_order_number }}{% endif %}</small>
+      <small data-i18n-skip translate="no">{{ order.client_name }}{% if order.client_order_number %} · {{ order.client_order_number }}{% endif %}</small>
     </div>
     <span class="erp-badge">{{ report.report_date }}</span>
     <span class="erp-badge">服务人员 {{ workers|length }} 人</span>
@@ -208,7 +208,7 @@
   <table class="sign-grid" style="margin-top:1rem;">
     <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
     <tr><td>报告人签字：</td><td>现场服务人员：</td></tr>
-    <tr><td class="translatable-text">报告时间：{{ report.report_date or "" }}</td><td class="translatable-text">公司：{{ company.name }}</td></tr>
+    <tr><td class="translatable-text">报告时间：{{ report.report_date or "" }}</td><td class="translatable-text">公司：<span data-i18n-skip translate="no">{{ company.name }}</span></td></tr>
   </table>
 </div>
       </div>

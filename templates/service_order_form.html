@@ -13,7 +13,7 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       {{ form_title }}
-      <small>{% if order %}{{ order.order_number }} · {{ order.client_name }}{% else %}新建服务工单{% endif %}</small>
+      <small{% if order %} data-i18n-skip translate="no"{% endif %}>{% if order %}{{ order.order_number }} · {{ order.client_name }}{% else %}新建服务工单{% endif %}</small>
     </div>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">

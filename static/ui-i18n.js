@@ -4692,11 +4692,16 @@
   // option 文本可能是数据（人名、站点名等），只做整词精确翻译，避免
   // “高阳”→“High阳”这类部分翻译破坏；整词键（“请选择”→“Please select”）仍生效。
   const partialSelector = "label, button, summary, th, h1, h2, h3, legend, small, .eyebrow, .muted-line, .empty, .field-error, .status, .flash, .map-summary, .map-attribution-note, .translatable-text, .erp-badge, .erp-summary-item, .erp-status";
+  // 主数据是业务事实，不是界面文案。人名、公司名、站点名等即使恰好包含
+  // 字典词（例如“高阳”中的“高”），也必须原样显示。模板可用此属性给动态
+  // 数据划定边界；option 和表格数据仍保留下面的自动保护。
+  const dataSelector = "[data-i18n-skip], [translate='no'], .notranslate";
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentElement?.closest("script, style")) continue;
+    if (node.parentElement?.closest(dataSelector)) continue;
     // option 文本是数据（人名、站点名等），即使被 label/button 等部分翻译
     // 容器包裹，也一律整词精确翻译，避免 “高阳”→“High阳” 这类拆坏。
     const allowPartial = Boolean(
@@ -4711,6 +4716,7 @@
   }
 
   for (const element of document.querySelectorAll("[placeholder], [title], [aria-label]")) {
+    if (element.closest(dataSelector)) continue;
     for (const attribute of ["placeholder", "title", "aria-label"]) {
       if (!element.hasAttribute(attribute)) continue;
       const translated = translate(element.getAttribute(attribute), true);
@@ -4804,6 +4810,7 @@
   const translateElement = (element) => {
     if (element.nodeType === Node.TEXT_NODE) {
       const parent = element.parentElement;
+      if (parent?.closest(dataSelector)) return;
       if (!parent?.closest(partialSelector)) return;
       // .grid-cell-content 是表格单元格的镜像容器：其直接文本是数据值（合同名称、
       // 客户/员工姓名、厂家、日期、金额等），只允许整词精确翻译（完整字典键）。
@@ -4816,15 +4823,18 @@
       return;
     }
     if (!(element instanceof Element)) return;
+    if (element.closest(dataSelector)) return;
     const targets = element.matches(partialSelector)
       ? [element]
       : [...element.querySelectorAll(partialSelector)];
     for (const target of targets) {
+      if (target.closest(dataSelector)) continue;
       // 同上：单元格容器本身只整词翻译；容器内层 UI 元素（span.status / label /
       // option / small 等）仍走部分翻译，因为它们由模板显式标记，不是数据值。
       const partial = !target.classList.contains("grid-cell-content");
       for (const node of [...target.childNodes]) {
         if (node.nodeType !== Node.TEXT_NODE) continue;
+        if (node.parentElement?.closest(dataSelector)) continue;
         const translated = translate(node.nodeValue, partial);
         if (translated) node.nodeValue = translated;
       }
