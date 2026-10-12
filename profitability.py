@@ -239,6 +239,18 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
             # 保证选中员工的工时分摊与不筛选时完全一致。
             if employee_id and worker["user_id"] != employee_id:
                 continue
+            fixed_agreement = api["db"]().execute(
+                """
+                select * from service_order_employee_settlements
+                where service_order_id=? and employee_id=?
+                  and settlement_mode='fixed' and status in ('confirmed','paid')
+                """,
+                (report["service_order_id"], worker["user_id"]),
+            ).fetchone()
+            # 一口价员工的日报数量继续存在，但不能再形成按小时、里程或补贴成本。
+            # 固定成本在下方按「工单+员工」只生成一次。
+            if fixed_agreement:
+                continue
             for item_type, quantity, unit in _labor_components(api, report, worker, worker_count):
                 if quantity <= 0:
                     continue
@@ -290,6 +302,48 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
                 })
             # 补贴类成本（餐补 / 复杂日报补贴）与上面 6 类工时无关，独立成行。
             _append_subsidy_lines(lines, report, worker, work_date, writing_fee, seen_meal_days)
+    fixed_clauses = [
+        "s.settlement_mode='fixed'", "s.status in ('confirmed','paid')",
+        "s.settlement_date between ? and ?",
+    ]
+    fixed_params = [start_date, end_date]
+    if order_id:
+        fixed_clauses.append("s.service_order_id=?")
+        fixed_params.append(order_id)
+    if employee_id:
+        fixed_clauses.append("s.employee_id=?")
+        fixed_params.append(employee_id)
+    fixed_rows = api["db"]().execute(
+        f"""
+        select s.*, u.name as employee_name, so.order_number, so.client_name,
+               so.status as order_status,
+               exists(select 1 from customer_reimbursements cr where cr.service_order_id=so.id) as has_settlement,
+               exists(select 1 from invoices inv where inv.service_order_id=so.id and inv.status!='void') as has_invoice
+        from service_order_employee_settlements s
+        join users u on u.id=s.employee_id
+        join service_orders so on so.id=s.service_order_id
+        where {' and '.join(fixed_clauses)}
+        order by s.settlement_date, so.order_number, u.name
+        """,
+        fixed_params,
+    ).fetchall()
+    for fixed in fixed_rows:
+        cost = _money(fixed["fixed_amount"])
+        lines.append({
+            "work_date": fixed["settlement_date"], "service_order_id": fixed["service_order_id"],
+            "order_number": fixed["order_number"], "client_name": fixed["client_name"],
+            "employee_id": fixed["employee_id"], "employee_name": fixed["employee_name"],
+            "category": "labor", "item_type": "fixed_project_compensation",
+            "item_label": "项目固定报酬（全包）", "quantity": 1.0, "unit": "project",
+            "client_rate": 0.0, "employee_rate": float(cost), "revenue": 0.0,
+            "cost": float(cost), "profit": -float(cost),
+            "client_rate_source": "not_client_billed", "employee_rate_source": "project_fixed_price",
+            "contract_rate_version_id": None, "employee_rate_version_id": None,
+            "source_type": "employee_fixed_settlement", "source_id": fixed["id"],
+            "source_line_id": fixed["id"], "allocation_method": "direct",
+            "status": _line_status(fixed["order_status"], fixed["has_settlement"], fixed["has_invoice"]),
+            "incomplete": False,
+        })
     return lines
 
 

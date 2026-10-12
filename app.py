@@ -79,6 +79,11 @@ from invoice_tool.payroll import (
     register_payroll_routes,
 )
 from invoice_tool.quotations.routes import register_quotation_routes
+from invoice_tool.order_employee_settlements import (
+    employee_expense_block_reason,
+    order_employee_settlement_rows,
+    register_order_employee_settlement_routes,
+)
 from invoice_tool.commercial_documents import (
     document_config,
     document_rates,
@@ -89,6 +94,7 @@ from invoice_tool.commercial_billing import (
     canonical_commercial_rate_key,
     driving_rate_missing,
     driving_transport_amount,
+    normalize_settlement_mode,
     quote_amounts,
     resolve_quote_settlement,
 )
@@ -5253,6 +5259,36 @@ def customer_reimbursement_other_invoice_breakdown(reimbursement_id):
 
 
 def customer_reimbursement_invoice_items(reimbursement):
+    # 客户固定总价是一项完整的 Technical Services 服务。内部工时、里程、
+    # 报销和材料仍用于成本/利润核算，但绝不能拆成额外的客户发票行。
+    if reimbursement["settlement_basis"] == "quotation" and reimbursement["quotation_revision_id"]:
+        quotation_revision = db().execute(
+            "select * from quotation_revisions where id = ?",
+            (reimbursement["quotation_revision_id"],),
+        ).fetchone()
+        snapshot = _parse_quotation_revision_snapshot(quotation_revision) if quotation_revision else {}
+        if normalize_settlement_mode(snapshot.get("settlement_mode")) == "fixed":
+            project = db().execute(
+                """
+                select * from projects
+                where project_type = 'invoice' and lower(trim(name)) = lower('Technical Services')
+                order by is_active desc, id asc limit 1
+                """
+            ).fetchone()
+            if not project:
+                raise ValueError("请先在项目维护中创建发票项目：Technical Services。")
+            final_amount = quote_amounts(
+                snapshot.get("gross_total") or quotation_revision["total"] or 0,
+                snapshot.get("discount_amount") or 0,
+            )["final_amount"]
+            if final_amount <= 0:
+                raise ValueError("报价单最终金额为 0，无法生成发票。")
+            return [{
+                "project_id": project["id"],
+                "amount": money_float(final_amount),
+                "tax_rate": project["tax_rate"],
+            }]
+
     breakdown = customer_reimbursement_other_invoice_breakdown(reimbursement["id"])
     if not breakdown and money_float(money_decimal(reimbursement["mro_supplies_total"])) > 0:
         # 旧结算单没有 auto_expense_sources 记录时的兜底：按 MRO 快照金额开一行，
@@ -13688,6 +13724,11 @@ def service_order_detail(order_id):
     expense_total = sum((Decimal(str(row["amount"] or 0)) for row in expenses_rows), Decimal("0"))
     expense_currency = expenses_rows[0]["currency"] if expenses_rows else "USD"
     customer_reimbursement = latest_customer_reimbursement(order_id) if can_view_customer_reimbursement() else None
+    employee_settlements = (
+        order_employee_settlement_rows(db(), order_id)
+        if normalized_role() in {"admin", "manager", "finance"}
+        else []
+    )
     # 结算明细：工单详情页的「工单结算」面板按只读表格展示（此前只有小计/合计，
     # 明细只在编辑页可见）。金额口径与编辑页一致——差旅各项走
     # customer_reimbursement_item_expense_amount()「手改优先、绝不与 auto 相加」。
@@ -13714,6 +13755,8 @@ def service_order_detail(order_id):
         expense_currency=expense_currency,
         customer_reimbursement=customer_reimbursement,
         settlement_items=settlement_items,
+        employee_settlements=employee_settlements,
+        can_manage_employee_settlements=normalized_role() in {"admin", "manager", "finance"},
         can_delete_order=can_delete_service_order() and not delete_blockers,
         delete_blockers=delete_blockers,
         photo_summary=photo_summary,
@@ -15681,6 +15724,9 @@ def new_expense(order_id):
             if submit_for_review and not business_purpose:
                 raise ValueError("请填写业务用途后再提交报销。")
             beneficiary = posted_expense_beneficiary()
+            fixed_price_reason = employee_expense_block_reason(db(), order_id, beneficiary["id"])
+            if fixed_price_reason:
+                raise ValueError(fixed_price_reason)
             item_rows = expense_items_from_form()
             total_amount = sum(item["amount"] for item in item_rows)
             project_names = ", ".join(dict.fromkeys(item["project"]["name"] for item in item_rows))
@@ -15810,6 +15856,11 @@ def edit_expense(expense_id):
             if submit_for_review and not business_purpose:
                 raise ValueError("请填写业务用途后再提交报销。")
             beneficiary = posted_expense_beneficiary(expense)
+            fixed_price_reason = employee_expense_block_reason(
+                db(), order["id"], beneficiary["id"]
+            )
+            if fixed_price_reason:
+                raise ValueError(fixed_price_reason)
             item_rows = expense_items_from_form(expense_id)
             total_amount = sum(item["amount"] for item in item_rows)
             project_names = ", ".join(dict.fromkeys(item["project"]["name"] for item in item_rows))
@@ -18214,6 +18265,7 @@ cpa_workpaper_export = _payroll_routes["cpa_workpaper_export"]
 
 register_employee_finance_routes(app, globals())
 register_expense_smart_fill_routes(app, globals())
+register_order_employee_settlement_routes(app, globals())
 
 # ---------------------------------------------------------------------------
 # Quotation / 报价单：业务模块在 invoice_tool/quotations/ 下，这里只做组装。

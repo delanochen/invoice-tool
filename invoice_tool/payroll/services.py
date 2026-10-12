@@ -150,6 +150,27 @@ def build_payroll_services(api):
         subsidy_settings = api["payroll_subsidy_settings"]()
         rows = api["labor_report_entries"](period_start.isoformat(), period_end.isoformat(), worker_id, date_mode=date_mode)
 
+        fixed_agreements = api["db"]().execute(
+            """
+            select s.*, u.name as worker_name, eg.grade_name, eg.base_salary,
+                   eg.meal_daily_amount, eg.car_mileage_rate, eg.rental_driving_hourly_rate,
+                   eg.standard_hourly_rate, eg.transport_hourly_rate,
+                   eg.overtime_hourly_rate, eg.holiday_hourly_rate,
+                   so.order_number, so.client_name
+            from service_order_employee_settlements s
+            join users u on u.id=s.employee_id
+            left join employee_grades eg on eg.id=u.employee_grade_id
+            join service_orders so on so.id=s.service_order_id
+            where s.settlement_mode='fixed' and s.status in ('confirmed','paid')
+            """
+        ).fetchall()
+        fixed_pairs = {(row["service_order_id"], row["employee_id"]) for row in fixed_agreements}
+        # 全包价员工的日报仍在数据库中，但不进入任何按量工资/补贴计算。
+        rows = [
+            row for row in rows
+            if (row["service_order_id"], row["worker_id"]) not in fixed_pairs
+        ]
+
         def rate_resolver(worker_id, work_date, rate_type):
             return employee_rate(api["db"](), worker_id, work_date, rate_type)["rate"]
 
@@ -167,19 +188,71 @@ def build_payroll_services(api):
                employee_grades.car_allowance_method, employee_grades.car_mileage_rate,
                employee_grades.rental_driving_hourly_rate,
                employee_grades.transport_hourly_rate, employee_grades.overtime_hourly_rate,
-               employee_grades.holiday_hourly_rate, count(service_reports.id) as report_writing_count
+               employee_grades.holiday_hourly_rate, count(service_reports.id) as report_writing_count,
+               service_reports.service_order_id
                {f', {date_expr} as attendance_date, service_reports.service_order_id, service_orders.order_number, service_orders.client_name, service_reports.id as report_id' if detail else ''}
         from service_reports join users on users.id = service_reports.report_writer_id
         join service_orders on service_orders.id = service_reports.service_order_id
         left join employee_grades on employee_grades.id = users.employee_grade_id
         where {" and ".join(clauses)}
-        group by users.id, employee_grades.id {', service_reports.id, service_orders.id' if detail else ''}
+        group by users.id, employee_grades.id, service_reports.service_order_id {', service_reports.id, service_orders.id' if detail else ''}
         """, params,
         ).fetchall()
-        return rows, writer_rows, subsidy_settings, rate_resolver
+        writer_rows = [
+            row for row in writer_rows
+            if (row["service_order_id"], row["worker_id"]) not in fixed_pairs
+        ]
+        payable_fixed = [
+            row for row in fixed_agreements
+            if row["settlement_date"]
+            and period_start.isoformat() <= str(row["settlement_date"]) <= period_end.isoformat()
+            and (not worker_id or str(row["employee_id"]) == str(worker_id))
+        ]
+        return rows, writer_rows, subsidy_settings, rate_resolver, payable_fixed
+
+    def _apply_fixed_project_pay(payroll_rows, totals, fixed_rows, detail=False):
+        for fixed in fixed_rows:
+            amount = float(fixed["fixed_amount"] or 0)
+            target = None
+            if not detail:
+                target = next((row for row in payroll_rows if row["worker_id"] == fixed["employee_id"]), None)
+            if target is None:
+                target = {
+                    "worker_id": fixed["employee_id"], "worker_name": fixed["worker_name"],
+                    "grade_name": fixed["grade_name"] or "未指定", "base_salary": 0.0,
+                    "meal_daily_amount": float(fixed["meal_daily_amount"] or 0),
+                    "car_allowance_method": "mileage", "car_mileage_rate": 0.0,
+                    "rental_driving_hourly_rate": 0.0, "standard_rate": 0.0,
+                    "transport_rate": 0.0, "overtime_rate": 0.0, "holiday_rate": 0.0,
+                    "standard_hours": 0.0, "transport_hours": 0.0, "overtime_hours": 0.0,
+                    "holiday_hours": 0.0, "attendance_dates": set(), "attendance_days": 0,
+                    "driving_miles": 0.0, "self_drive_travel_hours": 0.0,
+                    "following_travel_hours": 0.0, "rental_driving_hours": 0.0,
+                    "rental_driving_miles": 0.0, "report_writing_count": 0,
+                    "standard_pay": 0.0, "transport_pay": 0.0, "overtime_pay": 0.0,
+                    "holiday_pay": 0.0, "self_drive_allowance": 0.0,
+                    "following_allowance": 0.0, "rental_driving_allowance": 0.0,
+                    "car_allowance": 0.0, "meal_allowance": 0.0,
+                    "report_writing_fee": 0.0, "subsidy_total": 0.0, "total_pay": 0.0,
+                }
+                if detail:
+                    target.update(
+                        attendance_date=str(fixed["settlement_date"]),
+                        service_order_id=fixed["service_order_id"],
+                        order_number=fixed["order_number"], client_name=fixed["client_name"],
+                        report_ids=set(), attendance_bucket=False,
+                    )
+                payroll_rows.append(target)
+            target["fixed_project_pay"] = float(target.get("fixed_project_pay", 0)) + amount
+            target["total_pay"] += amount
+        totals["fixed_project_pay"] = sum(float(row["fixed_amount"] or 0) for row in fixed_rows)
+        totals["total_pay"] += totals["fixed_project_pay"]
+        for row in payroll_rows:
+            row.setdefault("fixed_project_pay", 0.0)
+        payroll_rows.sort(key=lambda row: (row["worker_name"], str(row.get("attendance_date", ""))))
 
     def _payroll_rows_for_range(period_start, period_end, pay_date, worker_id="", date_mode="attendance", detail=False):
-        rows, writer_rows, subsidy_settings, rate_resolver = _range_inputs(
+        rows, writer_rows, subsidy_settings, rate_resolver, fixed_rows = _range_inputs(
             period_start, period_end, worker_id, date_mode=date_mode, detail=detail)
         payroll_rows, totals = aggregate_payroll_rows(
             rows,
@@ -189,6 +262,7 @@ def build_payroll_services(api):
             detail=detail,
             rate_resolver=rate_resolver,
         )
+        _apply_fixed_project_pay(payroll_rows, totals, fixed_rows, detail=detail)
         return {"rows": payroll_rows, "totals": totals, "period_start": period_start,
                 "period_end": period_end, "pay_date": pay_date, "subsidy_settings": subsidy_settings}
 
@@ -328,9 +402,18 @@ def build_payroll_services(api):
     def _payroll_payment_components(period_start, worker_id, gross_amount):
         """生成工资付款单用的组件快照（已分类 + 硬校验），返回 (rows, totals)。"""
         period_end, _pay_date = api["payroll_period_dates"](period_start)
-        entries, writer_rows, subsidy_settings, rate_resolver = _range_inputs(
+        entries, writer_rows, subsidy_settings, rate_resolver, fixed_rows = _range_inputs(
             period_start, period_end, worker_id, detail=True)
         raw_rows = payroll_component_rows(entries, writer_rows, subsidy_settings, period_start, rate_resolver)
+        for fixed in fixed_rows:
+            raw_rows.append({
+                "worker_id": fixed["employee_id"], "component_code": "standard_pay",
+                "amount": float(fixed["fixed_amount"] or 0), "quantity": 1.0,
+                "unit": "project", "unit_rate": float(fixed["fixed_amount"] or 0),
+                "service_date": str(fixed["settlement_date"]),
+                "work_order_id": fixed["service_order_id"], "order_number": fixed["order_number"],
+                "report_ids": set(), "daily_report_id": None,
+            })
         return build_payment_components(
             raw_rows,
             employee_id=int(worker_id),

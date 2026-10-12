@@ -63,7 +63,7 @@
               <th data-column-group="交通工时">随行时长</th><th data-column-group="交通工时">租车驾驶时长</th><th data-column-group="交通工资">随行补贴</th><th data-column-group="交通工资">租车驾驶补贴</th>
               <th>加班工时</th><th>加班工资</th>
               <th>假期工时</th><th>假期工资</th>
-              <th>自驾车补</th><th>补贴</th>
+              <th>自驾车补</th><th>补贴</th><th>项目一口价</th>
               <th>合计工资</th>
             </tr>
           </thead>
@@ -84,6 +84,7 @@
                 <td>{{ row.holiday_pay|money }}</td>
                 <td>{{ row.self_drive_allowance|money }}</td>
                 <td>{{ row.subsidy_total|money }}</td>
+                <td>{{ row.fixed_project_pay|money }}</td>
                 <td>{{ row.total_pay|money }}</td>
               </tr>
             {% else %}
@@ -110,6 +111,7 @@
               <div class="erp-card-metric"><span>基本工资</span><strong>{{ row.base_salary|money }}</strong></div>
               <div class="erp-card-metric"><span>标准工资</span><strong>{{ row.standard_pay|money }}</strong></div>
               <div class="erp-card-metric"><span>补贴</span><strong>{{ row.subsidy_total|money }}</strong></div>
+              <div class="erp-card-metric"><span>项目一口价</span><strong>{{ row.fixed_project_pay|money }}</strong></div>
               <div class="erp-card-metric"><span>合计工资</span><strong class="pos">{{ row.total_pay|money }}</strong></div>
             </div>
           </article>
@@ -129,6 +131,7 @@
     {{ summary_item('加班工资', totals.overtime_pay|money) }}
     {{ summary_item('假期工资', totals.holiday_pay|money) }}
     {{ summary_item('补贴', totals.subsidy_total|money) }}
+    {{ summary_item('项目一口价', totals.fixed_project_pay|money) }}
     {{ summary_item('合计工资', totals.total_pay|money, 'pos') }}
   </footer>
 

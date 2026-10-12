@@ -55,6 +55,9 @@
   <div class="erp-body">
     <nav class="erp-tabs no-print">
       {{ tab_button('info', '工单信息', true) }}
+      {% if can_manage_employee_settlements %}
+        {{ tab_button('employee-settlements', '人员结算', false, employee_settlements|length) }}
+      {% endif %}
       {{ tab_button('reports', '工作日报', false, reports|length) }}
       {% if not is_external_manager() and not is_external_employee() %}
         {{ tab_button('expenses', '员工报销', false, expenses|length) }}
@@ -120,6 +123,36 @@
         </div>
       </div>
     </section>
+
+    {% if can_manage_employee_settlements %}
+    <section class="erp-panel" data-erp-panel="employee-settlements">
+      <div class="erp-toolbar-group" style="padding:0 0 8px;">
+        <span class="erp-badge">日报记录事实，结算约定决定金额</span>
+        <span class="muted-line">项目一口价为全包价；工时、里程继续记录，但不再生成按量工资、补贴或员工报销。</span>
+      </div>
+      <div class="erp-grid-wrap">
+        <table class="list-table erp-grid">
+          <thead><tr><th>员工</th><th>结算方式</th><th>一口价</th><th>结算日期</th><th>实际工时</th><th>交通工时</th><th>实际里程</th><th>备注</th><th>操作</th></tr></thead>
+          <tbody>
+            {% for row in employee_settlements %}
+              {% set settlement_form_id = 'employee-settlement-' ~ row.employee_id %}
+              <tr data-employee-settlement-row>
+                  <td><form id="{{ settlement_form_id }}" method="post" action="{{ url_for('save_order_employee_settlement', order_id=order.id) }}"></form><input form="{{ settlement_form_id }}" type="hidden" name="employee_id" value="{{ row.employee_id }}"><strong>{{ row.employee_name }}</strong>{% if row.status == 'paid' %}<br><span class="status completed">已付款</span>{% endif %}</td>
+                  <td><select form="{{ settlement_form_id }}" name="settlement_mode" data-settlement-mode {% if row.status == 'paid' %}disabled{% endif %}><option value="actual" {% if row.settlement_mode == 'actual' %}selected{% endif %}>按实际数量</option><option value="fixed" {% if row.settlement_mode == 'fixed' %}selected{% endif %}>项目一口价（全包）</option></select></td>
+                  <td><input form="{{ settlement_form_id }}" type="number" name="fixed_amount" min="0" step="0.01" value="{{ row.fixed_amount or '' }}" data-fixed-field {% if row.settlement_mode != 'fixed' or row.status == 'paid' %}disabled{% endif %}></td>
+                  <td><input form="{{ settlement_form_id }}" type="date" name="settlement_date" value="{{ row.settlement_date or '' }}" data-fixed-field {% if row.settlement_mode != 'fixed' or row.status == 'paid' %}disabled{% endif %}></td>
+                  <td>{{ row.actual_hours|hours }}</td><td>{{ row.travel_hours|hours }}</td><td>{{ '%.2f'|format(row.actual_miles or 0) }}</td>
+                  <td><input form="{{ settlement_form_id }}" name="notes" value="{{ row.notes or '' }}" {% if row.status == 'paid' %}disabled{% endif %}></td>
+                  <td><button form="{{ settlement_form_id }}" class="erp-btn primary" type="submit" {% if row.status == 'paid' %}disabled{% endif %}>保存</button></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="9" class="empty">日报或工单人员分配中还没有员工。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
 
     <!-- Panel 2：工作日报 -->
     <section class="erp-panel" data-erp-panel="reports" data-selectable-scope>
@@ -466,4 +499,16 @@
 {% block scripts %}
   <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='selectable-table-actions.js', v=app_version) }}"></script>
+  <script>
+    document.querySelectorAll('[data-employee-settlement-row]').forEach((row) => {
+      const mode = row.querySelector('[data-settlement-mode]');
+      if (!mode) return;
+      const sync = () => row.querySelectorAll('[data-fixed-field]').forEach((field) => {
+        field.disabled = mode.disabled || mode.value !== 'fixed';
+        field.required = !field.disabled;
+      });
+      mode.addEventListener('change', sync);
+      sync();
+    });
+  </script>
 {% endblock %}

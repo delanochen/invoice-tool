@@ -37,6 +37,7 @@ def register_expense_smart_fill_routes(app, deps):
     require_service_order = deps["require_service_order"]
     require_service_order_start_date = deps["require_service_order_start_date"]
     expense_beneficiary_options = deps["expense_beneficiary_options"]
+    employee_expense_block_reason = deps["employee_expense_block_reason"]
     next_expense_number = deps["next_expense_number"]
     now = deps["now"]
     log_action = deps["log_action"]
@@ -81,6 +82,10 @@ def register_expense_smart_fill_routes(app, deps):
             valid_people = {str(row["id"]): row for row in expense_beneficiary_options()}
             if raw_beneficiary not in valid_people:
                 flash("请选择有效的报销归属员工。", "error")
+                return redirect(request.url)
+            block_reason = employee_expense_block_reason(db(), order_id, int(raw_beneficiary))
+            if block_reason:
+                flash(block_reason, "error")
                 return redirect(request.url)
             uploads = [item for item in request.files.getlist("attachments") if item and item.filename]
             if not uploads:
@@ -187,6 +192,12 @@ def register_expense_smart_fill_routes(app, deps):
     def expense_smart_fill_generate(token):
         folder, manifest = load_manifest(token)
         order = require_service_order(manifest["order_id"])
+        block_reason = employee_expense_block_reason(
+            db(), order["id"], manifest["beneficiary_id"]
+        )
+        if block_reason:
+            flash(block_reason, "error")
+            return redirect(url_for("service_order_detail", order_id=order["id"]))
         available = {str(row["id"]): row for row in projects()}
         mode = request.form.get("generation_mode", "single")
         rows = []

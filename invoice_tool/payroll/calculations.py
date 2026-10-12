@@ -161,7 +161,7 @@ def _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detai
             worker["report_writing_count"] += int(row["report_writing_count"] or 0)
             worker["report_ids"].add(row["report_id"])
         else:
-            ensure_worker(row)["report_writing_count"] = int(row["report_writing_count"] or 0)
+            ensure_worker(row)["report_writing_count"] += int(row["report_writing_count"] or 0)
 
     return payroll
 
