@@ -49,8 +49,11 @@ OLD_COMMIT="$(git rev-parse HEAD)"
 git fetch --quiet origin "$BRANCH"
 NEW_COMMIT="$(git rev-parse "origin/$BRANCH")"
 if [ "$OLD_COMMIT" = "$NEW_COMMIT" ] && [ "$(docker inspect invoice-tool-test --format '{{.State.Running}}' 2>/dev/null || true)" = "true" ]; then
-  log "already current: $OLD_COMMIT"
-  exit 0
+  if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null && verify_runtime; then
+    log "already current and healthy: $OLD_COMMIT"
+    exit 0
+  fi
+  log "current test container is unhealthy; rebuilding $NEW_COMMIT"
 fi
 
 log "deploying test commit $NEW_COMMIT"
