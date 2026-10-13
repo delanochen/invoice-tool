@@ -94,6 +94,7 @@ from invoice_tool.commercial_billing import (
     canonical_commercial_rate_key,
     driving_rate_missing,
     driving_transport_amount,
+    normalize_driving_mode,
     normalize_settlement_mode,
     quote_amounts,
     resolve_quote_settlement,

@@ -402,6 +402,28 @@ class TestQuotations(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertIn(row["quotation_number"], detail.get_data(as_text=True))
 
+    def test_quotation_settlement_seed_rows_does_not_crash(self):
+        """回归：按报价结算的结算行生成不得抛 NameError（曾因
+        normalize_driving_mode 未导入导致生产 500，见 build_quotation_settlement_rows）。"""
+        self._login_finance()
+        row = self._create_quotation()
+        self.client.post("/service-orders/new", data=self._service_order_payload(row["id"]))
+        with _db() as db:
+            order = db.execute(
+                "select service_orders.* from service_orders order by id desc limit 1"
+            ).fetchone()
+            rev = db.execute(
+                "select quotation_revisions.* from quotation_revisions "
+                "where quotation_id = ? order by revision_no desc limit 1",
+                (row["id"],),
+            ).fetchone()
+        self.assertEqual(order["settlement_basis"], "quotation")
+        self.assertIsNotNone(rev)
+        with self.app.test_request_context():
+            rows = app_module.customer_reimbursement_seed_rows(order["id"])
+        # 该工单还没有服务日报 → 无结算行，但整条链路不得抛异常
+        self.assertEqual(rows, [])
+
     def test_service_order_rejects_mismatched_quotation_client(self):
         self._login_finance()
         # 报价单属于 Client A；工单客户选 Client B → 拒绝且不插入工单
