@@ -37,6 +37,9 @@
     {% block head %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}" data-grid-user="{{ g.user.id if g.user else '' }}">
+    {% if deployment_env == 'test' %}
+      <div class="test-environment-banner" role="status">测试系统 · 数据和操作不得用于正式业务</div>
+    {% endif %}
     {# 导航图标 sprite（v0.1.307）：二/三级子菜单前面那个小图标。
        全部菜单项共用这一份 24 格线性图标，stroke / fill 由 .nav-item-icon 的 CSS 统一给，
        symbol 里只写形状 —— 否则每个 <a> 都要内联一份 svg，一处改字形要改几十处。

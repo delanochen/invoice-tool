@@ -712,6 +712,7 @@ DEFAULT_SITE_OWNER_NAMES = {
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+app.config["DEPLOYMENT_ENV"] = os.environ.get("DEPLOYMENT_ENV", "production").strip().lower()
 # Persistent login session for mobile PWA: without session.permanent the
 # cookie is a browser-session cookie and iOS Safari discards it every time
 # the PWA is closed, forcing a re-login.
@@ -7027,6 +7028,7 @@ def inject_globals():
         "supported_languages": SUPPORTED_LANGUAGES,
         "can_manage_company_info": can_manage_company_info,
         "app_version": APP_VERSION,
+        "deployment_env": app.config["DEPLOYMENT_ENV"],
         "production_postgres": True,
     }
 
@@ -17632,6 +17634,8 @@ def send_invoice_email(invoice_id):
 
 
 def send_email(to, subject, html, attachments=None):
+    if app.config.get("DEPLOYMENT_ENV") == "test":
+        raise RuntimeError("测试系统禁止发送真实邮件。")
     smtp_settings = get_smtp_settings()
     host = smtp_settings["host"].strip()
     if not host:

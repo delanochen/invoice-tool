@@ -3164,3 +3164,16 @@ body.service-order-map-page {
 .assist-plan-row input { margin-top: 2px; flex: 0 0 auto; }
 .assist-plan-row input:disabled + span { color: #6b7280; }
 .assist-warnings { margin: 8px 0 0 18px; color: #b42318; font-size: 12.5px; }
+/* Persistent environment guard: test must never be visually confused with production. */
+.test-environment-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10000;
+  padding: 7px 12px;
+  background: #b91c1c;
+  color: #fff;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: .04em;
+}
+

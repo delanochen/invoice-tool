@@ -1,0 +1,30 @@
+services:
+  invoice-tool-test:
+    build:
+      context: ..
+      args:
+        APP_VERSION: "${APP_VERSION:-0.0.0}"
+    image: invoice-tool-test:${APP_VERSION:-latest}
+    container_name: invoice-tool-test
+    restart: unless-stopped
+    env_file:
+      - ${TEST_APP_ENV_FILE:-/srv/invoice-tool-test/app.env}
+    environment:
+      DEPLOYMENT_ENV: test
+      REQUIRE_DATA_DIRECTORY_IDENTITY: "0"
+      SHARED_PHOTOS_DIR: /app/shared-photos
+    ports:
+      - "127.0.0.1:8089:8000"
+    volumes:
+      - /srv/invoice-tool-test/data:/app/data
+      - /srv/invoice-tool-test/shared-photos:/app/shared-photos
+    networks:
+      - test_default
+      - postgres_internal
+
+networks:
+  test_default:
+    name: invoice-tool-test_default
+  postgres_internal:
+    external: true
+    name: invoice-tool_postgres_internal

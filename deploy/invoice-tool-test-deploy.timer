@@ -1,0 +1,11 @@
+[Unit]
+Description=Check staging branch for Invoice Tool test updates
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=20
+Persistent=true
+
+[Install]
+WantedBy=timers.target
