@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import unittest
 from unittest.mock import patch
 
@@ -7,7 +8,10 @@ import tests_pg
 tests_pg.activate()
 
 import app as app_module  # noqa: E402
-from invoice_tool.order_employee_settlements import employee_expense_block_reason  # noqa: E402
+from invoice_tool.order_employee_settlements import (  # noqa: E402
+    employee_expense_block_reason,
+    order_employee_settlement_rows,
+)
 
 
 class _Cursor:
@@ -45,6 +49,45 @@ class _ExpenseBlockConnection:
 
 
 class OrderEmployeeSettlementRulesTest(unittest.TestCase):
+    def test_employee_actuals_reuse_report_duration_and_include_public_transport(self):
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.executescript(
+            """
+            create table users (id integer primary key, name text);
+            create table user_service_orders (service_order_id integer, user_id integer);
+            create table service_reports (
+                id integer primary key, service_order_id integer, total_service_hours real,
+                arrival_time text, departure_time text
+            );
+            create table service_report_workers (
+                report_id integer, user_id integer, travel_hours real,
+                public_transport_hours real, driving_miles real
+            );
+            create table service_order_employee_settlements (
+                service_order_id integer, employee_id integer, settlement_mode text,
+                fixed_amount real, currency text, settlement_date text, status text, notes text
+            );
+            insert into users values (1, '高阳'), (2, '陈亦城');
+            insert into service_reports values (10, 7, 0, '08:00', '16:00');
+            insert into service_report_workers values
+                (10, 1, 2, 1, 100), (10, 2, 3, 0.5, 100);
+            """
+        )
+        calls = []
+
+        def duration(report, worker_count):
+            calls.append((report["arrival_time"], report["departure_time"], worker_count))
+            return 8
+
+        rows = order_employee_settlement_rows(connection, 7, duration)
+        by_id = {row["employee_id"]: row for row in rows}
+        self.assertEqual(by_id[1]["actual_hours"], 8)
+        self.assertEqual(by_id[1]["travel_hours"], 3)
+        self.assertEqual(by_id[2]["travel_hours"], 3.5)
+        self.assertEqual(by_id[2]["actual_miles"], 100)
+        self.assertEqual(calls, [("08:00", "16:00", 2), ("08:00", "16:00", 2)])
+
     def test_fixed_customer_quote_creates_exactly_one_technical_services_line(self):
         reimbursement = {
             "id": 3,

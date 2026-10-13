@@ -13725,7 +13725,7 @@ def service_order_detail(order_id):
     expense_currency = expenses_rows[0]["currency"] if expenses_rows else "USD"
     customer_reimbursement = latest_customer_reimbursement(order_id) if can_view_customer_reimbursement() else None
     employee_settlements = (
-        order_employee_settlement_rows(db(), order_id)
+        order_employee_settlement_rows(db(), order_id, report_duration_hours)
         if normalized_role() in {"admin", "manager", "finance"}
         else []
     )

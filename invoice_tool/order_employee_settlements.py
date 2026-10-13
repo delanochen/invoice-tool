@@ -141,9 +141,9 @@ def register_order_employee_settlement_routes(app, api):
     return {"save_order_employee_settlement": save_order_employee_settlement}
 
 
-def order_employee_settlement_rows(connection, service_order_id):
+def order_employee_settlement_rows(connection, service_order_id, duration_resolver=None):
     """Employees seen on reports/assignments plus their current agreement and actuals."""
-    return connection.execute(
+    rows = connection.execute(
         """
         with participants as (
             select srw.user_id
@@ -152,33 +152,54 @@ def order_employee_settlement_rows(connection, service_order_id):
             where sr.service_order_id = ?
             union
             select user_id from user_service_orders where service_order_id = ?
-        ), actuals as (
-            select srw.user_id,
-                   coalesce(sum(sr.total_service_hours / nullif(wc.worker_count, 0)), 0) as actual_hours,
-                   coalesce(sum(srw.travel_hours), 0) as travel_hours,
-                   coalesce(sum(srw.driving_miles), 0) as actual_miles
-            from service_report_workers srw
-            join service_reports sr on sr.id = srw.report_id
-            join (
-                select report_id, count(*) as worker_count
-                from service_report_workers group by report_id
-            ) wc on wc.report_id = sr.id
-            where sr.service_order_id = ?
-            group by srw.user_id
         )
         select u.id as employee_id, u.name as employee_name,
                coalesce(s.settlement_mode, 'actual') as settlement_mode,
                coalesce(s.fixed_amount, 0) as fixed_amount,
-               s.currency, s.settlement_date, s.status, s.notes,
-               coalesce(a.actual_hours, 0) as actual_hours,
-               coalesce(a.travel_hours, 0) as travel_hours,
-               coalesce(a.actual_miles, 0) as actual_miles
+               s.currency, s.settlement_date, s.status, s.notes
         from participants p
         join users u on u.id = p.user_id
         left join service_order_employee_settlements s
           on s.service_order_id = ? and s.employee_id = u.id and s.status != 'cancelled'
-        left join actuals a on a.user_id = u.id
         order by u.name, u.id
         """,
-        (service_order_id, service_order_id, service_order_id, service_order_id),
+        (service_order_id, service_order_id, service_order_id),
     ).fetchall()
+    facts = connection.execute(
+        """
+        select srw.user_id, sr.total_service_hours, sr.arrival_time, sr.departure_time,
+               coalesce(srw.travel_hours, 0) as worker_travel_hours,
+               coalesce(srw.public_transport_hours, 0) as worker_public_transport_hours,
+               coalesce(srw.driving_miles, 0) as worker_driving_miles,
+               wc.worker_count
+        from service_report_workers srw
+        join service_reports sr on sr.id = srw.report_id
+        join (
+            select report_id, count(*) as worker_count
+            from service_report_workers group by report_id
+        ) wc on wc.report_id = sr.id
+        where sr.service_order_id = ?
+        order by sr.id, srw.user_id
+        """,
+        (service_order_id,),
+    ).fetchall()
+    totals = {}
+    for fact in facts:
+        total = totals.setdefault(
+            fact["user_id"], {"actual_hours": 0.0, "travel_hours": 0.0, "actual_miles": 0.0}
+        )
+        if duration_resolver:
+            total["actual_hours"] += float(duration_resolver(fact, fact["worker_count"]) or 0)
+        else:
+            total["actual_hours"] += float(fact["total_service_hours"] or 0) / max(fact["worker_count"], 1)
+        total["travel_hours"] += float(fact["worker_travel_hours"] or 0)
+        total["travel_hours"] += float(fact["worker_public_transport_hours"] or 0)
+        total["actual_miles"] += float(fact["worker_driving_miles"] or 0)
+    result = []
+    for row in rows:
+        item = dict(row)
+        item.update(totals.get(row["employee_id"], {
+            "actual_hours": 0.0, "travel_hours": 0.0, "actual_miles": 0.0,
+        }))
+        result.append(item)
+    return result
