@@ -48,7 +48,7 @@ mkdir -p "$BACKUP_DIR" "$STATE_DIR/data" "$STATE_DIR/shared-photos"
 OLD_COMMIT="$(git rev-parse HEAD)"
 git fetch --quiet origin "$BRANCH"
 NEW_COMMIT="$(git rev-parse "origin/$BRANCH")"
-if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
+if [ "$OLD_COMMIT" = "$NEW_COMMIT" ] && [ "$(docker inspect invoice-tool-test --format '{{.State.Running}}' 2>/dev/null || true)" = "true" ]; then
   log "already current: $OLD_COMMIT"
   exit 0
 fi
