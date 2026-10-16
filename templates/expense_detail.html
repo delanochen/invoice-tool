@@ -78,6 +78,9 @@
       {% if can_delete %}
         <form method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}" onsubmit="return confirm('确定删除这张报销单吗？');"><button class="erp-btn" type="submit">删除</button></form>
       {% endif %}
+      {% if expense.status in ["draft", "submitted", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
+        <button class="erp-btn" type="button" onclick="document.querySelector('#cancelExpenseDialog').showModal()">作废</button>
+      {% endif %}
       {% if expense.status == "submitted" and has_action_permission("expenses", "approve") %}
         <form method="post" action="{{ url_for('approve_expense', expense_id=expense.id) }}"><button class="erp-btn primary" type="submit">审核通过</button></form>
         <button class="erp-btn" type="button" onclick="document.querySelector('#returnExpenseDialog').showModal()">退回</button>
@@ -101,6 +104,30 @@
             </div>
           </form>
         </dialog>
+      {% endif %}
+      {% if expense.status in ["draft", "submitted", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
+        <dialog id="cancelExpenseDialog" class="modal">
+          <form method="post" action="{{ url_for('cancel_expense', expense_id=expense.id) }}" class="form-stack">
+            <h2>作废报销单 {{ expense.expense_number }}</h2>
+            <p class="muted-line">作废后保留审计痕迹，不会物理删除。关联的 draft 状态 ER 付款单会自动取消。</p>
+            <label>作废原因 <textarea name="cancel_reason" rows="4" required placeholder="例如：重复报销，与 ER-2609-0065 重复"></textarea></label>
+            <div class="form-actions">
+              <button type="button" onclick="document.querySelector('#cancelExpenseDialog').close()">返回</button>
+              <button class="danger" type="submit">确认作废</button>
+            </div>
+          </form>
+        </dialog>
+      {% endif %}
+      {# 作废横幅 #}
+      {% if expense.status == 'cancelled' %}
+      <section class="panel" style="border-left:6px solid #c62828;margin-bottom:8px;background:#ffebee">
+        <div class="panel-title"><h2 style="color:#c62828">⚠ 本报销单已作废</h2></div>
+        <div style="padding:12px">
+          <p style="margin:4px 0"><strong>作废原因：</strong>{{ expense.cancel_reason or '（未填写）' }}</p>
+          <p style="margin:4px 0;color:#666;font-size:0.9em">作废时间：{{ expense.cancelled_at|local_datetime if expense.cancelled_at else '—' }}</p>
+          <p style="margin:4px 0;color:#666;font-size:0.9em">本单不再计入应付，原始明细保留以备审计。</p>
+        </div>
+      </section>
       {% endif %}
       {% if can_review %}
       <section class="panel" id="aiReviewSection">
