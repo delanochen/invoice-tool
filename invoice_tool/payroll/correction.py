@@ -88,6 +88,8 @@ CORRECTION_STATUSES = (
 NON_PAYABLE_CORRECTION_STATUSES = frozenset(
     {STATUS_CORRECTION_PENDING, STATUS_PARTIALLY_SUPERSEDED, STATUS_SUPERSEDED}
 )
+#: 订单状态层面也不代表应付义务（已取消 / 已驳回）。
+EXCLUDED_ORDER_STATUSES = frozenset({"cancelled", "rejected"})
 #: 不允许再被合并发放的历史单据（含已纠偏标签的已付款单）。
 BATCH_BLOCKED_CORRECTION_STATUSES = NON_PAYABLE_CORRECTION_STATUSES | {
     STATUS_PERIOD_LABEL_CORRECTED
@@ -224,12 +226,19 @@ def build_payroll_correction_services(api):
         return {int(row["component_id"]): dict(row) for row in rows}
 
     def payable_order_clause(order_alias="p"):
-        """仍然代表应付义务的付款单条件（往来账 / 批次 / payable 合计通用）。"""
+        """仍然代表应付义务的付款单条件（往来账 / 批次 / payable 合计通用）。
+
+        同时排除 correction_status（纠偏作废）和 status（手动取消 / 驳回）两层。
+        """
         marks = ",".join(["?"] * len(NON_PAYABLE_CORRECTION_STATUSES))
-        return f"coalesce({order_alias}.correction_status, ?) not in ({marks})"
+        status_marks = ",".join(["?"] * len(EXCLUDED_ORDER_STATUSES))
+        return (
+            f"coalesce({order_alias}.correction_status, ?) not in ({marks})"
+            f" and {order_alias}.status not in ({status_marks})"
+        )
 
     def payable_order_params():
-        return [STATUS_NONE, *sorted(NON_PAYABLE_CORRECTION_STATUSES)]
+        return [STATUS_NONE, *sorted(NON_PAYABLE_CORRECTION_STATUSES), *sorted(EXCLUDED_ORDER_STATUSES)]
 
     def payable_totals(filters=None):
         """correction 之后仍然存在的应付合计（往来账 Gate 用）。
@@ -253,7 +262,7 @@ def build_payroll_correction_services(api):
             clauses.append("p.payment_type = ?")
             params.append(str(filters["payment_type"]))
         rows = api["db"]().execute(
-            "select p.id, p.gross_amount, p.net_amount, p.correction_status"
+            "select p.id, p.gross_amount, p.net_amount, p.correction_status, p.status"
             f" from employee_payment_orders p where {' and '.join(clauses)}",
             params,
         ).fetchall()
@@ -266,8 +275,9 @@ def build_payroll_correction_services(api):
         excluded_count = 0
         for row in rows:
             # Row 不支持 .get()（INVOICE 约定），缺列会抛 MissingRowColumnError。
-            status = str(row["correction_status"] or STATUS_NONE)
-            if status in excluded:
+            corr_status = str(row["correction_status"] or STATUS_NONE)
+            order_status = str(row["status"] or "")
+            if corr_status in excluded or order_status in EXCLUDED_ORDER_STATUSES:
                 excluded_count += 1
                 excluded_gross += Decimal(str(row["gross_amount"]))
             else:
@@ -286,7 +296,10 @@ def build_payroll_correction_services(api):
     def payment_batch_block_reason(order):
         """付款单能否进发放批次；不能则返回原因文案，可以则返回 None。"""
         status = str(_field(order, "correction_status") or STATUS_NONE)
+        order_status = str(_field(order, "status") or "")
         payment_number = _field(order, "payment_number", "")
+        if order_status in EXCLUDED_ORDER_STATUSES:
+            return f"{payment_number}：单据已{order_status}，不得进入发放批次。"
         if status in BATCH_BLOCKED_CORRECTION_STATUSES:
             label = CORRECTION_STATUS_LABELS.get(status, status)
             if status == STATUS_PERIOD_LABEL_CORRECTED:
