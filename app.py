@@ -1621,6 +1621,35 @@ def can_view_customer_reimbursement():
     return g.user and has_action_permission("customer_reimbursements", "view")
 
 
+def order_has_approved_reimbursement(order_id):
+    """Return True if the service order already has an approved customer reimbursement.
+
+    Once the customer reimbursement is approved, the order's daily reports are
+    locked: no create / edit / delete. The reimbursement must be returned to
+    draft first. This prevents phantom report hours that affect payroll without
+    changing what the customer pays.
+    """
+    if not order_id:
+        return False
+    row = db().execute(
+        "select 1 from customer_reimbursements where service_order_id = ? and status = 'approved' limit 1",
+        (order_id,),
+    ).fetchone()
+    return row is not None
+
+
+def report_locked_by_approved_reimbursement(order):
+    """Flash a friendly lock message and return True when the order is locked."""
+    if order and order_has_approved_reimbursement(order["id"]):
+        flash(
+            "该工单的客户结算已通过审核，日报已锁定。如需新建、修改或删除日报，"
+            "请先在工单结算页面将结算退回为草稿。",
+            "error",
+        )
+        return True
+    return False
+
+
 def can_create_service_report(order=None):
     if not g.user:
         return False
@@ -14561,6 +14590,8 @@ def new_service_report(order_id):
     order = require_service_order(order_id)
     if not can_create_service_report(order):
         abort(403)
+    if report_locked_by_approved_reimbursement(order):
+        return redirect(url_for("service_order_detail", order_id=order_id))
     if not is_external_employee():
         start_date_redirect = require_service_order_start_date(order)
         if start_date_redirect:
@@ -14689,6 +14720,8 @@ def edit_service_report(report_id):
     report, order = require_service_report(report_id)
     if is_external_employee() and report["created_by"] != g.user["id"]:
         abort(403)
+    if report_locked_by_approved_reimbursement(order):
+        return redirect(url_for("service_order_detail", order_id=order["id"]))
     users_rows = service_report_worker_options(order, report_id=report_id)
     report_writers = report_writer_options()
     if request.method == "POST":
@@ -14982,6 +15015,20 @@ def delete_service_report(report_id):
     report, order = require_service_report(report_id)
     if report["created_by"] != g.user["id"] and not is_manager():
         abort(403)
+    if report_locked_by_approved_reimbursement(order):
+        return redirect(url_for("service_order_detail", order_id=order["id"]))
+    # 日报一旦被员工工资组件引用，删除会撞外键约束。先给友好提示，不再 500。
+    live_refs = db().execute(
+        "select count(*) as n from employee_payment_components where daily_report_id = ? and superseded_at is null",
+        (report_id,),
+    ).fetchone()["n"]
+    if live_refs:
+        flash(
+            f"该日报已被 {live_refs} 条员工工资组件引用（draft 工资单），不能删除。"
+            "请先在工资模块作废或重算相关工资单。",
+            "error",
+        )
+        return redirect(url_for("service_order_detail", order_id=order["id"]))
     attachments = db().execute(
         "select * from service_report_attachments where report_id = ?",
         (report_id,),
