@@ -76,6 +76,7 @@
       {% if payment.status=='pending_payment' and has_action_permission('employee_payments','pay') %}<button class="erp-btn primary" type="button" data-dialog-open="payPayment">发放</button><button class="erp-btn danger" type="button" data-dialog-open="failPayment">发放失败</button>{% endif %}
       {% if payment.status=='payment_failed' and has_action_permission('employee_payments','pay') %}<button class="erp-btn primary" type="button" data-dialog-open="retryPayment">重试发放</button>{% endif %}
       {% if payment.status not in ['paid','reconciled','cancelled'] and has_action_permission('employee_payments','edit') %}<button class="erp-btn" type="button" data-dialog-open="cancelPayment">取消</button>{% endif %}
+      {% if payment.status == 'cancelled' and has_action_permission('employee_payments','edit') %}<button class="erp-btn primary" type="button" data-dialog-open="uncancelPayment">撤回取消</button>{% endif %}
       {% endif %}
       <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
@@ -246,6 +247,16 @@
     <input type="hidden" name="action" value="cancel">
     <label>取消原因<textarea name="reason" rows="4" placeholder="可留空；本单已抵扣的借款会自动冲销"></textarea></label>
     <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="danger">确认取消</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% if payment.status == 'cancelled' and has_action_permission('employee_payments','edit') %}
+<dialog id="uncancelPayment" class="modal-dialog">
+  <form method="post" action="{{ url_for('transition_employee_payment',payment_id=payment.id) }}" class="form-stack">
+    <div class="dialog-header"><h2>撤回取消 · {{ payment.payment_number }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
+    <input type="hidden" name="action" value="uncancel">
+    <label>撤回原因<textarea name="reason" rows="3" placeholder="例如：误操作取消，恢复为草稿"></textarea></label>
+    <div class="form-actions"><button type="button" data-dialog-close>返回</button><button class="primary">确认撤回，恢复为草稿</button></div>
   </form>
 </dialog>
 {% endif %}

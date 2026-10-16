@@ -1657,6 +1657,11 @@ def register_employee_finance_routes(app, api):
                 _require(api, "employee_payments", "edit")
                 target = "cancelled"
                 _reverse_advance_application(api, payment)
+            elif action == "uncancel":
+                if payment["status"] != "cancelled":
+                    raise ValueError("只有已取消的付款单才能撤回。")
+                _require(api, "employee_payments", "edit")
+                target = "draft"
             else:
                 source, target, permission = transitions.get(action, (None, None, None))
                 if not source or payment["status"] != source:
