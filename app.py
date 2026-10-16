@@ -16178,8 +16178,8 @@ def cancel_expense(expense_id):
     if expense["status"] == "cancelled":
         flash("该报销单已经是作废状态。", "error")
         return redirect(url_for("expense_detail", expense_id=expense_id))
-    if expense["status"] not in {"draft", "submitted", "returned"}:
-        flash("只有保存未提交、待审核或已退回的报销可以作废。", "error")
+    if expense["status"] not in {"draft", "submitted", "returned", "approved"}:
+        flash("只有保存未提交、待审核、已退回或已通过的报销可以作废。", "error")
         return redirect(url_for("expense_detail", expense_id=expense_id))
 
     reason = request.form.get("cancel_reason", "").strip()

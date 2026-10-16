@@ -78,7 +78,7 @@
       {% if can_delete %}
         <form method="post" action="{{ url_for('delete_expense', expense_id=expense.id) }}" onsubmit="return confirm('确定删除这张报销单吗？');"><button class="erp-btn" type="submit">删除</button></form>
       {% endif %}
-      {% if expense.status in ["draft", "submitted", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
+      {% if expense.status in ["draft", "submitted", "returned", "approved"] and normalized_role() in ["admin", "manager"] %}
         <button class="erp-btn" type="button" onclick="document.querySelector('#cancelExpenseDialog').showModal()">作废</button>
       {% endif %}
       {% if expense.status == "submitted" and has_action_permission("expenses", "approve") %}
@@ -105,7 +105,7 @@
           </form>
         </dialog>
       {% endif %}
-      {% if expense.status in ["draft", "submitted", "returned"] and (expense.created_by == g.user.id or normalized_role() in ["admin", "manager"]) %}
+      {% if expense.status in ["draft", "submitted", "returned", "approved"] and normalized_role() in ["admin", "manager"] %}
         <dialog id="cancelExpenseDialog" class="modal">
           <form method="post" action="{{ url_for('cancel_expense', expense_id=expense.id) }}" class="form-stack">
             <h2>作废报销单 {{ expense.expense_number }}</h2>
