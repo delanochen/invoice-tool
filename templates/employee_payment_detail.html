@@ -27,6 +27,32 @@
   </div>
 </div>
 {% endif %}
+{# 作废横幅：cancelled / rejected 时醒目红字 #}
+{% if payment.status == 'cancelled' %}
+{% set cancel_event = events | selectattr('event_type', 'equalto', 'cancel') | list | last %}
+<div class="erp-panel" style="border-left:6px solid #c62828;margin-bottom:8px;background:#ffebee">
+  <div class="panel-title"><h2 style="color:#c62828">⚠ 本单已作废</h2></div>
+  <div class="panel-body">
+    <p style="font-size:1.1em;margin:4px 0"><strong>应付金额：</strong><span style="text-decoration:line-through;color:#999">{{ payment.gross_amount|money }}</span></p>
+    {% if cancel_event %}
+    <p style="margin:4px 0"><strong>作废原因：</strong>{{ cancel_event.details or '（未填写）' }}</p>
+    <p style="margin:4px 0;color:#666;font-size:0.9em">作废时间：{{ cancel_event.created_at|local_datetime }} · 操作人：{{ cancel_event.creator_name or '系统' }}</p>
+    {% endif %}
+    <p style="margin:4px 0;color:#666;font-size:0.9em">本单不再计入应付、不进入发放批次。原始明细保留以备审计。</p>
+  </div>
+</div>
+{% elif payment.status == 'rejected' %}
+{% set reject_event = events | selectattr('event_type', 'equalto', 'reject') | list | last %}
+<div class="erp-panel" style="border-left:6px solid #e65100;margin-bottom:8px;background:#fff3e0">
+  <div class="panel-title"><h2 style="color:#e65100">✕ 本单已驳回</h2></div>
+  <div class="panel-body">
+    {% if reject_event %}
+    <p style="margin:4px 0"><strong>驳回原因：</strong>{{ reject_event.details or '（未填写）' }}</p>
+    {% endif %}
+    <p style="margin:4px 0;color:#666;font-size:0.9em">本单不再计入应付，可修改后重新提交。</p>
+  </div>
+</div>
+{% endif %}
 {# ERP 详情页范式（对齐 expense_detail）：erp-app--flow 整页滚动，工具栏/汇总/状态栏 sticky；
    流程按钮在工具栏按权限逐项显示（提交/取消→edit、批准/驳回→approve、进入待付款/发放/失败→pay），
    后端 transition 权限判定不变。 #}
