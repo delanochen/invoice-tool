@@ -1214,3 +1214,11 @@ event. Components remain unchanged. test_employee_finance.py now locates this mo
 Checks: test_expense_reset_module_contract.py uses actual ER records to verify guards, repeated
 reset and snapshot preservation. At this commit scripts/check_expense_reset_structure.py
 normalizes only the explicit payment adapter call difference against 6510dc8.
+
+
+### Invoice forms (ten-round series 1/10)
+
+`invoice_tool/invoices/forms.py` owns invoice_items_from_form, posted_client_id, posted_service_order_id.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.

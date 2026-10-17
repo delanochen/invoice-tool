@@ -1,0 +1,14 @@
+{
+  "base": "eca0599",
+  "phases": [
+    {
+      "round": 1,
+      "module": "invoice_tool/invoices/forms.py",
+      "functions": [
+        "invoice_items_from_form",
+        "posted_client_id",
+        "posted_service_order_id"
+      ]
+    }
+  ]
+}

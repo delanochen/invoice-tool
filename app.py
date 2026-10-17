@@ -41,6 +41,7 @@ from invoice_tool.employee_expenses.expense_cancel_routes import register_expens
 from invoice_tool.employee_expenses.expense_delete_routes import register_expense_delete_routes
 from invoice_tool.employee_expenses.expense_query_routes import register_expense_query_routes
 from invoice_tool.employee_expenses.expense_reset_routes import register_expense_reset_routes
+from invoice_tool.invoices import forms as _invoice_forms
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12471,45 +12472,15 @@ def new_invoice():
 
 
 def invoice_items_from_form():
-    rows = []
-    for project_id, amount in zip(request.form.getlist("project_id"), request.form.getlist("amount")):
-        if not project_id:
-            continue
-        project = db().execute(
-            "select * from projects where id = ? and project_type = 'invoice' and is_active = 1",
-            (project_id,),
-        ).fetchone()
-        if not project:
-            raise ValueError("选择的项目不存在或已停用，请重新选择项目。")
-        rows.append((project, to_float(amount)))
-    if not rows:
-        raise ValueError("请至少选择一个项目明细。")
-    if sum(amount for _, amount in rows) <= 0:
-        raise ValueError("发票金额必须大于 0。")
-    return rows
+    return _invoice_forms.invoice_items_from_form(db=db, request=request, to_float=to_float)
 
 
 def posted_client_id():
-    try:
-        return int(request.form.get("client_id"))
-    except (TypeError, ValueError):
-        raise ValueError("请选择客户。")
+    return _invoice_forms.posted_client_id(request=request)
 
 
 def posted_service_order_id(require_start_date=False, required=False):
-    value = request.form.get("service_order_id")
-    if not value:
-        if required:
-            raise ValueError("请选择关联工单。")
-        return None
-    try:
-        order_id = int(value)
-    except (TypeError, ValueError):
-        raise ValueError("请选择有效工单。")
-    order = require_service_order(order_id)
-    if require_start_date and not order["start_date"]:
-        raise ValueError("所选工单还没有开始日期，请先编辑工单并维护开始日期。")
-    return order_id
+    return _invoice_forms.posted_service_order_id(require_start_date, required, request=request, require_service_order=require_service_order)
 
 
 def create_invoice_from_form(save_token=None):
