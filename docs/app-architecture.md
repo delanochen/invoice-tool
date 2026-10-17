@@ -996,3 +996,18 @@ functions; payroll detail/range/boundary and hour display tests verify downstrea
 Run `python scripts/check_report_calculations_structure.py` at this phase's commit for equivalence.
 One imported settlement-filter fixture lacks current required series_id; its failure was observed
 before migration and is separately deselected, without modifying business logic or schema.
+
+
+### Employee expense forms and item persistence (phase 5a)
+
+`invoice_tool/employee_expenses/forms.py` owns expense defaults, ordered item reads,
+posted item validation and item persistence. Four app entry points retain their signatures
+and resolve explicit dependencies on every call. Existing item IDs are preserved on edits;
+removal of settlement-linked items remains forbidden. Attachment cleanup retains its policy.
+Routes, beneficiary access, approval, payment, numbering and duplicate detection stay in place.
+No amount, fuel classification, currency or submission rule changes.
+
+Checks: `test_expense_forms_module_contract.py`, expense on-behalf/business-purpose/robust-save
+regressions and settlement link display tests. At this phase's commit run
+`python scripts/check_expense_forms_structure.py` for equivalence against `1ee793d`.
+Three pre-existing settlement fixtures omit required series_id and are separately excluded.
