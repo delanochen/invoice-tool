@@ -944,3 +944,20 @@ provider timeout/retry values, fingerprint reuse/upsert and commit/rollback orde
 Checks: `test_report_assist_module_contract.py` mocks external services and exercises real invoice_test
 HTTP/database behavior. `python scripts/check_report_assist_structure.py` verifies function bodies and
 exact URL/endpoint/view/method registration against `4b7da14`.
+
+
+### Report DOCX generation and Word packaging (phase 4e)
+
+`invoice_tool/service_reports/documents.py` owns `build_service_report_docx`,
+`service_report_docx_filename` and `service_order_report_word_attachments`. The app retains same-signature
+wrappers and supplies explicit runtime dependencies, including python-docx/Pillow objects and the
+current worker, part, attachment and company helpers. No route is moved.
+
+Formatting, page geometry, tables, text filtering, picture conversion/error fallback, filename collision
+handling, report ordering, MIME types and error messages are preserved. Delivery/email/settlement/ZIP
+logic remains in its existing location and consumes the legacy app entry points.
+
+`test_report_documents_module_contract.py` compares actual DOCX ZIP member contents with a separately
+compiled previous renderer from `3604351`: XML/style/relationships and media bytes, excluding only ZIP
+container timestamps by comparing member contents. It also checks real HTTP export and Word packaging.
+Run `python scripts/check_report_documents_structure.py` for structural equivalence.
