@@ -73,6 +73,13 @@
         "unique_email_attachment_filename",
         "invoice_email_attachments"
       ]
+    },
+    {
+      "round": 9,
+      "module": "invoice_tool/invoices/pdf.py",
+      "functions": [
+        "render_invoice_pdf"
+      ]
     }
   ]
 }
