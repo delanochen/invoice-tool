@@ -881,3 +881,18 @@ Static-map HTTP client implementation and templates/scripts remain unchanged.
 
 Checks: `test_calendar_map_module_contract.py`, existing map/status tests and selected existing
 calendar regression cases; `python scripts/check_calendar_map_structure.py` compares with `d0daa0d`.
+
+
+### Service-report reading and attachment access (phase 4a)
+
+`invoice_tool/service_reports/report_read_services.py` owns attachment grouping and global/same-order
+adjacent report queries. `report_read_routes.py` registers read-only view, Word export, attachment
+preview and attachment delete endpoints. App-level helper wrappers and view aliases remain.
+Dependencies resolve the current app helper at call time; navigation still uses existing access filters.
+
+Report create/edit/delete, save-token idempotency, detail persistence, uploads/storage relocation,
+generated mileage evidence, mobile capture and Word document generation remain in their existing locations.
+This phase changes no authorization, payroll/settlement lock, persistence or filesystem rule.
+
+Checks: `test_report_read_module_contract.py`, existing report navigation/edit-navigation/external-view/copy
+and attachment safety tests; `python scripts/check_report_read_structure.py` compares against `911a3ac`.

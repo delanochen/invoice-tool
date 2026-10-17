@@ -22,6 +22,8 @@ import zipfile
 import calendar
 from invoice_tool.service_orders import calendar_map_services as _calendar_map_services
 from invoice_tool.service_orders.calendar_map_routes import register_calendar_map_routes
+from invoice_tool.service_reports import report_read_services as _report_read_services
+from invoice_tool.service_reports.report_read_routes import register_report_read_routes
 from invoice_tool.service_orders import services as _service_order_services
 from invoice_tool.service_orders.routes import register_service_order_routes
 from invoice_tool.contracts import services as _contract_services
@@ -3596,19 +3598,7 @@ def report_billing_mileage(worker_rows, method):
 
 
 def get_report_attachments(report_id):
-    rows = db().execute(
-        """
-        select service_report_attachments.*, users.name as uploader_name
-        from service_report_attachments left join users on users.id = service_report_attachments.uploaded_by
-        where report_id = ?
-        order by category asc, uploaded_at asc, id asc
-        """,
-        (report_id,),
-    ).fetchall()
-    grouped = {"self_check": [], "site": [], "arrival": [], "departure": [], "mileage_proof": []}
-    for row in rows:
-        grouped.setdefault(row["category"], []).append(row)
-    return grouped
+    return _report_read_services.get_report_attachments(report_id, db=db)
 
 
 def customer_reimbursement_dir(reimbursement_id):
@@ -13760,240 +13750,40 @@ def shared_photo_thumbnail():
     return send_file(buffer, mimetype="image/jpeg", max_age=3600)
 
 
-@app.route("/service-report-attachments/<int:attachment_id>")
-@login_required
-def preview_report_attachment(attachment_id):
-    attachment = db().execute("select * from service_report_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_service_report(attachment["report_id"])
-    return safe_attachment_response(
-        report_attachment_path(attachment),
-        attachment["original_filename"],
-    )
 
 
-@app.post("/service-report-attachments/<int:attachment_id>/delete")
-@login_required
-def delete_report_attachment(attachment_id):
-    attachment = db().execute("select * from service_report_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    report, order = require_service_report(attachment["report_id"])
-    try:
-        attachment_path = report_attachment_path(attachment)
-        os.remove(attachment_path)
-        prune_empty_report_folders(attachment_path)
-    except FileNotFoundError:
-        pass
-    db().execute("delete from service_report_attachments where id = ?", (attachment_id,))
-    db().commit()
-    # 前端（service-report.js）用 fetch 就地删行，页面不刷新 —— 整页重载会先
-    # 重绘到顶部再跳锚点，用户看到的是「删一张图，页面滚回最上面」，而且表单里
-    # 没保存的修改也会一并丢掉。非 JS 场景仍保留原来的重定向 + 锚点回退。
-    # 判定方式与 delete_invoice_attachment 保持一致。
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True, "deleted": attachment_id})
-    flash("附件已删除。", "success")
-    redirect_anchor = request.form.get("redirect_anchor", "").strip()
-    if not re.fullmatch(r"#[A-Za-z0-9_-]+", redirect_anchor):
-        redirect_anchor = ""
-    return redirect(url_for("edit_service_report", report_id=report["id"]) + redirect_anchor)
 
 
 def adjacent_service_report_ids(report_id):
-    """上一个 / 下一个日报（按列表默认排序：日期 desc, id desc）。
-
-    导航必须在当前用户有权访问的日报范围内移动：外部账号只能看到被授权工单
-    的日报，所以这里复用 service_order_access_filters，避免通过「下一个」跳到
-    无权查看的日报。列表顺序为「日期降序、id 降序」，因此「上一个」是列表里
-    更靠上的一条（日期更大或同日 id 更大），「下一个」是更靠下的一条。
-    """
-    current = db().execute(
-        """
-        select id,
-               coalesce(actual_work_date, report_date) as work_date
-        from service_reports where id = ?
-        """,
-        (report_id,),
-    ).fetchone()
-    if not current:
-        return {"previous": None, "next": None}
-
-    clauses, params = service_order_access_filters("service_orders")
-    if not clauses:
-        clauses.append("1 = 1")
-    access_where = " and ".join(clauses)
-
-    def fetch(direction):
-        # previous：列表中更靠上 = 日期更大，或同日 id 更大
-        # previous：列表中更靠上 = 日期更大，或同日 id 更大。
-        # v0.1.361 修复：previous 的候选集是「日期比当前大」的全体，要取其中
-        # **最靠近当前**的一条（日期最小、同日 id 最小）才是紧邻的上一条；
-        # 之前误用 desc 取了集合里最新的那条，导致除第 2 条外所有日报的
-        # 「上一条」都直接跳到工单第 1 条。
-        if direction == "previous":
-            comparison = (
-                "(coalesce(service_reports.actual_work_date, service_reports.report_date) > ? "
-                "or (coalesce(service_reports.actual_work_date, service_reports.report_date) = ? "
-                "and service_reports.id > ?))"
-            )
-            ordering = (
-                "order by coalesce(service_reports.actual_work_date, service_reports.report_date) asc, "
-                "service_reports.id asc limit 1"
-            )
-        else:
-            comparison = (
-                "(coalesce(service_reports.actual_work_date, service_reports.report_date) < ? "
-                "or (coalesce(service_reports.actual_work_date, service_reports.report_date) = ? "
-                "and service_reports.id < ?))"
-            )
-            ordering = (
-                "order by coalesce(service_reports.actual_work_date, service_reports.report_date) desc, "
-                "service_reports.id desc limit 1"
-            )
-        row = db().execute(
-            f"""
-            select service_reports.id
-            from service_reports
-            join service_orders on service_orders.id = service_reports.service_order_id
-            where {access_where} and {comparison}
-            {ordering}
-            """,
-            [*params, current["work_date"], current["work_date"], current["id"]],
-        ).fetchone()
-        return row["id"] if row else None
-
-    return {"previous": fetch("previous"), "next": fetch("next")}
+    return _report_read_services.adjacent_service_report_ids(report_id, db=db, service_order_access_filters=service_order_access_filters)
 
 
 def same_order_adjacent_report_ids(report_id):
-    """同一工单下的上一个/下一个日报（按日期降序）。
-
-    与 adjacent_service_report_ids 不同：这里限定 service_order_id 相同，
-    方便用户在编辑界面连续切换同一工单的不同日报，不必返回工单详情页。
-    排序与全局一致：日期降序、id 降序；上一个 = 日期更近（更大），下一个 = 日期更早。
-    外部员工在编辑页只能打开自己创建的日报（edit_service_report 的守卫），
-    导航必须收在同样边界内，否则会给出点了就 403 的链接并泄露他人工单日报存在。
-    """
-    current = db().execute(
-        """
-        select id, service_order_id,
-               coalesce(actual_work_date, report_date) as work_date
-        from service_reports where id = ?
-        """,
-        (report_id,),
-    ).fetchone()
-    if not current:
-        return {"previous": None, "next": None}
-
-    scope_sql = ""
-    scope_params: list = []
-    if is_external_employee():
-        scope_sql = " and created_by = ?"
-        scope_params = [g.user["id"]]
-
-    def fetch(direction):
-        # v0.1.361 修复：previous 必须在「日期比当前大」的候选集里取**最靠近当前**
-        # 的一条（asc），desc 会取到工单最新一条，导致「上一条」永远是第 1 条。
-        if direction == "previous":
-            comparison = (
-                "(coalesce(actual_work_date, report_date) > ? "
-                "or (coalesce(actual_work_date, report_date) = ? and id > ?))"
-            )
-            ordering = "order by coalesce(actual_work_date, report_date) asc, id asc limit 1"
-        else:
-            comparison = (
-                "(coalesce(actual_work_date, report_date) < ? "
-                "or (coalesce(actual_work_date, report_date) = ? and id < ?))"
-            )
-            ordering = "order by coalesce(actual_work_date, report_date) desc, id desc limit 1"
-        row = db().execute(
-            """
-            select id from service_reports
-            where service_order_id = ?""" + scope_sql + """ and """ + comparison + """
-            """ + ordering,
-            (
-                current["service_order_id"],
-                *scope_params,
-                current["work_date"],
-                current["work_date"],
-                current["id"],
-            ),
-        ).fetchone()
-        return row["id"] if row else None
-
-    return {"previous": fetch("previous"), "next": fetch("next")}
+    return _report_read_services.same_order_adjacent_report_ids(report_id, db=db, g=g, is_external_employee=is_external_employee)
 
 
-@app.get("/service-reports/<int:report_id>/view")
-@login_required
-def view_service_report(report_id):
-    """Read-only, Word-export-style view of a service report.
-
-    This is the external-facing "查看" surface: with the service_reports view
-    action granted (权限管理 > 工作日报 > 查看), external managers/employees can
-    read the report in the same layout as the exported Word document, but they
-    never see the internal edit form. Internal users can use it too.
-    """
-    if not has_action_permission("service_reports", "view"):
-        abort(403)
-    report, order = require_service_report(report_id)
-    workers = service_report_workers(report_id)
-    worker_descriptions = [
-        f"{worker['name']}：{worker['work_description']}"
-        for worker in workers
-        if worker["work_description"]
-    ]
-    description_text = report["service_description"] or ""
-    if worker_descriptions:
-        description_text = "\n".join(
-            ([description_text] if description_text else []) + worker_descriptions
-        )
-    attachment_groups = get_report_attachments(report_id)
-    photo_labels = {
-        "arrival": "到达现场时间照片",
-        "departure": "离开现场时间照片",
-        "self_check": "自检照片",
-        "site": "现场服务照片",
-    }
-    photo_sections = [
-        {"title": title, "photos": attachment_groups.get(category, [])}
-        for category, title in photo_labels.items()
-        if attachment_groups.get(category)
-    ]
-    return render_template(
-        "service_report_view.html",
-        report=report,
-        order=order,
-        workers=workers,
-        description_text=description_text,
-        saved_parts=report_parts("service_report_saved_parts", report_id),
-        replaced_parts=report_parts("service_report_replaced_parts", report_id),
-        photo_sections=photo_sections,
-        company=get_company_profile(),
-        can_export=has_action_permission("service_reports", "export"),
-        adjacent_reports=adjacent_service_report_ids(report_id),
-    )
+_report_read_views = register_report_read_routes(
+    app,
+    adjacent_service_report_ids=lambda *args, **kwargs: adjacent_service_report_ids(*args, **kwargs),
+    build_service_report_docx=lambda *args, **kwargs: build_service_report_docx(*args, **kwargs),
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    get_company_profile=lambda *args, **kwargs: get_company_profile(*args, **kwargs),
+    get_report_attachments=lambda *args, **kwargs: get_report_attachments(*args, **kwargs),
+    has_action_permission=lambda *args, **kwargs: has_action_permission(*args, **kwargs),
+    login_required=login_required,
+    prune_empty_report_folders=lambda *args, **kwargs: prune_empty_report_folders(*args, **kwargs),
+    report_attachment_path=lambda *args, **kwargs: report_attachment_path(*args, **kwargs),
+    report_parts=lambda *args, **kwargs: report_parts(*args, **kwargs),
+    require_service_report=lambda *args, **kwargs: require_service_report(*args, **kwargs),
+    safe_attachment_response=lambda *args, **kwargs: safe_attachment_response(*args, **kwargs),
+    service_report_workers=lambda *args, **kwargs: service_report_workers(*args, **kwargs),
+)
+view_service_report = _report_read_views['view_service_report']
+export_service_report = _report_read_views['export_service_report']
+preview_report_attachment = _report_read_views['preview_report_attachment']
+delete_report_attachment = _report_read_views['delete_report_attachment']
 
 
-@app.post("/service-reports/<int:report_id>/export")
-@login_required
-def export_service_report(report_id):
-    report, order = require_service_report(report_id)
-    try:
-        document_bytes = build_service_report_docx(report, order)
-    except Exception:
-        app.logger.exception("Failed to export service report %s", report_id)
-        flash("工作日报导出失败，请检查日报内容或照片后重试。", "error")
-        return redirect(url_for("edit_service_report", report_id=report_id))
-    filename = secure_filename(f"{order['client_order_number']}-{report['report_date']}-report.docx") or "service-report.docx"
-    return send_file(
-        BytesIO(document_bytes),
-        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        as_attachment=True,
-        download_name=filename,
-    )
 
 
 def expense_defaults(expense=None):
