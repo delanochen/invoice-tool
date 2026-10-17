@@ -1488,3 +1488,10 @@ Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by C
 `invoice_tool/report_exports/labor.py` owns labor_report_entries.
 Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
 Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 19/20: smtp_transport
+
+`invoice_tool/email_delivery/transport.py` owns send_email.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
