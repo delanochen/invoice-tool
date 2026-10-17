@@ -43,3 +43,11 @@
 - app.py：13867 → 13836 行，减少 31 行。
 - 累积 AST 对照基线 eca0599，迁移函数主体精确一致，其他函数未变；无路由/业务规则修改。
 - 专项结果：12 passed, 9 subtests passed in 9.46s。
+
+
+## 第 6/10 轮：结算及里程附件复制
+
+- 迁移 3 个函数至 invoice_tool/invoices/copying.py，原 app 签名和动态依赖保留。
+- app.py：13836 → 13781 行，减少 55 行。
+- 累积 AST 对照基线 eca0599，迁移函数主体精确一致，其他函数未变；无路由/业务规则修改。
+- 专项结果：13 passed, 9 subtests passed in 9.34s。

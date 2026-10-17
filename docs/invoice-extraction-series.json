@@ -47,6 +47,15 @@
         "validate_attachment_uploads",
         "unique_invoice_attachment_filename"
       ]
+    },
+    {
+      "round": 6,
+      "module": "invoice_tool/invoices/copying.py",
+      "functions": [
+        "copy_file_to_invoice_attachment",
+        "copy_customer_reimbursement_attachments_to_invoice",
+        "copy_mileage_proofs_to_invoice"
+      ]
     }
   ]
 }
