@@ -1027,3 +1027,19 @@ Checks: test_expense_storage_module_contract.py covers actual temporary-file/inv
 round trips and failure paths; expense interpretation/deletion and prior expense tests cover callers.
 At this phase's commit use scripts/check_expense_storage_structure.py for equivalence to 2c718e4.
 Three previously reproduced series_id fixture failures are still separately excluded.
+
+
+### Employee expense duplicate checks (phase 5c)
+
+`invoice_tool/employee_expenses/duplicates.py` owns image hash distance, attachment match
+context, lazy fingerprints, optional AI analysis, duplicate-check generation and result reads.
+Six legacy app wrappers resolve explicit dependencies per call; review routes remain in app.py.
+Scoring, thresholds, date/amount tolerance, beneficiary matching, same-line evidence suppression,
+candidate limits, three-call AI budget and historical pending-result visibility remain unchanged.
+AI settings and network client implementations stay at their current entry points.
+
+Checks: test_expense_duplicates_module_contract.py compares scoring database writes against
+independently compiled 79b89d3 functions for 192 combinations, checks AI budget/file fallbacks,
+and verifies identical synthetic receipts, rerun behavior and manager review in invoice_test.
+At this phase's commit use scripts/check_expense_duplicates_structure.py for AST equivalence.
+Three previously reproduced series_id fixture failures remain separately excluded.
