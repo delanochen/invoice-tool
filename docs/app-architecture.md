@@ -1369,3 +1369,10 @@ See `docs/invoice-routes-ten-rounds-report.md` for results and coverage limits.
 `invoice_tool/invoices/access.py` owns require_invoice_access.
 Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
 Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: invoice_totals
+
+`invoice_tool/invoices/totals.py` owns invoice_totals.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.

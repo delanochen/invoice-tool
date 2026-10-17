@@ -60,6 +60,7 @@ from invoice_tool.invoices.payment_routes import register_invoice_payment_routes
 from invoice_tool.invoices.void_routes import register_invoice_void_routes
 from invoice_tool.invoices.delete_routes import register_invoice_delete_routes
 from invoice_tool.invoices import access as _split_invoice_access
+from invoice_tool.invoices import totals as _split_invoice_totals
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2201,10 +2202,7 @@ def money_float(value):
 
 
 def invoice_totals(invoice_id):
-    rows = db().execute("select amount, tax_rate from invoice_items where invoice_id = ?", (invoice_id,)).fetchall()
-    subtotal = sum(float(row["amount"] or 0) for row in rows)
-    tax = sum(float(row["amount"] or 0) * float(row["tax_rate"] or 0) / 100 for row in rows)
-    return {"subtotal": subtotal, "tax": tax, "total": max(subtotal + tax, 0)}
+    return _split_invoice_totals.invoice_totals(invoice_id, db=db)
 
 
 def accounting_base_enabled(connection=None):
