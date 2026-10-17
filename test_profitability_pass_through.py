@@ -235,12 +235,17 @@ class ProfitabilityPassThroughTest(unittest.TestCase):
             uid = db.execute(
                 "select id from users where email = 'profit-pt@example.invalid'"
             ).fetchone()["id"]
+            series_id = db.execute(
+                "insert into customer_reimbursement_series (service_order_id, created_at) "
+                "values (?,?) returning id",
+                (self.order_id, NOW),
+            ).fetchone()["id"]
             cr_id = db.execute(
-                "insert into customer_reimbursements (service_order_id, file_name, "
+                "insert into customer_reimbursements (series_id, service_order_id, file_name, "
                 "stored_filename, created_by, created_at, status, lodging_person_nights, "
                 "lodging_cap_rate_snapshot, expense_selection_mode) "
-                "values (?,'f','f',?,?,'draft',?,?,'manual_review') returning id",
-                (self.order_id, uid, NOW, person_nights, cap_rate),
+                "values (?,?,'f','f',?,?,'draft',?,?,'manual_review') returning id",
+                (series_id, self.order_id, uid, NOW, person_nights, cap_rate),
             ).fetchone()["id"]
             for key in keys:
                 item_id = self.items[key]

@@ -404,7 +404,8 @@ def _lodging_ratios(api):
     for reimbursement in reimbursements:
         rows = api["db"]().execute(
             """
-            select customer_reimbursement_expense_links.amount_snapshot,
+            select coalesce(customer_reimbursement_expense_links.settled_amount,
+                            customer_reimbursement_expense_links.amount_snapshot) as amount_snapshot,
                    coalesce(projects.name, expense_items.project) as project_name,
                    expense_items.fuel_vehicle_type
             from customer_reimbursement_expense_links
@@ -489,11 +490,12 @@ def _lodging_cap_ratios(api, rows):
         select service_order_id, lodging_person_nights, lodging_cap_rate_snapshot
         from customer_reimbursements
         where service_order_id in ({placeholders})
-        order by created_at desc, id desc
+        order by is_current desc, created_at desc, id desc
         """,
         tuple(order_ids),
     ).fetchall():
         # 只认填了人晚的结算单：同一工单可能有多张草稿，空的那张没有参考价值。
+        # 当前有效版本优先（is_current desc），修订草稿不能抢位。
         if _money(row["lodging_person_nights"]) > 0 and _money(row["lodging_cap_rate_snapshot"]) > 0:
             settlements.setdefault(row["service_order_id"], row)
     for order_id in order_ids:
@@ -530,13 +532,21 @@ def _selected_expense_map(api):
     result = {}
     rows = api["db"]().execute(
         """
-        select links.expense_item_id, links.amount_snapshot, links.customer_reimbursement_id,
+        select links.expense_item_id,
+               coalesce(links.settled_amount, links.amount_snapshot) as amount_snapshot,
+               (links.settled_amount is not null) as settled_is_explicit,
+               links.customer_reimbursement_id,
                coalesce(projects.name, expense_items.project) as project_name,
                expense_items.fuel_vehicle_type
         from customer_reimbursement_expense_links links
         join customer_reimbursements cr on cr.id = links.customer_reimbursement_id
         join expense_items on expense_items.id = links.expense_item_id
         left join projects on projects.id = expense_items.project_id
+        where cr.is_current or not exists (
+            select 1 from customer_reimbursements current_row
+            where current_row.service_order_id = cr.service_order_id
+              and current_row.is_current
+        )
         order by cr.created_at desc, cr.id desc
         """
     ).fetchall()
@@ -545,7 +555,9 @@ def _selected_expense_map(api):
             continue
         amount = _money(row["amount_snapshot"])
         field = api["customer_reimbursement_expense_field"](row["project_name"], row["fuel_vehicle_type"])
-        if field == "lodging":
+        # 住宿：显式填写的结算金额视为「已按上限处理过的最终值」，不能再乘一次
+        # 上限比例（否则 8,000 会被二次扣减）。只有仍跟随全额快照的行才折算。
+        if field == "lodging" and not row["settled_is_explicit"]:
             amount *= ratios.get(row["customer_reimbursement_id"], Decimal("1"))
         result[row["expense_item_id"]] = {
             "amount": amount,
@@ -559,6 +571,30 @@ def _is_personal_fuel(api, row):
         return True
     name = str(row["project_name"] or "").strip()
     return api["normalized_project_name"](name) == "个人自驾油费"
+
+
+def _client_rejected_expense_ids(api):
+    """客户明确拒付、且完全没进结算的报销明细。
+
+    这类明细在结算单上被「标记无需计入」，因此不出现在 expense_links 里。
+    若仍按 PASS_THROUGH「未进结算也按成本确认收入」处理，公司实际收不回来的
+    钱会显示成利润 0 —— 亏损被抹掉。这里把它们挑出来，收入按 0 计。
+    只认每个工单「当前有效版本」的标记（没有当前版本时回退最新一张），
+    避免历史草稿 / 修订草稿互相污染。"""
+    rows = api["db"]().execute(
+        """
+        select ig.expense_item_id
+        from customer_reimbursement_expense_ignores ig
+        join customer_reimbursements cr on cr.id = ig.customer_reimbursement_id
+        where cr.id = (
+            select effective.id from customer_reimbursements effective
+            where effective.service_order_id = cr.service_order_id
+            order by effective.is_current desc, effective.created_at desc, effective.id desc
+            limit 1
+        )
+        """
+    ).fetchall()
+    return {row["expense_item_id"] for row in rows}
 
 
 def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
@@ -598,6 +634,7 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
         params,
     ).fetchall()
     selected = _selected_expense_map(api)
+    client_rejected = _client_rejected_expense_ids(api)
     lodging_ratios = _lodging_cap_ratios(api, rows)
     weights = _work_hour_weights_for_orders(api, {row["service_order_id"] for row in rows})
     lines = []
@@ -643,6 +680,10 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
         if selection:
             revenue = selection["amount"]
             source = "selected_settlement_expense"
+        elif row["expense_item_id"] in client_rejected:
+            # 客户明确不认（结算单上标记无需计入）：没有收入，成本全额进亏损。
+            revenue = Decimal("0")
+            source = "client_rejected"
         elif field == "lodging":
             # 住宿费实报实销但有上限：无论有没有进结算单，都按 人晚 × 每晚上限
             # 折算收入，超出上限的部分是真亏损（不能一律做成利润 0）。没配上限时

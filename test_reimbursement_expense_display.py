@@ -81,14 +81,21 @@ class ReimbursementExpenseDisplayTest(unittest.TestCase):
                 """,
                 (expense_id, lodging_project_id),
             )
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-09-15T12:00:00')
+                """,
+                (order_id,),
+            ).lastrowid
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, status, expense_selection_mode,
+                    series_id, service_order_id, file_name, stored_filename, status, expense_selection_mode,
                     created_by, created_at
-                ) values (?, 'settlement.pdf', 'settlement.pdf', 'draft', 'legacy', ?, '2026-09-15T12:00:00')
+                ) values (?, ?, 'settlement.pdf', 'settlement.pdf', 'draft', 'legacy', ?, '2026-09-15T12:00:00')
                 """,
-                (order_id, user_id),
+                (series_id, order_id, user_id),
             ).lastrowid
             # 与该报销同姓名同日期的一行结算明细，来源金额应落到 lodging
             connection.execute(
@@ -348,11 +355,16 @@ class ReimbursementPlanARegressionTest(unittest.TestCase):
                 "'2026-09-15T12:00:00')",
                 (user_id,),
             ).lastrowid
+            series_id = db.execute(
+                "insert into customer_reimbursement_series (service_order_id,created_at) "
+                "values (?,'2026-09-15T12:00:00')",
+                (order_id,),
+            ).lastrowid
             reimb_id = db.execute(
-                "insert into customer_reimbursements (service_order_id,file_name,stored_filename,status,"
-                "expense_selection_mode,created_by,created_at) values (?, 's.pdf','s.pdf','draft','legacy',?, "
+                "insert into customer_reimbursements (series_id,service_order_id,file_name,stored_filename,status,"
+                "expense_selection_mode,created_by,created_at) values (?, ?, 's.pdf','s.pdf','draft','legacy',?, "
                 "'2026-09-15T12:00:00')",
-                (order_id, user_id),
+                (series_id, order_id, user_id),
             ).lastrowid
             db.commit()
             self.user_id = user_id

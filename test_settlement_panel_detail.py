@@ -126,13 +126,20 @@ class SettlementPanelTest(unittest.TestCase):
         ).lastrowid
 
     def _insert_settlement(self, connection, order_id):
+        series_id = connection.execute(
+            """
+            insert into customer_reimbursement_series (service_order_id, created_at)
+            values (?, '2026-08-13T00:00:00')
+            """,
+            (order_id,),
+        ).lastrowid
         return connection.execute(
             """
             insert into customer_reimbursements (
-                service_order_id, file_name, stored_filename, status, created_by, created_at
-            ) values (?, 'settle.pdf', 'settle.pdf', 'draft', ?, '2026-08-13T00:00:00')
+                series_id, service_order_id, file_name, stored_filename, status, created_by, created_at
+            ) values (?, ?, 'settle.pdf', 'settle.pdf', 'draft', ?, '2026-08-13T00:00:00')
             """,
-            (order_id, self.admin_id),
+            (series_id, order_id, self.admin_id),
         ).lastrowid
 
     def _insert_item(self, connection, rid, worker, project_date):

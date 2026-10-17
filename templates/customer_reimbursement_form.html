@@ -77,8 +77,12 @@
   <header class="page-header">
     <div>
       <p class="eyebrow">工单结算</p>
-      <h1>工单结算 <span class="status {{ reimbursement.status }}">{{ customer_reimbursement_labels[reimbursement.status] }}</span></h1>
-      <p class="muted-line">{{ order.order_number }} · {{ order.client_order_number }}</p>
+      <h1>工单结算 <span class="status {{ reimbursement.status }}">{{ customer_reimbursement_labels[reimbursement.status] }}</span>
+        {% if settlement_versions|length > 1 %}<span class="erp-badge">V{{ reimbursement.version_no }}</span>{% endif %}
+      </h1>
+      <p class="muted-line">{{ order.order_number }} · {{ order.client_order_number }}
+        {% if reimbursement.revision_reason %}· 修订原因：{{ reimbursement.revision_reason }}{% endif %}
+      </p>
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
@@ -105,6 +109,15 @@
         <button class="danger" type="button" onclick="document.querySelector('#returnCustomerReimbursementDialog').showModal()">退回</button>
       {% endif %}
       {% if reimbursement.status == "approved" %}
+        {% if can_manage_customer_reimbursement() and not pending_revision %}
+          {# 修订版：从当前有效版本复制完整快照（不重读来源），原版本在替代前继续有效。 #}
+          <button type="button" class="erp-btn" onclick="document.querySelector('#createRevisionDialog').showModal()">创建修订版</button>
+        {% endif %}
+        {% if pending_revision and pending_revision.status == "approved" and can_manage_customer_reimbursement() and reimbursement.is_current %}
+          <form method="post" action="{{ url_for('promote_customer_reimbursement_revision', reimbursement_id=pending_revision.id) }}" onsubmit="return uiConfirm('修订版将替代当前版本成为有效结算，原版本只读留档。已处理完发票与应收差额才能继续，确定替代吗？');">
+            <button class="primary" type="submit">确认替代为有效版本</button>
+          </form>
+        {% endif %}
         {% if can_manage_customer_reimbursement() %}
           <span class="email-send-action">
             <button type="submit" form="customerReimbursementForm" name="action" value="send_email" onclick="return confirm('将发送到工单关联客户的主数据邮箱，确定发送吗？');">发送邮件</button>
@@ -174,10 +187,11 @@
   </section>
 
   <form id="settlementSourceSelectionForm" method="post" action="{{ url_for('customer_reimbursement_expense_review', order_id=order.id) }}">
+    <input type="hidden" name="reimbursement_id" value="{{ reimbursement.id }}">
     <input type="hidden" name="action" value="generate"><input type="hidden" name="lodging_person_nights" value="{{ reimbursement.lodging_person_nights or lodging_range.minimum }}">
     <section class="panel settlement-tab-panel" data-settlement-tab-panel="travel" hidden>
       <div class="panel-title"><h2>差旅</h2><span class="muted-line">住宿区间按日报推导；勾选已审核住宿发票后自动重算</span></div>
-      {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
+      {% if can_edit %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
 {% if not is_external_user() %}
       <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>员工</th><th>合理住宿区间</th></tr></thead><tbody>
         {% for row in workspace.lodging_rows %}<tr><td>{{ row.worker_name }}</td><td class="translatable-text">{{ row.minimum }}–{{ row.maximum }} 人晚</td></tr>{% else %}<tr><td colspan="2" class="empty">暂无人员住宿数据。</td></tr>{% endfor %}
@@ -190,18 +204,18 @@
       </tbody></table></div>
       {% endif %}
       <h3>住宿发票明细</h3>
-      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
-        {% for row in workspace.lodging_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning translatable-text">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
-        {% else %}<tr><td colspan="7" class="empty">暂无住宿发票。</td></tr>{% endfor %}
+      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th><th>客户结算金额</th><th>说明/备注</th></tr></thead><tbody>
+        {% for row in workspace.lodging_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning translatable-text">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td><td>{% if row.selectable and can_edit %}<input class="source-settled-amount" type="number" step="0.01" min="0" max="{{ row.amount }}" name="settled_amount_{{ row.expense_item_id }}" value="{{ '%.2f'|format(row.settled_amount) }}" data-saved="{{ '%.2f'|format(row.settled_amount) }}" {% if not row.selected %}readonly{% endif %}>{% else %}{% if row.selected %}{{ row.settled_amount|money }}{% else %}—{% endif %}{% endif %}</td><td>{% if row.selectable and can_edit %}<input class="source-adjustment-reason" type="text" maxlength="200" name="adjustment_reason_{{ row.expense_item_id }}" value="{{ row.adjustment_reason }}" data-saved="{{ row.adjustment_reason }}" placeholder="客户不承担的原因" {% if not row.selected or row.settlement_shortfall <= 0 %}readonly{% endif %}>{% else %}{{ row.adjustment_reason }}{% endif %}</td></tr>
+        {% else %}<tr><td colspan="9" class="empty">暂无住宿发票。</td></tr>{% endfor %}
       </tbody></table></div>
     </section>
 
     <section class="panel settlement-tab-panel" data-settlement-tab-panel="other" hidden>
       <div class="panel-title"><h2>其他报销</h2><span class="muted-line">按员工显示；勾选或取消后自动重算工单结算</span></div>
-      {% if can_edit and workspace.expense_change_count %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
-      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>类别</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th></tr></thead><tbody>
-        {% for row in workspace.other_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td>{{ row.group_label }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning translatable-text">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td></tr>
-        {% else %}<tr><td colspan="8" class="empty">暂无其他报销明细。</td></tr>{% endfor %}
+      {% if can_edit %}<div class="form-actions"><button type="submit">同步当前选择并忽略未选项目</button></div>{% endif %}
+      <div class="table-scroll settlement-source-table"><table class="list-table compact-table"><thead><tr><th>选择</th><th>员工</th><th>类别</th><th>报销单</th><th>日期</th><th>说明</th><th>金额</th><th>状态</th><th>客户结算金额</th><th>说明/备注</th></tr></thead><tbody>
+        {% for row in workspace.other_candidates %}<tr><td><input class="source-choice" type="checkbox" name="expense_item_id" value="{{ row.expense_item_id }}" {% if row.selected %}checked{% endif %} {% if not can_edit or not row.selectable %}disabled{% endif %}></td><td>{{ row.worker_name or '未指定员工' }}</td><td>{{ row.group_label }}</td><td><a href="{{ url_for('expense_detail', expense_id=row.expense_id) }}">{{ row.expense_number }}</a></td><td>{{ row.expense_date }}</td><td>{{ row.description or row.project_name }}</td><td>{{ row.amount|money }}{% if row.source_changed %}<div class="source-status-warning translatable-text">原 {{ row.amount_snapshot|money }} → 当前 {{ row.amount|money }}</div>{% endif %}</td><td>{{ {'approved':'已审核','pending':'待审核','returned':'已退回'}.get(row.status,row.status) }}{% if row.source_changed %}<div class="source-status-warning">来源已变化</div>{% endif %}</td><td>{% if row.selectable and can_edit %}<input class="source-settled-amount" type="number" step="0.01" min="0" max="{{ row.amount }}" name="settled_amount_{{ row.expense_item_id }}" value="{{ '%.2f'|format(row.settled_amount) }}" data-saved="{{ '%.2f'|format(row.settled_amount) }}" {% if not row.selected %}readonly{% endif %}>{% else %}{% if row.selected %}{{ row.settled_amount|money }}{% else %}—{% endif %}{% endif %}</td><td>{% if row.selectable and can_edit %}<input class="source-adjustment-reason" type="text" maxlength="200" name="adjustment_reason_{{ row.expense_item_id }}" value="{{ row.adjustment_reason }}" data-saved="{{ row.adjustment_reason }}" placeholder="客户不承担的原因" {% if not row.selected or row.settlement_shortfall <= 0 %}readonly{% endif %}>{% else %}{{ row.adjustment_reason }}{% endif %}</td></tr>
+        {% else %}<tr><td colspan="10" class="empty">暂无其他报销明细。</td></tr>{% endfor %}
       </tbody></table></div>
     </section>
   </form>
@@ -232,6 +246,12 @@
   </section>
   {% endif %}
 
+  {% if reimbursement.sources_frozen %}
+  <section class="panel">
+    <div class="flash">本工单结算为修订版本（V{{ reimbursement.version_no }}），按原版本快照生成：结算明细、费率、报销关联、原报销金额、客户结算金额、不计入确认与附件均已复制，<strong>不会自动重读最新的日报 / 报销来源</strong>；保存 / 提交 / 审核流程与普通结算一致，审核通过并确认替代后，原版本只读留档。</div>
+  </section>
+  {% endif %}
+
   {# 方案 A：结算页报销来源比对横幅（只读三档，零写库）。
      - includable（已审核未计入）：硬拦提交，提供「计入并重算」自助化解。
      - pending（待审核）/ returned（已退回）：仅提示。 #}
@@ -240,17 +260,19 @@
     {% if pending_sources.includable %}
     <div class="flash error">
       有 <strong>{{ pending_sources.includable|length }}</strong> 笔已审核报销尚未计入本工单结算（合计 {{ pending_sources.includable_total|money }}）。
-      {% if can_edit %}请选择需要计入的明细，或将确属无需计入的明细标记为无需计入：{% else %}请先在"差旅"或"其他"标签中选择需要计入的明细。{% endif %}
+      {% if reimbursement.sources_frozen %}本修订版按原版本快照生成，不自动重读来源；上述报销可在「差旅 / 其他」页签手动勾选计入，或留待后续修订版本处理。{% elif can_edit %}请选择需要计入的明细，或将确属无需计入的明细标记为无需计入：{% else %}请先在"差旅"或"其他"标签中选择需要计入的明细。{% endif %}
       {% if can_edit %}
       <ul class="settlement-pending-sources">
         {% for entry in pending_sources.includable %}
         <li>
           <a href="{{ url_for('expense_detail', expense_id=entry.expense_id) }}">{{ entry.expense_number }}</a>
           · {{ entry.worker_name }} · {{ entry.description or entry.project_name }} · {{ entry.amount|money }}
+          {% if not reimbursement.sources_frozen %}
           <form method="post" action="{{ url_for('ignore_customer_reimbursement_source', order_id=order.id) }}" class="inline-form" onsubmit="return uiConfirm('确定将该报销明细标记为无需计入本工单结算吗？提交经理审核时将不再拦截。');">
             <input type="hidden" name="expense_item_id" value="{{ entry.expense_item_id }}">
             <button class="small" type="submit">标记无需计入</button>
           </form>
+          {% endif %}
         </li>
         {% endfor %}
       </ul>
@@ -279,7 +301,7 @@
     {% endif %}
     {% if pending_sources.pending %}
     <div class="flash">
-      有 <strong>{{ pending_sources.pending|length }}</strong> 笔报销仍在待审核状态（合计 {{ pending_sources.pending_total|money }}）。必须先完成报销审核，才能提交工单结算审核。
+      有 <strong>{{ pending_sources.pending|length }}</strong> 笔报销仍在待审核状态（合计 {{ pending_sources.pending_total|money }}）。{% if reimbursement.sources_frozen %}本修订版按原版本快照生成，不包含快照后新增的报销。{% else %}必须先完成报销审核，才能提交工单结算审核。{% endif %}
     </div>
     {% endif %}
     {% if pending_sources.returned %}
@@ -308,6 +330,50 @@
     </dialog>
   {% endif %}
 
+  {% if reimbursement.status == "approved" and can_manage_customer_reimbursement() and not pending_revision %}
+    <dialog id="createRevisionDialog" class="modal">
+      <form method="post" action="{{ url_for('create_customer_reimbursement_revision', reimbursement_id=reimbursement.id) }}" class="form-stack">
+        <h2>创建修订版</h2>
+        <p class="muted-line">修订版会从 V{{ reimbursement.version_no }} 复制完整快照：结算明细、费率、报销关联、原报销金额、客户结算金额、不计入结算的确认记录及附件，<strong>不会重新读取最新的日报 / 报销来源</strong>。原版本在新版本替代前继续有效，可随时查看与发送。</p>
+        <label>修订原因 <textarea name="revision_reason" rows="4" required placeholder="例如：甲方审核后要求扣除工具费、服装费，相应调减客户结算金额"></textarea></label>
+        <div class="form-actions">
+          <button type="button" onclick="document.querySelector('#createRevisionDialog').close()">取消</button>
+          <button class="primary" type="submit">创建修订版草稿</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+
+  {% if settlement_versions|length > 1 %}
+  <section class="panel">
+    <div class="panel-title">
+      <div>
+        <h2>版本记录</h2>
+        <span class="muted-line">结算统计、开票与利润表只读取当前有效版本，各版本金额不累加。</span>
+      </div>
+    </div>
+    <div class="table-scroll"><table class="list-table compact-table">
+      <thead><tr><th>版本</th><th>状态</th><th>合计</th><th>修订原因</th><th>来源版本</th><th>创建人</th><th>创建时间</th></tr></thead>
+      <tbody>
+      {% for version in settlement_versions %}
+        <tr>
+          <td><a href="{{ url_for('customer_reimbursement_form', order_id=order.id, version_id=version.id) }}">V{{ version.version_no }}</a>{% if version.is_current %}<span class="status approved">当前有效</span>{% endif %}</td>
+          <td><span class="status {{ version.status }}">{{ customer_reimbursement_labels[version.status] }}</span></td>
+          <td>{{ version.total_amount|money }}</td>
+          <td>{{ version.revision_reason or '-' }}</td>
+          <td>{% if version.supersedes_id %}V{{ (settlement_versions|selectattr('id', 'equalto', version.supersedes_id)|map(attribute='version_no')|first) or '?' }}{% else %}-{% endif %}</td>
+          <td>{{ version.creator_name or '-' }}</td>
+          <td>{{ version.created_at }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% if pending_revision %}
+      <p class="flash">修订版 V{{ pending_revision.version_no }} 正在处理中（{{ customer_reimbursement_labels[pending_revision.status] }}），当前有效版本仍是 V{{ reimbursement.version_no }}，可继续发送 / 开票。</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
   <section class="panel">
     <div class="metric-grid">
       <div class="metric"><span>工时费小计</span><strong data-reimbursement-total="labor">{{ totals.labor_total|money }}</strong></div>
@@ -326,6 +392,7 @@
   </section>
 
   <form id="customerReimbursementForm" method="post" enctype="multipart/form-data" class="panel form-stack" data-live-totals="{{ 'true' if can_edit else 'false' }}">
+    <input type="hidden" name="version_id" value="{{ reimbursement.id }}">
     <fieldset class="plain-fieldset" {% if not can_edit %}disabled{% endif %}>
     <div class="panel-title">
       <h2>明细</h2>
@@ -500,6 +567,51 @@
           sessionStorage.setItem(storageKey, choice.closest("[data-settlement-tab-panel]").dataset.settlementTabPanel);
           choice.form.requestSubmit();
         });
+      });
+
+      // 最后一页确认：部分计入客户结算的明细必须显式确认后才允许保存。
+      // 未勾选（整笔不计入）沿用既有的「标记无需计入 + 原因」确认流程，不在此重复。
+      document.getElementById("settlementSourceSelectionForm")?.addEventListener("submit", (event) => {
+        const form = event.currentTarget;
+        const money = (value) => "$" + Number(value || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const details = [];
+        form.querySelectorAll("tbody tr").forEach((row) => {
+          const choice = row.querySelector(".source-choice");
+          const input = row.querySelector(".source-settled-amount");
+          if (!choice || !choice.checked || !input || input.readOnly) return;
+          const full = Number(input.max);
+          const settled = Number(input.value);
+          if (!Number.isFinite(full) || !Number.isFinite(settled) || settled >= full) return;
+          const reason = (row.querySelector(".source-adjustment-reason")?.value || "").trim();
+          details.push(`原报销 ${money(full)}，本次客户结算 ${money(settled)}，差额 ${money(full - settled)} 不进入客户结算。原因：${reason || "（未填写）"}`);
+        });
+        if (!details.length) return;
+        const message = `以下报销明细只部分计入客户结算：\n\n${details.join("\n")}\n\n确认按此口径保存？`;
+        if (!window.uiConfirm(message)) event.preventDefault();
+      });
+
+      // 提交经理审核前再次确认：以「已保存」的客户结算口径为准（输入框里可能有未保存的改动）。
+      document.getElementById("customerReimbursementForm")?.addEventListener("submit", (event) => {
+        const action = event.submitter?.value || "";
+        if (action !== "submit") return;
+        const money = (value) => "$" + Number(value || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const details = [];
+        // 勾选池是独立表单，不在主表单内，必须从文档查。
+        document.querySelectorAll("#settlementSourceSelectionForm .source-choice").forEach((choice) => {
+          if (!choice.checked) return;
+          const row = choice.closest("tr");
+          const input = row?.querySelector(".source-settled-amount");
+          if (!input) return;
+          const full = Number(input.max);
+          const saved = Number(input.dataset.saved);
+          if (!Number.isFinite(full) || !Number.isFinite(saved) || saved >= full) return;
+          const reason = (row.querySelector(".source-adjustment-reason")?.dataset.saved || "").trim();
+          details.push(`原报销 ${money(full)}，本次客户结算 ${money(saved)}，差额 ${money(full - saved)} 不进入客户结算。原因：${reason || "（未填写）"}`);
+        });
+        if (!details.length) return;
+        if (!window.uiConfirm(`提交经理审核前，请确认以下部分计入客户结算的明细：\n\n${details.join("\n")}\n\n确认提交？`)) {
+          event.preventDefault();
+        }
       });
     })();
   </script>

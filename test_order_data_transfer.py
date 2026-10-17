@@ -265,11 +265,16 @@ class OrderDataTransferTest(unittest.TestCase):
                 "description, sort_order, line_key) values (?,?,'住宿费',100,'t',0,'lk-1') returning id",
                 (self.expense_id, project_id),
             ).fetchone()["id"]
+            series_id = db.execute(
+                "insert into customer_reimbursement_series (service_order_id, created_at) "
+                "values (?,?) returning id",
+                (self.source_id, NOW),
+            ).fetchone()["id"]
             cr_id = db.execute(
-                "insert into customer_reimbursements (service_order_id, file_name, "
+                "insert into customer_reimbursements (series_id, service_order_id, file_name, "
                 "stored_filename, created_by, created_at, status, expense_selection_mode) "
-                "values (?,'f','f',?,?,'draft','manual_review') returning id",
-                (self.source_id, self.user_id, NOW),
+                "values (?,?,'f','f',?,?,'draft','manual_review') returning id",
+                (series_id, self.source_id, self.user_id, NOW),
             ).fetchone()["id"]
             db.execute(
                 "insert into customer_reimbursement_expense_links "
@@ -295,11 +300,16 @@ class OrderDataTransferTest(unittest.TestCase):
         self.seed()
         with self.module.app.app_context():
             db = self.module.db()
+            series_id = db.execute(
+                "insert into customer_reimbursement_series (service_order_id, created_at) "
+                "values (?,?) returning id",
+                (self.source_id, NOW),
+            ).fetchone()["id"]
             cr_id = db.execute(
-                "insert into customer_reimbursements (service_order_id, file_name, "
+                "insert into customer_reimbursements (series_id, service_order_id, file_name, "
                 "stored_filename, created_by, created_at, status, expense_selection_mode) "
-                "values (?,'f','f',?,?,'draft','manual_review') returning id",
-                (self.source_id, self.user_id, NOW),
+                "values (?,?,'f','f',?,?,'draft','manual_review') returning id",
+                (series_id, self.source_id, self.user_id, NOW),
             ).fetchone()["id"]
             db.execute(
                 "insert into customer_reimbursement_items (customer_reimbursement_id, "

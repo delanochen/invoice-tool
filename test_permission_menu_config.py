@@ -123,13 +123,20 @@ class MenuConfigurablePermissionTest(unittest.TestCase):
     def _insert_reimbursement(self, status="submitted"):
         with self.module.app.app_context():
             connection = self.module.db()
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-09-17T00:00:00')
+                """,
+                (self.order_id,),
+            ).lastrowid
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, status, created_by, created_at
-                ) values (?, 'menu-config.pdf', 'menu-config.pdf', ?, ?, '2026-09-17T00:00:00')
+                    series_id, service_order_id, file_name, stored_filename, status, created_by, created_at
+                ) values (?, ?, 'menu-config.pdf', 'menu-config.pdf', ?, ?, '2026-09-17T00:00:00')
                 """,
-                (self.order_id, status, self.creator_id),
+                (series_id, self.order_id, status, self.creator_id),
             ).lastrowid
             connection.commit()
             return reimbursement_id

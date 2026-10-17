@@ -127,6 +127,10 @@ from settlement_review import (
     selected_expense_item_ids,
     selected_expense_total,
 )
+from settlement_revisions import (
+    register_settlement_revision_routes,
+    settlement_versions,
+)
 from profitability import register_profitability_routes
 from order_data_transfer import register_order_data_transfer_routes
 from employee_finance import cancel_expense_payment_order, ensure_expense_payment_order, register_employee_finance_routes
@@ -350,6 +354,7 @@ CUSTOMER_REIMBURSEMENT_STATUS_LABELS = {
     "submitted": "待经理审核",
     "returned": "已退回",
     "approved": "已通过",
+    "superseded": "已被替代",
 }
 
 ROLE_OPTIONS = {
@@ -4493,6 +4498,9 @@ def merge_approved_expenses_into_customer_reimbursement(
             "line_key": expense_item["line_key"], "line_number": expense_item["line_number"],
             "worker_name": expense_item["worker_name"], "project_name": expense_item["project_name"],
             "description": expense_item["item_description"], "amount": expense_item["amount"],
+            # 报销原额：amount 是「客户认可金额」（部分计入时小于原额）。
+            # 来源明细面板用它显示员工实际报销了多少，避免看起来像报销被改小。
+            "source_amount": _row_field(expense_item, "full_amount", expense_item["amount"]),
             "date": expense_item["expense_date"],
         })
         auto_field = f"auto_{field_name}"
@@ -4694,7 +4702,14 @@ def customer_reimbursement_gate_error(reimbursement):
     - 已审核未计入且未标记忽略（includable 非空）→ 硬拦截
     - 待审核（pending 非空）→ 硬拦截
     - 已退回（returned 非空）→ 不拦（退回提示由横幅呈现）
-    返回 (error_code, message) 或 None。"""
+    返回 (error_code, message) 或 None。
+
+    修订版（sources_frozen）豁免前两项：修订版按原版本快照生成，语义上就不
+    重读最新来源；快照后新审核的报销由页面横幅提示可见，用户可手动勾选计入，
+    但不能逼用户「计入并重算」（那会破坏快照）或「标记无需计入」（那是客户
+    明确不承担的语义，不能滥用）。"""
+    if reimbursement["sources_frozen"]:
+        return None
     sources = customer_reimbursement_pending_sources(reimbursement)
     if sources["includable"]:
         return (
@@ -5221,6 +5236,25 @@ def save_customer_reimbursement_items(reimbursement_id, rows):
 
 
 def latest_customer_reimbursement(order_id):
+    """工单的当前有效结算版本。
+
+    0313 起同一工单可能有多个修订版本：is_current 的那张才是对客 / 对账 /
+    开票口径，草稿修订版（is_current=false）绝不能抢位。历史数据未回填时
+    回退到「最新一张」，保持旧行为。
+    """
+    current = db().execute(
+        """
+        select customer_reimbursements.*, users.name as creator_name
+        from customer_reimbursements
+        left join users on users.id = customer_reimbursements.created_by
+        where customer_reimbursements.service_order_id = ?
+          and customer_reimbursements.is_current
+        limit 1
+        """,
+        (order_id,),
+    ).fetchone()
+    if current:
+        return current
     return db().execute(
         """
         select customer_reimbursements.*, users.name as creator_name
@@ -5415,14 +5449,23 @@ def create_customer_reimbursement(order, expense_selection_mode="legacy"):
         ).fetchone()
         if not quotation_revision:
             raise ValueError("关联报价单还没有可用于结算的修订版本，请先保存报价单。")
+    # 0313：每张新结算自成一个结算系列（V1，且为当前有效版本）。
+    # series_id 是 NOT NULL，必须先建系列行；同工单唯一 current 由部分唯一索引保证。
+    series_id = db().execute(
+        "insert into customer_reimbursement_series (service_order_id, created_at) "
+        "values (?, ?) returning id",
+        (order["id"], now()),
+    ).fetchone()["id"]
     cursor = db().execute(
         """
         insert into customer_reimbursements (
-            service_order_id, file_name, stored_filename, expense_selection_mode,
-            settlement_basis, quotation_revision_id, created_by, created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?)
+            series_id, service_order_id, file_name, stored_filename, expense_selection_mode,
+            settlement_basis, quotation_revision_id, is_current, version_no,
+            created_by, created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, true, 1, ?, ?)
         """,
         (
+            series_id,
             order["id"], file_name, f"{secrets.token_hex(12)}.pdf", expense_selection_mode,
             order["settlement_basis"], quotation_revision["id"] if quotation_revision else None,
             g.user["id"], now(),
@@ -5565,11 +5608,40 @@ def update_customer_reimbursement_totals(reimbursement_id, rows=None):
     rows = rows if rows is not None else customer_reimbursement_items(reimbursement_id)
     reimbursement = db().execute(
         "select service_order_id, expense_transfer_cutoff_at, expense_selection_mode, "
-        "settlement_basis, quotation_revision_id from customer_reimbursements where id = ?",
+        "settlement_basis, quotation_revision_id, mro_supplies_total, sources_frozen "
+        "from customer_reimbursements where id = ?",
         (reimbursement_id,),
     ).fetchone()
     if not reimbursement:
         return customer_reimbursement_totals(rows)
+    if reimbursement["sources_frozen"]:
+        # 修订版快照：不再自动合并日报 / 报销来源，只按已复制的明细重算汇总。
+        # 否则「从原版本复制完整快照、不重读最新来源」的语义会被 merge 打破。
+        if reimbursement["expense_selection_mode"] == "manual_review":
+            # 勾选模式下 MRO 合计跟随本版本的报销关联（含客户结算金额调整）。
+            mro_total = selected_expense_total(globals(), reimbursement_id, "other")
+        else:
+            # 其余模式没有 links 可读，绝不能回头读 expenses（那就成了重读来源），
+            # 照抄原版本复制过来的快照合计列。
+            mro_total = reimbursement["mro_supplies_total"]
+        totals = customer_reimbursement_totals(rows, mro_total)
+        with_discount = _quotation_totals_with_discount(reimbursement, totals)
+        db().execute(
+            """
+            update customer_reimbursements
+            set labor_total = ?, lodging_total = ?, travel_total = ?, mileage_total = ?,
+                mro_supplies_total = ?, rental_fuel_total = ?, total_amount = ?, other_total = ?,
+                gross_amount = ?, discount_amount = ?
+            where id = ?
+            """,
+            (
+                totals["labor_total"], totals["lodging_total"], totals["travel_total"],
+                totals["mileage_total"], totals["mro_supplies_total"], totals["rental_fuel_total"],
+                with_discount["total_amount"], totals["other_total"],
+                with_discount["gross_amount"], with_discount["discount_amount"], reimbursement_id,
+            ),
+        )
+        return totals
     rows = merge_service_reports_into_customer_reimbursement(rows, reimbursement["service_order_id"])
     rows = merge_approved_expenses_into_customer_reimbursement(
         rows,
@@ -5829,6 +5901,25 @@ def remove_customer_reimbursement_pdf(reimbursement):
         os.remove(path)
     except FileNotFoundError:
         pass
+
+
+def archive_customer_reimbursement_pdf(reimbursement, reason=""):
+    """把即将被覆盖的结算 PDF 归档，返回归档文件的相对路径（无文件时返回 None）。
+
+    已发送给甲方的结算单被修改时，旧版本必须留底：甲方手上拿的是 v1，
+    系统里只剩 v2 就说不清「哪笔被砍、砍了多少」。归档不写库，只落文件，
+    路径记进操作日志。
+    """
+    path = customer_reimbursement_file_path(reimbursement)
+    if not os.path.isfile(path):
+        return None
+    directory = os.path.join(os.path.dirname(path), "archive")
+    os.makedirs(directory, exist_ok=True)
+    stamp = datetime.now(app_timezone()).strftime("%Y%m%d-%H%M%S")
+    filename = f"{stamp}-{os.path.basename(path)}"
+    archive_path = os.path.join(directory, filename)
+    shutil.copy2(path, archive_path)
+    return os.path.join(str(reimbursement["id"]), "archive", filename)
 
 
 def ensure_customer_reimbursement_pdf_file(reimbursement, order):
@@ -12522,6 +12613,15 @@ def customer_reimbursement_query():
         params.append(status)
     else:
         status = ""
+    # 0313：结算统计只读当前有效版本。同工单存在当前版本时，被替代的历史版本
+    # （superseded）不得进列表、不得进合计；没有当前版本的存量行仍可见。
+    clauses.append(
+        "(customer_reimbursements.is_current or not exists ("
+        "  select 1 from customer_reimbursements current_row"
+        "  where current_row.service_order_id = customer_reimbursements.service_order_id"
+        "    and current_row.is_current"
+        "))"
+    )
     if order_status == "open":
         clauses.append("service_orders.status != 'closed'")
     elif order_status == "closed":
@@ -13880,6 +13980,27 @@ def customer_reimbursement_form(order_id):
         # 方案 A：不再在 GET 期自动重合并覆盖快照（那会导致保存时一闪而过、
         # 且可能把同人异日报销重复计入）。改为只读比对未计入来源，由横幅呈现。
         db().commit()
+    # 版本定位：GET 带 version_id 查看同系列任一版本（历史版本只读展示）；
+    # POST 带 version_id（表单隐藏域）时作用于该版本——修订版草稿
+    # （is_current=false）必须能保存 / 提交 / 审核，否则「沿用现有保存、
+    # 确认、审核流程」落空。校验：同工单 + 同系列，跨系列一律不认。
+    requested_version_id = (
+        request.args.get("version_id", type=int) if request.method == "GET"
+        else request.form.get("version_id", type=int)
+    )
+    if requested_version_id and requested_version_id != reimbursement["id"]:
+        candidate = db().execute(
+            "select * from customer_reimbursements where id = ? and service_order_id = ?",
+            (requested_version_id, order_id),
+        ).fetchone()
+        if candidate and candidate["series_id"] == reimbursement["series_id"]:
+            reimbursement = candidate
+    # 保存 / 提交后回到当前正在编辑的版本视图，避免修订版草稿被弹回 V1。
+    form_url = url_for("customer_reimbursement_form", order_id=order_id)
+    if not reimbursement["is_current"]:
+        form_url = url_for(
+            "customer_reimbursement_form", order_id=order_id, version_id=reimbursement["id"]
+        )
     if request.method == "POST":
         try:
             action = request.form.get("action", "save")
@@ -13897,11 +14018,11 @@ def customer_reimbursement_form(order_id):
                     gate = customer_reimbursement_gate_error(reimbursement)
                     if gate:
                         flash(gate[1], "error")
-                        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                        return redirect(form_url)
                     recipient = deliver_customer_reimbursement_email(reimbursement, order)
                     db().commit()
                     flash(f"工单结算已发送至 {recipient}。", "success")
-                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                    return redirect(form_url)
                 if action == "generate_invoice":
                     if reimbursement["status"] != "approved":
                         raise ValueError("工单结算审核通过后才能生成发票。")
@@ -13910,7 +14031,7 @@ def customer_reimbursement_form(order_id):
                     gate = customer_reimbursement_gate_error(reimbursement)
                     if gate:
                         flash(gate[1], "error")
-                        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                        return redirect(form_url)
                     linked_invoice = service_order_active_invoice(order_id)
                     if linked_invoice:
                         if not reimbursement["invoice_id"]:
@@ -13932,7 +14053,7 @@ def customer_reimbursement_form(order_id):
                 gate = customer_reimbursement_gate_error(reimbursement)
                 if gate:
                     flash(gate[1], "error")
-                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                    return redirect(form_url)
             rows = customer_reimbursement_items_from_form(order_id)
             save_customer_reimbursement_items(reimbursement["id"], rows)
             totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
@@ -13970,7 +14091,7 @@ def customer_reimbursement_form(order_id):
                         f"{g.user['name']}提交了工单 {order['order_number']} 的工单结算，"
                         f"金额 {money(totals['total_amount'])}。"
                     ),
-                    url_for("customer_reimbursement_form", order_id=order_id),
+                    form_url,
                     exclude_user_ids={g.user["id"]},
                 )
                 log_action(
@@ -13982,7 +14103,7 @@ def customer_reimbursement_form(order_id):
                 )
                 db().commit()
                 flash("工单结算已提交经理审核。", "success")
-                return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                return redirect(form_url)
             if action == "generate_pdf":
                 return send_file(
                     customer_reimbursement_file_path(reimbursement),
@@ -13996,10 +14117,10 @@ def customer_reimbursement_form(order_id):
                     recipient = deliver_customer_reimbursement_email(reimbursement, order)
                 except (ValueError, RuntimeError) as error:
                     flash(str(error), "error")
-                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                    return redirect(form_url)
                 db().commit()
                 flash(f"工单结算已发送至 {recipient}。", "success")
-                return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                return redirect(form_url)
             if action == "generate_invoice":
                 if reimbursement["status"] != "approved":
                     raise ValueError("工单结算审核通过后才能生成发票。")
@@ -14022,11 +14143,11 @@ def customer_reimbursement_form(order_id):
                     )
                 )
             flash("工单结算已保存。", "success")
-            return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+            return redirect(form_url)
         except ValueError as error:
             db().rollback()
             flash(str(error), "error")
-            return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+            return redirect(form_url)
     items = customer_reimbursement_items(reimbursement["id"])
     items = [dict(item) for item in items]
     for item in items:
@@ -14091,6 +14212,15 @@ def customer_reimbursement_form(order_id):
     # 报价单折扣快照：工单结算展示 折扣前应收 / 折扣 / 最终应收
     _form_totals["gross_amount"] = float(reimbursement["gross_amount"] or 0)
     _form_totals["discount_amount"] = float(reimbursement["discount_amount"] or 0)
+    # 版本列表 / 在处理中的修订版（settlement_revisions 模块函数第一个参数是 api dict）
+    version_rows = settlement_versions(globals(), order_id)
+    pending_revision = next(
+        (
+            version for version in version_rows
+            if not version["is_current"] and version["status"] != "superseded"
+        ),
+        None,
+    )
     return render_template(
         "customer_reimbursement_form.html",
         order=order,
@@ -14107,13 +14237,21 @@ def customer_reimbursement_form(order_id):
         },
         missing_rate_summary=missing_rate_summary,
         attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
+        settlement_versions=version_rows,
+        pending_revision=pending_revision,
         linked_invoice=linked_invoice,
         reviewer=reviewer,
         email_delivery=email_delivery_summary("customer_reimbursement", reimbursement["id"]),
         excessive_following_mileage=excessive_following_mileage_rows(order_id),
         lodging_range=customer_reimbursement_lodging_range(order_id),
         column_totals=customer_reimbursement_column_totals(items),
-        can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
+        # 可编辑 = 有管理权限 + 状态是草稿/已退回。修订版草稿 is_current=false
+        # 但必须能编辑（「沿用现有保存、确认、审核流程」）；被替代的历史版本
+        # 状态是 superseded，天然落在只读分支，不需要再按 is_current 拦。
+        can_edit=(
+            can_manage_customer_reimbursement()
+            and reimbursement["status"] in {"draft", "returned"}
+        ),
         pending_sources=customer_reimbursement_pending_sources(reimbursement),
         workspace=workspace,
     )
@@ -14243,6 +14381,11 @@ def sync_customer_reimbursement_sources(order_id):
         flash("只有保存未提交或已退回的工单结算可以计入并重算。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order_id))
 
+    if reimbursement["sources_frozen"]:
+        # 修订版快照：语义就是不重读最新来源。快照后新审核的报销只能在
+        # 「差旅 / 其他」页签手动勾选计入，不能走这条自动补链路径。
+        flash("修订版按原版本快照生成，不会自动计入新的报销来源；请在上方页签手动勾选需要计入的明细。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
     sources = customer_reimbursement_pending_sources(reimbursement)
     linked_count = 0
     skipped_other = 0
@@ -14268,8 +14411,13 @@ def sync_customer_reimbursement_sources(order_id):
         if already:
             continue
         other = db().execute(
-            "select 1 from customer_reimbursement_expense_links where expense_item_id = ? and customer_reimbursement_id != ? limit 1",
-            (row["expense_item_id"], reimbursement["id"]),
+            "select 1 from customer_reimbursement_expense_links "
+            "where expense_item_id = ? and customer_reimbursement_id != ? "
+            "and customer_reimbursement_id in ("
+            "  select id from customer_reimbursements "
+            "  where series_id <> (select series_id from customer_reimbursements where id = ?)"
+            ") limit 1",
+            (row["expense_item_id"], reimbursement["id"], reimbursement["id"]),
         ).fetchone()
         if other:
             skipped_other += 1
@@ -14328,6 +14476,12 @@ def ignore_customer_reimbursement_source(order_id):
         abort(404)
     if reimbursement["status"] not in {"draft", "returned"}:
         flash("只有保存未提交或已退回的工单结算可以标记忽略。", "error")
+        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+    if reimbursement["sources_frozen"]:
+        # 修订版快照：忽略表已从原版本照抄。对快照后新出现的报销标记「无需计入」
+        # 会把它误记成「客户明确不承担」（利润表按 0 计收入），语义不对；
+        # 快照后新审核的报销只能手动勾选计入，或留给后续版本处理。
+        flash("修订版按原版本快照生成，不能对快照外的报销标记无需计入；请手动勾选需要计入的明细。", "error")
         return redirect(url_for("customer_reimbursement_form", order_id=order_id))
     try:
         expense_item_id = int(request.form.get("expense_item_id", ""))
@@ -14500,13 +14654,22 @@ def reset_customer_reimbursement(reimbursement_id):
         """,
         (reimbursement_id,),
     )
+    # 旧 PDF 先归档再删除：已发送给甲方的版本必须留底，否则改完只剩新版本，
+    # 「甲方砍了哪笔、砍了多少」无从对账。
+    archived_pdf = archive_customer_reimbursement_pdf(reimbursement)
+    revision_reason = (request.form.get("revision_reason") or "").strip()
     remove_customer_reimbursement_pdf(reimbursement)
+    detail = "重置为保存未提交，允许重新编辑"
+    if archived_pdf:
+        detail += f"；原结算 PDF 已归档：{archived_pdf}"
+    if revision_reason:
+        detail += f"；修订原因：{revision_reason}"
     log_action(
         "reset",
         "customer_reimbursement",
         reimbursement_id,
         reimbursement["file_name"],
-        "重置为保存未提交，允许重新编辑",
+        detail,
     )
     db().commit()
     flash("工单结算已重置为保存未提交，可以重新编辑。修改后请重新提交经理审核。", "success")
@@ -18261,6 +18424,7 @@ register_field_routes(app, globals())
 register_staff_reports(app, globals())
 register_rate_routes(app, globals())
 register_settlement_review_routes(app, globals())
+register_settlement_revision_routes(app, globals())
 register_profitability_routes(app, globals())
 register_order_data_transfer_routes(app, globals())
 register_travel_tools_routes(app, globals())

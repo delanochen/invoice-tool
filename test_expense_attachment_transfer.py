@@ -100,13 +100,20 @@ class ExpenseAttachmentTransferTest(unittest.TestCase):
             self.line_attachment_id = cursor.lastrowid
             line_source_path = Path(self.module.expense_attachment_dir(self.expense_id)) / "line-source.png"
             line_source_path.write_bytes(b"line-image")
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-08-02T12:00:00')
+                """,
+                (self.order_id,),
+            ).lastrowid
             cursor = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, status, created_by, created_at
-                ) values (?, 'settlement.pdf', 'settlement.pdf', 'draft', ?, '2026-08-02T12:00:00')
+                    series_id, service_order_id, file_name, stored_filename, status, created_by, created_at
+                ) values (?, ?, 'settlement.pdf', 'settlement.pdf', 'draft', ?, '2026-08-02T12:00:00')
                 """,
-                (self.order_id, self.user_id),
+                (series_id, self.order_id, self.user_id),
             )
             self.reimbursement_id = cursor.lastrowid
             connection.commit()

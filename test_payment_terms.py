@@ -610,13 +610,20 @@ class PaymentTermsTest(unittest.TestCase):
                 self.module.approved_rental_vehicle_fuel_total(self.open_order_id),
                 200,
             )
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-08-15T00:00:00')
+                """,
+                (self.open_order_id,),
+            ).lastrowid
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, created_by, created_at
-                ) values (?, 'fuel-test.pdf', 'fuel-test.pdf', ?, '2026-08-15T00:00:00')
+                    series_id, service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, ?, 'fuel-test.pdf', 'fuel-test.pdf', ?, '2026-08-15T00:00:00')
                 """,
-                (self.open_order_id, self.user_id),
+                (series_id, self.open_order_id, self.user_id),
             ).lastrowid
             self.module.update_customer_reimbursement_totals(reimbursement_id, [])
             reimbursement = connection.execute(
@@ -742,13 +749,20 @@ class PaymentTermsTest(unittest.TestCase):
                 """,
                 (expense_id, project_ids["Fuel Expenses"]),
             )
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-08-15T00:00:00')
+                """,
+                (self.open_order_id,),
+            ).lastrowid
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, created_by, created_at
-                ) values (?, 'category-test.pdf', 'category-test.pdf', ?, '2026-08-15T00:00:00')
+                    series_id, service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, ?, 'category-test.pdf', 'category-test.pdf', ?, '2026-08-15T00:00:00')
                 """,
-                (self.open_order_id, self.user_id),
+                (series_id, self.open_order_id, self.user_id),
             ).lastrowid
             connection.execute(
                 """
@@ -898,14 +912,21 @@ class PaymentTermsTest(unittest.TestCase):
                 return report_id
 
             first_report_id = add_report("2026-08-10")
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-08-15T00:00:00')
+                """,
+                (self.open_order_id,),
+            ).lastrowid
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, status, created_by, created_at
-                ) values (?, 'report-sync.pdf', 'report-sync.pdf', 'draft', ?,
+                    series_id, service_order_id, file_name, stored_filename, status, created_by, created_at
+                ) values (?, ?, 'report-sync.pdf', 'report-sync.pdf', 'draft', ?,
                           '2026-08-15T00:00:00')
                 """,
-                (self.open_order_id, self.user_id),
+                (series_id, self.open_order_id, self.user_id),
             ).lastrowid
             initial_rows = self.module.customer_reimbursement_seed_rows(self.open_order_id)
             self.assertEqual(len(initial_rows), 3)

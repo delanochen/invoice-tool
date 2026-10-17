@@ -221,19 +221,27 @@ class UtilityMenuTest(unittest.TestCase):
 
         script = (REPO / "static" / "ui-i18n.js").read_text(encoding="utf-8")
         lines = script.split("\n")
-        # (start, end, label) of each dictionary object.
-        objects = [
-            (2, 788, "en base"),
-            (790, 1403, "nl base"),
-            (1405, 2005, "de base"),
-            (2007, 2607, "es base"),
-            (2609, 2661, "en patch"),
-            (2662, 2713, "nl patch"),
-            (2714, 2765, "de patch"),
-            (2766, 2831, "es patch"),
-        ]
-        for start, end, name in objects:
-            block = "\n".join(lines[start - 1 : end])
+        # 字典对象边界从文件自身推导：`const xx = {` / `Object.assign(xx, {` 开头，
+        # 到下一个 2 空格缩进的 `};` / `});` 结束。写死行号区间会在 ui-i18n.js
+        # 增删词条后漂移，把跨对象的切片误报成 shadowing duplicate。
+        opening = re.compile(r"^  (?:const (\w+) = \{|Object\.assign\((\w+), \{$)")
+        closing = re.compile(r"^  \}(?:\);|;)$")
+        objects = []
+        name = None
+        body = []
+        for line in lines:
+            if name is None:
+                match = opening.match(line)
+                if match:
+                    name = match.group(1) or match.group(2)
+                    body = []
+            elif closing.match(line):
+                objects.append((name, "\n".join(body)))
+                name = None
+            else:
+                body.append(line)
+        self.assertTrue(objects, "ui-i18n.js 里找不到字典对象")
+        for name, block in objects:
             for label in ("知识库", "智能助手"):
                 found = re.findall(r'"%s"\s*:' % label, block)
                 self.assertLessEqual(

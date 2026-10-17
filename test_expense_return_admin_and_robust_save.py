@@ -215,13 +215,20 @@ class RobustExpenseSaveTest(ExpenseReturnAdminTestBase):
         module = self.module
         _, order_id, _, _ = self._make_expense()
         with module.app.app_context():
+            series_id = module.db().execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-09-19T08:00:00')
+                """,
+                (order_id,),
+            ).lastrowid
             reimbursement_id = module.db().execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, created_by, created_at
-                ) values (?, 'settle.pdf', 'stored-settle.pdf', 1, '2026-09-19T08:00:00')
+                    series_id, service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, ?, 'settle.pdf', 'stored-settle.pdf', 1, '2026-09-19T08:00:00')
                 """,
-                (order_id,),
+                (series_id, order_id),
             ).lastrowid
             source = Path(self.module.DATA_DIR) / "copy-source.bin"
             source.write_bytes(b"attachment-bytes")
@@ -243,13 +250,20 @@ class RobustExpenseSaveTest(ExpenseReturnAdminTestBase):
         module = self.module
         _, order_id, _, expense_id = self._make_expense()
         with module.app.app_context():
+            series_id = module.db().execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-09-19T08:00:00')
+                """,
+                (order_id,),
+            ).lastrowid
             reimbursement_id = module.db().execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, created_by, created_at
-                ) values (?, 'settle.pdf', 'stored-settle.pdf', 1, '2026-09-19T08:00:00')
+                    series_id, service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, ?, 'settle.pdf', 'stored-settle.pdf', 1, '2026-09-19T08:00:00')
                 """,
-                (order_id,),
+                (series_id, order_id),
             ).lastrowid
             attachment_id = module.db().execute(
                 """
@@ -349,13 +363,20 @@ class RobustExpenseSaveTest(ExpenseReturnAdminTestBase):
                 "select id from expense_items where expense_id = ? and line_key = 'line-a'",
                 (expense_id,),
             ).fetchone()["id"]
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-09-19T08:00:00')
+                """,
+                (order_id,),
+            ).lastrowid
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, created_by, created_at
-                ) values (?, 'settle.pdf', 'linked-settle.pdf', ?, '2026-09-19T08:00:00')
+                    series_id, service_order_id, file_name, stored_filename, created_by, created_at
+                ) values (?, ?, 'settle.pdf', 'linked-settle.pdf', ?, '2026-09-19T08:00:00')
                 """,
-                (order_id, admin_id),
+                (series_id, order_id, admin_id),
             ).lastrowid
             connection.execute(
                 """

@@ -91,7 +91,7 @@
               <div class="table-scroll">
                 <table class="list-table compact-table">
                   <thead>
-                    <tr><th>选择</th><th>状态</th><th>报销编号</th><th>员工</th><th>日期</th><th>项目</th><th>说明</th><th>车辆类型</th><th>金额</th></tr>
+                    <tr><th>选择</th><th>状态</th><th>报销编号</th><th>员工</th><th>日期</th><th>项目</th><th>说明</th><th>车辆类型</th><th>报销金额</th><th>计入客户结算</th><th>调减原因</th></tr>
                   </thead>
                   <tbody>
                   {% for row in group_rows %}
@@ -111,6 +111,27 @@
                       <td>{{ row.description or '-' }}</td>
                       <td>{{ row.fuel_vehicle_type or '-' }}</td>
                       <td>{{ row.amount|money }}</td>
+                      <td>
+                        {% if row.selectable %}
+                          <input class="settlement-amount-input" type="number" step="0.01" min="0" max="{{ row.amount }}"
+                                 name="settled_amount_{{ row.expense_item_id }}"
+                                 value="{{ '%.2f'|format(row.settled_amount) }}"
+                                 data-full="{{ row.amount }}"
+                                 data-group="{{ row.group_label }}"
+                                 data-lodging="{{ 'true' if row.settlement_field == 'lodging' else 'false' }}"
+                                 title="本笔报销计入客户结算的金额；小于报销金额即部分计入"
+                                 {% if not row.selected %}disabled{% endif %}>
+                        {% else %}<span class="muted-line">—</span>{% endif %}
+                      </td>
+                      <td>
+                        {% if row.selectable %}
+                          <input class="settlement-adjustment-reason" type="text" maxlength="200"
+                                 name="adjustment_reason_{{ row.expense_item_id }}"
+                                 value="{{ row.adjustment_reason }}"
+                                 placeholder="客户不承担的原因"
+                                 {% if row.settlement_shortfall <= 0 %}disabled{% endif %}>
+                        {% endif %}
+                      </td>
                     </tr>
                   {% endfor %}
                   </tbody>
@@ -155,13 +176,39 @@
   const money = (value) => `$${Number(value || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
   const rate = Number(document.getElementById('lodgingRate')?.dataset.value || 0);
   const nights = document.getElementById('lodgingPersonNights');
+  const amountInput = (box) => box.closest('tr')?.querySelector('.settlement-amount-input');
+  const reasonInput = (box) => box.closest('tr')?.querySelector('.settlement-adjustment-reason');
+  const fullAmount = (box) => Number(box.dataset.amount || 0);
+  // 「计入客户结算」输入框即最终结算金额：不再叠加报销全额，也不做上限二次折算。
+  const settledAmount = (box) => {
+    const input = amountInput(box);
+    const full = fullAmount(box);
+    if (!input) return full;
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) return full;
+    return Math.min(Math.max(value, 0), full);
+  };
+  const syncRow = (box) => {
+    const input = amountInput(box);
+    const reason = reasonInput(box);
+    const shortfall = box.checked && settledAmount(box) < fullAmount(box);
+    if (input) {
+      input.disabled = !box.checked;
+      input.classList.toggle('warn', shortfall);
+    }
+    if (reason) {
+      reason.disabled = !shortfall;
+      if (!shortfall) reason.value = '';
+    }
+  };
   const refresh = () => {
     let total = 0;
     let lodging = 0;
     const groups = new Map();
     checkboxes.forEach((box) => {
+      syncRow(box);
       if (!box.checked) return;
-      const amount = Number(box.dataset.amount || 0);
+      const amount = settledAmount(box);
       total += amount;
       if (box.dataset.lodging === 'true') lodging += amount;
       groups.set(box.dataset.group, (groups.get(box.dataset.group) || 0) + amount);
@@ -178,6 +225,7 @@
     });
   };
   checkboxes.forEach((box) => box.addEventListener('change', refresh));
+  document.querySelectorAll('.settlement-amount-input').forEach((input) => input.addEventListener('input', refresh));
   nights?.addEventListener('input', refresh);
   document.getElementById('selectAllApproved')?.addEventListener('click', () => { checkboxes.forEach((box) => box.checked = true); refresh(); });
   document.getElementById('clearSelections')?.addEventListener('click', () => { checkboxes.forEach((box) => box.checked = false); refresh(); });

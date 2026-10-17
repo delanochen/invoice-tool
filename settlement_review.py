@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import abort, flash, g, redirect, render_template, request, url_for
 
@@ -42,7 +42,8 @@ def settlement_expense_candidates(api, order_id, reimbursement_id=None):
             row["expense_item_id"]: dict(row)
             for row in api["db"]().execute(
                 """
-                select expense_item_id, amount_snapshot, project_snapshot, expense_status_snapshot
+                select expense_item_id, amount_snapshot, project_snapshot, expense_status_snapshot,
+                       settled_amount, adjustment_reason
                 from customer_reimbursement_expense_links
                 where customer_reimbursement_id = ?
                 """,
@@ -91,6 +92,14 @@ def settlement_expense_candidates(api, order_id, reimbursement_id=None):
         data["amount_snapshot"] = snapshot.get("amount_snapshot") if snapshot else None
         data["project_snapshot"] = snapshot.get("project_snapshot") if snapshot else None
         data["status_snapshot"] = snapshot.get("expense_status_snapshot") if snapshot else None
+        # 客户结算金额：NULL/缺失一律视为全额（历史行与「未做部分计入」的常态）。
+        # 这是「客户结算口径」，与报销金额（data["amount"]，员工侧事实）相互独立。
+        stored_settled = snapshot.get("settled_amount") if snapshot else None
+        data["settled_amount"] = (
+            _money(stored_settled) if stored_settled is not None else _money(data["amount"])
+        )
+        data["adjustment_reason"] = (snapshot.get("adjustment_reason") or "") if snapshot else ""
+        data["settlement_shortfall"] = _money(data["amount"]) - _money(data["settled_amount"])
         data["source_changed"] = bool(snapshot) and (
             _money(data["amount"]) != _money(snapshot.get("amount_snapshot"))
             or (data["project_name"] or "") != (snapshot.get("project_snapshot") or "")
@@ -186,7 +195,8 @@ def _candidate_summary(candidates, person_nights, lodging_cap_rate):
         else:
             bucket["pending"] += amount
         if candidate["selected"]:
-            bucket["selected"] += amount
+            # 部分计入时以客户结算金额为准，否则「已选合计」会高于实际结算金额。
+            bucket["selected"] += _money(candidate.get("settled_amount", amount))
     cap = _money(lodging_cap_rate) * Decimal(str(person_nights or 0))
     selected_lodging = groups.get("lodging", {}).get("selected", Decimal("0"))
     return {
@@ -197,7 +207,36 @@ def _candidate_summary(candidates, person_nights, lodging_cap_rate):
     }
 
 
-def replace_expense_links(api, reimbursement_id, candidate_map, selected_ids):
+def _posted_settlement_adjustments(form, selected_ids):
+    """解析审核页提交的「客户结算金额 / 调减原因」。
+
+    缺省（表单里没有该字段）表示全额计入，与历史行为一致。
+    """
+    settled_amounts = {}
+    adjustment_reasons = {}
+    for item_id in selected_ids:
+        raw = form.get(f"settled_amount_{item_id}")
+        if raw is not None and str(raw).strip() != "":
+            try:
+                settled_amounts[item_id] = Decimal(str(raw).strip().replace(",", ""))
+            except (InvalidOperation, ValueError):
+                raise ValueError(f"报销明细 {item_id} 的客户结算金额不是有效数字。")
+        reason = (form.get(f"adjustment_reason_{item_id}") or "").strip()
+        if reason:
+            adjustment_reasons[item_id] = reason
+    return settled_amounts, adjustment_reasons
+
+
+def replace_expense_links(api, reimbursement_id, candidate_map, selected_ids,
+                          settled_amounts=None, adjustment_reasons=None):
+    """重建本结算单的报销明细关联。
+
+    settled_amounts / adjustment_reasons 以 expense_item_id 为键。缺省视为全额
+    计入（历史行为）。客户只认部分金额时（工具/服装类被拒付），只调减这里的
+    settled_amount —— 员工报销金额、员工付款单与工资结算一概不动。
+    """
+    settled_amounts = settled_amounts or {}
+    adjustment_reasons = adjustment_reasons or {}
     api["db"]().execute(
         "delete from customer_reimbursement_expense_links where customer_reimbursement_id = ?",
         (reimbursement_id,),
@@ -208,6 +247,24 @@ def replace_expense_links(api, reimbursement_id, candidate_map, selected_ids):
             raise ValueError("选择的报销明细不属于当前工单。")
         if not row["selectable"]:
             raise ValueError(f"{row['expense_number']} 的该明细尚未审核通过，不能进入客户结算。")
+        full_amount = _money(row["amount"])
+        raw_settled = settled_amounts.get(item_id)
+        settled_amount = full_amount if raw_settled is None else _money(raw_settled)
+        if settled_amount < 0:
+            raise ValueError(f"{row['expense_number']} 的客户结算金额不能为负数。")
+        if settled_amount > full_amount:
+            raise ValueError(
+                f"{row['expense_number']} 的客户结算金额 {settled_amount} "
+                f"不能超过报销金额 {full_amount}。"
+            )
+        adjustment_reason = str(adjustment_reasons.get(item_id) or "").strip()
+        if settled_amount < full_amount and not adjustment_reason:
+            raise ValueError(
+                f"{row['expense_number']} 调减客户结算金额后必须填写调减原因"
+                f"（报销 {full_amount} → 客户结算 {settled_amount}）。"
+            )
+        # 同一系列（同工单的多个修订版本）允许同一报销明细重复出现；
+        # 只有跨系列 / 跨工单的独立结算才禁止重复计费。
         duplicate = api["db"]().execute(
             """
             select customer_reimbursements.id, service_orders.order_number
@@ -216,25 +273,33 @@ def replace_expense_links(api, reimbursement_id, candidate_map, selected_ids):
             join service_orders on service_orders.id = customer_reimbursements.service_order_id
             where customer_reimbursement_expense_links.expense_item_id = ?
               and customer_reimbursement_expense_links.customer_reimbursement_id != ?
+              and customer_reimbursements.series_id <> (
+                  select series_id from customer_reimbursements where id = ?
+              )
             limit 1
             """,
-            (item_id, reimbursement_id),
+            (item_id, reimbursement_id, reimbursement_id),
         ).fetchone()
         if duplicate:
-            raise ValueError(f"{row['expense_number']} 的该明细已经进入其他工单结算，不能重复结算。")
+            raise ValueError(
+                f"{row['expense_number']} 的该明细已经进入其他工单结算，不能重复结算。"
+            )
         api["db"]().execute(
             """
             insert into customer_reimbursement_expense_links
                 (customer_reimbursement_id, expense_item_id, amount_snapshot, project_snapshot,
-                 expense_status_snapshot, selected_by, selected_at)
-            values (?, ?, ?, ?, ?, ?, ?)
+                 expense_status_snapshot, settled_amount, adjustment_reason, selected_by, selected_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 reimbursement_id,
                 item_id,
-                float(row["amount"] or 0),
+                float(full_amount),
                 row["project_name"] or "",
                 row["status"] or "",
+                # 全额计入存 NULL：表示「未调减」，让统计能直接筛出被客户砍过的明细。
+                None if settled_amount == full_amount else float(settled_amount),
+                adjustment_reason,
                 g.user["id"],
                 api["now"](),
             ),
@@ -245,7 +310,10 @@ def linked_approved_expense_rows(api, reimbursement_id, order_id, cutoff_at=None
     return api["db"]().execute(
         """
         select expense_items.id as expense_item_id,
-               coalesce(customer_reimbursement_expense_links.amount_snapshot, expense_items.amount) as amount,
+               coalesce(customer_reimbursement_expense_links.amount_snapshot, expense_items.amount) as full_amount,
+               coalesce(customer_reimbursement_expense_links.settled_amount,
+                        customer_reimbursement_expense_links.amount_snapshot,
+                        expense_items.amount) as amount,
                expense_items.fuel_vehicle_type,
                expenses.id as expense_id, expenses.expense_number, expense_items.line_key,
                expense_items.description as item_description,
@@ -299,6 +367,17 @@ def register_settlement_review_routes(app, api):
             abort(403)
         order = api["require_service_order"](order_id)
         reimbursement = api["latest_customer_reimbursement"](order_id)
+        # 修订版草稿（is_current=false）也要能在这里勾选 / 调价：表单带
+        # reimbursement_id 时作用于该版本（同工单 + 同系列才认），否则照旧
+        # 作用于当前有效版本。
+        target_id = request.form.get("reimbursement_id", type=int)
+        if target_id and reimbursement and target_id != reimbursement["id"]:
+            candidate = api["db"]().execute(
+                "select * from customer_reimbursements where id = ? and service_order_id = ?",
+                (target_id, order_id),
+            ).fetchone()
+            if candidate and candidate["series_id"] == reimbursement["series_id"]:
+                reimbursement = candidate
         if reimbursement and reimbursement["status"] not in {"draft", "returned"}:
             flash("这份工单结算已进入审核/完成状态，不能重新选择报销来源。", "error")
             return redirect(url_for("customer_reimbursement_form", order_id=order_id))
@@ -326,6 +405,9 @@ def register_settlement_review_routes(app, api):
                     for value in request.form.getlist("expense_item_id")
                     if str(value).isdigit()
                 }
+                settled_amounts, adjustment_reasons = _posted_settlement_adjustments(
+                    request.form, selected_ids
+                )
                 raw_nights = request.form.get("lodging_person_nights", str(person_nights)).strip()
                 try:
                     person_nights = max(int(raw_nights or 0), 0)
@@ -334,7 +416,11 @@ def register_settlement_review_routes(app, api):
 
                 if not reimbursement:
                     reimbursement = api["create_customer_reimbursement"](order, "manual_review")
-                replace_expense_links(api, reimbursement["id"], candidate_map, selected_ids)
+                replace_expense_links(
+                    api, reimbursement["id"], candidate_map, selected_ids,
+                    settled_amounts=settled_amounts,
+                    adjustment_reasons=adjustment_reasons,
+                )
                 # 勾选计入与标记忽略互斥：被重新选中的明细自动取消忽略标记。
                 if selected_ids:
                     marks = ",".join("?" for _ in selected_ids)
@@ -358,16 +444,40 @@ def register_settlement_review_routes(app, api):
                     ),
                 )
                 api["update_customer_reimbursement_totals"](reimbursement["id"])
+                adjustments = []
+                for item_id in selected_ids:
+                    candidate = candidate_map.get(item_id)
+                    if not candidate:
+                        continue
+                    full = _money(candidate["amount"])
+                    settled = _money(settled_amounts.get(item_id, full))
+                    if settled < full:
+                        adjustments.append(full - settled)
+                detail = f"结算前审核：选择 {len(selected_ids)} 条员工报销；住宿 {person_nights} 人晚"
+                if adjustments:
+                    detail += (
+                        f"；{len(adjustments)} 条调减至客户结算金额，"
+                        f"合计调减 {sum(adjustments, Decimal('0'))}"
+                    )
                 api["log_action"](
                     "update",
                     "customer_reimbursement",
                     reimbursement["id"],
                     reimbursement["file_name"],
-                    f"结算前审核：选择 {len(selected_ids)} 条员工报销；住宿 {person_nights} 人晚",
+                    detail,
                 )
                 api["db"]().commit()
                 flash("已按选择的报销明细生成工单结算草稿。", "success")
-                return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                if reimbursement["is_current"]:
+                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
+                # 修订版草稿：保存后回到该版本视图，别被弹回当前有效版本。
+                return redirect(
+                    url_for(
+                        "customer_reimbursement_form",
+                        order_id=order_id,
+                        version_id=reimbursement["id"],
+                    )
+                )
             except ValueError as error:
                 api["db"]().rollback()
                 flash(str(error), "error")

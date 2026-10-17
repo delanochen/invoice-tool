@@ -67,7 +67,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
             {"project_name": "Express Delivery Fees快递费", "amount": 8},
         ]
         reimbursement = {
-            "id": 1, "labor_total": 100, "travel_total": 50,
+            "id": 1, "settlement_basis": "contract_actual", "labor_total": 100, "travel_total": 50,
             "mileage_total": 20, "mro_supplies_total": 50,
         }
         with patch.object(self.m, "customer_reimbursement_items", return_value=self.fake_items(sources)):
@@ -89,7 +89,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
     def test_invoice_items_without_entertainment_stay_unchanged(self):
         sources = [{"project_name": "MRO Supplies配件及耗材费", "amount": 30}]
         reimbursement = {
-            "id": 1, "labor_total": 100, "travel_total": 50,
+            "id": 1, "settlement_basis": "contract_actual", "labor_total": 100, "travel_total": 50,
             "mileage_total": 20, "mro_supplies_total": 30,
         }
         with patch.object(self.m, "customer_reimbursement_items", return_value=self.fake_items(sources)):
@@ -101,7 +101,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
 
     def test_invoice_items_legacy_fallback_without_sources(self):
         reimbursement = {
-            "id": 1, "labor_total": 100, "travel_total": 50,
+            "id": 1, "settlement_basis": "contract_actual", "labor_total": 100, "travel_total": 50,
             "mileage_total": 20, "mro_supplies_total": 25,
         }
         with patch.object(self.m, "customer_reimbursement_items", return_value=self.fake_items([])):
@@ -160,7 +160,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
             self.addCleanup(lambda cid=connection_id: self._delete_project_row(cid))
         sources = [{"project_name": "MRO Supplies配件及耗材费", "amount": 30}]
         reimbursement = {
-            "id": 1, "labor_total": 100, "travel_total": 50,
+            "id": 1, "settlement_basis": "contract_actual", "labor_total": 100, "travel_total": 50,
             "mileage_total": 20, "mro_supplies_total": 30,
         }
         with patch.object(self.m, "customer_reimbursement_items", return_value=self.fake_items(sources)):
@@ -173,7 +173,7 @@ class ExpenseSettlementInvoiceMapTest(unittest.TestCase):
     def test_unmapped_other_source_is_rejected(self):
         sources = [{"project_name": "来路不明的项目", "amount": 99}]
         reimbursement = {
-            "id": 1, "labor_total": 0, "travel_total": 0,
+            "id": 1, "settlement_basis": "contract_actual", "labor_total": 0, "travel_total": 0,
             "mileage_total": 0, "mro_supplies_total": 0,
         }
         with patch.object(self.m, "customer_reimbursement_items", return_value=self.fake_items(sources)):

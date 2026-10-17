@@ -73,13 +73,20 @@ class CustomerReimbursementMroTest(unittest.TestCase):
                     """,
                     (expense_id, expense_project_id, amount),
                 )
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-08-12T12:00:00')
+                """,
+                (order_id,),
+            ).lastrowid
             reimbursement_id = connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, status, created_by, created_at
-                ) values (?, 'settlement.pdf', 'settlement.pdf', 'draft', ?, '2026-08-12T12:00:00')
+                    series_id, service_order_id, file_name, stored_filename, status, created_by, created_at
+                ) values (?, ?, 'settlement.pdf', 'settlement.pdf', 'draft', ?, '2026-08-12T12:00:00')
                 """,
-                (order_id, user_id),
+                (series_id, order_id, user_id),
             ).lastrowid
             connection.execute(
                 """

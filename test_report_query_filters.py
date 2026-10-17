@@ -49,7 +49,8 @@ class ReportFiltersTest(unittest.TestCase):
     def test_settlement_filters_and_totals(self):
         with self.m.app.app_context():
             for order, amount in [(self.f.order, 100), (self.second, 200)]:
-                self.m.db().execute("insert into customer_reimbursements (service_order_id,file_name,stored_filename,total_amount,created_by,created_at) values (?,'test.pdf','test.pdf',?,?,'2026-09-10')", (order, amount, self.f.people['Manager']))
+                series_id = self.m.db().execute("insert into customer_reimbursement_series (service_order_id,created_at) values (?,'2026-09-10')", (order,)).lastrowid
+                self.m.db().execute("insert into customer_reimbursements (series_id,service_order_id,file_name,stored_filename,total_amount,created_by,created_at) values (?,?,'test.pdf','test.pdf',?,?,'2026-09-10')", (series_id, order, amount, self.f.people['Manager']))
             self.m.db().commit()
         with patch.object(self.m, 'render_template', return_value='ok') as render:
             response = self.f.http.get('/reports/customer-reimbursements', query_string={'order_id': [str(self.f.order), str(self.second)], 'site': ['Site B'], 'country_code': 'invalid'})

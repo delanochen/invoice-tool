@@ -93,13 +93,20 @@ class ServiceOrdersSettlementColumnTest(unittest.TestCase):
             ).lastrowid
             self.settled_order_id = self._insert_order(connection, "SO-SETTLED")
             self.plain_order_id = self._insert_order(connection, "SO-PLAIN")
+            series_id = connection.execute(
+                """
+                insert into customer_reimbursement_series (service_order_id, created_at)
+                values (?, '2026-08-13T00:00:00')
+                """,
+                (self.settled_order_id,),
+            ).lastrowid
             connection.execute(
                 """
                 insert into customer_reimbursements (
-                    service_order_id, file_name, stored_filename, status, created_by, created_at
-                ) values (?, 'settlement.pdf', 'settlement.pdf', 'draft', ?, '2026-08-13T00:00:00')
+                    series_id, service_order_id, file_name, stored_filename, status, created_by, created_at
+                ) values (?, ?, 'settlement.pdf', 'settlement.pdf', 'draft', ?, '2026-08-13T00:00:00')
                 """,
-                (self.settled_order_id, self.admin_id),
+                (series_id, self.settled_order_id, self.admin_id),
             )
             connection.commit()
         self.admin = self._client(self.admin_id)
