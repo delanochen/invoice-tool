@@ -1043,3 +1043,19 @@ independently compiled 79b89d3 functions for 192 combinations, checks AI budget/
 and verifies identical synthetic receipts, rerun behavior and manager review in invoice_test.
 At this phase's commit use scripts/check_expense_duplicates_structure.py for AST equivalence.
 Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense access and participants (phase 5d)
+
+`invoice_tool/employee_expenses/access.py` owns beneficiary fallback/options/form selection,
+expense query visibility, access/deletion guards, required expense loading and participant
+notifications. Eight legacy app signatures retain runtime dependency resolution. Internal
+active-recipient eligibility, historical disabled recipient retention, original actor identity,
+manager/admin/finance visibility, draft/returned deletion and notification deduplication remain
+unchanged. Route approval, attachment-specific access, order guards and messaging stay in place.
+
+Checks: test_expense_access_module_contract.py compares 240 role/user/beneficiary/status
+combinations, signatures and beneficiary form errors with 898a05f; checks notifications and
+denied expense loading before order loading. Existing on-behalf tests cover HTTP integration.
+At this commit run scripts/check_expense_access_structure.py for equivalence.
+Three previously reproduced series_id fixture failures remain separately excluded.
