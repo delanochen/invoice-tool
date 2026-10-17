@@ -928,3 +928,19 @@ they were. File/SQL ordering, duplicate rules and error translation are preserve
 
 Checks: `test_report_storage_module_contract.py` uses temporary real image/PDF files; run
 `python scripts/check_report_storage_structure.py` to compare with `72ee9e3`.
+
+
+### Report assist preview and mileage evidence (phase 4d)
+
+`invoice_tool/service_reports/assist_routes.py` registers the existing assist-plan preview and
+mileage-evidence generation POST endpoints. Public app view aliases and endpoint/action-policy names
+are retained. Current DATA_DIR, SHARED_PHOTOS_DIR, trip default, datetime and callable services resolve
+through explicit callbacks; no globals dictionary or reverse app import is introduced.
+
+Photo discovery/metadata, employee resolution, route calculation, evidence image creation and report
+storage implementations remain in their existing modules. Authorization, fuel-efficient route policy,
+provider timeout/retry values, fingerprint reuse/upsert and commit/rollback ordering remain unchanged.
+
+Checks: `test_report_assist_module_contract.py` mocks external services and exercises real invoice_test
+HTTP/database behavior. `python scripts/check_report_assist_structure.py` verifies function bodies and
+exact URL/endpoint/view/method registration against `4b7da14`.
