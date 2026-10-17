@@ -1117,3 +1117,15 @@ cleanup; this structural change does not introduce filesystem transactionality.
 Checks: test_expense_attachment_delete_module_contract.py plus existing deletion regressions.
 At this commit use scripts/check_expense_attachment_delete_structure.py for equivalence to 5314a6b.
 Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense AI review endpoint (phase 5i)
+
+`invoice_tool/employee_expenses/expense_ai_review_routes.py` registers expense_ai_review.
+Original URL, GET/POST methods, login/action permission guards and app alias remain intact.
+GET reads existing records only; POST forces the existing review task. Attachment roots resolve
+per request. JSON, missing-record defaults, 200/502 mapping and commits remain unchanged.
+Model execution, prompts, worker scheduling, approval and payment remain in their existing modules.
+Checks: test_expense_ai_review_module_contract.py and existing test_expense_ai_review.py.
+At this commit use scripts/check_expense_ai_review_structure.py for equivalence to 0d3df49.
+Three previously reproduced series_id fixture failures remain separately excluded.

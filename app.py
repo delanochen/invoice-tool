@@ -32,6 +32,7 @@ from invoice_tool.employee_expenses.expense_write_routes import register_expense
 from invoice_tool.employee_expenses.expense_review_routes import register_expense_review_routes
 from invoice_tool.employee_expenses.expense_attachment_routes import register_expense_attachment_routes
 from invoice_tool.employee_expenses.expense_attachment_delete_routes import register_expense_attachment_delete_routes
+from invoice_tool.employee_expenses.expense_ai_review_routes import register_expense_ai_review_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12551,35 +12552,15 @@ interpret_expense_attachment = _expense_attachment_views['interpret_expense_atta
 
 
 
-@app.route("/expenses/<int:expense_id>/ai_review", methods=["GET", "POST"])
-@login_required
-def expense_ai_review(expense_id):
-    """AI 智能审核意见。
-
-    GET：只返回已有记录（夜间批量 worker 生成；无记录返回 status=none，不触发模型）。
-    POST：强制重新审核（同步执行，详情页「立即审核/重新审核」按钮用）。需 expenses/ai_review 权限。
-    """
-    if not has_action_permission("expenses", "ai_review"):
-        abort(403)
-    expense = db().execute("select * from expenses where id = ?", (expense_id,)).fetchone()
-    if not expense:
-        abort(404)
-    if request.method == "GET":
-        row = db().execute(
-            "select * from expense_ai_reviews where expense_id = ?", (expense_id,)
-        ).fetchone()
-        if not row:
-            return jsonify({"ok": True, "status": "none", "conclusion": "", "content": "", "model": "", "error": "", "updated_at": ""})
-        return jsonify({
-            "ok": row["status"] != "failed",
-            "status": row["status"], "conclusion": row["conclusion"],
-            "content": row["content"], "model": row["model"],
-            "error": row["error"], "updated_at": row["updated_at"],
-        })
-    result = run_expense_ai_review_task(db(), expense_id, EXPENSE_ATTACHMENTS_DIR, force=True)
-    db().commit()
-    status_code = 200 if result["ok"] else 502
-    return jsonify(result), status_code
+_expense_ai_review_views = register_expense_ai_review_routes(
+    app,
+    resolve_EXPENSE_ATTACHMENTS_DIR=lambda: EXPENSE_ATTACHMENTS_DIR,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    has_action_permission=lambda *args, **kwargs: has_action_permission(*args, **kwargs),
+    login_required=login_required,
+    run_expense_ai_review_task=lambda *args, **kwargs: run_expense_ai_review_task(*args, **kwargs),
+)
+expense_ai_review = _expense_ai_review_views['expense_ai_review']
 
 
 _expense_attachment_delete_views = register_expense_attachment_delete_routes(
