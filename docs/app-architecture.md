@@ -1314,3 +1314,10 @@ Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contra
 `invoice_tool/invoices/export_routes.py` owns export_invoice, export_invoice_pdf.
 URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
 Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice detail routes (4/10)
+
+`invoice_tool/invoices/detail_routes.py` owns invoice_detail.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.

@@ -53,6 +53,7 @@ from invoice_tool.invoices import pdf as _invoice_pdf
 from invoice_tool.invoices.attachment_read_routes import register_invoice_attachment_read_routes
 from invoice_tool.invoices.attachment_write_routes import register_invoice_attachment_write_routes
 from invoice_tool.invoices.export_routes import register_invoice_export_routes
+from invoice_tool.invoices.detail_routes import register_invoice_detail_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12554,36 +12555,24 @@ def update_invoice_from_form(invoice_id):
             save_uploaded_attachment(invoice_id, uploaded)
 
 
-@app.route("/invoices/<int:invoice_id>")
-@login_required
-def invoice_detail(invoice_id):
-    invoice, client, items = load_invoice(invoice_id)
-    if invoice["status"] == "draft" and invoice["created_by"] == g.user["id"]:
-        return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-    creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
-    service_order = invoice_service_order(invoice)
-    has_accounting_voucher = bool(db().execute(
-        "select 1 from posting_events where source_type='invoice' and source_id=? "
-        "and event_type='invoice.confirmed' limit 1", (invoice_id,),
-    ).fetchone())
-    return render_template(
-        "invoice_detail.html",
-        invoice=invoice,
-        client=client,
-        items=items,
-        totals=invoice_totals(invoice_id),
-        creator=creator,
-        service_order=service_order,
-        attachments=get_invoice_attachments(invoice_id),
-        company=get_company_profile(),
-        accounting_enabled=accounting_base_enabled(),
-        has_accounting_voucher=has_accounting_voucher,
-        terms=get_invoice_terms(),
-        payment=get_payment_instructions(),
-        labels=STATUS_LABELS,
-        today=date.today().isoformat(),
-        email_delivery=email_delivery_summary("invoice", invoice_id),
-    )
+_invoice_detail_views = register_invoice_detail_routes(
+    app,
+    resolve_STATUS_LABELS=lambda: STATUS_LABELS,
+    accounting_base_enabled=lambda *args, **kwargs: accounting_base_enabled(*args, **kwargs),
+    resolve_date=lambda: date,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    email_delivery_summary=lambda *args, **kwargs: email_delivery_summary(*args, **kwargs),
+    get_company_profile=lambda *args, **kwargs: get_company_profile(*args, **kwargs),
+    get_invoice_attachments=lambda *args, **kwargs: get_invoice_attachments(*args, **kwargs),
+    get_invoice_terms=lambda *args, **kwargs: get_invoice_terms(*args, **kwargs),
+    get_payment_instructions=lambda *args, **kwargs: get_payment_instructions(*args, **kwargs),
+    invoice_service_order=lambda *args, **kwargs: invoice_service_order(*args, **kwargs),
+    invoice_totals=lambda *args, **kwargs: invoice_totals(*args, **kwargs),
+    load_invoice=lambda *args, **kwargs: load_invoice(*args, **kwargs),
+    login_required=login_required,
+    render_template=lambda *args, **kwargs: render_template(*args, **kwargs),
+)
+invoice_detail = _invoice_detail_views['invoice_detail']
 
 
 @app.post("/invoices/<int:invoice_id>/admin-status")

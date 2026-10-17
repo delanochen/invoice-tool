@@ -27,3 +27,11 @@
 - 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
 - app.py：13541 → 13531 行。
 - 专项验证：1 passed, 2 subtests passed in 2.22s。
+
+
+## 第 4/10 轮：发票详情
+
+- 1 个路由迁入 `invoice_tool/invoices/detail_routes.py`；原 URL、方法、登录装饰器、端点及 app 函数别名保留。
+- 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
+- app.py：13531 → 13520 行。
+- 专项验证：1 passed, 3 subtests passed in 2.35s。

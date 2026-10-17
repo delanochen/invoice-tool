@@ -24,6 +24,13 @@
         "export_invoice",
         "export_invoice_pdf"
       ]
+    },
+    {
+      "round": 4,
+      "module": "invoice_tool/invoices/detail_routes.py",
+      "functions": [
+        "invoice_detail"
+      ]
     }
   ]
 }
