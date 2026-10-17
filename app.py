@@ -48,6 +48,7 @@ from invoice_tool.invoices import storage as _invoice_storage
 from invoice_tool.invoices import attachment_names as _invoice_attachment_names
 from invoice_tool.invoices import copying as _invoice_copying
 from invoice_tool.invoices import exports as _invoice_exports
+from invoice_tool.invoices import email_attachments as _invoice_email_attachments
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12835,58 +12836,15 @@ def build_invoice_zip(invoice, client, items):
 
 
 def customer_reimbursement_email_attachments(invoice):
-    if not invoice["service_order_id"]:
-        return []
-    reimbursement = latest_customer_reimbursement(invoice["service_order_id"])
-    if not reimbursement:
-        return []
-    order = require_service_order(invoice["service_order_id"])
-    _, attachments = customer_reimbursement_outgoing_attachments(reimbursement, order)
-    return attachments
+    return _invoice_email_attachments.customer_reimbursement_email_attachments(invoice, customer_reimbursement_outgoing_attachments=customer_reimbursement_outgoing_attachments, latest_customer_reimbursement=latest_customer_reimbursement, require_service_order=require_service_order)
 
 
 def unique_email_attachment_filename(filename, used_names):
-    filename = os.path.basename(filename or "").strip() or "attachment"
-    stem, extension = os.path.splitext(filename)
-    candidate = filename
-    counter = 2
-    while candidate.casefold() in used_names:
-        candidate = f"{stem or 'attachment'}-{counter}{extension}"
-        counter += 1
-    used_names.add(candidate.casefold())
-    return candidate
+    return _invoice_email_attachments.unique_email_attachment_filename(filename, used_names, os=os)
 
 
 def invoice_email_attachments(invoice, client, items):
-    invoice_name = secure_filename(invoice["invoice_number"]) or f"invoice-{invoice['id']}"
-    attachments = [
-        {
-            "filename": f"{invoice_name}.pdf",
-            "content": render_invoice_pdf(invoice, client, items),
-            "maintype": "application",
-            "subtype": "pdf",
-        }
-    ]
-    for attachment in get_invoice_attachments(invoice["id"]):
-        path = attachment_file_path(attachment)
-        if not os.path.exists(path):
-            continue
-        maintype, _, subtype = (attachment["content_type"] or "application/octet-stream").partition("/")
-        with open(path, "rb") as file:
-            attachments.append(
-                {
-                    "filename": attachment["original_filename"],
-                    "content": file.read(),
-                    "maintype": maintype or "application",
-                    "subtype": subtype or "octet-stream",
-                }
-            )
-    attachments.extend(customer_reimbursement_email_attachments(invoice))
-
-    used_names = set()
-    for attachment in attachments:
-        attachment["filename"] = unique_email_attachment_filename(attachment["filename"], used_names)
-    return attachments
+    return _invoice_email_attachments.invoice_email_attachments(invoice, client, items, attachment_file_path=attachment_file_path, customer_reimbursement_email_attachments=customer_reimbursement_email_attachments, get_invoice_attachments=get_invoice_attachments, os=os, render_invoice_pdf=render_invoice_pdf, secure_filename=secure_filename, unique_email_attachment_filename=unique_email_attachment_filename)
 
 
 def render_invoice_export_html(invoice, client, items):

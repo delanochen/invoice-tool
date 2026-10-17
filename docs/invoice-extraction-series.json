@@ -64,6 +64,15 @@
         "build_invoice_zip",
         "render_invoice_export_html"
       ]
+    },
+    {
+      "round": 8,
+      "module": "invoice_tool/invoices/email_attachments.py",
+      "functions": [
+        "customer_reimbursement_email_attachments",
+        "unique_email_attachment_filename",
+        "invoice_email_attachments"
+      ]
     }
   ]
 }

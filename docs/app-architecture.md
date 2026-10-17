@@ -1270,3 +1270,11 @@ policies remain identical to eca0599; no route is moved. Cumulative equivalence 
 Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
 policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
 `scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice email_attachments (ten-round series 8/10)
+
+`invoice_tool/invoices/email_attachments.py` owns customer_reimbursement_email_attachments, unique_email_attachment_filename, invoice_email_attachments.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
