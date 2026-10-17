@@ -61,6 +61,7 @@ from invoice_tool.invoices.void_routes import register_invoice_void_routes
 from invoice_tool.invoices.delete_routes import register_invoice_delete_routes
 from invoice_tool.invoices import access as _split_invoice_access
 from invoice_tool.invoices import totals as _split_invoice_totals
+from invoice_tool.invoices import recognition as _split_invoice_recognition
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2214,12 +2215,7 @@ def accounting_base_enabled(connection=None):
 
 
 def recognize_invoice_if_accounting_enabled(invoice_id, *, source_version=1):
-    connection = db()
-    if not accounting_base_enabled(connection):
-        return None
-    return InvoiceRecognitionService(connection).recognize(
-        invoice_id, source_version=source_version, actor_id=g.user["id"]
-    )
+    return _split_invoice_recognition.recognize_invoice_if_accounting_enabled(invoice_id, source_version=source_version, InvoiceRecognitionService=InvoiceRecognitionService, accounting_base_enabled=accounting_base_enabled, db=db, g=g)
 
 
 def payment_label(invoice):
