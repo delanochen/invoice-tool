@@ -1175,3 +1175,16 @@ confirms both old/new routes fail on missing invoice_test cancel_reason; success
 integration remains unverified. Prior payment/tax snapshot tests cover the payment service.
 At this commit scripts/check_expense_cancel_structure.py normalizes only the payment adapter
 call difference before comparing the route to df2f6e5.
+
+
+### Employee expense deletion and reused payment cancellation adapter (phase 5m)
+
+`invoice_tool/employee_expenses/expense_delete_routes.py` registers delete_expense and reuses
+expense_cancel_services.py to pass db, now and log_action to existing payment cancellation.
+Original URL/login/app alias, delete eligibility, paid/reconciled protection, unpaid payment
+children cleanup, bidirectional duplicate links, rollback and redirects remain unchanged.
+The existing attachment-directory removal still precedes database work; rollback cannot restore
+files. This risk is explicitly tested and recorded, not fixed during structural extraction.
+Checks: test_expense_delete_module_contract.py plus existing deletion/payment/tax regressions.
+At this commit scripts/check_expense_delete_structure.py normalizes only the payment adapter
+call difference before comparing to 22db058. Batch/reset payment calls remain in their domain.
