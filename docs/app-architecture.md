@@ -1397,3 +1397,10 @@ Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by C
 `invoice_tool/invoices/loading.py` owns load_invoice, invoice_service_order.
 Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
 Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 6/20: invoice_create
+
+`invoice_tool/invoices/create.py` owns create_invoice_from_form.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.

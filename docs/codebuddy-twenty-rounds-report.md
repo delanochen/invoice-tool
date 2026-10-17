@@ -43,3 +43,11 @@
 - 迁移函数：load_invoice, invoice_service_order。
 - app.py：13412 → 13405 行。
 - 审核验证：12 passed, 11 subtests passed in 9.20s。
+
+
+## 第 6/20 轮：invoice_create
+
+- CodeBuddy 实际写入 `invoice_tool/invoices/create.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：create_invoice_from_form。
+- app.py：13405 → 13319 行。
+- 审核验证：1 passed, 9 subtests passed in 2.42s。
