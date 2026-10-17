@@ -45,6 +45,7 @@ from invoice_tool.invoices import forms as _invoice_forms
 from invoice_tool.invoices import tokens as _invoice_tokens
 from invoice_tool.invoices import numbering as _invoice_numbering
 from invoice_tool.invoices import storage as _invoice_storage
+from invoice_tool.invoices import attachment_names as _invoice_attachment_names
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2425,7 +2426,7 @@ def allowed_attachment(filename):
 
 
 def normalized_attachment_filename(filename):
-    return os.path.basename(filename or "").strip().casefold()
+    return _invoice_attachment_names.normalized_attachment_filename(filename, os=os)
 
 
 def invoice_attachment_dir(invoice_id):
@@ -2441,38 +2442,15 @@ def invoice_attachment_path(invoice_id):
 
 
 def existing_attachment_names(invoice_id):
-    rows = db().execute(
-        "select original_filename from invoice_attachments where invoice_id = ?",
-        (invoice_id,),
-    ).fetchall()
-    return {normalized_attachment_filename(row["original_filename"]) for row in rows}
+    return _invoice_attachment_names.existing_attachment_names(invoice_id, db=db, normalized_attachment_filename=normalized_attachment_filename)
 
 
 def duplicate_attachment_names(uploads, invoice_id=None):
-    seen = existing_attachment_names(invoice_id) if invoice_id else set()
-    duplicates = []
-    for uploaded in uploads:
-        original_name = os.path.basename(uploaded.filename or "").strip()
-        normalized_name = normalized_attachment_filename(original_name)
-        if not normalized_name:
-            continue
-        if normalized_name in seen:
-            duplicates.append(original_name)
-            continue
-        seen.add(normalized_name)
-    return duplicates
+    return _invoice_attachment_names.duplicate_attachment_names(uploads, invoice_id, existing_attachment_names=existing_attachment_names, normalized_attachment_filename=normalized_attachment_filename, os=os)
 
 
 def validate_attachment_uploads(uploads, invoice_id=None):
-    for uploaded in uploads:
-        if uploaded and uploaded.filename and not allowed_attachment(uploaded.filename):
-            flash(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。", "error")
-            return False
-    duplicates = duplicate_attachment_names(uploads, invoice_id)
-    if duplicates:
-        flash(f"附件重复：{', '.join(duplicates)}。请删除重复附件后再上传。", "error")
-        return False
-    return True
+    return _invoice_attachment_names.validate_attachment_uploads(uploads, invoice_id, ALLOWED_ATTACHMENT_LABEL=ALLOWED_ATTACHMENT_LABEL, allowed_attachment=allowed_attachment, duplicate_attachment_names=duplicate_attachment_names, flash=flash)
 
 
 def save_uploaded_attachment(invoice_id, uploaded):
@@ -2480,16 +2458,7 @@ def save_uploaded_attachment(invoice_id, uploaded):
 
 
 def unique_invoice_attachment_filename(invoice_id, original_filename):
-    original_filename = os.path.basename(original_filename or "").strip() or "attachment"
-    stem, extension = os.path.splitext(original_filename)
-    stem = stem or "attachment"
-    existing = existing_attachment_names(invoice_id)
-    candidate = original_filename
-    counter = 2
-    while normalized_attachment_filename(candidate) in existing:
-        candidate = f"{stem}-{counter}{extension}"
-        counter += 1
-    return candidate
+    return _invoice_attachment_names.unique_invoice_attachment_filename(invoice_id, original_filename, existing_attachment_names=existing_attachment_names, normalized_attachment_filename=normalized_attachment_filename, os=os)
 
 
 def copy_file_to_invoice_attachment(invoice_id, source_path, original_filename, content_type=None, uploaded_by=None):

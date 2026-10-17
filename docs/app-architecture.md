@@ -1246,3 +1246,11 @@ policies remain identical to eca0599; no route is moved. Cumulative equivalence 
 Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
 policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
 `scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice attachment_names (ten-round series 5/10)
+
+`invoice_tool/invoices/attachment_names.py` owns normalized_attachment_filename, existing_attachment_names, duplicate_attachment_names, validate_attachment_uploads, unique_invoice_attachment_filename.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.

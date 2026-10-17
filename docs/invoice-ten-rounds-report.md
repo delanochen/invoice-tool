@@ -35,3 +35,11 @@
 - app.py：13892 → 13867 行，减少 25 行。
 - 累积 AST 对照基线 eca0599，迁移函数主体精确一致，其他函数未变；无路由/业务规则修改。
 - 专项结果：12 passed, 9 subtests passed in 9.29s。
+
+
+## 第 5/10 轮：发票附件重名与上传校验
+
+- 迁移 5 个函数至 invoice_tool/invoices/attachment_names.py，原 app 签名和动态依赖保留。
+- app.py：13867 → 13836 行，减少 31 行。
+- 累积 AST 对照基线 eca0599，迁移函数主体精确一致，其他函数未变；无路由/业务规则修改。
+- 专项结果：12 passed, 9 subtests passed in 9.46s。
