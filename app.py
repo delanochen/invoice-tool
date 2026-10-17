@@ -68,6 +68,7 @@ from invoice_tool.invoices import create as _split_invoice_create
 from invoice_tool.invoices import update as _split_invoice_update
 from invoice_tool.invoices import mail as _split_invoice_mail
 from invoice_tool.shared_attachments import named as _split_named_attachment
+from invoice_tool.shared_attachments import company as _split_company_attachments
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1197,14 +1198,7 @@ def save_named_attachment(uploaded, directory, table, owner_column=None, owner_i
 
 
 def get_company_attachments():
-    return db().execute(
-        """
-        select company_attachments.*, users.name as uploader_name
-        from company_attachments
-        left join users on users.id = company_attachments.uploaded_by
-        order by uploaded_at desc, id desc
-        """
-    ).fetchall()
+    return _split_company_attachments.get_company_attachments(db=db)
 
 
 
