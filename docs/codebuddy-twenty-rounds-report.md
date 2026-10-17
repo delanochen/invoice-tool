@@ -91,3 +91,11 @@
 - 迁移函数：record_email_delivery。
 - app.py：13218 → 13190 行。
 - 审核验证：1 passed, 2 subtests passed in 1.97s。
+
+
+## 第 12/20 轮：delivery_summary
+
+- CodeBuddy 实际写入 `invoice_tool/email_delivery/summary.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：email_delivery_summary。
+- app.py：13190 → 13177 行。
+- 审核验证：1 passed, 2 subtests passed in 2.12s。

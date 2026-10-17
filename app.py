@@ -70,6 +70,7 @@ from invoice_tool.invoices import mail as _split_invoice_mail
 from invoice_tool.shared_attachments import named as _split_named_attachment
 from invoice_tool.shared_attachments import company as _split_company_attachments
 from invoice_tool.email_delivery import record as _split_delivery_record
+from invoice_tool.email_delivery import summary as _split_delivery_summary
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5379,21 +5380,7 @@ def record_email_delivery(entity_type, entity_id, recipient, subject, *,
 
 
 def email_delivery_summary(entity_type, entity_id):
-    row = db().execute(
-        """
-        select count(*) as send_count,
-               max(sent_at) as last_sent_at,
-               max(is_legacy) as has_legacy
-        from email_delivery_logs
-        where entity_type = ? and entity_id = ?
-        """,
-        (entity_type, entity_id),
-    ).fetchone()
-    return {
-        "count": int(row["send_count"] or 0),
-        "last_sent_at": row["last_sent_at"] or "",
-        "is_estimate": bool(row["has_legacy"]),
-    }
+    return _split_delivery_summary.email_delivery_summary(entity_type, entity_id, db=db)
 
 
 def request_ip_address():
