@@ -50,6 +50,7 @@ from invoice_tool.invoices import copying as _invoice_copying
 from invoice_tool.invoices import exports as _invoice_exports
 from invoice_tool.invoices import email_attachments as _invoice_email_attachments
 from invoice_tool.invoices import pdf as _invoice_pdf
+from invoice_tool.invoices.attachment_read_routes import register_invoice_attachment_read_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12764,27 +12765,18 @@ def upload_attachment(invoice_id):
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
 
-@app.route("/attachments/<int:attachment_id>")
-@login_required
-def download_attachment(attachment_id):
-    attachment = db().execute("select * from invoice_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_invoice_access(attachment["invoice_id"])
-    return send_file(attachment_file_path(attachment), as_attachment=True, download_name=attachment["original_filename"])
+_invoice_attachment_read_views = register_invoice_attachment_read_routes(
+    app,
+    attachment_file_path=lambda *args, **kwargs: attachment_file_path(*args, **kwargs),
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    login_required=login_required,
+    require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
+    safe_attachment_response=lambda *args, **kwargs: safe_attachment_response(*args, **kwargs),
+)
+download_attachment = _invoice_attachment_read_views['download_attachment']
+preview_attachment = _invoice_attachment_read_views['preview_attachment']
 
 
-@app.route("/attachments/<int:attachment_id>/preview")
-@login_required
-def preview_attachment(attachment_id):
-    attachment = db().execute("select * from invoice_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_invoice_access(attachment["invoice_id"])
-    return safe_attachment_response(
-        attachment_file_path(attachment),
-        attachment["original_filename"],
-    )
 
 
 @app.post("/attachments/<int:attachment_id>/delete")

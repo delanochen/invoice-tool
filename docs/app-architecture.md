@@ -1293,3 +1293,10 @@ policies remain identical to eca0599; no route is moved. Cumulative equivalence 
 Nine helper extractions and one cross-domain verification round complete. app.py: 13567 lines.
 Full scope and limitations: `docs/invoice-ten-rounds-report.md`. This checkpoint does not
 claim complete repository test coverage or resolution of previously documented business risks.
+
+
+### Invoice attachment_read routes (1/10)
+
+`invoice_tool/invoices/attachment_read_routes.py` owns download_attachment, preview_attachment.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.

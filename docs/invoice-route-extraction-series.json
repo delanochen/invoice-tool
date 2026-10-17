@@ -1,0 +1,13 @@
+{
+  "base": "27f12df",
+  "phases": [
+    {
+      "round": 1,
+      "module": "invoice_tool/invoices/attachment_read_routes.py",
+      "functions": [
+        "download_attachment",
+        "preview_attachment"
+      ]
+    }
+  ]
+}
