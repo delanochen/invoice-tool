@@ -62,6 +62,7 @@ from invoice_tool.invoices.delete_routes import register_invoice_delete_routes
 from invoice_tool.invoices import access as _split_invoice_access
 from invoice_tool.invoices import totals as _split_invoice_totals
 from invoice_tool.invoices import recognition as _split_invoice_recognition
+from invoice_tool.invoices import uploads as _split_invoice_uploads
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2475,11 +2476,7 @@ def copy_mileage_proofs_to_invoice(invoice_id, service_order_id):
 
 
 def uploaded_attachments_from_request():
-    return [
-        file
-        for file in request.files.getlist("attachments") + request.files.getlist("attachment")
-        if file and file.filename
-    ]
+    return _split_invoice_uploads.uploaded_attachments_from_request(request=request)
 
 
 def get_invoice_attachments(invoice_id):

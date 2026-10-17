@@ -27,3 +27,11 @@
 - 迁移函数：recognize_invoice_if_accounting_enabled。
 - app.py：13419 → 13415 行。
 - 审核验证：1 passed, 3 subtests passed in 2.08s。
+
+
+## 第 4/20 轮：invoice_uploads
+
+- CodeBuddy 实际写入 `invoice_tool/invoices/uploads.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：uploaded_attachments_from_request。
+- app.py：13415 → 13412 行。
+- 审核验证：12 passed, 9 subtests passed in 9.42s。

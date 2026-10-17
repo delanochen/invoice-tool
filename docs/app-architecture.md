@@ -1383,3 +1383,10 @@ Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by C
 `invoice_tool/invoices/recognition.py` owns recognize_invoice_if_accounting_enabled.
 Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
 Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 4/20: invoice_uploads
+
+`invoice_tool/invoices/uploads.py` owns uploaded_attachments_from_request.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
