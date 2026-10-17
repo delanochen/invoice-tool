@@ -1356,3 +1356,9 @@ Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contra
 `invoice_tool/invoices/delete_routes.py` owns delete_invoice.
 URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
 Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice route ten-round checkpoint
+
+Nine bounded route groups and one guarded cross-domain checkpoint complete.
+See `docs/invoice-routes-ten-rounds-report.md` for results and coverage limits.

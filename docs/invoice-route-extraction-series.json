@@ -68,5 +68,6 @@
         "delete_invoice"
       ]
     }
-  ]
+  ],
+  "verification_round_complete": true
 }
