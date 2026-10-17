@@ -107,3 +107,11 @@
 - 迁移函数：is_image_attachment, is_customer_reimbursement_image_attachment。
 - app.py：13177 → 13173 行。
 - 审核验证：12 passed, 16 subtests passed in 9.32s。
+
+
+## 第 14/20 轮：xlsx_columns
+
+- CodeBuddy 实际写入 `invoice_tool/report_exports/columns.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：xlsx_column_name。
+- app.py：13173 → 13169 行。
+- 审核验证：1 passed, 6 subtests passed in 2.02s。

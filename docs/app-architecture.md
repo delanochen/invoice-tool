@@ -1453,3 +1453,10 @@ Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by C
 `invoice_tool/shared_attachments/images.py` owns is_image_attachment, is_customer_reimbursement_image_attachment.
 Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
 Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 14/20: xlsx_columns
+
+`invoice_tool/report_exports/columns.py` owns xlsx_column_name.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.

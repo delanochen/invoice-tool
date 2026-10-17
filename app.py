@@ -72,6 +72,7 @@ from invoice_tool.shared_attachments import company as _split_company_attachment
 from invoice_tool.email_delivery import record as _split_delivery_record
 from invoice_tool.email_delivery import summary as _split_delivery_summary
 from invoice_tool.shared_attachments import images as _split_image_detection
+from invoice_tool.report_exports import columns as _split_xlsx_columns
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -10418,12 +10419,7 @@ def service_order_calendar_weeks(year, month):
 
 
 def xlsx_column_name(index):
-    name = ""
-    index += 1
-    while index:
-        index, remainder = divmod(index - 1, 26)
-        name = chr(65 + remainder) + name
-    return name
+    return _split_xlsx_columns.xlsx_column_name(index)
 
 
 def build_simple_xlsx(headers, rows, sheet_name="Sheet1"):
