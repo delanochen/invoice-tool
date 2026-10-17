@@ -838,3 +838,14 @@ This non-overlapping inventory helps future agents avoid reading the whole file:
 | 18258-19473 | attachment ZIP, invoices, exports, DOCX and email |
 | 19474-19712 | error handlers and dashboard/report chart helpers |
 | 19713-19728 | external module registration and startup |
+
+
+## Completed structural extractions (2026-10-17)
+
+These phases build on the map above; historical line locations remain a navigation baseline.
+
+- Payment terms: `invoice_tool/payment_terms/{calculations,services,routes}.py`, committed as `4798b77`. Legacy helper entry points and endpoint names are retained.
+- Contracts and attachments: `invoice_tool/contracts/{services,routes}.py`. Five helpers and eight routes moved; contract access guards and rate/settlement engines remain in their existing locations. Services receive explicit runtime dependencies through legacy wrappers. Routes receive explicit dependencies at registration; callable dependencies resolve the current app helper and attachment root at request time.
+- No application factory or Blueprint migration is included in these phases. No business rule, schema, template, or deployment changes are included.
+
+Contract regression: `test_contracts_module_contract.py`; structural equivalence: `python scripts/check_contracts_structure.py` (compare against preceding `4798b77`).
