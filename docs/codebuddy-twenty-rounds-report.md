@@ -139,3 +139,11 @@
 - 迁移函数：parsed_iso_date。
 - app.py：13045 → 13043 行。
 - 审核验证：1 passed, 6 subtests passed in 1.96s。
+
+
+## 第 18/20 轮：labor_entries
+
+- CodeBuddy 实际写入 `invoice_tool/report_exports/labor.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：labor_report_entries。
+- app.py：13043 → 12970 行。
+- 审核验证：1 passed, 3 subtests passed in 2.04s。

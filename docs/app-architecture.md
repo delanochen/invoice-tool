@@ -1481,3 +1481,10 @@ Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by C
 `invoice_tool/report_exports/dates.py` owns parsed_iso_date.
 Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
 Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 18/20: labor_entries
+
+`invoice_tool/report_exports/labor.py` owns labor_report_entries.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
