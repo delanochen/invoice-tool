@@ -1188,3 +1188,16 @@ files. This risk is explicitly tested and recorded, not fixed during structural 
 Checks: test_expense_delete_module_contract.py plus existing deletion/payment/tax regressions.
 At this commit scripts/check_expense_delete_structure.py normalizes only the payment adapter
 call difference before comparing to 22db058. Batch/reset payment calls remain in their domain.
+
+
+### Employee expense query and processing queue (phase 5n)
+
+`invoice_tool/employee_expenses/expense_query_routes.py` registers expense_query and
+expense_processing. GET URLs, endpoint names, login/internal guards and app aliases remain.
+Filters, access clauses, beneficiary identity, item-level query rows, pending/paid rules and
+queue priority retain their original SQL. Status/payout label dictionaries resolve per request.
+Query total follows filtered item rows; queue totals cover all accessible approved expenses
+independently of visible row filters. The process_expense_action write endpoint stays in app.py.
+Checks: test_expense_query_module_contract.py validates multi-item totals, filters, priority,
+participant visibility and options without legacy settlement fixtures.
+At this commit use scripts/check_expense_query_structure.py for equivalence to b0f360b.
