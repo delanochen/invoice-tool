@@ -44,6 +44,7 @@ from invoice_tool.employee_expenses.expense_reset_routes import register_expense
 from invoice_tool.invoices import forms as _invoice_forms
 from invoice_tool.invoices import tokens as _invoice_tokens
 from invoice_tool.invoices import numbering as _invoice_numbering
+from invoice_tool.invoices import storage as _invoice_storage
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2428,17 +2429,15 @@ def normalized_attachment_filename(filename):
 
 
 def invoice_attachment_dir(invoice_id):
-    path = os.path.join(ATTACHMENTS_DIR, str(invoice_id))
-    os.makedirs(path, exist_ok=True)
-    return path
+    return _invoice_storage.invoice_attachment_dir(invoice_id, ATTACHMENTS_DIR=ATTACHMENTS_DIR, os=os)
 
 
 def attachment_file_path(attachment):
-    return os.path.join(ATTACHMENTS_DIR, str(attachment["invoice_id"]), attachment["stored_filename"])
+    return _invoice_storage.attachment_file_path(attachment, ATTACHMENTS_DIR=ATTACHMENTS_DIR, os=os)
 
 
 def invoice_attachment_path(invoice_id):
-    return os.path.join(ATTACHMENTS_DIR, str(invoice_id))
+    return _invoice_storage.invoice_attachment_path(invoice_id, ATTACHMENTS_DIR=ATTACHMENTS_DIR, os=os)
 
 
 def existing_attachment_names(invoice_id):
@@ -2477,23 +2476,7 @@ def validate_attachment_uploads(uploads, invoice_id=None):
 
 
 def save_uploaded_attachment(invoice_id, uploaded):
-    source_filename = uploaded.filename or "attachment"
-    extension = source_filename.rsplit(".", 1)[1].lower()
-    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
-    if "." not in original_filename:
-        original_filename = f"{original_filename}.{extension}"
-    if normalized_attachment_filename(original_filename) in existing_attachment_names(invoice_id):
-        raise RuntimeError(f"附件已存在：{original_filename}")
-    stored_filename = f"{secrets.token_hex(12)}.{extension}"
-    uploaded.save(os.path.join(invoice_attachment_dir(invoice_id), stored_filename))
-    db().execute(
-        """
-        insert into invoice_attachments (
-            invoice_id, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
-        ) values (?, ?, ?, ?, ?, ?)
-        """,
-        (invoice_id, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
-    )
+    return _invoice_storage.save_uploaded_attachment(invoice_id, uploaded, db=db, existing_attachment_names=existing_attachment_names, g=g, invoice_attachment_dir=invoice_attachment_dir, normalized_attachment_filename=normalized_attachment_filename, now=now, os=os, secrets=secrets)
 
 
 def unique_invoice_attachment_filename(invoice_id, original_filename):
@@ -2586,15 +2569,7 @@ def uploaded_attachments_from_request():
 
 
 def get_invoice_attachments(invoice_id):
-    return db().execute(
-        """
-        select invoice_attachments.*, users.name as uploader_name
-        from invoice_attachments left join users on users.id = invoice_attachments.uploaded_by
-        where invoice_id = ?
-        order by uploaded_at desc
-        """,
-        (invoice_id,),
-    ).fetchall()
+    return _invoice_storage.get_invoice_attachments(invoice_id, db=db)
 
 
 def can_access_service_order(order):

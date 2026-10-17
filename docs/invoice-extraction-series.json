@@ -25,6 +25,17 @@
         "next_invoice_number",
         "invoice_number_exists"
       ]
+    },
+    {
+      "round": 4,
+      "module": "invoice_tool/invoices/storage.py",
+      "functions": [
+        "invoice_attachment_dir",
+        "attachment_file_path",
+        "invoice_attachment_path",
+        "get_invoice_attachments",
+        "save_uploaded_attachment"
+      ]
     }
   ]
 }
