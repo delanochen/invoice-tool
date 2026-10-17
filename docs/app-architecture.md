@@ -1362,3 +1362,10 @@ Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contra
 
 Nine bounded route groups and one guarded cross-domain checkpoint complete.
 See `docs/invoice-routes-ten-rounds-report.md` for results and coverage limits.
+
+
+### CodeBuddy round 1/20: invoice_access
+
+`invoice_tool/invoices/access.py` owns require_invoice_access.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.

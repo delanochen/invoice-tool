@@ -59,6 +59,7 @@ from invoice_tool.invoices.admin_status_routes import register_invoice_admin_sta
 from invoice_tool.invoices.payment_routes import register_invoice_payment_routes
 from invoice_tool.invoices.void_routes import register_invoice_void_routes
 from invoice_tool.invoices.delete_routes import register_invoice_delete_routes
+from invoice_tool.invoices import access as _split_invoice_access
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2080,14 +2081,7 @@ def can_access_client(client_id):
 
 
 def require_invoice_access(invoice_id):
-    if not can_view_invoices():
-        abort(403)
-    invoice = db().execute("select * from invoices where id = ?", (invoice_id,)).fetchone()
-    if not invoice:
-        abort(404)
-    if not can_access_client(invoice["client_id"]):
-        abort(403)
-    return invoice
+    return _split_invoice_access.require_invoice_access(invoice_id, abort=abort, can_access_client=can_access_client, can_view_invoices=can_view_invoices, db=db)
 
 
 def require_contract_access(contract_id):
