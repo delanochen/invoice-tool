@@ -67,3 +67,11 @@
 - 迁移函数：send_invoice_email。
 - app.py：13280 → 13250 行。
 - 审核验证：1 passed, 3 subtests passed in 2.09s。
+
+
+## 第 9/20 轮：named_attachment
+
+- CodeBuddy 实际写入 `invoice_tool/shared_attachments/named.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：save_named_attachment。
+- app.py：13250 → 13224 行。
+- 审核验证：12 passed, 13 subtests passed in 9.31s。

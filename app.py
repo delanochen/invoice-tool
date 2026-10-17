@@ -67,6 +67,7 @@ from invoice_tool.invoices import loading as _split_invoice_loading
 from invoice_tool.invoices import create as _split_invoice_create
 from invoice_tool.invoices import update as _split_invoice_update
 from invoice_tool.invoices import mail as _split_invoice_mail
+from invoice_tool.shared_attachments import named as _split_named_attachment
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1192,34 +1193,7 @@ def get_google_places_api_key():
 
 
 def save_named_attachment(uploaded, directory, table, owner_column=None, owner_id=None):
-    if not uploaded or not uploaded.filename:
-        return
-    if not allowed_attachment(uploaded.filename):
-        raise ValueError(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。")
-    source_filename = uploaded.filename or "attachment"
-    extension = source_filename.rsplit(".", 1)[1].lower()
-    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
-    stored_filename = f"{secrets.token_hex(12)}.{extension}"
-    os.makedirs(directory, exist_ok=True)
-    uploaded.save(os.path.join(directory, stored_filename))
-    if owner_column:
-        db().execute(
-            f"""
-            insert into {table} (
-                {owner_column}, original_filename, stored_filename, content_type, uploaded_by, uploaded_at
-            ) values (?, ?, ?, ?, ?, ?)
-            """,
-            (owner_id, original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
-        )
-    else:
-        db().execute(
-            f"""
-            insert into {table} (
-                original_filename, stored_filename, content_type, uploaded_by, uploaded_at
-            ) values (?, ?, ?, ?, ?)
-            """,
-            (original_filename, stored_filename, uploaded.content_type, g.user["id"], now()),
-        )
+    return _split_named_attachment.save_named_attachment(uploaded, directory, table, owner_column, owner_id, ALLOWED_ATTACHMENT_LABEL=ALLOWED_ATTACHMENT_LABEL, allowed_attachment=allowed_attachment, db=db, g=g, now=now, os=os, secrets=secrets)
 
 
 def get_company_attachments():
