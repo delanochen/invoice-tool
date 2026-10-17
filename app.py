@@ -58,6 +58,7 @@ from invoice_tool.invoices.send_routes import register_invoice_send_routes
 from invoice_tool.invoices.admin_status_routes import register_invoice_admin_status_routes
 from invoice_tool.invoices.payment_routes import register_invoice_payment_routes
 from invoice_tool.invoices.void_routes import register_invoice_void_routes
+from invoice_tool.invoices.delete_routes import register_invoice_delete_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12604,38 +12605,18 @@ _invoice_void_views = register_invoice_void_routes(
 void_invoice = _invoice_void_views['void_invoice']
 
 
-@app.post("/invoices/<int:invoice_id>/delete")
-@login_required
-def delete_invoice(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    # v0.1.239: 删除权限完全由菜单配置「发票-删除」决定（默认财务/经理/管理员），
-    # 不再按角色写死；无权限时集中式路由闸门会先行拦截（403）。
-    if not has_action_permission("invoices", "delete"):
-        abort(403)
-    recognition = db().execute(
-        "select 1 from posting_events where source_type='invoice' and source_id=? "
-        "and event_type='invoice.confirmed' limit 1", (invoice_id,),
-    ).fetchone()
-    if recognition:
-        flash("该发票已有会计凭证，不能物理删除；请使用作废并生成冲销凭证。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    try:
-        db().execute(
-            "update messages set link = null where link = ? or link = ?",
-            (url_for("invoice_detail", invoice_id=invoice_id),
-             url_for("edit_invoice", invoice_id=invoice_id)),
-        )
-        db().execute("update customer_reimbursements set invoice_id = null where invoice_id = ?", (invoice_id,))
-        db().execute("delete from invoices where id = ?", (invoice_id,))
-        log_action("delete", "invoice", invoice_id, invoice["invoice_number"], f"删除状态为 {invoice['status']} 的发票")
-        db().commit()
-    except IntegrityError:
-        db().rollback()
-        flash("该发票仍有关联业务记录，不能删除；请先解除关联或走作废流程。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    shutil.rmtree(invoice_attachment_path(invoice_id), ignore_errors=True)
-    flash("发票已删除。", "success")
-    return redirect(url_for("invoices"))
+_invoice_delete_views = register_invoice_delete_routes(
+    app,
+    IntegrityError=IntegrityError,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    has_action_permission=lambda *args, **kwargs: has_action_permission(*args, **kwargs),
+    invoice_attachment_path=lambda *args, **kwargs: invoice_attachment_path(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
+    resolve_shutil=lambda: shutil,
+)
+delete_invoice = _invoice_delete_views['delete_invoice']
 
 
 _invoice_payment_views = register_invoice_payment_routes(

@@ -1349,3 +1349,10 @@ Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contra
 `invoice_tool/invoices/void_routes.py` owns void_invoice.
 URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
 Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice delete routes (9/10)
+
+`invoice_tool/invoices/delete_routes.py` owns delete_invoice.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.

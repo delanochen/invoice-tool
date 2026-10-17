@@ -60,6 +60,13 @@
       "functions": [
         "void_invoice"
       ]
+    },
+    {
+      "round": 9,
+      "module": "invoice_tool/invoices/delete_routes.py",
+      "functions": [
+        "delete_invoice"
+      ]
     }
   ]
 }
