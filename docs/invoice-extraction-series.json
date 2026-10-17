@@ -9,6 +9,14 @@
         "posted_client_id",
         "posted_service_order_id"
       ]
+    },
+    {
+      "round": 2,
+      "module": "invoice_tool/invoices/tokens.py",
+      "functions": [
+        "claim_invoice_save_token",
+        "finish_invoice_save_token"
+      ]
     }
   ]
 }

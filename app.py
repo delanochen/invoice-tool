@@ -42,6 +42,7 @@ from invoice_tool.employee_expenses.expense_delete_routes import register_expens
 from invoice_tool.employee_expenses.expense_query_routes import register_expense_query_routes
 from invoice_tool.employee_expenses.expense_reset_routes import register_expense_reset_routes
 from invoice_tool.invoices import forms as _invoice_forms
+from invoice_tool.invoices import tokens as _invoice_tokens
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3193,24 +3194,11 @@ def finish_report_save_token(token, report_id):
 
 
 def claim_invoice_save_token(token, invoice_id=None):
-    token = str(token or "").strip()
-    if not token:
-        raise ValueError("保存令牌无效，请刷新页面后重试。")
-    cursor = db().execute(
-        """
-        insert or ignore into invoice_save_tokens (token, invoice_id, created_at)
-        values (?, ?, ?)
-        """,
-        (token, invoice_id, now()),
-    )
-    return cursor.rowcount == 1
+    return _invoice_tokens.claim_invoice_save_token(token, invoice_id, db=db, now=now)
 
 
 def finish_invoice_save_token(token, invoice_id):
-    db().execute(
-        "update invoice_save_tokens set invoice_id = ? where token = ?",
-        (invoice_id, token),
-    )
+    return _invoice_tokens.finish_invoice_save_token(token, invoice_id, db=db)
 
 
 def claim_expense_save_token(token, expense_id=None):

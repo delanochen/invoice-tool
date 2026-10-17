@@ -1222,3 +1222,11 @@ normalizes only the explicit payment adapter call difference against 6510dc8.
 Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
 policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
 `scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice tokens (ten-round series 2/10)
+
+`invoice_tool/invoices/tokens.py` owns claim_invoice_save_token, finish_invoice_save_token.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
