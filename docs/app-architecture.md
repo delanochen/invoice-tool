@@ -896,3 +896,19 @@ This phase changes no authorization, payroll/settlement lock, persistence or fil
 
 Checks: `test_report_read_module_contract.py`, existing report navigation/edit-navigation/external-view/copy
 and attachment safety tests; `python scripts/check_report_read_structure.py` compares against `911a3ac`.
+
+
+### Service-report save lifecycle (phase 4b)
+
+`invoice_tool/service_reports/report_write_services.py` owns save-token claim/finalize, report workers,
+worker/writer options, posted writer validation, parts queries/parsing, form defaults and worker/parts
+persistence. `report_write_routes.py` registers create/edit/delete with the original URL, endpoint,
+GET/POST methods, guards, statement order and transaction boundaries.
+
+App wrappers preserve legacy call signatures and resolve helper dependencies at call time. Date and
+report attachment root resolve dynamically. Upload/storage relocation, image/shared-photo processing,
+mileage evidence and time/mileage calculation implementations remain in their existing locations.
+
+Check `python scripts/check_report_write_structure.py` for function-body equivalence and exact
+URL/endpoint/HTTP-method registration. `test_report_write_module_contract.py` covers idempotency,
+validation/upload rollback, payroll-reference deletion guard and report cleanup.

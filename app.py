@@ -24,6 +24,8 @@ from invoice_tool.service_orders import calendar_map_services as _calendar_map_s
 from invoice_tool.service_orders.calendar_map_routes import register_calendar_map_routes
 from invoice_tool.service_reports import report_read_services as _report_read_services
 from invoice_tool.service_reports.report_read_routes import register_report_read_routes
+from invoice_tool.service_reports import report_write_services as _report_write_services
+from invoice_tool.service_reports.report_write_routes import register_report_write_routes
 from invoice_tool.service_orders import services as _service_order_services
 from invoice_tool.service_orders.routes import register_service_order_routes
 from invoice_tool.contracts import services as _contract_services
@@ -3453,24 +3455,11 @@ def save_report_uploads(report_id, storage_context=None):
 
 
 def claim_report_save_token(token, report_id=None):
-    token = str(token or "").strip()
-    if not token:
-        raise ValueError("保存令牌无效，请刷新页面后重试。")
-    cursor = db().execute(
-        """
-        insert or ignore into service_report_save_tokens (token, report_id, created_at)
-        values (?, ?, ?)
-        """,
-        (token, report_id, now()),
-    )
-    return cursor.rowcount == 1
+    return _report_write_services.claim_report_save_token(token, report_id, db=db, now=now)
 
 
 def finish_report_save_token(token, report_id):
-    db().execute(
-        "update service_report_save_tokens set report_id = ? where token = ?",
-        (report_id, token),
-    )
+    return _report_write_services.finish_report_save_token(token, report_id, db=db)
 
 
 def claim_invoice_save_token(token, invoice_id=None):
@@ -6156,63 +6145,15 @@ def expense_duplicate_checks(expense_id):
 
 
 def service_report_workers(report_id):
-    return db().execute(
-        """
-        select users.id, users.name, users.email, service_report_workers.driving_miles,
-               service_report_workers.travel_mode, service_report_workers.travel_hours,
-               service_report_workers.public_transport_hours, service_report_workers.work_description,
-               service_report_workers.origin_address, service_report_workers.trip_type
-        from service_report_workers
-        join users on users.id = service_report_workers.user_id
-        where service_report_workers.report_id = ?
-        order by users.name
-        """,
-        (report_id,),
-    ).fetchall()
+    return _report_write_services.service_report_workers(report_id, db=db)
 
 
 def service_report_worker_options(order, report_id=None):
-    params = [order["country_code"]]
-    historical_clause = ""
-    if report_id:
-        historical_clause = """
-          or users.id in (
-              select user_id from service_report_workers where report_id = ?
-          )
-        """
-        params.append(report_id)
-    role_clause = (
-        "users.id = ?"
-        if is_external_employee()
-        else "users.role in ('manager', 'finance', 'employee', 'external_employee')"
-    )
-    if is_external_employee():
-        params.insert(0, g.user["id"])
-    return db().execute(
-        f"""
-        select users.id, users.name, users.email, users.country_code, users.address
-        from users
-        where {role_clause}
-          and users.is_active = 1
-          and (
-              users.country_code = ?
-              {historical_clause}
-          )
-        order by users.name
-        """,
-        params,
-    ).fetchall()
+    return _report_write_services.service_report_worker_options(order, report_id, db=db, g=g, is_external_employee=is_external_employee)
 
 
 def report_writer_options():
-    return db().execute(
-        """
-        select id, name, email from users
-        where is_active = 1
-          and role in ('manager', 'finance', 'employee', 'external_employee')
-        order by name
-        """
-    ).fetchall()
+    return _report_write_services.report_writer_options(db=db)
 
 
 def group_expense_attachments(attachments):
@@ -6225,151 +6166,23 @@ def group_expense_attachments(attachments):
 
 
 def posted_report_writer_id():
-    customer_report_choice, value = normalize_customer_report_choice(
-        request.form.get("has_customer_report", ""),
-        request.form.get("report_writer_id", ""),
-    )
-    if customer_report_choice == "no":
-        return None
-    if not value.isdigit():
-        raise ValueError("请选择有效的客户日报填写员工。")
-    row = db().execute(
-        """select id from users where id = ? and is_active = 1
-           and role in ('manager', 'finance', 'employee', 'external_employee')""",
-        (int(value),),
-    ).fetchone()
-    if not row:
-        raise ValueError("请选择有效的客户日报填写员工。")
-    return row["id"]
+    return _report_write_services.posted_report_writer_id(db=db, normalize_customer_report_choice=normalize_customer_report_choice, request=request)
 
 
 def report_parts(table, report_id):
-    return db().execute(f"select * from {table} where report_id = ? order by sort_order, id", (report_id,)).fetchall()
+    return _report_write_services.report_parts(table, report_id, db=db)
 
 
 def parse_part_rows(prefix, fields):
-    values = [request.form.getlist(f"{prefix}_{field}") for field in fields]
-    max_len = max([len(items) for items in values] + [0])
-    rows = []
-    for index in range(max_len):
-        row = {field: values[pos][index].strip() if index < len(values[pos]) else "" for pos, field in enumerate(fields)}
-        if any(row.values()):
-            rows.append(row)
-    return rows
+    return _report_write_services.parse_part_rows(prefix, fields, request=request)
 
 
 def report_form_defaults(report=None, order=None):
-    if report:
-        data = dict(report)
-        data["actual_work_date"] = data.get("actual_work_date") or data.get("report_date")
-        # v0.1.243: early AI-generated reports stored ISO photo-timeline
-        # timestamps (e.g. 2026-09-17T08:50:00) which broke the hour/minute
-        # dropdowns. Normalize legacy values for rendering.
-        try:
-            from ai_daily_report.formal_save import normalize_report_time
-            data["arrival_time"] = normalize_report_time(data.get("arrival_time")) or ""
-            data["departure_time"] = normalize_report_time(data.get("departure_time")) or ""
-        except Exception:
-            pass
-        return data
-    return {
-        "report_date": date.today().isoformat(),
-        "actual_work_date": date.today().isoformat(),
-        "total_service_hours": "",
-        "travel_hours": "",
-        "public_transport_hours": "",
-        "driving_miles": "",
-        "mileage_billing_method": "per_person",
-        "departure_address": "",
-        "site_address": order["site_address"] if order else "",
-        "total_time": "",
-        "cabinet_number": "",
-        "arrival_time": "",
-        "departure_time": "",
-        "service_description": "",
-        "report_writer_id": None,
-    }
+    return _report_write_services.report_form_defaults(report, order, date=date)
 
 
 def save_report_detail_rows(report_id):
-    worker_rows = report_worker_rows_from_form()
-    worker_ids = [row["worker_user_id"] for row in worker_rows]
-    placeholders = ",".join("?" for _ in worker_ids)
-    report_order = db().execute(
-        """
-        select service_orders.country_code
-        from service_reports
-        join service_orders on service_orders.id = service_reports.service_order_id
-        where service_reports.id = ?
-        """,
-        (report_id,),
-    ).fetchone()
-    if not report_order:
-        raise ValueError("工作日报关联的工单不存在。")
-    valid_workers = db().execute(
-        f"""
-        select id from users
-        where role in ('manager', 'finance', 'employee', 'external_employee')
-          and is_active = 1
-          and (
-              country_code = ?
-              or id in (
-                  select user_id from service_report_workers where report_id = ?
-              )
-          )
-          and id in ({placeholders})
-        """,
-        (report_order["country_code"], report_id, *worker_ids),
-    ).fetchall()
-    valid_worker_ids = {str(row["id"]) for row in valid_workers}
-    if valid_worker_ids != set(worker_ids):
-        raise ValueError("服务人员清单包含无效用户，请重新选择。")
-
-    db().execute("delete from service_report_workers where report_id = ?", (report_id,))
-    for worker in worker_rows:
-        db().execute(
-            """
-            insert into service_report_workers (
-                report_id, user_id, driving_miles, travel_mode, travel_hours,
-                public_transport_hours, work_description, origin_address, trip_type
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                report_id, worker["worker_user_id"], worker["driving_miles"],
-                worker["worker_travel_mode"], worker["travel_hours"],
-                worker["public_transport_hours"], worker["worker_work_description"],
-                worker["origin_address"], worker["trip_type"],
-            ),
-        )
-
-    db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
-    for index, row in enumerate(parse_part_rows("saved", ["part_number", "part_name", "quantity", "status"])):
-        db().execute(
-            """
-            insert into service_report_saved_parts (report_id, part_number, part_name, quantity, status, sort_order)
-            values (?, ?, ?, ?, ?, ?)
-            """,
-            (report_id, row["part_number"], row["part_name"], row["quantity"], row["status"], index),
-        )
-
-    db().execute("delete from service_report_replaced_parts where report_id = ?", (report_id,))
-    for index, row in enumerate(parse_part_rows("replaced", ["part_number", "part_name", "old_serial_number", "new_serial_number", "quantity"])):
-        db().execute(
-            """
-            insert into service_report_replaced_parts (
-                report_id, part_number, part_name, old_serial_number, new_serial_number, quantity, sort_order
-            ) values (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                report_id,
-                row["part_number"],
-                row["part_name"],
-                row["old_serial_number"],
-                row["new_serial_number"],
-                row["quantity"],
-                index,
-            ),
-        )
+    return _report_write_services.save_report_detail_rows(report_id, db=db, parse_part_rows=parse_part_rows, report_worker_rows_from_form=report_worker_rows_from_form)
 
 
 def load_invoice(invoice_id):
@@ -12980,223 +12793,51 @@ def delete_customer_reimbursement_attachment(attachment_id):
     return redirect(url_for("customer_reimbursement_form", order_id=order["id"], _anchor="customerReimbursementAttachmentsSection"))
 
 
-@app.route("/service-orders/<int:order_id>/reports/new", methods=["GET", "POST"])
-@login_required
-def new_service_report(order_id):
-    order = require_service_order(order_id)
-    if not can_create_service_report(order):
-        abort(403)
-    if report_locked_by_approved_reimbursement(order):
-        return redirect(url_for("service_order_detail", order_id=order_id))
-    if not is_external_employee():
-        start_date_redirect = require_service_order_start_date(order)
-        if start_date_redirect:
-            return start_date_redirect
-    users_rows = service_report_worker_options(order)
-    report_writers = report_writer_options()
-    if request.method == "POST":
-        save_token = request.form.get("save_token", "")
-        if not claim_report_save_token(save_token):
-            existing = db().execute(
-                "select report_id from service_report_save_tokens where token = ?",
-                (save_token,),
-            ).fetchone()
-            if existing and existing["report_id"]:
-                return redirect(url_for("edit_service_report", report_id=existing["report_id"]))
-            flash("该日报正在保存，请稍候。", "error")
-            return redirect(url_for("new_service_report", order_id=order_id))
-        try:
-            worker_rows = report_worker_rows_from_form()
-            arrival_time = posted_report_time("arrival_time")
-            departure_time = posted_report_time("departure_time")
-            total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
-            total_time = calculated_report_total_time()
-            driving_miles = calculated_report_driving_miles()
-            cursor = db().execute(
-                """
-                insert into service_reports (
-                    service_order_id, report_date, actual_work_date, total_service_hours, travel_hours, public_transport_hours,
-                    driving_miles, mileage_billing_method, departure_address, site_address, total_time, cabinet_number,
-                    arrival_time, departure_time, service_description, report_writer_id, created_by, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    order_id,
-                    request.form.get("report_date"),
-                    request.form.get("actual_work_date") or request.form.get("report_date"),
-                    total_service_hours,
-                    sum(row["travel_hours"] for row in worker_rows),
-                    sum(row["public_transport_hours"] for row in worker_rows),
-                    driving_miles,
-                    request.form.get("mileage_billing_method", "per_person"),
-                    request.form.get("departure_address", "").strip(),
-                    request.form.get("site_address", "").strip(),
-                    total_time,
-                    request.form.get("cabinet_number", "").strip(),
-                    arrival_time,
-                    departure_time,
-                    request.form.get("service_description", "").strip(),
-                    posted_report_writer_id(),
-                    g.user["id"],
-                    now(),
-                    now(),
-                ),
-            )
-            report_id = cursor.lastrowid
-            finish_report_save_token(save_token, report_id)
-            save_report_detail_rows(report_id)
-            storage_context = report_storage_context_values(
-                order["order_number"], request.form.get("report_date"), report_id
-            )
-            save_report_uploads(report_id, storage_context=storage_context)
-            log_action(
-                "create",
-                "service_report",
-                report_id,
-                f"{order['order_number']} / {request.form.get('report_date')}",
-                "创建工作日报",
-            )
-            db().commit()
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("new_service_report", order_id=order_id))
-        flash("工作日报已保存。", "success")
-        return redirect(url_for("edit_service_report", report_id=report_id))
-    source_report = None
-    report_data = report_form_defaults(order=order)
-    worker_rows = []
-    saved_parts = [{} for _ in range(4)]
-    replaced_parts = [{} for _ in range(4)]
-    copy_from = request.args.get("copy_from")
-    if copy_from is not None:
-        if not copy_from.isdigit():
-            abort(400)
-        if not has_action_permission("service_reports", "view"):
-            abort(403)
-        source_report, source_order = require_service_report(int(copy_from))
-        if source_order["id"] != order_id:
-            abort(404)
-        if is_external_employee() and source_report["created_by"] != g.user["id"]:
-            abort(403)
-        report_data = report_form_defaults(report=source_report)
-        for name in ("id", "created_by", "created_at", "updated_at"):
-            report_data.pop(name, None)
-        report_data["report_date"] = date.today().isoformat()
-        report_data["actual_work_date"] = date.today().isoformat()
-        allowed_workers = {row["id"] for row in users_rows}
-        original_workers = service_report_workers(source_report["id"])
-        worker_rows = [row for row in original_workers if row["id"] in allowed_workers]
-        if len(worker_rows) != len(original_workers):
-            flash("部分原服务人员已不可选，请补充本次日报的服务人员。", "error")
-        if report_data["report_writer_id"] not in {row["id"] for row in report_writers}:
-            report_data["report_writer_id"] = None
-        saved_parts = list(report_parts("service_report_saved_parts", source_report["id"])) or saved_parts
-        replaced_parts = list(report_parts("service_report_replaced_parts", source_report["id"])) or replaced_parts
-    return render_template(
-        "service_report_form.html",
-        order=order,
-        report=report_data,
-        source_report=source_report,
-        users=users_rows,
-        report_writers=report_writers,
-        worker_rows=worker_rows,
-        saved_parts=saved_parts,
-        replaced_parts=replaced_parts,
-        attachments=get_report_attachments(0),
-        save_token=secrets.token_urlsafe(24),
-        is_edit=False,
-        can_edit_report=True,
-    )
+_report_write_views = register_report_write_routes(
+    app,
+    resolve_REPORT_ATTACHMENTS_DIR=lambda: REPORT_ATTACHMENTS_DIR,
+    calculated_report_driving_miles=lambda *args, **kwargs: calculated_report_driving_miles(*args, **kwargs),
+    calculated_report_total_service_hours=lambda *args, **kwargs: calculated_report_total_service_hours(*args, **kwargs),
+    calculated_report_total_time=lambda *args, **kwargs: calculated_report_total_time(*args, **kwargs),
+    can_create_service_report=lambda *args, **kwargs: can_create_service_report(*args, **kwargs),
+    claim_report_save_token=lambda *args, **kwargs: claim_report_save_token(*args, **kwargs),
+    resolve_date=lambda: date,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    finish_report_save_token=lambda *args, **kwargs: finish_report_save_token(*args, **kwargs),
+    get_report_attachments=lambda *args, **kwargs: get_report_attachments(*args, **kwargs),
+    has_action_permission=lambda *args, **kwargs: has_action_permission(*args, **kwargs),
+    is_external_employee=lambda *args, **kwargs: is_external_employee(*args, **kwargs),
+    is_external_manager=lambda *args, **kwargs: is_external_manager(*args, **kwargs),
+    is_manager=lambda *args, **kwargs: is_manager(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    now=lambda *args, **kwargs: now(*args, **kwargs),
+    posted_report_time=lambda *args, **kwargs: posted_report_time(*args, **kwargs),
+    posted_report_writer_id=lambda *args, **kwargs: posted_report_writer_id(*args, **kwargs),
+    prune_empty_report_folders=lambda *args, **kwargs: prune_empty_report_folders(*args, **kwargs),
+    relocate_report_attachments=lambda *args, **kwargs: relocate_report_attachments(*args, **kwargs),
+    report_attachment_path=lambda *args, **kwargs: report_attachment_path(*args, **kwargs),
+    report_form_defaults=lambda *args, **kwargs: report_form_defaults(*args, **kwargs),
+    report_locked_by_approved_reimbursement=lambda *args, **kwargs: report_locked_by_approved_reimbursement(*args, **kwargs),
+    report_parts=lambda *args, **kwargs: report_parts(*args, **kwargs),
+    report_storage_context_values=lambda *args, **kwargs: report_storage_context_values(*args, **kwargs),
+    report_worker_rows_from_form=lambda *args, **kwargs: report_worker_rows_from_form(*args, **kwargs),
+    report_writer_options=lambda *args, **kwargs: report_writer_options(*args, **kwargs),
+    require_service_order=lambda *args, **kwargs: require_service_order(*args, **kwargs),
+    require_service_order_start_date=lambda *args, **kwargs: require_service_order_start_date(*args, **kwargs),
+    require_service_report=lambda *args, **kwargs: require_service_report(*args, **kwargs),
+    reset_ai_drafts_for_deleted_service_report=lambda *args, **kwargs: reset_ai_drafts_for_deleted_service_report(*args, **kwargs),
+    same_order_adjacent_report_ids=lambda *args, **kwargs: same_order_adjacent_report_ids(*args, **kwargs),
+    save_report_detail_rows=lambda *args, **kwargs: save_report_detail_rows(*args, **kwargs),
+    save_report_uploads=lambda *args, **kwargs: save_report_uploads(*args, **kwargs),
+    service_report_worker_options=lambda *args, **kwargs: service_report_worker_options(*args, **kwargs),
+    service_report_workers=lambda *args, **kwargs: service_report_workers(*args, **kwargs),
+)
+new_service_report = _report_write_views['new_service_report']
+edit_service_report = _report_write_views['edit_service_report']
+delete_service_report = _report_write_views['delete_service_report']
 
 
-@app.route("/service-reports/<int:report_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_service_report(report_id):
-    report, order = require_service_report(report_id)
-    if is_external_employee() and report["created_by"] != g.user["id"]:
-        abort(403)
-    if report_locked_by_approved_reimbursement(order):
-        return redirect(url_for("service_order_detail", order_id=order["id"]))
-    users_rows = service_report_worker_options(order, report_id=report_id)
-    report_writers = report_writer_options()
-    if request.method == "POST":
-        if is_external_manager():
-            abort(403)
-        save_token = request.form.get("save_token", "")
-        if not claim_report_save_token(save_token, report_id):
-            flash("该日报已经保存，请勿重复提交。", "success")
-            return redirect(url_for("edit_service_report", report_id=report_id))
-        try:
-            worker_rows = report_worker_rows_from_form()
-            arrival_time = posted_report_time("arrival_time")
-            departure_time = posted_report_time("departure_time")
-            total_service_hours = calculated_report_total_service_hours(arrival_time, departure_time)
-            total_time = calculated_report_total_time()
-            driving_miles = calculated_report_driving_miles()
-            db().execute(
-                """
-                update service_reports
-                set report_date = ?, actual_work_date = ?, total_service_hours = ?, travel_hours = ?, public_transport_hours = ?,
-                    driving_miles = ?, mileage_billing_method = ?, departure_address = ?, site_address = ?, total_time = ?, cabinet_number = ?,
-                    arrival_time = ?, departure_time = ?, service_description = ?, report_writer_id = ?, updated_at = ?
-                where id = ?
-                """,
-                (
-                    request.form.get("report_date"),
-                    request.form.get("actual_work_date") or request.form.get("report_date"),
-                    total_service_hours,
-                    sum(row["travel_hours"] for row in worker_rows),
-                    sum(row["public_transport_hours"] for row in worker_rows),
-                    driving_miles,
-                    request.form.get("mileage_billing_method", "per_person"),
-                    request.form.get("departure_address", "").strip(),
-                    request.form.get("site_address", "").strip(),
-                    total_time,
-                    request.form.get("cabinet_number", "").strip(),
-                    arrival_time,
-                    departure_time,
-                    request.form.get("service_description", "").strip(),
-                    posted_report_writer_id(),
-                    now(),
-                    report_id,
-                ),
-            )
-            save_report_detail_rows(report_id)
-            relocate_report_attachments(report_id)
-            save_report_uploads(report_id)
-            log_action(
-                "update",
-                "service_report",
-                report_id,
-                f"{order['order_number']} / {request.form.get('report_date')}",
-                "修改工作日报",
-            )
-            db().commit()
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("edit_service_report", report_id=report_id))
-        flash("工作日报已保存。", "success")
-        return redirect(url_for("edit_service_report", report_id=report_id))
-    worker_rows = service_report_workers(report_id)
-    saved_parts = list(report_parts("service_report_saved_parts", report_id)) or [{} for _ in range(4)]
-    replaced_parts = list(report_parts("service_report_replaced_parts", report_id)) or [{} for _ in range(4)]
-    return render_template(
-        "service_report_form.html",
-        order=order,
-        report=report_form_defaults(report=report),
-        users=users_rows,
-        report_writers=report_writers,
-        worker_rows=worker_rows,
-        saved_parts=saved_parts,
-        replaced_parts=replaced_parts,
-        attachments=get_report_attachments(report_id),
-        save_token=secrets.token_urlsafe(24),
-        is_edit=True,
-        can_edit_report=not is_external_manager(),
-        adjacent_reports=same_order_adjacent_report_ids(report_id),
-    )
 
 
 @app.post("/service-reports/<int:report_id>/mileage-evidence/generate")
@@ -13405,54 +13046,6 @@ def service_report_assist_plan():
     return jsonify(plan)
 
 
-@app.post("/service-reports/<int:report_id>/delete")
-@login_required
-def delete_service_report(report_id):
-    report, order = require_service_report(report_id)
-    if report["created_by"] != g.user["id"] and not is_manager():
-        abort(403)
-    if report_locked_by_approved_reimbursement(order):
-        return redirect(url_for("service_order_detail", order_id=order["id"]))
-    # 日报一旦被员工工资组件引用，删除会撞外键约束。先给友好提示，不再 500。
-    live_refs = db().execute(
-        "select count(*) as n from employee_payment_components where daily_report_id = ? and superseded_at is null",
-        (report_id,),
-    ).fetchone()["n"]
-    if live_refs:
-        flash(
-            f"该日报已被 {live_refs} 条员工工资组件引用（draft 工资单），不能删除。"
-            "请先在工资模块作废或重算相关工资单。",
-            "error",
-        )
-        return redirect(url_for("service_order_detail", order_id=order["id"]))
-    attachments = db().execute(
-        "select * from service_report_attachments where report_id = ?",
-        (report_id,),
-    ).fetchall()
-    for attachment in attachments:
-        attachment_path = report_attachment_path(attachment)
-        try:
-            os.remove(attachment_path)
-            prune_empty_report_folders(attachment_path)
-        except FileNotFoundError:
-            pass
-    shutil.rmtree(os.path.join(REPORT_ATTACHMENTS_DIR, str(report_id)), ignore_errors=True)
-    reset_ai_drafts_for_deleted_service_report(db(), report_id)
-    db().execute("delete from service_report_attachments where report_id = ?", (report_id,))
-    db().execute("delete from service_report_workers where report_id = ?", (report_id,))
-    db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
-    db().execute("delete from service_report_replaced_parts where report_id = ?", (report_id,))
-    db().execute("delete from service_reports where id = ?", (report_id,))
-    log_action(
-        "delete",
-        "service_report",
-        report_id,
-        f"{order['order_number']} / {report['report_date']}",
-        "删除工作日报",
-    )
-    db().commit()
-    flash("工作日报已删除。", "success")
-    return redirect(url_for("service_order_detail", order_id=order["id"]))
 
 
 def clock_in_site_rows():
