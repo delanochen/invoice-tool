@@ -43,6 +43,7 @@ from invoice_tool.employee_expenses.expense_query_routes import register_expense
 from invoice_tool.employee_expenses.expense_reset_routes import register_expense_reset_routes
 from invoice_tool.invoices import forms as _invoice_forms
 from invoice_tool.invoices import tokens as _invoice_tokens
+from invoice_tool.invoices import numbering as _invoice_numbering
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2354,24 +2355,7 @@ app.jinja_env.globals["contract_status_labels"] = CONTRACT_STATUS_LABELS
 
 
 def next_invoice_number():
-    # 新单据统一规则：IN-YYMM-4位流水（与 SL/ER/EA/AS 同构）。
-    # 历史发票号为 PP-YYMM-随机6位，存量不动；新号只统计 IN- 前缀同月份的最大流水。
-    lock_number_allocation(db())
-    stamp = date.today().strftime("%y%m")
-    root = f"IN-{stamp}-"
-    rows = db().execute(
-        "select invoice_number from invoices where invoice_number like ?",
-        (root + "%",),
-    ).fetchall()
-    sequence = 1
-    for row in rows:
-        try:
-            value = int(str(row["invoice_number"]).rsplit("-", 1)[1])
-        except (ValueError, IndexError):
-            continue
-        if value >= sequence:
-            sequence = value + 1
-    return f"{root}{sequence:04d}"
+    return _invoice_numbering.next_invoice_number(date=date, db=db, lock_number_allocation=lock_number_allocation)
 
 
 def next_contract_number():
@@ -2432,12 +2416,7 @@ def next_expense_number():
 
 
 def invoice_number_exists(invoice_number, exclude_invoice_id=None):
-    if exclude_invoice_id:
-        return db().execute(
-            "select id from invoices where invoice_number = ? and id != ?",
-            (invoice_number, exclude_invoice_id),
-        ).fetchone() is not None
-    return db().execute("select id from invoices where invoice_number = ?", (invoice_number,)).fetchone() is not None
+    return _invoice_numbering.invoice_number_exists(invoice_number, exclude_invoice_id, db=db)
 
 
 def allowed_attachment(filename):

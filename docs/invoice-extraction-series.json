@@ -17,6 +17,14 @@
         "claim_invoice_save_token",
         "finish_invoice_save_token"
       ]
+    },
+    {
+      "round": 3,
+      "module": "invoice_tool/invoices/numbering.py",
+      "functions": [
+        "next_invoice_number",
+        "invoice_number_exists"
+      ]
     }
   ]
 }
