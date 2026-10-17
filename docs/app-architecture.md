@@ -1201,3 +1201,16 @@ independently of visible row filters. The process_expense_action write endpoint 
 Checks: test_expense_query_module_contract.py validates multi-item totals, filters, priority,
 participant visibility and options without legacy settlement fixtures.
 At this commit use scripts/check_expense_query_structure.py for equivalence to b0f360b.
+
+
+### Employee expense workflow reset endpoint (phase 5o)
+
+`invoice_tool/employee_expenses/expense_reset_routes.py` registers process_expense_action.
+It reuses the existing db/now/log_action payment cancellation adapter, replacing only the
+app-globals call. Original POST URL/login/internal/admin guards, reset_workflow-only action,
+invalid/missing expense handling, paid-payment rejection, reset metadata, logs and commit remain.
+Repeated reset may log/reset expense metadata again but does not create a second payment cancel
+event. Components remain unchanged. test_employee_finance.py now locates this moved endpoint.
+Checks: test_expense_reset_module_contract.py uses actual ER records to verify guards, repeated
+reset and snapshot preservation. At this commit scripts/check_expense_reset_structure.py
+normalizes only the explicit payment adapter call difference against 6510dc8.

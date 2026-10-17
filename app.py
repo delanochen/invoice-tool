@@ -40,6 +40,7 @@ from invoice_tool.employee_expenses import expense_cancel_services as _expense_c
 from invoice_tool.employee_expenses.expense_cancel_routes import register_expense_cancel_routes
 from invoice_tool.employee_expenses.expense_delete_routes import register_expense_delete_routes
 from invoice_tool.employee_expenses.expense_query_routes import register_expense_query_routes
+from invoice_tool.employee_expenses.expense_reset_routes import register_expense_reset_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -10939,42 +10940,17 @@ expense_processing = _expense_query_views['expense_processing']
 
 
 
-@app.post("/expense-processing/action")
-@login_required
-def process_expense_action():
-    if not is_internal_user():
-        abort(403)
-    try:
-        expense_id = int(request.form.get("expense_id", ""))
-    except (TypeError, ValueError):
-        flash("请选择一张报销单据。", "error")
-        return redirect(url_for("expense_processing"))
-    expense = db().execute("select * from expenses where id = ?", (expense_id,)).fetchone()
-    if not expense:
-        abort(404)
-    action = request.form.get("action", "")
-    if action != "reset_workflow" or normalized_role() != "admin":
-        abort(403)
-    try:
-        cancel_expense_payment_order(globals(), expense_id)
-    except ValueError as error:
-        flash(str(error), "error")
-        return redirect(url_for("expense_detail", expense_id=expense_id))
-    db().execute(
-        """
-        update expenses
-        set status = 'submitted', return_reason = null,
-            reviewed_by = null, reviewed_at = null,
-            payout_status = 'pending', reimbursed_by = null, reimbursed_at = null,
-            updated_at = ?
-        where id = ?
-        """,
-        (now(), expense_id),
-    )
-    log_action("reset", "expense", expense_id, expense["expense_number"], "流程状态重置为待经理审核；未付款的付款单已取消")
-    db().commit()
-    flash("报销已重置为待经理审核；未付款的付款单已取消。", "success")
-    return redirect(url_for("expense_detail", expense_id=expense_id))
+_expense_reset_views = register_expense_reset_routes(
+    app,
+    cancel_expense_payment_order=lambda expense_id: _expense_cancel_services.cancel_expense_payment_order(expense_id, cancel_expense_payment_order=cancel_expense_payment_order, db=db, now=now, log_action=log_action),
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    is_internal_user=lambda *args, **kwargs: is_internal_user(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    normalized_role=lambda *args, **kwargs: normalized_role(*args, **kwargs),
+    now=lambda *args, **kwargs: now(*args, **kwargs),
+)
+process_expense_action = _expense_reset_views['process_expense_action']
 
 
 @app.route("/reports/audit-logs")

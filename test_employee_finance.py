@@ -153,7 +153,7 @@ class PostgreSQLFinanceMigrationTest(unittest.TestCase):
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
         approval = (ROOT / "invoice_tool/employee_expenses/expense_approval_routes.py").read_text(encoding="utf-8")
         self.assertIn("ensure_expense_payment_order", approval)
-        processing = app_source.split("def process_expense_action():", 1)[1].split("def audit_log_report", 1)[0]
+        processing = (ROOT / "invoice_tool/employee_expenses/expense_reset_routes.py").read_text(encoding="utf-8")
         self.assertNotIn('action == "reimburse"', processing)
         self.assertNotIn('action == "reset_payout"', processing)
         template = (ROOT / "templates" / "expense_processing.html").read_text(encoding="utf-8")
