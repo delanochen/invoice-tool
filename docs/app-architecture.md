@@ -1059,3 +1059,19 @@ combinations, signatures and beneficiary form errors with 898a05f; checks notifi
 denied expense loading before order loading. Existing on-behalf tests cover HTTP integration.
 At this commit run scripts/check_expense_access_structure.py for equivalence.
 Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense form endpoints and save tokens (phase 5e)
+
+`invoice_tool/employee_expenses/expense_write_routes.py` registers new_expense, edit_expense
+and expense_detail; expense_write_services.py owns claim/finish expense save-token persistence.
+Original URLs, endpoints, methods, login wrappers and app function aliases remain intact.
+App callbacks and expense status labels resolve on every request, preserving runtime patches.
+Form validation, draft/submitted transitions, token replay handling, transaction rollback,
+attachment/duplicate/sync auxiliary failure handling and notifications remain unchanged.
+Approval, return/cancel/delete, payment and attachment-specific routes stay in app.py.
+
+Checks: test_expense_write_module_contract.py verifies endpoint/method identity, repeated new/edit
+tokens, validation rollback and unexpected save rollback followed by retry with the same token.
+At this phase's commit use scripts/check_expense_write_structure.py for equivalence to 11878e0.
+Three previously reproduced series_id fixture failures remain separately excluded.
