@@ -54,6 +54,7 @@ from invoice_tool.invoices.attachment_read_routes import register_invoice_attach
 from invoice_tool.invoices.attachment_write_routes import register_invoice_attachment_write_routes
 from invoice_tool.invoices.export_routes import register_invoice_export_routes
 from invoice_tool.invoices.detail_routes import register_invoice_detail_routes
+from invoice_tool.invoices.send_routes import register_invoice_send_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12720,23 +12721,14 @@ def unmark_invoice_paid(invoice_id):
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
 
-@app.post("/invoices/<int:invoice_id>/send")
-@login_required
-def send_invoice(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    if is_external_user():
-        abort(403)
-    if invoice["status"] != "completed":
-        flash("只有经理审核完成后的发票才能发送邮件。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    try:
-        send_invoice_email(invoice_id)
-    except Exception as error:
-        app.logger.exception("Unable to send invoice %s", invoice_id)
-        flash(f"发票邮件发送失败：{error}", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    flash("发票邮件已发送。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+_invoice_send_views = register_invoice_send_routes(
+    app,
+    is_external_user=lambda *args, **kwargs: is_external_user(*args, **kwargs),
+    login_required=login_required,
+    require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
+    send_invoice_email=lambda *args, **kwargs: send_invoice_email(*args, **kwargs),
+)
+send_invoice = _invoice_send_views['send_invoice']
 
 
 _invoice_attachment_write_views = register_invoice_attachment_write_routes(

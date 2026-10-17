@@ -31,6 +31,13 @@
       "functions": [
         "invoice_detail"
       ]
+    },
+    {
+      "round": 5,
+      "module": "invoice_tool/invoices/send_routes.py",
+      "functions": [
+        "send_invoice"
+      ]
     }
   ]
 }
