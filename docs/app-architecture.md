@@ -1105,3 +1105,15 @@ Checks: test_expense_attachment_module_contract.py validates endpoint identity, 
 access, denied unrelated access, original downloaded bytes/filename, missing IDs and mocked
 interpretation success/failure. At this commit use scripts/check_expense_attachment_structure.py.
 Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense attachment deletion endpoint (phase 5h)
+
+`invoice_tool/employee_expenses/expense_attachment_delete_routes.py` registers the original
+POST delete_expense_attachment endpoint with its login wrapper and app alias. Creator/manager
+permission, draft/returned restriction, missing-file tolerance, bidirectional duplicate-reference
+cleanup, database rollback and redirects remain unchanged. File removal still precedes database
+cleanup; this structural change does not introduce filesystem transactionality.
+Checks: test_expense_attachment_delete_module_contract.py plus existing deletion regressions.
+At this commit use scripts/check_expense_attachment_delete_structure.py for equivalence to 5314a6b.
+Three previously reproduced series_id fixture failures remain separately excluded.
