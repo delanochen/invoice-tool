@@ -912,3 +912,19 @@ mileage evidence and time/mileage calculation implementations remain in their ex
 Check `python scripts/check_report_write_structure.py` for function-body equivalence and exact
 URL/endpoint/HTTP-method registration. `test_report_write_module_contract.py` covers idempotency,
 validation/upload rollback, payroll-reference deletion guard and report cleanup.
+
+
+### Service-report attachment storage (phase 4c)
+
+`invoice_tool/service_reports/storage.py` owns 16 report-specific helpers: storage context, relative/
+absolute paths, directory creation/pruning, relocation, upload enumeration, image-compression adapter,
+normalized photo names, duplicate detection, image/file/shared-photo persistence, generated evidence
+replacement and upload orchestration. The original app helper signatures remain as wrappers with
+explicit dependencies resolved for every call, including the current attachment root and photo folders.
+
+No route moves in this phase. Generic file hashing, shared-photo path resolution, photo import jobs,
+image compression implementation, mileage-evidence/assist endpoints and DOCX rendering remain where
+they were. File/SQL ordering, duplicate rules and error translation are preserved.
+
+Checks: `test_report_storage_module_contract.py` uses temporary real image/PDF files; run
+`python scripts/check_report_storage_structure.py` to compare with `72ee9e3`.
