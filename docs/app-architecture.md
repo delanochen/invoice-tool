@@ -1286,3 +1286,10 @@ policies remain identical to eca0599; no route is moved. Cumulative equivalence 
 Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
 policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
 `scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice extraction ten-round checkpoint
+
+Nine helper extractions and one cross-domain verification round complete. app.py: 13567 lines.
+Full scope and limitations: `docs/invoice-ten-rounds-report.md`. This checkpoint does not
+claim complete repository test coverage or resolution of previously documented business risks.
