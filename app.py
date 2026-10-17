@@ -57,6 +57,7 @@ from invoice_tool.invoices.detail_routes import register_invoice_detail_routes
 from invoice_tool.invoices.send_routes import register_invoice_send_routes
 from invoice_tool.invoices.admin_status_routes import register_invoice_admin_status_routes
 from invoice_tool.invoices.payment_routes import register_invoice_payment_routes
+from invoice_tool.invoices.void_routes import register_invoice_void_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12589,47 +12590,18 @@ _invoice_admin_status_views = register_invoice_admin_status_routes(
 admin_update_invoice_status = _invoice_admin_status_views['admin_update_invoice_status']
 
 
-@app.post("/invoices/<int:invoice_id>/void")
-@login_required
-def void_invoice(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    if invoice["status"] == "completed":
-        recognition = db().execute(
-            "select 1 from posting_events where source_type='invoice' and source_id=? "
-            "and event_type='invoice.confirmed' limit 1", (invoice_id,),
-        ).fetchone()
-        if not recognition:
-            flash("审核完成后的发票不能直接作废。", "error")
-            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-        reason_code = request.form.get("reason_code", "").strip()
-        if not reason_code:
-            flash("已过账发票作废必须填写原因。", "error")
-            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-        try:
-            InvoiceRecognitionService(db()).void(
-                invoice_id, accounting_date=date.today(), reason_code=reason_code,
-                actor_id=g.user["id"],
-            )
-            log_action("void", "invoice", invoice_id, invoice["invoice_number"],
-                       f"会计冲销：{reason_code}")
-            db().commit()
-        except (InvoiceVoidError, PostingError, ValueError) as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-        flash("发票已作废，原凭证已保留并生成冲销凭证。", "success")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    if db().execute(
-        "select 1 from posting_events where source_type='invoice' and source_id=? "
-        "and event_type='invoice.confirmed' limit 1", (invoice_id,),
-    ).fetchone():
-        flash("该发票已有会计凭证，不能改回草稿；请走作废或更正流程。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    db().execute("update invoices set status = 'void' where id = ?", (invoice_id,))
-    log_action("void", "invoice", invoice_id, invoice["invoice_number"], "作废发票")
-    db().commit()
-    flash("发票已作废。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+_invoice_void_views = register_invoice_void_routes(
+    app,
+    InvoiceRecognitionService=lambda *args, **kwargs: InvoiceRecognitionService(*args, **kwargs),
+    InvoiceVoidError=InvoiceVoidError,
+    PostingError=PostingError,
+    resolve_date=lambda: date,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
+)
+void_invoice = _invoice_void_views['void_invoice']
 
 
 @app.post("/invoices/<int:invoice_id>/delete")

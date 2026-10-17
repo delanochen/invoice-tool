@@ -53,6 +53,13 @@
         "mark_invoice_paid",
         "unmark_invoice_paid"
       ]
+    },
+    {
+      "round": 8,
+      "module": "invoice_tool/invoices/void_routes.py",
+      "functions": [
+        "void_invoice"
+      ]
     }
   ]
 }

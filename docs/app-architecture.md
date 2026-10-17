@@ -1342,3 +1342,10 @@ Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contra
 `invoice_tool/invoices/payment_routes.py` owns mark_invoice_paid, unmark_invoice_paid.
 URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
 Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice void routes (8/10)
+
+`invoice_tool/invoices/void_routes.py` owns void_invoice.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
