@@ -1142,3 +1142,19 @@ Checks: test_expense_transfer_module_contract.py compares 36 branch/response com
 8443d0e and verifies HTTP denial/missing-file-record guards. Actual settlement copy integration
 is not covered by these mock-boundary cases; legacy series_id fixtures require separate repair.
 At this commit use scripts/check_expense_transfer_structure.py for equivalence.
+
+
+### Employee expense approval and explicit payment bridge (phase 5k)
+
+`invoice_tool/employee_expenses/expense_approval_routes.py` registers approve_expense.
+expense_approval_services.py adapts the existing employee_finance.ensure_expense_payment_order
+using exactly db, now, log_action, lock_number_allocation and worker_tax_status_lookup.
+The route calls an explicit single-ID callback instead of passing module globals. No new module
+imports app or calls globals(). Existing payment generation, component snapshot/reopen/idempotency
+and rollback semantics remain in employee_finance. Cancel/delete payment calls stay in app.py.
+
+Checks: test_expense_approval_module_contract.py verifies transitive API keys, runtime dependency
+identity, repeat approval and snapshot rollback; test_expense_tax_components.py tests actual
+payment components in invoice_test. test_employee_finance.py now locates the moved approval.
+At this commit scripts/check_expense_approval_structure.py normalizes only the documented
+payment-call adapter difference before comparing the route body to d571d83.

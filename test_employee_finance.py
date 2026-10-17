@@ -151,7 +151,7 @@ class PostgreSQLFinanceMigrationTest(unittest.TestCase):
 
     def test_expense_approval_is_the_only_payment_order_entry_point(self):
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-        approval = app_source.split("def approve_expense(expense_id):", 1)[1].split("def return_expense", 1)[0]
+        approval = (ROOT / "invoice_tool/employee_expenses/expense_approval_routes.py").read_text(encoding="utf-8")
         self.assertIn("ensure_expense_payment_order", approval)
         processing = app_source.split("def process_expense_action():", 1)[1].split("def audit_log_report", 1)[0]
         self.assertNotIn('action == "reimburse"', processing)
