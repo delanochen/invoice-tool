@@ -25,6 +25,8 @@ from invoice_tool.service_orders.calendar_map_routes import register_calendar_ma
 from invoice_tool.service_reports import report_read_services as _report_read_services
 from invoice_tool.service_reports.report_read_routes import register_report_read_routes
 from invoice_tool.service_reports import storage as _report_storage
+from invoice_tool.service_reports import forms as _report_forms
+from invoice_tool.service_reports import calculations as _report_calculations
 from invoice_tool.service_reports import documents as _report_documents
 from invoice_tool.service_reports import report_write_services as _report_write_services
 from invoice_tool.service_reports.report_write_routes import register_report_write_routes
@@ -3214,85 +3216,22 @@ def finish_expense_save_token(token, expense_id):
 
 
 def posted_report_time(prefix):
-    hour = request.form.get(f"{prefix}_hour", "").strip()
-    minute = request.form.get(f"{prefix}_minute", "").strip()
-    if not hour and not minute:
-        return request.form.get(prefix, "").strip()
-    try:
-        hour_value = int(hour)
-        minute_value = int(minute)
-    except (TypeError, ValueError):
-        raise ValueError("请选择有效的现场时间。")
-    if not 0 <= hour_value <= 23 or not 0 <= minute_value <= 59:
-        raise ValueError("请选择有效的现场时间。")
-    return f"{hour_value:02d}:{minute_value:02d}"
+    return _report_forms.posted_report_time(prefix, request=request)
 
 
 def report_worker_ids_from_form():
-    return list(dict.fromkeys(value for value in request.form.getlist("worker_user_id") if value))
+    return _report_forms.report_worker_ids_from_form(request=request)
 
 
 REPORT_TRAVEL_MODES = {"self_drive", "flight", "following", "rental_drive"}
 
 
 def report_worker_rows_from_form():
-    field_names = (
-        "worker_user_id", "worker_travel_mode", "worker_driving_miles",
-        "worker_travel_hours", "worker_public_transport_hours", "worker_work_description",
-        "worker_origin", "worker_trip_type",
-    )
-    values = {name: request.form.getlist(name) for name in field_names}
-    rows = []
-    for index, raw_user_id in enumerate(values["worker_user_id"]):
-        user_id = str(raw_user_id or "").strip()
-        if not user_id:
-            continue
-        row = {
-            name: (values[name][index].strip() if index < len(values[name]) else "")
-            for name in field_names
-        }
-        row["worker_user_id"] = user_id
-        mode = row["worker_travel_mode"]
-        if mode not in REPORT_TRAVEL_MODES:
-            raise ValueError("请选择有效的服务人员出行方式。")
-        miles = to_float(row["worker_driving_miles"])
-        travel_hours = to_float(row["worker_travel_hours"])
-        public_hours = to_float(row["worker_public_transport_hours"])
-        # 0 英里 / 0 小时是合法值（随行、短途、顺路等）；只有留空或负数才非法。
-        if mode in {"self_drive", "following", "rental_drive"}:
-            if not row["worker_driving_miles"]:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
-            if miles < 0:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
-            if not row["worker_travel_hours"]:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
-            if travel_hours < 0:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
-        if mode == "flight":
-            if not row["worker_public_transport_hours"]:
-                raise ValueError("飞机出行必须填写公共交通时长。")
-            if public_hours < 0:
-                raise ValueError("飞机出行必须填写公共交通时长。")
-        row.update(
-            driving_miles=miles if mode != "flight" else 0,
-            travel_hours=travel_hours if mode != "flight" else 0,
-            public_transport_hours=public_hours if mode == "flight" else 0,
-            origin_address=row["worker_origin"].strip(),
-            # 空值 / 未知值一律归一为默认往返（唯一口径见 trip_policy）
-            trip_type=normalize_trip_type(row["worker_trip_type"]),
-        )
-        rows.append(row)
-    if not rows:
-        raise ValueError("服务人员清单至少需要添加一人。")
-    if len({row["worker_user_id"] for row in rows}) != len(rows):
-        raise ValueError("同一名服务人员不能重复添加。")
-    return rows
+    return _report_forms.report_worker_rows_from_form(REPORT_TRAVEL_MODES=REPORT_TRAVEL_MODES, normalize_trip_type=normalize_trip_type, request=request, to_float=to_float)
 
 
 def report_billing_mileage(worker_rows, method):
-    if method == "per_vehicle":
-        return round(sum(row["driving_miles"] for row in worker_rows if row["worker_travel_mode"] == "self_drive"), 2)
-    return round(sum(row["driving_miles"] for row in worker_rows if row["worker_travel_mode"] in {"self_drive", "following"}), 2)
+    return _report_calculations.report_billing_mileage(worker_rows, method)
 
 
 def get_report_attachments(report_id):
@@ -3394,45 +3333,27 @@ def assert_contract_rates_covered(order_id, rows):
 
 
 def parse_report_minutes(value):
-    if not value or ":" not in str(value):
-        return None
-    try:
-        hour_text, minute_text = str(value).split(":", 1)
-        return int(hour_text) * 60 + int(minute_text)
-    except ValueError:
-        return None
+    return _report_calculations.parse_report_minutes(value)
 
 
 def rounded_report_service_hours(arrival_time, departure_time):
-    arrival = parse_report_minutes(arrival_time)
-    departure = parse_report_minutes(departure_time)
-    if arrival is None or departure is None or departure <= arrival:
-        return 0
-    duration_minutes = departure - arrival
-    rounded_minutes = (duration_minutes // 15) * 15
-    if duration_minutes % 15 > 7:
-        rounded_minutes += 15
-    return round(rounded_minutes / 60, 2)
+    return _report_calculations.rounded_report_service_hours(arrival_time, departure_time, parse_report_minutes=parse_report_minutes)
 
 
 def format_report_hours(value):
-    return f"{float(value):.2f}".rstrip("0").rstrip(".")
+    return _report_calculations.format_report_hours(value)
 
 
 def calculated_report_total_time():
-    rows = report_worker_rows_from_form()
-    return format_report_hours(sum(row["travel_hours"] + row["public_transport_hours"] for row in rows))
+    return _report_forms.calculated_report_total_time(format_report_hours=format_report_hours, report_worker_rows_from_form=report_worker_rows_from_form)
 
 
 def calculated_report_total_service_hours(arrival_time, departure_time):
-    return rounded_report_service_hours(arrival_time, departure_time) * len(report_worker_rows_from_form())
+    return _report_forms.calculated_report_total_service_hours(arrival_time, departure_time, report_worker_rows_from_form=report_worker_rows_from_form, rounded_report_service_hours=rounded_report_service_hours)
 
 
 def calculated_report_driving_miles():
-    method = request.form.get("mileage_billing_method", "per_person")
-    if method not in {"per_person", "per_vehicle"}:
-        method = "per_person"
-    return report_billing_mileage(report_worker_rows_from_form(), method)
+    return _report_forms.calculated_report_driving_miles(report_billing_mileage=report_billing_mileage, report_worker_rows_from_form=report_worker_rows_from_form, request=request)
 
 
 def observed_us_holidays(year):
@@ -3475,15 +3396,11 @@ def is_us_weekend_or_holiday(day):
 
 
 def report_duration_hours(report, worker_count=1):
-    rounded_hours = rounded_report_service_hours(report["arrival_time"], report["departure_time"])
-    if rounded_hours:
-        return rounded_hours
-    fallback_hours = float(report["total_service_hours"] or 0)
-    return round(fallback_hours / max(worker_count, 1), 2)
+    return _report_calculations.report_duration_hours(report, worker_count, rounded_report_service_hours=rounded_report_service_hours)
 
 
 def report_actual_date(report):
-    return report["actual_work_date"] or report["report_date"]
+    return _report_calculations.report_actual_date(report)
 
 
 def _parse_quotation_revision_snapshot(quotation_revision):

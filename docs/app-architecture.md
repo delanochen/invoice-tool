@@ -978,3 +978,21 @@ field-photo ledger implementation stay in their current modules.
 Checks: `test_photo_capture_module_contract.py`, existing clock-in/NAS day-folder tests;
 `python scripts/check_photo_capture_structure.py` checks bodies and exact route registration against
 `329071d`. Test files and ZIPs are contained in temporary directories.
+
+
+### Report forms and shared time/mileage calculations (phase 4g)
+
+`invoice_tool/service_reports/forms.py` owns posted time, worker IDs/rows and form-derived travel time,
+service hours and mileage. `calculations.py` owns billed mileage, minute parsing/rounding, hour text,
+per-worker duration fallback and actual report date. Twelve legacy app signatures remain as wrappers.
+
+Current request/form policies and cross-helper callbacks resolve on every call. Payroll, employee
+settlement and customer billing callers keep their app entry points; no change is made to payroll
+generation, rates, subsidies, per-person/per-vehicle mileage, trip policies, rounding or date fallback.
+Holiday calculations and generic display filters remain in their existing locations. No route moves.
+
+Checks: `test_report_calculations_module_contract.py` compares with separately compiled `29b690c`
+functions; payroll detail/range/boundary and hour display tests verify downstream behavior.
+Run `python scripts/check_report_calculations_structure.py` at this phase's commit for equivalence.
+One imported settlement-filter fixture lacks current required series_id; its failure was observed
+before migration and is separately deselected, without modifying business logic or schema.
