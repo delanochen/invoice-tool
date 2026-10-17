@@ -1390,3 +1390,10 @@ Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by C
 `invoice_tool/invoices/uploads.py` owns uploaded_attachments_from_request.
 Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
 Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 5/20: invoice_loading
+
+`invoice_tool/invoices/loading.py` owns load_invoice, invoice_service_order.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.

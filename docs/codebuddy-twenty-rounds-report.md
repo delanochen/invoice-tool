@@ -35,3 +35,11 @@
 - 迁移函数：uploaded_attachments_from_request。
 - app.py：13415 → 13412 行。
 - 审核验证：12 passed, 9 subtests passed in 9.42s。
+
+
+## 第 5/20 轮：invoice_loading
+
+- CodeBuddy 实际写入 `invoice_tool/invoices/loading.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：load_invoice, invoice_service_order。
+- app.py：13412 → 13405 行。
+- 审核验证：12 passed, 11 subtests passed in 9.20s。

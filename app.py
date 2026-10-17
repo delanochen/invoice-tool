@@ -63,6 +63,7 @@ from invoice_tool.invoices import access as _split_invoice_access
 from invoice_tool.invoices import totals as _split_invoice_totals
 from invoice_tool.invoices import recognition as _split_invoice_recognition
 from invoice_tool.invoices import uploads as _split_invoice_uploads
+from invoice_tool.invoices import loading as _split_invoice_loading
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5364,19 +5365,11 @@ def save_report_detail_rows(report_id):
 
 
 def load_invoice(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    client = db().execute("select * from clients where id = ?", (invoice["client_id"],)).fetchone()
-    items = db().execute("select * from invoice_items where invoice_id = ?", (invoice_id,)).fetchall()
-    return invoice, client, items
+    return _split_invoice_loading.load_invoice(invoice_id, db=db, require_invoice_access=require_invoice_access)
 
 
 def invoice_service_order(invoice):
-    if not invoice["service_order_id"]:
-        return None
-    return db().execute(
-        "select id, order_number, client_order_number from service_orders where id = ?",
-        (invoice["service_order_id"],),
-    ).fetchone()
+    return _split_invoice_loading.invoice_service_order(invoice, db=db)
 
 
 def create_message(user_id, title, body, link=None):
