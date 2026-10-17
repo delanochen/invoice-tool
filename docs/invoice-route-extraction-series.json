@@ -8,6 +8,14 @@
         "download_attachment",
         "preview_attachment"
       ]
+    },
+    {
+      "round": 2,
+      "module": "invoice_tool/invoices/attachment_write_routes.py",
+      "functions": [
+        "upload_attachment",
+        "delete_attachment"
+      ]
     }
   ]
 }

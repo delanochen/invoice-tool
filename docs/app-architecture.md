@@ -1300,3 +1300,10 @@ claim complete repository test coverage or resolution of previously documented b
 `invoice_tool/invoices/attachment_read_routes.py` owns download_attachment, preview_attachment.
 URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
 Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice attachment_write routes (2/10)
+
+`invoice_tool/invoices/attachment_write_routes.py` owns upload_attachment, delete_attachment.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.

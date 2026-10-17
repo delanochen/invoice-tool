@@ -51,6 +51,7 @@ from invoice_tool.invoices import exports as _invoice_exports
 from invoice_tool.invoices import email_attachments as _invoice_email_attachments
 from invoice_tool.invoices import pdf as _invoice_pdf
 from invoice_tool.invoices.attachment_read_routes import register_invoice_attachment_read_routes
+from invoice_tool.invoices.attachment_write_routes import register_invoice_attachment_write_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12748,21 +12749,19 @@ def send_invoice(invoice_id):
     return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
 
-@app.post("/invoices/<int:invoice_id>/attachments")
-@login_required
-def upload_attachment(invoice_id):
-    require_invoice_access(invoice_id)
-    uploads = uploaded_attachments_from_request()
-    if not uploads:
-        flash("请选择要上传的附件。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    if not validate_attachment_uploads(uploads, invoice_id):
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    for uploaded in uploads:
-        save_uploaded_attachment(invoice_id, uploaded)
-    db().commit()
-    flash(f"已上传 {len(uploads)} 个附件。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+_invoice_attachment_write_views = register_invoice_attachment_write_routes(
+    app,
+    attachment_file_path=lambda *args, **kwargs: attachment_file_path(*args, **kwargs),
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    login_required=login_required,
+    resolve_os=lambda: os,
+    require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
+    save_uploaded_attachment=lambda *args, **kwargs: save_uploaded_attachment(*args, **kwargs),
+    uploaded_attachments_from_request=lambda *args, **kwargs: uploaded_attachments_from_request(*args, **kwargs),
+    validate_attachment_uploads=lambda *args, **kwargs: validate_attachment_uploads(*args, **kwargs),
+)
+upload_attachment = _invoice_attachment_write_views['upload_attachment']
+delete_attachment = _invoice_attachment_write_views['delete_attachment']
 
 
 _invoice_attachment_read_views = register_invoice_attachment_read_routes(
@@ -12779,23 +12778,6 @@ preview_attachment = _invoice_attachment_read_views['preview_attachment']
 
 
 
-@app.post("/attachments/<int:attachment_id>/delete")
-@login_required
-def delete_attachment(attachment_id):
-    attachment = db().execute("select * from invoice_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_invoice_access(attachment["invoice_id"])
-    try:
-        os.remove(attachment_file_path(attachment))
-    except FileNotFoundError:
-        pass
-    db().execute("delete from invoice_attachments where id = ?", (attachment_id,))
-    db().commit()
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": True, "attachment_id": attachment_id})
-    flash("附件已删除。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=attachment["invoice_id"]))
 
 
 @app.post("/invoices/<int:invoice_id>/export")

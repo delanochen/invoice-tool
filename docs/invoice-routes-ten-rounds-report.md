@@ -11,3 +11,11 @@
 - 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
 - app.py：13567 → 13559 行。
 - 专项验证：12 passed, 15 subtests passed in 9.63s。
+
+
+## 第 2/10 轮：附件上传与删除
+
+- 2 个路由迁入 `invoice_tool/invoices/attachment_write_routes.py`；原 URL、方法、登录装饰器、端点及 app 函数别名保留。
+- 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
+- app.py：13559 → 13541 行。
+- 专项验证：13 passed, 18 subtests passed in 9.57s。
