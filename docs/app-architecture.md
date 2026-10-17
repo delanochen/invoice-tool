@@ -849,3 +849,20 @@ These phases build on the map above; historical line locations remain a navigati
 - No application factory or Blueprint migration is included in these phases. No business rule, schema, template, or deployment changes are included.
 
 Contract regression: `test_contracts_module_contract.py`; structural equivalence: `python scripts/check_contracts_structure.py` (compare against preceding `4798b77`).
+
+
+### Work-order CRUD extraction (phase 3a)
+
+`invoice_tool/service_orders/services.py` now owns `next_service_order_number`,
+`service_order_dependency_counts`, and `service_order_delete_blockers`.
+`invoice_tool/service_orders/routes.py` registers the five existing list/create/edit/detail/delete
+endpoints. The app keeps legacy helper wrappers and view aliases. Dependencies are explicit;
+request-time callbacks resolve the current app helpers, including helpers used in comprehensions.
+
+Shared access guards, calendar, maps, geocoding, photos/import jobs, settlement services and invoice
+services remain in their existing modules. Their business logic is unchanged.
+
+Checks: `test_service_orders_module_contract.py` and
+`python scripts/check_service_orders_structure.py` (compare with `10c2570`).
+Existing settlement-column fixtures lack required `customer_reimbursements.series_id` in the shared
+test schema; their five failures were observed before this extraction and remain separately recorded.
