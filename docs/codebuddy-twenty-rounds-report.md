@@ -99,3 +99,11 @@
 - 迁移函数：email_delivery_summary。
 - app.py：13190 → 13177 行。
 - 审核验证：1 passed, 2 subtests passed in 2.12s。
+
+
+## 第 13/20 轮：image_detection
+
+- CodeBuddy 实际写入 `invoice_tool/shared_attachments/images.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：is_image_attachment, is_customer_reimbursement_image_attachment。
+- app.py：13177 → 13173 行。
+- 审核验证：12 passed, 16 subtests passed in 9.32s。

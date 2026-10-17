@@ -71,6 +71,7 @@ from invoice_tool.shared_attachments import named as _split_named_attachment
 from invoice_tool.shared_attachments import company as _split_company_attachments
 from invoice_tool.email_delivery import record as _split_delivery_record
 from invoice_tool.email_delivery import summary as _split_delivery_summary
+from invoice_tool.shared_attachments import images as _split_image_detection
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2244,16 +2245,11 @@ def client_order_number_warning(customer_name, client_order_number):
 
 
 def is_image_attachment(content_type, filename):
-    if (content_type or "").strip().casefold().startswith("image/"):
-        return True
-    name = (filename or "").strip().casefold()
-    return "." in name and name.rsplit(".", 1)[1] in ALLOWED_IMAGE_EXTENSIONS
+    return _split_image_detection.is_image_attachment(content_type, filename, ALLOWED_IMAGE_EXTENSIONS=ALLOWED_IMAGE_EXTENSIONS)
 
 
 def is_customer_reimbursement_image_attachment(attachment):
-    if is_image_attachment(attachment["content_type"], attachment["original_filename"]):
-        return True
-    return valid_image_file(customer_reimbursement_attachment_path(attachment))
+    return _split_image_detection.is_customer_reimbursement_image_attachment(attachment, customer_reimbursement_attachment_path=customer_reimbursement_attachment_path, is_image_attachment=is_image_attachment, valid_image_file=valid_image_file)
 
 
 app.jinja_env.filters["money"] = money
