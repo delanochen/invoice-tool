@@ -1262,3 +1262,11 @@ policies remain identical to eca0599; no route is moved. Cumulative equivalence 
 Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
 policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
 `scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice exports (ten-round series 7/10)
+
+`invoice_tool/invoices/exports.py` owns build_invoice_zip, render_invoice_export_html.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.

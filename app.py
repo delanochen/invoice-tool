@@ -47,6 +47,7 @@ from invoice_tool.invoices import numbering as _invoice_numbering
 from invoice_tool.invoices import storage as _invoice_storage
 from invoice_tool.invoices import attachment_names as _invoice_attachment_names
 from invoice_tool.invoices import copying as _invoice_copying
+from invoice_tool.invoices import exports as _invoice_exports
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12830,17 +12831,7 @@ def export_invoice_pdf(invoice_id):
 
 
 def build_invoice_zip(invoice, client, items):
-    archive_name = secure_filename(invoice["invoice_number"])
-    if not archive_name:
-        archive_name = f"invoice-{invoice['id']}"
-    pdf_bytes = render_invoice_pdf(invoice, client, items)
-    attachments = get_invoice_attachments(invoice["id"])
-    buffer = BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{archive_name}/{archive_name}.pdf", pdf_bytes)
-        for attachment in attachments:
-            archive.write(attachment_file_path(attachment), arcname=f"{archive_name}/{attachment['original_filename']}")
-    return archive_name, buffer.getvalue()
+    return _invoice_exports.build_invoice_zip(invoice, client, items, BytesIO=BytesIO, attachment_file_path=attachment_file_path, get_invoice_attachments=get_invoice_attachments, render_invoice_pdf=render_invoice_pdf, secure_filename=secure_filename, zipfile=zipfile)
 
 
 def customer_reimbursement_email_attachments(invoice):
@@ -12899,18 +12890,7 @@ def invoice_email_attachments(invoice, client, items):
 
 
 def render_invoice_export_html(invoice, client, items):
-    return render_template(
-        "invoice_export.html",
-        invoice=invoice,
-        client=client,
-        service_order=invoice_service_order(invoice),
-        items=items,
-        totals=invoice_totals(invoice["id"]),
-        company=get_company_profile(),
-        terms=get_invoice_terms(),
-        payment=get_payment_instructions(),
-        labels=STATUS_LABELS,
-    )
+    return _invoice_exports.render_invoice_export_html(invoice, client, items, STATUS_LABELS=STATUS_LABELS, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, render_template=render_template)
 
 
 def render_invoice_pdf(invoice, client, items):

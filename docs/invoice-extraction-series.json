@@ -56,6 +56,14 @@
         "copy_customer_reimbursement_attachments_to_invoice",
         "copy_mileage_proofs_to_invoice"
       ]
+    },
+    {
+      "round": 7,
+      "module": "invoice_tool/invoices/exports.py",
+      "functions": [
+        "build_invoice_zip",
+        "render_invoice_export_html"
+      ]
     }
   ]
 }
