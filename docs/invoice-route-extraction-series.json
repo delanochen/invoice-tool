@@ -38,6 +38,13 @@
       "functions": [
         "send_invoice"
       ]
+    },
+    {
+      "round": 6,
+      "module": "invoice_tool/invoices/admin_status_routes.py",
+      "functions": [
+        "admin_update_invoice_status"
+      ]
     }
   ]
 }

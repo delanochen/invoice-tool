@@ -43,3 +43,11 @@
 - 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
 - app.py：13520 → 13512 行。
 - 专项验证：1 passed, 5 subtests passed in 2.29s。
+
+
+## 第 6/10 轮：管理员状态调整
+
+- 1 个路由迁入 `invoice_tool/invoices/admin_status_routes.py`；原 URL、方法、登录装饰器、端点及 app 函数别名保留。
+- 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
+- app.py：13512 → 13495 行。
+- 专项验证：1 passed, 5 subtests passed in 2.45s。

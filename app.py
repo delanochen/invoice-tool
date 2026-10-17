@@ -55,6 +55,7 @@ from invoice_tool.invoices.attachment_write_routes import register_invoice_attac
 from invoice_tool.invoices.export_routes import register_invoice_export_routes
 from invoice_tool.invoices.detail_routes import register_invoice_detail_routes
 from invoice_tool.invoices.send_routes import register_invoice_send_routes
+from invoice_tool.invoices.admin_status_routes import register_invoice_admin_status_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12576,33 +12577,15 @@ _invoice_detail_views = register_invoice_detail_routes(
 invoice_detail = _invoice_detail_views['invoice_detail']
 
 
-@app.post("/invoices/<int:invoice_id>/admin-status")
-@login_required
-def admin_update_invoice_status(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    if g.user["role"] != "admin":
-        abort(403)
-    if invoice["paid_at"]:
-        flash("这张发票已经核销，不能再修改为保存未提交状态。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    target_status = request.form.get("status", "")
-    if target_status != "draft":
-        flash("当前只允许管理员将未核销发票改为保存未提交状态。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    db().execute(
-        "update invoices set status = 'draft', return_reason = null where id = ?",
-        (invoice_id,),
-    )
-    create_message(
-        invoice["created_by"],
-        "发票状态已调整",
-        f"管理员已将发票 {invoice['invoice_number']} 调整为保存未提交状态。",
-        url_for("edit_invoice", invoice_id=invoice_id),
-    )
-    log_action("status_change", "invoice", invoice_id, invoice["invoice_number"], "调整为保存未提交")
-    db().commit()
-    flash("发票状态已修改为保存未提交。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+_invoice_admin_status_views = register_invoice_admin_status_routes(
+    app,
+    create_message=lambda *args, **kwargs: create_message(*args, **kwargs),
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
+)
+admin_update_invoice_status = _invoice_admin_status_views['admin_update_invoice_status']
 
 
 @app.post("/invoices/<int:invoice_id>/void")
