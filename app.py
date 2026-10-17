@@ -29,6 +29,7 @@ from invoice_tool.service_reports import forms as _report_forms
 from invoice_tool.service_reports import calculations as _report_calculations
 from invoice_tool.employee_expenses import expense_write_services as _expense_write_services
 from invoice_tool.employee_expenses.expense_write_routes import register_expense_write_routes
+from invoice_tool.employee_expenses.expense_review_routes import register_expense_review_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12329,36 +12330,18 @@ expense_detail = _expense_write_views['expense_detail']
 
 
 
-@app.post("/expense-duplicate-checks/<int:check_id>/review")
-@login_required
-def review_expense_duplicate_check(check_id):
-    if normalized_role() not in {"admin", "manager"}:
-        abort(403)
-    check = db().execute(
-        "select * from expense_duplicate_checks where id = ?", (check_id,)
-    ).fetchone()
-    if not check:
-        abort(404)
-    status = request.form.get("review_status", "")
-    labels = {
-        "confirmed": "已确认重复",
-        "not_duplicate": "已标记为非重复",
-        "legal_split": "已标记为合法分摊",
-    }
-    if status not in labels:
-        abort(400)
-    db().execute(
-        """
-        update expense_duplicate_checks
-        set review_status = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
-        where id = ?
-        """,
-        (status, g.user["id"], now(), now(), check_id),
-    )
-    log_action("review", "expense_duplicate_check", check_id, labels[status], f"报销ID：{check['expense_id']}")
-    db().commit()
-    flash(labels[status], "success")
-    return redirect(url_for("expense_detail", expense_id=check["expense_id"]))
+_expense_review_views = register_expense_review_routes(
+    app,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    normalized_role=lambda *args, **kwargs: normalized_role(*args, **kwargs),
+    notify_expense_participants=lambda *args, **kwargs: notify_expense_participants(*args, **kwargs),
+    now=lambda *args, **kwargs: now(*args, **kwargs),
+    require_expense=lambda *args, **kwargs: require_expense(*args, **kwargs),
+)
+review_expense_duplicate_check = _expense_review_views['review_expense_duplicate_check']
+return_expense = _expense_review_views['return_expense']
 
 
 @app.post("/expenses/<int:expense_id>/approve")
@@ -12409,26 +12392,6 @@ def approve_expense(expense_id):
     return redirect(url_for("expense_detail", expense_id=expense_id))
 
 
-@app.post("/expenses/<int:expense_id>/return")
-@login_required
-def return_expense(expense_id):
-    expense, order = require_expense(expense_id)
-    if expense["status"] != "submitted":
-        flash("只有待经理审核的报销可以退回。", "error")
-        return redirect(url_for("expense_detail", expense_id=expense_id))
-    reason = request.form.get("return_reason", "").strip()
-    if not reason:
-        flash("请填写退回原因。", "error")
-        return redirect(url_for("expense_detail", expense_id=expense_id))
-    db().execute(
-        "update expenses set status = 'returned', return_reason = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? where id = ?",
-        (reason, g.user["id"], now(), now(), expense_id),
-    )
-    notify_expense_participants(expense, "报销已被退回", f"报销 {expense['expense_number']} 已被退回。原因：{reason}", url_for("expense_detail", expense_id=expense_id))
-    log_action("return", "expense", expense_id, expense["expense_number"], f"原因：{reason}")
-    db().commit()
-    flash("报销已退回。", "success")
-    return redirect(url_for("expense_detail", expense_id=expense_id))
 
 
 @app.post("/expenses/<int:expense_id>/cancel")

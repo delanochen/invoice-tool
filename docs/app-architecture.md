@@ -1075,3 +1075,18 @@ Checks: test_expense_write_module_contract.py verifies endpoint/method identity,
 tokens, validation rollback and unexpected save rollback followed by retry with the same token.
 At this phase's commit use scripts/check_expense_write_structure.py for equivalence to 11878e0.
 Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense duplicate review and return endpoints (phase 5f)
+
+`invoice_tool/employee_expenses/expense_review_routes.py` registers duplicate review and
+return_expense with original POST URLs, endpoint names, app aliases and login guards.
+Dependencies resolve through explicit callbacks. Duplicate review role/status validation,
+return-state/reason checks, reviewer metadata, participant notifications and audit remain unchanged.
+Approval/cancel/delete remain in app.py because their legacy payment calls consume app globals;
+that interface must be bounded before moving them. Payment semantics are unchanged.
+
+Checks: test_expense_review_module_contract.py verifies endpoint identity, return reason/state,
+actor/beneficiary retention, notifications and denied employee action; previous duplicate tests
+cover all review statuses and roles. At this commit use scripts/check_expense_review_structure.py.
+Three previously reproduced series_id fixture failures remain separately excluded.
