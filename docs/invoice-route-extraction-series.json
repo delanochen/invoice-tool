@@ -16,6 +16,14 @@
         "upload_attachment",
         "delete_attachment"
       ]
+    },
+    {
+      "round": 3,
+      "module": "invoice_tool/invoices/export_routes.py",
+      "functions": [
+        "export_invoice",
+        "export_invoice_pdf"
+      ]
     }
   ]
 }

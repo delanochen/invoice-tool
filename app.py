@@ -52,6 +52,7 @@ from invoice_tool.invoices import email_attachments as _invoice_email_attachment
 from invoice_tool.invoices import pdf as _invoice_pdf
 from invoice_tool.invoices.attachment_read_routes import register_invoice_attachment_read_routes
 from invoice_tool.invoices.attachment_write_routes import register_invoice_attachment_write_routes
+from invoice_tool.invoices.export_routes import register_invoice_export_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12780,30 +12781,19 @@ preview_attachment = _invoice_attachment_read_views['preview_attachment']
 
 
 
-@app.post("/invoices/<int:invoice_id>/export")
-@login_required
-def export_invoice(invoice_id):
-    invoice, client, items = load_invoice(invoice_id)
-    archive_name, archive_bytes = build_invoice_zip(invoice, client, items)
-    return send_file(
-        BytesIO(archive_bytes),
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name=f"{archive_name}.zip",
-    )
+_invoice_export_views = register_invoice_export_routes(
+    app,
+    BytesIO=lambda *args, **kwargs: BytesIO(*args, **kwargs),
+    build_invoice_zip=lambda *args, **kwargs: build_invoice_zip(*args, **kwargs),
+    load_invoice=lambda *args, **kwargs: load_invoice(*args, **kwargs),
+    login_required=login_required,
+    render_invoice_pdf=lambda *args, **kwargs: render_invoice_pdf(*args, **kwargs),
+    secure_filename=lambda *args, **kwargs: secure_filename(*args, **kwargs),
+)
+export_invoice = _invoice_export_views['export_invoice']
+export_invoice_pdf = _invoice_export_views['export_invoice_pdf']
 
 
-@app.get("/invoices/<int:invoice_id>/export-pdf")
-@login_required
-def export_invoice_pdf(invoice_id):
-    invoice, client, items = load_invoice(invoice_id)
-    invoice_name = secure_filename(invoice["invoice_number"]) or f"invoice-{invoice['id']}"
-    return send_file(
-        BytesIO(render_invoice_pdf(invoice, client, items)),
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=f"{invoice_name}.pdf",
-    )
 
 
 def build_invoice_zip(invoice, client, items):

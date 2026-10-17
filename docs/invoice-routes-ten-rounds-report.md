@@ -19,3 +19,11 @@
 - 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
 - app.py：13559 → 13541 行。
 - 专项验证：13 passed, 18 subtests passed in 9.57s。
+
+
+## 第 3/10 轮：ZIP 与 PDF 导出
+
+- 2 个路由迁入 `invoice_tool/invoices/export_routes.py`；原 URL、方法、登录装饰器、端点及 app 函数别名保留。
+- 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
+- app.py：13541 → 13531 行。
+- 专项验证：1 passed, 2 subtests passed in 2.22s。
