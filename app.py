@@ -56,6 +56,7 @@ from invoice_tool.invoices.export_routes import register_invoice_export_routes
 from invoice_tool.invoices.detail_routes import register_invoice_detail_routes
 from invoice_tool.invoices.send_routes import register_invoice_send_routes
 from invoice_tool.invoices.admin_status_routes import register_invoice_admin_status_routes
+from invoice_tool.invoices.payment_routes import register_invoice_payment_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12665,43 +12666,21 @@ def delete_invoice(invoice_id):
     return redirect(url_for("invoices"))
 
 
-@app.post("/invoices/<int:invoice_id>/mark-paid")
-@login_required
-def mark_invoice_paid(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    if not is_internal_user():
-        abort(403)
-    if invoice["status"] != "completed":
-        flash("只有已完成的发票才能核销。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    totals = invoice_totals(invoice_id)
-    db().execute(
-        """
-        update invoices set paid_at = ?, payment_amount = ?, payment_note = ?
-        where id = ?
-        """,
-        (
-            request.form.get("paid_at") or date.today().isoformat(),
-            to_float(request.form.get("payment_amount"), totals["total"]),
-            request.form.get("payment_note", "").strip(),
-            invoice_id,
-        ),
-    )
-    log_action("mark_paid", "invoice", invoice_id, invoice["invoice_number"], "记录发票核销")
-    db().commit()
-    flash("发票已核销。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
+_invoice_payment_views = register_invoice_payment_routes(
+    app,
+    resolve_date=lambda: date,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    invoice_totals=lambda *args, **kwargs: invoice_totals(*args, **kwargs),
+    is_internal_user=lambda *args, **kwargs: is_internal_user(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
+    to_float=lambda *args, **kwargs: to_float(*args, **kwargs),
+)
+mark_invoice_paid = _invoice_payment_views['mark_invoice_paid']
+unmark_invoice_paid = _invoice_payment_views['unmark_invoice_paid']
 
 
-@app.post("/invoices/<int:invoice_id>/unmark-paid")
-@login_required
-def unmark_invoice_paid(invoice_id):
-    invoice = require_invoice_access(invoice_id)
-    db().execute("update invoices set paid_at = null, payment_amount = null, payment_note = null where id = ?", (invoice_id,))
-    log_action("unmark_paid", "invoice", invoice_id, invoice["invoice_number"], "取消发票核销")
-    db().commit()
-    flash("发票核销记录已取消。", "success")
-    return redirect(url_for("invoice_detail", invoice_id=invoice_id))
 
 
 _invoice_send_views = register_invoice_send_routes(

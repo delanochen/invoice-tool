@@ -1335,3 +1335,10 @@ Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contra
 `invoice_tool/invoices/admin_status_routes.py` owns admin_update_invoice_status.
 URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
 Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice payment routes (7/10)
+
+`invoice_tool/invoices/payment_routes.py` owns mark_invoice_paid, unmark_invoice_paid.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.

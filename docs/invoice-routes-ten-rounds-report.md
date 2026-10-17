@@ -51,3 +51,11 @@
 - 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
 - app.py：13512 → 13495 行。
 - 专项验证：1 passed, 5 subtests passed in 2.45s。
+
+
+## 第 7/10 轮：收款标记与撤销
+
+- 2 个路由迁入 `invoice_tool/invoices/payment_routes.py`；原 URL、方法、登录装饰器、端点及 app 函数别名保留。
+- 原函数主体经解析树逐项对照一致，SQL 字符串保持原值，其余函数未变。动态依赖通过显式回调/解析器注入。
+- app.py：13495 → 13474 行。
+- 专项验证：2 passed, 5 subtests passed in 2.44s。

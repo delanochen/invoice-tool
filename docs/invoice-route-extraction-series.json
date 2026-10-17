@@ -45,6 +45,14 @@
       "functions": [
         "admin_update_invoice_status"
       ]
+    },
+    {
+      "round": 7,
+      "module": "invoice_tool/invoices/payment_routes.py",
+      "functions": [
+        "mark_invoice_paid",
+        "unmark_invoice_paid"
+      ]
     }
   ]
 }
