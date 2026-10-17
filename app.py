@@ -20,6 +20,9 @@ import threading
 import time
 import zipfile
 import calendar
+from invoice_tool.payment_terms import calculations as _payment_term_calculations
+from invoice_tool.payment_terms.services import build_payment_term_services
+from invoice_tool.payment_terms.routes import register_payment_term_routes
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
@@ -7717,261 +7720,58 @@ def delete_contract_attachment(attachment_id):
 
 
 def payment_term_rows(active_only=False):
-    where = "where is_active = 1" if active_only else ""
-    return db().execute(
-        f"select * from payment_terms {where} order by is_active desc, name collate nocase"
-    ).fetchall()
+    return _payment_term_services["payment_term_rows"](active_only)
 
 
 def default_payment_term_id():
-    row = db().execute(
-        "select id from payment_terms where name = 'Net 30' order by id limit 1"
-    ).fetchone()
-    return row["id"] if row else None
+    return _payment_term_services["default_payment_term_id"]()
 
 
 def posted_payment_term_id(allow_inactive=False):
-    raw_value = request.form.get("payment_term_id", "").strip()
-    if not raw_value:
-        return default_payment_term_id()
-    if not raw_value.isdigit():
-        raise ValueError("请选择有效的账期方案。")
-    row = db().execute(
-        "select id, is_active from payment_terms where id = ?",
-        (int(raw_value),),
-    ).fetchone()
-    if not row or (not row["is_active"] and not allow_inactive):
-        raise ValueError("选择的账期方案不存在或已停用。")
-    return row["id"]
+    return _payment_term_services["posted_payment_term_id"](allow_inactive)
 
 
 def shifted_month(year, month, offset):
-    month_index = year * 12 + (month - 1) + int(offset)
-    return month_index // 12, month_index % 12 + 1
+    return _payment_term_calculations.shifted_month(year, month, offset)
 
 
 def calculate_payment_due_date(issue_date_value, payment_term):
-    try:
-        issue = date.fromisoformat(str(issue_date_value or ""))
-    except ValueError as error:
-        raise ValueError("请选择有效的开票日期。") from error
-    if not payment_term or payment_term["rule_type"] == "fixed_days":
-        days = int(payment_term["fixed_days"] if payment_term else 30)
-        return issue + timedelta(days=max(days, 0))
-    cutoff_day = int(payment_term["cutoff_day"] or 1)
-    due_day = int(payment_term["due_day"] or 1)
-    month_offset = (
-        int(payment_term["before_due_months"] or 0)
-        if issue.day <= cutoff_day
-        else int(payment_term["after_due_months"] or 0)
-    )
-    target_year, target_month = shifted_month(issue.year, issue.month, month_offset)
-    target_day = min(due_day, calendar.monthrange(target_year, target_month)[1])
-    return date(target_year, target_month, target_day)
+    return _payment_term_calculations.calculate_payment_due_date(
+        issue_date_value, payment_term, month_shifter=shifted_month)
 
 
 def payment_term_description(payment_term):
-    if payment_term["rule_type"] == "fixed_days":
-        return f"开票日后 {payment_term['fixed_days']} 天到期"
-    return (
-        f"每月 {payment_term['cutoff_day']} 日截止（含当天）；截止日前到期月 +"
-        f"{payment_term['before_due_months']}，截止日后到期月 +{payment_term['after_due_months']}；"
-        f"到期日 {payment_term['due_day']} 日"
-    )
+    return _payment_term_calculations.payment_term_description(payment_term)
 
 
 def payment_term_form_values():
-    name = request.form.get("name", "").strip()
-    rule_type = request.form.get("rule_type", "fixed_days").strip()
-    if not name:
-        raise ValueError("请输入账期名称。")
-    if rule_type not in {"fixed_days", "monthly_cutoff"}:
-        raise ValueError("请选择有效的账期类型。")
-    if rule_type == "fixed_days":
-        required_fields = (("fixed_days", "固定天数"),)
-    else:
-        required_fields = (
-            ("cutoff_day", "截止日"), ("due_day", "到期日"),
-            ("before_due_months", "截止日前到期月偏移"),
-            ("after_due_months", "截止日后到期月偏移"),
-        )
-    for field_name, label in required_fields:
-        if request.form.get(field_name, "").strip() == "":
-            raise ValueError(f"请填写{label}。")
-    try:
-        fixed_days = int(request.form.get("fixed_days", "30") or 30)
-        cutoff_day = int(request.form.get("cutoff_day", "20") or 20)
-        due_day = int(request.form.get("due_day", "19") or 19)
-        before_due_months = int(request.form.get("before_due_months", "1") or 1)
-        after_due_months = int(request.form.get("after_due_months", "2") or 2)
-    except ValueError as error:
-        raise ValueError("账期参数必须是整数。") from error
-    if not 0 <= fixed_days <= 3650:
-        raise ValueError("固定天数必须在0至3650之间。")
-    if not 1 <= cutoff_day <= 31 or not 1 <= due_day <= 31:
-        raise ValueError("截止日和到期日必须在1至31之间。")
-    if not 0 <= before_due_months <= 24 or not 0 <= after_due_months <= 24:
-        raise ValueError("到期月份偏移必须在0至24之间。")
-    if rule_type == "monthly_cutoff" and after_due_months < before_due_months:
-        raise ValueError("截止日后的到期月份不能早于截止日前。")
-    return {
-        "name": name,
-        "rule_type": rule_type,
-        "fixed_days": fixed_days,
-        "cutoff_day": cutoff_day if rule_type == "monthly_cutoff" else None,
-        "due_day": due_day if rule_type == "monthly_cutoff" else None,
-        "before_due_months": before_due_months,
-        "after_due_months": after_due_months,
-        "notes": request.form.get("notes", "").strip(),
-    }
+    return _payment_term_services["payment_term_form_values"]()
 
 
 def eligible_invoice_due_date_changes():
-    rows = db().execute(
-        """
-        select invoices.id, invoices.invoice_number, invoices.issue_date, invoices.due_date,
-               clients.name as client_name, payment_terms.*,
-               service_orders.order_number
-        from invoices
-        join clients on clients.id = invoices.client_id
-        join payment_terms on payment_terms.id = clients.payment_term_id
-        join service_orders on service_orders.id = invoices.service_order_id
-        where service_orders.status != 'closed'
-          and invoices.paid_at is null
-          and trim(coalesce(invoices.sent_at, '')) = ''
-          and not exists (
-              select 1 from email_delivery_logs
-              where entity_type = 'invoice' and entity_id = invoices.id
-          )
-        order by invoices.issue_date, invoices.id
-        """
-    ).fetchall()
-    changes = []
-    for row in rows:
-        new_due_date = calculate_payment_due_date(row["issue_date"], row).isoformat()
-        if new_due_date != row["due_date"]:
-            changes.append({"invoice": row, "new_due_date": new_due_date})
-    return changes
+    return _payment_term_services["eligible_invoice_due_date_changes"]()
 
 
-@app.route("/settings/payment-terms", methods=["GET", "POST"])
-@login_required
-def payment_terms():
-    if request.method == "POST":
-        try:
-            values = payment_term_form_values()
-            cursor = db().execute(
-                """
-                insert into payment_terms (
-                    name, rule_type, fixed_days, cutoff_day, due_day,
-                    before_due_months, after_due_months, notes, is_active, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                """,
-                (
-                    values["name"], values["rule_type"], values["fixed_days"],
-                    values["cutoff_day"], values["due_day"], values["before_due_months"],
-                    values["after_due_months"], values["notes"], now(), now(),
-                ),
-            )
-            log_action("create", "payment_term", cursor.lastrowid, values["name"], "新增账期方案")
-            db().commit()
-            flash("账期方案已创建。", "success")
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-        except IntegrityError:
-            db().rollback()
-            flash("账期名称已经存在。", "error")
-        return redirect(url_for("payment_terms"))
-    terms = payment_term_rows()
-    assigned_counts = {
-        row["payment_term_id"]: row["count"]
-        for row in db().execute(
-            "select payment_term_id, count(*) as count from clients group by payment_term_id"
-        ).fetchall()
-    }
-    return render_template(
-        "payment_terms.html",
-        payment_terms=terms,
-        assigned_counts=assigned_counts,
-        due_date_changes=eligible_invoice_due_date_changes(),
-        payment_term_description=payment_term_description,
-    )
-
-
-@app.post("/settings/payment-terms/<int:payment_term_id>/edit")
-@login_required
-def edit_payment_term(payment_term_id):
-    term = db().execute("select * from payment_terms where id = ?", (payment_term_id,)).fetchone()
-    if not term:
-        abort(404)
-    try:
-        values = payment_term_form_values()
-        db().execute(
-            """
-            update payment_terms
-            set name = ?, rule_type = ?, fixed_days = ?, cutoff_day = ?, due_day = ?,
-                before_due_months = ?, after_due_months = ?, notes = ?, updated_at = ?
-            where id = ?
-            """,
-            (
-                values["name"], values["rule_type"], values["fixed_days"],
-                values["cutoff_day"], values["due_day"], values["before_due_months"],
-                values["after_due_months"], values["notes"], now(), payment_term_id,
-            ),
-        )
-        log_action("update", "payment_term", payment_term_id, values["name"], "修改账期方案")
-        db().commit()
-        flash("账期方案已更新。", "success")
-    except ValueError as error:
-        db().rollback()
-        flash(str(error), "error")
-    except IntegrityError:
-        db().rollback()
-        flash("账期名称已经存在。", "error")
-    return redirect(url_for("payment_terms"))
-
-
-@app.post("/settings/payment-terms/<int:payment_term_id>/toggle")
-@login_required
-def toggle_payment_term(payment_term_id):
-    term = db().execute("select * from payment_terms where id = ?", (payment_term_id,)).fetchone()
-    if not term:
-        abort(404)
-    if term["name"] == "Net 30" and term["is_active"]:
-        flash("默认 Net 30 方案不能停用。", "error")
-        return redirect(url_for("payment_terms"))
-    next_status = 0 if term["is_active"] else 1
-    db().execute(
-        "update payment_terms set is_active = ?, updated_at = ? where id = ?",
-        (next_status, now(), payment_term_id),
-    )
-    log_action(
-        "update", "payment_term", payment_term_id, term["name"],
-        "启用账期方案" if next_status else "停用账期方案",
-    )
-    db().commit()
-    flash("账期状态已更新。", "success")
-    return redirect(url_for("payment_terms"))
-
-
-@app.post("/settings/payment-terms/recalculate-invoices")
-@login_required
-def recalculate_payment_term_invoices():
-    changes = eligible_invoice_due_date_changes()
-    for change in changes:
-        invoice = change["invoice"]
-        db().execute(
-            "update invoices set due_date = ? where id = ?",
-            (change["new_due_date"], invoice["id"]),
-        )
-        log_action(
-            "recalculate_due_date", "invoice", invoice["id"], invoice["invoice_number"],
-            f"账期重算：{invoice['due_date']} → {change['new_due_date']}",
-        )
-    db().commit()
-    flash(f"已更新 {len(changes)} 张符合条件的未发送、未核销发票。", "success")
-    return redirect(url_for("payment_terms"))
+_payment_term_services = build_payment_term_services(
+    db=lambda: db(),
+    resolve_default_payment_term_id=lambda: default_payment_term_id(),
+    resolve_calculate_payment_due_date=lambda *args: calculate_payment_due_date(*args),
+)
+_payment_term_route_exports = register_payment_term_routes(
+    app,
+    db=lambda: db(),
+    now=lambda: now(),
+    login_required=login_required,
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    payment_term_form_values=lambda: payment_term_form_values(),
+    payment_term_rows=lambda *args, **kwargs: payment_term_rows(*args, **kwargs),
+    eligible_invoice_due_date_changes=lambda: eligible_invoice_due_date_changes(),
+    payment_term_description=lambda term: payment_term_description(term),
+)
+payment_terms = _payment_term_route_exports["payment_terms"]
+edit_payment_term = _payment_term_route_exports["edit_payment_term"]
+toggle_payment_term = _payment_term_route_exports["toggle_payment_term"]
+recalculate_payment_term_invoices = _payment_term_route_exports["recalculate_payment_term_invoices"]
 
 
 @app.route("/settings/system", methods=["GET", "POST"])
