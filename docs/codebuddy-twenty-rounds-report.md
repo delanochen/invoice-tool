@@ -115,3 +115,11 @@
 - 迁移函数：xlsx_column_name。
 - app.py：13173 → 13169 行。
 - 审核验证：1 passed, 6 subtests passed in 2.02s。
+
+
+## 第 15/20 轮：xlsx_single
+
+- CodeBuddy 实际写入 `invoice_tool/report_exports/single_sheet.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：build_simple_xlsx。
+- app.py：13169 → 13117 行。
+- 审核验证：1 passed, 2 subtests passed in 2.21s。
