@@ -1011,3 +1011,19 @@ Checks: `test_expense_forms_module_contract.py`, expense on-behalf/business-purp
 regressions and settlement link display tests. At this phase's commit run
 `python scripts/check_expense_forms_structure.py` for equivalence against `1ee793d`.
 Three pre-existing settlement fixtures omit required series_id and are separately excluded.
+
+
+### Employee expense attachment storage (phase 5b)
+
+`invoice_tool/employee_expenses/storage.py` owns attachment directory/path resolution,
+SHA-256/image fingerprint generation, individual and item-bound uploads, ordered attachment
+reads and line grouping. Seven app entry points retain signatures and pass current dependencies
+explicitly on each call. File type restrictions, random stored names, upload metadata, file save
+error handling and best-effort image hashing remain unchanged. General uploads stay rejected;
+legacy unassigned files remain visible in the empty-key group.
+
+Duplicate matching/review, access checks, transfer/synchronization and routes remain in app.py.
+Checks: test_expense_storage_module_contract.py covers actual temporary-file/invoice_test storage
+round trips and failure paths; expense interpretation/deletion and prior expense tests cover callers.
+At this phase's commit use scripts/check_expense_storage_structure.py for equivalence to 2c718e4.
+Three previously reproduced series_id fixture failures are still separately excluded.

@@ -28,6 +28,7 @@ from invoice_tool.service_reports import storage as _report_storage
 from invoice_tool.service_reports import forms as _report_forms
 from invoice_tool.service_reports import calculations as _report_calculations
 from invoice_tool.employee_expenses import forms as _expense_forms
+from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.service_reports import documents as _report_documents
 from invoice_tool.service_reports import report_write_services as _report_write_services
 from invoice_tool.service_reports.report_write_routes import register_report_write_routes
@@ -5457,33 +5458,15 @@ def require_expense(expense_id):
 
 
 def expense_attachment_dir(expense_id):
-    path = os.path.join(EXPENSE_ATTACHMENTS_DIR, str(expense_id))
-    os.makedirs(path, exist_ok=True)
-    return path
+    return _expense_storage.expense_attachment_dir(expense_id, EXPENSE_ATTACHMENTS_DIR=EXPENSE_ATTACHMENTS_DIR, os=os)
 
 
 def expense_attachment_path(attachment):
-    return os.path.join(EXPENSE_ATTACHMENTS_DIR, str(attachment["expense_id"]), attachment["stored_filename"])
+    return _expense_storage.expense_attachment_path(attachment, EXPENSE_ATTACHMENTS_DIR=EXPENSE_ATTACHMENTS_DIR, os=os)
 
 
 def expense_attachment_fingerprints(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    image_hash = ""
-    try:
-        with Image.open(path) as image:
-            pixels = list(ImageOps.grayscale(image).resize((9, 8)).getdata())
-            bits = [pixels[row * 9 + column] > pixels[row * 9 + column + 1]
-                    for row in range(8) for column in range(8)]
-            image_hash = f"{sum(1 << index for index, bit in enumerate(bits) if bit):016x}"
-    except Exception:
-        # 图片指纹是尽力而为的辅助数据：Pillow 对超大图会抛
-        # DecompressionBombError（不是 OSError/ValueError 的子类），
-        # 不能让它把整条保存链路打成 500。
-        pass
-    return digest.hexdigest(), image_hash
+    return _expense_storage.expense_attachment_fingerprints(path, Image=Image, ImageOps=ImageOps, hashlib=hashlib)
 
 
 def image_hash_distance(left, right):
@@ -5496,58 +5479,15 @@ def image_hash_distance(left, right):
 
 
 def save_expense_attachment(expense_id, uploaded, expense_item_key=None):
-    if not uploaded or not uploaded.filename:
-        return
-    if not allowed_attachment(uploaded.filename):
-        raise ValueError(f"附件只支持 {ALLOWED_ATTACHMENT_LABEL}。")
-    source_filename = uploaded.filename or "attachment"
-    extension = source_filename.rsplit(".", 1)[1].lower()
-    original_filename = os.path.basename(source_filename).strip() or f"attachment.{extension}"
-    stored_filename = f"{secrets.token_hex(12)}.{extension}"
-    stored_path = os.path.join(expense_attachment_dir(expense_id), stored_filename)
-    try:
-        uploaded.save(stored_path)
-    except OSError as error:
-        raise ValueError(f"附件保存失败，请重试或更换文件后重新上传。({error})")
-    file_sha256, image_dhash = expense_attachment_fingerprints(stored_path)
-    return db().execute(
-        """
-        insert into expense_attachments (
-            expense_id, expense_item_key, original_filename, stored_filename,
-            content_type, uploaded_by, uploaded_at, file_sha256, image_dhash
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            expense_id, expense_item_key, original_filename, stored_filename,
-            uploaded.content_type, g.user["id"], now(), file_sha256, image_dhash,
-        ),
-    ).lastrowid
+    return _expense_storage.save_expense_attachment(expense_id, uploaded, expense_item_key, ALLOWED_ATTACHMENT_LABEL=ALLOWED_ATTACHMENT_LABEL, allowed_attachment=allowed_attachment, db=db, expense_attachment_dir=expense_attachment_dir, expense_attachment_fingerprints=expense_attachment_fingerprints, g=g, now=now, os=os, secrets=secrets)
 
 
 def save_expense_uploads(expense_id, item_rows=None):
-    # 整单级“通用附件”已下线：所有附件必须挂在明细行（expense_item_key 必填）。
-    # 请求里仍带 name="attachments" 的非空文件时明确报错，不允许静默丢弃。
-    if uploaded_attachments_from_request():
-        raise ValueError("附件请挂到对应明细行后再保存。")
-    for item in item_rows or []:
-        line_key = item["line_key"]
-        for uploaded in request.files.getlist(f"item_attachments_{line_key}"):
-            save_expense_attachment(expense_id, uploaded, line_key)
+    return _expense_storage.save_expense_uploads(expense_id, item_rows, request=request, save_expense_attachment=save_expense_attachment, uploaded_attachments_from_request=uploaded_attachments_from_request)
 
 
 def get_expense_attachments(expense_id):
-    return db().execute(
-        """
-        select expense_attachments.*, users.name as uploader_name,
-               transferred.id as transferred_attachment_id
-        from expense_attachments left join users on users.id = expense_attachments.uploaded_by
-        left join customer_reimbursement_attachments as transferred
-          on transferred.source_expense_attachment_id = expense_attachments.id
-        where expense_attachments.expense_id = ?
-        order by expense_attachments.uploaded_at desc, expense_attachments.id desc
-        """,
-        (expense_id,),
-    ).fetchall()
+    return _expense_storage.get_expense_attachments(expense_id, db=db)
 
 
 def expense_attachment_duplicate_context(attachment_id):
@@ -5753,12 +5693,7 @@ def report_writer_options():
 
 
 def group_expense_attachments(attachments):
-    """只按明细行分组；expense_item_key 为空的旧数据返回在 "" 组，由详情页提示。"""
-    by_item = {}
-    for attachment in attachments:
-        line_key = (attachment["expense_item_key"] or "").strip()
-        by_item.setdefault(line_key, []).append(attachment)
-    return by_item
+    return _expense_storage.group_expense_attachments(attachments)
 
 
 def posted_report_writer_id():
