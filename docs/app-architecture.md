@@ -866,3 +866,18 @@ Checks: `test_service_orders_module_contract.py` and
 `python scripts/check_service_orders_structure.py` (compare with `10c2570`).
 Existing settlement-column fixtures lack required `customer_reimbursements.series_id` in the shared
 test schema; their five failures were observed before this extraction and remain separately recorded.
+
+
+### Work-order calendar and map extraction (phase 3b)
+
+`invoice_tool/service_orders/calendar_map_services.py` contains calendar access filters,
+calendar rows/weeks/lanes, buyer map queries/payloads and visitor-country detection.
+`invoice_tool/service_orders/calendar_map_routes.py` registers calendar, map, static image,
+geocode-next and retry-failed endpoints. App-level helpers and views remain compatible.
+
+Map configuration and date values resolve at request time; callable dependencies resolve the
+current app helper. Geocoder clients, geocoding persistence and exception type remain in app.py.
+Static-map HTTP client implementation and templates/scripts remain unchanged.
+
+Checks: `test_calendar_map_module_contract.py`, existing map/status tests and selected existing
+calendar regression cases; `python scripts/check_calendar_map_structure.py` compares with `d0daa0d`.

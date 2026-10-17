@@ -20,6 +20,8 @@ import threading
 import time
 import zipfile
 import calendar
+from invoice_tool.service_orders import calendar_map_services as _calendar_map_services
+from invoice_tool.service_orders.calendar_map_routes import register_calendar_map_routes
 from invoice_tool.service_orders import services as _service_order_services
 from invoice_tool.service_orders.routes import register_service_order_routes
 from invoice_tool.contracts import services as _contract_services
@@ -11500,192 +11502,19 @@ def parsed_iso_date(value):
 
 
 def service_order_access_filters(table_alias="service_orders"):
-    clauses = []
-    params = []
-    if is_external_manager():
-        if not g.user["client_id"]:
-            clauses.append("1 = 0")
-        else:
-            clauses.append(f"{table_alias}.client_id = ?")
-            params.append(g.user["client_id"])
-    elif is_external_employee():
-        clauses.append(
-            f"{table_alias}.id in (select service_order_id from user_service_orders where user_id = ?)"
-        )
-        params.append(g.user["id"])
-    return clauses, params
+    return _calendar_map_services.service_order_access_filters(table_alias, g=g, is_external_employee=is_external_employee, is_external_manager=is_external_manager)
 
 
 def service_order_calendar_rows(date_from, date_to):
-    clauses, params = service_order_access_filters("service_orders")
-    clauses.append("service_orders.calendar_date between ? and ?")
-    params.extend([date_from.isoformat(), date_to.isoformat()])
-    return db().execute(
-        f"""
-        with report_dates as (
-            select service_order_id,
-                   date(coalesce(actual_work_date, report_date)) as calendar_date,
-                   1 as has_report
-            from service_reports
-            where coalesce(actual_work_date, report_date) is not null
-            group by service_order_id, date(coalesce(actual_work_date, report_date))
-        ),
-        report_counts as (
-            select service_order_id, count(*) as report_count
-            from service_reports
-            group by service_order_id
-        ),
-        calendar_orders as (
-            select service_orders.*,
-                   report_dates.calendar_date,
-                   1 as has_report
-            from service_orders
-            join report_dates on report_dates.service_order_id = service_orders.id
-            union all
-            select service_orders.*,
-                   date(service_orders.start_date) as calendar_date,
-                   0 as has_report
-            from service_orders
-            left join report_counts on report_counts.service_order_id = service_orders.id
-            where coalesce(report_counts.report_count, 0) = 0
-              and service_orders.start_date is not null
-        )
-        select service_orders.*,
-               clients.name as customer_name,
-               work_order_types.name as work_order_type_name,
-               coalesce(owners.name, buyers.owner) as buyer_owner,
-               (
-                   select count(*) from invoices
-                   where invoices.service_order_id = service_orders.id and invoices.status != 'void'
-               ) as invoice_count,
-               (
-                   select count(*) from invoices
-                   where invoices.service_order_id = service_orders.id
-                     and invoices.status != 'void' and invoices.paid_at is not null
-               ) as paid_invoice_count
-        from calendar_orders as service_orders
-        left join clients on clients.id = service_orders.client_id
-        left join work_order_types on work_order_types.id = service_orders.work_order_type_id
-        left join buyers on buyers.id = service_orders.buyer_id
-        left join owners on owners.id = buyers.owner_id
-        where {" and ".join(clauses)}
-        order by service_orders.calendar_date, service_orders.order_number
-        """,
-        params,
-    ).fetchall()
+    return _calendar_map_services.service_order_calendar_rows(date_from, date_to, db=db, service_order_access_filters=service_order_access_filters)
 
 
 def assign_service_order_calendar_lanes(week):
-    """Keep each work order on one compact horizontal lane within a calendar week."""
-    intervals = {}
-    for day_index, day in enumerate(week):
-        for event in day["events"]:
-            interval = intervals.setdefault(
-                event["order_id"],
-                {
-                    "order_id": event["order_id"],
-                    "order_number": event.get("order_number") or "",
-                    "start": day_index,
-                    "end": day_index,
-                    "events": [],
-                },
-            )
-            interval["start"] = min(interval["start"], day_index)
-            interval["end"] = max(interval["end"], day_index)
-            interval["events"].append(event)
-
-    lane_ends = []
-    for interval in sorted(
-        intervals.values(),
-        key=lambda item: (item["start"], item["end"], item["order_number"], item["order_id"]),
-    ):
-        lane = next(
-            (index for index, lane_end in enumerate(lane_ends) if lane_end < interval["start"]),
-            len(lane_ends),
-        )
-        if lane == len(lane_ends):
-            lane_ends.append(interval["end"])
-        else:
-            lane_ends[lane] = interval["end"]
-        for event in interval["events"]:
-            event["lane"] = lane
-
-    lane_count = len(lane_ends)
-    for day in week:
-        day["lane_count"] = lane_count
-        day["events"].sort(key=lambda event: (event.get("lane", 0), event.get("order_number") or ""))
-    return week
+    return _calendar_map_services.assign_service_order_calendar_lanes(week)
 
 
 def service_order_calendar_weeks(year, month):
-    month_start = date(year, month, 1)
-    month_end = (date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)) - timedelta(days=1)
-    grid_start = month_start - timedelta(days=month_start.weekday())
-    grid_end = month_end + timedelta(days=6 - month_end.weekday())
-    events_by_day = {}
-    dates_by_order = {}
-    for row in service_order_calendar_rows(grid_start, grid_end):
-        event_date = parsed_iso_date(row["calendar_date"])
-        if not event_date:
-            continue
-        dates_by_order.setdefault(row["id"], set()).add(event_date)
-        invoice_count = int(row["invoice_count"] or 0)
-        paid_invoice_count = int(row["paid_invoice_count"] or 0)
-        billing_state = ""
-        if row["status"] == "closed" and invoice_count and paid_invoice_count == invoice_count:
-            billing_state = "closed-paid"
-        elif row["status"] == "closed" and invoice_count:
-            billing_state = "closed-invoiced"
-        elif row["status"] != "closed" and invoice_count:
-            billing_state = "open-invoiced"
-        events_by_day.setdefault(event_date, []).append(
-            {
-                "order_id": row["id"],
-                "order_number": row["order_number"],
-                "client_order_number": row["client_order_number"],
-                "client_order_number_warning": client_order_number_warning(row["customer_name"], row["client_order_number"]),
-                "site_name": row["client_name"],
-                "owner": row["buyer_owner"],
-                "status": row["status"],
-                "status_label": STATUS_LABELS.get(row["status"], row["status"]),
-                "billing_state": billing_state,
-                "work_order_type": row["work_order_type_name"],
-                "start_date": row["start_date"],
-                "calendar_date": row["calendar_date"],
-                "has_report": bool(row["has_report"]),
-                "detail_url": url_for("service_order_detail", order_id=row["id"]),
-            }
-        )
-    for event_date, events in events_by_day.items():
-        for event in events:
-            order_dates = dates_by_order.get(event["order_id"], set())
-            continues_from_previous = (event_date - timedelta(days=1)) in order_dates and event_date.weekday() != 0
-            continues_to_next = (event_date + timedelta(days=1)) in order_dates and event_date.weekday() != 6
-            if continues_from_previous and continues_to_next:
-                continuation = "middle"
-            elif continues_from_previous:
-                continuation = "end"
-            elif continues_to_next:
-                continuation = "start"
-            else:
-                continuation = "single"
-            event["continuation"] = continuation
-    current = grid_start
-    weeks = []
-    while current <= grid_end:
-        week = []
-        for _ in range(7):
-            week.append(
-                {
-                    "date": current,
-                    "in_month": current.month == month,
-                    "events": events_by_day.get(current, []),
-                    "is_today": current == date.today(),
-                }
-            )
-            current += timedelta(days=1)
-        weeks.append(assign_service_order_calendar_lanes(week))
-    return weeks
+    return _calendar_map_services.service_order_calendar_weeks(year, month, STATUS_LABELS=STATUS_LABELS, assign_service_order_calendar_lanes=assign_service_order_calendar_lanes, client_order_number_warning=client_order_number_warning, date=date, parsed_iso_date=parsed_iso_date, service_order_calendar_rows=service_order_calendar_rows, timedelta=timedelta, url_for=url_for)
 
 
 def xlsx_column_name(index):
@@ -12317,189 +12146,49 @@ service_order_detail = _service_order_views['service_order_detail']
 delete_service_order = _service_order_views['delete_service_order']
 
 
-@app.route("/service-orders/calendar")
-@login_required
-def service_order_calendar():
-    if not has_action_permission("service_order_calendar", "view"):
-        abort(403)
-    today = date.today()
-    try:
-        year = int(request.args.get("year", today.year))
-        month = int(request.args.get("month", today.month))
-        visible_month = date(year, month, 1)
-    except ValueError:
-        visible_month = date(today.year, today.month, 1)
-    previous_month = date(visible_month.year - 1, 12, 1) if visible_month.month == 1 else date(visible_month.year, visible_month.month - 1, 1)
-    next_month = date(visible_month.year + 1, 1, 1) if visible_month.month == 12 else date(visible_month.year, visible_month.month + 1, 1)
-    return render_template(
-        "service_order_calendar.html",
-        visible_month=visible_month,
-        previous_month=previous_month,
-        next_month=next_month,
-        weeks=service_order_calendar_weeks(visible_month.year, visible_month.month),
-    )
+_calendar_map_views = register_calendar_map_routes(
+    app,
+    resolve_GEOCODER_VERSION=lambda: GEOCODER_VERSION,
+    resolve_GEOCODING_ENABLED=lambda: GEOCODING_ENABLED,
+    resolve_SERVICE_ORDER_STATIC_MAP_CENTER=lambda: SERVICE_ORDER_STATIC_MAP_CENTER,
+    resolve_SERVICE_ORDER_STATIC_MAP_LABELED_LIMIT=lambda: SERVICE_ORDER_STATIC_MAP_LABELED_LIMIT,
+    resolve_SERVICE_ORDER_STATIC_MAP_MAX_MARKERS=lambda: SERVICE_ORDER_STATIC_MAP_MAX_MARKERS,
+    resolve_SERVICE_ORDER_STATIC_MAP_STATUS_COLORS=lambda: SERVICE_ORDER_STATIC_MAP_STATUS_COLORS,
+    resolve_SERVICE_ORDER_STATIC_MAP_ZOOM=lambda: SERVICE_ORDER_STATIC_MAP_ZOOM,
+    resolve_STATIC_MAP_COUNTRIES=lambda: STATIC_MAP_COUNTRIES,
+    TemporaryGeocodingError=TemporaryGeocodingError,
+    buyer_map_payload=lambda *args, **kwargs: buyer_map_payload(*args, **kwargs),
+    buyer_map_rows=lambda *args, **kwargs: buyer_map_rows(*args, **kwargs),
+    can_view_invoices=lambda *args, **kwargs: can_view_invoices(*args, **kwargs),
+    resolve_date=lambda: date,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    geocode_buyer=lambda *args, **kwargs: geocode_buyer(*args, **kwargs),
+    get_company_profile=lambda *args, **kwargs: get_company_profile(*args, **kwargs),
+    get_google_maps_browser_api_key=lambda *args, **kwargs: get_google_maps_browser_api_key(*args, **kwargs),
+    get_google_static_maps_api_key=lambda *args, **kwargs: get_google_static_maps_api_key(*args, **kwargs),
+    has_action_permission=lambda *args, **kwargs: has_action_permission(*args, **kwargs),
+    headquarters_coordinates=lambda *args, **kwargs: headquarters_coordinates(*args, **kwargs),
+    is_external_manager=lambda *args, **kwargs: is_external_manager(*args, **kwargs),
+    is_internal_user=lambda *args, **kwargs: is_internal_user(*args, **kwargs),
+    login_required=login_required,
+    request_country_code=lambda *args, **kwargs: request_country_code(*args, **kwargs),
+    service_order_calendar_weeks=lambda *args, **kwargs: service_order_calendar_weeks(*args, **kwargs),
+)
+service_order_calendar = _calendar_map_views['service_order_calendar']
+service_order_map = _calendar_map_views['service_order_map']
+service_order_map_static_image = _calendar_map_views['service_order_map_static_image']
+geocode_next_service_order = _calendar_map_views['geocode_next_service_order']
+retry_failed_service_order_geocodes = _calendar_map_views['retry_failed_service_order_geocodes']
 
 
 def buyer_map_payload(buyer):
-    warning_days = inspection_warning_days()
-    cycle_days = inspection_cycle_days()
-    last_actual_date = parsed_iso_date(buyer["last_actual_date"])
-    days_since_last_actual = (date.today() - last_actual_date).days if last_actual_date else None
-    if not buyer["work_order_total"]:
-        inspection_status = "none"
-    elif days_since_last_actual is None:
-        inspection_status = "overdue"
-    elif days_since_last_actual >= cycle_days:
-        inspection_status = "overdue"
-    elif days_since_last_actual >= warning_days:
-        inspection_status = "warning"
-    else:
-        inspection_status = "fresh"
-    payload = {
-        "id": buyer["id"],
-        "buyer_number": buyer["buyer_number"],
-        "name": buyer["name"],
-        "owner": buyer["owner_name"],
-        "contact_name": buyer["contact_name"],
-        "contact_details": buyer["contact_details"],
-        "email": buyer["email"],
-        "country": buyer["country_name"] or buyer["country_code"] or buyer["country"],
-        "country_code": buyer["country_code"],
-        "detailed_address": buyer["detailed_address"],
-        "equipment_manufacturer": buyer["equipment_manufacturer"],
-        "latitude": buyer["latitude"],
-        "longitude": buyer["longitude"],
-        "geocode_status": buyer["geocode_status"] or "pending",
-        "work_order_total": buyer["work_order_total"],
-        "work_order_completed": buyer["work_order_completed"],
-        "last_actual_date": buyer["last_actual_date"],
-        "days_since_last_actual": days_since_last_actual,
-        "inspection_warning_days": warning_days,
-        "inspection_cycle_days": cycle_days,
-        "inspection_status": inspection_status,
-        "status": (
-            "completed"
-            if buyer["work_order_total"] and buyer["work_order_total"] == buyer["work_order_completed"]
-            else "active"
-        ),
-        "detail_url": url_for("service_orders", buyer_id=buyer["id"]),
-    }
-    if can_manage_buyers():
-        payload["edit_url"] = url_for("edit_buyer", buyer_id=buyer["id"])
-    if can_view_invoices():
-        payload["paid_invoice_amount"] = buyer["paid_invoice_amount"]
-        payload["completed_invoice_amount"] = buyer["completed_invoice_amount"]
-    return payload
+    return _calendar_map_services.buyer_map_payload(buyer, can_manage_buyers=can_manage_buyers, can_view_invoices=can_view_invoices, date=date, inspection_cycle_days=inspection_cycle_days, inspection_warning_days=inspection_warning_days, parsed_iso_date=parsed_iso_date, url_for=url_for)
 
 
 def buyer_map_rows(where_clause="1 = 1", params=()):
-    return db().execute(
-        f"""
-        with order_stats as (
-            select buyer_id,
-                   count(*) as work_order_total,
-                   sum(case when status = 'closed' then 1 else 0 end) as work_order_completed
-            from service_orders
-            where buyer_id is not null
-            group by buyer_id
-        ),
-        last_report_dates as (
-            select service_orders.buyer_id,
-                   max(date(coalesce(service_reports.actual_work_date, service_reports.report_date, service_orders.start_date))) as last_actual_date
-            from service_orders
-            left join service_reports on service_reports.service_order_id = service_orders.id
-            where service_orders.buyer_id is not null
-            group by service_orders.buyer_id
-        ),
-        invoice_amounts as (
-            select invoices.id, invoices.service_order_id, invoices.status, invoices.paid_at,
-                   invoices.payment_amount,
-                   coalesce(sum(invoice_items.amount * (1 + invoice_items.tax_rate / 100.0)), 0) as invoice_total
-            from invoices
-            left join invoice_items on invoice_items.invoice_id = invoices.id
-            where invoices.status != 'void'
-            group by invoices.id
-        ),
-        invoice_stats as (
-            select service_orders.buyer_id,
-                   sum(
-                       case when invoice_amounts.paid_at is not null
-                       then coalesce(invoice_amounts.payment_amount, invoice_amounts.invoice_total)
-                       else 0 end
-                   ) as paid_invoice_amount,
-                   sum(
-                       case when invoice_amounts.status = 'completed'
-                       then invoice_amounts.invoice_total
-                       else 0 end
-                   ) as completed_invoice_amount
-            from service_orders
-            join invoice_amounts on invoice_amounts.service_order_id = service_orders.id
-            where service_orders.buyer_id is not null
-            group by service_orders.buyer_id
-        )
-        select buyers.*,
-               coalesce(owners.name, buyers.owner) as owner_name,
-               owners.owner_number as owner_number,
-               coalesce(country_local.name, country_zh.name, country_en.name, buyers.country, buyers.country_code) as country_name,
-               coalesce(order_stats.work_order_total, 0) as work_order_total,
-               coalesce(order_stats.work_order_completed, 0) as work_order_completed,
-               last_report_dates.last_actual_date as last_actual_date,
-               coalesce(invoice_stats.paid_invoice_amount, 0) as paid_invoice_amount,
-               coalesce(invoice_stats.completed_invoice_amount, 0) as completed_invoice_amount
-        from buyers
-        left join owners on owners.id = buyers.owner_id
-        left join country_translations country_local
-          on country_local.country_code = buyers.country_code and country_local.language_code = ?
-        left join country_translations country_zh
-          on country_zh.country_code = buyers.country_code and country_zh.language_code = 'zh-CN'
-        left join country_translations country_en
-          on country_en.country_code = buyers.country_code and country_en.language_code = 'en'
-        left join order_stats on order_stats.buyer_id = buyers.id
-        left join last_report_dates on last_report_dates.buyer_id = buyers.id
-        left join invoice_stats on invoice_stats.buyer_id = buyers.id
-        where {where_clause}
-        order by owner_name, buyers.name, buyers.id
-        """,
-        (current_language(), *params),
-    ).fetchall()
+    return _calendar_map_services.buyer_map_rows(where_clause, params, current_language=current_language, db=db)
 
 
-@app.route("/service-orders/map")
-@login_required
-def service_order_map():
-    if not is_internal_user() and not is_external_manager():
-        abort(403)
-    rows = (
-        buyer_map_rows("buyers.client_id = ?", (g.user["client_id"],))
-        if is_external_manager()
-        else buyer_map_rows()
-    )
-    buyers_payload = [buyer_map_payload(row) for row in rows]
-    google_maps_browser_api_key = get_google_maps_browser_api_key()
-    company = get_company_profile()
-    headquarters = headquarters_coordinates()
-    if headquarters:
-        headquarters = {
-            **headquarters,
-            "name": company["name"],
-            "address": company["address"],
-        }
-    route_origin_address = (g.user["address"] or "").strip() or company["address"]
-    country_code = request_country_code()
-    preferred_map_mode = "static" if country_code in STATIC_MAP_COUNTRIES else "interactive"
-    return render_template(
-        "service_order_map.html",
-        map_buyers=buyers_payload,
-        preferred_map_mode=preferred_map_mode,
-        map_country_code=country_code,
-        show_invoice_amounts=can_view_invoices(),
-        headquarters=headquarters,
-        company_address=company["address"],
-        route_origin_address=route_origin_address,
-        geocoding_enabled=GEOCODING_ENABLED,
-        google_maps_enabled=bool(google_maps_browser_api_key),
-        google_maps_browser_api_key=google_maps_browser_api_key,
-    )
 
 
 SERVICE_ORDER_STATIC_MAP_MAX_MARKERS = 200
@@ -12527,194 +12216,13 @@ STATIC_MAP_COUNTRIES = {"CN"}
 
 
 def request_country_code():
-    """Two-letter country of the current visitor, or None when unknown.
-
-    Cloudflare (including the Tunnel in front of this app) adds
-    ``CF-IPCountry`` to every request. No GeoIP database is bundled, so an
-    absent header simply means "unknown" and callers must fall back to the
-    permissive behaviour.
-    """
-    code = (request.headers.get("CF-IPCountry") or "").strip().upper()
-    return code or None
+    return _calendar_map_services.request_country_code(request=request)
 
 
-@app.post("/service-orders/map/static-image")
-@login_required
-def service_order_map_static_image():
-    """Render the currently filtered site map as a Google Static Maps image.
-
-    The browser sends the coordinates of the sites that are already filtered
-    client-side; the server draws them with Static Maps (no geocoding cost,
-    coordinates are already stored) and returns a base64 data URL. This is the
-    same zero-Google-in-the-browser approach as the travel tools, so the page
-    works from inside China when the interactive (Google Maps JS) mode cannot.
-    """
-    if not is_internal_user() and not is_external_manager():
-        abort(403)
-    payload = request.get_json(silent=True) or {}
-    raw_points = payload.get("points")
-    if not isinstance(raw_points, list):
-        return jsonify({"available": False, "error": "invalid_request"}), 400
-    points = []
-    for item in raw_points[:SERVICE_ORDER_STATIC_MAP_MAX_MARKERS]:
-        if not isinstance(item, dict):
-            continue
-        try:
-            latitude = float(item.get("latitude"))
-            longitude = float(item.get("longitude"))
-        except (TypeError, ValueError):
-            continue
-        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-            continue
-        status = str(item.get("inspection_status") or "none")
-        if status not in SERVICE_ORDER_STATIC_MAP_STATUS_COLORS:
-            status = "none"
-        points.append((round(latitude, 6), round(longitude, 6), status))
-    truncated = isinstance(raw_points, list) and len(raw_points) > SERVICE_ORDER_STATIC_MAP_MAX_MARKERS
-    if not points:
-        return jsonify({"available": False, "error": "no_visible_sites"}), 400
-    api_key = get_google_static_maps_api_key()
-    if not api_key:
-        return jsonify({"available": False, "error": "static_maps_api_not_configured"}), 503
-    headquarters = headquarters_coordinates() if payload.get("include_headquarters") else None
-    labeled = len(points) <= SERVICE_ORDER_STATIC_MAP_LABELED_LIMIT
-    markers = []
-    site_labels = []
-    if headquarters:
-        markers.append(
-            {
-                "color": "purple",
-                "position": f"{headquarters['latitude']},{headquarters['longitude']}",
-            }
-        )
-    for index, (latitude, longitude, status) in enumerate(points):
-        marker = {
-            "color": SERVICE_ORDER_STATIC_MAP_STATUS_COLORS[status],
-            "position": f"{latitude},{longitude}",
-        }
-        if labeled:
-            # Static Maps labels are a single character: number the first 9
-            # sites 1-9, then A-Z for sites 10-35. The client renders the same
-            # sequence next to the site list.
-            if index < 9:
-                marker["label"] = str(index + 1)
-            else:
-                marker["label"] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[index - 9]
-        markers.append(marker)
-        site_labels.append(marker.get("label", ""))
-    from travel_tools.static_maps import FlexStaticMapsService
-
-    result = FlexStaticMapsService(api_key).get_map(
-        markers,
-        None,
-        size="640x640",
-        scale=2,
-        center=SERVICE_ORDER_STATIC_MAP_CENTER,
-        zoom=SERVICE_ORDER_STATIC_MAP_ZOOM,
-    )
-    if not result.success or not result.image_bytes:
-        error = result.error or "static_maps_unknown_error"
-        if error == "static_maps_api_not_configured":
-            status_code = 503
-        elif error == "static_maps_rate_limit":
-            status_code = 429
-        else:
-            status_code = 502
-        return jsonify({"available": False, "error": error}), status_code
-    import base64
-
-    encoded = base64.b64encode(result.image_bytes).decode("ascii")
-    content_type = (result.content_type or "image/png").split(";")[0].strip() or "image/png"
-    return jsonify(
-        {
-            "available": True,
-            "image": f"data:{content_type};base64,{encoded}",
-            "labels": site_labels,
-            "count": len(points),
-            "labeled": labeled,
-            "truncated": truncated,
-            "headquarters": bool(headquarters),
-        }
-    )
 
 
-@app.post("/service-orders/map/geocode-next")
-@login_required
-def geocode_next_service_order():
-    if not is_internal_user() and not is_external_manager():
-        abort(403)
-    if not GEOCODING_ENABLED:
-        return jsonify({"available": False, "remaining": 0}), 503
-    client_clause = "and client_id = ?" if is_external_manager() else ""
-    geocode_params = [GEOCODER_VERSION]
-    if is_external_manager():
-        geocode_params.append(g.user["client_id"])
-    buyer = db().execute(
-        f"""
-        select id from buyers
-        where coalesce(manual_coordinates, 0) = 0 and (
-           geocode_status is null or geocode_status = 'pending'
-           or geocode_address is null
-           or lower(trim(geocode_address)) != lower(trim(detailed_address))
-           or coalesce(geocode_version, '') != ?
-        )
-        {client_clause}
-        order by created_at desc, id desc
-        limit 1
-        """,
-        geocode_params,
-    ).fetchone()
-    if not buyer:
-        return jsonify({"available": True, "remaining": 0, "buyer": None})
-    try:
-        geocode_buyer(buyer["id"])
-    except TemporaryGeocodingError as error:
-        db().rollback()
-        app.logger.warning("Temporary geocoding failure for buyer %s: %s", buyer["id"], error)
-        return jsonify({"available": True, "temporary_error": True}), 503
-    db().commit()
-    refreshed = buyer_map_rows("buyers.id = ?", (buyer["id"],))[0]
-    remaining = db().execute(
-        f"""
-        select count(*) as count from buyers
-        where coalesce(manual_coordinates, 0) = 0 and (
-           geocode_status is null or geocode_status = 'pending'
-           or geocode_address is null
-           or lower(trim(geocode_address)) != lower(trim(detailed_address))
-           or coalesce(geocode_version, '') != ?
-        )
-        {client_clause}
-        """,
-        geocode_params,
-    ).fetchone()["count"]
-    return jsonify(
-        {
-            "available": True,
-            "remaining": remaining,
-            "buyer": buyer_map_payload(refreshed),
-        }
-    )
 
 
-@app.post("/service-orders/map/retry-failed")
-@login_required
-def retry_failed_service_order_geocodes():
-    if not is_internal_user() and not is_external_manager():
-        abort(403)
-    client_clause = "and client_id = ?" if is_external_manager() else ""
-    params = [g.user["client_id"]] if is_external_manager() else []
-    db().execute(
-        f"""
-        update buyers
-        set geocode_status = 'pending', geocode_attempted_at = null, geocode_version = null
-        where geocode_status = 'failed' and coalesce(manual_coordinates, 0) = 0
-        {client_clause}
-        """
-        ,
-        params,
-    )
-    db().commit()
-    return jsonify({"ok": True})
 
 
 

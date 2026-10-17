@@ -72,9 +72,9 @@ class ServiceOrdersModuleContractTest(unittest.TestCase):
             self.assertEqual(view.__module__, 'invoice_tool.service_orders.routes')
             with self.module.app.test_request_context():
                 self.assertEqual(url_for(name, **values), url)
-        # Nearby domains keep their existing endpoints and implementation.
-        self.assertEqual(self.module.service_order_calendar.__module__, self.module.__name__)
-        self.assertEqual(self.module.service_order_map.__module__, self.module.__name__)
+        # Calendar/map endpoints are now registered by their dedicated module.
+        self.assertEqual(self.module.service_order_calendar.__module__, 'invoice_tool.service_orders.calendar_map_routes')
+        self.assertEqual(self.module.service_order_map.__module__, 'invoice_tool.service_orders.calendar_map_routes')
 
     def test_create_uses_current_number_helper_and_creates_photo_folder(self):
         with self.module.app.app_context():
