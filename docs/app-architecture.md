@@ -961,3 +961,20 @@ logic remains in its existing location and consumes the legacy app entry points.
 compiled previous renderer from `3604351`: XML/style/relationships and media bytes, excluding only ZIP
 container timestamps by comparing member contents. It also checks real HTTP export and Word packaging.
 Run `python scripts/check_report_documents_structure.py` for structural equivalence.
+
+
+### Mobile clock-in and shared-photo access (phase 4f)
+
+`invoice_tool/photos/services.py` owns clock-in site scope, shared-photo/picture path resolution,
+relative paths, image counts and order photo status. `routes.py` registers mobile clock-in page/upload,
+shared-photo browse/download/preview/thumbnail. Legacy app helper signatures and view aliases remain;
+callable dependencies and date/datetime/extension settings resolve at runtime.
+
+Original client/internal-user guards, capture-time/coordinate/image validation, NAS folder layout,
+cached/fallback thumbnails, picture-only download rules, ZIP deduplication and close-time cleanup remain
+unchanged. Generic image validation, shared-root configuration, photo worker, Google Photos import and
+field-photo ledger implementation stay in their current modules.
+
+Checks: `test_photo_capture_module_contract.py`, existing clock-in/NAS day-folder tests;
+`python scripts/check_photo_capture_structure.py` checks bodies and exact route registration against
+`329071d`. Test files and ZIPs are contained in temporary directories.
