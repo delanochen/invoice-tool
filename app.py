@@ -75,6 +75,7 @@ from invoice_tool.shared_attachments import images as _split_image_detection
 from invoice_tool.report_exports import columns as _split_xlsx_columns
 from invoice_tool.report_exports import single_sheet as _split_xlsx_single
 from invoice_tool.report_exports import multi_sheet as _split_xlsx_multi
+from invoice_tool.report_exports import dates as _split_iso_date
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -10398,10 +10399,7 @@ def labor_report_entries(date_from="", date_to="", worker_id="", date_mode="actu
 
 
 def parsed_iso_date(value):
-    try:
-        return date.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None
+    return _split_iso_date.parsed_iso_date(value, date=date)
 
 
 def service_order_access_filters(table_alias="service_orders"):
