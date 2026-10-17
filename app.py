@@ -69,6 +69,7 @@ from invoice_tool.invoices import update as _split_invoice_update
 from invoice_tool.invoices import mail as _split_invoice_mail
 from invoice_tool.shared_attachments import named as _split_named_attachment
 from invoice_tool.shared_attachments import company as _split_company_attachments
+from invoice_tool.email_delivery import record as _split_delivery_record
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5374,36 +5375,7 @@ def log_action(action, entity_type, entity_id, entity_label, summary=""):
 
 def record_email_delivery(entity_type, entity_id, recipient, subject, *,
                           status=None, error_message=None, employee_id=None):
-    """记录一次邮件投递（Phase 5C 起支持 failed + error_message + employee_id）。
-
-    新列（status / error_message / employee_id）由 0294 迁移提供，且只有调用方
-    显式传参时才进 INSERT —— 迁移生效前后既有调用方（invoice /
-    customer_reimbursement）的行为与列集完全不变。
-    """
-    columns = ["entity_type", "entity_id", "recipient", "subject", "sent_by", "sent_by_name", "sent_at"]
-    values = [
-        entity_type,
-        entity_id,
-        str(recipient or ""),
-        str(subject or ""),
-        g.user["id"] if g.user else None,
-        g.user["name"] if g.user else "",
-        now(),
-    ]
-    if status is not None:
-        columns.extend(("status",))
-        values.append(status)
-    if error_message is not None:
-        columns.extend(("error_message",))
-        values.append(error_message)
-    if employee_id is not None:
-        columns.extend(("employee_id",))
-        values.append(employee_id)
-    placeholders = ", ".join("?" for _ in columns)
-    db().execute(
-        f"insert into email_delivery_logs ({', '.join(columns)}) values ({placeholders})",
-        tuple(values),
-    )
+    return _split_delivery_record.record_email_delivery(entity_type, entity_id, recipient, subject, status=status, error_message=error_message, employee_id=employee_id, db=db, g=g, now=now)
 
 
 def email_delivery_summary(entity_type, entity_id):

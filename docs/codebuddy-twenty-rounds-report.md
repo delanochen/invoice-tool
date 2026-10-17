@@ -83,3 +83,11 @@
 - 迁移函数：get_company_attachments。
 - app.py：13224 → 13218 行。
 - 审核验证：12 passed, 9 subtests passed in 9.66s。
+
+
+## 第 11/20 轮：delivery_record
+
+- CodeBuddy 实际写入 `invoice_tool/email_delivery/record.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：record_email_delivery。
+- app.py：13218 → 13190 行。
+- 审核验证：1 passed, 2 subtests passed in 1.97s。
