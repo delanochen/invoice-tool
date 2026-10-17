@@ -17,6 +17,7 @@ Covered here:
    a failed upgrade restores the prior application checkout.
 """
 import importlib.util
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -189,6 +190,65 @@ class DeployWiringTests(unittest.TestCase):
     def test_upgrade_failure_aborts_deploy(self):
         self.assertIn("schema upgrade failed; restoring application checkout", self.script)
 
+
+
+
+class Migration0313IdempotencyContractTests(unittest.TestCase):
+    """0313 修订版本迁移必须能对「对象已存在」的库重复执行。
+
+    快照库（tests/schema_postgresql.sql 建库）有 DDL 无 settings 标记行，
+    升级脚本 schema_ready 判 False 后会重跑整份 SQL：裸 ADD GENERATED 会撞
+    "sequence already exists"，裸 DROP CONSTRAINT pkey 会撞
+    DependentObjectsStillExist（外键依赖主键索引），两者都直接中止部署。
+    2026-10-17 测试环境部署失败回滚后补此契约。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sql = (
+            PROJECT_ROOT
+            / "migrations"
+            / "postgresql"
+            / "0313-customer-reimbursement-revisions.sql"
+        ).read_text(encoding="utf-8")
+        cls.code = "\n".join(
+            line for line in cls.sql.splitlines()
+            if not line.lstrip().startswith("--")
+        )
+
+    def test_every_ddl_uses_if_not_exists(self):
+        for statement in re.findall(
+            r"CREATE (?:TABLE|UNIQUE INDEX|INDEX)[^;]*", self.code
+        ):
+            self.assertIn("IF NOT EXISTS", statement, statement[:80])
+        for statement in re.findall(r"ADD COLUMN[^;]*", self.code):
+            self.assertIn("IF NOT EXISTS", statement, statement[:80])
+
+    def test_identity_and_constraints_live_inside_do_guards(self):
+        do_blocks = re.findall(r"DO \$\$.*?\$\$;", self.code, re.S)
+        # 标识列 1 个 + 约束 4 个（series pkey / series FK / 两个 customer_reimbursements FK）
+        self.assertEqual(len(do_blocks), 5)
+        guarded = "\n".join(do_blocks)
+        self.assertIn("attidentity = ''", guarded)
+        self.assertEqual(guarded.count("IF NOT EXISTS"), 4)
+        outside = re.sub(r"DO \$\$.*?\$\$;", "", self.code, flags=re.S)
+        for keyword in (
+            "ADD CONSTRAINT",
+            "ADD GENERATED",
+            "DROP CONSTRAINT",
+            "DROP SEQUENCE",
+        ):
+            self.assertNotIn(keyword, outside, keyword + " 必须包在 DO 守卫块内")
+
+    def test_bookkeeping_marker_is_idempotent(self):
+        self.assertIn(
+            "INSERT INTO settings(key,value)", self.code
+        )
+        self.assertIn(
+            "'postgresql_0313_customer_reimbursement_revisions','complete'",
+            self.code,
+        )
+        self.assertIn("ON CONFLICT (key) DO UPDATE SET value=excluded.value", self.code)
 
 if __name__ == "__main__":
     unittest.main()
