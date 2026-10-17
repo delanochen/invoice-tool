@@ -33,6 +33,7 @@ from invoice_tool.employee_expenses.expense_review_routes import register_expens
 from invoice_tool.employee_expenses.expense_attachment_routes import register_expense_attachment_routes
 from invoice_tool.employee_expenses.expense_attachment_delete_routes import register_expense_attachment_delete_routes
 from invoice_tool.employee_expenses.expense_ai_review_routes import register_expense_ai_review_routes
+from invoice_tool.employee_expenses.expense_transfer_routes import register_expense_transfer_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12574,67 +12575,20 @@ _expense_attachment_delete_views = register_expense_attachment_delete_routes(
 delete_expense_attachment = _expense_attachment_delete_views['delete_expense_attachment']
 
 
-@app.post("/expense-attachments/<int:attachment_id>/transfer")
-@login_required
-def transfer_expense_attachment(attachment_id):
-    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    expense, order = require_expense(attachment["expense_id"])
-    if not can_transfer_expense_attachment(expense):
-        abort(403)
-    return_url = url_for(
-        "expense_detail" if request.form.get("return_to") == "detail" else "edit_expense",
-        expense_id=expense["id"],
-    )
-
-    def finish_transfer(message, category="success"):
-        flash(message, category)
-        if request.headers.get("X-History-Replace") == "1":
-            return jsonify(ok=category == "success", redirect=return_url)
-        return redirect(return_url)
-
-    existing = db().execute(
-        "select id from customer_reimbursement_attachments where source_expense_attachment_id = ?",
-        (attachment_id,),
-    ).fetchone()
-    if existing:
-        return finish_transfer("该附件已经传递到工单结算。")
-
-    reimbursement = latest_customer_reimbursement(order["id"])
-    if not reimbursement:
-        return finish_transfer("该工单尚未生成工单结算，暂时无法传递附件。", "error")
-    if reimbursement["status"] not in {"draft", "returned"}:
-        return finish_transfer("工单结算已经提交或审核完成，不能再传递附件。", "error")
-
-    try:
-        copied = copy_file_to_customer_reimbursement_attachment(
-            reimbursement["id"],
-            expense_attachment_path(attachment),
-            attachment["original_filename"],
-            attachment["content_type"],
-            g.user["id"],
-            source_expense_attachment_id=attachment_id,
-        )
-        if not copied:
-            raise ValueError("附件文件不存在，无法传递。")
-        log_action(
-            "transfer",
-            "expense_attachment",
-            attachment_id,
-            attachment["original_filename"],
-            f"报销：{expense['expense_number']}；工单结算：{reimbursement['file_name']}",
-        )
-        db().commit()
-    except IntegrityError:
-        db().rollback()
-        return finish_transfer("该附件已经传递到工单结算。")
-    except (OSError, DatabaseError, ValueError) as error:
-        db().rollback()
-        app.logger.exception("Failed to transfer expense attachment %s", attachment_id)
-        return finish_transfer(str(error) or "附件传递失败，请稍后重试。", "error")
-
-    return finish_transfer("附件已复制到工单结算。")
+_expense_transfer_views = register_expense_transfer_routes(
+    app,
+    DatabaseError=DatabaseError,
+    IntegrityError=IntegrityError,
+    can_transfer_expense_attachment=lambda *args, **kwargs: can_transfer_expense_attachment(*args, **kwargs),
+    copy_file_to_customer_reimbursement_attachment=lambda *args, **kwargs: copy_file_to_customer_reimbursement_attachment(*args, **kwargs),
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    expense_attachment_path=lambda *args, **kwargs: expense_attachment_path(*args, **kwargs),
+    latest_customer_reimbursement=lambda *args, **kwargs: latest_customer_reimbursement(*args, **kwargs),
+    log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
+    login_required=login_required,
+    require_expense=lambda *args, **kwargs: require_expense(*args, **kwargs),
+)
+transfer_expense_attachment = _expense_transfer_views['transfer_expense_attachment']
 
 
 @app.get("/service-orders/<int:order_id>/attachments.zip")

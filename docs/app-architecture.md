@@ -1129,3 +1129,16 @@ Model execution, prompts, worker scheduling, approval and payment remain in thei
 Checks: test_expense_ai_review_module_contract.py and existing test_expense_ai_review.py.
 At this commit use scripts/check_expense_ai_review_structure.py for equivalence to 0d3df49.
 Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense attachment transfer endpoint (phase 5j)
+
+`invoice_tool/employee_expenses/expense_transfer_routes.py` registers transfer_expense_attachment.
+URL, POST method, login/access checks and app alias remain intact. Existing transfer detection,
+draft/returned settlement eligibility, unique-race success handling, copy/audit/commit/rollback
+and history-replace JSON/redirect behavior remain unchanged. Exception classes are injected as
+classes, not callbacks. File copying and settlement services stay in their existing modules.
+Checks: test_expense_transfer_module_contract.py compares 36 branch/response combinations with
+8443d0e and verifies HTTP denial/missing-file-record guards. Actual settlement copy integration
+is not covered by these mock-boundary cases; legacy series_id fixtures require separate repair.
+At this commit use scripts/check_expense_transfer_structure.py for equivalence.
