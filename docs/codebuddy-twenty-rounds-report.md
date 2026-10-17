@@ -155,3 +155,12 @@
 - 迁移函数：send_email。
 - app.py：12970 → 12936 行。
 - 审核验证：1 passed, 7 subtests passed in 2.36s。
+
+
+## 第 20/20 轮：联合验收
+
+- Codex 验证结果：410 passed, 4 deselected, 2 warnings, 194 subtests passed in 260.46s (0:04:20)。
+- 本批 app.py：13427 → 12936 行；19 次结构迁移，每轮单独审核、测试及提交。
+- CodeBuddy 完成业务文件迁移及本轮验收记录，Codex 负责验收与提交；实际调用日志保存在主工作区 docs/coordination-diagnostics/codebuddy-twenty。
+- 数据库限于名称核验后的 invoice_test；邮件完全使用模拟传输，没有真实发送。四项既有 series_id 夹具问题精确排除；不是全仓库测试。
+- 未改业务规则，未修改数据库结构，未合并或部署；原有事务/文件回滚及字段缺口风险保持单独记录。
