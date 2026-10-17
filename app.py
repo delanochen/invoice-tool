@@ -30,6 +30,7 @@ from invoice_tool.service_reports import calculations as _report_calculations
 from invoice_tool.employee_expenses import expense_write_services as _expense_write_services
 from invoice_tool.employee_expenses.expense_write_routes import register_expense_write_routes
 from invoice_tool.employee_expenses.expense_review_routes import register_expense_review_routes
+from invoice_tool.employee_expenses.expense_attachment_routes import register_expense_attachment_routes
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12527,67 +12528,26 @@ def delete_expense(expense_id):
     return redirect(url_for("service_order_detail", order_id=order["id"]))
 
 
-@app.route("/expense-attachments/<int:attachment_id>")
-@login_required
-def preview_expense_attachment(attachment_id):
-    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_expense(attachment["expense_id"])
-    return safe_attachment_response(
-        expense_attachment_path(attachment),
-        attachment["original_filename"],
-    )
+_expense_attachment_views = register_expense_attachment_routes(
+    app,
+    resolve_EXPENSE_ATTACHMENTS_DIR=lambda: EXPENSE_ATTACHMENTS_DIR,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    expense_attachment_path=lambda *args, **kwargs: expense_attachment_path(*args, **kwargs),
+    login_required=login_required,
+    require_expense=lambda *args, **kwargs: require_expense(*args, **kwargs),
+    run_expense_attachment_interpretation=lambda *args, **kwargs: run_expense_attachment_interpretation(*args, **kwargs),
+    safe_attachment_response=lambda *args, **kwargs: safe_attachment_response(*args, **kwargs),
+)
+preview_expense_attachment = _expense_attachment_views['preview_expense_attachment']
+download_expense_attachment = _expense_attachment_views['download_expense_attachment']
+get_expense_attachment_interpretation = _expense_attachment_views['get_expense_attachment_interpretation']
+interpret_expense_attachment = _expense_attachment_views['interpret_expense_attachment']
 
 
-@app.route("/expense-attachments/<int:attachment_id>/download")
-@login_required
-def download_expense_attachment(attachment_id):
-    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_expense(attachment["expense_id"])
-    return send_file(expense_attachment_path(attachment), as_attachment=True, download_name=attachment["original_filename"])
 
 
-@app.get("/expense-attachments/<int:attachment_id>/interpretation")
-@login_required
-def get_expense_attachment_interpretation(attachment_id):
-    """弹窗展示附件的智能解读结果。"""
-    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_expense(attachment["expense_id"])
-    row = db().execute(
-        "select * from expense_attachment_interpretations where attachment_id = ?",
-        (attachment_id,),
-    ).fetchone()
-    if not row:
-        return jsonify({"ok": True, "status": "none", "content": "", "error": "", "model": "", "updated_at": ""})
-    return jsonify({
-        "ok": True,
-        "status": row["status"],
-        "content": row["content"],
-        "error": row["error"],
-        "model": row["model"],
-        "updated_at": row["updated_at"],
-    })
 
 
-@app.post("/expense-attachments/<int:attachment_id>/interpret")
-@login_required
-def interpret_expense_attachment(attachment_id):
-    """立即调用配置的本地大模型解读该附件（已有结果则覆盖重做）。"""
-    attachment = db().execute("select * from expense_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_expense(attachment["expense_id"])
-    result = run_expense_attachment_interpretation(
-        db(), attachment_id, EXPENSE_ATTACHMENTS_DIR, force=True
-    )
-    db().commit()
-    status_code = 200 if result["ok"] else 502
-    return jsonify({"ok": result["ok"], "status": result["status"], "error": result["error"]}), status_code
 
 
 @app.route("/expenses/<int:expense_id>/ai_review", methods=["GET", "POST"])

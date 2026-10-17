@@ -1090,3 +1090,18 @@ Checks: test_expense_review_module_contract.py verifies endpoint identity, retur
 actor/beneficiary retention, notifications and denied employee action; previous duplicate tests
 cover all review statuses and roles. At this commit use scripts/check_expense_review_structure.py.
 Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense attachment access endpoints (phase 5g)
+
+`invoice_tool/employee_expenses/expense_attachment_routes.py` registers attachment preview,
+download, interpretation reads and immediate interpretation requests. Original URLs, endpoint
+names, methods, login guards and app aliases remain intact. Expense access precedes file/model
+access; interpretation JSON, force behavior, commit and 200/502 status mapping remain unchanged.
+Attachment roots resolve per request. AI review, attachment deletion/transfer and payment routes
+stay in their current locations. No model settings or external clients move.
+
+Checks: test_expense_attachment_module_contract.py validates endpoint identity, participant
+access, denied unrelated access, original downloaded bytes/filename, missing IDs and mocked
+interpretation success/failure. At this commit use scripts/check_expense_attachment_structure.py.
+Three previously reproduced series_id fixture failures remain separately excluded.
