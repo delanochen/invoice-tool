@@ -1158,3 +1158,20 @@ identity, repeat approval and snapshot rollback; test_expense_tax_components.py 
 payment components in invoice_test. test_employee_finance.py now locates the moved approval.
 At this commit scripts/check_expense_approval_structure.py normalizes only the documented
 payment-call adapter difference before comparing the route body to d571d83.
+
+
+### Employee expense cancellation and explicit payment bridge (phase 5l)
+
+`invoice_tool/employee_expenses/expense_cancel_routes.py` registers cancel_expense.
+expense_cancel_services.py passes exactly db, now and log_action to the existing payment
+cancellation function. The documented single-ID callback replaces app globals; other route
+behavior is unchanged. Reviewed/pending/paid/reconciled payment guards, reason requirements,
+cancellation metadata, logs and commits retain their prior behavior. Delete/reset flows stay put.
+Important existing behavior: a draft payment cancellation exception is logged and the expense
+cancellation still commits. This can leave a cancelled expense with a draft payment; not fixed
+in structural work. Tests explicitly preserve and document it for a separate business fix.
+Checks: test_expense_cancel_module_contract.py compares 84 state/payment/reason cases and
+confirms both old/new routes fail on missing invoice_test cancel_reason; successful route-level
+integration remains unverified. Prior payment/tax snapshot tests cover the payment service.
+At this commit scripts/check_expense_cancel_structure.py normalizes only the payment adapter
+call difference before comparing the route to df2f6e5.
