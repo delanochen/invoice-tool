@@ -59,3 +59,11 @@
 - 迁移函数：update_invoice_from_form。
 - app.py：13319 → 13280 行。
 - 审核验证：1 passed, 3 subtests passed in 1.78s。
+
+
+## 第 8/20 轮：invoice_mail
+
+- CodeBuddy 实际写入 `invoice_tool/invoices/mail.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：send_invoice_email。
+- app.py：13280 → 13250 行。
+- 审核验证：1 passed, 3 subtests passed in 2.09s。

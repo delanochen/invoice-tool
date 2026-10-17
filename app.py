@@ -66,6 +66,7 @@ from invoice_tool.invoices import uploads as _split_invoice_uploads
 from invoice_tool.invoices import loading as _split_invoice_loading
 from invoice_tool.invoices import create as _split_invoice_create
 from invoice_tool.invoices import update as _split_invoice_update
+from invoice_tool.invoices import mail as _split_invoice_mail
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12574,38 +12575,7 @@ def build_service_report_docx(report, order):
 
 
 def send_invoice_email(invoice_id):
-    invoice, client, items = load_invoice(invoice_id)
-    if not client["email"]:
-        raise RuntimeError("客户没有邮箱，无法发送。")
-    mail_attachments = invoice_email_attachments(invoice, client, items)
-    html = render_template(
-        "email_invoice.html",
-        invoice=invoice,
-        client=client,
-        service_order=invoice_service_order(invoice),
-        items=items,
-        totals=invoice_totals(invoice_id),
-        company=get_company_profile(),
-        terms=get_invoice_terms(),
-        payment=get_payment_instructions(),
-    )
-    subject = f"Invoice {invoice['invoice_number']} from {get_company_profile()['name']}"
-    send_email(
-        to=client["email"],
-        subject=subject,
-        html=html,
-        attachments=mail_attachments,
-    )
-    record_email_delivery("invoice", invoice_id, client["email"], subject)
-    log_action(
-        "send",
-        "invoice",
-        invoice_id,
-        invoice["invoice_number"],
-        f"发送至：{client['email']}；附件：{len(mail_attachments)} 个",
-    )
-    db().execute("update invoices set sent_at = ? where id = ?", (now(), invoice_id))
-    db().commit()
+    return _split_invoice_mail.send_invoice_email(invoice_id, db=db, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_email_attachments=invoice_email_attachments, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, load_invoice=load_invoice, log_action=log_action, now=now, record_email_delivery=record_email_delivery, render_template=render_template, send_email=send_email)
 
 
 def send_email(to, subject, html, attachments=None):
