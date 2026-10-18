@@ -81,6 +81,7 @@ from invoice_tool.email_delivery import transport as _split_smtp_transport
 from invoice_tool.dashboard import metrics as _split_dashboard_metrics
 from invoice_tool.dashboard import charts as _split_dashboard_monthly
 from invoice_tool.dashboard import projects as _split_dashboard_projects
+from invoice_tool.app_settings import storage as _split_setting_write
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1051,18 +1052,11 @@ def report_location_filters(table_alias="service_orders"):
 
 
 def get_setting(key, default=""):
-    row = db().execute("select value from settings where key = ?", (key,)).fetchone()
-    return row["value"] if row else default
+    return _split_setting_write.get_setting(key, default, db=db)
 
 
 def set_setting(key, value):
-    db().execute(
-        """
-        insert into settings (key, value) values (?, ?)
-        on conflict(key) do update set value = excluded.value
-        """,
-        (key, value),
-    )
+    return _split_setting_write.set_setting(key, value, db=db)
 
 
 def setting_float(key, default=0):

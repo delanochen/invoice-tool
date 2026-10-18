@@ -59,3 +59,11 @@
 - 迁移函数：monthly_paid_chart。
 - app.py：12785 → 12772 行。
 - 审核验证：1 passed, 3 subtests passed in 2.10s。
+
+
+## 第 8/20 轮：setting_write
+
+- CodeBuddy 实际写入 `invoice_tool/app_settings/storage.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：get_setting, set_setting。
+- app.py：12772 → 12766 行。
+- 审核验证：2 passed, 3 subtests passed in 2.20s。

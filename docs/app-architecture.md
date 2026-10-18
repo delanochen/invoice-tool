@@ -1544,3 +1544,10 @@ Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing b
 `invoice_tool/dashboard/charts.py` owns monthly_paid_chart.
 Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
 Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 8/20: setting_write
+
+`invoice_tool/app_settings/storage.py` owns get_setting, set_setting.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
