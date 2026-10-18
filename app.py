@@ -1077,10 +1077,7 @@ def inspection_warning_days():
 
 
 def positive_int(value, default=1):
-    try:
-        return max(1, int(float(value)))
-    except (TypeError, ValueError):
-        return max(1, int(default))
+    return _split_setting_float.positive_int(value, default)
 
 
 def payroll_subsidy_settings():
