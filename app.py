@@ -142,6 +142,7 @@ from invoice_tool.ai_daily_report_web import access_helpers as _split_ai_access
 from invoice_tool.customer_reimbursements import report_locks as _split_report_locks
 from invoice_tool.presentation import formatting as _split_formatting
 from invoice_tool.app_settings import ai_helpers as _split_ai_settings
+from invoice_tool.service_orders import validation_helpers as _split_order_validation
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1487,20 +1488,7 @@ def is_read_sql(sql):
 
 
 def client_order_number_warning(customer_name, client_order_number):
-    """Return a warning for the current Sanhe Tongfei work-order number convention."""
-    normalized_customer = (customer_name or "").strip().casefold()
-    if "三河同飞" not in normalized_customer and "sanhe tongfei" not in normalized_customer:
-        return ""
-    number = (client_order_number or "").strip()
-    if not number:
-        return "未填写服务订单号码，无法按三河同飞规则识别。"
-    if not number.startswith("SHPG") and len(number) < 16:
-        return "服务订单号码应以 SHPG 开头且总长度不少于16位，当前格式不符合三河同飞规则。"
-    if not number.startswith("SHPG"):
-        return "服务订单号码应以 SHPG 开头，当前格式不符合三河同飞规则。"
-    if len(number) < 16:
-        return f"服务订单号码总长度应不少于16位，当前为{len(number)}位。"
-    return ""
+    return _split_order_validation.client_order_number_warning(customer_name, client_order_number)
 
 
 def is_image_attachment(content_type, filename):
