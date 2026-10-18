@@ -557,17 +557,8 @@ CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
 # 工单结算里映射可指向的金额字段（expense_settlement_invoice_map.settlement_field 值域）
 SETTLEMENT_EXPENSE_FIELD_LABELS = _catalog_field_catalog.make_settlement_expense_field_labels()
 
-DEFAULT_OWNER_NAMES = [
-    "未知",
-    "Qcells",
-    "Stella",
-    "Stem",
-    "SunGrid",
-    "Adapture Renewables",
-    "Aypa",
-    "spearmint",
-    "plus power",
-]
+from invoice_tool.contacts import owner_catalog as _catalog_owner_catalog
+DEFAULT_OWNER_NAMES = _catalog_owner_catalog.make_default_owner_names()
 
 DEFAULT_MANUFACTURER_NAMES = [
     "阳光",
@@ -575,12 +566,7 @@ DEFAULT_MANUFACTURER_NAMES = [
     "比亚迪",
 ]
 
-DEFAULT_SITE_OWNER_NAMES = {
-    "edinburg": "Stella",
-    "revolution": "spearmint",
-    "ebony": "plus power",
-    "anemoi": "plus power",
-}
+DEFAULT_SITE_OWNER_NAMES = _catalog_owner_catalog.make_default_site_owner_names()
 
 
 

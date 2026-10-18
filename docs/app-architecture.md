@@ -2523,3 +2523,8 @@ Moved SUPPORTED_LANGUAGES into `invoice_tool/user_preferences/language_catalog.p
 ## Catalog field_catalog
 
 Moved CUSTOMER_REIMBURSEMENT_PROJECTS, CUSTOMER_REIMBURSEMENT_RATE_FIELDS, SETTLEMENT_EXPENSE_FIELD_LABELS into `invoice_tool/customer_reimbursements/field_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.36s. app.py 4573 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog owner_catalog
+
+Moved DEFAULT_OWNER_NAMES, DEFAULT_SITE_OWNER_NAMES into `invoice_tool/contacts/owner_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.70s. app.py 4559 lines. Codex implementation; no merge/deployment.
