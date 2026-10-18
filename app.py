@@ -479,12 +479,8 @@ GOOGLE_PHOTOS_MAX_IMPORT = 1000
 GOOGLE_PHOTOS_MAX_IMAGE_BYTES = 30 * 1024 * 1024
 _geocode_lock = threading.Lock()
 _last_geocode_request_at = 0.0
-US_STATE_CODES = {
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA",
-    "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT",
-    "VA", "WA", "WV", "WI", "WY", "DC",
-}
+from invoice_tool.geocoding import region_catalog as _catalog_region_catalog
+US_STATE_CODES = _catalog_region_catalog.make_us_state_codes()
 
 STATUS_LABELS = {
     "draft": "保存未提交",
