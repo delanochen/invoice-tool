@@ -2107,3 +2107,11 @@ Functions: ensure_customer_reimbursement_pdf_record, build_customer_reimbursemen
 Module: `invoice_tool/customer_reimbursements/documents.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
 Verification: 9 passed, 42 subtests passed in 5.05s. app.py: 10222 → 9956 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 1: authentication
+
+Functions: login, register.
+Module: `invoice_tool/authentication/routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 12.03s. app.py: 9956 → 9886 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

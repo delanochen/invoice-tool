@@ -121,6 +121,7 @@ from invoice_tool.customer_reimbursements import item_forms as _split_item_forms
 from invoice_tool.customer_reimbursements import invoice_items as _split_invoice_items
 from invoice_tool.customer_reimbursements import updates as _split_updates
 from invoice_tool.customer_reimbursements import documents as _split_documents
+from invoice_tool.authentication import routes as _split_authentication
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3974,32 +3975,34 @@ def inject_globals():
     }
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        language = request.form.get("language")
-        if language in SUPPORTED_LANGUAGES:
-            session["language"] = language
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        user = db().execute("select * from users where email = ?", (email,)).fetchone()
-        if user and check_password_hash(user["password_hash"], password):
-            if not user["is_active"]:
-                flash("账号尚未启用，请等待管理员或经理批准。", "error")
-                return redirect(url_for("login"))
-            clear_session_preserving_language()
-            user_language = user["default_language"] if "default_language" in user.keys() else DEFAULT_LANGUAGE
-            session["language"] = user_language if user_language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
-            session["user_id"] = user["id"]
-            session.permanent = True
-            log_login_action(user)
-            db().commit()
-            next_target = request.args.get("next")
-            if not is_safe_redirect_target(next_target):
-                next_target = url_for("dashboard")
-            return redirect(next_target)
-        flash("邮箱或密码不正确。", "error")
-    return render_template("login.html")
+_views_authentication = _split_authentication.register_authentication_routes(
+    app,
+    _cb_resolve_DEFAULT_LANGUAGE=lambda: DEFAULT_LANGUAGE,
+    _cb_resolve_IntegrityError=lambda: IntegrityError,
+    _cb_resolve_SUPPORTED_LANGUAGES=lambda: SUPPORTED_LANGUAGES,
+    _cb_resolve_check_password_hash=lambda: check_password_hash,
+    _cb_resolve_clear_session_preserving_language=lambda: clear_session_preserving_language,
+    _cb_resolve_communication_languages_from_form=lambda: communication_languages_from_form,
+    _cb_resolve_country_from_form=lambda: country_from_form,
+    _cb_resolve_country_rows=lambda: country_rows,
+    _cb_resolve_current_language=lambda: current_language,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_generate_password_hash=lambda: generate_password_hash,
+    _cb_resolve_is_safe_redirect_target=lambda: is_safe_redirect_target,
+    _cb_resolve_log_login_action=lambda: log_login_action,
+    _cb_resolve_normalize_phone=lambda: normalize_phone,
+    _cb_resolve_notify_role=lambda: notify_role,
+    _cb_resolve_now=lambda: now,
+    _cb_resolve_re=lambda: re,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_session=lambda: session,
+    _cb_resolve_url_for=lambda: url_for,
+)
+login = _views_authentication['login']
+register = _views_authentication['register']
 
 
 _views_mobile_install = _split_mobile_install.register_mobile_install_routes(
@@ -4031,79 +4034,6 @@ _views_mobile_package = _split_mobile_install.register_mobile_package_routes(
 mobile_app_ipa = _views_mobile_package['mobile_app_ipa']
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        english_name = request.form.get("english_name", "").strip()
-        address = request.form.get("address", "").strip()
-        email = request.form.get("registration_email", "").strip().lower()
-        password = request.form.get("registration_password", "")
-        password_confirm = request.form.get("registration_password_confirm", "")
-        account_type = request.form.get("account_type", "external_employee")
-        country = country_from_form()
-        preferred_language, communication_languages = communication_languages_from_form(current_language())
-        if account_type not in {"employee", "external_employee"}:
-            account_type = "external_employee"
-        if not address:
-            flash("请填写地址。", "error")
-            return redirect(url_for("register"))
-        try:
-            phone = normalize_phone(request.form.get("phone"), country["code"])
-        except ValueError as error:
-            flash(str(error), "error")
-            return redirect(url_for("register"))
-        if "�" in name:
-            flash("姓名包含损坏字符，请重新输入正确姓名。", "error")
-            return redirect(url_for("register"))
-        if english_name and not re.fullmatch(r"[A-Za-z ]+", english_name):
-            flash("英文名只能包含英文字母和空格，不能包含中文、数字或其他符号。", "error")
-            return redirect(url_for("register"))
-        if len(password) < 8:
-            flash("密码至少需要 8 位。", "error")
-            return redirect(url_for("register"))
-        if password != password_confirm:
-            flash("两次输入的密码不一致。", "error")
-            return redirect(url_for("register"))
-        try:
-            cursor = db().execute(
-                """
-                insert into users (
-                    name, english_name, email, password_hash, role, is_active, default_language, region_code, country_code,
-                    created_at, address, phone, preferred_communication_language, communication_languages
-                )
-                values (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    name or email,
-                    english_name,
-                    email,
-                    generate_password_hash(password),
-                    account_type,
-                    current_language(),
-                    country["region_code"],
-                    country["code"],
-                    now(),
-                    address,
-                    phone,
-                    preferred_language,
-                    communication_languages,
-                ),
-            )
-            user_id = cursor.lastrowid
-            account_label = "员工" if account_type == "employee" else "外部员工"
-            notify_role(
-                ["admin", "manager"],
-                f"新{account_label}账号待批准",
-                f"{name or email} 已注册{account_label}账号，请审核并启用。",
-                url_for("users"),
-            )
-            db().commit()
-            flash("注册成功，请等待管理员或经理批准启用。", "success")
-            return redirect(url_for("login"))
-        except IntegrityError:
-            flash("这个邮箱已经注册。", "error")
-    return render_template("register.html", countries=country_rows())
 
 
 _views_language_session = _split_language_session.register_language_session_routes(
