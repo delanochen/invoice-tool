@@ -90,6 +90,7 @@ from invoice_tool.user_preferences import forms as _split_communication
 from invoice_tool.user_preferences import phone as _split_phone
 from invoice_tool.report_exports import location as _split_report_location
 from invoice_tool.customer_reimbursements import access as _split_settlement_access
+from invoice_tool.customer_reimbursements import rates as _split_contract_rates
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3013,19 +3014,7 @@ def require_customer_reimbursement(reimbursement_id):
 
 
 def resolve_contract_rates(order_id, work_date):
-    """按工单+日期从合同费率版本解析客户费率。
-
-    返回 (rates, missing)：rates 为行字段->单价；missing 为缺失配置的展示名清单
-    （合同不存在 / 日期无生效版本 / 版本缺条目）。缺什么由调用方醒目提示或拦截。
-    """
-    resolved = {}
-    missing = []
-    for field, rate_type, label in CUSTOMER_REIMBURSEMENT_RATE_FIELDS:
-        result = contract_rate(db(), order_id, work_date, rate_type, lodging_fallback=lodging_reimbursement_limit())
-        resolved[field] = result["rate"]
-        if result["source"] == "missing":
-            missing.append(label)
-    return resolved, missing
+    return _split_contract_rates.resolve_contract_rates(order_id, work_date, CUSTOMER_REIMBURSEMENT_RATE_FIELDS=CUSTOMER_REIMBURSEMENT_RATE_FIELDS, contract_rate=contract_rate, db=db, lodging_reimbursement_limit=lodging_reimbursement_limit)
 
 
 def contract_rate_missing_summary(order_id, dates):

@@ -1635,3 +1635,10 @@ Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing b
 `invoice_tool/customer_reimbursements/access.py` owns require_customer_reimbursement.
 Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
 Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: contract_rates
+
+`invoice_tool/customer_reimbursements/rates.py` owns resolve_contract_rates.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
