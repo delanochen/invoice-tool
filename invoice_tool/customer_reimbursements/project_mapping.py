@@ -67,3 +67,10 @@ def canonical_project_mapping_key(value, canonical_keys, *, project_name_key):
         if suffix and (not suffix[0].isascii() or not suffix[0].isalnum()):
             return canonical_key
     return key
+
+
+def customer_reimbursement_expense_field(project_name, fuel_vehicle_type=None, *, expense_settlement_invoice_field):
+    field_name, _invoice_project = expense_settlement_invoice_field(project_name)
+    if field_name == "fuel" and fuel_vehicle_type != "rental":
+        return None
+    return field_name

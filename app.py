@@ -3378,10 +3378,7 @@ def canonical_project_mapping_key(value, canonical_keys):
 
 
 def customer_reimbursement_expense_field(project_name, fuel_vehicle_type=None):
-    field_name, _invoice_project = expense_settlement_invoice_field(project_name)
-    if field_name == "fuel" and fuel_vehicle_type != "rental":
-        return None
-    return field_name
+    return _split_project_mapping.customer_reimbursement_expense_field(project_name, fuel_vehicle_type, expense_settlement_invoice_field=expense_settlement_invoice_field)
 
 
 def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None, exclude_ignored_for_reimbursement_id=None):
