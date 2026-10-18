@@ -147,3 +147,11 @@
 - 迁移函数：buyer_query。
 - app.py：12095 → 12072 行。
 - 审核验证：1 passed, 3 subtests passed in 2.05s。
+
+
+## 第 19/20 轮：report_query_page
+
+- CodeBuddy 实际写入 `invoice_tool/query_pages/reports.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：service_report_query。
+- app.py：12072 → 11986 行。
+- 审核验证：1 passed, 3 subtests passed in 2.09s。
