@@ -9510,40 +9510,17 @@ _views_order_query_page = _split_order_query_page.register_order_query_page_rout
 service_order_query = _views_order_query_page['service_order_query']
 
 
-@app.route("/reports/buyers")
-@login_required
-def buyer_query():
-    if not is_internal_user():
-        abort(403)
-    q = request.args.get("q", "").strip()
-    region_code, country_code, countries, regions, _, _ = report_location_filters()
-    clauses = ["1 = 1"]
-    params = []
-    if q:
-        clauses.append(
-            """
-            (buyers.buyer_number like ? or buyers.name like ? or coalesce(owners.name, buyers.owner) like ? or buyers.contact_name like ?
-             or buyers.contact_details like ? or buyers.email like ? or buyers.detailed_address like ?
-             or buyers.equipment_manufacturer like ? or buyers.site_size like ?)
-            """
-        )
-        params.extend([f"%{q}%"] * 9)
-    if region_code:
-        clauses.append("exists (select 1 from countries where countries.code = buyers.country_code and countries.region_code = ?)")
-        params.append(region_code)
-    if country_code:
-        clauses.append("buyers.country_code = ?")
-        params.append(country_code)
-    rows = buyer_map_rows(" and ".join(clauses), params)
-    return render_template(
-        "buyer_query.html",
-        buyers=rows,
-        countries=countries,
-        regions=regions,
-        q=q,
-        region_code=region_code,
-        country_code=country_code,
-    )
+_views_buyer_query_page = _split_order_query_page.register_buyer_query_page_routes(
+    app,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_buyer_map_rows=lambda: buyer_map_rows,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_report_location_filters=lambda: report_location_filters,
+    _cb_resolve_request=lambda: request,
+)
+buyer_query = _views_buyer_query_page['buyer_query']
 
 
 @app.route("/reports/service-reports")
