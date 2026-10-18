@@ -82,6 +82,7 @@ from invoice_tool.dashboard import metrics as _split_dashboard_metrics
 from invoice_tool.dashboard import charts as _split_dashboard_monthly
 from invoice_tool.dashboard import projects as _split_dashboard_projects
 from invoice_tool.app_settings import storage as _split_setting_write
+from invoice_tool.app_settings import numbers as _split_setting_float
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1060,10 +1061,7 @@ def set_setting(key, value):
 
 
 def setting_float(key, default=0):
-    try:
-        return float(get_setting(key, str(default)) or default)
-    except (TypeError, ValueError):
-        return float(default)
+    return _split_setting_float.setting_float(key, default, get_setting=get_setting)
 
 
 def setting_int(key, default=0):
