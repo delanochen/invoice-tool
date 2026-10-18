@@ -144,6 +144,7 @@ from invoice_tool.presentation import formatting as _split_formatting
 from invoice_tool.app_settings import ai_helpers as _split_ai_settings
 from invoice_tool.service_orders import validation_helpers as _split_order_validation
 from invoice_tool.employee_expenses import numbering as _split_expense_numbering
+from invoice_tool.photo_imports import storage_helpers as _split_photo_storage
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1740,11 +1741,7 @@ def compress_report_image(source, target_path):
 
 
 def file_sha256(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return _split_photo_storage.file_sha256(path, hashlib=hashlib)
 
 
 def normalized_report_photo_name(filename):
@@ -1768,24 +1765,11 @@ def shared_photos_root():
 
 
 def service_order_photo_folder(order_number):
-    root = shared_photos_root()
-    folder = (root / secure_filename(order_number)).resolve()
-    if not folder.is_relative_to(root):
-        raise ValueError("工单照片目录无效。")
-    return folder
+    return _split_photo_storage.service_order_photo_folder(order_number, secure_filename=secure_filename, shared_photos_root=shared_photos_root)
 
 
 def service_order_photo_summary(order_number):
-    folder = service_order_photo_folder(order_number)
-    if not folder.exists():
-        return {"exists": False, "nonempty": False, "file_count": 0, "bytes": 0}
-    files = [path for path in folder.rglob("*") if path.is_file()]
-    return {
-        "exists": True,
-        "nonempty": any(folder.iterdir()),
-        "file_count": len(files),
-        "bytes": sum(path.stat().st_size for path in files),
-    }
+    return _split_photo_storage.service_order_photo_summary(order_number, service_order_photo_folder=service_order_photo_folder)
 
 
 def ensure_service_order_picture_folder(order_number):
@@ -2105,12 +2089,7 @@ def count_shared_images(path, excluded_dirs=None):
 
 
 def valid_image_file(path):
-    try:
-        with Image.open(path) as image:
-            image.verify()
-        return True
-    except (OSError, ValueError):
-        return False
+    return _split_photo_storage.valid_image_file(path, Image=Image)
 
 
 def safe_attachment_response(path, original_filename):

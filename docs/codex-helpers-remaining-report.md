@@ -70,3 +70,11 @@ Functions: next_expense_number.
 Module: `invoice_tool/employee_expenses/numbering.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 12.12s. app.py: 6071 → 6043 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: photo_storage
+
+Functions: file_sha256, service_order_photo_folder, service_order_photo_summary, valid_image_file.
+Module: `invoice_tool/photo_imports/storage_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.97s. app.py: 6043 → 6022 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
