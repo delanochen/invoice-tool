@@ -5658,27 +5658,18 @@ def _message_ids_for_user(raw_ids):
     return [row["id"] for row in owned]
 
 
-@app.post("/messages/mark")
-@login_required
-def mark_messages():
-    """把选中的消息标为已读或未读。
-
-    对应页面上「标为已读 / 标为未读」两个按钮：未读的可以选中设为已读，
-    已读的也可以选中设为未读。两个方向共用一个端点，靠 is_read 取值区分。
-    """
-    is_read = 1 if request.form.get("is_read") == "1" else 0
-    ids = _message_ids_for_user(request.form.getlist("message_id"))
-    if not ids:
-        flash("请先勾选要标记的消息。", "error")
-        return redirect(url_for("messages"))
-    placeholders = ",".join("?" for _ in ids)
-    db().execute(
-        f"update messages set is_read = ? where user_id = ? and id in ({placeholders})",
-        (is_read, g.user["id"], *ids),
-    )
-    db().commit()
-    flash(f"已将 {len(ids)} 条消息标为{'已读' if is_read else '未读'}。", "success")
-    return redirect(url_for("messages"))
+_views_messages_mark = _split_messages_list.register_messages_mark_routes(
+    app,
+    _cb_resolve__message_ids_for_user=lambda: _message_ids_for_user,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_url_for=lambda: url_for,
+)
+mark_messages = _views_messages_mark['mark_messages']
 
 
 @app.post("/messages/mark-all-read")
