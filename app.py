@@ -80,6 +80,7 @@ from invoice_tool.report_exports import labor as _split_labor_entries
 from invoice_tool.email_delivery import transport as _split_smtp_transport
 from invoice_tool.dashboard import metrics as _split_dashboard_metrics
 from invoice_tool.dashboard import charts as _split_dashboard_monthly
+from invoice_tool.dashboard import projects as _split_dashboard_projects
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12392,23 +12393,7 @@ def monthly_chart():
 
 
 def available_projects_for_access():
-    access_clause, access_params = client_filter_clause("invoices")
-    rows = db().execute(
-        f"""
-        select distinct projects.id, projects.name
-        from projects
-        join invoice_items on invoice_items.project_id = projects.id
-        join invoices on invoices.id = invoice_items.invoice_id
-        where invoices.status = 'completed' and {access_clause}
-        order by projects.name
-        """,
-        access_params,
-    ).fetchall()
-    if rows:
-        return rows
-    return db().execute(
-        "select id, name from projects where project_type = 'invoice' and is_active = 1 order by name"
-    ).fetchall()
+    return _split_dashboard_projects.available_projects_for_access(client_filter_clause=client_filter_clause, db=db)
 
 
 def dashboard_project_options():

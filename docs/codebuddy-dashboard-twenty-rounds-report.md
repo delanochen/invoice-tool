@@ -19,3 +19,11 @@
 - 迁移函数：monthly_chart。
 - app.py：12877 → 12866 行。
 - 审核验证：1 passed, 3 subtests passed in 1.93s。
+
+
+## 第 3/20 轮：dashboard_projects
+
+- CodeBuddy 实际写入 `invoice_tool/dashboard/projects.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：available_projects_for_access。
+- app.py：12866 → 12851 行。
+- 审核验证：1 passed, 2 subtests passed in 2.00s。
