@@ -494,119 +494,10 @@ EXPENSE_PAYOUT_LABELS = {
 
 CUSTOMER_REIMBURSEMENT_STATUS_LABELS = _catalog_status_catalog.make_customer_reimbursement_status_labels()
 
-ROLE_OPTIONS = {
-    "admin": "管理员",
-    "manager": "经理",
-    "finance": "财务",
-    "employee": "员工",
-    "external_manager": "外部管理员",
-    "external_employee": "外部员工",
-}
+from invoice_tool.authorization import action_catalog as _catalog_action_catalog
+ROLE_OPTIONS = _catalog_action_catalog.make_role_options()
 
-MENU_PERMISSION_GROUPS = [
-    {
-        "label": "主菜单",
-        "items": [
-            {"key": "dashboard", "label": "概览", "roles": {"admin", "manager", "finance"}},
-            {"key": "contracts", "label": "合同", "roles": {"admin", "manager", "finance", "external_manager"}},
-            {"key": "quotations", "label": "报价单", "roles": {"admin", "manager", "finance", "external_manager"}},
-            {"key": "service_orders", "label": "工单", "roles": set(ROLE_OPTIONS)},
-            {"key": "field_work", "label": "现场工作", "roles": set(ROLE_OPTIONS)},
-            {"key": "service_order_map", "label": "站点地图", "roles": {"admin", "manager", "finance", "employee", "external_manager"}},
-            {"key": "service_order_calendar", "label": "工单日历", "roles": set(ROLE_OPTIONS)},
-            {"key": "expense_processing", "label": "报销处理", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "new_invoice", "label": "新建发票", "roles": {"manager", "finance"}},
-        ],
-    },
-    {
-        "label": "报表",
-        "items": [
-            {"key": "invoices", "label": "发票查询", "roles": {"admin", "manager", "finance", "external_manager"}},
-            {"key": "invoice_query", "label": "发票明细查询", "roles": {"admin", "manager", "finance", "external_manager"}},
-            {"key": "customer_reimbursement_query", "label": "工单结算报表", "roles": {"admin", "manager", "finance", "external_manager"}},
-            {"key": "profitability", "label": "项目利润", "roles": {"admin", "manager", "finance"}},
-            {"key": "buyer_query", "label": "站点查询", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "service_order_query", "label": "工单查询", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "service_report_query", "label": "日报查询", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "expense_query", "label": "报销明细查询", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "user_certificate_query", "label": "员工证书查询", "roles": set(ROLE_OPTIONS)},
-            {"key": "audit_log_report", "label": "操作日志", "roles": {"admin", "manager", "finance"}},
-        ],
-    },
-    {
-        "label": "薪酬管理",
-        "items": [
-            {"key": "labor_hours_report", "label": "工时统计", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "payroll_report", "label": "薪酬统计", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "payroll_calendar", "label": "薪酬日历", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "employee_grades", "label": "员工等级", "roles": {"admin", "manager", "finance"}},
-            {"key": "payroll_subsidies", "label": "补贴参数", "roles": {"admin", "manager", "finance"}},
-        ],
-    },
-    {
-        "label": "财务管理",
-        "items": [
-            {"key": "finance_overview", "label": "财务总览", "roles": {"admin", "manager", "finance"}},
-            {"key": "employee_payments", "label": "员工付款中心", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "bank_accounts", "label": "银行账户", "roles": {"admin", "finance"}},
-            {"key": "bank_transactions", "label": "银行流水", "roles": {"admin", "finance"}},
-            {"key": "employee_advances", "label": "员工借款", "roles": {"admin", "manager", "finance"}},
-            {"key": "employee_ledger", "label": "员工往来账", "roles": {"admin", "manager", "finance"}},
-            {"key": "payment_batches", "label": "付款批次", "roles": {"admin", "manager", "finance"}},
-            {"key": "tax_review", "label": "税务复核", "roles": {"admin", "manager", "finance"}},
-            {"key": "annual_tax_summary", "label": "年度税务汇总", "roles": {"admin", "manager", "finance"}},
-            {"key": "bank_reconciliation", "label": "银行对账", "roles": {"admin", "finance"}},
-            {"key": "accounting_vouchers", "label": "会计凭证", "roles": {"admin", "manager", "finance"}},
-            {"key": "accounting_receipts", "label": "客户收款", "roles": {"admin", "manager", "finance"}},
-            {"key": "accounting_periods", "label": "会计期间", "roles": {"admin", "finance"}},
-            {"key": "accounting_opening", "label": "期初建账", "roles": {"admin", "finance"}},
-            {"key": "accounting_reports", "label": "会计报表", "roles": {"admin", "manager", "finance"}},
-        ],
-    },
-    {
-        "label": "资产管理",
-        "items": [
-            {"key": "assets", "label": "资产档案", "roles": {"admin", "manager", "finance"}},
-        ],
-    },
-    {
-        "label": "基础数据",
-        "items": [
-            {"key": "clients", "label": "客户", "roles": {"admin", "manager", "finance", "external_manager"}},
-            {"key": "owners", "label": "业主", "roles": {"admin", "manager", "finance"}},
-            {"key": "manufacturers", "label": "厂家", "roles": {"admin", "manager", "finance"}},
-            {"key": "buyers", "label": "站点", "roles": {"admin", "manager", "finance", "external_manager"}},
-            {"key": "work_order_types", "label": "工单类型", "roles": {"admin", "manager"}},
-            {"key": "projects", "label": "项目", "roles": {"admin", "manager"}},
-            {"key": "countries", "label": "国家", "roles": {"admin", "manager"}},
-            {"key": "company_info", "label": "公司信息", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "users", "label": "用户/我的资料", "roles": set(ROLE_OPTIONS)},
-        ],
-    },
-    {
-        "label": "实用工具",
-        "items": [
-            {"key": "ai_daily_report", "label": "AI 日报", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "travel_tools", "label": "出行工具", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "knowledge_base", "label": "知识库", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "ai_assistant", "label": "智能助手", "roles": {"admin", "manager", "finance", "employee"}},
-            {"key": "database_console", "label": "数据库工具", "roles": {"admin"}},
-            {"key": "order_data_transfer", "label": "工单数据转移", "roles": {"admin"}},
-            {"key": "airbnb_receipt", "label": "Airbnb 收据", "roles": {"admin", "manager", "finance"}},
-        ],
-    },
-    {
-        "label": "系统配置",
-        "items": [
-            {"key": "payment_terms", "label": "账期管理", "roles": {"admin", "finance"}},
-            {"key": "system_settings", "label": "系统设置", "roles": {"admin"}},
-            # 消息在 UI 上已从「主菜单」下拉剥离、成为菜单栏上紧跟系统配置的一级入口，
-            # 这里的分组只是权限配置页的分类，跟着 UI 位置走，免得两边对不上。
-            # 它的默认角色仍是全部角色（不是管理项，只是位置在系统配置后面）。
-            {"key": "messages", "label": "消息", "roles": set(ROLE_OPTIONS)},
-        ],
-    },
-]
+MENU_PERMISSION_GROUPS = _catalog_action_catalog.make_menu_permission_groups(ROLE_OPTIONS=ROLE_OPTIONS)
 
 DEFAULT_MENU_ROLES = {
     item["key"]: set(item["roles"])
@@ -618,112 +509,14 @@ for _roles in DEFAULT_MENU_ROLES.values():
     if "finance" in _roles:
         _roles.add("manager")
 
-ACTION_LABELS = {
-    "view": "查看",
-    "create": "新增",
-    "edit": "编辑",
-    "delete": "删除",
-    "approve": "审核",
-    "reset": "修改状态",
-    "export": "导出",
-    "send": "发送",
-    "pay": "核销",
-    "execute": "执行",
-    "post": "过账",
-    "ai_review": "AI 智能审核",
-    "reconcile": "对账",
-}
+ACTION_LABELS = _catalog_action_catalog.make_action_labels()
 
-ROLE_ACTION_PERMISSION_GROUPS = [
-    {
-        "label": "主业务",
-        "items": [
-            {"key": "contracts", "label": "合同", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
-            {"key": "quotations", "label": "报价单", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}}},
-            {"key": "service_orders", "label": "工单", "actions": {"view": set(ROLE_OPTIONS), "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee", "external_manager", "external_employee"}, "delete": {"admin", "manager", "finance"}}},
-            {"key": "service_order_calendar", "label": "工单日历", "actions": {"view": set(ROLE_OPTIONS)}},
-            {"key": "service_reports", "label": "工作日报", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "manager", "finance", "employee", "external_employee"}, "edit": {"admin", "manager", "finance", "employee", "external_employee"}, "delete": {"admin", "manager"}, "export": {"admin", "manager", "finance", "employee", "external_employee", "external_manager"}}},
-            {"key": "invoices", "label": "发票", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}, "pay": {"admin", "manager", "finance"}}},
-            {"key": "expenses", "label": "员工报销", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"manager", "finance", "employee"}, "edit": {"admin", "manager", "finance", "employee"}, "delete": {"admin", "manager", "finance", "employee"}, "approve": {"admin", "manager", "finance"}, "ai_review": {"admin", "manager", "finance"}}},
-            {"key": "customer_reimbursements", "label": "工单结算", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}, "approve": {"admin", "manager"}, "reset": {"admin", "manager", "finance"}, "export": {"admin", "manager", "finance", "external_manager"}, "send": {"manager", "finance"}}},
-            {"key": "profitability", "label": "项目利润", "actions": {"view": {"admin", "manager", "finance"}}},
-            {"key": "knowledge_base", "label": "知识库", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager"}}},
-            {"key": "ai_assistant", "label": "智能助手", "actions": {"view": {"admin", "manager", "finance", "employee"}}},
-        ],
-    },
-    {
-        "label": "基础数据",
-        "items": [
-            {"key": "clients", "label": "客户", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
-            {"key": "owners", "label": "业主", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
-            {"key": "manufacturers", "label": "厂家", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
-            {"key": "buyers", "label": "站点", "actions": {"view": {"admin", "manager", "finance", "external_manager"}, "create": {"admin", "manager", "finance", "external_manager"}, "edit": {"admin", "manager", "finance", "external_manager"}, "delete": {"admin", "manager", "finance"}}},
-            {"key": "work_order_types", "label": "工单类型", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}, "delete": {"admin", "manager"}}},
-            {"key": "projects", "label": "项目", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}, "delete": {"admin", "manager"}}},
-            {"key": "countries", "label": "国家", "actions": {"view": {"admin", "manager"}, "create": {"admin", "manager"}, "edit": {"admin", "manager"}}},
-            {"key": "users", "label": "用户", "actions": {"view": set(ROLE_OPTIONS), "create": {"admin", "external_manager"}, "edit": {"admin", "external_manager"}, "delete": {"admin"}, "approve": {"admin", "manager"}}},
-        ],
-    },
-    {
-        "label": "薪酬与系统",
-        "items": [
-            {"key": "labor_hours_report", "label": "工时统计", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
-            {"key": "payroll_report", "label": "薪酬统计", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
-            {"key": "payroll_calendar", "label": "薪酬日历", "actions": {"view": {"admin", "manager", "finance", "employee"}, "export": {"admin", "manager", "finance"}}},
-            {"key": "employee_grades", "label": "员工等级", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin", "manager", "finance"}}},
-            {"key": "payroll_subsidies", "label": "补贴参数", "actions": {"view": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}}},
-            {"key": "company_info", "label": "公司信息", "actions": {"view": {"admin", "manager", "finance", "employee"}, "edit": {"admin"}}},
-            {"key": "system_settings", "label": "系统设置", "actions": {"view": {"admin"}, "edit": {"admin"}}},
-            {"key": "database_console", "label": "数据库工具", "actions": {"view": {"admin"}, "execute": {"admin"}}},
-            {"key": "order_data_transfer", "label": "工单数据转移", "actions": {"view": {"admin"}, "execute": {"admin"}}},
-            {"key": "payment_terms", "label": "账期管理", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
-            {"key": "audit_logs", "label": "操作日志", "actions": {"view": {"admin", "manager", "finance"}}},
-        ],
-    },
-    {
-        "label": "财务与资产",
-        "items": [
-            {"key": "finance_overview", "label": "财务总览", "actions": {"view": {"admin", "manager", "finance"}}},
-            {"key": "employee_payments", "label": "员工付款单", "actions": {"view": {"admin", "manager", "finance", "employee"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "approve": {"admin", "manager", "finance"}, "pay": {"admin", "finance"}, "reconcile": {"admin", "finance"}, "email_statement": {"admin", "finance", "manager"}}},
-            {"key": "employee_advances", "label": "员工借款", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "finance"}}},
-            {"key": "bank_accounts", "label": "银行账户", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
-            {"key": "bank_transactions", "label": "银行流水", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
-            {"key": "employee_ledger", "label": "员工往来账", "actions": {"view": {"admin", "manager", "finance"}}},
-            # Phase 4A：税务复核。「看」给财务/经理/管理员，「改分类」只给财务与管理员
-            # —— 分类调整会改变年度汇总口径，不能让只读角色误点。
-            {"key": "tax_review", "label": "税务复核", "actions": {"view": {"admin", "manager", "finance"}, "review": {"admin", "finance"}}},
-            # Phase 4B：年度税务汇总。看 = 财务 / 经理 / 管理员；导出只给财务与管理员。
-            # 普通员工一律不给（要看自己的年度汇总以后单独做 self-only 权限）。
-            {"key": "annual_tax_summary", "label": "年度税务汇总", "actions": {"view": {"admin", "manager", "finance"}, "export": {"admin", "finance"}}},
-            {"key": "bank_reconciliation", "label": "银行对账", "actions": {"view": {"admin", "finance"}, "reconcile": {"admin", "finance"}}},
-            {"key": "accounting_vouchers", "label": "会计凭证", "actions": {"view": {"admin", "manager", "finance"}}},
-            {"key": "accounting_receipts", "label": "客户收款", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "finance"}, "edit": {"admin", "finance"}}},
-            {"key": "accounting_corrections", "label": "发票会计更正", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}}},
-            {"key": "accounting_periods", "label": "会计期间", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "close": {"admin", "finance"}, "reopen": {"admin"}}},
-            {"key": "accounting_opening", "label": "期初建账", "actions": {"view": {"admin", "finance"}, "create": {"admin", "finance"}, "post": {"admin", "finance"}}},
-            {"key": "accounting_reports", "label": "会计报表", "actions": {"view": {"admin", "manager", "finance"}, "export": {"admin", "finance"}}},
-            {"key": "assets", "label": "资产档案", "actions": {"view": {"admin", "manager", "finance"}, "create": {"admin", "manager", "finance"}, "edit": {"admin", "manager", "finance"}, "delete": {"admin"}}},
-        ],
-    },
-]
+ROLE_ACTION_PERMISSION_GROUPS = _catalog_action_catalog.make_role_action_permission_groups(ROLE_OPTIONS=ROLE_OPTIONS)
 
-DEFAULT_ACTION_ROLES = {
-    (item["key"], action): set(roles)
-    for group in ROLE_ACTION_PERMISSION_GROUPS
-    for item in group["items"]
-    for action, roles in item["actions"].items()
-}
-MANAGER_FINANCE_INHERITANCE_EXCEPTIONS = {
-    # Tax workspaces are intentionally manager-read-only. Review and export
-    # remain restricted to finance/admin even though managers generally inherit
-    # finance permissions elsewhere.
-    ("tax_review", "review"),
-    ("annual_tax_summary", "export"),
-}
+DEFAULT_ACTION_ROLES = _catalog_action_catalog.make_default_action_roles(ROLE_ACTION_PERMISSION_GROUPS=ROLE_ACTION_PERMISSION_GROUPS)
+MANAGER_FINANCE_INHERITANCE_EXCEPTIONS = _catalog_action_catalog.make_manager_finance_inheritance_exceptions()
 # 操作权限同样保持 manager >= finance，避免新增财务动作时遗漏经理。
-for _permission_key, _roles in DEFAULT_ACTION_ROLES.items():
-    if "finance" in _roles and _permission_key not in MANAGER_FINANCE_INHERITANCE_EXCEPTIONS:
-        _roles.add("manager")
+_catalog_action_catalog.apply_manager_finance_inheritance(DEFAULT_ACTION_ROLES, MANAGER_FINANCE_INHERITANCE_EXCEPTIONS, _assign_iteration=lambda key, roles: globals().update(_permission_key=key, _roles=roles))
 
 def permission_tree_groups():
     return _split_authorization.permission_tree_groups(DEFAULT_MENU_ROLES=DEFAULT_MENU_ROLES, MENU_PERMISSION_GROUPS=MENU_PERMISSION_GROUPS, ROLE_ACTION_PERMISSION_GROUPS=ROLE_ACTION_PERMISSION_GROUPS)
