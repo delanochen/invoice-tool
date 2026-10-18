@@ -95,6 +95,7 @@ from invoice_tool.customer_reimbursements import holidays as _split_holidays
 from invoice_tool.customer_reimbursements import calculations as _split_row_field
 from invoice_tool.customer_reimbursements import project_mapping as _split_project_mapping
 from invoice_tool.customer_reimbursements import dates as _split_settlement_date
+from invoice_tool.customer_reimbursements import totals as _split_mro_total
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3538,18 +3539,7 @@ def merge_approved_expenses_into_customer_reimbursement(
 
 
 def approved_mro_supplies_total(order_id, cutoff_at=None, exclude_ignored_for_reimbursement_id=None):
-    total = sum(
-        (
-            money_decimal(row["amount"])
-            for row in approved_customer_reimbursement_expense_rows(
-                order_id, cutoff_at, exclude_ignored_for_reimbursement_id=exclude_ignored_for_reimbursement_id
-            )
-            if customer_reimbursement_expense_field(row["project_name"]) == "other"
-            and project_name_key(row["project_name"]).startswith(project_name_key("MRO Supplies"))
-        ),
-        Decimal("0"),
-    )
-    return money_float(total)
+    return _split_mro_total.approved_mro_supplies_total(order_id, cutoff_at, exclude_ignored_for_reimbursement_id, Decimal=Decimal, approved_customer_reimbursement_expense_rows=approved_customer_reimbursement_expense_rows, customer_reimbursement_expense_field=customer_reimbursement_expense_field, money_decimal=money_decimal, money_float=money_float, project_name_key=project_name_key)
 
 
 def approved_rental_vehicle_fuel_total(order_id):

@@ -115,3 +115,11 @@
 - 迁移函数：_reimbursement_date_key。
 - app.py：12504 → 12496 行。
 - 审核验证：1 passed, 6 subtests passed in 2.57s。
+
+
+## 第 15/20 轮：mro_total
+
+- CodeBuddy 实际写入 `invoice_tool/customer_reimbursements/totals.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：approved_mro_supplies_total。
+- app.py：12496 → 12486 行。
+- 审核验证：1 passed in 1.89s。
