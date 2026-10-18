@@ -414,13 +414,8 @@ DATA_DIRECTORY_IDENTITY = os.environ.get(
 DATA_IDENTITY_FILE = os.path.join(DATA_DIR, ".invoice-tool-data-id")
 ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "gif", "doc", "docx", "xls", "xlsx"}
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif", "heic", "heif"}
-REPORT_PHOTO_FOLDERS = {
-    "arrival": "现场到达时间照片",
-    "departure": "离开现场时间照片",
-    "self_check": "自检照片",
-    "site": "现场服务照片",
-    "mileage_proof": "里程佐证",
-}
+from invoice_tool.service_reports import photo_catalog as _catalog_photo_catalog
+REPORT_PHOTO_FOLDERS = _catalog_photo_catalog.make_report_photo_folders()
 
 register_heif_opener()
 ALLOWED_ATTACHMENT_LABEL = "Word、Excel、PDF、PNG、JPG、JPEG、WEBP、GIF"
