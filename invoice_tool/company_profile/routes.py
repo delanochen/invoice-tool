@@ -112,3 +112,38 @@ def register_company_attachment_read_routes(app, *,
     app.add_url_rule('/company-attachments/<int:attachment_id>/download', endpoint='download_company_attachment', view_func=download_company_attachment, methods=['GET'])
     app.add_url_rule('/company-attachments/<int:attachment_id>/preview', endpoint='preview_company_attachment', view_func=preview_company_attachment, methods=['GET'])
     return {'download_company_attachment': download_company_attachment, 'preview_company_attachment': preview_company_attachment}
+
+
+def register_company_attachment_delete_routes(app, *,
+    _cb_resolve_COMPANY_ATTACHMENT_DIR,
+    _cb_resolve_abort,
+    _cb_resolve_db,
+    _cb_resolve_flash,
+    _cb_resolve_login_required,
+    _cb_resolve_os,
+    _cb_resolve_redirect,
+    _cb_resolve_url_for,
+):
+    @_cb_resolve_login_required()
+    def delete_company_attachment(attachment_id):
+        attachment = _cb_resolve_db()().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
+        if not attachment:
+            _cb_resolve_abort()(404)
+        try:
+            _cb_resolve_os().remove(_cb_resolve_os().path.join(_cb_resolve_COMPANY_ATTACHMENT_DIR(), attachment["stored_filename"]))
+        except FileNotFoundError:
+            pass
+        _cb_resolve_db()().execute("delete from company_attachments where id = ?", (attachment_id,))
+        _cb_resolve_db()().commit()
+        _cb_resolve_flash()("公司附件已删除。", "success")
+        return _cb_resolve_redirect()(_cb_resolve_url_for()("company_info"))
+
+
+    @_cb_resolve_login_required()
+    def legacy_company_settings():
+        return _cb_resolve_redirect()(_cb_resolve_url_for()("system_settings"))
+
+
+    app.add_url_rule('/company-attachments/<int:attachment_id>/delete', endpoint='delete_company_attachment', view_func=delete_company_attachment, methods=['POST'])
+    app.add_url_rule('/settings/company', endpoint='legacy_company_settings', view_func=legacy_company_settings, methods=['GET'])
+    return {'delete_company_attachment': delete_company_attachment, 'legacy_company_settings': legacy_company_settings}

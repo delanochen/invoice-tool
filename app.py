@@ -9445,26 +9445,21 @@ preview_company_attachment = _views_company_attachment_read['preview_company_att
 
 
 
-@app.post("/company-attachments/<int:attachment_id>/delete")
-@login_required
-def delete_company_attachment(attachment_id):
-    attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    try:
-        os.remove(os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]))
-    except FileNotFoundError:
-        pass
-    db().execute("delete from company_attachments where id = ?", (attachment_id,))
-    db().commit()
-    flash("公司附件已删除。", "success")
-    return redirect(url_for("company_info"))
+_views_company_attachment_delete = _split_company_page.register_company_attachment_delete_routes(
+    app,
+    _cb_resolve_COMPANY_ATTACHMENT_DIR=lambda: COMPANY_ATTACHMENT_DIR,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_os=lambda: os,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_url_for=lambda: url_for,
+)
+delete_company_attachment = _views_company_attachment_delete['delete_company_attachment']
+legacy_company_settings = _views_company_attachment_delete['legacy_company_settings']
 
 
-@app.get("/settings/company")
-@login_required
-def legacy_company_settings():
-    return redirect(url_for("system_settings"))
 
 
 @app.route("/invoices")

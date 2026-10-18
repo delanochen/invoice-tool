@@ -107,3 +107,11 @@
 - 迁移函数：download_company_attachment, preview_company_attachment。
 - app.py：12316 → 12304 行。
 - 审核验证：1 passed, 6 subtests passed in 2.17s。
+
+
+## 第 14/20 轮：company_attachment_delete
+
+- CodeBuddy 实际写入 `invoice_tool/company_profile/routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：delete_company_attachment, legacy_company_settings。
+- app.py：12304 → 12299 行。
+- 审核验证：1 passed, 6 subtests passed in 2.22s。
