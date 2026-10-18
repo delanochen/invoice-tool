@@ -232,3 +232,47 @@ def register_safety_photo_routes(app, *,
 
     app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/change-safety-photo', endpoint='ai_daily_report_change_safety_photo', view_func=ai_daily_report_change_safety_photo, methods=['POST'])
     return {'ai_daily_report_change_safety_photo': ai_daily_report_change_safety_photo}
+
+
+def register_service_photo_add_routes(app, *,
+    _cb_resolve_DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service,
+    _cb_resolve__make_photo_classification_service,
+    _cb_resolve_db,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_jsonify,
+    _cb_resolve_login_required,
+    _cb_resolve_request,
+):
+    @_cb_resolve_login_required()
+    def ai_daily_report_add_service_photo(draft_id):
+        """User manually adds a service photo (Phase 5)."""
+        if not _cb_resolve_is_internal_user()():
+            return _cb_resolve_jsonify()({"ok": False, "error": "无权限"}), 403
+        svc = _cb_resolve__ai_daily_report_service()()
+        try:
+            data = _cb_resolve_request().get_json(silent=True) or {}
+            photo_id = data.get("photo_id", "")
+            expected_version = data.get("draft_version")
+            if expected_version is not None:
+                expected_version = int(expected_version)
+        except Exception:
+            return _cb_resolve_jsonify()({"ok": False, "error": "无效请求"}), 400
+
+        if not photo_id:
+            return _cb_resolve_jsonify()({"ok": False, "error": "缺少 photo_id"}), 400
+
+        photo_svc = _cb_resolve__make_photo_classification_service()()
+        try:
+            result = svc.add_service_photo(draft_id, photo_id, photo_svc, expected_version)
+        except _cb_resolve_DraftVersionConflict():
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 版本冲突"}), 409
+        if not result.get("ok"):
+            return _cb_resolve_jsonify()(result), 400
+
+        _cb_resolve_db()().commit()
+        return _cb_resolve_jsonify()(result)
+
+
+    app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/add-service-photo', endpoint='ai_daily_report_add_service_photo', view_func=ai_daily_report_add_service_photo, methods=['POST'])
+    return {'ai_daily_report_add_service_photo': ai_daily_report_add_service_photo}

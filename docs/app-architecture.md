@@ -1936,3 +1936,10 @@ Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex
 `invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_change_safety_photo.
 Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
 Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 7/20: service_photo_add
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_add_service_photo.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
