@@ -521,13 +521,8 @@ _catalog_action_catalog.apply_manager_finance_inheritance(DEFAULT_ACTION_ROLES, 
 def permission_tree_groups():
     return _split_authorization.permission_tree_groups(DEFAULT_MENU_ROLES=DEFAULT_MENU_ROLES, MENU_PERMISSION_GROUPS=MENU_PERMISSION_GROUPS, ROLE_ACTION_PERMISSION_GROUPS=ROLE_ACTION_PERMISSION_GROUPS)
 
-SUPPORTED_LANGUAGES = {
-    "zh-CN": {"label": "简体中文", "flag": "🇨🇳"},
-    "en": {"label": "English", "flag": "🇺🇸"},
-    "nl": {"label": "Nederlands", "flag": "🇳🇱"},
-    "de": {"label": "Deutsch", "flag": "🇩🇪"},
-    "es": {"label": "Español", "flag": "🇪🇸"},
-}
+from invoice_tool.user_preferences import language_catalog as _catalog_language_catalog
+SUPPORTED_LANGUAGES = _catalog_language_catalog.make_supported_languages()
 DEFAULT_LANGUAGE = "zh-CN"
 
 PROJECT_TYPE_LABELS = {
