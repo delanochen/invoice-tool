@@ -147,3 +147,11 @@
 - 迁移函数：ai_daily_report_drafts_list。
 - app.py：11582 → 11479 行。
 - 审核验证：1 passed, 6 subtests passed in 2.13s。
+
+
+## 第 19/20 轮：draft_pages
+
+- Codex 直接写入 `invoice_tool/ai_daily_report_web/list_routes.py` 并修改 app 接线，并核验文件内容与累计 AST；用户已授权由 Codex 接手。
+- 迁移函数：ai_daily_report_drafts_page, ai_daily_report_draft_detail_page。
+- app.py：11479 → 11462 行。
+- 审核验证：1 passed, 12 subtests passed in 1.94s。

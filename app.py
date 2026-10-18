@@ -8692,38 +8692,21 @@ def ai_daily_report_update_work_item(draft_id):
 
 # ─── Phase 6: Review Center Page Routes ─────────────────────────────────────
 
-@app.get("/ai-daily-report/drafts")
-@login_required
-def ai_daily_report_drafts_page():
-    """Review Center - Draft List page."""
-    if not is_internal_user():
-        abort(403)
-    return render_template(
-        "ai_daily_report_drafts.html",
-        csrf_token=ai_daily_report_csrf_token(),
-    )
+_views_draft_pages = _split_draft_list.register_draft_pages_routes(
+    app,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_ai_daily_report_csrf_token=lambda: ai_daily_report_csrf_token,
+    _cb_resolve_can_view_ai_daily_report_draft=lambda: can_view_ai_daily_report_draft,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_render_template=lambda: render_template,
+)
+ai_daily_report_drafts_page = _views_draft_pages['ai_daily_report_drafts_page']
+ai_daily_report_draft_detail_page = _views_draft_pages['ai_daily_report_draft_detail_page']
 
 
-@app.get("/ai-daily-report/drafts/<int:draft_id>")
-@login_required
-def ai_daily_report_draft_detail_page(draft_id):
-    """Review Center - Draft Detail/Preview page."""
-    if not is_internal_user():
-        abort(403)
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        abort(404)
-
-    if not can_view_ai_daily_report_draft(g.user, draft_row):
-        abort(403)
-
-    return render_template(
-        "ai_daily_report_draft_detail.html",
-        draft_id=draft_id,
-        csrf_token=ai_daily_report_csrf_token(),
-    )
 
 
 @app.route("/settings/menu-permissions", methods=["GET", "POST"])

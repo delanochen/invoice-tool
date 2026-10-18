@@ -134,3 +134,50 @@ def register_draft_list_routes(app, *,
 
     app.add_url_rule('/api/ai/daily-report/drafts', endpoint='ai_daily_report_drafts_list', view_func=ai_daily_report_drafts_list, methods=['GET'])
     return {'ai_daily_report_drafts_list': ai_daily_report_drafts_list}
+
+
+def register_draft_pages_routes(app, *,
+    _cb_resolve__ai_daily_report_service,
+    _cb_resolve_abort,
+    _cb_resolve_ai_daily_report_csrf_token,
+    _cb_resolve_can_view_ai_daily_report_draft,
+    _cb_resolve_g,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_login_required,
+    _cb_resolve_render_template,
+):
+    @_cb_resolve_login_required()
+    def ai_daily_report_drafts_page():
+        """Review Center - Draft List page."""
+        if not _cb_resolve_is_internal_user()():
+            _cb_resolve_abort()(403)
+        return _cb_resolve_render_template()(
+            "ai_daily_report_drafts.html",
+            csrf_token=_cb_resolve_ai_daily_report_csrf_token()(),
+        )
+
+
+    @_cb_resolve_login_required()
+    def ai_daily_report_draft_detail_page(draft_id):
+        """Review Center - Draft Detail/Preview page."""
+        if not _cb_resolve_is_internal_user()():
+            _cb_resolve_abort()(403)
+
+        svc = _cb_resolve__ai_daily_report_service()()
+        draft_row = svc.get_draft(draft_id)
+        if not draft_row:
+            _cb_resolve_abort()(404)
+
+        if not _cb_resolve_can_view_ai_daily_report_draft()(_cb_resolve_g().user, draft_row):
+            _cb_resolve_abort()(403)
+
+        return _cb_resolve_render_template()(
+            "ai_daily_report_draft_detail.html",
+            draft_id=draft_id,
+            csrf_token=_cb_resolve_ai_daily_report_csrf_token()(),
+        )
+
+
+    app.add_url_rule('/ai-daily-report/drafts', endpoint='ai_daily_report_drafts_page', view_func=ai_daily_report_drafts_page, methods=['GET'])
+    app.add_url_rule('/ai-daily-report/drafts/<int:draft_id>', endpoint='ai_daily_report_draft_detail_page', view_func=ai_daily_report_draft_detail_page, methods=['GET'])
+    return {'ai_daily_report_drafts_page': ai_daily_report_drafts_page, 'ai_daily_report_draft_detail_page': ai_daily_report_draft_detail_page}
