@@ -134,6 +134,7 @@ from invoice_tool.service_orders import attachment_routes as _split_order_attach
 from invoice_tool.customer_reimbursements import form_routes as _split_settlement_form
 from invoice_tool.customer_reimbursements import action_routes as _split_settlement_actions
 from invoice_tool.customer_reimbursements import attachment_routes as _split_settlement_attachments
+from invoice_tool.invoices import editor_routes as _split_invoice_editor
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -6432,124 +6433,42 @@ transfer_expense_attachment = _expense_transfer_views['transfer_expense_attachme
 
 
 
-@app.route("/invoices/new", methods=["GET", "POST"])
-@login_required
-def new_invoice():
-    if not can_create_invoice():
-        abort(403)
-    requested_order_id = request.args.get("service_order_id", "")
-    requested_reimbursement_id = request.args.get("customer_reimbursement_id", "")
-    source_reimbursement = None
-    source_order = None
-    prefilled_items = []
-    if request.method == "GET" and not requested_reimbursement_id.isdigit():
-        flash("请从审核通过的工单结算生成发票。", "error")
-        if requested_order_id.isdigit():
-            return redirect(url_for("customer_reimbursement_form", order_id=int(requested_order_id)))
-        return redirect(url_for("service_orders"))
-    if request.method == "GET" and requested_order_id.isdigit():
-        requested_order = require_service_order(int(requested_order_id))
-        start_date_redirect = require_service_order_start_date(requested_order)
-        if start_date_redirect:
-            return start_date_redirect
-    if request.method == "GET" and requested_reimbursement_id.isdigit():
-        source_reimbursement, source_order = require_customer_reimbursement(int(requested_reimbursement_id))
-        start_date_redirect = require_service_order_start_date(source_order)
-        if start_date_redirect:
-            return start_date_redirect
-        if source_reimbursement["invoice_id"]:
-            flash("这份工单结算已经生成过发票。", "success")
-            return redirect(url_for("invoice_detail", invoice_id=source_reimbursement["invoice_id"]))
-        linked_invoice = service_order_active_invoice(source_order["id"])
-        if linked_invoice:
-            db().execute(
-                "update customer_reimbursements set invoice_id = ? where id = ?",
-                (linked_invoice["id"], source_reimbursement["id"]),
-            )
-            db().commit()
-            flash("这个工单已经有关联发票。", "success")
-            return redirect(url_for("invoice_detail", invoice_id=linked_invoice["id"]))
-        if source_reimbursement["status"] != "approved":
-            flash("工单结算审核通过后才能生成发票。", "error")
-            return redirect(url_for("customer_reimbursement_form", order_id=source_order["id"]))
-        requested_order_id = str(source_order["id"])
-        try:
-            prefilled_items = customer_reimbursement_invoice_items(source_reimbursement)
-        except ValueError as error:
-            flash(str(error), "error")
-            return redirect(url_for("customer_reimbursement_form", order_id=source_order["id"]))
-    if is_external_user():
-        if not g.user["client_id"]:
-            flash("请联系管理员绑定客户。", "error")
-            return redirect(url_for("dashboard"))
-        clients_rows = db().execute("select * from clients where id = ?", (g.user["client_id"],)).fetchall()
-    else:
-        clients_rows = db().execute("select * from clients order by client_number").fetchall()
-    if not clients_rows:
-        flash("请先创建一个客户。", "error")
-        return redirect(url_for("clients"))
-    projects_rows = db().execute(
-        "select * from projects where project_type = 'invoice' and is_active = 1 order by name"
-    ).fetchall()
-    service_orders_rows = db().execute("select * from service_orders where status != 'closed' order by created_at desc, id desc").fetchall()
-    if not projects_rows:
-        flash("请先由经理或管理员维护项目。", "error")
-        return redirect(url_for("projects") if is_manager() else url_for("dashboard"))
-    if request.method == "POST":
-        save_token = request.form.get("save_token", "")
-        if not claim_invoice_save_token(save_token):
-            existing = db().execute(
-                "select invoice_id from invoice_save_tokens where token = ?",
-                (save_token,),
-            ).fetchone()
-            if existing and existing["invoice_id"]:
-                return redirect(url_for("edit_invoice", invoice_id=existing["invoice_id"]))
-            flash("该发票正在保存，请稍候。", "error")
-            return redirect(url_for("new_invoice"))
-        uploads = uploaded_attachments_from_request()
-        if not validate_attachment_uploads(uploads):
-            db().rollback()
-            return redirect(url_for("new_invoice"))
-        try:
-            invoice_id = create_invoice_from_form(save_token=save_token)
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("new_invoice"))
-        except IntegrityError:
-            db().rollback()
-            flash("保存发票时发生数据库冲突，请重新提交。", "error")
-            return redirect(url_for("new_invoice"))
-        flash("发票已生成。", "success")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    today = date.today()
-    selected_client_id = source_order["client_id"] if source_order else clients_rows[0]["id"]
-    selected_client = next((row for row in clients_rows if row["id"] == selected_client_id), clients_rows[0])
-    selected_term = db().execute(
-        "select * from payment_terms where id = ?",
-        (selected_client["payment_term_id"],),
-    ).fetchone()
-    defaults = {
-        "invoice_number": next_invoice_number(),
-        "issue_date": today.isoformat(),
-        "due_date": calculate_payment_due_date(today.isoformat(), selected_term).isoformat(),
-        "service_order_id": int(requested_order_id) if requested_order_id.isdigit() else None,
-        "customer_reimbursement_id": source_reimbursement["id"] if source_reimbursement else None,
-        "client_id": source_order["client_id"] if source_order else None,
-    }
-    return render_template(
-        "invoice_form.html",
-        clients=clients_rows,
-        projects=projects_rows,
-        service_orders=service_orders_rows,
-        defaults=defaults,
-        form_title="根据工单结算生成发票" if source_reimbursement else "新建发票",
-        form_items=prefilled_items,
-        is_edit=False,
-        attachments=[],
-        save_token=secrets.token_urlsafe(24),
-        payment_terms=payment_term_rows(),
-    )
+_views_invoice_editor = _split_invoice_editor.register_invoice_editor_routes(
+    app,
+    _cb_resolve_IntegrityError=lambda: IntegrityError,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_calculate_payment_due_date=lambda: calculate_payment_due_date,
+    _cb_resolve_can_create_invoice=lambda: can_create_invoice,
+    _cb_resolve_claim_invoice_save_token=lambda: claim_invoice_save_token,
+    _cb_resolve_create_invoice_from_form=lambda: create_invoice_from_form,
+    _cb_resolve_customer_reimbursement_invoice_items=lambda: customer_reimbursement_invoice_items,
+    _cb_resolve_date=lambda: date,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_get_invoice_attachments=lambda: get_invoice_attachments,
+    _cb_resolve_is_external_user=lambda: is_external_user,
+    _cb_resolve_is_manager=lambda: is_manager,
+    _cb_resolve_load_invoice=lambda: load_invoice,
+    _cb_resolve_log_action=lambda: log_action,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_next_invoice_number=lambda: next_invoice_number,
+    _cb_resolve_payment_term_rows=lambda: payment_term_rows,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_require_customer_reimbursement=lambda: require_customer_reimbursement,
+    _cb_resolve_require_service_order=lambda: require_service_order,
+    _cb_resolve_require_service_order_start_date=lambda: require_service_order_start_date,
+    _cb_resolve_secrets=lambda: secrets,
+    _cb_resolve_service_order_active_invoice=lambda: service_order_active_invoice,
+    _cb_resolve_update_invoice_from_form=lambda: update_invoice_from_form,
+    _cb_resolve_uploaded_attachments_from_request=lambda: uploaded_attachments_from_request,
+    _cb_resolve_url_for=lambda: url_for,
+    _cb_resolve_validate_attachment_uploads=lambda: validate_attachment_uploads,
+)
+new_invoice = _views_invoice_editor['new_invoice']
+edit_invoice = _views_invoice_editor['edit_invoice']
 
 
 def invoice_items_from_form():
@@ -6568,78 +6487,6 @@ def create_invoice_from_form(save_token=None):
     return _split_invoice_create.create_invoice_from_form(save_token, IntegrityError=IntegrityError, abort=abort, can_access_client=can_access_client, copy_customer_reimbursement_attachments_to_invoice=copy_customer_reimbursement_attachments_to_invoice, copy_mileage_proofs_to_invoice=copy_mileage_proofs_to_invoice, db=db, finish_invoice_save_token=finish_invoice_save_token, g=g, invoice_items_from_form=invoice_items_from_form, invoice_number_exists=invoice_number_exists, invoice_totals=invoice_totals, log_action=log_action, money=money, next_invoice_number=next_invoice_number, now=now, posted_client_id=posted_client_id, posted_service_order_id=posted_service_order_id, recognize_invoice_if_accounting_enabled=recognize_invoice_if_accounting_enabled, request=request, save_uploaded_attachment=save_uploaded_attachment, service_order_active_invoice=service_order_active_invoice, to_float=to_float, uploaded_attachments_from_request=uploaded_attachments_from_request)
 
 
-@app.route("/invoices/<int:invoice_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_invoice(invoice_id):
-    invoice, client, items = load_invoice(invoice_id)
-    if invoice["status"] != "draft":
-        flash("只有管理员调整为草稿的发票可以编辑。", "error")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    if invoice["created_by"] != g.user["id"] and not is_manager():
-        abort(403)
-    if is_external_user():
-        clients_rows = db().execute("select * from clients where id = ?", (g.user["client_id"],)).fetchall()
-    else:
-        clients_rows = db().execute("select * from clients order by client_number").fetchall()
-    projects_rows = db().execute(
-        """
-        select * from projects
-        where project_type = 'invoice' and (is_active = 1 or id in (
-            select project_id from invoice_items where invoice_id = ?
-        ))
-        order by is_active desc, name
-        """,
-        (invoice_id,),
-    ).fetchall()
-    service_orders_rows = db().execute("select * from service_orders where status != 'closed' or id = ? order by created_at desc, id desc", (invoice["service_order_id"] or 0,)).fetchall()
-    if request.method == "POST":
-        save_token = request.form.get("save_token", "")
-        if not claim_invoice_save_token(save_token, invoice_id):
-            flash("该发票已经保存，请勿重复提交。", "success")
-            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-        uploads = uploaded_attachments_from_request()
-        if not validate_attachment_uploads(uploads, invoice_id):
-            db().rollback()
-            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-        try:
-            update_invoice_from_form(invoice_id)
-            log_action("update", "invoice", invoice_id, invoice["invoice_number"], "修改发票内容")
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-        except IntegrityError:
-            db().rollback()
-            flash("发票编号已经存在，请更换一个发票编号后再保存。", "error")
-            return redirect(url_for("edit_invoice", invoice_id=invoice_id))
-        db().commit()
-        flash("发票已保存。", "success")
-        return redirect(url_for("invoice_detail", invoice_id=invoice_id))
-    defaults = {
-        "id": invoice["id"],
-        "invoice_number": invoice["invoice_number"],
-        "client_id": invoice["client_id"],
-        "created_by": invoice["created_by"],
-        "status": invoice["status"],
-        "issue_date": invoice["issue_date"],
-        "due_date": invoice["due_date"],
-        "currency": invoice["currency"],
-        "notes": invoice["notes"],
-        "service_order_id": invoice["service_order_id"],
-    }
-    return render_template(
-        "invoice_form.html",
-        clients=clients_rows,
-        projects=projects_rows,
-        service_orders=service_orders_rows,
-        defaults=defaults,
-        form_title="编辑发票",
-        form_items=items,
-        is_edit=True,
-        attachments=get_invoice_attachments(invoice_id),
-        save_token=secrets.token_urlsafe(24),
-        payment_terms=payment_term_rows(),
-    )
 
 
 def update_invoice_from_form(invoice_id):

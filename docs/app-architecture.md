@@ -2211,3 +2211,11 @@ Functions: download_customer_reimbursement_attachment, preview_customer_reimburs
 Module: `invoice_tool/customer_reimbursements/attachment_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 10.56s. app.py: 7300 → 7280 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 14: invoice_editor
+
+Functions: new_invoice, edit_invoice.
+Module: `invoice_tool/invoices/editor_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 11.03s. app.py: 7280 → 7127 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
