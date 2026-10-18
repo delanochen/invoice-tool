@@ -2251,3 +2251,11 @@ Functions: ai_daily_report_csrf_token, require_ai_daily_report_csrf, can_view_ai
 Module: `invoice_tool/ai_daily_report_web/access_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 11.93s. app.py: 6369 → 6185 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: report_locks
+
+Functions: order_has_approved_reimbursement, report_locked_by_approved_reimbursement.
+Module: `invoice_tool/customer_reimbursements/report_locks.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.23s. app.py: 6185 → 6165 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

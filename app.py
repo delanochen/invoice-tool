@@ -139,6 +139,7 @@ from invoice_tool.authorization import policy_helpers as _split_authorization
 from invoice_tool.ai_daily_report_web import workflow_helpers as _split_ai_workflow
 from invoice_tool.authentication import identity_helpers as _split_identity
 from invoice_tool.ai_daily_report_web import access_helpers as _split_ai_access
+from invoice_tool.customer_reimbursements import report_locks as _split_report_locks
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1310,32 +1311,11 @@ def can_view_customer_reimbursement():
 
 
 def order_has_approved_reimbursement(order_id):
-    """Return True if the service order already has an approved customer reimbursement.
-
-    Once the customer reimbursement is approved, the order's daily reports are
-    locked: no create / edit / delete. The reimbursement must be returned to
-    draft first. This prevents phantom report hours that affect payroll without
-    changing what the customer pays.
-    """
-    if not order_id:
-        return False
-    row = db().execute(
-        "select 1 from customer_reimbursements where service_order_id = ? and status = 'approved' limit 1",
-        (order_id,),
-    ).fetchone()
-    return row is not None
+    return _split_report_locks.order_has_approved_reimbursement(order_id, db=db)
 
 
 def report_locked_by_approved_reimbursement(order):
-    """Flash a friendly lock message and return True when the order is locked."""
-    if order and order_has_approved_reimbursement(order["id"]):
-        flash(
-            "该工单的客户结算已通过审核，日报已锁定。如需新建、修改或删除日报，"
-            "请先在工单结算页面将结算退回为草稿。",
-            "error",
-        )
-        return True
-    return False
+    return _split_report_locks.report_locked_by_approved_reimbursement(order, flash=flash, order_has_approved_reimbursement=order_has_approved_reimbursement)
 
 
 def can_create_service_report(order=None):
