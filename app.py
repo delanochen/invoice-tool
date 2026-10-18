@@ -163,6 +163,7 @@ from invoice_tool.database_console import statement_helpers as _split_residual_s
 from invoice_tool.service_orders import start_date_helpers as _split_residual_order_guard
 from invoice_tool.photo_imports import path_helpers as _split_residual_photo_paths
 from invoice_tool.customer_reimbursements import path_helpers as _split_residual_settlement_paths
+from invoice_tool.customer_reimbursements import value_helpers as _split_residual_settlement_values
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1909,7 +1910,7 @@ def observed_us_holidays(year):
 
 
 def is_us_weekend_or_holiday(day):
-    return day.weekday() >= 5 or day in observed_us_holidays(day.year)
+    return _split_residual_settlement_values.is_us_weekend_or_holiday(day, observed_us_holidays=observed_us_holidays)
 
 
 def report_duration_hours(report, worker_count=1):
@@ -2111,13 +2112,11 @@ def ensure_customer_reimbursement_pdf_record(reimbursement, order):
 
 
 def reimbursement_number(value):
-    number = float(value or 0)
-    return f"{number:,.2f}" if number else ""
+    return _split_residual_settlement_values.reimbursement_number(value)
 
 
 def reimbursement_paragraph(value, style):
-    text = "" if value is None else str(value)
-    return Paragraph(text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>"), style)
+    return _split_residual_settlement_values.reimbursement_paragraph(value, style, Paragraph=Paragraph)
 
 
 def build_customer_reimbursement_pdf(reimbursement, order, rows):

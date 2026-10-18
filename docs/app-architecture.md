@@ -2437,3 +2437,11 @@ Functions: customer_reimbursement_dir, customer_reimbursement_attachment_dir, cu
 Module: `invoice_tool/customer_reimbursements/path_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 11.34s. app.py: 4930 → 4926 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: residual_settlement_values
+
+Functions: is_us_weekend_or_holiday, reimbursement_number, reimbursement_paragraph.
+Module: `invoice_tool/customer_reimbursements/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 10.94s. app.py: 4926 → 4925 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
