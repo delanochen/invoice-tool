@@ -110,6 +110,7 @@ from invoice_tool.ai_daily_report_web import draft_routes as _split_draft_get
 from invoice_tool.ai_daily_report_web import photo_routes as _split_photos_discover
 from invoice_tool.ai_daily_report_web import lifecycle_routes as _split_draft_cancel
 from invoice_tool.ai_daily_report_web import access_routes as _split_draft_csrf
+from invoice_tool.ai_daily_report_web import list_routes as _split_draft_list
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -7422,124 +7423,20 @@ _views_draft_create = _split_draft_cancel.register_draft_create_routes(
 ai_daily_report_create_draft = _views_draft_create['ai_daily_report_create_draft']
 
 
-@app.get("/api/ai/daily-report/drafts")
-@login_required
-def ai_daily_report_drafts_list():
-    """List AI Daily Report Drafts, filtered by user permission.
-
-    Query params: status, date_from, date_to, service_order_id, page, per_page.
-    List is filtered at SQL level by user permission (not query-all-then-hide).
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-
-    user = g.user
-    clauses, params = ai_daily_report_draft_list_filters(user)
-
-    # Filters
-    status = request.args.get("status")
-    if status and status in ("draft", "confirmed", "cancelled", "saved"):
-        clauses.append("status = ?")
-        params.append(status)
-
-    date_from = request.args.get("date_from")
-    if date_from:
-        clauses.append("report_date >= ?")
-        params.append(date_from)
-
-    date_to = request.args.get("date_to")
-    if date_to:
-        clauses.append("report_date <= ?")
-        params.append(date_to)
-
-    service_order_id = request.args.get("service_order_id", type=int)
-    if service_order_id:
-        clauses.append("service_order_id = ?")
-        params.append(service_order_id)
-
-    # Pagination
-    page = max(1, request.args.get("page", 1, type=int))
-    per_page = min(100, max(1, request.args.get("per_page", 20, type=int)))
-    offset = (page - 1) * per_page
-
-    where = " and ".join(clauses) if clauses else "1=1"
-
-    # Count
-    count_row = db().execute(
-        f"select count(*) as cnt from ai_daily_report_drafts where {where}",
-        params,
-    ).fetchone()
-    total = count_row["cnt"] if count_row else 0
-
-    # Query (draft first, then updated_at desc)
-    rows = db().execute(
-        f"""select id, service_order_id, report_date, status, draft_version,
-                   created_by, created_at, updated_at, draft_data, saved_report_id
-            from ai_daily_report_drafts
-            where {where}
-            order by
-                case when status = 'draft' then 0 else 1 end,
-                updated_at desc
-            limit ? offset ?""",
-        params + [per_page, offset],
-    ).fetchall()
-
-    # Enrich with service order info and worker count
-    drafts = []
-    for row in rows:
-        draft_data = {}
-        try:
-            draft_data = json.loads(row["draft_data"] or "{}") if "draft_data" in row.keys() else {}
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        service_order = db().execute(
-            "select order_number, client_name, site_address from service_orders where id = ?",
-            (row["service_order_id"],),
-        ).fetchone()
-
-        worker_count = len(draft_data.get("workers", []))
-        photo_count = len(draft_data.get("photo_candidates", []))
-        # v0.1.241: 列表徽标同步清理已确认的出行字段与 work_items.* 存量标记
-        verification_fields = reconcile_travel_verification_fields(
-            draft_data.get("workers", []),
-            draft_data.get("verification_fields") or [],
-        )
-        verification_fields = [
-            f for f in verification_fields
-            if not str(f).lower().startswith("work_items.")
-        ]
-
-        drafts.append({
-            "id": row["id"],
-            "service_order_id": row["service_order_id"],
-            "order_number": service_order["order_number"] if service_order else None,
-            "client_name": service_order["client_name"] if service_order else None,
-            "report_date": row["report_date"],
-            "status": row["status"],
-            "draft_version": row["draft_version"],
-            "worker_count": worker_count,
-            "photo_count": photo_count,
-            "has_verification_required": len(verification_fields) > 0,
-            "verification_fields": verification_fields,
-            "created_by": row["created_by"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-            "saved_report_id": row["saved_report_id"],
-            "report_url": (
-                url_for("edit_service_report", report_id=row["saved_report_id"])
-                if row["saved_report_id"] else None
-            ),
-        })
-
-    return jsonify({
-        "ok": True,
-        "drafts": drafts,
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "total_pages": (total + per_page - 1) // per_page if total > 0 else 0,
-    })
+_views_draft_list = _split_draft_list.register_draft_list_routes(
+    app,
+    _cb_resolve_ai_daily_report_draft_list_filters=lambda: ai_daily_report_draft_list_filters,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_json=lambda: json,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_reconcile_travel_verification_fields=lambda: reconcile_travel_verification_fields,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_url_for=lambda: url_for,
+)
+ai_daily_report_drafts_list = _views_draft_list['ai_daily_report_drafts_list']
 
 
 def _build_review_center_preview(draft_row):
