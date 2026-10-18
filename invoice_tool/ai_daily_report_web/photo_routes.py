@@ -81,3 +81,58 @@ def register_photos_discover_routes(app, *,
 
     app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/discover-photos', endpoint='ai_daily_report_discover_photos', view_func=ai_daily_report_discover_photos, methods=['POST'])
     return {'ai_daily_report_discover_photos': ai_daily_report_discover_photos}
+
+
+def register_photo_timeline_routes(app, *,
+    _cb_resolve_DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service,
+    _cb_resolve_db,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_jsonify,
+    _cb_resolve_login_required,
+    _cb_resolve_request,
+):
+    @_cb_resolve_login_required()
+    def ai_daily_report_confirm_photo_timeline(draft_id):
+        """Confirm photo timeline and apply candidates to formal arrival/departure.
+
+    User confirms "photo times are OK" -> apply candidates.
+    If timeline is suspicious/insufficient/verification_required, requires force=true.
+    """
+        if not _cb_resolve_is_internal_user()():
+            return _cb_resolve_jsonify()({"ok": False, "error": "无权限"}), 403
+        svc = _cb_resolve__ai_daily_report_service()()
+        draft_row = svc.get_draft(draft_id)
+        if not draft_row:
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 不存在"}), 404
+
+        # Get force flag and expected_version
+        force = False
+        expected_version = None
+        try:
+            data = _cb_resolve_request().get_json(silent=True)
+            if data:
+                force = bool(data.get("force", False))
+                if "draft_version" in data:
+                    expected_version = int(data["draft_version"])
+        except Exception:
+            pass
+
+        try:
+            result = svc.confirm_photo_timeline(
+                draft_id=draft_id,
+                expected_version=expected_version,
+                force=force,
+            )
+        except _cb_resolve_DraftVersionConflict():
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+        if not result.get("ok"):
+            return _cb_resolve_jsonify()(result), 400
+
+        _cb_resolve_db()().commit()
+        return _cb_resolve_jsonify()(result)
+
+
+    app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/confirm-photo-timeline', endpoint='ai_daily_report_confirm_photo_timeline', view_func=ai_daily_report_confirm_photo_timeline, methods=['POST'])
+    return {'ai_daily_report_confirm_photo_timeline': ai_daily_report_confirm_photo_timeline}

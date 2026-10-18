@@ -6977,47 +6977,17 @@ _views_photos_discover = _split_photos_discover.register_photos_discover_routes(
 ai_daily_report_discover_photos = _views_photos_discover['ai_daily_report_discover_photos']
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/confirm-photo-timeline")
-@login_required
-def ai_daily_report_confirm_photo_timeline(draft_id):
-    """Confirm photo timeline and apply candidates to formal arrival/departure.
-
-    User confirms "photo times are OK" -> apply candidates.
-    If timeline is suspicious/insufficient/verification_required, requires force=true.
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-
-    # Get force flag and expected_version
-    force = False
-    expected_version = None
-    try:
-        data = request.get_json(silent=True)
-        if data:
-            force = bool(data.get("force", False))
-            if "draft_version" in data:
-                expected_version = int(data["draft_version"])
-    except Exception:
-        pass
-
-    try:
-        result = svc.confirm_photo_timeline(
-            draft_id=draft_id,
-            expected_version=expected_version,
-            force=force,
-        )
-    except DraftVersionConflict:
-        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
-
-    if not result.get("ok"):
-        return jsonify(result), 400
-
-    db().commit()
-    return jsonify(result)
+_views_photo_timeline = _split_photos_discover.register_photo_timeline_routes(
+    app,
+    _cb_resolve_DraftVersionConflict=lambda: DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+)
+ai_daily_report_confirm_photo_timeline = _views_photo_timeline['ai_daily_report_confirm_photo_timeline']
 
 
 # ─── Phase 5: Photo Classification APIs ─────────────────────────────────────
