@@ -54,3 +54,11 @@ Functions: customer_reimbursement_items_from_form, save_customer_reimbursement_i
 Module: `invoice_tool/customer_reimbursements/item_forms.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
 Verification: 9 passed, 42 subtests passed in 3.67s. app.py: 10654 → 10565 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 8: invoice_items
+
+Functions: latest_customer_reimbursement, customer_reimbursement_linked_invoice, customer_reimbursement_other_invoice_breakdown, customer_reimbursement_invoice_items.
+Module: `invoice_tool/customer_reimbursements/invoice_items.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.64s. app.py: 10565 → 10418 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
