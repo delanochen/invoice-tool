@@ -94,3 +94,11 @@ Functions: approve_customer_reimbursement, sync_customer_reimbursement_sources, 
 Module: `invoice_tool/customer_reimbursements/action_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 10.51s. app.py: 7599 → 7300 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 13: settlement_attachments
+
+Functions: download_customer_reimbursement_attachment, preview_customer_reimbursement_attachment, delete_customer_reimbursement_attachment.
+Module: `invoice_tool/customer_reimbursements/attachment_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.56s. app.py: 7300 → 7280 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

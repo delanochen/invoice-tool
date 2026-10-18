@@ -133,6 +133,7 @@ from invoice_tool.query_pages import settlement_routes as _split_report_queries
 from invoice_tool.service_orders import attachment_routes as _split_order_attachments
 from invoice_tool.customer_reimbursements import form_routes as _split_settlement_form
 from invoice_tool.customer_reimbursements import action_routes as _split_settlement_actions
+from invoice_tool.customer_reimbursements import attachment_routes as _split_settlement_attachments
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -6061,50 +6062,29 @@ delete_customer_reimbursement = _views_settlement_actions['delete_customer_reimb
 
 
 
-@app.get("/customer-reimbursement-attachments/<int:attachment_id>/download")
-@login_required
-def download_customer_reimbursement_attachment(attachment_id):
-    attachment = db().execute("select * from customer_reimbursement_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_customer_reimbursement(attachment["customer_reimbursement_id"])
-    return send_file(customer_reimbursement_attachment_path(attachment), as_attachment=True, download_name=attachment["original_filename"])
+_views_settlement_attachments = _split_settlement_attachments.register_settlement_attachments_routes(
+    app,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_can_manage_customer_reimbursement=lambda: can_manage_customer_reimbursement,
+    _cb_resolve_customer_reimbursement_attachment_path=lambda: customer_reimbursement_attachment_path,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_log_action=lambda: log_action,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_os=lambda: os,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_require_customer_reimbursement=lambda: require_customer_reimbursement,
+    _cb_resolve_safe_attachment_response=lambda: safe_attachment_response,
+    _cb_resolve_send_file=lambda: send_file,
+    _cb_resolve_url_for=lambda: url_for,
+)
+download_customer_reimbursement_attachment = _views_settlement_attachments['download_customer_reimbursement_attachment']
+preview_customer_reimbursement_attachment = _views_settlement_attachments['preview_customer_reimbursement_attachment']
+delete_customer_reimbursement_attachment = _views_settlement_attachments['delete_customer_reimbursement_attachment']
 
 
-@app.get("/customer-reimbursement-attachments/<int:attachment_id>/preview")
-@login_required
-def preview_customer_reimbursement_attachment(attachment_id):
-    attachment = db().execute("select * from customer_reimbursement_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    require_customer_reimbursement(attachment["customer_reimbursement_id"])
-    return safe_attachment_response(
-        customer_reimbursement_attachment_path(attachment),
-        attachment["original_filename"],
-    )
 
 
-@app.post("/customer-reimbursement-attachments/<int:attachment_id>/delete")
-@login_required
-def delete_customer_reimbursement_attachment(attachment_id):
-    attachment = db().execute("select * from customer_reimbursement_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    reimbursement, order = require_customer_reimbursement(attachment["customer_reimbursement_id"])
-    if not can_manage_customer_reimbursement():
-        abort(403)
-    if reimbursement["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或已退回的工单结算可以删除附件。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"], _anchor="customerReimbursementAttachmentsSection"))
-    try:
-        os.remove(customer_reimbursement_attachment_path(attachment))
-    except FileNotFoundError:
-        pass
-    db().execute("delete from customer_reimbursement_attachments where id = ?", (attachment_id,))
-    log_action("delete", "customer_reimbursement_attachment", attachment_id, attachment["original_filename"], f"工单：{order['order_number']}")
-    db().commit()
-    flash("附件已删除。", "success")
-    return redirect(url_for("customer_reimbursement_form", order_id=order["id"], _anchor="customerReimbursementAttachmentsSection"))
 
 
 _report_write_views = register_report_write_routes(
