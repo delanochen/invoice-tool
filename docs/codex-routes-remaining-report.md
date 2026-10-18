@@ -38,3 +38,11 @@ Functions: ai_daily_report_draft_preview, ai_daily_report_draft_validation, ai_d
 Module: `invoice_tool/ai_daily_report_web/validation_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 11.08s. app.py: 9086 → 8890 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: ai_evidence
+
+Functions: ai_daily_report_draft_photo_preview, ai_daily_report_draft_evidence_preview, ai_daily_report_draft_prepare_attachments, ai_daily_report_draft_formal_save, ai_daily_report_manifest_compliance_review, ai_daily_report_draft_manifest, ai_daily_report_manifest_asset_preview.
+Module: `invoice_tool/ai_daily_report_web/evidence_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.92s. app.py: 8890 → 8533 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

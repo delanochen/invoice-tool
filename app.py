@@ -126,6 +126,7 @@ from invoice_tool.app_settings import admin_routes as _split_system_settings
 from invoice_tool.ai_assistant import web_routes as _split_assistant
 from invoice_tool.ai_daily_report_web import confirmation_routes as _split_ai_confirmation
 from invoice_tool.ai_daily_report_web import validation_routes as _split_ai_validation
+from invoice_tool.ai_daily_report_web import evidence_routes as _split_ai_evidence
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5310,124 +5311,50 @@ def _formal_save_preview_summary(draft_row):
 
 
 
-@app.get("/api/ai/daily-report/draft/<int:draft_id>/photo/<photo_id>")
-@login_required
-def ai_daily_report_draft_photo_preview(draft_id, photo_id):
-    """Secure photo preview for Draft.
-
-    Does NOT accept client-supplied path. Uses draft_id + photo_id to resolve.
-    Validates: user permission, draft ownership, path confinement, hash.
-    """
-    if not is_internal_user():
-        abort(403)
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        abort(404)
-
-    if not can_view_ai_daily_report_draft(g.user, draft_row):
-        abort(403)
-
-    # Find photo in draft's photo_candidates
-    draft_data = {}
-    try:
-        draft_data = json.loads(draft_row["draft_data"] or "{}")
-    except (json.JSONDecodeError, TypeError):
-        abort(404)
-
-    photo_ref = None
-    for p in draft_data.get("photo_candidates", []):
-        if p.get("photo_id") == photo_id or p.get("photo_hash") == photo_id:
-            photo_ref = p
-            break
-
-    if not photo_ref:
-        abort(404)
-
-    # Resolve path safely
-    relative_path = photo_ref.get("relative_path", "")
-    if not relative_path or Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
-        abort(400)
-
-    try:
-        full_path = (Path(SHARED_PHOTOS_DIR) / relative_path).resolve()
-        if not str(full_path).startswith(str(Path(SHARED_PHOTOS_DIR).resolve())):
-            abort(400)
-        if not full_path.exists():
-            abort(404)
-    except OSError:
-        abort(400)
-
-    return send_file(str(full_path), as_attachment=False, conditional=True)
+_views_ai_evidence = _split_ai_evidence.register_ai_evidence_routes(
+    app,
+    _cb_resolve_DATA_DIR=lambda: DATA_DIR,
+    _cb_resolve_FormalSaveCommitConflictError=lambda: FormalSaveCommitConflictError,
+    _cb_resolve_FormalSaveComplianceError=lambda: FormalSaveComplianceError,
+    _cb_resolve_FormalSaveIntegrityError=lambda: FormalSaveIntegrityError,
+    _cb_resolve_FormalSaveStaleError=lambda: FormalSaveStaleError,
+    _cb_resolve_FormalSaveStateError=lambda: FormalSaveStateError,
+    _cb_resolve_FormalSaveValidationBlockedError=lambda: FormalSaveValidationBlockedError,
+    _cb_resolve_ManifestError=lambda: ManifestError,
+    _cb_resolve_ManifestNotFoundError=lambda: ManifestNotFoundError,
+    _cb_resolve_Path=lambda: Path,
+    _cb_resolve_SHARED_PHOTOS_DIR=lambda: SHARED_PHOTOS_DIR,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve__attachment_manifest_service=lambda: _attachment_manifest_service,
+    _cb_resolve__manifest_error_response=lambda: _manifest_error_response,
+    _cb_resolve__new_formal_save_service=lambda: _new_formal_save_service,
+    _cb_resolve__run_phase7_validation=lambda: _run_phase7_validation,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_can_formal_save_draft=lambda: can_formal_save_draft,
+    _cb_resolve_can_prepare_attachment_manifest=lambda: can_prepare_attachment_manifest,
+    _cb_resolve_can_view_ai_daily_report_draft=lambda: can_view_ai_daily_report_draft,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_json=lambda: json,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_log_action=lambda: log_action,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_now=lambda: now,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_require_ai_daily_report_csrf=lambda: require_ai_daily_report_csrf,
+    _cb_resolve_send_file=lambda: send_file,
+    _cb_resolve_url_for=lambda: url_for,
+)
+ai_daily_report_draft_photo_preview = _views_ai_evidence['ai_daily_report_draft_photo_preview']
+ai_daily_report_draft_evidence_preview = _views_ai_evidence['ai_daily_report_draft_evidence_preview']
+ai_daily_report_draft_prepare_attachments = _views_ai_evidence['ai_daily_report_draft_prepare_attachments']
+ai_daily_report_draft_formal_save = _views_ai_evidence['ai_daily_report_draft_formal_save']
+ai_daily_report_manifest_compliance_review = _views_ai_evidence['ai_daily_report_manifest_compliance_review']
+ai_daily_report_draft_manifest = _views_ai_evidence['ai_daily_report_draft_manifest']
+ai_daily_report_manifest_asset_preview = _views_ai_evidence['ai_daily_report_manifest_asset_preview']
 
 
-@app.get("/api/ai/daily-report/draft/<int:draft_id>/evidence/<evidence_id>")
-@login_required
-def ai_daily_report_draft_evidence_preview(draft_id, evidence_id):
-    """Secure Mileage Evidence preview for Draft.
-
-    Does NOT accept client-supplied path. Uses draft_id + evidence_id to resolve.
-    Validates: user permission, draft ownership, path confinement, hash.
-    """
-    if not is_internal_user():
-        abort(403)
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        abort(404)
-
-    if not can_view_ai_daily_report_draft(g.user, draft_row):
-        abort(403)
-
-    # Find evidence in draft's evidence_records
-    draft_data = {}
-    try:
-        draft_data = json.loads(draft_row["draft_data"] or "{}")
-    except (json.JSONDecodeError, TypeError):
-        abort(404)
-
-    evidence = None
-    for e in draft_data.get("evidence_records", []):
-        if e.get("evidence_id") == evidence_id:
-            evidence = e
-            break
-
-    if not evidence:
-        abort(404)
-
-    # Resolve path safely (Draft evidence is stored in DATA_DIR/ai-daily-report-drafts/)
-    relative_path = evidence.get("file_relative_path", "")
-    if not relative_path:
-        abort(404)
-
-    # Evidence path should be under Draft evidence directory.
-    # Persisted records may store either a bare filename (relative to the
-    # draft mileage dir) or a full DATA_DIR-relative path; normalize both.
-    expected_prefix = f"ai-daily-report-drafts/{draft_id}/mileage/"
-    if relative_path.startswith("ai-daily-report-drafts/"):
-        if not relative_path.startswith(expected_prefix):
-            abort(400)
-        resolved_rel = relative_path
-    else:
-        if "/" in relative_path or "\\" in relative_path or ".." in Path(relative_path).parts:
-            abort(400)
-        resolved_rel = expected_prefix + relative_path
-
-    if Path(resolved_rel).is_absolute() or ".." in Path(resolved_rel).parts:
-        abort(400)
-
-    try:
-        full_path = (Path(DATA_DIR) / resolved_rel).resolve()
-        if not str(full_path).startswith(str(Path(DATA_DIR).resolve())):
-            abort(400)
-        if not full_path.exists():
-            abort(404)
-    except OSError:
-        abort(400)
-
-    return send_file(str(full_path), as_attachment=False, conditional=True)
 
 
 # ─── Phase 8: Attachment Preparation / Manifest ─────────────────────────────
@@ -5470,300 +5397,16 @@ def _manifest_error_response(exc, default_status=422):
     return jsonify({"ok": False, "error": "附件准备失败"}), 500
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/prepare-attachments")
-@login_required
-def ai_daily_report_draft_prepare_attachments(draft_id):
-    """Prepare (or reuse) a ready Attachment Manifest for a confirmed Draft.
-
-    Phase 8 state machine: Draft -> Validation -> Confirm -> Prepare -> Phase 9.
-    - Only status == 'confirmed' (can_prepare_attachment_manifest)
-    - CSRF required
-    - Server-side Phase 7 validation gate (can_proceed == False -> 422)
-    - draft_version optimistic locking (stale -> 409)
-    - Idempotent: identical fingerprint reuses the existing ready manifest.
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-
-    require_ai_daily_report_csrf()
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-
-    if not can_prepare_attachment_manifest(g.user, draft_row):
-        return jsonify({"ok": False, "error": "无权准备附件（需 confirmed 状态且非只读权限）"}), 403
-
-    try:
-        data = request.get_json(silent=True) or {}
-        expected_version = data.get("draft_version")
-        if expected_version is not None:
-            expected_version = int(expected_version)
-    except (ValueError, TypeError):
-        return jsonify({"ok": False, "error": "无效请求"}), 400
-
-    if expected_version is not None and expected_version != int(draft_row.get("draft_version", 1)):
-        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试。", "code": "version_conflict"}), 409
-
-    validation = _run_phase7_validation(draft_row)
-    if not validation.can_proceed:
-        return jsonify({
-            "ok": False,
-            "error": "Phase 7 校验未通过（存在未解决的 ERROR），无法准备附件清单。",
-            "code": "validation_cannot_proceed",
-            "validation": validation.to_dict(),
-        }), 422
-
-    try:
-        manifest_svc = _attachment_manifest_service()
-        manifest = manifest_svc.prepare(draft_row, validation)
-    except ManifestError as exc:
-        return _manifest_error_response(exc)
-
-    db().commit()
-    return jsonify({"ok": True, "draft_id": draft_id, "manifest": manifest})
 
 
 # ─── Phase 9: Formal Save / Transactional Commit ────────────────────────────
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/formal-save")
-def ai_daily_report_draft_formal_save(draft_id):
-    """Formal Save: deterministically commit a confirmed Draft + ready Manifest.
-
-    Phase 9 state machine: Draft -> Validation -> Confirm -> Prepare -> Formal Save.
-    - Only status == 'confirmed' (can_formal_save_draft)
-    - CSRF required
-    - Server-side Phase 7 validation gate (can_proceed == False -> 422)
-    - Exactly-once: a Draft maps to at most one formal service_report
-      (200 returns the existing report; 201 first creation)
-    - Client may only submit draft_version + manifest_id (optimistic lock).
-    """
-    if not g.user:
-        return jsonify({"ok": False, "error": "未登录"}), 401
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-
-    require_ai_daily_report_csrf()
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-
-    if not can_view_ai_daily_report_draft(g.user, draft_row):
-        return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
-
-    # State machine: only confirmed (or already-saved) drafts may hit this.
-    if draft_row.get("status") not in {"confirmed", "saved"}:
-        return jsonify({
-            "ok": False,
-            "error": "Draft 状态不允许正式保存。",
-            "code": "draft_state_error",
-        }), 409
-
-    # Exactly-once: an already-saved Draft returns its existing formal report
-    # (200), even if the client retries after a lost response.
-    if draft_row.get("saved_report_id"):
-        report_id = int(draft_row["saved_report_id"])
-        return jsonify({
-            "ok": True,
-            "status": "already_committed",
-            "service_report_id": report_id,
-            "report_url": url_for("edit_service_report", report_id=report_id),
-        }), 200
-
-    if not can_formal_save_draft(g.user, draft_row):
-        return jsonify({"ok": False, "error": "无权正式保存（需 confirmed 状态且非只读权限）"}), 403
-
-    try:
-        data = request.get_json(silent=True) or {}
-        expected_version = data.get("draft_version")
-        if expected_version is not None:
-            expected_version = int(expected_version)
-        client_manifest_id = data.get("manifest_id")
-        if client_manifest_id is not None:
-            client_manifest_id = str(client_manifest_id)
-        # v0.1.252: explicit flag to pass an INCOMPLETE report to the order.
-        force_incomplete = bool(data.get("force_incomplete"))
-    except (ValueError, TypeError):
-        return jsonify({"ok": False, "error": "无效请求"}), 400
-
-    validation = _run_phase7_validation(draft_row)
-    manifest_svc = _attachment_manifest_service()
-    # v0.1.252: force path only applies when validation is blocking — otherwise
-    # the full manifest chain (with attachments) is always preferred.
-    incomplete_pass = bool(force_incomplete and not validation.can_proceed)
-    try:
-        formal_svc = _new_formal_save_service(int(g.user["id"]))
-        if incomplete_pass:
-            result = formal_svc.run_incomplete(draft_row, expected_version)
-        else:
-            result = formal_svc.run(
-                draft_row, expected_version, client_manifest_id, validation, manifest_svc
-            )
-    except (FormalSaveStaleError, FormalSaveStateError, FormalSaveCommitConflictError) as exc:
-        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 409
-    except (FormalSaveIntegrityError, FormalSaveValidationBlockedError, FormalSaveComplianceError) as exc:
-        return jsonify({"ok": False, "error": exc.message, "code": exc.code}), 422
-    except ManifestError as exc:
-        return _manifest_error_response(exc)
-
-    status_code = 201 if result["status"] == "created" else 200
-    payload = {
-        "ok": True,
-        "status": result["status"],
-        "service_report_id": result["service_report_id"],
-        "report_url": url_for("edit_service_report", report_id=result["service_report_id"]),
-    }
-    if incomplete_pass:
-        payload["incomplete"] = True
-    return jsonify(payload), status_code
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>/compliance-review")
-def ai_daily_report_manifest_compliance_review(draft_id, manifest_id):
-    """Human compliance review of a Google mileage evidence source (Phase 8 extension).
-
-    Minimal design (sealed Phase 9 STEP 5): only admin/manager may mark a
-    compliance_review_required source as reviewed. Phase 8/9 flows never mark
-    reviewed automatically. External roles / finance keep current boundaries.
-    """
-    if not g.user:
-        return jsonify({"ok": False, "error": "未登录"}), 401
-    if hasattr(g.user, "keys"):
-        g.user = dict(g.user)
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    role = g.user.get("role", "")
-    if role not in {"admin", "manager"}:
-        return jsonify({"ok": False, "error": "仅管理员/经理可执行合规审查"}), 403
-
-    require_ai_daily_report_csrf()
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-    if not can_view_ai_daily_report_draft(g.user, draft_row):
-        return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
-
-    # Compliance review only makes sense on a confirmed Draft: a reopened or
-    # already-saved Draft must not let an old manifest review be misapplied
-    # (GATE 6 / Ready->Reopen invariant).
-    if draft_row.get("status") != "confirmed":
-        return jsonify({"ok": False, "error": "Draft 状态不允许合规审查。", "code": "draft_state_error"}), 409
-
-    manifest_svc = _attachment_manifest_service()
-    dbc = db()
-    manifest = dbc.execute(
-        "select * from ai_daily_report_attachment_manifests where manifest_id = ? and draft_id = ?",
-        (manifest_id, draft_id),
-    ).fetchone()
-    if not manifest:
-        return jsonify({"ok": False, "error": "Manifest 不存在或不属于该 Draft"}), 404
-
-    sources = dbc.execute(
-        """
-        select source_id, compliance_status as old_status, provider
-        from ai_daily_report_manifest_sources
-        where manifest_id = ? and compliance_review_required = 1 and compliance_status != 'reviewed'
-        """,
-        (manifest_id,),
-    ).fetchall()
-    if not sources:
-        return jsonify({"ok": False, "error": "没有待审查的合规项"}), 400
-    reviewed_at = now()
-    for src in sources:
-        dbc.execute(
-            """
-            update ai_daily_report_manifest_sources
-            set compliance_status = 'reviewed',
-                compliance_reviewed_by = ?,
-                compliance_reviewed_at = ?
-            where source_id = ?
-            """,
-            (g.user.get("id"), reviewed_at, src["source_id"]),
-        )
-    dbc.execute(
-        "update ai_daily_report_attachment_manifests set updated_at = ? where manifest_id = ?",
-        (reviewed_at, manifest_id),
-    )
-    dbc.commit()
-    log_action(
-        "update", "ai_daily_report_manifest", manifest_id, "",
-        f"合规审查通过 {len(sources)} 项（{sources[0]['provider']}），旧状态 {sources[0]['old_status']} -> reviewed，"
-        f"draft_version={manifest['draft_version']} validation_fingerprint={manifest['validation_fingerprint']}",
-    )
-    return jsonify({"ok": True, "reviewed": len(sources), "reviewed_at": reviewed_at})
 
 
-@app.get("/api/ai/daily-report/draft/<int:draft_id>/manifest")
-@login_required
-def ai_daily_report_draft_manifest(draft_id):
-    """GET Attachment Manifest state (read-only).
-
-    Returns current_applicable_manifest: the ready manifest matching the
-    current draft_version + validation_fingerprint. Old stale/cancelled/failed
-    manifests are returned only in history (include_history=1) and are never
-    presented as current.
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-
-    if not can_view_ai_daily_report_draft(g.user, draft_row):
-        return jsonify({"ok": False, "error": "无权访问此 Draft"}), 403
-
-    include_history = request.args.get("include_history") == "1"
-    validation = _run_phase7_validation(draft_row)
-    manifest_svc = _attachment_manifest_service()
-    current = manifest_svc.get_current_manifest(draft_row, validation)
-    history = manifest_svc.get_manifest_history(draft_id) if include_history else []
-
-    return jsonify({
-        "ok": True,
-        "draft_id": draft_id,
-        "draft_version": draft_row.get("draft_version", 1),
-        "status": draft_row.get("status"),
-        "validation_fingerprint": validation.validation_fingerprint,
-        "current": current,
-        "history": history,
-    })
 
 
-@app.get("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>/asset/<asset_id>")
-@login_required
-def ai_daily_report_manifest_asset_preview(draft_id, manifest_id, asset_id):
-    """Secure prepared asset preview (Phase 8).
-
-    Accepts ONLY draft_id + manifest_id + asset_id (no ?path=). Server resolves
-    via DB, then enforces DATA_DIR confinement.
-    """
-    if not is_internal_user():
-        abort(403)
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        abort(404)
-
-    if not can_view_ai_daily_report_draft(g.user, draft_row):
-        abort(403)
-
-    try:
-        manifest_svc = _attachment_manifest_service()
-        full_path, content_type = manifest_svc.get_asset(draft_id, manifest_id, asset_id)
-    except ManifestNotFoundError:
-        abort(404)
-    except ManifestError:
-        abort(400)
-
-    return send_file(str(full_path), mimetype=content_type, as_attachment=False, conditional=True)
 
 
 @app.delete("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>")
