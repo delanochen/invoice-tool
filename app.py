@@ -166,6 +166,7 @@ from invoice_tool.customer_reimbursements import path_helpers as _split_residual
 from invoice_tool.customer_reimbursements import value_helpers as _split_residual_settlement_values
 from invoice_tool.messages import content_helpers as _split_residual_messages
 from invoice_tool.audit_log import request_helpers as _split_residual_audit
+from invoice_tool.geocoding import address_helpers as _split_residual_geo_values
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2299,7 +2300,7 @@ def log_login_action(user):
 
 
 def normalized_address(value):
-    return " ".join(str(value or "").strip().split()).casefold()
+    return _split_residual_geo_values.normalized_address(value)
 
 
 def parse_coordinate_pair(value):
@@ -2315,14 +2316,11 @@ def fetch_geocoder_json(request_url):
 
 
 def configured_country_codes():
-    return {code.strip().casefold() for code in NOMINATIM_COUNTRY_CODES.split(",") if code.strip()}
+    return _split_residual_geo_values.configured_country_codes(NOMINATIM_COUNTRY_CODES=NOMINATIM_COUNTRY_CODES)
 
 
 def address_expectations(address):
-    uppercase_address = str(address or "").upper()
-    state_codes = [token for token in re.findall(r"\b[A-Z]{2}\b", uppercase_address) if token in US_STATE_CODES]
-    zip_codes = re.findall(r"\b(\d{5})(?:-\d{4})?\b", uppercase_address)
-    return state_codes[-1] if state_codes else None, zip_codes[-1] if zip_codes else None
+    return _split_residual_geo_values.address_expectations(address, US_STATE_CODES=US_STATE_CODES, re=re)
 
 
 def census_result_matches_address(match, address):

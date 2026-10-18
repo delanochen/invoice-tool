@@ -94,3 +94,11 @@ Functions: request_ip_address.
 Module: `invoice_tool/audit_log/request_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 13.93s. app.py: 4920 → 4920 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 13: residual_geo_values
+
+Functions: normalized_address, configured_country_codes, address_expectations.
+Module: `invoice_tool/geocoding/address_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 12.07s. app.py: 4920 → 4918 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
