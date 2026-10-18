@@ -91,6 +91,7 @@ from invoice_tool.user_preferences import phone as _split_phone
 from invoice_tool.report_exports import location as _split_report_location
 from invoice_tool.customer_reimbursements import access as _split_settlement_access
 from invoice_tool.customer_reimbursements import rates as _split_contract_rates
+from invoice_tool.customer_reimbursements import holidays as _split_holidays
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3056,38 +3057,7 @@ def calculated_report_driving_miles():
 
 
 def observed_us_holidays(year):
-    def observed(day):
-        if day.weekday() == 5:
-            return day - timedelta(days=1)
-        if day.weekday() == 6:
-            return day + timedelta(days=1)
-        return day
-
-    def nth_weekday(month, weekday, nth):
-        current = date(year, month, 1)
-        while current.weekday() != weekday:
-            current += timedelta(days=1)
-        return current + timedelta(days=7 * (nth - 1))
-
-    def last_weekday(month, weekday):
-        current = date(year, month + 1, 1) - timedelta(days=1) if month < 12 else date(year, 12, 31)
-        while current.weekday() != weekday:
-            current -= timedelta(days=1)
-        return current
-
-    return {
-        observed(date(year, 1, 1)),
-        nth_weekday(1, 0, 3),
-        nth_weekday(2, 0, 3),
-        last_weekday(5, 0),
-        observed(date(year, 6, 19)),
-        observed(date(year, 7, 4)),
-        nth_weekday(9, 0, 1),
-        nth_weekday(10, 0, 2),
-        observed(date(year, 11, 11)),
-        nth_weekday(11, 3, 4),
-        observed(date(year, 12, 25)),
-    }
+    return _split_holidays.observed_us_holidays(year, date=date, timedelta=timedelta)
 
 
 def is_us_weekend_or_holiday(day):
