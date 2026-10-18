@@ -14,3 +14,13 @@ def resolve_contract_rates(order_id, work_date, *, CUSTOMER_REIMBURSEMENT_RATE_F
         if result["source"] == "missing":
             missing.append(label)
     return resolved, missing
+
+
+def contract_rate_missing_summary(order_id, dates, *, resolve_contract_rates):
+    """汇总一组日期上缺失的客户费率：{日期: [展示名, ...]}，仅返回有缺失的日期。"""
+    summary = {}
+    for work_date in sorted({str(value)[:10] for value in dates if value}):
+        _, missing = resolve_contract_rates(order_id, work_date)
+        if missing:
+            summary[work_date] = missing
+    return summary

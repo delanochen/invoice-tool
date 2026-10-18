@@ -1642,3 +1642,10 @@ Verified by `test_codebuddy_settlement_contract.py`; independent review/testing 
 `invoice_tool/customer_reimbursements/rates.py` owns resolve_contract_rates.
 Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
 Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 3/20: missing_rates
+
+`invoice_tool/customer_reimbursements/rates.py` owns contract_rate_missing_summary.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
