@@ -131,3 +131,11 @@
 - 迁移函数：invoice_query。
 - app.py：12244 → 12156 行。
 - 审核验证：1 passed, 3 subtests passed in 2.12s。
+
+
+## 第 17/20 轮：order_query_page
+
+- CodeBuddy 实际写入 `invoice_tool/query_pages/orders.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：service_order_query。
+- app.py：12156 → 12095 行。
+- 审核验证：1 passed, 3 subtests passed in 2.11s。
