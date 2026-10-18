@@ -136,3 +136,55 @@ def register_photo_timeline_routes(app, *,
 
     app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/confirm-photo-timeline', endpoint='ai_daily_report_confirm_photo_timeline', view_func=ai_daily_report_confirm_photo_timeline, methods=['POST'])
     return {'ai_daily_report_confirm_photo_timeline': ai_daily_report_confirm_photo_timeline}
+
+
+def register_photos_classify_routes(app, *,
+    _cb_resolve_DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service,
+    _cb_resolve__make_photo_classification_service,
+    _cb_resolve_db,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_jsonify,
+    _cb_resolve_login_required,
+    _cb_resolve_request,
+    _cb_resolve_vision_settings,
+):
+    @_cb_resolve_login_required()
+    def ai_daily_report_classify_photos(draft_id):
+        """Classify all photos in draft using Vision API (Phase 5)."""
+        if not _cb_resolve_is_internal_user()():
+            return _cb_resolve_jsonify()({"ok": False, "error": "无权限"}), 403
+        svc = _cb_resolve__ai_daily_report_service()()
+        draft_row = svc.get_draft(draft_id)
+        if not draft_row:
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 不存在"}), 404
+
+        expected_version = None
+        try:
+            data = _cb_resolve_request().get_json(silent=True)
+            if data and "draft_version" in data:
+                expected_version = int(data["draft_version"])
+        except Exception:
+            pass
+
+        settings = _cb_resolve_vision_settings()()
+        photo_svc = _cb_resolve__make_photo_classification_service()()
+        try:
+            result = svc.classify_draft_photos(
+                draft_id=draft_id,
+                photo_classification_service=photo_svc,
+                analysis_model=settings["model"],
+                expected_version=expected_version,
+            )
+        except _cb_resolve_DraftVersionConflict():
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+
+        if not result.get("ok"):
+            return _cb_resolve_jsonify()(result), 400
+
+        _cb_resolve_db()().commit()
+        return _cb_resolve_jsonify()(result)
+
+
+    app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/classify-photos', endpoint='ai_daily_report_classify_photos', view_func=ai_daily_report_classify_photos, methods=['POST'])
+    return {'ai_daily_report_classify_photos': ai_daily_report_classify_photos}

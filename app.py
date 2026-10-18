@@ -7019,42 +7019,19 @@ def _make_photo_classification_service():
     )
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/classify-photos")
-@login_required
-def ai_daily_report_classify_photos(draft_id):
-    """Classify all photos in draft using Vision API (Phase 5)."""
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-
-    expected_version = None
-    try:
-        data = request.get_json(silent=True)
-        if data and "draft_version" in data:
-            expected_version = int(data["draft_version"])
-    except Exception:
-        pass
-
-    settings = vision_settings()
-    photo_svc = _make_photo_classification_service()
-    try:
-        result = svc.classify_draft_photos(
-            draft_id=draft_id,
-            photo_classification_service=photo_svc,
-            analysis_model=settings["model"],
-            expected_version=expected_version,
-        )
-    except DraftVersionConflict:
-        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
-
-    if not result.get("ok"):
-        return jsonify(result), 400
-
-    db().commit()
-    return jsonify(result)
+_views_photos_classify = _split_photos_discover.register_photos_classify_routes(
+    app,
+    _cb_resolve_DraftVersionConflict=lambda: DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve__make_photo_classification_service=lambda: _make_photo_classification_service,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_vision_settings=lambda: vision_settings,
+)
+ai_daily_report_classify_photos = _views_photos_classify['ai_daily_report_classify_photos']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/change-safety-photo")
