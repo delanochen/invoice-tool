@@ -129,6 +129,7 @@ from invoice_tool.ai_daily_report_web import validation_routes as _split_ai_vali
 from invoice_tool.ai_daily_report_web import evidence_routes as _split_ai_evidence
 from invoice_tool.ai_daily_report_web import worker_routes as _split_ai_workers
 from invoice_tool.ai_daily_report_web import work_routes as _split_ai_work
+from invoice_tool.query_pages import settlement_routes as _split_report_queries
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5709,141 +5710,29 @@ def build_multi_sheet_xlsx(sheets):
     return _split_xlsx_multi.build_multi_sheet_xlsx(sheets, BytesIO=BytesIO, Decimal=Decimal, html=html, re=re, xlsx_column_name=xlsx_column_name, zipfile=zipfile)
 
 
-@app.post("/reports/export-visible.xlsx")
-@login_required
-def export_visible_report():
-    payload = request.get_json(silent=True) or {}
-    title = str(payload.get("title") or "报表").strip()[:80] or "报表"
-    headers = payload.get("headers") or []
-    rows = payload.get("rows") or []
-    if not isinstance(headers, list) or not headers or len(headers) > 100:
-        abort(400)
-    if not isinstance(rows, list) or len(rows) > 10000:
-        abort(400)
-    clean_headers = [str(value or "")[:500] for value in headers]
-    clean_rows = []
-    for row in rows:
-        if not isinstance(row, list):
-            abort(400)
-        clean_rows.append([str(value or "")[:5000] for value in row[: len(clean_headers)]])
-    safe_sheet_name = re.sub(r"[\\/*?:\[\]]", " ", title).strip()[:31] or "报表"
-    safe_filename = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "-", title).strip("-") or "report"
-    workbook = build_simple_xlsx(clean_headers, clean_rows, sheet_name=safe_sheet_name)
-    return send_file(
-        workbook,
-        as_attachment=True,
-        download_name=f"{safe_filename}-{date.today().isoformat()}.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+_views_report_queries = _split_report_queries.register_report_queries_routes(
+    app,
+    _cb_resolve_CUSTOMER_REIMBURSEMENT_STATUS_LABELS=lambda: CUSTOMER_REIMBURSEMENT_STATUS_LABELS,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_build_simple_xlsx=lambda: build_simple_xlsx,
+    _cb_resolve_can_view_audit_logs=lambda: can_view_audit_logs,
+    _cb_resolve_can_view_customer_reimbursement=lambda: can_view_customer_reimbursement,
+    _cb_resolve_current_language=lambda: current_language,
+    _cb_resolve_date=lambda: date,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_external_manager=lambda: is_external_manager,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_re=lambda: re,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_send_file=lambda: send_file,
+)
+export_visible_report = _views_report_queries['export_visible_report']
+customer_reimbursement_query = _views_report_queries['customer_reimbursement_query']
+audit_log_report = _views_report_queries['audit_log_report']
 
 
-@app.route("/reports/customer-reimbursements")
-@login_required
-def customer_reimbursement_query():
-    if not can_view_customer_reimbursement():
-        abort(403)
-    q = request.args.get("q", "").strip()
-    status = request.args.get("status", "")
-    # 工单状态筛选（open/closed）：与结算单自身的 status 是两个独立维度。
-    # 默认只看「进行中」的工单——「进行中」是唯一有意义的默认值，
-    # 不做筛选会把历史已关闭工单的结算全带进来，数量上淹没当期的。
-    # 传 order_status=all（或空字符串以外的 ALL）表示不限。
-    order_status = request.args.get("order_status", "open")
-    if order_status not in ("open", "closed", "all"):
-        order_status = "open"
-    date_from = request.args.get("date_from", "")
-    date_to = request.args.get("date_to", "")
-    order_ids = list(dict.fromkeys(value for value in request.args.getlist("order_id") if value))
-    sites = list(dict.fromkeys(value for value in request.args.getlist("site") if value))
-    clauses = ["1 = 1"]
-    params = []
-    if is_external_manager():
-        clauses.append("service_orders.client_id = ?")
-        params.append(g.user["client_id"])
-    options = db().execute(f"select distinct service_orders.id, service_orders.order_number, service_orders.client_name from service_orders join customer_reimbursements on customer_reimbursements.service_order_id = service_orders.id where {' and '.join(clauses)} order by service_orders.order_number desc", params).fetchall()
-    for column, values in [("service_orders.id", order_ids), ("service_orders.client_name", sites)]:
-        if values:
-            clauses.append(f"{column} in ({','.join('?' for _ in values)})")
-            params.extend(values)
-    if q:
-        clauses.append(
-            """
-            (
-                customer_reimbursements.file_name like ?
-                or service_orders.order_number like ?
-                or service_orders.client_name like ?
-                or service_orders.client_order_number like ?
-                or coalesce(owners.name, buyers.owner) like ?
-                or invoices.invoice_number like ?
-            )
-            """
-        )
-        params.extend([f"%{q}%"] * 6)
-    if status in CUSTOMER_REIMBURSEMENT_STATUS_LABELS:
-        clauses.append("customer_reimbursements.status = ?")
-        params.append(status)
-    else:
-        status = ""
-    if order_status == "open":
-        clauses.append("service_orders.status != 'closed'")
-    elif order_status == "closed":
-        clauses.append("service_orders.status = 'closed'")
-    if date_from:
-        clauses.append("date(customer_reimbursements.created_at) >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("date(customer_reimbursements.created_at) <= ?")
-        params.append(date_to)
-    rows = db().execute(
-        f"""
-        select customer_reimbursements.*,
-               service_orders.order_number,
-               service_orders.client_name,
-               service_orders.client_order_number,
-               service_orders.country_code,
-               service_orders.region_code,
-               coalesce(owners.name, buyers.owner) as buyer_owner,
-               coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
-               coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
-               creators.name as creator_name,
-               reviewers.name as reviewer_name,
-               invoices.invoice_number
-        from customer_reimbursements
-        join service_orders on service_orders.id = customer_reimbursements.service_order_id
-        left join buyers on buyers.id = service_orders.buyer_id
-        left join owners on owners.id = buyers.owner_id
-        left join users creators on creators.id = customer_reimbursements.created_by
-        left join users reviewers on reviewers.id = customer_reimbursements.reviewed_by
-        left join invoices on invoices.id = customer_reimbursements.invoice_id
-        left join country_translations country_local
-          on country_local.country_code = service_orders.country_code and country_local.language_code = ?
-        left join country_translations country_zh
-          on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
-        where {" and ".join(clauses)}
-        order by customer_reimbursements.created_at desc, customer_reimbursements.id desc
-        """,
-        [current_language(), *params],
-    ).fetchall()
-    totals = {
-        "labor_total": sum(float(row["labor_total"] or 0) for row in rows),
-        "travel_total": sum(float(row["travel_total"] or 0) for row in rows),
-        "mileage_total": sum(float(row["mileage_total"] or 0) for row in rows),
-        "other_total": sum(float(row["other_total"] or 0) for row in rows),
-        "total_amount": sum(float(row["total_amount"] or 0) for row in rows),
-    }
-    return render_template(
-        "customer_reimbursement_query.html",
-        rows=rows,
-        totals=totals,
-        q=q,
-        status=status,
-        order_status=order_status,
-        date_from=date_from,
-        date_to=date_to,
-        labels=CUSTOMER_REIMBURSEMENT_STATUS_LABELS,
-        order_ids=order_ids, sites=sites, order_options=options,
-        site_options=[{"client_name": name} for name in sorted({row["client_name"] for row in options if row["client_name"]})],
-    )
 
 
 _expense_query_views = register_expense_query_routes(
@@ -5875,83 +5764,6 @@ _expense_reset_views = register_expense_reset_routes(
 process_expense_action = _expense_reset_views['process_expense_action']
 
 
-@app.route("/reports/audit-logs")
-@login_required
-def audit_log_report():
-    if not can_view_audit_logs():
-        abort(403)
-    entity_labels = {
-        "service_order": "工单",
-        "invoice": "发票",
-        "service_report": "工作日报",
-        "expense": "报销",
-        "customer_reimbursement": "工单结算",
-        "user": "用户",
-        "database": "数据库",
-    }
-    action_labels = {
-        "create": "创建",
-        "update": "修改",
-        "delete": "删除",
-        "submit": "提交审核",
-        "approve": "审核通过",
-        "return": "退回",
-        "void": "作废",
-        "mark_paid": "核销",
-        "unmark_paid": "取消核销",
-        "status_change": "调整状态",
-        "reimburse": "报销发放",
-        "reset": "重置状态",
-        "send": "发送邮件",
-        "login": "登录",
-        "sql": "执行 SQL",
-    }
-    q = request.args.get("q", "").strip()
-    entity_type = request.args.get("entity_type", "").strip()
-    action = request.args.get("action", "").strip()
-    date_from = request.args.get("date_from", "")
-    date_to = request.args.get("date_to", "")
-    clauses = ["1 = 1"]
-    params = []
-    if q:
-        clauses.append("(user_name like ? or entity_label like ? or summary like ?)")
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
-    if entity_type in entity_labels:
-        clauses.append("entity_type = ?")
-        params.append(entity_type)
-    else:
-        entity_type = ""
-    if action in action_labels:
-        clauses.append("action = ?")
-        params.append(action)
-    else:
-        action = ""
-    if date_from:
-        clauses.append("date(created_at) >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("date(created_at) <= ?")
-        params.append(date_to)
-    rows = db().execute(
-        f"""
-        select * from audit_logs
-        where {" and ".join(clauses)}
-        order by datetime(created_at) desc, id desc
-        limit 1000
-        """,
-        params,
-    ).fetchall()
-    return render_template(
-        "audit_logs.html",
-        rows=rows,
-        q=q,
-        entity_type=entity_type,
-        action=action,
-        date_from=date_from,
-        date_to=date_to,
-        entity_labels=entity_labels,
-        action_labels=action_labels,
-    )
 
 
 _service_order_views = register_service_order_routes(

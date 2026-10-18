@@ -2171,3 +2171,11 @@ Functions: ai_daily_report_recalculate_mileage, ai_daily_report_update_arrival_d
 Module: `invoice_tool/ai_daily_report_web/work_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 11.11s. app.py: 8332 → 8120 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: report_queries
+
+Functions: export_visible_report, customer_reimbursement_query, audit_log_report.
+Module: `invoice_tool/query_pages/settlement_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.72s. app.py: 8120 → 7932 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
