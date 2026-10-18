@@ -7350,57 +7350,20 @@ _views_draft_cancel = _split_draft_cancel.register_draft_cancel_routes(
 ai_daily_report_cancel = _views_draft_cancel['ai_daily_report_cancel']
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/delete")
-@login_required
-def ai_daily_report_delete(draft_id):
-    """Physically delete a draft (hard delete, not a soft cancel).
-
-    v0.1.241: /cancel was turned back into a soft cancel; this endpoint now
-    owns the hard delete. Removes the draft plus cascaded actions / manifests
-    (with their sources, assets, roles) and formal commits. Cleans manifest
-    staging directories first. Saved (formally committed) drafts cannot be
-    deleted. Requires CSRF token.
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    require_ai_daily_report_csrf()
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-    if draft_row["status"] == "saved":
-        return jsonify({"ok": False, "error": "已正式保存的日报不能删除"}), 409
-
-    user = g.user
-    # Convert database Row to dict (Row does not support attribute access)
-    if hasattr(user, "keys"):
-        user = dict(user)
-    user_id = user.get("id", "")
-
-    # Clean manifest staging directories before the rows disappear.
-    manifest_rows = db().execute(
-        "select manifest_id from ai_daily_report_attachment_manifests where draft_id = ?",
-        (draft_id,),
-    ).fetchall()
-    if manifest_rows:
-        try:
-            msvc = _attachment_manifest_service()
-            for row in manifest_rows:
-                msvc._delete_staging_dir(draft_id, row[0])
-        except Exception:
-            pass
-
-    svc.delete_draft(draft_id)  # physical delete (cascades child rows)
-    db().commit()
-    return jsonify({
-        "ok": True,
-        "draft_id": draft_id,
-        "status": "deleted",
-        "deleted_by": user_id,
-        "deleted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "message": "Draft 已彻底删除",
-    })
+_views_draft_delete = _split_draft_cancel.register_draft_delete_routes(
+    app,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve__attachment_manifest_service=lambda: _attachment_manifest_service,
+    _cb_resolve_datetime=lambda: datetime,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_require_ai_daily_report_csrf=lambda: require_ai_daily_report_csrf,
+    _cb_resolve_timezone=lambda: timezone,
+)
+ai_daily_report_delete = _views_draft_delete['ai_daily_report_delete']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/reopen")
