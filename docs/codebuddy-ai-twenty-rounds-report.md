@@ -155,3 +155,12 @@
 - 迁移函数：ai_daily_report_drafts_page, ai_daily_report_draft_detail_page。
 - app.py：11479 → 11462 行。
 - 审核验证：1 passed, 12 subtests passed in 1.94s。
+
+
+## 第 20/20 轮：联合验收
+
+- Codex 验证结果：488 passed, 4 deselected, 2 warnings, 517 subtests passed in 288.26s (0:04:48)。
+- 本批 app.py：11986 → 11462 行；19 次结构迁移，每轮单独审核、测试及提交。
+- 本批第1–13轮由CodeBuddy实施，第14–19轮及本轮验收记录由Codex直接实施，Codex负责验证及提交；实际调用日志保存在主工作区 docs/coordination-diagnostics/codebuddy-ai-twenty。
+- 数据库限于名称核验后的 invoice_test；邮件完全使用模拟传输，没有真实发送。四项既有 series_id 夹具问题精确排除；不是全仓库测试。
+- 未改业务规则，未修改数据库结构，未合并或部署；原有事务/文件回滚及字段缺口风险保持单独记录。
