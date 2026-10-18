@@ -67,3 +67,11 @@
 - 迁移函数：customer_reimbursement_item_expense_amount。
 - app.py：12599 → 12590 行。
 - 审核验证：1 passed, 3 subtests passed in 1.92s。
+
+
+## 第 9/20 轮：item_calculation
+
+- CodeBuddy 实际写入 `invoice_tool/customer_reimbursements/calculations.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：calculate_customer_reimbursement_item。
+- app.py：12590 → 12563 行。
+- 审核验证：1 passed, 3 subtests passed in 1.97s。

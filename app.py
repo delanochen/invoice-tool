@@ -3361,34 +3361,7 @@ def customer_reimbursement_item_expense_amount(row, field_name):
 
 
 def calculate_customer_reimbursement_item(row, sort_order=0):
-    labor_total = (
-        decimal_value(row.get("standard_hours")) * money_decimal(row.get("standard_rate"))
-        + decimal_value(row.get("transport_hours")) * money_decimal(row.get("transport_rate"))
-        + decimal_value(row.get("public_transport_hours")) * money_decimal(row.get("public_transport_rate"))
-        + decimal_value(row.get("overtime_hours")) * money_decimal(row.get("overtime_rate"))
-        + decimal_value(row.get("holiday_hours")) * money_decimal(row.get("holiday_rate"))
-    )
-    # 自驾交通计费：报价单/合同按自驾计费方式生成的行带 driving_amount，
-    # 直接采用（仅里程=里程×单价 / 仅时长=时长×单价 / 里程+时长=两项相加）。
-    # 未带 driving_amount 的行（既有合同路径）仍按 里程 × 里程单价 计费，口径不变。
-    driving_amount = _row_field(row, "driving_amount", None)
-    if driving_amount is not None:
-        mileage_total = money_decimal(driving_amount)
-    else:
-        mileage_total = decimal_value(row.get("miles")) * money_decimal(row.get("mileage_rate"))
-    travel_fields = ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other")
-    travel_total = sum(
-        (
-            customer_reimbursement_item_expense_amount(row, key)
-            for key in travel_fields
-        ),
-        Decimal("0"),
-    )
-    row["labor_total"] = money_float(labor_total)
-    row["mileage_total"] = money_float(mileage_total)
-    row["total"] = money_float(money_decimal(labor_total) + money_decimal(mileage_total) + travel_total)
-    row["sort_order"] = sort_order
-    return row
+    return _split_row_field.calculate_customer_reimbursement_item(row, sort_order, Decimal=Decimal, _row_field=_row_field, customer_reimbursement_item_expense_amount=customer_reimbursement_item_expense_amount, decimal_value=decimal_value, money_decimal=money_decimal, money_float=money_float)
 
 
 def expense_settlement_invoice_mapping():
