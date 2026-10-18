@@ -2528,3 +2528,8 @@ Moved CUSTOMER_REIMBURSEMENT_PROJECTS, CUSTOMER_REIMBURSEMENT_RATE_FIELDS, SETTL
 ## Catalog owner_catalog
 
 Moved DEFAULT_OWNER_NAMES, DEFAULT_SITE_OWNER_NAMES into `invoice_tool/contacts/owner_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.70s. app.py 4559 lines. Codex implementation; no merge/deployment.
+
+
+## Final menu defaults
+
+Menu default expression and original manager-inheritance loop moved to `invoice_tool/authorization/menu_defaults.py`. Private iteration binding is preserved by an explicit root callback. Verification: 32 passed, 11 subtests passed in 11.03s.

@@ -499,15 +499,10 @@ ROLE_OPTIONS = _catalog_action_catalog.make_role_options()
 
 MENU_PERMISSION_GROUPS = _catalog_action_catalog.make_menu_permission_groups(ROLE_OPTIONS=ROLE_OPTIONS)
 
-DEFAULT_MENU_ROLES = {
-    item["key"]: set(item["roles"])
-    for group in MENU_PERMISSION_GROUPS
-    for item in group["items"]
-}
+from invoice_tool.authorization import menu_defaults as _menu_defaults
+DEFAULT_MENU_ROLES = _menu_defaults.make_default_menu_roles(MENU_PERMISSION_GROUPS)
 # 经理是财务权限的超集：今后新增任何默认财务菜单时，无需再手工重复补经理。
-for _roles in DEFAULT_MENU_ROLES.values():
-    if "finance" in _roles:
-        _roles.add("manager")
+_menu_defaults.apply_manager_inheritance(DEFAULT_MENU_ROLES, _assign_iteration=lambda roles: globals().update(_roles=roles))
 
 ACTION_LABELS = _catalog_action_catalog.make_action_labels()
 
