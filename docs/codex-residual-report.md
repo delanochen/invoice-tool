@@ -62,3 +62,11 @@ Functions: allowed_attachment, allowed_image, shared_photos_root, ensure_service
 Module: `invoice_tool/photo_imports/path_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 11.33s. app.py: 4935 → 4930 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: residual_settlement_paths
+
+Functions: customer_reimbursement_dir, customer_reimbursement_attachment_dir, customer_reimbursement_file_path, customer_reimbursement_attachment_path, save_customer_reimbursement_uploads.
+Module: `invoice_tool/customer_reimbursements/path_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.34s. app.py: 4930 → 4926 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

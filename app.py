@@ -162,6 +162,7 @@ from invoice_tool.presentation import value_helpers as _split_residual_formattin
 from invoice_tool.database_console import statement_helpers as _split_residual_sql
 from invoice_tool.service_orders import start_date_helpers as _split_residual_order_guard
 from invoice_tool.photo_imports import path_helpers as _split_residual_photo_paths
+from invoice_tool.customer_reimbursements import path_helpers as _split_residual_settlement_paths
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1842,23 +1843,19 @@ def get_report_attachments(report_id):
 
 
 def customer_reimbursement_dir(reimbursement_id):
-    path = os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(reimbursement_id))
-    os.makedirs(path, exist_ok=True)
-    return path
+    return _split_residual_settlement_paths.customer_reimbursement_dir(reimbursement_id, CUSTOMER_REIMBURSEMENT_DIR=CUSTOMER_REIMBURSEMENT_DIR, os=os)
 
 
 def customer_reimbursement_attachment_dir(reimbursement_id):
-    path = os.path.join(customer_reimbursement_dir(reimbursement_id), "attachments")
-    os.makedirs(path, exist_ok=True)
-    return path
+    return _split_residual_settlement_paths.customer_reimbursement_attachment_dir(reimbursement_id, customer_reimbursement_dir=customer_reimbursement_dir, os=os)
 
 
 def customer_reimbursement_file_path(reimbursement):
-    return os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(reimbursement["id"]), reimbursement["stored_filename"])
+    return _split_residual_settlement_paths.customer_reimbursement_file_path(reimbursement, CUSTOMER_REIMBURSEMENT_DIR=CUSTOMER_REIMBURSEMENT_DIR, os=os)
 
 
 def customer_reimbursement_attachment_path(attachment):
-    return os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(attachment["customer_reimbursement_id"]), "attachments", attachment["stored_filename"])
+    return _split_residual_settlement_paths.customer_reimbursement_attachment_path(attachment, CUSTOMER_REIMBURSEMENT_DIR=CUSTOMER_REIMBURSEMENT_DIR, os=os)
 
 
 def require_customer_reimbursement(reimbursement_id):
@@ -2043,8 +2040,7 @@ def save_customer_reimbursement_attachment(reimbursement_id, uploaded):
 
 
 def save_customer_reimbursement_uploads(reimbursement_id):
-    for uploaded in uploaded_attachments_from_request():
-        save_customer_reimbursement_attachment(reimbursement_id, uploaded)
+    return _split_residual_settlement_paths.save_customer_reimbursement_uploads(reimbursement_id, save_customer_reimbursement_attachment=save_customer_reimbursement_attachment, uploaded_attachments_from_request=uploaded_attachments_from_request)
 
 
 def unique_customer_reimbursement_attachment_filename(reimbursement_id, original_filename):
