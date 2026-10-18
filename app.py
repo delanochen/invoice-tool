@@ -101,6 +101,7 @@ from invoice_tool.mobile_distribution import routes as _split_mobile_install
 from invoice_tool.user_preferences import routes as _split_language_session
 from invoice_tool.messages import routes as _split_messages_list
 from invoice_tool.mobile_distribution import pwa_routes as _split_pwa_manifest
+from invoice_tool.dashboard import page_routes as _split_workspace_pages
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5712,10 +5713,15 @@ _views_service_worker = _split_pwa_manifest.register_service_worker_routes(
 app_service_worker = _views_service_worker['app_service_worker']
 
 
-@app.route("/workspace")
-@login_required
-def workspace():
-    return render_template("workspace.html")
+_views_workspace_pages = _split_workspace_pages.register_workspace_pages_routes(
+    app,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_url_for=lambda: url_for,
+)
+workspace = _views_workspace_pages['workspace']
+report_center = _views_workspace_pages['report_center']
 
 
 @app.route("/")
@@ -9678,10 +9684,6 @@ def invoice_query():
     )
 
 
-@app.route("/reports")
-@login_required
-def report_center():
-    return redirect(url_for("service_order_query"))
 
 
 @app.route("/reports/service-orders")

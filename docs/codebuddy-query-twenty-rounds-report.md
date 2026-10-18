@@ -75,3 +75,11 @@
 - 迁移函数：app_service_worker。
 - app.py：12351 → 12344 行。
 - 审核验证：1 passed, 3 subtests passed in 2.17s。
+
+
+## 第 10/20 轮：workspace_pages
+
+- CodeBuddy 实际写入 `invoice_tool/dashboard/page_routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：workspace, report_center。
+- app.py：12344 → 12346 行。
+- 审核验证：1 passed, 6 subtests passed in 2.41s。
