@@ -137,6 +137,7 @@ from invoice_tool.customer_reimbursements import attachment_routes as _split_set
 from invoice_tool.invoices import editor_routes as _split_invoice_editor
 from invoice_tool.authorization import policy_helpers as _split_authorization
 from invoice_tool.ai_daily_report_web import workflow_helpers as _split_ai_workflow
+from invoice_tool.authentication import identity_helpers as _split_identity
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1140,22 +1141,7 @@ def nl2br_filter(value):
 
 
 def current_user():
-    user_id = session.get("user_id")
-    if not user_id:
-        return None
-    user = db().execute(
-        """
-        select users.*, employee_grades.grade_name as employee_grade_name
-        from users
-        left join employee_grades on employee_grades.id = users.employee_grade_id
-        where users.id = ?
-        """,
-        (user_id,),
-    ).fetchone()
-    if user and not user["is_active"]:
-        clear_session_preserving_language()
-        return None
-    return user
+    return _split_identity.current_user(clear_session_preserving_language=clear_session_preserving_language, db=db, session=session)
 
 
 @app.after_request
@@ -1185,79 +1171,39 @@ def load_user():
 
 
 def login_required(view):
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        if not g.user:
-            return redirect(url_for("login", next=request.path))
-        return view(*args, **kwargs)
-
-    return wrapped
+    return _split_identity.login_required(view, g=g, redirect=redirect, request=request, url_for=url_for, wraps=wraps)
 
 
 def is_safe_redirect_target(target):
-    if not isinstance(target, str):
-        return False
-    candidate = target.strip()
-    if not candidate:
-        return False
-    for _ in range(3):
-        if any(ord(character) < 0x20 or ord(character) == 0x7F for character in candidate):
-            return False
-        if "\\" in candidate:
-            return False
-        parsed = urlsplit(candidate)
-        if not candidate.startswith("/") or candidate.startswith("//"):
-            return False
-        if parsed.scheme or parsed.netloc:
-            return False
-        decoded = unquote(candidate)
-        if decoded == candidate:
-            return True
-        candidate = decoded
-    return False
+    return _split_identity.is_safe_redirect_target(target, unquote=unquote, urlsplit=urlsplit)
 
 
 def admin_required(view):
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        if not g.user:
-            return redirect(url_for("login", next=request.path))
-        if g.user["role"] != "admin":
-            abort(403)
-        return view(*args, **kwargs)
-
-    return wrapped
+    return _split_identity.admin_required(view, abort=abort, g=g, redirect=redirect, request=request, url_for=url_for, wraps=wraps)
 
 
 def is_external_user():
-    return g.user and normalized_role() in {"external_manager", "external_employee"}
+    return _split_identity.is_external_user(g=g, normalized_role=normalized_role)
 
 
 def is_external_manager():
-    return g.user and normalized_role() == "external_manager"
+    return _split_identity.is_external_manager(g=g, normalized_role=normalized_role)
 
 
 def is_external_employee():
-    return g.user and normalized_role() == "external_employee"
+    return _split_identity.is_external_employee(g=g, normalized_role=normalized_role)
 
 
 def normalized_role(role=None):
-    role = role if role is not None else (g.user["role"] if g.user else "")
-    if role == "internal":
-        return "finance"
-    if role == "user":
-        return "employee"
-    if role == "external":
-        return "external_manager"
-    return role
+    return _split_identity.normalized_role(role, g=g)
 
 
 def requires_user_address(role):
-    return normalized_role(role) not in {"external_manager", "external_employee"}
+    return _split_identity.requires_user_address(role, normalized_role=normalized_role)
 
 
 def is_internal_user():
-    return g.user and normalized_role() in {"admin", "manager", "finance", "employee"}
+    return _split_identity.is_internal_user(g=g, normalized_role=normalized_role)
 
 
 # ─── Phase 6: AI Daily Report CSRF Protection ──────────────────────────────
@@ -1478,7 +1424,7 @@ def ai_daily_report_draft_list_filters(user):
 
 
 def is_manager():
-    return g.user and normalized_role() in {"admin", "manager"}
+    return _split_identity.is_manager(g=g, normalized_role=normalized_role)
 
 
 def can_approve_users():

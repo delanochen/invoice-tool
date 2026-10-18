@@ -2235,3 +2235,11 @@ Functions: reset_ai_drafts_for_deleted_service_report, _auto_prepare_draft_media
 Module: `invoice_tool/ai_daily_report_web/workflow_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 12.32s. app.py: 6696 → 6423 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 3: identity
+
+Functions: current_user, login_required, is_safe_redirect_target, admin_required, is_external_user, is_external_manager, is_external_employee, normalized_role, requires_user_address, is_internal_user, is_manager.
+Module: `invoice_tool/authentication/identity_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.75s. app.py: 6423 → 6369 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
