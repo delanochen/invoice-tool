@@ -5724,41 +5724,24 @@ workspace = _views_workspace_pages['workspace']
 report_center = _views_workspace_pages['report_center']
 
 
-@app.route("/")
-@login_required
-def dashboard():
-    if not can_view_invoices() or is_external_user():
-        return redirect(url_for("service_orders"))
-    metrics = get_metrics()
-    selected_project_ids = request.args.getlist("project_id")
-    project_options = dashboard_project_options()
-    project_filter_submitted = "project_filter" in request.args
-    available_project_ids = {str(project["id"]) for project in project_options}
-    selected_project_ids = [project_id for project_id in selected_project_ids if project_id in available_project_ids]
-    if not project_filter_submitted and not selected_project_ids:
-        selected_project_ids = [str(project["id"]) for project in project_options]
-    chart = monthly_project_chart(selected_project_ids)
-    paid_chart = monthly_paid_chart()
-    access_clause, access_params = client_filter_clause("invoices")
-    recent = db().execute(
-        f"""
-        select invoices.*, clients.name as client_name
-        from invoices join clients on clients.id = invoices.client_id
-        where invoices.status = 'completed' and {access_clause}
-        order by invoices.created_at desc limit 8
-        """,
-        access_params,
-    ).fetchall()
-    return render_template(
-        "dashboard.html",
-        metrics=metrics,
-        chart=chart,
-        paid_chart=paid_chart,
-        recent=recent,
-        labels=STATUS_LABELS,
-        project_options=project_options,
-        selected_project_ids=selected_project_ids,
-    )
+_views_dashboard_page = _split_workspace_pages.register_dashboard_page_routes(
+    app,
+    _cb_resolve_STATUS_LABELS=lambda: STATUS_LABELS,
+    _cb_resolve_can_view_invoices=lambda: can_view_invoices,
+    _cb_resolve_client_filter_clause=lambda: client_filter_clause,
+    _cb_resolve_dashboard_project_options=lambda: dashboard_project_options,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_get_metrics=lambda: get_metrics,
+    _cb_resolve_is_external_user=lambda: is_external_user,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_monthly_paid_chart=lambda: monthly_paid_chart,
+    _cb_resolve_monthly_project_chart=lambda: monthly_project_chart,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_url_for=lambda: url_for,
+)
+dashboard = _views_dashboard_page['dashboard']
 
 
 _contract_views = register_contract_routes(
