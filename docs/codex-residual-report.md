@@ -86,3 +86,11 @@ Functions: create_message, review_message_body, return_message_body.
 Module: `invoice_tool/messages/content_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 10.97s. app.py: 4925 → 4920 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 12: residual_audit
+
+Functions: request_ip_address.
+Module: `invoice_tool/audit_log/request_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 13.93s. app.py: 4920 → 4920 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

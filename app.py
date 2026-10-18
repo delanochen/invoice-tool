@@ -165,6 +165,7 @@ from invoice_tool.photo_imports import path_helpers as _split_residual_photo_pat
 from invoice_tool.customer_reimbursements import path_helpers as _split_residual_settlement_paths
 from invoice_tool.customer_reimbursements import value_helpers as _split_residual_settlement_values
 from invoice_tool.messages import content_helpers as _split_residual_messages
+from invoice_tool.audit_log import request_helpers as _split_residual_audit
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2290,8 +2291,7 @@ def email_delivery_summary(entity_type, entity_id):
 
 
 def request_ip_address():
-    forwarded_for = request.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
-    return forwarded_for or request.headers.get("X-Real-IP", "").strip() or request.remote_addr or ""
+    return _split_residual_audit.request_ip_address(request=request)
 
 
 def log_login_action(user):
