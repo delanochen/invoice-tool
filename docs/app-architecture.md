@@ -2259,3 +2259,11 @@ Functions: order_has_approved_reimbursement, report_locked_by_approved_reimburse
 Module: `invoice_tool/customer_reimbursements/report_locks.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 12.23s. app.py: 6185 → 6165 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: formatting
+
+Functions: role_label, state_label, money, hours, payment_label, local_datetime.
+Module: `invoice_tool/presentation/formatting.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.05s. app.py: 6165 → 6115 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
