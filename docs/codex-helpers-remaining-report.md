@@ -134,3 +134,7 @@ Functions: ai_normalize_status, ai_search_business_records, deepseek_api_error_m
 Module: `invoice_tool/ai_assistant/query_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 11.46s. app.py: 5361 → 5071 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+Final guarded milestone: 502 passed, 4 deselected, 2 warnings, 747 subtests passed in 270.62s (0:04:30)
+Four pre-existing fixture exclusions; not the full repository suite.
