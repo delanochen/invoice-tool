@@ -27,3 +27,11 @@
 - 迁移函数：contract_rate_missing_summary。
 - app.py：12667 → 12661 行。
 - 审核验证：1 passed in 1.95s。
+
+
+## 第 4/20 轮：used_rates
+
+- CodeBuddy 实际写入 `invoice_tool/customer_reimbursements/rates.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：used_customer_rate_fields。
+- app.py：12661 → 12647 行。
+- 审核验证：1 passed, 3 subtests passed in 1.86s。

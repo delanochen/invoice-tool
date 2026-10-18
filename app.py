@@ -3022,21 +3022,7 @@ def contract_rate_missing_summary(order_id, dates):
 
 
 def used_customer_rate_fields(row):
-    """结算行实际用到（数量>0）的费率字段——缺这些才阻止保存。"""
-    fields = []
-    if to_float(row.get("standard_hours")) > 0:
-        fields.append("standard_rate")
-    if to_float(row.get("transport_hours")) > 0:
-        fields.append("transport_rate")
-    if to_float(row.get("public_transport_hours")) > 0:
-        fields.append("public_transport_rate")
-    if to_float(row.get("overtime_hours")) > 0:
-        fields.append("overtime_rate")
-    if to_float(row.get("holiday_hours")) > 0:
-        fields.append("holiday_rate")
-    if to_float(row.get("miles")) > 0:
-        fields.append("mileage_rate")
-    return fields
+    return _split_contract_rates.used_customer_rate_fields(row, to_float=to_float)
 
 
 def assert_contract_rates_covered(order_id, rows):
