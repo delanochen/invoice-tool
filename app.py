@@ -100,6 +100,7 @@ from invoice_tool.customer_reimbursements import item_queries as _split_settleme
 from invoice_tool.mobile_distribution import routes as _split_mobile_install
 from invoice_tool.user_preferences import routes as _split_language_session
 from invoice_tool.messages import routes as _split_messages_list
+from invoice_tool.mobile_distribution import pwa_routes as _split_pwa_manifest
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5697,31 +5698,11 @@ _views_message_detail = _split_messages_list.register_message_detail_routes(
 message_detail = _views_message_detail['message_detail']
 
 
-@app.get("/manifest.webmanifest")
-def app_manifest():
-    """Main-site PWA manifest (v0.1.244).
-
-    With this manifest, "添加到主屏幕 / 安装应用" creates a real standalone
-    app: the phone keeps a single app window that RESUMES where the user left
-    off, instead of stacking a new browser tab on every tap. A fresh launch
-    starts in the field-work workspace, which is the mobile/PWA home screen.
-    """
-    response = jsonify(
-        name="Prasinos Power",
-        short_name="Prasinos",
-        id="/",
-        start_url="/field/",
-        scope="/",
-        display="standalone",
-        background_color="#0f766e",
-        theme_color="#0f766e",
-        icons=[
-            dict(src=f"/static/field-icon-{size}.png", sizes=f"{size}x{size}", type="image/png")
-            for size in (192, 512)
-        ],
-    )
-    response.headers["Cache-Control"] = "no-cache"
-    return response
+_views_pwa_manifest = _split_pwa_manifest.register_pwa_manifest_routes(
+    app,
+    _cb_resolve_jsonify=lambda: jsonify,
+)
+app_manifest = _views_pwa_manifest['app_manifest']
 
 
 @app.get("/sw.js")
