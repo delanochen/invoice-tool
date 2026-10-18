@@ -30,3 +30,11 @@ Functions: merge_service_reports_into_customer_reimbursement, merge_approved_exp
 Module: `invoice_tool/customer_reimbursements/source_merge.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
 Verification: 9 passed, 42 subtests passed in 3.74s. app.py: 11139 → 11011 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: workspace
+
+Functions: customer_reimbursement_gate_error, customer_reimbursement_person_days, customer_reimbursement_lodging_range, customer_reimbursement_workspace_data.
+Module: `invoice_tool/customer_reimbursements/workspace.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.71s. app.py: 11011 → 10763 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
