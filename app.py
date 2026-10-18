@@ -12397,10 +12397,7 @@ def available_projects_for_access():
 
 
 def dashboard_project_options():
-    return [
-        {"id": row["id"], "name": row["name"], "color": project_color(row["id"])}
-        for row in available_projects_for_access()
-    ]
+    return _split_dashboard_projects.dashboard_project_options(available_projects_for_access=available_projects_for_access, project_color=project_color)
 
 
 def report_project_options():

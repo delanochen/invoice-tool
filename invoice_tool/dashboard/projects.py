@@ -18,3 +18,10 @@ def available_projects_for_access(*, client_filter_clause, db):
     return db().execute(
         "select id, name from projects where project_type = 'invoice' and is_active = 1 order by name"
     ).fetchall()
+
+
+def dashboard_project_options(*, available_projects_for_access, project_color):
+    return [
+        {"id": row["id"], "name": row["name"], "color": project_color(row["id"])}
+        for row in available_projects_for_access()
+    ]
