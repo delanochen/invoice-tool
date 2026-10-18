@@ -164,6 +164,7 @@ from invoice_tool.service_orders import start_date_helpers as _split_residual_or
 from invoice_tool.photo_imports import path_helpers as _split_residual_photo_paths
 from invoice_tool.customer_reimbursements import path_helpers as _split_residual_settlement_paths
 from invoice_tool.customer_reimbursements import value_helpers as _split_residual_settlement_values
+from invoice_tool.messages import content_helpers as _split_residual_messages
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2272,10 +2273,7 @@ def invoice_service_order(invoice):
 
 
 def create_message(user_id, title, body, link=None):
-    db().execute(
-        "insert into messages (user_id, title, body, link, created_at) values (?, ?, ?, ?, ?)",
-        (user_id, title, body, link, now()),
-    )
+    return _split_residual_messages.create_message(user_id, title, body, link, db=db, now=now)
 
 
 def log_action(action, entity_type, entity_id, entity_label, summary=""):
@@ -2364,14 +2362,11 @@ def notify_role(roles, title, body, link=None, exclude_user_ids=None):
 
 
 def review_message_body(user_name, invoice, client, total, is_resubmission=False):
-    action = "重新提交了发票" if is_resubmission else "提交了发票"
-    client_label = client["short_name"] or client["name"]
-    return f"{user_name}{action} {invoice['invoice_number']} 客户:{client_label} 金额:{money(total, invoice['currency'])} 请审核。"
+    return _split_residual_messages.review_message_body(user_name, invoice, client, total, is_resubmission, money=money)
 
 
 def return_message_body(invoice, client, total, reason):
-    client_label = client["short_name"] or client["name"]
-    return f"发票 {invoice['invoice_number']} 已被经理退回。客户:{client_label} 金额:{money(total, invoice['currency'])} 原因：{reason}"
+    return _split_residual_messages.return_message_body(invoice, client, total, reason, money=money)
 
 
 def unread_message_count():
