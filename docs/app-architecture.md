@@ -2267,3 +2267,11 @@ Functions: role_label, state_label, money, hours, payment_label, local_datetime.
 Module: `invoice_tool/presentation/formatting.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 12.05s. app.py: 6165 → 6115 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 7: ai_settings
+
+Functions: accounting_base_enabled, deepseek_assistant_settings, vision_settings.
+Module: `invoice_tool/app_settings/ai_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.84s. app.py: 6115 → 6083 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
