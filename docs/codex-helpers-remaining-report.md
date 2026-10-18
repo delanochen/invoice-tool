@@ -126,3 +126,11 @@ Functions: notify_role, unread_message_count, _message_ids_for_user.
 Module: `invoice_tool/messages/query_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 11.55s. app.py: 5394 → 5361 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 17: assistant_helpers
+
+Functions: ai_normalize_status, ai_search_business_records, deepseek_api_error_message, call_deepseek_chat.
+Module: `invoice_tool/ai_assistant/query_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.46s. app.py: 5361 → 5071 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
