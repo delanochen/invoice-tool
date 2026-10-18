@@ -22,3 +22,11 @@ Functions: approved_customer_reimbursement_expense_rows, customer_reimbursement_
 Module: `invoice_tool/customer_reimbursements/source_queries.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
 Verification: 9 passed, 42 subtests passed in 3.57s. app.py: 11252 → 11139 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: source_merge
+
+Functions: merge_service_reports_into_customer_reimbursement, merge_approved_expenses_into_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/source_merge.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.74s. app.py: 11139 → 11011 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
