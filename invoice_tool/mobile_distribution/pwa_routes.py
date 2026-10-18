@@ -32,3 +32,23 @@ def register_pwa_manifest_routes(app, *,
 
     app.add_url_rule('/manifest.webmanifest', endpoint='app_manifest', view_func=app_manifest, methods=['GET'])
     return {'app_manifest': app_manifest}
+
+
+def register_service_worker_routes(app, *,
+    _cb_resolve_app,
+):
+    def app_service_worker():
+        """Minimal passthrough service worker (v0.1.244).
+
+    Deliberately NO response caching: the tool is dynamic and pages must stay
+    live. The worker exists only so the browser treats the site as installable
+    PWA; every request goes to the network exactly like before.
+    """
+        response = _cb_resolve_app().send_static_file("app-sw.js")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Service-Worker-Allowed"] = "/"
+        return response
+
+
+    app.add_url_rule('/sw.js', endpoint='app_service_worker', view_func=app_service_worker, methods=['GET'])
+    return {'app_service_worker': app_service_worker}

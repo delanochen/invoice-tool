@@ -5705,18 +5705,11 @@ _views_pwa_manifest = _split_pwa_manifest.register_pwa_manifest_routes(
 app_manifest = _views_pwa_manifest['app_manifest']
 
 
-@app.get("/sw.js")
-def app_service_worker():
-    """Minimal passthrough service worker (v0.1.244).
-
-    Deliberately NO response caching: the tool is dynamic and pages must stay
-    live. The worker exists only so the browser treats the site as installable
-    PWA; every request goes to the network exactly like before.
-    """
-    response = app.send_static_file("app-sw.js")
-    response.headers["Cache-Control"] = "no-cache"
-    response.headers["Service-Worker-Allowed"] = "/"
-    return response
+_views_service_worker = _split_pwa_manifest.register_service_worker_routes(
+    app,
+    _cb_resolve_app=lambda: app,
+)
+app_service_worker = _views_service_worker['app_service_worker']
 
 
 @app.route("/workspace")

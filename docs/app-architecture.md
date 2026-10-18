@@ -1817,3 +1817,10 @@ Verified by `test_codebuddy_query_contract.py`; independent review/testing by Co
 `invoice_tool/mobile_distribution/pwa_routes.py` owns app_manifest.
 Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
 Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 9/20: service_worker
+
+`invoice_tool/mobile_distribution/pwa_routes.py` owns app_service_worker.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.

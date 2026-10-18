@@ -67,3 +67,11 @@
 - 迁移函数：app_manifest。
 - app.py：12370 → 12351 行。
 - 审核验证：1 passed, 3 subtests passed in 2.06s。
+
+
+## 第 9/20 轮：service_worker
+
+- CodeBuddy 实际写入 `invoice_tool/mobile_distribution/pwa_routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：app_service_worker。
+- app.py：12351 → 12344 行。
+- 审核验证：1 passed, 3 subtests passed in 2.17s。
