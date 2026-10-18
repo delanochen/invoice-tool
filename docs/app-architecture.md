@@ -2389,3 +2389,11 @@ Functions: inspection_cycle_days, inspection_warning_days, lodging_reimbursement
 Module: `invoice_tool/app_settings/profile_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 13.85s. app.py: 4959 → 4958 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: residual_expense_policy
+
+Functions: is_lodging_project_name, is_fuel_project_name, validate_fuel_reimbursement_allowed.
+Module: `invoice_tool/employee_expenses/project_policy.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.02s. app.py: 4958 → 4956 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

@@ -157,6 +157,7 @@ from invoice_tool.geocoding import request_transport as _geocoder_request
 from invoice_tool.app_bootstrap import startup_checks as _split_residual_bootstrap
 from invoice_tool.user_preferences import language_helpers as _split_residual_language
 from invoice_tool.app_settings import profile_helpers as _split_residual_settings
+from invoice_tool.employee_expenses import project_policy as _split_residual_expense_policy
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -985,13 +986,11 @@ def lodging_reimbursement_limit():
 
 
 def is_lodging_project_name(name):
-    normalized = (name or "").strip().casefold()
-    return "住宿" in normalized or "lodging" in normalized or "hotel" in normalized
+    return _split_residual_expense_policy.is_lodging_project_name(name)
 
 
 def is_fuel_project_name(name):
-    normalized = (name or "").strip().casefold()
-    return "油费" in normalized or "加油" in normalized or "fuel" in normalized or "gas" in normalized
+    return _split_residual_expense_policy.is_fuel_project_name(name)
 
 
 def validate_lodging_reimbursement(amount, label="住宿报销"):
@@ -999,8 +998,7 @@ def validate_lodging_reimbursement(amount, label="住宿报销"):
 
 
 def validate_fuel_reimbursement_allowed(amount, label="油费报销"):
-    if amount > 0 and payroll_subsidy_settings()["car_allowance_method"] == "mileage":
-        raise ValueError(f"当前车补按里程计费，{label}不可报销。")
+    return _split_residual_expense_policy.validate_fuel_reimbursement_allowed(amount, label, payroll_subsidy_settings=payroll_subsidy_settings)
 
 
 def get_timezone_name():
