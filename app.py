@@ -132,6 +132,7 @@ from invoice_tool.ai_daily_report_web import work_routes as _split_ai_work
 from invoice_tool.query_pages import settlement_routes as _split_report_queries
 from invoice_tool.service_orders import attachment_routes as _split_order_attachments
 from invoice_tool.customer_reimbursements import form_routes as _split_settlement_form
+from invoice_tool.customer_reimbursements import action_routes as _split_settlement_actions
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -6006,358 +6007,58 @@ preview_customer_reimbursement = _views_settlement_form['preview_customer_reimbu
 
 
 
-@app.post("/customer-reimbursements/<int:reimbursement_id>/approve")
-@login_required
-def approve_customer_reimbursement(reimbursement_id):
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not can_approve_customer_reimbursement():
-        abort(403)
-    if reimbursement["status"] != "submitted":
-        flash("只有待经理审核的工单结算可以审核通过。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    gate = customer_reimbursement_gate_error(reimbursement)
-    if gate:
-        flash(gate[1], "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    db().execute(
-        """
-        update customer_reimbursements
-        set status = 'approved', return_reason = null, reviewed_by = ?, reviewed_at = ?
-        where id = ?
-        """,
-        (g.user["id"], now(), reimbursement_id),
-    )
-    message = (
-        f"{g.user['name']}已审核通过工单 {order['order_number']} 的工单结算，"
-        f"金额 {money(reimbursement['total_amount'])}。"
-    )
-    create_message(
-        reimbursement["created_by"],
-        "工单结算已审核通过",
-        message,
-        url_for("customer_reimbursement_form", order_id=order["id"]),
-    )
-    log_action(
-        "approve",
-        "customer_reimbursement",
-        reimbursement_id,
-        reimbursement["file_name"],
-        f"金额：{money(reimbursement['total_amount'])}",
-    )
-    db().commit()
-    flash("工单结算已审核通过。", "success")
-    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
+_views_settlement_actions = _split_settlement_actions.register_settlement_actions_routes(
+    app,
+    _cb_resolve_CUSTOMER_REIMBURSEMENT_DIR=lambda: CUSTOMER_REIMBURSEMENT_DIR,
+    _cb_resolve_CUSTOMER_REIMBURSEMENT_STATUS_LABELS=lambda: CUSTOMER_REIMBURSEMENT_STATUS_LABELS,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_can_approve_customer_reimbursement=lambda: can_approve_customer_reimbursement,
+    _cb_resolve_can_delete_customer_reimbursement=lambda: can_delete_customer_reimbursement,
+    _cb_resolve_can_manage_customer_reimbursement=lambda: can_manage_customer_reimbursement,
+    _cb_resolve_can_reset_customer_reimbursement=lambda: can_reset_customer_reimbursement,
+    _cb_resolve_create_message=lambda: create_message,
+    _cb_resolve_customer_reimbursement_gate_error=lambda: customer_reimbursement_gate_error,
+    _cb_resolve_customer_reimbursement_items=lambda: customer_reimbursement_items,
+    _cb_resolve_customer_reimbursement_linked_invoice=lambda: customer_reimbursement_linked_invoice,
+    _cb_resolve_customer_reimbursement_pending_sources=lambda: customer_reimbursement_pending_sources,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_json=lambda: json,
+    _cb_resolve_latest_customer_reimbursement=lambda: latest_customer_reimbursement,
+    _cb_resolve_log_action=lambda: log_action,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_money=lambda: money,
+    _cb_resolve_now=lambda: now,
+    _cb_resolve_os=lambda: os,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_remove_customer_reimbursement_pdf=lambda: remove_customer_reimbursement_pdf,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_require_customer_reimbursement=lambda: require_customer_reimbursement,
+    _cb_resolve_require_service_order=lambda: require_service_order,
+    _cb_resolve_shutil=lambda: shutil,
+    _cb_resolve_update_customer_reimbursement_totals=lambda: update_customer_reimbursement_totals,
+    _cb_resolve_url_for=lambda: url_for,
+)
+approve_customer_reimbursement = _views_settlement_actions['approve_customer_reimbursement']
+sync_customer_reimbursement_sources = _views_settlement_actions['sync_customer_reimbursement_sources']
+ignore_customer_reimbursement_source = _views_settlement_actions['ignore_customer_reimbursement_source']
+unignore_customer_reimbursement_source = _views_settlement_actions['unignore_customer_reimbursement_source']
+return_customer_reimbursement = _views_settlement_actions['return_customer_reimbursement']
+reset_customer_reimbursement = _views_settlement_actions['reset_customer_reimbursement']
+delete_customer_reimbursement = _views_settlement_actions['delete_customer_reimbursement']
 
 
-@app.post("/service-orders/<int:order_id>/customer-reimbursement/sync-sources")
-@login_required
-def sync_customer_reimbursement_sources(order_id):
-    """方案 A「计入并重算」：把已审核但未计入的报销明细链接到本结算并重算快照。
-    manual_review 模式下 merge 只读 links 表，所以这里必须先补插 links。"""
-    if not can_manage_customer_reimbursement():
-        abort(403)
-    require_service_order(order_id)
-    reimbursement = latest_customer_reimbursement(order_id)
-    if not reimbursement:
-        abort(404)
-    if reimbursement["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或已退回的工单结算可以计入并重算。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-
-    sources = customer_reimbursement_pending_sources(reimbursement)
-    linked_count = 0
-    skipped_other = 0
-    for item in sources["includable"]:
-        row = db().execute(
-            """
-            select ei.id as expense_item_id, ei.amount,
-                   coalesce(p.name, ei.project) as project_name,
-                   e.status
-            from expense_items ei
-            join expenses e on e.id = ei.expense_id
-            left join projects p on p.id = ei.project_id
-            where ei.expense_id = ? and ei.line_key = ?
-            """,
-            (item["expense_id"], item["line_key"]),
-        ).fetchone()
-        if not row:
-            continue
-        already = db().execute(
-            "select 1 from customer_reimbursement_expense_links where customer_reimbursement_id = ? and expense_item_id = ?",
-            (reimbursement["id"], row["expense_item_id"]),
-        ).fetchone()
-        if already:
-            continue
-        other = db().execute(
-            "select 1 from customer_reimbursement_expense_links where expense_item_id = ? and customer_reimbursement_id != ? limit 1",
-            (row["expense_item_id"], reimbursement["id"]),
-        ).fetchone()
-        if other:
-            skipped_other += 1
-            continue
-        db().execute(
-            """
-            insert into customer_reimbursement_expense_links
-                (customer_reimbursement_id, expense_item_id, amount_snapshot, project_snapshot,
-                 expense_status_snapshot, selected_by, selected_at)
-            values (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                reimbursement["id"],
-                row["expense_item_id"],
-                float(row["amount"] or 0),
-                row["project_name"] or "",
-                row["status"] or "approved",
-                g.user["id"],
-                now(),
-            ),
-        )
-        # 注意：被「标记无需计入」的明细已从 includable 排除，不会走到这里；
-        # 手动勾选计入（settlement_review.replace_expense_links 分支）会单独取消忽略。
-        linked_count += 1
-
-    # 把 cutoff 推到现在，确保新链接的报销不被 reviewed_at <= cutoff 条件过滤
-    db().execute(
-        "update customer_reimbursements set expense_transfer_cutoff_at = ? where id = ?",
-        (now(), reimbursement["id"]),
-    )
-
-    update_customer_reimbursement_totals(reimbursement["id"])
-    db().commit()
-    if linked_count:
-        flash(f"已将 {linked_count} 笔已审核报销计入工单结算并重算。", "success")
-    else:
-        flash("没有新的已审核报销需要计入。", "success")
-    if skipped_other:
-        flash(f"其中 {skipped_other} 笔已链接到其他结算单，已跳过。", "error")
-    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
 
 
-@app.post("/service-orders/<int:order_id>/customer-reimbursement/ignore-source")
-@login_required
-def ignore_customer_reimbursement_source(order_id):
-    """方案 B「标记无需计入」：显式确认某笔已审核报销明细不计入本工单结算。
-
-    与方案 A（计入并重算）互斥：已计入当前结算的明细不能标记忽略；
-    标记后 gate 不再拦截该明细，操作人/时间/原因写入忽略表并留审计日志。
-    仅保存未提交或已退回的结算可标记（提交后来源已冻结）。"""
-    if not can_manage_customer_reimbursement():
-        abort(403)
-    require_service_order(order_id)
-    reimbursement = latest_customer_reimbursement(order_id)
-    if not reimbursement:
-        abort(404)
-    if reimbursement["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或已退回的工单结算可以标记忽略。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-    try:
-        expense_item_id = int(request.form.get("expense_item_id", ""))
-    except (TypeError, ValueError):
-        flash("请选择要标记忽略的报销明细。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-    reason = request.form.get("reason", "").strip()
-    try:
-        row = db().execute(
-            """
-            select expense_items.id as expense_item_id, expenses.id as expense_id,
-                   expenses.expense_number, expense_items.amount
-            from expense_items
-            join expenses on expenses.id = expense_items.expense_id
-            where expense_items.id = ? and expenses.service_order_id = ? and expenses.status = 'approved'
-            """,
-            (expense_item_id, order_id),
-        ).fetchone()
-        if not row:
-            raise ValueError("该报销明细不属于本工单，或不是已审核状态。")
-        # 已计入校验分两种来源口径，都命中即拒绝：
-        # - manual_review 模式：customer_reimbursement_expense_links 链接表；
-        # - legacy 模式：结算明细行 auto_expense_sources 快照（JSON）。
-        linked = db().execute(
-            "select 1 from customer_reimbursement_expense_links where customer_reimbursement_id=? and expense_item_id=?",
-            (reimbursement["id"], expense_item_id),
-        ).fetchone()
-        if not linked:
-            source_key = db().execute(
-                "select expense_id, line_key from expense_items where id=?", (expense_item_id,)
-            ).fetchone()
-            if source_key:
-                for item in customer_reimbursement_items(reimbursement["id"]):
-                    sources = item["auto_expense_sources"]
-                    if isinstance(sources, str):
-                        try:
-                            sources = json.loads(sources or "{}")
-                        except (ValueError, TypeError):
-                            sources = {}
-                    for field_sources in (sources or {}).values():
-                        for source in field_sources:
-                            if (source.get("expense_id") == source_key["expense_id"]
-                                    and source.get("line_key") == source_key["line_key"]):
-                                linked = True
-                                break
-                        if linked:
-                            break
-                    if linked:
-                        break
-        if linked:
-            raise ValueError("该明细已计入本工单结算，不能标记忽略；如需不计入请先取消勾选。")
-        db().execute(
-            """
-            insert into customer_reimbursement_expense_ignores
-                (customer_reimbursement_id, expense_item_id, reason, ignored_by, ignored_at)
-            values (?, ?, ?, ?, ?)
-            on conflict (customer_reimbursement_id, expense_item_id)
-            do update set reason = excluded.reason, ignored_by = excluded.ignored_by,
-                          ignored_at = excluded.ignored_at
-            """,
-            (reimbursement["id"], expense_item_id, reason, g.user["id"], now()),
-        )
-        log_action(
-            "ignore",
-            "customer_reimbursement",
-            reimbursement["id"],
-            reimbursement["file_name"],
-            f"报销 {row['expense_number']} 明细标记无需计入（{money(row['amount'])}）：{reason}",
-        )
-        db().commit()
-        flash("该报销明细已标记为无需计入，提交经理审核时不再拦截。", "success")
-    except ValueError as error:
-        db().rollback()
-        flash(str(error), "error")
-    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
 
 
-@app.post("/customer-reimbursements/<int:reimbursement_id>/unignore-source")
-@login_required
-def unignore_customer_reimbursement_source(reimbursement_id):
-    """取消「标记无需计入」，让该明细重新参与结算来源校验。"""
-    if not can_manage_customer_reimbursement():
-        abort(403)
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if reimbursement["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或已退回的工单结算可以取消忽略。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    try:
-        expense_item_id = int(request.form.get("expense_item_id", ""))
-    except (TypeError, ValueError):
-        flash("请选择要取消忽略的报销明细。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    deleted = db().execute(
-        "delete from customer_reimbursement_expense_ignores where customer_reimbursement_id=? and expense_item_id=?",
-        (reimbursement["id"], expense_item_id),
-    ).rowcount
-    if deleted:
-        log_action(
-            "unignore",
-            "customer_reimbursement",
-            reimbursement["id"],
-            reimbursement["file_name"],
-            f"取消报销明细 {expense_item_id} 的无需计入标记",
-        )
-        db().commit()
-        flash("已取消忽略，该报销明细重新参与结算校验。", "success")
-    else:
-        flash("该明细没有忽略标记，无需取消。", "error")
-    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
-@app.post("/customer-reimbursements/<int:reimbursement_id>/return")
-@login_required
-def return_customer_reimbursement(reimbursement_id):
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not can_approve_customer_reimbursement():
-        abort(403)
-    if reimbursement["status"] != "submitted":
-        flash("只有待经理审核的工单结算可以退回。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    reason = request.form.get("return_reason", "").strip()
-    if not reason:
-        flash("请填写退回原因。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    db().execute(
-        """
-        update customer_reimbursements
-        set status = 'returned', return_reason = ?, reviewed_by = ?, reviewed_at = ?
-        where id = ?
-        """,
-        (reason, g.user["id"], now(), reimbursement_id),
-    )
-    create_message(
-        reimbursement["created_by"],
-        "工单结算已被退回",
-        f"工单 {order['order_number']} 的工单结算已被退回。原因：{reason}",
-        url_for("customer_reimbursement_form", order_id=order["id"]),
-    )
-    log_action(
-        "return",
-        "customer_reimbursement",
-        reimbursement_id,
-        reimbursement["file_name"],
-        f"原因：{reason}",
-    )
-    db().commit()
-    flash("工单结算已退回。", "success")
-    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
-@app.post("/customer-reimbursements/<int:reimbursement_id>/reset")
-@login_required
-def reset_customer_reimbursement(reimbursement_id):
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not can_reset_customer_reimbursement():
-        abort(403)
-    if reimbursement["status"] != "approved":
-        flash("只有已审核通过的工单结算可以重置。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    linked_invoice = customer_reimbursement_linked_invoice(reimbursement, order["id"])
-    if linked_invoice:
-        flash("这份工单结算已经生成发票。请先删除对应发票，再重置工单结算后进行修改。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    db().execute(
-        """
-        update customer_reimbursements
-        set status = 'draft', return_reason = null, reviewed_by = null, reviewed_at = null,
-            invoice_id = null
-        where id = ?
-        """,
-        (reimbursement_id,),
-    )
-    remove_customer_reimbursement_pdf(reimbursement)
-    log_action(
-        "reset",
-        "customer_reimbursement",
-        reimbursement_id,
-        reimbursement["file_name"],
-        "重置为保存未提交，允许重新编辑",
-    )
-    db().commit()
-    flash("工单结算已重置为保存未提交，可以重新编辑。修改后请重新提交经理审核。", "success")
-    return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
 
 
-@app.post("/customer-reimbursements/<int:reimbursement_id>/delete")
-@login_required
-def delete_customer_reimbursement(reimbursement_id):
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    if not can_delete_customer_reimbursement():
-        abort(403)
-    if reimbursement["status"] not in {"draft", "returned"}:
-        flash("只有保存未提交或已退回的工单结算草稿可以删除。", "error")
-        return redirect(url_for("customer_reimbursement_form", order_id=order["id"]))
-    reimbursement_dir = os.path.join(CUSTOMER_REIMBURSEMENT_DIR, str(reimbursement_id))
-    db().execute("delete from customer_reimbursement_attachments where customer_reimbursement_id = ?", (reimbursement_id,))
-    db().execute("delete from customer_reimbursement_items where customer_reimbursement_id = ?", (reimbursement_id,))
-    db().execute("delete from customer_reimbursements where id = ?", (reimbursement_id,))
-    shutil.rmtree(reimbursement_dir, ignore_errors=True)
-    log_action(
-        "delete",
-        "customer_reimbursement",
-        reimbursement_id,
-        reimbursement["file_name"],
-        f"工单：{order['order_number']}，状态：{CUSTOMER_REIMBURSEMENT_STATUS_LABELS.get(reimbursement['status'], reimbursement['status'])}",
-    )
-    db().commit()
-    flash("工单结算草稿已删除。", "success")
-    return redirect(url_for("service_order_detail", order_id=order["id"]))
 
 
 @app.get("/customer-reimbursement-attachments/<int:attachment_id>/download")

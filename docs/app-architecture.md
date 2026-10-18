@@ -2195,3 +2195,11 @@ Functions: customer_reimbursement_form, download_customer_reimbursement, downloa
 Module: `invoice_tool/customer_reimbursements/form_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 10.77s. app.py: 7866 → 7599 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 12: settlement_actions
+
+Functions: approve_customer_reimbursement, sync_customer_reimbursement_sources, ignore_customer_reimbursement_source, unignore_customer_reimbursement_source, return_customer_reimbursement, reset_customer_reimbursement, delete_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/action_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.51s. app.py: 7599 → 7300 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
