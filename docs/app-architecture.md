@@ -2533,3 +2533,8 @@ Moved DEFAULT_OWNER_NAMES, DEFAULT_SITE_OWNER_NAMES into `invoice_tool/contacts/
 ## Final menu defaults
 
 Menu default expression and original manager-inheritance loop moved to `invoice_tool/authorization/menu_defaults.py`. Private iteration binding is preserved by an explicit root callback. Verification: 32 passed, 11 subtests passed in 11.03s.
+
+
+## Final structural migration audit
+
+See `docs/app-split-final-report.md` for completed domains, retained composition/compatibility boundaries and test coverage limits. Final app.py lines: 4554. Final boundary test: 19 passed, 872 subtests passed in 8.86s. No merge or deployment.
