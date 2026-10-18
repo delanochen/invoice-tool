@@ -89,6 +89,7 @@ from invoice_tool.app_settings import geography as _split_headquarters
 from invoice_tool.user_preferences import forms as _split_communication
 from invoice_tool.user_preferences import phone as _split_phone
 from invoice_tool.report_exports import location as _split_report_location
+from invoice_tool.customer_reimbursements import access as _split_settlement_access
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3008,13 +3009,7 @@ def customer_reimbursement_attachment_path(attachment):
 
 
 def require_customer_reimbursement(reimbursement_id):
-    if not can_view_customer_reimbursement():
-        abort(403)
-    reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement_id,)).fetchone()
-    if not reimbursement:
-        abort(404)
-    order = require_service_order(reimbursement["service_order_id"])
-    return reimbursement, order
+    return _split_settlement_access.require_customer_reimbursement(reimbursement_id, abort=abort, can_view_customer_reimbursement=can_view_customer_reimbursement, db=db, require_service_order=require_service_order)
 
 
 def resolve_contract_rates(order_id, work_date):
