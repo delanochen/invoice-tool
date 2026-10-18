@@ -1894,3 +1894,10 @@ Verified by `test_codebuddy_query_contract.py`; independent review/testing by Co
 `invoice_tool/query_pages/reports.py` owns service_report_query.
 Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
 Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 1/20: draft_get
+
+`invoice_tool/ai_daily_report_web/draft_routes.py` owns ai_daily_report_get_draft.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.

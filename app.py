@@ -106,6 +106,7 @@ from invoice_tool.company_profile import routes as _split_company_page
 from invoice_tool.query_pages import invoices as _split_invoice_list
 from invoice_tool.query_pages import orders as _split_order_query_page
 from invoice_tool.query_pages import reports as _split_report_query_page
+from invoice_tool.ai_daily_report_web import draft_routes as _split_draft_get
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -6934,23 +6935,14 @@ def ai_daily_report_chat():
     })
 
 
-@app.get("/api/ai/daily-report/draft/<int:draft_id>")
-@login_required
-def ai_daily_report_get_draft(draft_id):
-    """Get draft preview."""
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-    draft = svc.parse_draft_data(draft_row)
-    return jsonify({
-        "ok": True,
-        "draft_id": draft_id,
-        "status": draft_row["status"],
-        "preview": svc.build_preview(draft),
-    })
+_views_draft_get = _split_draft_get.register_draft_get_routes(
+    app,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+)
+ai_daily_report_get_draft = _views_draft_get['ai_daily_report_get_draft']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/auto-prepare")
