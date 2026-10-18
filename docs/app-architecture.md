@@ -2067,3 +2067,11 @@ Functions: customer_reimbursement_gate_error, customer_reimbursement_person_days
 Module: `invoice_tool/customer_reimbursements/workspace.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
 Verification: 9 passed, 42 subtests passed in 3.71s. app.py: 11011 → 10763 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: attachment_files
+
+Functions: get_customer_reimbursement_attachments, save_customer_reimbursement_attachment, unique_customer_reimbursement_attachment_filename, copy_file_to_customer_reimbursement_attachment, copy_mileage_proofs_to_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/attachment_files.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.57s. app.py: 10763 → 10654 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
