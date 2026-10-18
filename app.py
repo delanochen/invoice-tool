@@ -108,6 +108,7 @@ from invoice_tool.query_pages import orders as _split_order_query_page
 from invoice_tool.query_pages import reports as _split_report_query_page
 from invoice_tool.ai_daily_report_web import draft_routes as _split_draft_get
 from invoice_tool.ai_daily_report_web import photo_routes as _split_photos_discover
+from invoice_tool.ai_daily_report_web import lifecycle_routes as _split_draft_cancel
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -7334,54 +7335,19 @@ def ai_daily_report_confirm(draft_id):
     })
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/cancel")
-@login_required
-def ai_daily_report_cancel(draft_id):
-    """Soft-cancel a draft (v0.1.241, per user decision 2026-09-17).
-
-    State machine: draft/confirmed -> cancelled. The draft row is KEPT with
-    its audit trail (cancelled_by / cancelled_at) — this is "取消", not a
-    physical delete. Use /delete for a hard delete.
-    Requires CSRF token.
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    require_ai_daily_report_csrf()
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-    if draft_row["status"] == "saved":
-        return jsonify({"ok": False, "error": "已正式保存的日报不能取消"}), 409
-    if draft_row["status"] == "cancelled":
-        return jsonify({
-            "ok": True,
-            "draft_id": draft_id,
-            "status": "cancelled",
-            "message": "该 Draft 已是取消状态",
-        })
-
-    user = g.user
-    # Convert database Row to dict (Row does not support attribute access)
-    if hasattr(user, "keys"):
-        user = dict(user)
-    user_id = user.get("id", "")
-
-    draft = svc.parse_draft_data(draft_row)
-    draft.cancelled_by = user_id
-    draft.cancelled_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    svc.save_draft(draft_id, draft)
-    svc.update_draft_status(draft_id, "cancelled")
-    db().commit()
-    return jsonify({
-        "ok": True,
-        "draft_id": draft_id,
-        "status": "cancelled",
-        "cancelled_by": user_id,
-        "cancelled_at": draft.cancelled_at,
-        "message": "Draft 已取消（保留记录，可在列表中筛选 Cancelled 查看）",
-    })
+_views_draft_cancel = _split_draft_cancel.register_draft_cancel_routes(
+    app,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_datetime=lambda: datetime,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_require_ai_daily_report_csrf=lambda: require_ai_daily_report_csrf,
+    _cb_resolve_timezone=lambda: timezone,
+)
+ai_daily_report_cancel = _views_draft_cancel['ai_daily_report_cancel']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/delete")

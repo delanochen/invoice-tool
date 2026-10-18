@@ -91,3 +91,11 @@
 - 迁移函数：ai_daily_report_update_photo_time。
 - app.py：11763 → 11741 行。
 - 审核验证：1 passed, 6 subtests passed in 2.18s。
+
+
+## 第 12/20 轮：draft_cancel
+
+- CodeBuddy 实际写入 `invoice_tool/ai_daily_report_web/lifecycle_routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：ai_daily_report_cancel。
+- app.py：11741 → 11707 行。
+- 审核验证：1 passed, 6 subtests passed in 1.96s。
