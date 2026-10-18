@@ -2315,3 +2315,11 @@ Functions: safe_attachment_response.
 Module: `invoice_tool/attachments/response_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 13.94s. app.py: 5801 → 5761 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 13: settlement_support
+
+Functions: _parse_quotation_revision_snapshot, excessive_following_mileage_rows, _fallback_row_for_worker, service_order_active_invoice, remove_customer_reimbursement_pdf.
+Module: `invoice_tool/customer_reimbursements/support_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.66s. app.py: 5761 → 5720 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

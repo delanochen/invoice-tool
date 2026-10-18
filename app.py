@@ -147,6 +147,7 @@ from invoice_tool.employee_expenses import numbering as _split_expense_numbering
 from invoice_tool.photo_imports import storage_helpers as _split_photo_storage
 from invoice_tool.photo_imports import google_helpers as _split_google_photos
 from invoice_tool.attachments import response_helpers as _split_attachment_response
+from invoice_tool.customer_reimbursements import support_helpers as _split_settlement_support
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2022,12 +2023,7 @@ def report_actual_date(report):
 
 
 def _parse_quotation_revision_snapshot(quotation_revision):
-    import json as _json
-    try:
-        data = _json.loads(quotation_revision["snapshot_json"] or "{}")
-        return data if isinstance(data, dict) else {}
-    except (ValueError, TypeError):
-        return {}
+    return _split_settlement_support._parse_quotation_revision_snapshot(quotation_revision)
 
 
 def build_quotation_settlement_rows(order, quotation_revision):
@@ -2043,20 +2039,7 @@ def merge_service_reports_into_customer_reimbursement(rows, order_id):
 
 
 def excessive_following_mileage_rows(order_id, threshold=500):
-    return db().execute(
-        """
-        select service_reports.id as report_id, service_reports.report_date,
-               users.name as worker_name, service_report_workers.driving_miles
-        from service_report_workers
-        join service_reports on service_reports.id = service_report_workers.report_id
-        join users on users.id = service_report_workers.user_id
-        where service_reports.service_order_id = ?
-          and service_report_workers.travel_mode = 'following'
-          and service_report_workers.driving_miles > ?
-        order by service_reports.report_date, users.name
-        """,
-        (order_id, threshold),
-    ).fetchall()
+    return _split_settlement_support.excessive_following_mileage_rows(order_id, threshold, db=db)
 
 
 def _row_field(row, key, default=0):
@@ -2101,18 +2084,7 @@ def _reimbursement_date_value(value):
 
 
 def _fallback_row_for_worker(candidates_by_worker, worker_key):
-    """报销精确（人名+日期）匹配落空时回落到同一员工的已有明细行，避免
-    『同人异日拆行』导致同一来源被计入两次（翻倍根因②）。
-    - 该员工只有一行 → 直接复用
-    - 多行 → 取 project_date 最近的一行（'YYYY-MM-DD' 字符串比较有效）
-    - 该员工无任何行 → 返回 None（由调用方新建行）
-    """
-    rows = candidates_by_worker.get(worker_key)
-    if not rows:
-        return None
-    if len(rows) == 1:
-        return rows[0]
-    return max(rows, key=lambda r: _reimbursement_date_key(r.get("project_date")))
+    return _split_settlement_support._fallback_row_for_worker(candidates_by_worker, worker_key, _reimbursement_date_key=_reimbursement_date_key)
 
 
 def merge_approved_expenses_into_customer_reimbursement(
@@ -2206,16 +2178,7 @@ def latest_customer_reimbursement(order_id):
 
 
 def service_order_active_invoice(order_id):
-    return db().execute(
-        """
-        select *
-        from invoices
-        where service_order_id = ? and status != 'void'
-        order by issue_date desc, id desc
-        limit 1
-        """,
-        (order_id,),
-    ).fetchone()
+    return _split_settlement_support.service_order_active_invoice(order_id, db=db)
 
 
 def customer_reimbursement_linked_invoice(reimbursement, order_id):
@@ -2265,11 +2228,7 @@ def build_customer_reimbursement_pdf(reimbursement, order, rows):
 
 
 def remove_customer_reimbursement_pdf(reimbursement):
-    path = customer_reimbursement_file_path(reimbursement)
-    try:
-        os.remove(path)
-    except FileNotFoundError:
-        pass
+    return _split_settlement_support.remove_customer_reimbursement_pdf(reimbursement, customer_reimbursement_file_path=customer_reimbursement_file_path, os=os)
 
 
 def ensure_customer_reimbursement_pdf_file(reimbursement, order):
