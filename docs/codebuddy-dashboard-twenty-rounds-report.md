@@ -107,3 +107,11 @@
 - 迁移函数：validate_lodging_reimbursement。
 - app.py：12749 → 12747 行。
 - 审核验证：1 passed, 3 subtests passed in 1.86s。
+
+
+## 第 14/20 轮：timezone
+
+- CodeBuddy 实际写入 `invoice_tool/app_settings/timezone.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：get_timezone_name, app_timezone。
+- app.py：12747 → 12745 行。
+- 审核验证：2 passed, 4 subtests passed in 2.34s。

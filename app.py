@@ -84,6 +84,7 @@ from invoice_tool.dashboard import projects as _split_dashboard_projects
 from invoice_tool.app_settings import storage as _split_setting_write
 from invoice_tool.app_settings import numbers as _split_setting_float
 from invoice_tool.app_settings import payroll as _split_subsidy_settings
+from invoice_tool.app_settings import timezone as _split_timezone
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1109,14 +1110,11 @@ def validate_fuel_reimbursement_allowed(amount, label="油费报销"):
 
 
 def get_timezone_name():
-    return get_setting("app_timezone", DEFAULT_TIMEZONE) or DEFAULT_TIMEZONE
+    return _split_timezone.get_timezone_name(DEFAULT_TIMEZONE=DEFAULT_TIMEZONE, get_setting=get_setting)
 
 
 def app_timezone():
-    try:
-        return ZoneInfo(get_timezone_name())
-    except ZoneInfoNotFoundError:
-        return ZoneInfo(DEFAULT_TIMEZONE)
+    return _split_timezone.app_timezone(DEFAULT_TIMEZONE=DEFAULT_TIMEZONE, ZoneInfo=ZoneInfo, ZoneInfoNotFoundError=ZoneInfoNotFoundError, get_timezone_name=get_timezone_name)
 
 
 def get_company_profile():
