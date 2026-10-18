@@ -75,3 +75,11 @@
 - 迁移函数：setting_float。
 - app.py：12766 → 12764 行。
 - 审核验证：1 passed, 6 subtests passed in 1.83s。
+
+
+## 第 10/20 轮：setting_int
+
+- CodeBuddy 实际写入 `invoice_tool/app_settings/numbers.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：setting_int。
+- app.py：12764 → 12761 行。
+- 审核验证：1 passed, 6 subtests passed in 2.02s。

@@ -1065,10 +1065,7 @@ def setting_float(key, default=0):
 
 
 def setting_int(key, default=0):
-    try:
-        return int(float(get_setting(key, str(default)) or default))
-    except (TypeError, ValueError):
-        return int(default)
+    return _split_setting_float.setting_int(key, default, get_setting=get_setting)
 
 
 def inspection_cycle_days():

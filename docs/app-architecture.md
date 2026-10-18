@@ -1558,3 +1558,10 @@ Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing b
 `invoice_tool/app_settings/numbers.py` owns setting_float.
 Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
 Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 10/20: setting_int
+
+`invoice_tool/app_settings/numbers.py` owns setting_int.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
