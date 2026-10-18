@@ -110,3 +110,11 @@ Functions: log_action, log_login_action.
 Module: `invoice_tool/audit_log/record_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 11.56s. app.py: 5720 → 5687 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 15: geocoding
+
+Functions: parse_coordinate_pair, census_result_matches_address, geocode_with_google, geocode_with_census, nominatim_address_candidates, geocode_with_nominatim, geocode_address, geocode_service_order, geocode_buyer.
+Module: `invoice_tool/geocoding/lookup_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.73s. app.py: 5687 → 5394 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
