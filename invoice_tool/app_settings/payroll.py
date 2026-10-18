@@ -12,3 +12,9 @@ def payroll_subsidy_settings(*, get_setting, setting_float):
         "report_writing_fee": setting_float("payroll_report_writing_fee", 20),
         "lodging_limit": setting_float("payroll_lodging_limit", 0),
     }
+
+
+def validate_lodging_reimbursement(amount, label="住宿报销", *, lodging_reimbursement_limit):
+    limit = lodging_reimbursement_limit()
+    if limit > 0 and amount > limit:
+        raise ValueError(f"{label}不能超过 {limit:.2f}。")

@@ -1100,9 +1100,7 @@ def is_fuel_project_name(name):
 
 
 def validate_lodging_reimbursement(amount, label="住宿报销"):
-    limit = lodging_reimbursement_limit()
-    if limit > 0 and amount > limit:
-        raise ValueError(f"{label}不能超过 {limit:.2f}。")
+    return _split_subsidy_settings.validate_lodging_reimbursement(amount, label, lodging_reimbursement_limit=lodging_reimbursement_limit)
 
 
 def validate_fuel_reimbursement_allowed(amount, label="油费报销"):
