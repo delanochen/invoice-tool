@@ -7092,42 +7092,20 @@ _views_photos_auto_select = _split_photos_discover.register_photos_auto_select_r
 ai_daily_report_auto_select_photos = _views_photos_auto_select['ai_daily_report_auto_select_photos']
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/photo/<string:photo_id>/mark")
-@login_required
-def ai_daily_report_mark_photo(draft_id, photo_id):
-    """Mark a non-equipment photo as arrival / departure / safety.
-
-    拍照功能: 非设备照片三选一标记。
-    进场/离场照片的时间 = 用户修改时间优先，拍照时间次之。
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权访问"}), 403
-    require_ai_daily_report_csrf()
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-    if not can_edit_ai_daily_report_draft(g.user, draft_row):
-        return jsonify({"ok": False, "error": "无权修改此 Draft"}), 403
-    try:
-        data = request.get_json(silent=True) or {}
-        classification = data.get("classification", "")
-        expected_version = data.get("draft_version")
-        if expected_version is not None:
-            expected_version = int(expected_version)
-    except (ValueError, TypeError):
-        return jsonify({"ok": False, "error": "无效请求"}), 400
-    try:
-        result = svc.mark_photo_classification(
-            draft_id, photo_id, classification, expected_version=expected_version
-        )
-    except DraftVersionConflict:
-        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
-    if not result.get("ok"):
-        status = 422 if result.get("error") in ("invalid_photo_id", "invalid_classification") else 400
-        return jsonify(result), status
-    db().commit()
-    return jsonify(result)
+_views_photo_mark = _split_photos_discover.register_photo_mark_routes(
+    app,
+    _cb_resolve_DraftVersionConflict=lambda: DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_can_edit_ai_daily_report_draft=lambda: can_edit_ai_daily_report_draft,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_require_ai_daily_report_csrf=lambda: require_ai_daily_report_csrf,
+)
+ai_daily_report_mark_photo = _views_photo_mark['ai_daily_report_mark_photo']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/photo/<string:photo_id>/time")
