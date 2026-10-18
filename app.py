@@ -161,6 +161,7 @@ from invoice_tool.employee_expenses import project_policy as _split_residual_exp
 from invoice_tool.presentation import value_helpers as _split_residual_formatting
 from invoice_tool.database_console import statement_helpers as _split_residual_sql
 from invoice_tool.service_orders import start_date_helpers as _split_residual_order_guard
+from invoice_tool.photo_imports import path_helpers as _split_residual_photo_paths
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1526,7 +1527,7 @@ def invoice_number_exists(invoice_number, exclude_invoice_id=None):
 
 
 def allowed_attachment(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_ATTACHMENT_EXTENSIONS
+    return _split_residual_photo_paths.allowed_attachment(filename, ALLOWED_ATTACHMENT_EXTENSIONS=ALLOWED_ATTACHMENT_EXTENSIONS)
 
 
 def normalized_attachment_filename(filename):
@@ -1610,7 +1611,7 @@ def require_service_report(report_id):
 
 
 def allowed_image(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+    return _split_residual_photo_paths.allowed_image(filename, ALLOWED_IMAGE_EXTENSIONS=ALLOWED_IMAGE_EXTENSIONS)
 
 
 def report_storage_context_values(order_number, report_date, report_id=None):
@@ -1670,7 +1671,7 @@ def save_report_file_attachment(report_id, uploaded, category, storage_context=N
 
 
 def shared_photos_root():
-    return Path(SHARED_PHOTOS_DIR).resolve()
+    return _split_residual_photo_paths.shared_photos_root(Path=Path, SHARED_PHOTOS_DIR=SHARED_PHOTOS_DIR)
 
 
 def service_order_photo_folder(order_number):
@@ -1682,21 +1683,15 @@ def service_order_photo_summary(order_number):
 
 
 def ensure_service_order_picture_folder(order_number):
-    folder = service_order_photo_folder(order_number) / "pictures"
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    return _split_residual_photo_paths.ensure_service_order_picture_folder(order_number, service_order_photo_folder=service_order_photo_folder)
 
 
 def service_order_incoming_folder(order_number, source_name="uploads"):
-    folder = shared_photos_root() / secure_filename(order_number) / "incoming" / secure_filename(source_name)
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    return _split_residual_photo_paths.service_order_incoming_folder(order_number, source_name, secure_filename=secure_filename, shared_photos_root=shared_photos_root)
 
 
 def is_google_photos_share_url(value):
-    parsed = urlsplit((value or "").strip())
-    host = parsed.netloc.lower().split(":")[0]
-    return parsed.scheme in {"http", "https"} and host in GOOGLE_PHOTOS_ALLOWED_HOSTS
+    return _split_residual_photo_paths.is_google_photos_share_url(value, GOOGLE_PHOTOS_ALLOWED_HOSTS=GOOGLE_PHOTOS_ALLOWED_HOSTS, urlsplit=urlsplit)
 
 
 def google_photos_page_html(share_url):
@@ -1720,7 +1715,7 @@ def is_likely_google_account_image(url):
 
 
 def google_photo_url_key(url):
-    return url.split("=", 1)[0]
+    return _split_residual_photo_paths.google_photo_url_key(url)
 
 
 def google_photo_download_candidates(url):

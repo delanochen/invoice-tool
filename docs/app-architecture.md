@@ -2421,3 +2421,11 @@ Functions: require_service_order_start_date.
 Module: `invoice_tool/service_orders/start_date_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 11.17s. app.py: 4937 → 4935 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 8: residual_photo_paths
+
+Functions: allowed_attachment, allowed_image, shared_photos_root, ensure_service_order_picture_folder, service_order_incoming_folder, is_google_photos_share_url, google_photo_url_key.
+Module: `invoice_tool/photo_imports/path_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.33s. app.py: 4935 → 4930 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
