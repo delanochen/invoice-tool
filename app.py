@@ -152,6 +152,7 @@ from invoice_tool.audit_log import record_helpers as _split_audit
 from invoice_tool.geocoding import lookup_helpers as _split_geocoding
 from invoice_tool.messages import query_helpers as _split_messages
 from invoice_tool.ai_assistant import query_helpers as _split_assistant_helpers
+from invoice_tool.ai_daily_report_web import manifest_actions as _split_manifest_delete
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3368,35 +3369,21 @@ def _manifest_error_response(exc, default_status=422):
 
 
 
-@app.delete("/api/ai/daily-report/draft/<int:draft_id>/manifest/<manifest_id>")
-@login_required
-def ai_daily_report_manifest_cancel(draft_id, manifest_id):
-    """Cancel a (non-ready) Manifest: mark cancelled + delete its staging only.
-
-    Original Work Order photos / Phase 3B evidence / formal attachments are
-    never touched. Requires CSRF + can_prepare (confirmed, non-read-only).
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-
-    require_ai_daily_report_csrf()
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-
-    if not can_prepare_attachment_manifest(g.user, draft_row):
-        return jsonify({"ok": False, "error": "无权操作附件清单"}), 403
-
-    try:
-        manifest_svc = _attachment_manifest_service()
-        manifest = manifest_svc.cancel(draft_id, manifest_id)
-    except ManifestError as exc:
-        return _manifest_error_response(exc, default_status=400)
-
-    db().commit()
-    return jsonify({"ok": True, "manifest": manifest})
+_views_manifest_delete = _split_manifest_delete.register_manifest_delete_routes(
+    app,
+    _cb_resolve_ManifestError=lambda: ManifestError,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve__attachment_manifest_service=lambda: _attachment_manifest_service,
+    _cb_resolve__manifest_error_response=lambda: _manifest_error_response,
+    _cb_resolve_can_prepare_attachment_manifest=lambda: can_prepare_attachment_manifest,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_require_ai_daily_report_csrf=lambda: require_ai_daily_report_csrf,
+)
+ai_daily_report_manifest_cancel = _views_manifest_delete['ai_daily_report_manifest_cancel']
 
 
 _views_ai_workers = _split_ai_workers.register_ai_workers_routes(

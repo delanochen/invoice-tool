@@ -2355,3 +2355,8 @@ Functions: ai_normalize_status, ai_search_business_records, deepseek_api_error_m
 Module: `invoice_tool/ai_assistant/query_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 11.46s. app.py: 5361 → 5071 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Tail phase 1
+
+Codex extracted `invoice_tool/ai_daily_report_web/manifest_actions.py`. Verification: 31 passed, 23 subtests passed in 10.44s. Shared-state callbacks preserve original app state, lock and finally timing. No business changes, schema changes, merge or deployment.
