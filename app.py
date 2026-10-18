@@ -96,6 +96,7 @@ from invoice_tool.customer_reimbursements import calculations as _split_row_fiel
 from invoice_tool.customer_reimbursements import project_mapping as _split_project_mapping
 from invoice_tool.customer_reimbursements import dates as _split_settlement_date
 from invoice_tool.customer_reimbursements import totals as _split_mro_total
+from invoice_tool.customer_reimbursements import item_queries as _split_settlement_items
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3912,15 +3913,7 @@ def customer_reimbursement_column_totals(items):
 
 
 def customer_reimbursement_items(reimbursement_id):
-    return db().execute(
-        """
-        select *
-        from customer_reimbursement_items
-        where customer_reimbursement_id = ?
-        order by sort_order, id
-        """,
-        (reimbursement_id,),
-    ).fetchall()
+    return _split_settlement_items.customer_reimbursement_items(reimbursement_id, db=db)
 
 
 def get_customer_reimbursement_attachments(reimbursement_id):

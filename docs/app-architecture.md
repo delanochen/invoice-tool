@@ -1754,3 +1754,10 @@ Verified by `test_codebuddy_settlement_contract.py`; independent review/testing 
 `invoice_tool/customer_reimbursements/totals.py` owns customer_reimbursement_column_totals.
 Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
 Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 19/20: settlement_items
+
+`invoice_tool/customer_reimbursements/item_queries.py` owns customer_reimbursement_items.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
