@@ -159,6 +159,7 @@ from invoice_tool.user_preferences import language_helpers as _split_residual_la
 from invoice_tool.app_settings import profile_helpers as _split_residual_settings
 from invoice_tool.employee_expenses import project_policy as _split_residual_expense_policy
 from invoice_tool.presentation import value_helpers as _split_residual_formatting
+from invoice_tool.database_console import statement_helpers as _split_residual_sql
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1392,14 +1393,11 @@ def local_datetime(value):
 
 
 def sql_statement_kind(sql):
-    stripped = (sql or "").lstrip()
-    if not stripped:
-        return ""
-    return stripped.split(None, 1)[0].lower()
+    return _split_residual_sql.sql_statement_kind(sql)
 
 
 def is_read_sql(sql):
-    return sql_statement_kind(sql) in {"select", "with", "explain"}
+    return _split_residual_sql.is_read_sql(sql, sql_statement_kind=sql_statement_kind)
 
 
 def client_order_number_warning(customer_name, client_order_number):

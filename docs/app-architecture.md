@@ -2405,3 +2405,11 @@ Functions: project_color, pdf_text, to_float, decimal_value, money_decimal, mone
 Module: `invoice_tool/presentation/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 12.47s. app.py: 4956 → 4939 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: residual_sql
+
+Functions: sql_statement_kind, is_read_sql.
+Module: `invoice_tool/database_console/statement_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 14.20s. app.py: 4939 → 4937 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
