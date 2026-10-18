@@ -2469,3 +2469,11 @@ Functions: normalized_address, configured_country_codes, address_expectations.
 Module: `invoice_tool/geocoding/address_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 12.07s. app.py: 4920 → 4918 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 14: residual_ai_values
+
+Functions: ai_search_like, _ai_daily_report_business_date.
+Module: `invoice_tool/ai_daily_report_web/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.00s. app.py: 4918 → 4918 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

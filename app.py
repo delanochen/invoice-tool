@@ -167,6 +167,7 @@ from invoice_tool.customer_reimbursements import value_helpers as _split_residua
 from invoice_tool.messages import content_helpers as _split_residual_messages
 from invoice_tool.audit_log import request_helpers as _split_residual_audit
 from invoice_tool.geocoding import address_helpers as _split_residual_geo_values
+from invoice_tool.ai_daily_report_web import value_helpers as _split_residual_ai_values
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2706,7 +2707,7 @@ def vision_settings():
 
 
 def ai_search_like(value):
-    return f"%{str(value or '').strip()}%"
+    return _split_residual_ai_values.ai_search_like(value)
 
 
 def ai_normalize_status(domain, value):
@@ -2784,8 +2785,7 @@ def _ai_daily_report_service():
 
 
 def _ai_daily_report_business_date() -> str:
-    """Get current business date in app timezone."""
-    return datetime.now(app_timezone()).date().isoformat()
+    return _split_residual_ai_values._ai_daily_report_business_date(app_timezone=app_timezone, datetime=datetime)
 
 
 def _auto_prepare_draft_media(draft_id: int) -> list:
