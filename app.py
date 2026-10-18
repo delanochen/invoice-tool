@@ -160,6 +160,7 @@ from invoice_tool.app_settings import profile_helpers as _split_residual_setting
 from invoice_tool.employee_expenses import project_policy as _split_residual_expense_policy
 from invoice_tool.presentation import value_helpers as _split_residual_formatting
 from invoice_tool.database_console import statement_helpers as _split_residual_sql
+from invoice_tool.service_orders import start_date_helpers as _split_residual_order_guard
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1601,10 +1602,7 @@ def service_order_delete_blockers(order_id):
 
 
 def require_service_order_start_date(order):
-    if order["start_date"]:
-        return None
-    flash("请先编辑工单并维护开始日期，再新增发票、工作日报或报销。", "error")
-    return redirect(url_for("edit_service_order", order_id=order["id"]))
+    return _split_residual_order_guard.require_service_order_start_date(order, flash=flash, redirect=redirect, url_for=url_for)
 
 
 def require_service_report(report_id):

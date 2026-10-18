@@ -46,3 +46,11 @@ Functions: sql_statement_kind, is_read_sql.
 Module: `invoice_tool/database_console/statement_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 14.20s. app.py: 4939 → 4937 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 7: residual_order_guard
+
+Functions: require_service_order_start_date.
+Module: `invoice_tool/service_orders/start_date_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.17s. app.py: 4937 → 4935 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
