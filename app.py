@@ -107,6 +107,7 @@ from invoice_tool.query_pages import invoices as _split_invoice_list
 from invoice_tool.query_pages import orders as _split_order_query_page
 from invoice_tool.query_pages import reports as _split_report_query_page
 from invoice_tool.ai_daily_report_web import draft_routes as _split_draft_get
+from invoice_tool.ai_daily_report_web import photo_routes as _split_photos_discover
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -6959,70 +6960,21 @@ _views_draft_prepare = _split_draft_get.register_draft_prepare_routes(
 ai_daily_report_auto_prepare = _views_draft_prepare['ai_daily_report_auto_prepare']
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/discover-photos")
-@login_required
-def ai_daily_report_discover_photos(draft_id):
-    """Discover original site photos for draft and compute arrival/departure candidates.
-
-    Phase 4: Only generates candidates. Does NOT overwrite formal arrival/departure.
-    Photos come from server directory: <root>/<SO-XXXXXX>/pictures/YYYY-MM-DD/
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-    if draft_row["status"] not in {"draft", "confirmed"}:
-        return jsonify({"ok": False, "error": f"Draft 状态为 {draft_row['status']}，无法发现照片"}), 400
-
-    # Get expected_version for optimistic locking (optional)
-    expected_version = None
-    try:
-        data = request.get_json(silent=True)
-        if data and "draft_version" in data:
-            expected_version = int(data["draft_version"])
-    except Exception:
-        pass
-
-    # Initialize photo services
-    photo_discovery = PhotoDiscoveryService(
-        shared_photos_root=SHARED_PHOTOS_DIR,
-        service_order_photo_folder_func=service_order_photo_folder,
-    )
-    photo_metadata = PhotoMetadataService(shared_photos_root=SHARED_PHOTOS_DIR)
-
-    # Field-work manual photo_type is authoritative when present (equipment /
-    # arrival / departure / safety). Inherit it into discovered photo candidates.
-    try:
-        _fp_rows = db().execute("select relative_path, photo_type from field_photos").fetchall()
-        _fp_map = {r["relative_path"]: (r["photo_type"] or "") for r in _fp_rows}
-    except Exception:
-        _fp_map = {}
-
-    def _photo_type_lookup(relative_path: str):
-        value = _fp_map.get(relative_path)
-        return value or None
-
-    try:
-        result = svc.discover_photos_for_draft(
-            draft_id=draft_id,
-            photo_discovery_service=photo_discovery,
-            photo_metadata_service=photo_metadata,
-            expected_version=expected_version,
-            photo_type_lookup=_photo_type_lookup,
-        )
-    except DraftVersionConflict:
-        return jsonify({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
-
-    if result["status"] == "failed":
-        error = result.get("error", "照片发现失败")
-        if "version" in error:
-            return jsonify({"ok": False, "error": error}), 409
-        return jsonify({"ok": False, "error": error}), 500
-
-    db().commit()
-    return jsonify({"ok": True, **result})
+_views_photos_discover = _split_photos_discover.register_photos_discover_routes(
+    app,
+    _cb_resolve_DraftVersionConflict=lambda: DraftVersionConflict,
+    _cb_resolve_PhotoDiscoveryService=lambda: PhotoDiscoveryService,
+    _cb_resolve_PhotoMetadataService=lambda: PhotoMetadataService,
+    _cb_resolve_SHARED_PHOTOS_DIR=lambda: SHARED_PHOTOS_DIR,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_service_order_photo_folder=lambda: service_order_photo_folder,
+)
+ai_daily_report_discover_photos = _views_photos_discover['ai_daily_report_discover_photos']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/confirm-photo-timeline")

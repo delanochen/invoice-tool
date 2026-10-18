@@ -1908,3 +1908,10 @@ Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex
 `invoice_tool/ai_daily_report_web/draft_routes.py` owns ai_daily_report_auto_prepare.
 Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
 Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 3/20: photos_discover
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_discover_photos.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
