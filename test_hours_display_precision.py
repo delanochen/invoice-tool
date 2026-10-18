@@ -25,8 +25,8 @@ REPO_DIR = Path(__file__).resolve().parent
 
 
 def load_hours_filter():
-    """只加载 app.py 里的 hours() —— 不 import app（会碰 data/ 目录）。"""
-    source = (REPO_DIR / "app.py").read_text(encoding="utf-8")
+    """只加载展示模块里的 hours() —— 不 import app（会碰 data/ 目录）。"""
+    source = (REPO_DIR / "invoice_tool/presentation/formatting.py").read_text(encoding="utf-8")
     match = re.search(r"^def hours\(value\):\n(?:.*\n)*?(?=^\S|\Z)", source, re.MULTILINE)
     assert match, "app.py 里找不到 hours() 定义"
     namespace = {}
@@ -103,7 +103,10 @@ class HoursFilterSourceContractTest(unittest.TestCase):
         """hours() 函数体（去掉文档字符串）里不能再出现 .1f。"""
         match = re.search(r"^def hours\(value\):\n(?:.*\n)*?(?=^\S|\Z)", self.source, re.MULTILINE)
         self.assertIsNotNone(match)
-        body = match.group(0)
+        implementation = (REPO_DIR / "invoice_tool/presentation/formatting.py").read_text(encoding="utf-8")
+        implementation_match = re.search(r"^def hours\(value\):\n(?:.*\n)*?(?=^\S|\Z)", implementation, re.MULTILINE)
+        self.assertIsNotNone(implementation_match)
+        body = implementation_match.group(0)
         # 去掉三引号文档字符串：文档里故意引用了旧写法 f"{2.25:.1f}" 作说明。
         body = re.sub(r'"""(?:.|\n)*?"""', "", body)
         self.assertNotIn(".1f", body, msg="hours() 仍在使用一位小数格式")
