@@ -9478,108 +9478,20 @@ _views_invoice_list = _split_invoice_list.register_invoice_list_routes(
 invoices = _views_invoice_list['invoices']
 
 
-@app.route("/reports/invoices")
-@login_required
-def invoice_query():
-    if not can_view_invoices():
-        abort(403)
-    client_q = request.args.get("client", "").strip()
-    short_q = request.args.get("short_name", "").strip()
-    date_from = request.args.get("date_from", "")
-    date_to = request.args.get("date_to", "")
-    work_order_status = request.args.get("work_order_status", "")
-    if work_order_status not in {"", "open", "closed"}:
-        work_order_status = ""
-    region_code, country_code, countries, regions, location_clauses, location_params = report_location_filters()
-    available_statuses = set(STATUS_LABELS.keys())
-    selected_statuses = [value for value in request.args.getlist("status") if value in available_statuses]
-    selected_paid_statuses = [value for value in request.args.getlist("paid_status") if value in {"paid", "unpaid"}]
-    project_options = report_project_options()
-    available_project_ids = {str(project["id"]) for project in project_options}
-    selected_project_ids = [value for value in request.args.getlist("project_id") if value in available_project_ids]
-    effective_project_ids = selected_project_ids or [str(project["id"]) for project in project_options]
-    access_clause, access_params = client_filter_clause("invoices")
-    clauses = [access_clause]
-    params = list(access_params)
-    clauses.extend(location_clauses)
-    params.extend(location_params)
-    if work_order_status:
-        clauses.append("service_orders.status = ?")
-        params.append(work_order_status)
-    if selected_statuses:
-        placeholders = ",".join("?" for _ in selected_statuses)
-        clauses.append(f"invoices.status in ({placeholders})")
-        params.extend(selected_statuses)
-    else:
-        clauses.append("invoices.status != 'void'")
-    if selected_paid_statuses and len(selected_paid_statuses) < 2:
-        if selected_paid_statuses[0] == "paid":
-            clauses.append("invoices.paid_at is not null")
-        elif selected_paid_statuses[0] == "unpaid":
-            clauses.append("invoices.status = 'completed' and invoices.paid_at is null")
-    if client_q:
-        clauses.append("(clients.name like ? or clients.client_number like ?)")
-        params.extend([f"%{client_q}%", f"%{client_q}%"])
-    if short_q:
-        clauses.append("clients.short_name like ?")
-        params.append(f"%{short_q}%")
-    if date_from:
-        clauses.append("invoices.issue_date >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("invoices.issue_date <= ?")
-        params.append(date_to)
-    if effective_project_ids:
-        placeholders = ",".join("?" for _ in effective_project_ids)
-        clauses.append(f"invoice_items.project_id in ({placeholders})")
-        params.extend(effective_project_ids)
-    rows = db().execute(
-        f"""
-        select invoices.id, invoices.invoice_number, invoices.issue_date, invoices.currency, invoices.status, invoices.paid_at,
-               clients.client_number, clients.name as client_name, clients.short_name,
-               invoice_items.description as project_name, invoice_items.amount, invoice_items.tax_rate,
-               service_orders.status as service_order_status,
-               service_orders.client_order_number as service_client_order_number
-        from invoice_items
-        join invoices on invoices.id = invoice_items.invoice_id
-        join clients on clients.id = invoices.client_id
-        left join service_orders on service_orders.id = invoices.service_order_id
-        where {" and ".join(clauses)}
-        order by invoices.issue_date desc, invoices.id desc, invoice_items.id asc
-        """,
-        params,
-    ).fetchall()
-    report_rows = []
-    subtotal = tax_total = grand_total = 0
-    for row in rows:
-        amount = float(row["amount"] or 0)
-        tax = amount * float(row["tax_rate"] or 0) / 100
-        line_total = amount + tax
-        subtotal += amount
-        tax_total += tax
-        grand_total += line_total
-        report_rows.append({"row": row, "tax": tax, "line_total": line_total})
-    return render_template(
-        "reports.html",
-        rows=report_rows,
-        project_options=project_options,
-        selected_project_ids=effective_project_ids,
-        client_q=client_q,
-        short_q=short_q,
-        date_from=date_from,
-        date_to=date_to,
-        work_order_status=work_order_status,
-        selected_statuses=selected_statuses or [value for value in STATUS_LABELS if value != "void"],
-        selected_paid_statuses=selected_paid_statuses or ["paid", "unpaid"],
-        subtotal=subtotal,
-        tax_total=tax_total,
-        grand_total=grand_total,
-        labels=STATUS_LABELS,
-        countries=countries,
-        regions=regions,
-        region_code=region_code,
-        country_code=country_code,
-    )
+_views_invoice_query_page = _split_invoice_list.register_invoice_query_page_routes(
+    app,
+    _cb_resolve_STATUS_LABELS=lambda: STATUS_LABELS,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_can_view_invoices=lambda: can_view_invoices,
+    _cb_resolve_client_filter_clause=lambda: client_filter_clause,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_report_location_filters=lambda: report_location_filters,
+    _cb_resolve_report_project_options=lambda: report_project_options,
+    _cb_resolve_request=lambda: request,
+)
+invoice_query = _views_invoice_query_page['invoice_query']
 
 
 
