@@ -110,3 +110,7 @@ Functions: new_invoice, edit_invoice.
 Module: `invoice_tool/invoices/editor_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 11.03s. app.py: 7280 → 7127 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+Final guarded milestone: 496 passed, 4 deselected, 2 warnings, 607 subtests passed in 278.66s (0:04:38)
+Four pre-existing fixture exclusions; not the full repository suite.
