@@ -85,3 +85,17 @@ def customer_reimbursement_totals(items, mro_supplies_total=0, rental_fuel_total
         "employee_expense_total": money_float(employee_expense_total),
         "total_amount": money_float(total_amount),
     }
+
+
+def customer_reimbursement_column_totals(items, *, Decimal, customer_reimbursement_item_expense_amount, money_decimal, money_float):
+    totals = {}
+    for field in ("standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours", "miles"):
+        totals[field] = sum(float(item[field] or 0) for item in items)
+    for field in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"):
+        totals[field] = money_float(sum(
+            (customer_reimbursement_item_expense_amount(item, field) for item in items),
+            Decimal("0"),
+        ))
+    for field in ("labor_total", "mileage_total", "total"):
+        totals[field] = money_float(sum((money_decimal(item[field]) for item in items), Decimal("0")))
+    return totals

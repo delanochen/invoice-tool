@@ -3908,17 +3908,7 @@ def customer_reimbursement_workspace_data(order_id, reimbursement_id, saved_item
 
 
 def customer_reimbursement_column_totals(items):
-    totals = {}
-    for field in ("standard_hours", "transport_hours", "public_transport_hours", "overtime_hours", "holiday_hours", "miles"):
-        totals[field] = sum(float(item[field] or 0) for item in items)
-    for field in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi", "other"):
-        totals[field] = money_float(sum(
-            (customer_reimbursement_item_expense_amount(item, field) for item in items),
-            Decimal("0"),
-        ))
-    for field in ("labor_total", "mileage_total", "total"):
-        totals[field] = money_float(sum((money_decimal(item[field]) for item in items), Decimal("0")))
-    return totals
+    return _split_mro_total.customer_reimbursement_column_totals(items, Decimal=Decimal, customer_reimbursement_item_expense_amount=customer_reimbursement_item_expense_amount, money_decimal=money_decimal, money_float=money_float)
 
 
 def customer_reimbursement_items(reimbursement_id):
