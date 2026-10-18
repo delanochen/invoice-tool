@@ -482,33 +482,17 @@ _last_geocode_request_at = 0.0
 from invoice_tool.geocoding import region_catalog as _catalog_region_catalog
 US_STATE_CODES = _catalog_region_catalog.make_us_state_codes()
 
-STATUS_LABELS = {
-    "draft": "保存未提交",
-    "submitted": "待经理审核",
-    "returned": "已退回",
-    "completed": "已完成",
-    "void": "作废",
-}
+from invoice_tool.presentation import status_catalog as _catalog_status_catalog
+STATUS_LABELS = _catalog_status_catalog.make_status_labels()
 
-EXPENSE_STATUS_LABELS = {
-    "draft": "保存未提交",
-    "submitted": "待经理审核",
-    "returned": "已退回",
-    "approved": "已通过",
-    "cancelled": "已作废",
-}
+EXPENSE_STATUS_LABELS = _catalog_status_catalog.make_expense_status_labels()
 
 EXPENSE_PAYOUT_LABELS = {
     "pending": "待付款",
     "paid": "已付款",
 }
 
-CUSTOMER_REIMBURSEMENT_STATUS_LABELS = {
-    "draft": "保存未提交",
-    "submitted": "待经理审核",
-    "returned": "已退回",
-    "approved": "已通过",
-}
+CUSTOMER_REIMBURSEMENT_STATUS_LABELS = _catalog_status_catalog.make_customer_reimbursement_status_labels()
 
 ROLE_OPTIONS = {
     "admin": "管理员",
@@ -764,14 +748,7 @@ CONTRACT_TYPE_LABELS = {
     "project": "项目合同",
 }
 
-CONTRACT_STATUS_LABELS = {
-    "draft": "草稿",
-    "review": "审核中",
-    "signed": "已签署",
-    "active": "执行中",
-    "completed": "已完成",
-    "terminated": "已终止",
-}
+CONTRACT_STATUS_LABELS = _catalog_status_catalog.make_contract_status_labels()
 
 # 客户费率一律以数据库（合同费率版本）为准；这里只保留项目名称清单用于
 # 初始化 projects 目录，不再携带任何费率数值，也不会覆盖已有 unit_price。
@@ -3628,12 +3605,7 @@ SERVICE_ORDER_STATIC_MAP_LABELED_LIMIT = 35
 # picture stays stable when filters change.
 SERVICE_ORDER_STATIC_MAP_CENTER = "39.8283,-98.5795"
 SERVICE_ORDER_STATIC_MAP_ZOOM = 4
-SERVICE_ORDER_STATIC_MAP_STATUS_COLORS = {
-    "overdue": "red",
-    "warning": "orange",
-    "fresh": "green",
-    "none": "gray",
-}
+SERVICE_ORDER_STATIC_MAP_STATUS_COLORS = _catalog_status_catalog.make_service_order_static_map_status_colors()
 
 # Countries whose visitors normally cannot reach Google from the browser
 # (the Great Firewall blocks maps.googleapis.com). For them the site map
