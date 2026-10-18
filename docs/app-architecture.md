@@ -2179,3 +2179,11 @@ Functions: export_visible_report, customer_reimbursement_query, audit_log_report
 Module: `invoice_tool/query_pages/settlement_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 10.72s. app.py: 8120 → 7932 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: order_attachments
+
+Functions: import_google_photos_for_service_order, download_service_order_attachments.
+Module: `invoice_tool/service_orders/attachment_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.61s. app.py: 7932 → 7866 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

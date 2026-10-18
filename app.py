@@ -130,6 +130,7 @@ from invoice_tool.ai_daily_report_web import evidence_routes as _split_ai_eviden
 from invoice_tool.ai_daily_report_web import worker_routes as _split_ai_workers
 from invoice_tool.ai_daily_report_web import work_routes as _split_ai_work
 from invoice_tool.query_pages import settlement_routes as _split_report_queries
+from invoice_tool.service_orders import attachment_routes as _split_order_attachments
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5897,26 +5898,44 @@ def request_country_code():
 
 
 
-@app.post("/service-orders/<int:order_id>/import-google-photos")
-@login_required
-def import_google_photos_for_service_order(order_id):
-    order = require_service_order(order_id)
-    if not can_create_service_report(order):
-        abort(403)
-    share_url = request.form.get("google_photos_url", "").strip()
-    if not is_google_photos_share_url(share_url):
-        flash("请输入有效的 Google Photos 分享链接。", "error")
-        return redirect(url_for("service_order_detail", order_id=order_id))
-    try:
-        ensure_service_order_picture_folder(order["order_number"])
-        service_order_incoming_folder(order["order_number"], "google-photos")
-    except OSError:
-        app.logger.exception("Failed to prepare Google Photos import folder for service order %s", order["order_number"])
-        flash("无法写入服务器照片目录，请检查共享照片目录或权限。", "error")
-        return redirect(url_for("service_order_detail", order_id=order_id))
-    start_google_photos_import_job(order_id, g.user["id"], share_url)
-    flash("Google Photos 分享链接导入任务已开始。完成后会通过邮件和系统消息通知你。", "success")
-    return redirect(url_for("service_order_detail", order_id=order_id))
+_views_order_attachments = _split_order_attachments.register_order_attachments_routes(
+    app,
+    _cb_resolve_ALLOWED_IMAGE_EXTENSIONS=lambda: ALLOWED_IMAGE_EXTENSIONS,
+    _cb_resolve_CUSTOMER_REIMBURSEMENT_DIR=lambda: CUSTOMER_REIMBURSEMENT_DIR,
+    _cb_resolve_Path=lambda: Path,
+    _cb_resolve_REPORT_ATTACHMENTS_DIR=lambda: REPORT_ATTACHMENTS_DIR,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_app=lambda: app,
+    _cb_resolve_can_create_service_report=lambda: can_create_service_report,
+    _cb_resolve_can_view_customer_reimbursement=lambda: can_view_customer_reimbursement,
+    _cb_resolve_customer_reimbursement_attachment_path=lambda: customer_reimbursement_attachment_path,
+    _cb_resolve_customer_reimbursement_file_path=lambda: customer_reimbursement_file_path,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_ensure_customer_reimbursement_pdf_file=lambda: ensure_customer_reimbursement_pdf_file,
+    _cb_resolve_ensure_service_order_picture_folder=lambda: ensure_service_order_picture_folder,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_has_action_permission=lambda: has_action_permission,
+    _cb_resolve_has_menu_permission=lambda: has_menu_permission,
+    _cb_resolve_is_google_photos_share_url=lambda: is_google_photos_share_url,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_os=lambda: os,
+    _cb_resolve_re=lambda: re,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_report_attachment_path=lambda: report_attachment_path,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_require_service_order=lambda: require_service_order,
+    _cb_resolve_secure_filename=lambda: secure_filename,
+    _cb_resolve_send_file=lambda: send_file,
+    _cb_resolve_service_order_incoming_folder=lambda: service_order_incoming_folder,
+    _cb_resolve_shared_photos_root=lambda: shared_photos_root,
+    _cb_resolve_start_google_photos_import_job=lambda: start_google_photos_import_job,
+    _cb_resolve_tempfile=lambda: tempfile,
+    _cb_resolve_url_for=lambda: url_for,
+    _cb_resolve_zipfile=lambda: zipfile,
+)
+import_google_photos_for_service_order = _views_order_attachments['import_google_photos_for_service_order']
+download_service_order_attachments = _views_order_attachments['download_service_order_attachments']
 
 
 @app.route("/service-orders/<int:order_id>/customer-reimbursement", methods=["GET", "POST"])
@@ -6997,91 +7016,6 @@ _expense_transfer_views = register_expense_transfer_routes(
 transfer_expense_attachment = _expense_transfer_views['transfer_expense_attachment']
 
 
-@app.get("/service-orders/<int:order_id>/attachments.zip")
-@login_required
-def download_service_order_attachments(order_id):
-    order = require_service_order(order_id)
-    categories = {"self_check": "自检照片", "arrival": "进场照片", "departure": "离场照片",
-                  "site": "现场工作照片", "mileage_proof": "里程佐证"}
-    folders = [*categories.values(), "工单结算"]
-    files = []
-    def collect(folder, path, name, root):
-        path = Path(path).resolve()
-        if not path.is_relative_to(Path(root).resolve()):
-            abort(400, description="附件路径无效。")
-        name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(name)).strip('. ') or '附件'
-        files.append((folder, path, name))
-    if has_action_permission('service_reports', 'view'):
-        for row in db().execute("""select a.*, r.report_date from service_report_attachments a
-                join service_reports r on r.id=a.report_id where r.service_order_id=? order by r.report_date,a.id""", (order_id,)):
-            if row['category'] in categories:
-                collect(categories[row['category']], report_attachment_path(row),
-                        f"{row['report_date']}-日报{row['report_id']}-{row['original_filename']}", REPORT_ATTACHMENTS_DIR)
-    if has_menu_permission('field_work'):
-        root = shared_photos_root()
-        # Include server-imported photos as well as phone uploads, without thumbnails.
-        picture_dir = (root / str(order['order_number']) / 'pictures').resolve()
-        if not picture_dir.is_relative_to(root.resolve()):
-            abort(400)
-        if picture_dir.is_dir():
-            for path in sorted(picture_dir.rglob('*')):
-                if path.is_file() and path.suffix.lower().lstrip('.') in ALLOWED_IMAGE_EXTENSIONS:
-                    collect('现场工作照片', path, '-'.join(path.relative_to(picture_dir).parts), picture_dir)
-    if can_view_customer_reimbursement():
-        reimbursements = db().execute(
-            'select * from customer_reimbursements where service_order_id=? order by id',
-            (order_id,),
-        ).fetchall()
-        for reimbursement in reimbursements:
-            try:
-                current_reimbursement, pdf_path = ensure_customer_reimbursement_pdf_file(reimbursement, order)
-                db().commit()
-            except Exception:
-                db().rollback()
-                app.logger.exception(
-                    "Failed to generate settlement PDF while building attachment archive: reimbursement_id=%s",
-                    reimbursement["id"],
-                )
-                current_reimbursement = reimbursement
-                pdf_path = customer_reimbursement_file_path(reimbursement)
-            collect(
-                '工单结算',
-                pdf_path,
-                current_reimbursement['file_name'],
-                CUSTOMER_REIMBURSEMENT_DIR,
-            )
-            for row in db().execute('select * from customer_reimbursement_attachments where customer_reimbursement_id=? order by id', (reimbursement['id'],)):
-                collect('工单结算', customer_reimbursement_attachment_path(row), row['original_filename'], CUSTOMER_REIMBURSEMENT_DIR)
-    archive_file = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode='w+b')
-    try:
-        with zipfile.ZipFile(archive_file, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
-            used = set()
-            missing = {folder: [] for folder in folders}
-            for folder in folders:
-                archive.writestr(folder+'/', b'')
-            for folder, path, name in files:
-                if not path.is_file():
-                    missing[folder].append(name)
-                    continue
-                stem, suffix = os.path.splitext(name)
-                candidate = folder+'/'+name
-                index = 2
-                while candidate.casefold() in used:
-                    candidate = f'{folder}/{stem}-{index}{suffix}'
-                    index += 1
-                used.add(candidate.casefold())
-                archive.write(path, candidate)
-            for folder, names in missing.items():
-                if names:
-                    archive.writestr(folder+'/缺失文件说明.txt', ('以下附件有记录，但服务器文件不存在：\n'+'\n'.join(names)).encode('utf-8'))
-        archive_file.seek(0)
-        response = send_file(archive_file, mimetype='application/zip', as_attachment=True,
-                             download_name=f"{secure_filename(order['order_number']) or order_id}-附件.zip")
-        response.call_on_close(archive_file.close)
-        return response
-    except Exception:
-        archive_file.close()
-        raise
 
 
 @app.route("/invoices/new", methods=["GET", "POST"])
