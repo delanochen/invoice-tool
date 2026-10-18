@@ -87,6 +87,7 @@ from invoice_tool.app_settings import payroll as _split_subsidy_settings
 from invoice_tool.app_settings import timezone as _split_timezone
 from invoice_tool.app_settings import geography as _split_headquarters
 from invoice_tool.user_preferences import forms as _split_communication
+from invoice_tool.user_preferences import phone as _split_phone
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -988,17 +989,7 @@ def communication_languages_from_form(default="zh-CN"):
 
 
 def normalize_phone(value, country_code="US"):
-    raw = str(value or "").strip()
-    digits = re.sub(r"\D", "", raw)
-    if country_code == "US" and len(digits) == 10:
-        digits = "1" + digits
-    if raw.startswith("+") and 8 <= len(digits) <= 15:
-        return "+" + digits
-    if country_code == "US" and len(digits) == 11 and digits.startswith("1"):
-        return "+" + digits
-    if 8 <= len(digits) <= 15:
-        return "+" + digits
-    raise ValueError("请填写有效的手机号，并包含国家代码。")
+    return _split_phone.normalize_phone(value, country_code, re=re)
 
 
 def clear_session_preserving_language():
