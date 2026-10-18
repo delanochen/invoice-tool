@@ -92,6 +92,7 @@ from invoice_tool.report_exports import location as _split_report_location
 from invoice_tool.customer_reimbursements import access as _split_settlement_access
 from invoice_tool.customer_reimbursements import rates as _split_contract_rates
 from invoice_tool.customer_reimbursements import holidays as _split_holidays
+from invoice_tool.customer_reimbursements import calculations as _split_row_field
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3352,12 +3353,7 @@ def excessive_following_mileage_rows(order_id, threshold=500):
 
 
 def _row_field(row, key, default=0):
-    """读取结算明细行的字段，兼容 dict 与数据库 Row（后者没有 .get）。"""
-    try:
-        value = row[key]
-    except (KeyError, IndexError, TypeError):
-        return default
-    return default if value is None else value
+    return _split_row_field._row_field(row, key, default)
 
 
 def customer_reimbursement_item_expense_amount(row, field_name):

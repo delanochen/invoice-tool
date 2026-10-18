@@ -51,3 +51,11 @@
 - 迁移函数：observed_us_holidays。
 - app.py：12633 → 12603 行。
 - 审核验证：1 passed, 3 subtests passed in 1.93s。
+
+
+## 第 7/20 轮：row_field
+
+- CodeBuddy 实际写入 `invoice_tool/customer_reimbursements/calculations.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：_row_field。
+- app.py：12603 → 12599 行。
+- 审核验证：1 passed, 5 subtests passed in 1.87s。
