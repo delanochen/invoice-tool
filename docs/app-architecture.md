@@ -2477,3 +2477,11 @@ Functions: ai_search_like, _ai_daily_report_business_date.
 Module: `invoice_tool/ai_daily_report_web/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 11.00s. app.py: 4918 → 4918 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 15: residual_hooks
+
+Functions: prevent_stale_business_pages, load_user, inject_globals.
+Module: `invoice_tool/request_lifecycle/hooks.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.08s. app.py: 4918 → 4895 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

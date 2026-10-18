@@ -168,6 +168,7 @@ from invoice_tool.messages import content_helpers as _split_residual_messages
 from invoice_tool.audit_log import request_helpers as _split_residual_audit
 from invoice_tool.geocoding import address_helpers as _split_residual_geo_values
 from invoice_tool.ai_daily_report_web import value_helpers as _split_residual_ai_values
+from invoice_tool.request_lifecycle import hooks as _split_residual_hooks
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1084,28 +1085,12 @@ def current_user():
 
 @app.after_request
 def prevent_stale_business_pages(response):
-    if response.mimetype == "text/html":
-        response.headers["Cache-Control"] = "no-store, private"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    return response
+    return _split_residual_hooks.prevent_stale_business_pages(response)
 
 
 @app.before_request
 def load_user():
-    requested_language = request.args.get("lang")
-    if requested_language in SUPPORTED_LANGUAGES:
-        session["language"] = requested_language
-    g.user = current_user()
-    if request.method == "POST":
-        app.logger.warning("POST diag: path=%s content_length=%s max_cl=%s max_fms=%s terminated=%s",
-            request.path, request.content_length,
-            getattr(request, 'max_content_length', 'N/A'),
-            getattr(request, 'max_form_memory_size', 'N/A'),
-            request.environ.get('wsgi.input_terminated'))
-    if g.user:
-        permission_rule = required_action_for_request()
-        if permission_rule and not has_action_permission(*permission_rule):
-            abort(403)
+    return _split_residual_hooks.load_user(SUPPORTED_LANGUAGES=SUPPORTED_LANGUAGES, abort=abort, app=app, current_user=current_user, g=g, has_action_permission=has_action_permission, request=request, required_action_for_request=required_action_for_request, session=session)
 
 
 def login_required(view):
@@ -2374,15 +2359,7 @@ def unread_message_count():
 
 @app.context_processor
 def inject_globals():
-    return {
-        "unread_message_count": unread_message_count(),
-        "current_language": current_language(),
-        "supported_languages": SUPPORTED_LANGUAGES,
-        "can_manage_company_info": can_manage_company_info,
-        "app_version": APP_VERSION,
-        "deployment_env": app.config["DEPLOYMENT_ENV"],
-        "production_postgres": True,
-    }
+    return _split_residual_hooks.inject_globals(APP_VERSION=APP_VERSION, SUPPORTED_LANGUAGES=SUPPORTED_LANGUAGES, app=app, can_manage_company_info=can_manage_company_info, current_language=current_language, unread_message_count=unread_message_count)
 
 
 _views_authentication = _split_authentication.register_authentication_routes(
