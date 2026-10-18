@@ -7034,35 +7034,18 @@ _views_photos_classify = _split_photos_discover.register_photos_classify_routes(
 ai_daily_report_classify_photos = _views_photos_classify['ai_daily_report_classify_photos']
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/change-safety-photo")
-@login_required
-def ai_daily_report_change_safety_photo(draft_id):
-    """User manually changes safety photo (Phase 5)."""
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    svc = _ai_daily_report_service()
-    try:
-        data = request.get_json(silent=True) or {}
-        photo_id = data.get("photo_id", "")
-        expected_version = data.get("draft_version")
-        if expected_version is not None:
-            expected_version = int(expected_version)
-    except Exception:
-        return jsonify({"ok": False, "error": "无效请求"}), 400
-
-    if not photo_id:
-        return jsonify({"ok": False, "error": "缺少 photo_id"}), 400
-
-    photo_svc = _make_photo_classification_service()
-    try:
-        result = svc.change_safety_photo(draft_id, photo_id, photo_svc, expected_version)
-    except DraftVersionConflict:
-        return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
-    if not result.get("ok"):
-        return jsonify(result), 400
-
-    db().commit()
-    return jsonify(result)
+_views_safety_photo = _split_photos_discover.register_safety_photo_routes(
+    app,
+    _cb_resolve_DraftVersionConflict=lambda: DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve__make_photo_classification_service=lambda: _make_photo_classification_service,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+)
+ai_daily_report_change_safety_photo = _views_safety_photo['ai_daily_report_change_safety_photo']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/add-service-photo")

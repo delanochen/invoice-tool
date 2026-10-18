@@ -43,3 +43,11 @@
 - 迁移函数：ai_daily_report_classify_photos。
 - app.py：11876 → 11853 行。
 - 审核验证：1 passed, 6 subtests passed in 2.27s。
+
+
+## 第 6/20 轮：safety_photo
+
+- CodeBuddy 实际写入 `invoice_tool/ai_daily_report_web/photo_routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：ai_daily_report_change_safety_photo。
+- app.py：11853 → 11836 行。
+- 审核验证：1 passed, 6 subtests passed in 2.09s。
