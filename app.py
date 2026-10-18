@@ -83,6 +83,7 @@ from invoice_tool.dashboard import charts as _split_dashboard_monthly
 from invoice_tool.dashboard import projects as _split_dashboard_projects
 from invoice_tool.app_settings import storage as _split_setting_write
 from invoice_tool.app_settings import numbers as _split_setting_float
+from invoice_tool.app_settings import payroll as _split_subsidy_settings
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1081,17 +1082,7 @@ def positive_int(value, default=1):
 
 
 def payroll_subsidy_settings():
-    car_method = get_setting("payroll_car_allowance_method", "daily")
-    if car_method not in {"daily", "mileage"}:
-        car_method = "daily"
-    return {
-        "cycle_start": get_setting("payroll_cycle_start", "2026-07-06"),
-        "car_allowance_method": car_method,
-        "car_daily_amount": setting_float("payroll_car_daily_amount", 60),
-        "car_mileage_rate": setting_float("payroll_car_mileage_rate", 0.5),
-        "report_writing_fee": setting_float("payroll_report_writing_fee", 20),
-        "lodging_limit": setting_float("payroll_lodging_limit", 0),
-    }
+    return _split_subsidy_settings.payroll_subsidy_settings(get_setting=get_setting, setting_float=setting_float)
 
 
 def lodging_reimbursement_limit():

@@ -1572,3 +1572,10 @@ Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing b
 `invoice_tool/app_settings/numbers.py` owns positive_int.
 Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
 Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 12/20: subsidy_settings
+
+`invoice_tool/app_settings/payroll.py` owns payroll_subsidy_settings.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.

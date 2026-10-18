@@ -91,3 +91,11 @@
 - 迁移函数：positive_int。
 - app.py：12761 → 12758 行。
 - 审核验证：1 passed, 6 subtests passed in 2.04s。
+
+
+## 第 12/20 轮：subsidy_settings
+
+- CodeBuddy 实际写入 `invoice_tool/app_settings/payroll.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：payroll_subsidy_settings。
+- app.py：12758 → 12749 行。
+- 审核验证：1 passed, 3 subtests passed in 2.05s。
