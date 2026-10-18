@@ -155,6 +155,7 @@ from invoice_tool.ai_assistant import query_helpers as _split_assistant_helpers
 from invoice_tool.ai_daily_report_web import manifest_actions as _split_manifest_delete
 from invoice_tool.geocoding import request_transport as _geocoder_request
 from invoice_tool.app_bootstrap import startup_checks as _split_residual_bootstrap
+from invoice_tool.user_preferences import language_helpers as _split_residual_language
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -908,13 +909,11 @@ def init_db():
 
 
 def current_language():
-    language = session.get("language", DEFAULT_LANGUAGE)
-    return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+    return _split_residual_language.current_language(DEFAULT_LANGUAGE=DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES=SUPPORTED_LANGUAGES, session=session)
 
 
 def language_from_form(default=DEFAULT_LANGUAGE):
-    language = request.form.get("default_language", default or DEFAULT_LANGUAGE)
-    return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
+    return _split_residual_language.language_from_form(default, DEFAULT_LANGUAGE=DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES=SUPPORTED_LANGUAGES, request=request)
 
 
 COMMUNICATION_LANGUAGES = {
@@ -933,9 +932,7 @@ def normalize_phone(value, country_code="US"):
 
 
 def clear_session_preserving_language():
-    language = current_language()
-    session.clear()
-    session["language"] = language
+    return _split_residual_language.clear_session_preserving_language(current_language=current_language, session=session)
 
 
 
