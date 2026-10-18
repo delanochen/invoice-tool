@@ -153,6 +153,7 @@ from invoice_tool.geocoding import lookup_helpers as _split_geocoding
 from invoice_tool.messages import query_helpers as _split_messages
 from invoice_tool.ai_assistant import query_helpers as _split_assistant_helpers
 from invoice_tool.ai_daily_report_web import manifest_actions as _split_manifest_delete
+from invoice_tool.geocoding import request_transport as _geocoder_request
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2422,31 +2423,7 @@ class TemporaryGeocodingError(Exception):
 
 
 def fetch_geocoder_json(request_url):
-    global _last_geocode_request_at
-    with _geocode_lock:
-        wait_seconds = 1.05 - (time.monotonic() - _last_geocode_request_at)
-        if wait_seconds > 0:
-            time.sleep(wait_seconds)
-        request_object = Request(
-            request_url,
-            headers={
-                "User-Agent": NOMINATIM_USER_AGENT,
-                "Accept": "application/json",
-                "Accept-Language": "en-US,en;q=0.8",
-            },
-        )
-        try:
-            with urlopen(request_object, timeout=8) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except HTTPError as error:
-            if error.code == 429 or error.code >= 500:
-                raise TemporaryGeocodingError(str(error)) from error
-            raise
-        except (URLError, TimeoutError, OSError) as error:
-            raise TemporaryGeocodingError(str(error)) from error
-        finally:
-            _last_geocode_request_at = time.monotonic()
-    return payload
+    return _geocoder_request.fetch_geocoder_json(request_url, HTTPError=HTTPError, NOMINATIM_USER_AGENT=NOMINATIM_USER_AGENT, Request=Request, TemporaryGeocodingError=TemporaryGeocodingError, URLError=URLError, _geocode_lock=_geocode_lock, json=json, time=time, urlopen=urlopen, _state_get=lambda: _last_geocode_request_at, _state_set=lambda value: globals().__setitem__('_last_geocode_request_at', value))
 
 
 def configured_country_codes():
