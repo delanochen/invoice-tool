@@ -86,6 +86,7 @@ from invoice_tool.app_settings import numbers as _split_setting_float
 from invoice_tool.app_settings import payroll as _split_subsidy_settings
 from invoice_tool.app_settings import timezone as _split_timezone
 from invoice_tool.app_settings import geography as _split_headquarters
+from invoice_tool.user_preferences import forms as _split_communication
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -983,20 +984,7 @@ COMMUNICATION_LANGUAGES = {
 
 
 def communication_languages_from_form(default="zh-CN"):
-    """解析交流语言勾选，结果写入用户主数据 users 表两列。
-
-    2026-09-19 起 UI 直接勾选语言（注册页/用户弹窗均无"首选"下拉）：
-    勾选列表的第一项视为首选语言；仍兼容旧表单提交的
-    preferred_communication_language 字段。一个都没勾时回退 default。
-    """
-    selected = [code for code in request.form.getlist("communication_language")
-                if code in COMMUNICATION_LANGUAGES]
-    preferred = request.form.get("preferred_communication_language", "").strip()
-    if preferred not in COMMUNICATION_LANGUAGES:
-        preferred = selected[0] if selected else (default if default in COMMUNICATION_LANGUAGES else "zh-CN")
-    if preferred not in selected:
-        selected.insert(0, preferred)
-    return preferred, ",".join(dict.fromkeys(selected))
+    return _split_communication.communication_languages_from_form(default, COMMUNICATION_LANGUAGES=COMMUNICATION_LANGUAGES, request=request)
 
 
 def normalize_phone(value, country_code="US"):

@@ -131,3 +131,11 @@
 - 迁移函数：get_google_places_api_key。
 - app.py：12734 → 12727 行。
 - 审核验证：1 passed, 3 subtests passed in 1.95s。
+
+
+## 第 17/20 轮：communication
+
+- CodeBuddy 实际写入 `invoice_tool/user_preferences/forms.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：communication_languages_from_form。
+- app.py：12727 → 12715 行。
+- 审核验证：1 passed, 4 subtests passed in 1.98s。
