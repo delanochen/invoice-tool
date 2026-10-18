@@ -85,6 +85,7 @@ from invoice_tool.app_settings import storage as _split_setting_write
 from invoice_tool.app_settings import numbers as _split_setting_float
 from invoice_tool.app_settings import payroll as _split_subsidy_settings
 from invoice_tool.app_settings import timezone as _split_timezone
+from invoice_tool.app_settings import geography as _split_headquarters
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1134,19 +1135,7 @@ def get_smtp_settings():
 
 
 def headquarters_coordinates():
-    try:
-        latitude = float(HEADQUARTERS_LATITUDE)
-        longitude = float(HEADQUARTERS_LONGITUDE)
-    except (TypeError, ValueError):
-        return None
-    if not (
-        math.isfinite(latitude)
-        and math.isfinite(longitude)
-        and -90 <= latitude <= 90
-        and -180 <= longitude <= 180
-    ):
-        return None
-    return {"latitude": latitude, "longitude": longitude}
+    return _split_headquarters.headquarters_coordinates(HEADQUARTERS_LATITUDE=HEADQUARTERS_LATITUDE, HEADQUARTERS_LONGITUDE=HEADQUARTERS_LONGITUDE, math=math)
 
 
 def get_google_maps_browser_api_key():

@@ -1593,3 +1593,10 @@ Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing b
 `invoice_tool/app_settings/timezone.py` owns get_timezone_name, app_timezone.
 Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
 Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 15/20: headquarters
+
+`invoice_tool/app_settings/geography.py` owns headquarters_coordinates.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
