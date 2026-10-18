@@ -540,23 +540,11 @@ CONTRACT_STATUS_LABELS = _catalog_status_catalog.make_contract_status_labels()
 
 # 客户费率一律以数据库（合同费率版本）为准；这里只保留项目名称清单用于
 # 初始化 projects 目录，不再携带任何费率数值，也不会覆盖已有 unit_price。
-CUSTOMER_REIMBURSEMENT_PROJECTS = (
-    "标准工时",
-    "交通工时",
-    "加班工时",
-    "节假日工时",
-    "里程费",
-)
+from invoice_tool.customer_reimbursements import field_catalog as _catalog_field_catalog
+CUSTOMER_REIMBURSEMENT_PROJECTS = _catalog_field_catalog.make_customer_reimbursement_projects()
 
 # 工单结算行字段 -> 合同费率版本 rate_type -> 展示名
-CUSTOMER_REIMBURSEMENT_RATE_FIELDS = (
-    ("standard_rate", "regular_hours", "标准工时"),
-    ("transport_rate", "travel_hours", "交通工时"),
-    ("public_transport_rate", "public_transport_hours", "公共交通工时"),
-    ("overtime_rate", "overtime_hours", "加班工时"),
-    ("holiday_rate", "holiday_hours", "节假日工时"),
-    ("mileage_rate", "mileage", "里程费"),
-)
+CUSTOMER_REIMBURSEMENT_RATE_FIELDS = _catalog_field_catalog.make_customer_reimbursement_rate_fields()
 
 # 发票行中无“来源项目”概念的三类，仍按结算单 totals 开票；
 # “其他”桶按结算明细 auto_expense_sources 的来源项目经 expense_settlement_invoice_map 拆分。
@@ -567,16 +555,7 @@ CUSTOMER_REIMBURSEMENT_INVOICE_PROJECTS = {
 }
 
 # 工单结算里映射可指向的金额字段（expense_settlement_invoice_map.settlement_field 值域）
-SETTLEMENT_EXPENSE_FIELD_LABELS = {
-    "lodging": "住宿费",
-    "airfare": "机票费",
-    "baggage": "行李费",
-    "rental_car": "租车费用",
-    "fuel": "燃油费",
-    "parking": "停车费",
-    "taxi": "打车费",
-    "other": "其他",
-}
+SETTLEMENT_EXPENSE_FIELD_LABELS = _catalog_field_catalog.make_settlement_expense_field_labels()
 
 DEFAULT_OWNER_NAMES = [
     "未知",

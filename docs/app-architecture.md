@@ -2518,3 +2518,8 @@ Moved ROLE_OPTIONS, ACTION_LABELS, MANAGER_FINANCE_INHERITANCE_EXCEPTIONS, MENU_
 ## Catalog language_catalog
 
 Moved SUPPORTED_LANGUAGES into `invoice_tool/user_preferences/language_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.28s. app.py 4594 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog field_catalog
+
+Moved CUSTOMER_REIMBURSEMENT_PROJECTS, CUSTOMER_REIMBURSEMENT_RATE_FIELDS, SETTLEMENT_EXPENSE_FIELD_LABELS into `invoice_tool/customer_reimbursements/field_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.36s. app.py 4573 lines. Codex implementation; no merge/deployment.
