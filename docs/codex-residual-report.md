@@ -126,3 +126,7 @@ Functions: runtime_error, forbidden, not_found, internal_server_error, request_e
 Module: `invoice_tool/presentation/error_handlers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 10.90s. app.py: 4895 → 4843 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+Final guarded milestone: 510 passed, 4 deselected, 2 warnings, 858 subtests passed in 279.64s (0:04:39)
+Four pre-existing fixture exclusions; not the full repository suite.
