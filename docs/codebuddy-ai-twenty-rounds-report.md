@@ -115,3 +115,11 @@
 - 迁移函数：ai_daily_report_reopen。
 - app.py：11670 → 11632 行。
 - 审核验证：1 passed, 6 subtests passed in 3.17s。
+
+
+## 第 15/20 轮：draft_csrf
+
+- Codex 直接写入 `invoice_tool/ai_daily_report_web/access_routes.py` 并修改 app 接线，并核验文件内容与累计 AST；用户已授权由 Codex 接手。
+- 迁移函数：ai_daily_report_csrf。
+- app.py：11632 → 11634 行。
+- 审核验证：1 passed, 6 subtests passed in 2.01s。

@@ -109,6 +109,7 @@ from invoice_tool.query_pages import reports as _split_report_query_page
 from invoice_tool.ai_daily_report_web import draft_routes as _split_draft_get
 from invoice_tool.ai_daily_report_web import photo_routes as _split_photos_discover
 from invoice_tool.ai_daily_report_web import lifecycle_routes as _split_draft_cancel
+from invoice_tool.ai_daily_report_web import access_routes as _split_draft_csrf
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -7383,13 +7384,14 @@ ai_daily_report_reopen = _views_draft_reopen['ai_daily_report_reopen']
 
 # ─── Phase 6: AI Daily Report Review Center APIs ───────────────────────────
 
-@app.get("/api/ai/daily-report/csrf")
-@login_required
-def ai_daily_report_csrf():
-    """Get CSRF token for Review Center mutation APIs."""
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    return jsonify({"ok": True, "csrf_token": ai_daily_report_csrf_token()})
+_views_draft_csrf = _split_draft_csrf.register_draft_csrf_routes(
+    app,
+    _cb_resolve_ai_daily_report_csrf_token=lambda: ai_daily_report_csrf_token,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+)
+ai_daily_report_csrf = _views_draft_csrf['ai_daily_report_csrf']
 
 
 @app.get("/api/ai/daily-report/service-orders")
