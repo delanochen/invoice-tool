@@ -156,6 +156,7 @@ from invoice_tool.ai_daily_report_web import manifest_actions as _split_manifest
 from invoice_tool.geocoding import request_transport as _geocoder_request
 from invoice_tool.app_bootstrap import startup_checks as _split_residual_bootstrap
 from invoice_tool.user_preferences import language_helpers as _split_residual_language
+from invoice_tool.app_settings import profile_helpers as _split_residual_settings
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -964,11 +965,11 @@ def setting_int(key, default=0):
 
 
 def inspection_cycle_days():
-    return max(1, setting_int("inspection_cycle_days", 180))
+    return _split_residual_settings.inspection_cycle_days(setting_int=setting_int)
 
 
 def inspection_warning_days():
-    return max(1, setting_int("inspection_warning_days", 150))
+    return _split_residual_settings.inspection_warning_days(setting_int=setting_int)
 
 
 def positive_int(value, default=1):
@@ -980,7 +981,7 @@ def payroll_subsidy_settings():
 
 
 def lodging_reimbursement_limit():
-    return payroll_subsidy_settings()["lodging_limit"]
+    return _split_residual_settings.lodging_reimbursement_limit(payroll_subsidy_settings=payroll_subsidy_settings)
 
 
 def is_lodging_project_name(name):
@@ -1011,19 +1012,19 @@ def app_timezone():
 
 
 def get_company_profile():
-    return {key: get_setting(f"company_{key}", value) for key, value in DEFAULT_COMPANY_PROFILE.items()}
+    return _split_residual_settings.get_company_profile(DEFAULT_COMPANY_PROFILE=DEFAULT_COMPANY_PROFILE, get_setting=get_setting)
 
 
 def get_payment_instructions():
-    return {key: get_setting(f"payment_{key}", value) for key, value in DEFAULT_PAYMENT_INSTRUCTIONS.items()}
+    return _split_residual_settings.get_payment_instructions(DEFAULT_PAYMENT_INSTRUCTIONS=DEFAULT_PAYMENT_INSTRUCTIONS, get_setting=get_setting)
 
 
 def get_invoice_terms():
-    return get_setting("invoice_terms", DEFAULT_INVOICE_TERMS)
+    return _split_residual_settings.get_invoice_terms(DEFAULT_INVOICE_TERMS=DEFAULT_INVOICE_TERMS, get_setting=get_setting)
 
 
 def get_smtp_settings():
-    return {key: get_setting(f"smtp_{key}", value) for key, value in DEFAULT_SMTP_SETTINGS.items()}
+    return _split_residual_settings.get_smtp_settings(DEFAULT_SMTP_SETTINGS=DEFAULT_SMTP_SETTINGS, get_setting=get_setting)
 
 
 def headquarters_coordinates():
@@ -1031,21 +1032,19 @@ def headquarters_coordinates():
 
 
 def get_google_maps_browser_api_key():
-    return get_setting("google_maps_browser_api_key", GOOGLE_MAPS_BROWSER_API_KEY_ENV).strip()
+    return _split_residual_settings.get_google_maps_browser_api_key(GOOGLE_MAPS_BROWSER_API_KEY_ENV=GOOGLE_MAPS_BROWSER_API_KEY_ENV, get_setting=get_setting)
 
 
 def get_google_geocoding_api_key():
-    return get_setting("google_geocoding_api_key", GOOGLE_GEOCODING_API_KEY_ENV).strip()
+    return _split_residual_settings.get_google_geocoding_api_key(GOOGLE_GEOCODING_API_KEY_ENV=GOOGLE_GEOCODING_API_KEY_ENV, get_setting=get_setting)
 
 
 def get_google_routes_api_key():
-    """Server-side Google Routes API key. Never exposed to browser/JS/HTML."""
-    return get_setting("google_routes_api_key", GOOGLE_ROUTES_API_KEY_ENV).strip()
+    return _split_residual_settings.get_google_routes_api_key(GOOGLE_ROUTES_API_KEY_ENV=GOOGLE_ROUTES_API_KEY_ENV, get_setting=get_setting)
 
 
 def get_google_static_maps_api_key():
-    """Server-side Google Static Maps API key. Never exposed to browser/JS/HTML."""
-    return get_setting("google_static_maps_api_key", GOOGLE_STATIC_MAPS_API_KEY_ENV).strip()
+    return _split_residual_settings.get_google_static_maps_api_key(GOOGLE_STATIC_MAPS_API_KEY_ENV=GOOGLE_STATIC_MAPS_API_KEY_ENV, get_setting=get_setting)
 
 
 def get_google_places_api_key():
