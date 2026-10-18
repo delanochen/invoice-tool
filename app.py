@@ -98,6 +98,7 @@ from invoice_tool.customer_reimbursements import dates as _split_settlement_date
 from invoice_tool.customer_reimbursements import totals as _split_mro_total
 from invoice_tool.customer_reimbursements import item_queries as _split_settlement_items
 from invoice_tool.mobile_distribution import routes as _split_mobile_install
+from invoice_tool.user_preferences import routes as _split_language_session
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5599,28 +5600,24 @@ def register():
     return render_template("register.html", countries=country_rows())
 
 
-@app.route("/logout")
-def logout():
-    clear_session_preserving_language()
-    return redirect(url_for("login"))
+_views_language_session = _split_language_session.register_language_session_routes(
+    app,
+    _cb_resolve_SUPPORTED_LANGUAGES=lambda: SUPPORTED_LANGUAGES,
+    _cb_resolve_clear_session_preserving_language=lambda: clear_session_preserving_language,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_parse_qsl=lambda: parse_qsl,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_session=lambda: session,
+    _cb_resolve_url_for=lambda: url_for,
+    _cb_resolve_urlencode=lambda: urlencode,
+    _cb_resolve_urlsplit=lambda: urlsplit,
+    _cb_resolve_urlunsplit=lambda: urlunsplit,
+)
+logout = _views_language_session['logout']
+switch_language = _views_language_session['switch_language']
 
 
-@app.post("/language")
-def switch_language():
-    language = request.form.get("language", "")
-    if language in SUPPORTED_LANGUAGES:
-        session["language"] = language
-    next_url = request.form.get("next", "").strip()
-    if not next_url.startswith("/") or next_url.startswith("//"):
-        next_url = url_for("dashboard") if g.user else url_for("login")
-    else:
-        parsed = urlsplit(next_url)
-        cleaned_query = urlencode(
-            [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "lang"],
-            doseq=True,
-        )
-        next_url = urlunsplit(("", "", parsed.path, cleaned_query, parsed.fragment))
-    return redirect(next_url)
 
 
 @app.route("/messages")

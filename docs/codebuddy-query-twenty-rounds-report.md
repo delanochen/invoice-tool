@@ -19,3 +19,11 @@
 - 迁移函数：mobile_app_ipa。
 - app.py：12396 → 12393 行。
 - 审核验证：1 passed, 3 subtests passed in 2.03s。
+
+
+## 第 3/20 轮：language_session
+
+- CodeBuddy 实际写入 `invoice_tool/user_preferences/routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：logout, switch_language。
+- app.py：12393 → 12390 行。
+- 审核验证：1 passed, 6 subtests passed in 2.08s。
