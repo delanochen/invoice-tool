@@ -3374,16 +3374,7 @@ def expense_settlement_invoice_field(project_name):
 
 
 def canonical_project_mapping_key(value, canonical_keys):
-    key = project_name_key(value)
-    if key in canonical_keys:
-        return key
-    for canonical_key in canonical_keys:
-        if not key.startswith(canonical_key):
-            continue
-        suffix = key[len(canonical_key):].lstrip()
-        if suffix and (not suffix[0].isascii() or not suffix[0].isalnum()):
-            return canonical_key
-    return key
+    return _split_project_mapping.canonical_project_mapping_key(value, canonical_keys, project_name_key=project_name_key)
 
 
 def customer_reimbursement_expense_field(project_name, fuel_vehicle_type=None):

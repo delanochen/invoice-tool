@@ -1705,3 +1705,10 @@ Verified by `test_codebuddy_settlement_contract.py`; independent review/testing 
 `invoice_tool/customer_reimbursements/project_mapping.py` owns expense_settlement_invoice_field.
 Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
 Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 12/20: canonical_project
+
+`invoice_tool/customer_reimbursements/project_mapping.py` owns canonical_project_mapping_key.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
