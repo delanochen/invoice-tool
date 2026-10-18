@@ -22,3 +22,11 @@ Functions: current_user, login_required, is_safe_redirect_target, admin_required
 Module: `invoice_tool/authentication/identity_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 11.75s. app.py: 6423 → 6369 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: ai_access
+
+Functions: ai_daily_report_csrf_token, require_ai_daily_report_csrf, can_view_ai_daily_report_draft, can_edit_ai_daily_report_draft, can_prepare_attachment_manifest, can_formal_save_draft, ai_daily_report_draft_list_filters.
+Module: `invoice_tool/ai_daily_report_web/access_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.93s. app.py: 6369 → 6185 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
