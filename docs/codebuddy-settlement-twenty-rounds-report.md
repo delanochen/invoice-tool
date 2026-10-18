@@ -75,3 +75,11 @@
 - 迁移函数：calculate_customer_reimbursement_item。
 - app.py：12590 → 12563 行。
 - 审核验证：1 passed, 3 subtests passed in 1.97s。
+
+
+## 第 10/20 轮：project_mapping
+
+- CodeBuddy 实际写入 `invoice_tool/customer_reimbursements/project_mapping.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：expense_settlement_invoice_mapping。
+- app.py：12563 → 12545 行。
+- 审核验证：1 passed in 1.76s。
