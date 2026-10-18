@@ -2027,3 +2027,11 @@ Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex
 `invoice_tool/ai_daily_report_web/list_routes.py` owns ai_daily_report_drafts_page, ai_daily_report_draft_detail_page.
 Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
 Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+## Codex remaining settlement phase 1: access
+
+Functions: can_manage_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/management_access.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.69s. app.py: 11462 → 11458 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

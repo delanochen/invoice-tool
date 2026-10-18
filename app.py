@@ -111,6 +111,7 @@ from invoice_tool.ai_daily_report_web import photo_routes as _split_photos_disco
 from invoice_tool.ai_daily_report_web import lifecycle_routes as _split_draft_cancel
 from invoice_tool.ai_daily_report_web import access_routes as _split_draft_csrf
 from invoice_tool.ai_daily_report_web import list_routes as _split_draft_list
+from invoice_tool.customer_reimbursements import management_access as _split_access
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1545,12 +1546,7 @@ def can_create_expense():
 
 
 def can_manage_customer_reimbursement():
-    return g.user and (
-        has_action_permission("customer_reimbursements", "create")
-        or has_action_permission("customer_reimbursements", "edit")
-        or has_action_permission("customer_reimbursements", "delete")
-        or has_action_permission("customer_reimbursements", "approve")
-    )
+    return _split_access.can_manage_customer_reimbursement(g=g, has_action_permission=has_action_permission)
 
 
 # v0.1.239: 工单结算的「修改状态」「审核」「删除」改为完全由菜单权限配置决定
