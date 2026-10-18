@@ -1,0 +1,86 @@
+{
+  "base": "eca0599",
+  "phases": [
+    {
+      "round": 1,
+      "module": "invoice_tool/invoices/forms.py",
+      "functions": [
+        "invoice_items_from_form",
+        "posted_client_id",
+        "posted_service_order_id"
+      ]
+    },
+    {
+      "round": 2,
+      "module": "invoice_tool/invoices/tokens.py",
+      "functions": [
+        "claim_invoice_save_token",
+        "finish_invoice_save_token"
+      ]
+    },
+    {
+      "round": 3,
+      "module": "invoice_tool/invoices/numbering.py",
+      "functions": [
+        "next_invoice_number",
+        "invoice_number_exists"
+      ]
+    },
+    {
+      "round": 4,
+      "module": "invoice_tool/invoices/storage.py",
+      "functions": [
+        "invoice_attachment_dir",
+        "attachment_file_path",
+        "invoice_attachment_path",
+        "get_invoice_attachments",
+        "save_uploaded_attachment"
+      ]
+    },
+    {
+      "round": 5,
+      "module": "invoice_tool/invoices/attachment_names.py",
+      "functions": [
+        "normalized_attachment_filename",
+        "existing_attachment_names",
+        "duplicate_attachment_names",
+        "validate_attachment_uploads",
+        "unique_invoice_attachment_filename"
+      ]
+    },
+    {
+      "round": 6,
+      "module": "invoice_tool/invoices/copying.py",
+      "functions": [
+        "copy_file_to_invoice_attachment",
+        "copy_customer_reimbursement_attachments_to_invoice",
+        "copy_mileage_proofs_to_invoice"
+      ]
+    },
+    {
+      "round": 7,
+      "module": "invoice_tool/invoices/exports.py",
+      "functions": [
+        "build_invoice_zip",
+        "render_invoice_export_html"
+      ]
+    },
+    {
+      "round": 8,
+      "module": "invoice_tool/invoices/email_attachments.py",
+      "functions": [
+        "customer_reimbursement_email_attachments",
+        "unique_email_attachment_filename",
+        "invoice_email_attachments"
+      ]
+    },
+    {
+      "round": 9,
+      "module": "invoice_tool/invoices/pdf.py",
+      "functions": [
+        "render_invoice_pdf"
+      ]
+    }
+  ],
+  "verification_round_complete": true
+}

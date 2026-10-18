@@ -1,0 +1,1 @@
+"""Service-report business domain."""

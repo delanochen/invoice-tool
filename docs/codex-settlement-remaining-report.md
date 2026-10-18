@@ -1,0 +1,84 @@
+
+
+## Codex remaining settlement phase 1: access
+
+Functions: can_manage_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/management_access.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.69s. app.py: 11462 → 11458 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 2: quotation_rows
+
+Functions: build_quotation_settlement_rows, customer_reimbursement_seed_rows.
+Module: `invoice_tool/customer_reimbursements/quotation_rows.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.45s. app.py: 11458 → 11252 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 3: source_queries
+
+Functions: approved_customer_reimbursement_expense_rows, customer_reimbursement_pending_sources.
+Module: `invoice_tool/customer_reimbursements/source_queries.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.57s. app.py: 11252 → 11139 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: source_merge
+
+Functions: merge_service_reports_into_customer_reimbursement, merge_approved_expenses_into_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/source_merge.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.74s. app.py: 11139 → 11011 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: workspace
+
+Functions: customer_reimbursement_gate_error, customer_reimbursement_person_days, customer_reimbursement_lodging_range, customer_reimbursement_workspace_data.
+Module: `invoice_tool/customer_reimbursements/workspace.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.71s. app.py: 11011 → 10763 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: attachment_files
+
+Functions: get_customer_reimbursement_attachments, save_customer_reimbursement_attachment, unique_customer_reimbursement_attachment_filename, copy_file_to_customer_reimbursement_attachment, copy_mileage_proofs_to_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/attachment_files.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.57s. app.py: 10763 → 10654 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 7: item_forms
+
+Functions: customer_reimbursement_items_from_form, save_customer_reimbursement_items.
+Module: `invoice_tool/customer_reimbursements/item_forms.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.67s. app.py: 10654 → 10565 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 8: invoice_items
+
+Functions: latest_customer_reimbursement, customer_reimbursement_linked_invoice, customer_reimbursement_other_invoice_breakdown, customer_reimbursement_invoice_items.
+Module: `invoice_tool/customer_reimbursements/invoice_items.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.64s. app.py: 10565 → 10418 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: updates
+
+Functions: create_customer_reimbursement, sync_expense_attachments_to_settlement, _quotation_totals_with_discount, update_customer_reimbursement_totals.
+Module: `invoice_tool/customer_reimbursements/updates.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 4.50s. app.py: 10418 → 10222 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: documents
+
+Functions: ensure_customer_reimbursement_pdf_record, build_customer_reimbursement_pdf, ensure_customer_reimbursement_pdf_file, customer_reimbursement_outgoing_attachments, deliver_customer_reimbursement_email.
+Module: `invoice_tool/customer_reimbursements/documents.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 5.05s. app.py: 10222 → 9956 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+Final guarded milestone: 495 passed, 4 deselected, 2 warnings, 559 subtests passed in 279.66s (0:04:39)
+Four pre-existing fixture exclusions; not the full repository suite.

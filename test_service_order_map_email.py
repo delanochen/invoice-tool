@@ -7,7 +7,7 @@ REPO_DIR = Path(__file__).resolve().parent
 
 class ServiceOrderMapEmailTest(unittest.TestCase):
     def test_buyer_payload_and_shared_map_script_include_email(self):
-        app_source = (REPO_DIR / "app.py").read_text(encoding="utf-8")
+        app_source = (REPO_DIR / "invoice_tool" / "service_orders" / "calendar_map_services.py").read_text(encoding="utf-8")
         self.assertIn('"email": buyer["email"]', app_source)
 
         expected_popup_row = '<dt>${t("邮箱")}</dt><dd>${escapeHtml(buyer.email || "-")}</dd>'

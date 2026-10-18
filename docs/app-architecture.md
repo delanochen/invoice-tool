@@ -838,3 +838,1703 @@ This non-overlapping inventory helps future agents avoid reading the whole file:
 | 18258-19473 | attachment ZIP, invoices, exports, DOCX and email |
 | 19474-19712 | error handlers and dashboard/report chart helpers |
 | 19713-19728 | external module registration and startup |
+
+
+## Completed structural extractions (2026-10-17)
+
+These phases build on the map above; historical line locations remain a navigation baseline.
+
+- Payment terms: `invoice_tool/payment_terms/{calculations,services,routes}.py`, committed as `4798b77`. Legacy helper entry points and endpoint names are retained.
+- Contracts and attachments: `invoice_tool/contracts/{services,routes}.py`. Five helpers and eight routes moved; contract access guards and rate/settlement engines remain in their existing locations. Services receive explicit runtime dependencies through legacy wrappers. Routes receive explicit dependencies at registration; callable dependencies resolve the current app helper and attachment root at request time.
+- No application factory or Blueprint migration is included in these phases. No business rule, schema, template, or deployment changes are included.
+
+Contract regression: `test_contracts_module_contract.py`; structural equivalence: `python scripts/check_contracts_structure.py` (compare against preceding `4798b77`).
+
+
+### Work-order CRUD extraction (phase 3a)
+
+`invoice_tool/service_orders/services.py` now owns `next_service_order_number`,
+`service_order_dependency_counts`, and `service_order_delete_blockers`.
+`invoice_tool/service_orders/routes.py` registers the five existing list/create/edit/detail/delete
+endpoints. The app keeps legacy helper wrappers and view aliases. Dependencies are explicit;
+request-time callbacks resolve the current app helpers, including helpers used in comprehensions.
+
+Shared access guards, calendar, maps, geocoding, photos/import jobs, settlement services and invoice
+services remain in their existing modules. Their business logic is unchanged.
+
+Checks: `test_service_orders_module_contract.py` and
+`python scripts/check_service_orders_structure.py` (compare with `10c2570`).
+Existing settlement-column fixtures lack required `customer_reimbursements.series_id` in the shared
+test schema; their five failures were observed before this extraction and remain separately recorded.
+
+
+### Work-order calendar and map extraction (phase 3b)
+
+`invoice_tool/service_orders/calendar_map_services.py` contains calendar access filters,
+calendar rows/weeks/lanes, buyer map queries/payloads and visitor-country detection.
+`invoice_tool/service_orders/calendar_map_routes.py` registers calendar, map, static image,
+geocode-next and retry-failed endpoints. App-level helpers and views remain compatible.
+
+Map configuration and date values resolve at request time; callable dependencies resolve the
+current app helper. Geocoder clients, geocoding persistence and exception type remain in app.py.
+Static-map HTTP client implementation and templates/scripts remain unchanged.
+
+Checks: `test_calendar_map_module_contract.py`, existing map/status tests and selected existing
+calendar regression cases; `python scripts/check_calendar_map_structure.py` compares with `d0daa0d`.
+
+
+### Service-report reading and attachment access (phase 4a)
+
+`invoice_tool/service_reports/report_read_services.py` owns attachment grouping and global/same-order
+adjacent report queries. `report_read_routes.py` registers read-only view, Word export, attachment
+preview and attachment delete endpoints. App-level helper wrappers and view aliases remain.
+Dependencies resolve the current app helper at call time; navigation still uses existing access filters.
+
+Report create/edit/delete, save-token idempotency, detail persistence, uploads/storage relocation,
+generated mileage evidence, mobile capture and Word document generation remain in their existing locations.
+This phase changes no authorization, payroll/settlement lock, persistence or filesystem rule.
+
+Checks: `test_report_read_module_contract.py`, existing report navigation/edit-navigation/external-view/copy
+and attachment safety tests; `python scripts/check_report_read_structure.py` compares against `911a3ac`.
+
+
+### Service-report save lifecycle (phase 4b)
+
+`invoice_tool/service_reports/report_write_services.py` owns save-token claim/finalize, report workers,
+worker/writer options, posted writer validation, parts queries/parsing, form defaults and worker/parts
+persistence. `report_write_routes.py` registers create/edit/delete with the original URL, endpoint,
+GET/POST methods, guards, statement order and transaction boundaries.
+
+App wrappers preserve legacy call signatures and resolve helper dependencies at call time. Date and
+report attachment root resolve dynamically. Upload/storage relocation, image/shared-photo processing,
+mileage evidence and time/mileage calculation implementations remain in their existing locations.
+
+Check `python scripts/check_report_write_structure.py` for function-body equivalence and exact
+URL/endpoint/HTTP-method registration. `test_report_write_module_contract.py` covers idempotency,
+validation/upload rollback, payroll-reference deletion guard and report cleanup.
+
+
+### Service-report attachment storage (phase 4c)
+
+`invoice_tool/service_reports/storage.py` owns 16 report-specific helpers: storage context, relative/
+absolute paths, directory creation/pruning, relocation, upload enumeration, image-compression adapter,
+normalized photo names, duplicate detection, image/file/shared-photo persistence, generated evidence
+replacement and upload orchestration. The original app helper signatures remain as wrappers with
+explicit dependencies resolved for every call, including the current attachment root and photo folders.
+
+No route moves in this phase. Generic file hashing, shared-photo path resolution, photo import jobs,
+image compression implementation, mileage-evidence/assist endpoints and DOCX rendering remain where
+they were. File/SQL ordering, duplicate rules and error translation are preserved.
+
+Checks: `test_report_storage_module_contract.py` uses temporary real image/PDF files; run
+`python scripts/check_report_storage_structure.py` to compare with `72ee9e3`.
+
+
+### Report assist preview and mileage evidence (phase 4d)
+
+`invoice_tool/service_reports/assist_routes.py` registers the existing assist-plan preview and
+mileage-evidence generation POST endpoints. Public app view aliases and endpoint/action-policy names
+are retained. Current DATA_DIR, SHARED_PHOTOS_DIR, trip default, datetime and callable services resolve
+through explicit callbacks; no globals dictionary or reverse app import is introduced.
+
+Photo discovery/metadata, employee resolution, route calculation, evidence image creation and report
+storage implementations remain in their existing modules. Authorization, fuel-efficient route policy,
+provider timeout/retry values, fingerprint reuse/upsert and commit/rollback ordering remain unchanged.
+
+Checks: `test_report_assist_module_contract.py` mocks external services and exercises real invoice_test
+HTTP/database behavior. `python scripts/check_report_assist_structure.py` verifies function bodies and
+exact URL/endpoint/view/method registration against `4b7da14`.
+
+
+### Report DOCX generation and Word packaging (phase 4e)
+
+`invoice_tool/service_reports/documents.py` owns `build_service_report_docx`,
+`service_report_docx_filename` and `service_order_report_word_attachments`. The app retains same-signature
+wrappers and supplies explicit runtime dependencies, including python-docx/Pillow objects and the
+current worker, part, attachment and company helpers. No route is moved.
+
+Formatting, page geometry, tables, text filtering, picture conversion/error fallback, filename collision
+handling, report ordering, MIME types and error messages are preserved. Delivery/email/settlement/ZIP
+logic remains in its existing location and consumes the legacy app entry points.
+
+`test_report_documents_module_contract.py` compares actual DOCX ZIP member contents with a separately
+compiled previous renderer from `3604351`: XML/style/relationships and media bytes, excluding only ZIP
+container timestamps by comparing member contents. It also checks real HTTP export and Word packaging.
+Run `python scripts/check_report_documents_structure.py` for structural equivalence.
+
+
+### Mobile clock-in and shared-photo access (phase 4f)
+
+`invoice_tool/photos/services.py` owns clock-in site scope, shared-photo/picture path resolution,
+relative paths, image counts and order photo status. `routes.py` registers mobile clock-in page/upload,
+shared-photo browse/download/preview/thumbnail. Legacy app helper signatures and view aliases remain;
+callable dependencies and date/datetime/extension settings resolve at runtime.
+
+Original client/internal-user guards, capture-time/coordinate/image validation, NAS folder layout,
+cached/fallback thumbnails, picture-only download rules, ZIP deduplication and close-time cleanup remain
+unchanged. Generic image validation, shared-root configuration, photo worker, Google Photos import and
+field-photo ledger implementation stay in their current modules.
+
+Checks: `test_photo_capture_module_contract.py`, existing clock-in/NAS day-folder tests;
+`python scripts/check_photo_capture_structure.py` checks bodies and exact route registration against
+`329071d`. Test files and ZIPs are contained in temporary directories.
+
+
+### Report forms and shared time/mileage calculations (phase 4g)
+
+`invoice_tool/service_reports/forms.py` owns posted time, worker IDs/rows and form-derived travel time,
+service hours and mileage. `calculations.py` owns billed mileage, minute parsing/rounding, hour text,
+per-worker duration fallback and actual report date. Twelve legacy app signatures remain as wrappers.
+
+Current request/form policies and cross-helper callbacks resolve on every call. Payroll, employee
+settlement and customer billing callers keep their app entry points; no change is made to payroll
+generation, rates, subsidies, per-person/per-vehicle mileage, trip policies, rounding or date fallback.
+Holiday calculations and generic display filters remain in their existing locations. No route moves.
+
+Checks: `test_report_calculations_module_contract.py` compares with separately compiled `29b690c`
+functions; payroll detail/range/boundary and hour display tests verify downstream behavior.
+Run `python scripts/check_report_calculations_structure.py` at this phase's commit for equivalence.
+One imported settlement-filter fixture lacks current required series_id; its failure was observed
+before migration and is separately deselected, without modifying business logic or schema.
+
+
+### Employee expense forms and item persistence (phase 5a)
+
+`invoice_tool/employee_expenses/forms.py` owns expense defaults, ordered item reads,
+posted item validation and item persistence. Four app entry points retain their signatures
+and resolve explicit dependencies on every call. Existing item IDs are preserved on edits;
+removal of settlement-linked items remains forbidden. Attachment cleanup retains its policy.
+Routes, beneficiary access, approval, payment, numbering and duplicate detection stay in place.
+No amount, fuel classification, currency or submission rule changes.
+
+Checks: `test_expense_forms_module_contract.py`, expense on-behalf/business-purpose/robust-save
+regressions and settlement link display tests. At this phase's commit run
+`python scripts/check_expense_forms_structure.py` for equivalence against `1ee793d`.
+Three pre-existing settlement fixtures omit required series_id and are separately excluded.
+
+
+### Employee expense attachment storage (phase 5b)
+
+`invoice_tool/employee_expenses/storage.py` owns attachment directory/path resolution,
+SHA-256/image fingerprint generation, individual and item-bound uploads, ordered attachment
+reads and line grouping. Seven app entry points retain signatures and pass current dependencies
+explicitly on each call. File type restrictions, random stored names, upload metadata, file save
+error handling and best-effort image hashing remain unchanged. General uploads stay rejected;
+legacy unassigned files remain visible in the empty-key group.
+
+Duplicate matching/review, access checks, transfer/synchronization and routes remain in app.py.
+Checks: test_expense_storage_module_contract.py covers actual temporary-file/invoice_test storage
+round trips and failure paths; expense interpretation/deletion and prior expense tests cover callers.
+At this phase's commit use scripts/check_expense_storage_structure.py for equivalence to 2c718e4.
+Three previously reproduced series_id fixture failures are still separately excluded.
+
+
+### Employee expense duplicate checks (phase 5c)
+
+`invoice_tool/employee_expenses/duplicates.py` owns image hash distance, attachment match
+context, lazy fingerprints, optional AI analysis, duplicate-check generation and result reads.
+Six legacy app wrappers resolve explicit dependencies per call; review routes remain in app.py.
+Scoring, thresholds, date/amount tolerance, beneficiary matching, same-line evidence suppression,
+candidate limits, three-call AI budget and historical pending-result visibility remain unchanged.
+AI settings and network client implementations stay at their current entry points.
+
+Checks: test_expense_duplicates_module_contract.py compares scoring database writes against
+independently compiled 79b89d3 functions for 192 combinations, checks AI budget/file fallbacks,
+and verifies identical synthetic receipts, rerun behavior and manager review in invoice_test.
+At this phase's commit use scripts/check_expense_duplicates_structure.py for AST equivalence.
+Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense access and participants (phase 5d)
+
+`invoice_tool/employee_expenses/access.py` owns beneficiary fallback/options/form selection,
+expense query visibility, access/deletion guards, required expense loading and participant
+notifications. Eight legacy app signatures retain runtime dependency resolution. Internal
+active-recipient eligibility, historical disabled recipient retention, original actor identity,
+manager/admin/finance visibility, draft/returned deletion and notification deduplication remain
+unchanged. Route approval, attachment-specific access, order guards and messaging stay in place.
+
+Checks: test_expense_access_module_contract.py compares 240 role/user/beneficiary/status
+combinations, signatures and beneficiary form errors with 898a05f; checks notifications and
+denied expense loading before order loading. Existing on-behalf tests cover HTTP integration.
+At this commit run scripts/check_expense_access_structure.py for equivalence.
+Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense form endpoints and save tokens (phase 5e)
+
+`invoice_tool/employee_expenses/expense_write_routes.py` registers new_expense, edit_expense
+and expense_detail; expense_write_services.py owns claim/finish expense save-token persistence.
+Original URLs, endpoints, methods, login wrappers and app function aliases remain intact.
+App callbacks and expense status labels resolve on every request, preserving runtime patches.
+Form validation, draft/submitted transitions, token replay handling, transaction rollback,
+attachment/duplicate/sync auxiliary failure handling and notifications remain unchanged.
+Approval, return/cancel/delete, payment and attachment-specific routes stay in app.py.
+
+Checks: test_expense_write_module_contract.py verifies endpoint/method identity, repeated new/edit
+tokens, validation rollback and unexpected save rollback followed by retry with the same token.
+At this phase's commit use scripts/check_expense_write_structure.py for equivalence to 11878e0.
+Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense duplicate review and return endpoints (phase 5f)
+
+`invoice_tool/employee_expenses/expense_review_routes.py` registers duplicate review and
+return_expense with original POST URLs, endpoint names, app aliases and login guards.
+Dependencies resolve through explicit callbacks. Duplicate review role/status validation,
+return-state/reason checks, reviewer metadata, participant notifications and audit remain unchanged.
+Approval/cancel/delete remain in app.py because their legacy payment calls consume app globals;
+that interface must be bounded before moving them. Payment semantics are unchanged.
+
+Checks: test_expense_review_module_contract.py verifies endpoint identity, return reason/state,
+actor/beneficiary retention, notifications and denied employee action; previous duplicate tests
+cover all review statuses and roles. At this commit use scripts/check_expense_review_structure.py.
+Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense attachment access endpoints (phase 5g)
+
+`invoice_tool/employee_expenses/expense_attachment_routes.py` registers attachment preview,
+download, interpretation reads and immediate interpretation requests. Original URLs, endpoint
+names, methods, login guards and app aliases remain intact. Expense access precedes file/model
+access; interpretation JSON, force behavior, commit and 200/502 status mapping remain unchanged.
+Attachment roots resolve per request. AI review, attachment deletion/transfer and payment routes
+stay in their current locations. No model settings or external clients move.
+
+Checks: test_expense_attachment_module_contract.py validates endpoint identity, participant
+access, denied unrelated access, original downloaded bytes/filename, missing IDs and mocked
+interpretation success/failure. At this commit use scripts/check_expense_attachment_structure.py.
+Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense attachment deletion endpoint (phase 5h)
+
+`invoice_tool/employee_expenses/expense_attachment_delete_routes.py` registers the original
+POST delete_expense_attachment endpoint with its login wrapper and app alias. Creator/manager
+permission, draft/returned restriction, missing-file tolerance, bidirectional duplicate-reference
+cleanup, database rollback and redirects remain unchanged. File removal still precedes database
+cleanup; this structural change does not introduce filesystem transactionality.
+Checks: test_expense_attachment_delete_module_contract.py plus existing deletion regressions.
+At this commit use scripts/check_expense_attachment_delete_structure.py for equivalence to 5314a6b.
+Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense AI review endpoint (phase 5i)
+
+`invoice_tool/employee_expenses/expense_ai_review_routes.py` registers expense_ai_review.
+Original URL, GET/POST methods, login/action permission guards and app alias remain intact.
+GET reads existing records only; POST forces the existing review task. Attachment roots resolve
+per request. JSON, missing-record defaults, 200/502 mapping and commits remain unchanged.
+Model execution, prompts, worker scheduling, approval and payment remain in their existing modules.
+Checks: test_expense_ai_review_module_contract.py and existing test_expense_ai_review.py.
+At this commit use scripts/check_expense_ai_review_structure.py for equivalence to 0d3df49.
+Three previously reproduced series_id fixture failures remain separately excluded.
+
+
+### Employee expense attachment transfer endpoint (phase 5j)
+
+`invoice_tool/employee_expenses/expense_transfer_routes.py` registers transfer_expense_attachment.
+URL, POST method, login/access checks and app alias remain intact. Existing transfer detection,
+draft/returned settlement eligibility, unique-race success handling, copy/audit/commit/rollback
+and history-replace JSON/redirect behavior remain unchanged. Exception classes are injected as
+classes, not callbacks. File copying and settlement services stay in their existing modules.
+Checks: test_expense_transfer_module_contract.py compares 36 branch/response combinations with
+8443d0e and verifies HTTP denial/missing-file-record guards. Actual settlement copy integration
+is not covered by these mock-boundary cases; legacy series_id fixtures require separate repair.
+At this commit use scripts/check_expense_transfer_structure.py for equivalence.
+
+
+### Employee expense approval and explicit payment bridge (phase 5k)
+
+`invoice_tool/employee_expenses/expense_approval_routes.py` registers approve_expense.
+expense_approval_services.py adapts the existing employee_finance.ensure_expense_payment_order
+using exactly db, now, log_action, lock_number_allocation and worker_tax_status_lookup.
+The route calls an explicit single-ID callback instead of passing module globals. No new module
+imports app or calls globals(). Existing payment generation, component snapshot/reopen/idempotency
+and rollback semantics remain in employee_finance. Cancel/delete payment calls stay in app.py.
+
+Checks: test_expense_approval_module_contract.py verifies transitive API keys, runtime dependency
+identity, repeat approval and snapshot rollback; test_expense_tax_components.py tests actual
+payment components in invoice_test. test_employee_finance.py now locates the moved approval.
+At this commit scripts/check_expense_approval_structure.py normalizes only the documented
+payment-call adapter difference before comparing the route body to d571d83.
+
+
+### Employee expense cancellation and explicit payment bridge (phase 5l)
+
+`invoice_tool/employee_expenses/expense_cancel_routes.py` registers cancel_expense.
+expense_cancel_services.py passes exactly db, now and log_action to the existing payment
+cancellation function. The documented single-ID callback replaces app globals; other route
+behavior is unchanged. Reviewed/pending/paid/reconciled payment guards, reason requirements,
+cancellation metadata, logs and commits retain their prior behavior. Delete/reset flows stay put.
+Important existing behavior: a draft payment cancellation exception is logged and the expense
+cancellation still commits. This can leave a cancelled expense with a draft payment; not fixed
+in structural work. Tests explicitly preserve and document it for a separate business fix.
+Checks: test_expense_cancel_module_contract.py compares 84 state/payment/reason cases and
+confirms both old/new routes fail on missing invoice_test cancel_reason; successful route-level
+integration remains unverified. Prior payment/tax snapshot tests cover the payment service.
+At this commit scripts/check_expense_cancel_structure.py normalizes only the payment adapter
+call difference before comparing the route to df2f6e5.
+
+
+### Employee expense deletion and reused payment cancellation adapter (phase 5m)
+
+`invoice_tool/employee_expenses/expense_delete_routes.py` registers delete_expense and reuses
+expense_cancel_services.py to pass db, now and log_action to existing payment cancellation.
+Original URL/login/app alias, delete eligibility, paid/reconciled protection, unpaid payment
+children cleanup, bidirectional duplicate links, rollback and redirects remain unchanged.
+The existing attachment-directory removal still precedes database work; rollback cannot restore
+files. This risk is explicitly tested and recorded, not fixed during structural extraction.
+Checks: test_expense_delete_module_contract.py plus existing deletion/payment/tax regressions.
+At this commit scripts/check_expense_delete_structure.py normalizes only the payment adapter
+call difference before comparing to 22db058. Batch/reset payment calls remain in their domain.
+
+
+### Employee expense query and processing queue (phase 5n)
+
+`invoice_tool/employee_expenses/expense_query_routes.py` registers expense_query and
+expense_processing. GET URLs, endpoint names, login/internal guards and app aliases remain.
+Filters, access clauses, beneficiary identity, item-level query rows, pending/paid rules and
+queue priority retain their original SQL. Status/payout label dictionaries resolve per request.
+Query total follows filtered item rows; queue totals cover all accessible approved expenses
+independently of visible row filters. The process_expense_action write endpoint stays in app.py.
+Checks: test_expense_query_module_contract.py validates multi-item totals, filters, priority,
+participant visibility and options without legacy settlement fixtures.
+At this commit use scripts/check_expense_query_structure.py for equivalence to b0f360b.
+
+
+### Employee expense workflow reset endpoint (phase 5o)
+
+`invoice_tool/employee_expenses/expense_reset_routes.py` registers process_expense_action.
+It reuses the existing db/now/log_action payment cancellation adapter, replacing only the
+app-globals call. Original POST URL/login/internal/admin guards, reset_workflow-only action,
+invalid/missing expense handling, paid-payment rejection, reset metadata, logs and commit remain.
+Repeated reset may log/reset expense metadata again but does not create a second payment cancel
+event. Components remain unchanged. test_employee_finance.py now locates this moved endpoint.
+Checks: test_expense_reset_module_contract.py uses actual ER records to verify guards, repeated
+reset and snapshot preservation. At this commit scripts/check_expense_reset_structure.py
+normalizes only the explicit payment adapter call difference against 6510dc8.
+
+
+### Invoice forms (ten-round series 1/10)
+
+`invoice_tool/invoices/forms.py` owns invoice_items_from_form, posted_client_id, posted_service_order_id.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice tokens (ten-round series 2/10)
+
+`invoice_tool/invoices/tokens.py` owns claim_invoice_save_token, finish_invoice_save_token.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice numbering (ten-round series 3/10)
+
+`invoice_tool/invoices/numbering.py` owns next_invoice_number, invoice_number_exists.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice storage (ten-round series 4/10)
+
+`invoice_tool/invoices/storage.py` owns invoice_attachment_dir, attachment_file_path, invoice_attachment_path, get_invoice_attachments, save_uploaded_attachment.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice attachment_names (ten-round series 5/10)
+
+`invoice_tool/invoices/attachment_names.py` owns normalized_attachment_filename, existing_attachment_names, duplicate_attachment_names, validate_attachment_uploads, unique_invoice_attachment_filename.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice copying (ten-round series 6/10)
+
+`invoice_tool/invoices/copying.py` owns copy_file_to_invoice_attachment, copy_customer_reimbursement_attachments_to_invoice, copy_mileage_proofs_to_invoice.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice exports (ten-round series 7/10)
+
+`invoice_tool/invoices/exports.py` owns build_invoice_zip, render_invoice_export_html.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice email_attachments (ten-round series 8/10)
+
+`invoice_tool/invoices/email_attachments.py` owns customer_reimbursement_email_attachments, unique_email_attachment_filename, invoice_email_attachments.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice pdf (ten-round series 9/10)
+
+`invoice_tool/invoices/pdf.py` owns render_invoice_pdf.
+Legacy app signatures delegate with explicit dependencies resolved per call. Bodies and business
+policies remain identical to eca0599; no route is moved. Cumulative equivalence check:
+`scripts/check_invoice_extraction_structure.py`; tests: `test_invoice_extraction_contract.py`.
+
+
+### Invoice extraction ten-round checkpoint
+
+Nine helper extractions and one cross-domain verification round complete. app.py: 13567 lines.
+Full scope and limitations: `docs/invoice-ten-rounds-report.md`. This checkpoint does not
+claim complete repository test coverage or resolution of previously documented business risks.
+
+
+### Invoice attachment_read routes (1/10)
+
+`invoice_tool/invoices/attachment_read_routes.py` owns download_attachment, preview_attachment.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice attachment_write routes (2/10)
+
+`invoice_tool/invoices/attachment_write_routes.py` owns upload_attachment, delete_attachment.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice export routes (3/10)
+
+`invoice_tool/invoices/export_routes.py` owns export_invoice, export_invoice_pdf.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice detail routes (4/10)
+
+`invoice_tool/invoices/detail_routes.py` owns invoice_detail.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice send routes (5/10)
+
+`invoice_tool/invoices/send_routes.py` owns send_invoice.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice admin_status routes (6/10)
+
+`invoice_tool/invoices/admin_status_routes.py` owns admin_update_invoice_status.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice payment routes (7/10)
+
+`invoice_tool/invoices/payment_routes.py` owns mark_invoice_paid, unmark_invoice_paid.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice void routes (8/10)
+
+`invoice_tool/invoices/void_routes.py` owns void_invoice.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice delete routes (9/10)
+
+`invoice_tool/invoices/delete_routes.py` owns delete_invoice.
+URL/methods and business bodies match 27f12df; runtime dependencies are explicit.
+Checks: `scripts/check_invoice_routes_structure.py`, `test_invoice_routes_contract.py`.
+
+
+### Invoice route ten-round checkpoint
+
+Nine bounded route groups and one guarded cross-domain checkpoint complete.
+See `docs/invoice-routes-ten-rounds-report.md` for results and coverage limits.
+
+
+### CodeBuddy round 1/20: invoice_access
+
+`invoice_tool/invoices/access.py` owns require_invoice_access.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: invoice_totals
+
+`invoice_tool/invoices/totals.py` owns invoice_totals.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 3/20: invoice_recognition
+
+`invoice_tool/invoices/recognition.py` owns recognize_invoice_if_accounting_enabled.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 4/20: invoice_uploads
+
+`invoice_tool/invoices/uploads.py` owns uploaded_attachments_from_request.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 5/20: invoice_loading
+
+`invoice_tool/invoices/loading.py` owns load_invoice, invoice_service_order.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 6/20: invoice_create
+
+`invoice_tool/invoices/create.py` owns create_invoice_from_form.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 7/20: invoice_update
+
+`invoice_tool/invoices/update.py` owns update_invoice_from_form.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 8/20: invoice_mail
+
+`invoice_tool/invoices/mail.py` owns send_invoice_email.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 9/20: named_attachment
+
+`invoice_tool/shared_attachments/named.py` owns save_named_attachment.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 10/20: company_attachments
+
+`invoice_tool/shared_attachments/company.py` owns get_company_attachments.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 11/20: delivery_record
+
+`invoice_tool/email_delivery/record.py` owns record_email_delivery.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 12/20: delivery_summary
+
+`invoice_tool/email_delivery/summary.py` owns email_delivery_summary.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 13/20: image_detection
+
+`invoice_tool/shared_attachments/images.py` owns is_image_attachment, is_customer_reimbursement_image_attachment.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 14/20: xlsx_columns
+
+`invoice_tool/report_exports/columns.py` owns xlsx_column_name.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 15/20: xlsx_single
+
+`invoice_tool/report_exports/single_sheet.py` owns build_simple_xlsx.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 16/20: xlsx_multi
+
+`invoice_tool/report_exports/multi_sheet.py` owns build_multi_sheet_xlsx.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 17/20: iso_date
+
+`invoice_tool/report_exports/dates.py` owns parsed_iso_date.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 18/20: labor_entries
+
+`invoice_tool/report_exports/labor.py` owns labor_report_entries.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 19/20: smtp_transport
+
+`invoice_tool/email_delivery/transport.py` owns send_email.
+Legacy app signatures resolve explicit dependencies per call; bodies match d3ea404.
+Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 1/20: dashboard_metrics
+
+`invoice_tool/dashboard/metrics.py` owns get_metrics.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: dashboard_monthly
+
+`invoice_tool/dashboard/charts.py` owns monthly_chart.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 3/20: dashboard_projects
+
+`invoice_tool/dashboard/projects.py` owns available_projects_for_access.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 4/20: dashboard_options
+
+`invoice_tool/dashboard/projects.py` owns dashboard_project_options.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 5/20: report_options
+
+`invoice_tool/dashboard/projects.py` owns report_project_options.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 6/20: project_chart
+
+`invoice_tool/dashboard/charts.py` owns monthly_project_chart.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 7/20: paid_chart
+
+`invoice_tool/dashboard/charts.py` owns monthly_paid_chart.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 8/20: setting_write
+
+`invoice_tool/app_settings/storage.py` owns get_setting, set_setting.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 9/20: setting_float
+
+`invoice_tool/app_settings/numbers.py` owns setting_float.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 10/20: setting_int
+
+`invoice_tool/app_settings/numbers.py` owns setting_int.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 11/20: positive_int
+
+`invoice_tool/app_settings/numbers.py` owns positive_int.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 12/20: subsidy_settings
+
+`invoice_tool/app_settings/payroll.py` owns payroll_subsidy_settings.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 13/20: lodging_limit
+
+`invoice_tool/app_settings/payroll.py` owns validate_lodging_reimbursement.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 14/20: timezone
+
+`invoice_tool/app_settings/timezone.py` owns get_timezone_name, app_timezone.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 15/20: headquarters
+
+`invoice_tool/app_settings/geography.py` owns headquarters_coordinates.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 16/20: places_key
+
+`invoice_tool/app_settings/geography.py` owns get_google_places_api_key.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 17/20: communication
+
+`invoice_tool/user_preferences/forms.py` owns communication_languages_from_form.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 18/20: phone
+
+`invoice_tool/user_preferences/phone.py` owns normalize_phone.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 19/20: report_location
+
+`invoice_tool/report_exports/location.py` owns report_location_filters.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 1/20: settlement_access
+
+`invoice_tool/customer_reimbursements/access.py` owns require_customer_reimbursement.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: contract_rates
+
+`invoice_tool/customer_reimbursements/rates.py` owns resolve_contract_rates.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 3/20: missing_rates
+
+`invoice_tool/customer_reimbursements/rates.py` owns contract_rate_missing_summary.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 4/20: used_rates
+
+`invoice_tool/customer_reimbursements/rates.py` owns used_customer_rate_fields.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 5/20: rate_guard
+
+`invoice_tool/customer_reimbursements/rates.py` owns assert_contract_rates_covered.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 6/20: holidays
+
+`invoice_tool/customer_reimbursements/holidays.py` owns observed_us_holidays.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 7/20: row_field
+
+`invoice_tool/customer_reimbursements/calculations.py` owns _row_field.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 8/20: expense_amount
+
+`invoice_tool/customer_reimbursements/calculations.py` owns customer_reimbursement_item_expense_amount.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 9/20: item_calculation
+
+`invoice_tool/customer_reimbursements/calculations.py` owns calculate_customer_reimbursement_item.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 10/20: project_mapping
+
+`invoice_tool/customer_reimbursements/project_mapping.py` owns expense_settlement_invoice_mapping.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 11/20: project_field
+
+`invoice_tool/customer_reimbursements/project_mapping.py` owns expense_settlement_invoice_field.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 12/20: canonical_project
+
+`invoice_tool/customer_reimbursements/project_mapping.py` owns canonical_project_mapping_key.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 13/20: expense_field
+
+`invoice_tool/customer_reimbursements/project_mapping.py` owns customer_reimbursement_expense_field.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 14/20: settlement_date
+
+`invoice_tool/customer_reimbursements/dates.py` owns _reimbursement_date_key.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 15/20: mro_total
+
+`invoice_tool/customer_reimbursements/totals.py` owns approved_mro_supplies_total.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 16/20: rental_fuel_total
+
+`invoice_tool/customer_reimbursements/totals.py` owns approved_rental_vehicle_fuel_total.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 17/20: settlement_totals
+
+`invoice_tool/customer_reimbursements/totals.py` owns customer_reimbursement_totals.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 18/20: column_totals
+
+`invoice_tool/customer_reimbursements/totals.py` owns customer_reimbursement_column_totals.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 19/20: settlement_items
+
+`invoice_tool/customer_reimbursements/item_queries.py` owns customer_reimbursement_items.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 1/20: mobile_install
+
+`invoice_tool/mobile_distribution/routes.py` owns mobile_app_install, mobile_app_manifest.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: mobile_package
+
+`invoice_tool/mobile_distribution/routes.py` owns mobile_app_ipa.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 3/20: language_session
+
+`invoice_tool/user_preferences/routes.py` owns logout, switch_language.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 4/20: messages_list
+
+`invoice_tool/messages/routes.py` owns messages.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 5/20: messages_mark
+
+`invoice_tool/messages/routes.py` owns mark_messages.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 6/20: messages_read
+
+`invoice_tool/messages/routes.py` owns mark_all_messages_read.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 7/20: message_detail
+
+`invoice_tool/messages/routes.py` owns message_detail.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 8/20: pwa_manifest
+
+`invoice_tool/mobile_distribution/pwa_routes.py` owns app_manifest.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 9/20: service_worker
+
+`invoice_tool/mobile_distribution/pwa_routes.py` owns app_service_worker.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 10/20: workspace_pages
+
+`invoice_tool/dashboard/page_routes.py` owns workspace, report_center.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 11/20: dashboard_page
+
+`invoice_tool/dashboard/page_routes.py` owns dashboard.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 12/20: company_page
+
+`invoice_tool/company_profile/routes.py` owns company_info.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 13/20: company_attachment_read
+
+`invoice_tool/company_profile/routes.py` owns download_company_attachment, preview_company_attachment.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 14/20: company_attachment_delete
+
+`invoice_tool/company_profile/routes.py` owns delete_company_attachment, legacy_company_settings.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 15/20: invoice_list
+
+`invoice_tool/query_pages/invoices.py` owns invoices.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 16/20: invoice_query_page
+
+`invoice_tool/query_pages/invoices.py` owns invoice_query.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 17/20: order_query_page
+
+`invoice_tool/query_pages/orders.py` owns service_order_query.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 18/20: buyer_query_page
+
+`invoice_tool/query_pages/orders.py` owns buyer_query.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 19/20: report_query_page
+
+`invoice_tool/query_pages/reports.py` owns service_report_query.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 1/20: draft_get
+
+`invoice_tool/ai_daily_report_web/draft_routes.py` owns ai_daily_report_get_draft.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: draft_prepare
+
+`invoice_tool/ai_daily_report_web/draft_routes.py` owns ai_daily_report_auto_prepare.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 3/20: photos_discover
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_discover_photos.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 4/20: photo_timeline
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_confirm_photo_timeline.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 5/20: photos_classify
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_classify_photos.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 6/20: safety_photo
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_change_safety_photo.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 7/20: service_photo_add
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_add_service_photo.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 8/20: service_photo_remove
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_remove_service_photo.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 9/20: photos_auto_select
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_auto_select_photos.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 10/20: photo_mark
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_mark_photo.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 11/20: photo_time
+
+`invoice_tool/ai_daily_report_web/photo_routes.py` owns ai_daily_report_update_photo_time.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 12/20: draft_cancel
+
+`invoice_tool/ai_daily_report_web/lifecycle_routes.py` owns ai_daily_report_cancel.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 13/20: draft_delete
+
+`invoice_tool/ai_daily_report_web/lifecycle_routes.py` owns ai_daily_report_delete.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### Codex round 14/20: draft_reopen
+
+`invoice_tool/ai_daily_report_web/lifecycle_routes.py` owns ai_daily_report_reopen.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### Codex round 15/20: draft_csrf
+
+`invoice_tool/ai_daily_report_web/access_routes.py` owns ai_daily_report_csrf.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### Codex round 16/20: draft_orders
+
+`invoice_tool/ai_daily_report_web/access_routes.py` owns ai_daily_report_service_orders_options.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### Codex round 17/20: draft_create
+
+`invoice_tool/ai_daily_report_web/lifecycle_routes.py` owns ai_daily_report_create_draft.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### Codex round 18/20: draft_list
+
+`invoice_tool/ai_daily_report_web/list_routes.py` owns ai_daily_report_drafts_list.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+### Codex round 19/20: draft_pages
+
+`invoice_tool/ai_daily_report_web/list_routes.py` owns ai_daily_report_drafts_page, ai_daily_report_draft_detail_page.
+Legacy app signatures resolve explicit dependencies per call; bodies match 10fa445df6ebc6d23898a1f7ccb91c30d034d152.
+Verified by `test_codebuddy_ai_contract.py`; independent review/testing by Codex.
+
+
+## Codex remaining settlement phase 1: access
+
+Functions: can_manage_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/management_access.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.69s. app.py: 11462 → 11458 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 2: quotation_rows
+
+Functions: build_quotation_settlement_rows, customer_reimbursement_seed_rows.
+Module: `invoice_tool/customer_reimbursements/quotation_rows.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.45s. app.py: 11458 → 11252 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 3: source_queries
+
+Functions: approved_customer_reimbursement_expense_rows, customer_reimbursement_pending_sources.
+Module: `invoice_tool/customer_reimbursements/source_queries.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.57s. app.py: 11252 → 11139 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: source_merge
+
+Functions: merge_service_reports_into_customer_reimbursement, merge_approved_expenses_into_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/source_merge.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.74s. app.py: 11139 → 11011 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: workspace
+
+Functions: customer_reimbursement_gate_error, customer_reimbursement_person_days, customer_reimbursement_lodging_range, customer_reimbursement_workspace_data.
+Module: `invoice_tool/customer_reimbursements/workspace.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.71s. app.py: 11011 → 10763 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: attachment_files
+
+Functions: get_customer_reimbursement_attachments, save_customer_reimbursement_attachment, unique_customer_reimbursement_attachment_filename, copy_file_to_customer_reimbursement_attachment, copy_mileage_proofs_to_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/attachment_files.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.57s. app.py: 10763 → 10654 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 7: item_forms
+
+Functions: customer_reimbursement_items_from_form, save_customer_reimbursement_items.
+Module: `invoice_tool/customer_reimbursements/item_forms.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.67s. app.py: 10654 → 10565 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 8: invoice_items
+
+Functions: latest_customer_reimbursement, customer_reimbursement_linked_invoice, customer_reimbursement_other_invoice_breakdown, customer_reimbursement_invoice_items.
+Module: `invoice_tool/customer_reimbursements/invoice_items.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 3.64s. app.py: 10565 → 10418 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: updates
+
+Functions: create_customer_reimbursement, sync_expense_attachments_to_settlement, _quotation_totals_with_discount, update_customer_reimbursement_totals.
+Module: `invoice_tool/customer_reimbursements/updates.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 4.50s. app.py: 10418 → 10222 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: documents
+
+Functions: ensure_customer_reimbursement_pdf_record, build_customer_reimbursement_pdf, ensure_customer_reimbursement_pdf_file, customer_reimbursement_outgoing_attachments, deliver_customer_reimbursement_email.
+Module: `invoice_tool/customer_reimbursements/documents.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 5.05s. app.py: 10222 → 9956 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 1: authentication
+
+Functions: login, register.
+Module: `invoice_tool/authentication/routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 12.03s. app.py: 9956 → 9886 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 2: system_settings
+
+Functions: system_settings, menu_permissions, database_console.
+Module: `invoice_tool/app_settings/admin_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 11.18s. app.py: 9886 → 9627 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 3: assistant
+
+Functions: deepseek_connection_test, ai_assistant, ai_assistant_chat.
+Module: `invoice_tool/ai_assistant/web_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 11.18s. app.py: 9627 → 9542 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: ai_confirmation
+
+Functions: ai_daily_report_chat, ai_daily_report_confirm.
+Module: `invoice_tool/ai_daily_report_web/confirmation_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.75s. app.py: 9542 → 9086 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: ai_validation
+
+Functions: ai_daily_report_draft_preview, ai_daily_report_draft_validation, ai_daily_report_draft_acknowledge.
+Module: `invoice_tool/ai_daily_report_web/validation_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 11.08s. app.py: 9086 → 8890 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: ai_evidence
+
+Functions: ai_daily_report_draft_photo_preview, ai_daily_report_draft_evidence_preview, ai_daily_report_draft_prepare_attachments, ai_daily_report_draft_formal_save, ai_daily_report_manifest_compliance_review, ai_daily_report_draft_manifest, ai_daily_report_manifest_asset_preview.
+Module: `invoice_tool/ai_daily_report_web/evidence_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.92s. app.py: 8890 → 8533 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 7: ai_workers
+
+Functions: ai_daily_report_update_worker, ai_daily_report_staff_search, ai_daily_report_add_worker, ai_daily_report_remove_worker.
+Module: `invoice_tool/ai_daily_report_web/worker_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.94s. app.py: 8533 → 8332 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 8: ai_work
+
+Functions: ai_daily_report_recalculate_mileage, ai_daily_report_update_arrival_departure, ai_daily_report_update_work_item.
+Module: `invoice_tool/ai_daily_report_web/work_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 11.11s. app.py: 8332 → 8120 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: report_queries
+
+Functions: export_visible_report, customer_reimbursement_query, audit_log_report.
+Module: `invoice_tool/query_pages/settlement_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.72s. app.py: 8120 → 7932 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: order_attachments
+
+Functions: import_google_photos_for_service_order, download_service_order_attachments.
+Module: `invoice_tool/service_orders/attachment_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.61s. app.py: 7932 → 7866 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 11: settlement_form
+
+Functions: customer_reimbursement_form, download_customer_reimbursement, download_customer_reimbursement_excel, preview_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/form_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.77s. app.py: 7866 → 7599 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 12: settlement_actions
+
+Functions: approve_customer_reimbursement, sync_customer_reimbursement_sources, ignore_customer_reimbursement_source, unignore_customer_reimbursement_source, return_customer_reimbursement, reset_customer_reimbursement, delete_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/action_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.51s. app.py: 7599 → 7300 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 13: settlement_attachments
+
+Functions: download_customer_reimbursement_attachment, preview_customer_reimbursement_attachment, delete_customer_reimbursement_attachment.
+Module: `invoice_tool/customer_reimbursements/attachment_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.56s. app.py: 7300 → 7280 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 14: invoice_editor
+
+Functions: new_invoice, edit_invoice.
+Module: `invoice_tool/invoices/editor_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 11.03s. app.py: 7280 → 7127 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 1: authorization
+
+Functions: permission_tree_groups, can_approve_users, can_view_invoices, can_view_contracts, can_manage_contracts, can_create_invoice, can_create_service_order, can_delete_service_order, can_create_expense, can_approve_customer_reimbursement, can_reset_customer_reimbursement, can_delete_customer_reimbursement, can_transfer_expense_attachment, can_manage_employee_grades, can_view_labor_payroll_reports, can_view_customer_reimbursement, can_create_service_report, can_manage_users, can_manage_company_info, can_assign_external_employees, can_manage_user_record, can_manage_buyers, can_manage_owners, can_manage_manufacturers, can_access_buyer, can_view_audit_logs, can_use_database_console, menu_permission_overrides, has_menu_permission, action_permission_overrides, has_action_permission, required_action_for_request, can_access_client, require_contract_access, client_filter_clause, can_access_service_order, require_service_order, require_service_report.
+Module: `invoice_tool/authorization/policy_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.05s. app.py: 7127 → 6696 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 2: ai_workflow
+
+Functions: reset_ai_drafts_for_deleted_service_report, _auto_prepare_draft_media, _build_review_center_preview, _formal_save_preview_summary, _run_phase7_validation, _manifest_error_response, _fold_staff_query.
+Module: `invoice_tool/ai_daily_report_web/workflow_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.32s. app.py: 6696 → 6423 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 3: identity
+
+Functions: current_user, login_required, is_safe_redirect_target, admin_required, is_external_user, is_external_manager, is_external_employee, normalized_role, requires_user_address, is_internal_user, is_manager.
+Module: `invoice_tool/authentication/identity_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.75s. app.py: 6423 → 6369 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: ai_access
+
+Functions: ai_daily_report_csrf_token, require_ai_daily_report_csrf, can_view_ai_daily_report_draft, can_edit_ai_daily_report_draft, can_prepare_attachment_manifest, can_formal_save_draft, ai_daily_report_draft_list_filters.
+Module: `invoice_tool/ai_daily_report_web/access_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.93s. app.py: 6369 → 6185 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: report_locks
+
+Functions: order_has_approved_reimbursement, report_locked_by_approved_reimbursement.
+Module: `invoice_tool/customer_reimbursements/report_locks.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.23s. app.py: 6185 → 6165 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: formatting
+
+Functions: role_label, state_label, money, hours, payment_label, local_datetime.
+Module: `invoice_tool/presentation/formatting.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.05s. app.py: 6165 → 6115 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 7: ai_settings
+
+Functions: accounting_base_enabled, deepseek_assistant_settings, vision_settings.
+Module: `invoice_tool/app_settings/ai_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.84s. app.py: 6115 → 6083 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 8: order_validation
+
+Functions: client_order_number_warning.
+Module: `invoice_tool/service_orders/validation_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.37s. app.py: 6083 → 6071 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: expense_numbering
+
+Functions: next_expense_number.
+Module: `invoice_tool/employee_expenses/numbering.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.12s. app.py: 6071 → 6043 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: photo_storage
+
+Functions: file_sha256, service_order_photo_folder, service_order_photo_summary, valid_image_file.
+Module: `invoice_tool/photo_imports/storage_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.97s. app.py: 6043 → 6022 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 11: google_photos
+
+Functions: google_photos_page_html, normalize_embedded_google_url, google_image_score, google_image_dimensions, is_likely_google_account_image, google_photo_download_candidates, extract_google_photo_urls, downloaded_image_extension, unique_download_path, download_google_photo_image, import_google_photos_share_to_incoming, send_google_photos_import_result, run_google_photos_import_job, start_google_photos_import_job.
+Module: `invoice_tool/photo_imports/google_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 12.12s. app.py: 6022 → 5801 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 12: attachment_response
+
+Functions: safe_attachment_response.
+Module: `invoice_tool/attachments/response_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 13.94s. app.py: 5801 → 5761 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 13: settlement_support
+
+Functions: _parse_quotation_revision_snapshot, excessive_following_mileage_rows, _fallback_row_for_worker, service_order_active_invoice, remove_customer_reimbursement_pdf.
+Module: `invoice_tool/customer_reimbursements/support_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.66s. app.py: 5761 → 5720 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 14: audit
+
+Functions: log_action, log_login_action.
+Module: `invoice_tool/audit_log/record_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.56s. app.py: 5720 → 5687 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 15: geocoding
+
+Functions: parse_coordinate_pair, census_result_matches_address, geocode_with_google, geocode_with_census, nominatim_address_candidates, geocode_with_nominatim, geocode_address, geocode_service_order, geocode_buyer.
+Module: `invoice_tool/geocoding/lookup_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.73s. app.py: 5687 → 5394 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 16: messages
+
+Functions: notify_role, unread_message_count, _message_ids_for_user.
+Module: `invoice_tool/messages/query_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.55s. app.py: 5394 → 5361 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 17: assistant_helpers
+
+Functions: ai_normalize_status, ai_search_business_records, deepseek_api_error_message, call_deepseek_chat.
+Module: `invoice_tool/ai_assistant/query_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.46s. app.py: 5361 → 5071 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Tail phase 1
+
+Codex extracted `invoice_tool/ai_daily_report_web/manifest_actions.py`. Verification: 31 passed, 23 subtests passed in 10.44s. Shared-state callbacks preserve original app state, lock and finally timing. No business changes, schema changes, merge or deployment.
+
+
+## Tail phase 2
+
+Codex extracted `invoice_tool/geocoding/request_transport.py`. Verification: 31 passed, 23 subtests passed in 10.70s. Shared-state callbacks preserve original app state, lock and finally timing. No business changes, schema changes, merge or deployment.
+
+
+## Codex remaining settlement phase 1: residual_bootstrap
+
+Functions: verify_data_directory_identity, ensure_postgres_admin, init_db.
+Module: `invoice_tool/app_bootstrap/startup_checks.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.35s. app.py: 5035 → 4962 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 2: residual_language
+
+Functions: current_language, language_from_form, clear_session_preserving_language.
+Module: `invoice_tool/user_preferences/language_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 13.77s. app.py: 4962 → 4959 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 3: residual_settings
+
+Functions: inspection_cycle_days, inspection_warning_days, lodging_reimbursement_limit, get_company_profile, get_payment_instructions, get_invoice_terms, get_smtp_settings, get_google_maps_browser_api_key, get_google_geocoding_api_key, get_google_routes_api_key, get_google_static_maps_api_key.
+Module: `invoice_tool/app_settings/profile_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 13.85s. app.py: 4959 → 4958 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 4: residual_expense_policy
+
+Functions: is_lodging_project_name, is_fuel_project_name, validate_fuel_reimbursement_allowed.
+Module: `invoice_tool/employee_expenses/project_policy.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.02s. app.py: 4958 → 4956 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: residual_formatting
+
+Functions: project_color, pdf_text, to_float, decimal_value, money_decimal, money_float, nl2br_filter.
+Module: `invoice_tool/presentation/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 12.47s. app.py: 4956 → 4939 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 6: residual_sql
+
+Functions: sql_statement_kind, is_read_sql.
+Module: `invoice_tool/database_console/statement_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 14.20s. app.py: 4939 → 4937 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 7: residual_order_guard
+
+Functions: require_service_order_start_date.
+Module: `invoice_tool/service_orders/start_date_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.17s. app.py: 4937 → 4935 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 8: residual_photo_paths
+
+Functions: allowed_attachment, allowed_image, shared_photos_root, ensure_service_order_picture_folder, service_order_incoming_folder, is_google_photos_share_url, google_photo_url_key.
+Module: `invoice_tool/photo_imports/path_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.33s. app.py: 4935 → 4930 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: residual_settlement_paths
+
+Functions: customer_reimbursement_dir, customer_reimbursement_attachment_dir, customer_reimbursement_file_path, customer_reimbursement_attachment_path, save_customer_reimbursement_uploads.
+Module: `invoice_tool/customer_reimbursements/path_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.34s. app.py: 4930 → 4926 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 10: residual_settlement_values
+
+Functions: is_us_weekend_or_holiday, reimbursement_number, reimbursement_paragraph.
+Module: `invoice_tool/customer_reimbursements/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 10.94s. app.py: 4926 → 4925 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 11: residual_messages
+
+Functions: create_message, review_message_body, return_message_body.
+Module: `invoice_tool/messages/content_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 10.97s. app.py: 4925 → 4920 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 12: residual_audit
+
+Functions: request_ip_address.
+Module: `invoice_tool/audit_log/request_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 13.93s. app.py: 4920 → 4920 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 13: residual_geo_values
+
+Functions: normalized_address, configured_country_codes, address_expectations.
+Module: `invoice_tool/geocoding/address_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 12.07s. app.py: 4920 → 4918 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 14: residual_ai_values
+
+Functions: ai_search_like, _ai_daily_report_business_date.
+Module: `invoice_tool/ai_daily_report_web/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.00s. app.py: 4918 → 4918 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 15: residual_hooks
+
+Functions: prevent_stale_business_pages, load_user, inject_globals.
+Module: `invoice_tool/request_lifecycle/hooks.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 11.08s. app.py: 4918 → 4895 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 16: residual_errors
+
+Functions: runtime_error, forbidden, not_found, internal_server_error, request_entity_too_large.
+Module: `invoice_tool/presentation/error_handlers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 10.90s. app.py: 4895 → 4843 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Catalog photo_catalog
+
+Moved REPORT_PHOTO_FOLDERS into `invoice_tool/service_reports/photo_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 28 subtests passed in 10.08s. app.py 4838 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog region_catalog
+
+Moved US_STATE_CODES into `invoice_tool/geocoding/region_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 28 subtests passed in 10.09s. app.py 4834 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog status_catalog
+
+Moved STATUS_LABELS, EXPENSE_STATUS_LABELS, CUSTOMER_REIMBURSEMENT_STATUS_LABELS, CONTRACT_STATUS_LABELS, SERVICE_ORDER_STATIC_MAP_STATUS_COLORS into `invoice_tool/presentation/status_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 28 subtests passed in 10.39s. app.py 4806 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog action_catalog
+
+Moved ROLE_OPTIONS, ACTION_LABELS, MANAGER_FINANCE_INHERITANCE_EXCEPTIONS, MENU_PERMISSION_GROUPS, ROLE_ACTION_PERMISSION_GROUPS, DEFAULT_ACTION_ROLES into `invoice_tool/authorization/action_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.32s. app.py 4599 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog language_catalog
+
+Moved SUPPORTED_LANGUAGES into `invoice_tool/user_preferences/language_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.28s. app.py 4594 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog field_catalog
+
+Moved CUSTOMER_REIMBURSEMENT_PROJECTS, CUSTOMER_REIMBURSEMENT_RATE_FIELDS, SETTLEMENT_EXPENSE_FIELD_LABELS into `invoice_tool/customer_reimbursements/field_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.36s. app.py 4573 lines. Codex implementation; no merge/deployment.
+
+
+## Catalog owner_catalog
+
+Moved DEFAULT_OWNER_NAMES, DEFAULT_SITE_OWNER_NAMES into `invoice_tool/contacts/owner_catalog.py`. Original literal AST/values and per-app mutable isolation preserved. Verification: 31 passed, 30 subtests passed in 10.70s. app.py 4559 lines. Codex implementation; no merge/deployment.
+
+
+## Final menu defaults
+
+Menu default expression and original manager-inheritance loop moved to `invoice_tool/authorization/menu_defaults.py`. Private iteration binding is preserved by an explicit root callback. Verification: 32 passed, 11 subtests passed in 11.03s.
+
+
+## Final structural migration audit
+
+See `docs/app-split-final-report.md` for completed domains, retained composition/compatibility boundaries and test coverage limits. Final app.py lines: 4554. Final boundary test: 19 passed, 872 subtests passed in 8.86s. No merge or deployment.
