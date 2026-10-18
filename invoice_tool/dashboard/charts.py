@@ -57,3 +57,20 @@ def monthly_project_chart(selected_project_ids, *, client_filter_clause, db, pro
         for segment in bucket["segments"]:
             segment["height"] = round(segment["value"] / bucket["total"] * 100) if bucket["total"] else 0
     return list(buckets.values())
+
+
+def monthly_paid_chart(*, client_filter_clause, db, invoice_totals):
+    access_clause, access_params = client_filter_clause("invoices")
+    rows = db().execute(
+        f"select id, paid_at, payment_amount from invoices where status = 'completed' and paid_at is not null and {access_clause} order by paid_at asc",
+        access_params,
+    ).fetchall()
+    buckets = {}
+    for row in rows:
+        month = row["paid_at"][:7]
+        amount = float(row["payment_amount"] or invoice_totals(row["id"])["total"])
+        buckets[month] = buckets.get(month, 0) + amount
+    if not buckets:
+        return []
+    max_value = max(buckets.values()) or 1
+    return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
