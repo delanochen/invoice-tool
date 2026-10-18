@@ -27,3 +27,11 @@
 - 迁移函数：logout, switch_language。
 - app.py：12393 → 12390 行。
 - 审核验证：1 passed, 6 subtests passed in 2.08s。
+
+
+## 第 4/20 轮：messages_list
+
+- CodeBuddy 实际写入 `invoice_tool/messages/routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：messages。
+- app.py：12390 → 12391 行。
+- 审核验证：1 passed, 3 subtests passed in 2.05s。

@@ -99,6 +99,7 @@ from invoice_tool.customer_reimbursements import totals as _split_mro_total
 from invoice_tool.customer_reimbursements import item_queries as _split_settlement_items
 from invoice_tool.mobile_distribution import routes as _split_mobile_install
 from invoice_tool.user_preferences import routes as _split_language_session
+from invoice_tool.messages import routes as _split_messages_list
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5620,14 +5621,14 @@ switch_language = _views_language_session['switch_language']
 
 
 
-@app.route("/messages")
-@login_required
-def messages():
-    rows = db().execute(
-        "select * from messages where user_id = ? order by is_read asc, datetime(created_at) desc, id desc",
-        (g.user["id"],),
-    ).fetchall()
-    return render_template("messages.html", messages=rows)
+_views_messages_list = _split_messages_list.register_messages_list_routes(
+    app,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_render_template=lambda: render_template,
+)
+messages = _views_messages_list['messages']
 
 
 def _message_ids_for_user(raw_ids):

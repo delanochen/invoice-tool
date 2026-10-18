@@ -1782,3 +1782,10 @@ Verified by `test_codebuddy_query_contract.py`; independent review/testing by Co
 `invoice_tool/user_preferences/routes.py` owns logout, switch_language.
 Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
 Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 4/20: messages_list
+
+`invoice_tool/messages/routes.py` owns messages.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
