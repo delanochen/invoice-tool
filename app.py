@@ -122,6 +122,7 @@ from invoice_tool.customer_reimbursements import invoice_items as _split_invoice
 from invoice_tool.customer_reimbursements import updates as _split_updates
 from invoice_tool.customer_reimbursements import documents as _split_documents
 from invoice_tool.authentication import routes as _split_authentication
+from invoice_tool.app_settings import admin_routes as _split_system_settings
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -4263,141 +4264,46 @@ toggle_payment_term = _payment_term_route_exports["toggle_payment_term"]
 recalculate_payment_term_invoices = _payment_term_route_exports["recalculate_payment_term_invoices"]
 
 
-@app.route("/settings/system", methods=["GET", "POST"])
-@login_required
-def system_settings():
-    if request.method == "POST":
-        # 大模型配置表的行级操作（删除 / 停用切换）先行处理，不保存其余表单
-        llm_action = request.form.get("llm_action", "").strip()
-        llm_target_id = request.form.get("llm_target_id", "").strip()
-        if llm_action == "delete" and llm_target_id:
-            _row = llm_config.get_row(db(), llm_target_id)
-            if _row is None:
-                flash("要删除的配置不存在。", "error")
-            else:
-                _used = [
-                    label for key, label in llm_config.SCENES
-                    if get_setting("llm_scene_" + key, "").strip() == llm_target_id
-                ]
-                if _used:
-                    flash(f"该配置正被「{'、'.join(_used)}」使用，请先调整场景映射后再删除。", "error")
-                else:
-                    db().execute("delete from llm_configs where id = ?", (int(llm_target_id),))
-                    db().commit()
-                    flash("配置已删除。", "success")
-            return redirect(url_for("system_settings"))
-        if llm_action == "toggle" and llm_target_id:
-            _row = llm_config.get_row(db(), llm_target_id)
-            if _row is None:
-                flash("要操作的配置不存在。", "error")
-            else:
-                _next = not bool(_row["enabled"])
-                db().execute(
-                    "update llm_configs set enabled = ?, updated_at = ? where id = ?",
-                    (_next, now(), int(llm_target_id)),
-                )
-                db().commit()
-                flash("配置已" + ("停用" if _row["enabled"] else "启用") + "。", "success")
-            return redirect(url_for("system_settings"))
-        warning_days = positive_int(request.form.get("inspection_warning_days"), 150)
-        cycle_days = positive_int(request.form.get("inspection_cycle_days"), 180)
-        if warning_days >= cycle_days:
-            flash("预警到期天数必须小于巡检周期天数。", "error")
-            return redirect(url_for("system_settings"))
-        # 收款信息（payment_* / invoice_terms / company_tax_note）v0.1.325 起迁到「公司信息」页编辑，此处不再保存
-        for key in DEFAULT_SMTP_SETTINGS:
-            set_setting(f"smtp_{key}", request.form.get(f"smtp_{key}", "").strip())
-        set_setting(
-            "google_maps_browser_api_key",
-            request.form.get("google_maps_browser_api_key", "").strip(),
-        )
-        set_setting(
-            "google_geocoding_api_key",
-            request.form.get("google_geocoding_api_key", "").strip(),
-        )
-        set_setting(
-            "google_places_api_key",
-            request.form.get("google_places_api_key", "").strip(),
-        )
-        set_setting("inspection_warning_days", str(warning_days))
-        set_setting("inspection_cycle_days", str(cycle_days))
-        set_setting("field_watermark_time_password", request.form.get("field_watermark_time_password", "").strip())
-        # 报销智能审核夜间批量（worker 读取）
-        set_setting("ai_review_enabled", "true" if request.form.get("ai_review_enabled") == "true" else "false")
-        ai_review_time = request.form.get("ai_review_time", "03:00").strip()
-        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", ai_review_time):
-            flash("智能审核执行时间格式应为 HH:MM（例如 03:00）。", "error")
-            return redirect(url_for("system_settings"))
-        set_setting("ai_review_time", ai_review_time)
-        # 场景映射（大模型配置表的行）
-        for _key, _label in llm_config.SCENES:
-            set_setting("llm_scene_" + _key, request.form.get("llm_scene_" + _key, "").strip())
-        # 大模型配置：修改（模态框）或新增（模态框）
-        if llm_action == "edit":
-            _edit_id = request.form.get("llm_edit_id", "").strip()
-            _row = llm_config.get_row(db(), _edit_id) if _edit_id else None
-            if _row is None:
-                flash("要修改的配置不存在。", "error")
-            else:
-                _api_key = request.form.get("llm_new_api_key", "").strip()
-                if not _api_key:
-                    _api_key = _row["api_key"]
-                db().execute(
-                    "update llm_configs set name=?, base_url=?, api_key=?, model=?, supports_vision=?, timeout_seconds=?, enabled=?, notes=?, updated_at=? where id=?",
-                    (request.form.get("llm_new_name", "").strip() or _row["name"],
-                     request.form.get("llm_new_base_url", "").strip() or _row["base_url"],
-                     _api_key,
-                     request.form.get("llm_new_model", "").strip() or _row["model"],
-                     request.form.get("llm_new_supports_vision") == "on",
-                     int(request.form.get("llm_new_timeout", "") or _row["timeout_seconds"]),
-                     request.form.get("llm_new_enabled") == "on",
-                     request.form.get("llm_new_notes", "").strip(),
-                     now(),
-                     int(_edit_id)),
-                )
-                db().commit()
-                flash("配置已更新。", "success")
-        elif llm_action == "new":
-            _new_name = request.form.get("llm_new_name", "").strip()
-            if not _new_name:
-                flash("新增配置：名称不能为空。", "error")
-            else:
-                db().execute(
-                    "insert into llm_configs (name, base_url, api_key, model, supports_vision, timeout_seconds, enabled, notes, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (_new_name,
-                     request.form.get("llm_new_base_url", "").strip(),
-                     request.form.get("llm_new_api_key", "").strip(),
-                     request.form.get("llm_new_model", "").strip(),
-                     request.form.get("llm_new_supports_vision") == "on",
-                     int(request.form.get("llm_new_timeout", "300") or 300),
-                     request.form.get("llm_new_enabled") == "on",
-                     request.form.get("llm_new_notes", "").strip(),
-                     now(), now()),
-                )
-                db().commit()
-                flash("配置已新增。", "success")
-        else:
-            db().commit()
-            flash("系统设置已保存。", "success")
-        return redirect(url_for("system_settings"))
-    return render_template(
-        "company_settings.html",
-        company=get_company_profile(),
-        payment=get_payment_instructions(),
-        smtp=get_smtp_settings(),
-        terms=get_invoice_terms(),
-        google_maps_browser_api_key=get_google_maps_browser_api_key(),
-        google_geocoding_api_key=get_google_geocoding_api_key(),
-        google_places_api_key=get_setting("google_places_api_key", GOOGLE_PLACES_API_KEY_ENV).strip(),
-        ai_review_enabled=get_setting("ai_review_enabled", "true") == "true",
-        ai_review_time=get_setting("ai_review_time", "03:00"),
-        llm_configs=llm_config.list_configs(db()),
-        llm_scenes=llm_config.SCENES,
-        llm_scene_current={key: get_setting("llm_scene_" + key, "") for key, _ in llm_config.SCENES},
-        inspection_warning_days=inspection_warning_days(),
-        inspection_cycle_days=inspection_cycle_days(),
-        field_watermark_time_password=get_setting("field_watermark_time_password", ""),
-    )
+_views_system_settings = _split_system_settings.register_system_settings_routes(
+    app,
+    _cb_resolve_ACTION_LABELS=lambda: ACTION_LABELS,
+    _cb_resolve_DEFAULT_SMTP_SETTINGS=lambda: DEFAULT_SMTP_SETTINGS,
+    _cb_resolve_DatabaseError=lambda: DatabaseError,
+    _cb_resolve_GOOGLE_PLACES_API_KEY_ENV=lambda: GOOGLE_PLACES_API_KEY_ENV,
+    _cb_resolve_MENU_PERMISSION_GROUPS=lambda: MENU_PERMISSION_GROUPS,
+    _cb_resolve_ROLE_ACTION_PERMISSION_GROUPS=lambda: ROLE_ACTION_PERMISSION_GROUPS,
+    _cb_resolve_ROLE_OPTIONS=lambda: ROLE_OPTIONS,
+    _cb_resolve_admin_required=lambda: admin_required,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_get_company_profile=lambda: get_company_profile,
+    _cb_resolve_get_google_geocoding_api_key=lambda: get_google_geocoding_api_key,
+    _cb_resolve_get_google_maps_browser_api_key=lambda: get_google_maps_browser_api_key,
+    _cb_resolve_get_invoice_terms=lambda: get_invoice_terms,
+    _cb_resolve_get_payment_instructions=lambda: get_payment_instructions,
+    _cb_resolve_get_setting=lambda: get_setting,
+    _cb_resolve_get_smtp_settings=lambda: get_smtp_settings,
+    _cb_resolve_inspection_cycle_days=lambda: inspection_cycle_days,
+    _cb_resolve_inspection_warning_days=lambda: inspection_warning_days,
+    _cb_resolve_is_read_sql=lambda: is_read_sql,
+    _cb_resolve_llm_config=lambda: llm_config,
+    _cb_resolve_log_action=lambda: log_action,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_now=lambda: now,
+    _cb_resolve_permission_tree_groups=lambda: permission_tree_groups,
+    _cb_resolve_positive_int=lambda: positive_int,
+    _cb_resolve_re=lambda: re,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_set_setting=lambda: set_setting,
+    _cb_resolve_sql_statement_kind=lambda: sql_statement_kind,
+    _cb_resolve_url_for=lambda: url_for,
+)
+system_settings = _views_system_settings['system_settings']
+menu_permissions = _views_system_settings['menu_permissions']
+database_console = _views_system_settings['database_console']
 
 
 AI_SEARCH_DOMAINS = {
@@ -7133,173 +7039,8 @@ ai_daily_report_draft_detail_page = _views_draft_pages['ai_daily_report_draft_de
 
 
 
-@app.route("/settings/menu-permissions", methods=["GET", "POST"])
-@admin_required
-def menu_permissions():
-    if request.method == "POST":
-        menu_keys = [item["key"] for group in MENU_PERMISSION_GROUPS for item in group["items"]]
-        action_pairs = [
-            (item["key"], action_key)
-            for group in ROLE_ACTION_PERMISSION_GROUPS
-            for item in group["items"]
-            for action_key in item["actions"]
-        ]
-        timestamp = now()
-        db().execute("delete from role_menu_permissions")
-        db().execute("delete from role_action_permissions")
-        for role in ROLE_OPTIONS:
-            for menu_key in menu_keys:
-                enabled = 1 if request.form.get(f"menu__{role}__{menu_key}") == "1" else 0
-                db().execute(
-                    """
-                    insert into role_menu_permissions (
-                        role, menu_key, is_enabled, updated_by, updated_at
-                    ) values (?, ?, ?, ?, ?)
-                    """,
-                    (role, menu_key, enabled, g.user["id"], timestamp),
-                )
-            for resource_key, action_key in action_pairs:
-                enabled = 1 if request.form.get(f"action__{role}__{resource_key}__{action_key}") == "1" else 0
-                if action_key == "view" and request.form.get(f"menu__{role}__{resource_key}") == "1":
-                    enabled = 1
-                db().execute(
-                    """
-                    insert into role_action_permissions (
-                        role, resource_key, action_key, is_enabled, updated_by, updated_at
-                    ) values (?, ?, ?, ?, ?, ?)
-                    """,
-                    (role, resource_key, action_key, enabled, g.user["id"], timestamp),
-                )
-        log_action("update", "menu_permissions", None, "系统权限", "修改菜单和操作权限")
-        db().commit()
-        g._menu_permission_overrides = {
-            (role, menu_key): request.form.get(f"menu__{role}__{menu_key}") == "1"
-            for role in ROLE_OPTIONS
-            for menu_key in menu_keys
-        }
-        g._action_permission_overrides = {
-            (role, resource_key, action_key): (
-                request.form.get(f"action__{role}__{resource_key}__{action_key}") == "1"
-                or (
-                    action_key == "view"
-                    and request.form.get(f"menu__{role}__{resource_key}") == "1"
-                )
-            )
-            for role in ROLE_OPTIONS
-            for resource_key, action_key in action_pairs
-        }
-        flash("权限配置已保存。", "success")
-        return redirect(url_for("menu_permissions"))
-    return render_template(
-        "menu_permissions.html",
-        role_options=ROLE_OPTIONS,
-        menu_groups=MENU_PERMISSION_GROUPS,
-        action_groups=ROLE_ACTION_PERMISSION_GROUPS,
-        action_labels=ACTION_LABELS,
-        permission_tree_groups=permission_tree_groups(),
-        users_by_role={
-            role: db().execute(
-                "select id, name, email, is_active from users where role = ? order by is_active desc, name",
-                (role,),
-            ).fetchall()
-            for role in ROLE_OPTIONS
-        },
-    )
 
 
-@app.route("/settings/database", methods=["GET", "POST"])
-@login_required
-def database_console():
-    sql = request.form.get("sql", "").strip() if request.method == "POST" else ""
-    result = None
-    columns = []
-    rows = []
-    row_count = None
-    statement_kind = sql_statement_kind(sql)
-    if request.method == "POST":
-        if not sql:
-            flash("请输入 SQL 语句。", "error")
-        elif ";" in sql.rstrip(";"):
-            flash("为了降低误操作风险，每次只能执行一条 SQL 语句。", "error")
-        else:
-            read_query = is_read_sql(sql)
-            confirmed = request.form.get("confirm_write") == "1"
-            if not read_query and not confirmed:
-                flash("执行数据更改语句前，请先勾选确认。", "error")
-            else:
-                try:
-                    cursor = db().execute(sql)
-                    if cursor.description:
-                        columns = [description[0] for description in cursor.description]
-                        rows = cursor.fetchmany(500)
-                        result = "query"
-                        if cursor.fetchone() is not None:
-                            flash("查询结果超过 500 行，仅显示前 500 行。", "warning")
-                        if not read_query:
-                            log_action(
-                                "sql",
-                                "database",
-                                None,
-                                "SQL Console",
-                                sql[:500],
-                            )
-                            db().commit()
-                            flash("SQL 已执行。", "success")
-                    else:
-                        row_count = cursor.rowcount
-                        result = "write"
-                        log_action(
-                            "sql",
-                            "database",
-                            None,
-                            "SQL Console",
-                            sql[:500],
-                        )
-                        db().commit()
-                        flash("SQL 已执行。", "success")
-                except DatabaseError as error:
-                    db().rollback()
-                    flash(f"SQL 执行失败：{error}", "error")
-    tables = db().execute(
-        """
-        select table_name as name,
-               case table_type when 'VIEW' then 'view' else 'table' end as type
-        from information_schema.tables
-        where table_schema = 'public'
-        order by type, name
-        """
-    ).fetchall()
-    table_dictionary = []
-    for table in tables:
-        table_dictionary.append(
-            {
-                "name": table["name"],
-                "type": table["type"],
-                "columns": db().execute(
-                    """
-                    select ordinal_position - 1 as cid, column_name as name,
-                           data_type as type,
-                           case is_nullable when 'NO' then 1 else 0 end as notnull,
-                           column_default as dflt_value, 0 as pk
-                    from information_schema.columns
-                    where table_schema = 'public' and table_name = ?
-                    order by ordinal_position
-                    """,
-                    (table["name"],),
-                ).fetchall(),
-            }
-        )
-    return render_template(
-        "database_console.html",
-        sql=sql,
-        statement_kind=statement_kind,
-        result=result,
-        columns=columns,
-        rows=rows,
-        row_count=row_count,
-        tables=tables,
-        table_dictionary=table_dictionary,
-    )
 
 
 _views_company_page = _split_company_page.register_company_page_routes(
