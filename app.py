@@ -79,6 +79,7 @@ from invoice_tool.report_exports import dates as _split_iso_date
 from invoice_tool.report_exports import labor as _split_labor_entries
 from invoice_tool.email_delivery import transport as _split_smtp_transport
 from invoice_tool.dashboard import metrics as _split_dashboard_metrics
+from invoice_tool.dashboard import charts as _split_dashboard_monthly
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -12387,19 +12388,7 @@ def get_metrics():
 
 
 def monthly_chart():
-    access_clause, access_params = client_filter_clause("invoices")
-    rows = db().execute(
-        f"select id, issue_date from invoices where status = 'completed' and {access_clause} order by issue_date asc",
-        access_params,
-    ).fetchall()
-    buckets = {}
-    for row in rows:
-        month = row["issue_date"][:7]
-        buckets[month] = buckets.get(month, 0) + invoice_totals(row["id"])["total"]
-    if not buckets:
-        return []
-    max_value = max(buckets.values()) or 1
-    return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
+    return _split_dashboard_monthly.monthly_chart(client_filter_clause=client_filter_clause, db=db, invoice_totals=invoice_totals)
 
 
 def available_projects_for_access():

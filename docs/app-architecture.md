@@ -1502,3 +1502,10 @@ Verified by `test_codebuddy_twenty_contract.py`; independent review/testing by C
 `invoice_tool/dashboard/metrics.py` owns get_metrics.
 Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
 Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: dashboard_monthly
+
+`invoice_tool/dashboard/charts.py` owns monthly_chart.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
