@@ -1530,3 +1530,10 @@ Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing b
 `invoice_tool/dashboard/projects.py` owns report_project_options.
 Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
 Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 6/20: project_chart
+
+`invoice_tool/dashboard/charts.py` owns monthly_project_chart.
+Legacy app signatures resolve explicit dependencies per call; bodies match d14b2af.
+Verified by `test_codebuddy_dashboard_contract.py`; independent review/testing by Codex.
