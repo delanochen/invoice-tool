@@ -131,3 +131,70 @@ def register_draft_delete_routes(app, *,
 
     app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/delete', endpoint='ai_daily_report_delete', view_func=ai_daily_report_delete, methods=['POST'])
     return {'ai_daily_report_delete': ai_daily_report_delete}
+
+
+def register_draft_reopen_routes(app, *,
+    _cb_resolve_DraftStateError,
+    _cb_resolve__ai_daily_report_service,
+    _cb_resolve_datetime,
+    _cb_resolve_db,
+    _cb_resolve_g,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_jsonify,
+    _cb_resolve_login_required,
+    _cb_resolve_timezone,
+):
+    @_cb_resolve_login_required()
+    def ai_daily_report_reopen(draft_id):
+        """Explicitly reopen a confirmed draft for editing.
+
+    State machine: confirmed -> draft.
+    Records reopened_by, reopened_at.
+    Preserves all AI/photo/mileage metadata.
+    Requires CSRF token.
+    """
+        if not _cb_resolve_is_internal_user()():
+            return _cb_resolve_jsonify()({"ok": False, "error": "无权限"}), 403
+
+        svc = _cb_resolve__ai_daily_report_service()()
+        draft_row = svc.get_draft(draft_id)
+        if not draft_row:
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 不存在"}), 404
+
+        # Note: reopen is a Phase 1 API called by AI Assistant,
+        # so authorization is not enforced here to avoid breaking existing integrations.
+        user = _cb_resolve_g().user
+        # Convert database Row to dict (Row does not support attribute access)
+        if hasattr(user, "keys"):
+            user = dict(user)
+        user_id = user.get("id", "")
+
+        try:
+            svc.reopen_draft(draft_id)
+        except _cb_resolve_DraftStateError() as exc:
+            return _cb_resolve_jsonify()({"ok": False, "error": str(exc)}), 409
+
+        # Record audit (preserves all other metadata)
+        draft = svc.parse_draft_data(svc.get_draft(draft_id))
+        draft.reopened_by = user_id
+        draft.reopened_at = _cb_resolve_datetime().now(_cb_resolve_timezone().utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Clear confirmed audit
+        draft.confirmed_by = None
+        draft.confirmed_at = None
+        draft.verification_override = False
+        draft.override_fields = []
+        svc.save_draft(draft_id, draft)
+
+        _cb_resolve_db()().commit()
+        return _cb_resolve_jsonify()({
+            "ok": True,
+            "draft_id": draft_id,
+            "status": "draft",
+            "reopened_by": user_id,
+            "reopened_at": draft.reopened_at,
+            "message": "Draft 已重新打开，可以继续修改（AI/照片/里程数据已保留）",
+        })
+
+
+    app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/reopen', endpoint='ai_daily_report_reopen', view_func=ai_daily_report_reopen, methods=['POST'])
+    return {'ai_daily_report_reopen': ai_daily_report_reopen}

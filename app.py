@@ -7366,57 +7366,19 @@ _views_draft_delete = _split_draft_cancel.register_draft_delete_routes(
 ai_daily_report_delete = _views_draft_delete['ai_daily_report_delete']
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/reopen")
-@login_required
-def ai_daily_report_reopen(draft_id):
-    """Explicitly reopen a confirmed draft for editing.
-
-    State machine: confirmed -> draft.
-    Records reopened_by, reopened_at.
-    Preserves all AI/photo/mileage metadata.
-    Requires CSRF token.
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-
-    svc = _ai_daily_report_service()
-    draft_row = svc.get_draft(draft_id)
-    if not draft_row:
-        return jsonify({"ok": False, "error": "Draft 不存在"}), 404
-
-    # Note: reopen is a Phase 1 API called by AI Assistant,
-    # so authorization is not enforced here to avoid breaking existing integrations.
-    user = g.user
-    # Convert database Row to dict (Row does not support attribute access)
-    if hasattr(user, "keys"):
-        user = dict(user)
-    user_id = user.get("id", "")
-
-    try:
-        svc.reopen_draft(draft_id)
-    except DraftStateError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 409
-
-    # Record audit (preserves all other metadata)
-    draft = svc.parse_draft_data(svc.get_draft(draft_id))
-    draft.reopened_by = user_id
-    draft.reopened_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    # Clear confirmed audit
-    draft.confirmed_by = None
-    draft.confirmed_at = None
-    draft.verification_override = False
-    draft.override_fields = []
-    svc.save_draft(draft_id, draft)
-
-    db().commit()
-    return jsonify({
-        "ok": True,
-        "draft_id": draft_id,
-        "status": "draft",
-        "reopened_by": user_id,
-        "reopened_at": draft.reopened_at,
-        "message": "Draft 已重新打开，可以继续修改（AI/照片/里程数据已保留）",
-    })
+_views_draft_reopen = _split_draft_cancel.register_draft_reopen_routes(
+    app,
+    _cb_resolve_DraftStateError=lambda: DraftStateError,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_datetime=lambda: datetime,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_timezone=lambda: timezone,
+)
+ai_daily_report_reopen = _views_draft_reopen['ai_daily_report_reopen']
 
 
 # ─── Phase 6: AI Daily Report Review Center APIs ───────────────────────────
