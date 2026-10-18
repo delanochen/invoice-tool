@@ -59,3 +59,11 @@
 - 迁移函数：ai_daily_report_add_service_photo。
 - app.py：11836 → 11819 行。
 - 审核验证：1 passed, 6 subtests passed in 2.02s。
+
+
+## 第 8/20 轮：service_photo_remove
+
+- CodeBuddy 实际写入 `invoice_tool/ai_daily_report_web/photo_routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：ai_daily_report_remove_service_photo。
+- app.py：11819 → 11802 行。
+- 审核验证：1 passed, 6 subtests passed in 2.10s。

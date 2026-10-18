@@ -7062,35 +7062,18 @@ _views_service_photo_add = _split_photos_discover.register_service_photo_add_rou
 ai_daily_report_add_service_photo = _views_service_photo_add['ai_daily_report_add_service_photo']
 
 
-@app.post("/api/ai/daily-report/draft/<int:draft_id>/remove-service-photo")
-@login_required
-def ai_daily_report_remove_service_photo(draft_id):
-    """User manually removes a service photo (Phase 5)."""
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    svc = _ai_daily_report_service()
-    try:
-        data = request.get_json(silent=True) or {}
-        photo_id = data.get("photo_id", "")
-        expected_version = data.get("draft_version")
-        if expected_version is not None:
-            expected_version = int(expected_version)
-    except Exception:
-        return jsonify({"ok": False, "error": "无效请求"}), 400
-
-    if not photo_id:
-        return jsonify({"ok": False, "error": "缺少 photo_id"}), 400
-
-    photo_svc = _make_photo_classification_service()
-    try:
-        result = svc.remove_service_photo(draft_id, photo_id, photo_svc, expected_version)
-    except DraftVersionConflict:
-        return jsonify({"ok": False, "error": "Draft 版本冲突"}), 409
-    if not result.get("ok"):
-        return jsonify(result), 400
-
-    db().commit()
-    return jsonify(result)
+_views_service_photo_remove = _split_photos_discover.register_service_photo_remove_routes(
+    app,
+    _cb_resolve_DraftVersionConflict=lambda: DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve__make_photo_classification_service=lambda: _make_photo_classification_service,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+)
+ai_daily_report_remove_service_photo = _views_service_photo_remove['ai_daily_report_remove_service_photo']
 
 
 @app.post("/api/ai/daily-report/draft/<int:draft_id>/photos/auto-select")
