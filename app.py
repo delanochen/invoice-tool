@@ -12401,31 +12401,7 @@ def dashboard_project_options():
 
 
 def report_project_options():
-    if is_external_user():
-        access_clause, access_params = client_filter_clause("invoices")
-        return db().execute(
-            f"""
-            select distinct projects.id, projects.name
-            from projects
-            join invoice_items on invoice_items.project_id = projects.id
-            join invoices on invoices.id = invoice_items.invoice_id
-            where invoices.status != 'void' and {access_clause}
-            order by projects.name
-            """,
-            access_params,
-        ).fetchall()
-    return db().execute(
-        """
-        select id, name from projects where project_type = 'invoice' and is_active = 1
-        union
-        select distinct projects.id, projects.name
-        from projects
-        join invoice_items on invoice_items.project_id = projects.id
-        join invoices on invoices.id = invoice_items.invoice_id
-        where invoices.status != 'void'
-        order by name
-        """
-    ).fetchall()
+    return _split_dashboard_projects.report_project_options(client_filter_clause=client_filter_clause, db=db, is_external_user=is_external_user)
 
 
 def monthly_project_chart(selected_project_ids):

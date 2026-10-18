@@ -35,3 +35,11 @@
 - 迁移函数：dashboard_project_options。
 - app.py：12851 → 12848 行。
 - 审核验证：1 passed, 2 subtests passed in 1.98s。
+
+
+## 第 5/20 轮：report_options
+
+- CodeBuddy 实际写入 `invoice_tool/dashboard/projects.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：report_project_options。
+- app.py：12848 → 12824 行。
+- 审核验证：1 passed, 2 subtests passed in 2.36s。
