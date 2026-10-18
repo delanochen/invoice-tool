@@ -43,3 +43,25 @@ def register_mobile_install_routes(app, *,
     app.add_url_rule('/mobile-app', endpoint='mobile_app_install', view_func=mobile_app_install, methods=['GET'])
     app.add_url_rule('/mobile-app/manifest.plist', endpoint='mobile_app_manifest', view_func=mobile_app_manifest, methods=['GET'])
     return {'mobile_app_install': mobile_app_install, 'mobile_app_manifest': mobile_app_manifest}
+
+
+def register_mobile_package_routes(app, *,
+    _cb_resolve_IOS_IPA_PATH,
+    _cb_resolve_abort,
+    _cb_resolve_os,
+    _cb_resolve_send_file,
+):
+    def mobile_app_ipa():
+        if not _cb_resolve_os().path.isfile(_cb_resolve_IOS_IPA_PATH()):
+            _cb_resolve_abort()(404)
+        return _cb_resolve_send_file()(
+            _cb_resolve_IOS_IPA_PATH(),
+            mimetype="application/octet-stream",
+            as_attachment=True,
+            download_name="PrasinosPower.ipa",
+            conditional=True,
+        )
+
+
+    app.add_url_rule('/mobile-app/PrasinosPower.ipa', endpoint='mobile_app_ipa', view_func=mobile_app_ipa, methods=['GET'])
+    return {'mobile_app_ipa': mobile_app_ipa}

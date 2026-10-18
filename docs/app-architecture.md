@@ -1768,3 +1768,10 @@ Verified by `test_codebuddy_settlement_contract.py`; independent review/testing 
 `invoice_tool/mobile_distribution/routes.py` owns mobile_app_install, mobile_app_manifest.
 Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
 Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 2/20: mobile_package
+
+`invoice_tool/mobile_distribution/routes.py` owns mobile_app_ipa.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.

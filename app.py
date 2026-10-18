@@ -5514,17 +5514,14 @@ mobile_app_manifest = _views_mobile_install['mobile_app_manifest']
 
 
 
-@app.get("/mobile-app/PrasinosPower.ipa")
-def mobile_app_ipa():
-    if not os.path.isfile(IOS_IPA_PATH):
-        abort(404)
-    return send_file(
-        IOS_IPA_PATH,
-        mimetype="application/octet-stream",
-        as_attachment=True,
-        download_name="PrasinosPower.ipa",
-        conditional=True,
-    )
+_views_mobile_package = _split_mobile_install.register_mobile_package_routes(
+    app,
+    _cb_resolve_IOS_IPA_PATH=lambda: IOS_IPA_PATH,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_os=lambda: os,
+    _cb_resolve_send_file=lambda: send_file,
+)
+mobile_app_ipa = _views_mobile_package['mobile_app_ipa']
 
 
 @app.route("/register", methods=["GET", "POST"])
