@@ -94,6 +94,7 @@ from invoice_tool.customer_reimbursements import rates as _split_contract_rates
 from invoice_tool.customer_reimbursements import holidays as _split_holidays
 from invoice_tool.customer_reimbursements import calculations as _split_row_field
 from invoice_tool.customer_reimbursements import project_mapping as _split_project_mapping
+from invoice_tool.customer_reimbursements import dates as _split_settlement_date
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -3412,16 +3413,7 @@ def approved_customer_reimbursement_expense_rows(order_id, cutoff_at=None, exclu
 
 
 def _reimbursement_date_key(value):
-    """将 psycopg 日期/时间值统一为 'YYYY-MM-DD' 结算匹配键。"""
-    if value is None:
-        return ""
-    if isinstance(value, (datetime, date)):
-        return value.strftime("%Y-%m-%d")
-    text = str(value).strip()
-    if not text:
-        return ""
-    # 兼容 '2026-09-18 00:00:00' / ISO '2026-09-18T00:00:00'
-    return text.split("T")[0].split(" ")[0]
+    return _split_settlement_date._reimbursement_date_key(value, date=date, datetime=datetime)
 
 
 def _reimbursement_date_value(value):

@@ -1719,3 +1719,10 @@ Verified by `test_codebuddy_settlement_contract.py`; independent review/testing 
 `invoice_tool/customer_reimbursements/project_mapping.py` owns customer_reimbursement_expense_field.
 Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
 Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 14/20: settlement_date
+
+`invoice_tool/customer_reimbursements/dates.py` owns _reimbursement_date_key.
+Legacy app signatures resolve explicit dependencies per call; bodies match ff94ef2.
+Verified by `test_codebuddy_settlement_contract.py`; independent review/testing by Codex.
