@@ -146,6 +146,7 @@ from invoice_tool.service_orders import validation_helpers as _split_order_valid
 from invoice_tool.employee_expenses import numbering as _split_expense_numbering
 from invoice_tool.photo_imports import storage_helpers as _split_photo_storage
 from invoice_tool.photo_imports import google_helpers as _split_google_photos
+from invoice_tool.attachments import response_helpers as _split_attachment_response
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1872,48 +1873,7 @@ def valid_image_file(path):
 
 
 def safe_attachment_response(path, original_filename):
-    """Return an attachment response based only on server-side content checks."""
-    try:
-        with Image.open(path) as image:
-            image.verify()
-            image_format = image.format
-        image_mimetype = {
-            "JPEG": "image/jpeg",
-            "PNG": "image/png",
-            "WEBP": "image/webp",
-            "GIF": "image/gif",
-        }.get(image_format)
-        if image_mimetype:
-            return send_file(
-                path,
-                as_attachment=False,
-                download_name=original_filename,
-                mimetype=image_mimetype,
-                conditional=True,
-            )
-    except Exception:
-        pass
-
-    try:
-        with open(path, "rb") as file:
-            is_pdf = file.read(5) == b"%PDF-"
-    except Exception:
-        is_pdf = False
-    if is_pdf:
-        return send_file(
-            path,
-            as_attachment=False,
-            download_name=original_filename,
-            mimetype="application/pdf",
-            conditional=True,
-        )
-    return send_file(
-        path,
-        as_attachment=True,
-        download_name=original_filename,
-        mimetype="application/octet-stream",
-        conditional=True,
-    )
+    return _split_attachment_response.safe_attachment_response(path, original_filename, Image=Image, send_file=send_file)
 
 
 def order_photo_status(order_dir):

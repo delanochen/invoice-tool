@@ -86,3 +86,11 @@ Functions: google_photos_page_html, normalize_embedded_google_url, google_image_
 Module: `invoice_tool/photo_imports/google_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 12.12s. app.py: 6022 → 5801 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 12: attachment_response
+
+Functions: safe_attachment_response.
+Module: `invoice_tool/attachments/response_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 13.94s. app.py: 5801 → 5761 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
