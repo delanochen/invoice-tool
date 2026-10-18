@@ -2323,3 +2323,11 @@ Functions: _parse_quotation_revision_snapshot, excessive_following_mileage_rows,
 Module: `invoice_tool/customer_reimbursements/support_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
 Verification: 35 passed, 149 subtests passed in 11.66s. app.py: 5761 → 5720 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 14: audit
+
+Functions: log_action, log_login_action.
+Module: `invoice_tool/audit_log/record_helpers.py`. Exact AST/signatures preserved against 234203ed57d6a4be18f2709b9c1e17cffa761400.
+Verification: 35 passed, 149 subtests passed in 11.56s. app.py: 5720 → 5687 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

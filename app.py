@@ -148,6 +148,7 @@ from invoice_tool.photo_imports import storage_helpers as _split_photo_storage
 from invoice_tool.photo_imports import google_helpers as _split_google_photos
 from invoice_tool.attachments import response_helpers as _split_attachment_response
 from invoice_tool.customer_reimbursements import support_helpers as _split_settlement_support
+from invoice_tool.audit_log import record_helpers as _split_audit
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -2383,25 +2384,7 @@ def create_message(user_id, title, body, link=None):
 
 
 def log_action(action, entity_type, entity_id, entity_label, summary=""):
-    if not g.user:
-        return
-    db().execute(
-        """
-        insert into audit_logs (
-            user_id, user_name, action, entity_type, entity_id, entity_label, summary, created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            g.user["id"],
-            g.user["name"],
-            action,
-            entity_type,
-            entity_id,
-            str(entity_label or ""),
-            str(summary or ""),
-            now(),
-        ),
-    )
+    return _split_audit.log_action(action, entity_type, entity_id, entity_label, summary, db=db, g=g, now=now)
 
 
 def record_email_delivery(entity_type, entity_id, recipient, subject, *,
@@ -2419,23 +2402,7 @@ def request_ip_address():
 
 
 def log_login_action(user):
-    db().execute(
-        """
-        insert into audit_logs (
-            user_id, user_name, action, entity_type, entity_id, entity_label, summary, created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            user["id"],
-            user["name"],
-            "login",
-            "user",
-            user["id"],
-            user["email"] or user["name"],
-            f"角色：{role_label(user['role'])}；IP：{request_ip_address() or '-'}",
-            now(),
-        ),
-    )
+    return _split_audit.log_login_action(user, db=db, now=now, request_ip_address=request_ip_address, role_label=role_label)
 
 
 def normalized_address(value):
