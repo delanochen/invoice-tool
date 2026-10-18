@@ -102,6 +102,7 @@ from invoice_tool.user_preferences import routes as _split_language_session
 from invoice_tool.messages import routes as _split_messages_list
 from invoice_tool.mobile_distribution import pwa_routes as _split_pwa_manifest
 from invoice_tool.dashboard import page_routes as _split_workspace_pages
+from invoice_tool.company_profile import routes as _split_company_page
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -9398,47 +9399,33 @@ def database_console():
     )
 
 
-@app.route("/company-info", methods=["GET", "POST"])
-@login_required
-def company_info():
-    if not is_internal_user():
-        abort(403)
-    if request.method == "POST" and not can_manage_company_info():
-        abort(403)
-    if request.method == "POST":
-        for key in ("name", "address", "email", "phone", "registration_number", "ein"):
-            set_setting(f"company_{key}", request.form.get(f"company_{key}", "").strip())
-        timezone_name = request.form.get("app_timezone", DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
-        try:
-            ZoneInfo(timezone_name)
-        except ZoneInfoNotFoundError:
-            flash("系统时区无效，请使用类似 America/Chicago 的时区名称。", "error")
-            return redirect(url_for("company_info"))
-        set_setting("app_timezone", timezone_name)
-        try:
-            for uploaded in uploaded_attachments_from_request():
-                save_named_attachment(uploaded, COMPANY_ATTACHMENT_DIR, "company_attachments")
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("company_info"))
-        # 收款信息（v0.1.325 起从「系统设置」迁入本页）：与公司资料同权限（company_info.edit）、
-        # 同一表单原子提交；数据仍存 settings 表 payment_* / invoice_terms，发票/邮件读侧不变。
-        for key in DEFAULT_PAYMENT_INSTRUCTIONS:
-            set_setting(f"payment_{key}", request.form.get(f"payment_{key}", "").strip())
-        set_setting("invoice_terms", request.form.get("invoice_terms", "").strip())
-        set_setting("company_tax_note", request.form.get("company_tax_note", "").strip())
-        db().commit()
-        flash("公司信息已保存。", "success")
-        return redirect(url_for("company_info"))
-    return render_template(
-        "company_info.html",
-        company=get_company_profile(),
-        timezone_name=get_timezone_name(),
-        attachments=get_company_attachments(),
-        payment=get_payment_instructions(),
-        terms=get_invoice_terms(),
-    )
+_views_company_page = _split_company_page.register_company_page_routes(
+    app,
+    _cb_resolve_COMPANY_ATTACHMENT_DIR=lambda: COMPANY_ATTACHMENT_DIR,
+    _cb_resolve_DEFAULT_PAYMENT_INSTRUCTIONS=lambda: DEFAULT_PAYMENT_INSTRUCTIONS,
+    _cb_resolve_DEFAULT_TIMEZONE=lambda: DEFAULT_TIMEZONE,
+    _cb_resolve_ZoneInfo=lambda: ZoneInfo,
+    _cb_resolve_ZoneInfoNotFoundError=lambda: ZoneInfoNotFoundError,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_can_manage_company_info=lambda: can_manage_company_info,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_get_company_attachments=lambda: get_company_attachments,
+    _cb_resolve_get_company_profile=lambda: get_company_profile,
+    _cb_resolve_get_invoice_terms=lambda: get_invoice_terms,
+    _cb_resolve_get_payment_instructions=lambda: get_payment_instructions,
+    _cb_resolve_get_timezone_name=lambda: get_timezone_name,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_save_named_attachment=lambda: save_named_attachment,
+    _cb_resolve_set_setting=lambda: set_setting,
+    _cb_resolve_uploaded_attachments_from_request=lambda: uploaded_attachments_from_request,
+    _cb_resolve_url_for=lambda: url_for,
+)
+company_info = _views_company_page['company_info']
 
 
 @app.get("/company-attachments/<int:attachment_id>/download")
