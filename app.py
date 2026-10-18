@@ -5684,27 +5684,17 @@ _views_messages_read = _split_messages_list.register_messages_read_routes(
 mark_all_messages_read = _views_messages_read['mark_all_messages_read']
 
 
-@app.route("/messages/<int:message_id>")
-@login_required
-def message_detail(message_id):
-    message = db().execute(
-        "select * from messages where id = ? and user_id = ?",
-        (message_id, g.user["id"]),
-    ).fetchone()
-    if not message:
-        abort(404)
-    db().execute("update messages set is_read = 1 where id = ?", (message_id,))
-    db().commit()
-    link = message["link"]
-    if link:
-        parts = link.strip("/").split("/")
-        if len(parts) >= 2 and parts[0] == "invoices" and parts[1].isdigit():
-            invoice_exists = db().execute("select id from invoices where id = ?", (int(parts[1]),)).fetchone()
-            if not invoice_exists:
-                flash("这条消息对应的发票已经被删除。", "error")
-                return redirect(url_for("messages"))
-        return redirect(link)
-    return redirect(url_for("messages"))
+_views_message_detail = _split_messages_list.register_message_detail_routes(
+    app,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_url_for=lambda: url_for,
+)
+message_detail = _views_message_detail['message_detail']
 
 
 @app.get("/manifest.webmanifest")

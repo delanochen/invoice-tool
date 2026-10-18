@@ -51,3 +51,11 @@
 - 迁移函数：mark_all_messages_read。
 - app.py：12382 → 12380 行。
 - 审核验证：1 passed, 3 subtests passed in 2.10s。
+
+
+## 第 7/20 轮：message_detail
+
+- CodeBuddy 实际写入 `invoice_tool/messages/routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：message_detail。
+- app.py：12380 → 12370 行。
+- 审核验证：1 passed, 3 subtests passed in 2.08s。
