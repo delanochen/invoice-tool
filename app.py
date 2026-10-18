@@ -158,6 +158,7 @@ from invoice_tool.app_bootstrap import startup_checks as _split_residual_bootstr
 from invoice_tool.user_preferences import language_helpers as _split_residual_language
 from invoice_tool.app_settings import profile_helpers as _split_residual_settings
 from invoice_tool.employee_expenses import project_policy as _split_residual_expense_policy
+from invoice_tool.presentation import value_helpers as _split_residual_formatting
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -1065,16 +1066,7 @@ def get_company_attachments():
 
 @app.template_filter("nl2br")
 def nl2br_filter(value):
-    """Escape untrusted text, then render newlines as <br>.
-
-    Address fields are free-text form input, so they must be escaped *before*
-    being marked safe. A bare ``|safe`` let a crafted address inject markup
-    (stored XSS) into the invoice detail / export pages.
-    """
-    text = "" if value is None else str(value)
-    # str() is required: Markup.replace() escapes its replacement argument,
-    # which would turn the intended "<br>" into literal "&lt;br&gt;".
-    return Markup(str(escape(text)).replace("\n", "<br>"))
+    return _split_residual_formatting.nl2br_filter(value, Markup=Markup, escape=escape)
 
 
 def current_user():
@@ -1353,39 +1345,30 @@ PROJECT_COLORS = ["#0f766e", "#175cd3", "#b42318", "#7a271a", "#6941c6", "#027a4
 
 
 def project_color(project_id):
-    return PROJECT_COLORS[int(project_id or 0) % len(PROJECT_COLORS)]
+    return _split_residual_formatting.project_color(project_id, PROJECT_COLORS=PROJECT_COLORS)
 
 
 def pdf_text(value):
-    return "" if value is None else str(value)
+    return _split_residual_formatting.pdf_text(value)
 
 
 def to_float(value, default=0):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float(default)
+    return _split_residual_formatting.to_float(value, default)
 
 
 CENT = Decimal("0.01")
 
 
 def decimal_value(value, default="0"):
-    try:
-        return Decimal(str(value if value is not None and value != "" else default))
-    except (InvalidOperation, ValueError):
-        return Decimal(str(default))
+    return _split_residual_formatting.decimal_value(value, default, Decimal=Decimal, InvalidOperation=InvalidOperation)
 
 
 def money_decimal(value):
-    amount = decimal_value(value)
-    if abs(amount) < CENT:
-        amount = Decimal("0")
-    return amount.quantize(CENT, rounding=ROUND_HALF_UP)
+    return _split_residual_formatting.money_decimal(value, CENT=CENT, Decimal=Decimal, ROUND_HALF_UP=ROUND_HALF_UP, decimal_value=decimal_value)
 
 
 def money_float(value):
-    return float(money_decimal(value))
+    return _split_residual_formatting.money_float(value, money_decimal=money_decimal)
 
 
 def invoice_totals(invoice_id):

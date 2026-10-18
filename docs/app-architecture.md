@@ -2397,3 +2397,11 @@ Functions: is_lodging_project_name, is_fuel_project_name, validate_fuel_reimburs
 Module: `invoice_tool/employee_expenses/project_policy.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 11.02s. app.py: 4958 → 4956 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 5: residual_formatting
+
+Functions: project_color, pdf_text, to_float, decimal_value, money_decimal, money_float, nl2br_filter.
+Module: `invoice_tool/presentation/value_helpers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 12.47s. app.py: 4956 → 4939 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
