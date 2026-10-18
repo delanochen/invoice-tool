@@ -320,3 +320,51 @@ def register_service_photo_remove_routes(app, *,
 
     app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/remove-service-photo', endpoint='ai_daily_report_remove_service_photo', view_func=ai_daily_report_remove_service_photo, methods=['POST'])
     return {'ai_daily_report_remove_service_photo': ai_daily_report_remove_service_photo}
+
+
+def register_photos_auto_select_routes(app, *,
+    _cb_resolve_DraftVersionConflict,
+    _cb_resolve__ai_daily_report_service,
+    _cb_resolve_can_edit_ai_daily_report_draft,
+    _cb_resolve_db,
+    _cb_resolve_g,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_jsonify,
+    _cb_resolve_login_required,
+    _cb_resolve_request,
+    _cb_resolve_require_ai_daily_report_csrf,
+):
+    @_cb_resolve_login_required()
+    def ai_daily_report_auto_select_photos(draft_id):
+        """Auto-select up to 10 service (equipment) photos from candidates.
+
+    拍照功能: 自动筛选施工照片（设备照片），不到 10 张全选。
+    """
+        if not _cb_resolve_is_internal_user()():
+            return _cb_resolve_jsonify()({"ok": False, "error": "无权访问"}), 403
+        _cb_resolve_require_ai_daily_report_csrf()()
+        svc = _cb_resolve__ai_daily_report_service()()
+        draft_row = svc.get_draft(draft_id)
+        if not draft_row:
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 不存在"}), 404
+        if not _cb_resolve_can_edit_ai_daily_report_draft()(_cb_resolve_g().user, draft_row):
+            return _cb_resolve_jsonify()({"ok": False, "error": "无权修改此 Draft"}), 403
+        try:
+            data = _cb_resolve_request().get_json(silent=True) or {}
+            expected_version = data.get("draft_version")
+            if expected_version is not None:
+                expected_version = int(expected_version)
+        except (ValueError, TypeError):
+            return _cb_resolve_jsonify()({"ok": False, "error": "无效请求"}), 400
+        try:
+            result = svc.auto_select_service_photos(draft_id, expected_version=expected_version)
+        except _cb_resolve_DraftVersionConflict():
+            return _cb_resolve_jsonify()({"ok": False, "error": "Draft 版本冲突，请刷新后重试"}), 409
+        if not result.get("ok"):
+            return _cb_resolve_jsonify()(result), 400
+        _cb_resolve_db()().commit()
+        return _cb_resolve_jsonify()(result)
+
+
+    app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/photos/auto-select', endpoint='ai_daily_report_auto_select_photos', view_func=ai_daily_report_auto_select_photos, methods=['POST'])
+    return {'ai_daily_report_auto_select_photos': ai_daily_report_auto_select_photos}
