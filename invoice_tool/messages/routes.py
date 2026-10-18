@@ -54,3 +54,28 @@ def register_messages_mark_routes(app, *,
 
     app.add_url_rule('/messages/mark', endpoint='mark_messages', view_func=mark_messages, methods=['POST'])
     return {'mark_messages': mark_messages}
+
+
+def register_messages_read_routes(app, *,
+    _cb_resolve_db,
+    _cb_resolve_flash,
+    _cb_resolve_g,
+    _cb_resolve_login_required,
+    _cb_resolve_redirect,
+    _cb_resolve_url_for,
+):
+    @_cb_resolve_login_required()
+    def mark_all_messages_read():
+        """「未读全为已读」：把自己名下所有未读一次性标为已读。"""
+        cursor = _cb_resolve_db()().execute(
+            "update messages set is_read = 1 where user_id = ? and is_read = 0",
+            (_cb_resolve_g().user["id"],),
+        )
+        _cb_resolve_db()().commit()
+        changed = max(0, cursor.rowcount or 0)
+        _cb_resolve_flash()(f"已将 {changed} 条未读消息标为已读。" if changed else "当前没有未读消息。", "success")
+        return _cb_resolve_redirect()(_cb_resolve_url_for()("messages"))
+
+
+    app.add_url_rule('/messages/mark-all-read', endpoint='mark_all_messages_read', view_func=mark_all_messages_read, methods=['POST'])
+    return {'mark_all_messages_read': mark_all_messages_read}

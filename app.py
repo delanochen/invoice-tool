@@ -5672,18 +5672,16 @@ _views_messages_mark = _split_messages_list.register_messages_mark_routes(
 mark_messages = _views_messages_mark['mark_messages']
 
 
-@app.post("/messages/mark-all-read")
-@login_required
-def mark_all_messages_read():
-    """「未读全为已读」：把自己名下所有未读一次性标为已读。"""
-    cursor = db().execute(
-        "update messages set is_read = 1 where user_id = ? and is_read = 0",
-        (g.user["id"],),
-    )
-    db().commit()
-    changed = max(0, cursor.rowcount or 0)
-    flash(f"已将 {changed} 条未读消息标为已读。" if changed else "当前没有未读消息。", "success")
-    return redirect(url_for("messages"))
+_views_messages_read = _split_messages_list.register_messages_read_routes(
+    app,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_url_for=lambda: url_for,
+)
+mark_all_messages_read = _views_messages_read['mark_all_messages_read']
 
 
 @app.route("/messages/<int:message_id>")
