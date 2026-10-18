@@ -62,3 +62,11 @@ Functions: latest_customer_reimbursement, customer_reimbursement_linked_invoice,
 Module: `invoice_tool/customer_reimbursements/invoice_items.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
 Verification: 9 passed, 42 subtests passed in 3.64s. app.py: 10565 → 10418 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 9: updates
+
+Functions: create_customer_reimbursement, sync_expense_attachments_to_settlement, _quotation_totals_with_discount, update_customer_reimbursement_totals.
+Module: `invoice_tool/customer_reimbursements/updates.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
+Verification: 9 passed, 42 subtests passed in 4.50s. app.py: 10418 → 10222 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
