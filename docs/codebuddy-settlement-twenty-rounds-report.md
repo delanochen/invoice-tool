@@ -123,3 +123,11 @@
 - 迁移函数：approved_mro_supplies_total。
 - app.py：12496 → 12486 行。
 - 审核验证：1 passed in 1.89s。
+
+
+## 第 16/20 轮：rental_fuel_total
+
+- CodeBuddy 实际写入 `invoice_tool/customer_reimbursements/totals.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：approved_rental_vehicle_fuel_total。
+- app.py：12486 → 12468 行。
+- 审核验证：1 passed, 3 subtests passed in 1.94s。

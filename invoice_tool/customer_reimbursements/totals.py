@@ -13,3 +13,25 @@ def approved_mro_supplies_total(order_id, cutoff_at=None, exclude_ignored_for_re
         Decimal("0"),
     )
     return money_float(total)
+
+
+def approved_rental_vehicle_fuel_total(order_id, *, db, money_float):
+    row = db().execute(
+        """
+        select coalesce(sum(expense_items.amount), 0) as total
+        from expenses
+        join expense_items on expense_items.expense_id = expenses.id
+        left join projects on projects.id = expense_items.project_id
+        where expenses.service_order_id = ?
+          and expenses.status = 'approved'
+          and expense_items.fuel_vehicle_type = 'rental'
+          and (
+            lower(coalesce(projects.name, expense_items.project)) like '%fuel%'
+            or lower(coalesce(projects.name, expense_items.project)) like '%gas%'
+            or coalesce(projects.name, expense_items.project) like '%油费%'
+            or coalesce(projects.name, expense_items.project) like '%加油%'
+          )
+        """,
+        (order_id,),
+    ).fetchone()
+    return money_float(row["total"] if row else 0)
