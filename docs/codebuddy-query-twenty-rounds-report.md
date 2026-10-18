@@ -99,3 +99,11 @@
 - 迁移函数：company_info。
 - app.py：12329 → 12316 行。
 - 审核验证：1 passed, 6 subtests passed in 2.02s。
+
+
+## 第 13/20 轮：company_attachment_read
+
+- CodeBuddy 实际写入 `invoice_tool/company_profile/routes.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：download_company_attachment, preview_company_attachment。
+- app.py：12316 → 12304 行。
+- 审核验证：1 passed, 6 subtests passed in 2.17s。

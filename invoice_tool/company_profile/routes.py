@@ -70,3 +70,45 @@ def register_company_page_routes(app, *,
 
     app.add_url_rule('/company-info', endpoint='company_info', view_func=company_info, methods=['GET', 'POST'])
     return {'company_info': company_info}
+
+
+def register_company_attachment_read_routes(app, *,
+    _cb_resolve_COMPANY_ATTACHMENT_DIR,
+    _cb_resolve_abort,
+    _cb_resolve_db,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_login_required,
+    _cb_resolve_os,
+    _cb_resolve_safe_attachment_response,
+    _cb_resolve_send_file,
+):
+    @_cb_resolve_login_required()
+    def download_company_attachment(attachment_id):
+        if not _cb_resolve_is_internal_user()():
+            _cb_resolve_abort()(403)
+        attachment = _cb_resolve_db()().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
+        if not attachment:
+            _cb_resolve_abort()(404)
+        return _cb_resolve_send_file()(
+            _cb_resolve_os().path.join(_cb_resolve_COMPANY_ATTACHMENT_DIR(), attachment["stored_filename"]),
+            as_attachment=True,
+            download_name=attachment["original_filename"],
+        )
+
+
+    @_cb_resolve_login_required()
+    def preview_company_attachment(attachment_id):
+        if not _cb_resolve_is_internal_user()():
+            _cb_resolve_abort()(403)
+        attachment = _cb_resolve_db()().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
+        if not attachment:
+            _cb_resolve_abort()(404)
+        return _cb_resolve_safe_attachment_response()(
+            _cb_resolve_os().path.join(_cb_resolve_COMPANY_ATTACHMENT_DIR(), attachment["stored_filename"]),
+            attachment["original_filename"],
+        )
+
+
+    app.add_url_rule('/company-attachments/<int:attachment_id>/download', endpoint='download_company_attachment', view_func=download_company_attachment, methods=['GET'])
+    app.add_url_rule('/company-attachments/<int:attachment_id>/preview', endpoint='preview_company_attachment', view_func=preview_company_attachment, methods=['GET'])
+    return {'download_company_attachment': download_company_attachment, 'preview_company_attachment': preview_company_attachment}

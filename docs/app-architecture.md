@@ -1845,3 +1845,10 @@ Verified by `test_codebuddy_query_contract.py`; independent review/testing by Co
 `invoice_tool/company_profile/routes.py` owns company_info.
 Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
 Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.
+
+
+### CodeBuddy round 13/20: company_attachment_read
+
+`invoice_tool/company_profile/routes.py` owns download_company_attachment, preview_company_attachment.
+Legacy app signatures resolve explicit dependencies per call; bodies match 7bba31c56cfa564040dd91b29fe86b935e63e465.
+Verified by `test_codebuddy_query_contract.py`; independent review/testing by Codex.

@@ -9428,33 +9428,21 @@ _views_company_page = _split_company_page.register_company_page_routes(
 company_info = _views_company_page['company_info']
 
 
-@app.get("/company-attachments/<int:attachment_id>/download")
-@login_required
-def download_company_attachment(attachment_id):
-    if not is_internal_user():
-        abort(403)
-    attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    return send_file(
-        os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]),
-        as_attachment=True,
-        download_name=attachment["original_filename"],
-    )
+_views_company_attachment_read = _split_company_page.register_company_attachment_read_routes(
+    app,
+    _cb_resolve_COMPANY_ATTACHMENT_DIR=lambda: COMPANY_ATTACHMENT_DIR,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_os=lambda: os,
+    _cb_resolve_safe_attachment_response=lambda: safe_attachment_response,
+    _cb_resolve_send_file=lambda: send_file,
+)
+download_company_attachment = _views_company_attachment_read['download_company_attachment']
+preview_company_attachment = _views_company_attachment_read['preview_company_attachment']
 
 
-@app.get("/company-attachments/<int:attachment_id>/preview")
-@login_required
-def preview_company_attachment(attachment_id):
-    if not is_internal_user():
-        abort(403)
-    attachment = db().execute("select * from company_attachments where id = ?", (attachment_id,)).fetchone()
-    if not attachment:
-        abort(404)
-    return safe_attachment_response(
-        os.path.join(COMPANY_ATTACHMENT_DIR, attachment["stored_filename"]),
-        attachment["original_filename"],
-    )
 
 
 @app.post("/company-attachments/<int:attachment_id>/delete")
