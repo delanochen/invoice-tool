@@ -2187,3 +2187,11 @@ Functions: import_google_photos_for_service_order, download_service_order_attach
 Module: `invoice_tool/service_orders/attachment_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
 Verification: 30 passed, 57 subtests passed in 10.61s. app.py: 7932 → 7866 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 11: settlement_form
+
+Functions: customer_reimbursement_form, download_customer_reimbursement, download_customer_reimbursement_excel, preview_customer_reimbursement.
+Module: `invoice_tool/customer_reimbursements/form_routes.py`. Exact AST/signatures preserved against 17c6a25561a8f32f2573eb2ac91f61fffa9e0cb1.
+Verification: 30 passed, 57 subtests passed in 10.77s. app.py: 7866 → 7599 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.

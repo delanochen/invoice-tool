@@ -131,6 +131,7 @@ from invoice_tool.ai_daily_report_web import worker_routes as _split_ai_workers
 from invoice_tool.ai_daily_report_web import work_routes as _split_ai_work
 from invoice_tool.query_pages import settlement_routes as _split_report_queries
 from invoice_tool.service_orders import attachment_routes as _split_order_attachments
+from invoice_tool.customer_reimbursements import form_routes as _split_settlement_form
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5938,339 +5939,71 @@ import_google_photos_for_service_order = _views_order_attachments['import_google
 download_service_order_attachments = _views_order_attachments['download_service_order_attachments']
 
 
-@app.route("/service-orders/<int:order_id>/customer-reimbursement", methods=["GET", "POST"])
-@login_required
-def customer_reimbursement_form(order_id):
-    if not can_view_customer_reimbursement():
-        abort(403)
-    order = require_service_order(order_id)
-    if request.method == "POST" and not can_manage_customer_reimbursement():
-        abort(403)
-    start_date_redirect = require_service_order_start_date(order)
-    if start_date_redirect:
-        return start_date_redirect
-    reimbursement = latest_customer_reimbursement(order_id)
-    if not reimbursement:
-        if not can_manage_customer_reimbursement():
-            flash("该工单还没有工单结算。", "error")
-            return redirect(url_for("service_order_detail", order_id=order_id))
-        try:
-            # Create the draft immediately. Expense selection now lives in the
-            # settlement workspace tabs instead of a separate pre-review page.
-            reimbursement = create_customer_reimbursement(order, "manual_review")
-            db().commit()
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("service_order_detail", order_id=order_id))
-    else:
-        reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
-        # 方案 A：不再在 GET 期自动重合并覆盖快照（那会导致保存时一闪而过、
-        # 且可能把同人异日报销重复计入）。改为只读比对未计入来源，由横幅呈现。
-        db().commit()
-    if request.method == "POST":
-        try:
-            action = request.form.get("action", "save")
-            if reimbursement["status"] not in {"draft", "returned"}:
-                if action == "generate_pdf":
-                    path = build_customer_reimbursement_pdf(
-                        reimbursement,
-                        order,
-                        customer_reimbursement_items(reimbursement["id"]),
-                    )
-                    return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
-                if action == "send_email":
-                    if reimbursement["status"] != "approved":
-                        raise ValueError("工单结算审核通过后才能发送邮件。")
-                    gate = customer_reimbursement_gate_error(reimbursement)
-                    if gate:
-                        flash(gate[1], "error")
-                        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-                    recipient = deliver_customer_reimbursement_email(reimbursement, order)
-                    db().commit()
-                    flash(f"工单结算已发送至 {recipient}。", "success")
-                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-                if action == "generate_invoice":
-                    if reimbursement["status"] != "approved":
-                        raise ValueError("工单结算审核通过后才能生成发票。")
-                    if not can_create_invoice():
-                        abort(403)
-                    gate = customer_reimbursement_gate_error(reimbursement)
-                    if gate:
-                        flash(gate[1], "error")
-                        return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-                    linked_invoice = service_order_active_invoice(order_id)
-                    if linked_invoice:
-                        if not reimbursement["invoice_id"]:
-                            db().execute(
-                                "update customer_reimbursements set invoice_id = ? where id = ?",
-                                (linked_invoice["id"], reimbursement["id"]),
-                            )
-                            db().commit()
-                        return redirect(url_for("invoice_detail", invoice_id=linked_invoice["id"]))
-                    return redirect(
-                        url_for(
-                            "new_invoice",
-                            service_order_id=order["id"],
-                            customer_reimbursement_id=reimbursement["id"],
-                        )
-                    )
-                raise ValueError("只有保存未提交或已退回的工单结算可以修改。")
-            if action == "submit":
-                gate = customer_reimbursement_gate_error(reimbursement)
-                if gate:
-                    flash(gate[1], "error")
-                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-            rows = customer_reimbursement_items_from_form(order_id)
-            save_customer_reimbursement_items(reimbursement["id"], rows)
-            totals = update_customer_reimbursement_totals(reimbursement["id"], rows)
-            save_customer_reimbursement_uploads(reimbursement["id"])
-            next_status = "submitted" if action == "submit" else reimbursement["status"]
-            db().execute(
-                """
-                update customer_reimbursements
-                set status = ?, return_reason = null,
-                    expense_transfer_cutoff_at = case
-                        when ? = 'submitted' then coalesce(expense_transfer_cutoff_at, ?)
-                        else expense_transfer_cutoff_at
-                    end
-                where id = ?
-                """,
-                (next_status, next_status, now(), reimbursement["id"]),
-            )
-            reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
-            remove_customer_reimbursement_pdf(reimbursement)
-            if action == "generate_pdf":
-                build_customer_reimbursement_pdf(reimbursement, order, customer_reimbursement_items(reimbursement["id"]))
-            log_action(
-                "update",
-                "customer_reimbursement",
-                reimbursement["id"],
-                reimbursement["file_name"],
-                f"金额：{money(totals['total_amount'])}",
-            )
-            db().commit()
-            if action == "submit":
-                notify_role(
-                    ["admin", "manager"],
-                    "新工单结算待审核",
-                    (
-                        f"{g.user['name']}提交了工单 {order['order_number']} 的工单结算，"
-                        f"金额 {money(totals['total_amount'])}。"
-                    ),
-                    url_for("customer_reimbursement_form", order_id=order_id),
-                    exclude_user_ids={g.user["id"]},
-                )
-                log_action(
-                    "submit",
-                    "customer_reimbursement",
-                    reimbursement["id"],
-                    reimbursement["file_name"],
-                    f"金额：{money(totals['total_amount'])}",
-                )
-                db().commit()
-                flash("工单结算已提交经理审核。", "success")
-                return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-            if action == "generate_pdf":
-                return send_file(
-                    customer_reimbursement_file_path(reimbursement),
-                    as_attachment=True,
-                    download_name=reimbursement["file_name"],
-                )
-            if action == "send_email":
-                if reimbursement["status"] != "approved":
-                    raise ValueError("工单结算审核通过后才能发送邮件。")
-                try:
-                    recipient = deliver_customer_reimbursement_email(reimbursement, order)
-                except (ValueError, RuntimeError) as error:
-                    flash(str(error), "error")
-                    return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-                db().commit()
-                flash(f"工单结算已发送至 {recipient}。", "success")
-                return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-            if action == "generate_invoice":
-                if reimbursement["status"] != "approved":
-                    raise ValueError("工单结算审核通过后才能生成发票。")
-                if not can_create_invoice():
-                    abort(403)
-                linked_invoice = service_order_active_invoice(order_id)
-                if linked_invoice:
-                    if not reimbursement["invoice_id"]:
-                        db().execute(
-                            "update customer_reimbursements set invoice_id = ? where id = ?",
-                            (linked_invoice["id"], reimbursement["id"]),
-                        )
-                        db().commit()
-                    return redirect(url_for("invoice_detail", invoice_id=linked_invoice["id"]))
-                return redirect(
-                    url_for(
-                        "new_invoice",
-                        service_order_id=order["id"],
-                        customer_reimbursement_id=reimbursement["id"],
-                    )
-                )
-            flash("工单结算已保存。", "success")
-            return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-        except ValueError as error:
-            db().rollback()
-            flash(str(error), "error")
-            return redirect(url_for("customer_reimbursement_form", order_id=order_id))
-    items = customer_reimbursement_items(reimbursement["id"])
-    items = [dict(item) for item in items]
-    for item in items:
-        try:
-            item["expense_sources"] = json.loads(item.get("auto_expense_sources") or '{}')
-        except (ValueError, TypeError):
-            item["expense_sources"] = {}
-    # 为每个来源补充附件信息和报销单链接
-    all_source_keys = []
-    for item in items:
-        for field_sources in item["expense_sources"].values():
-            for source in field_sources:
-                if source.get("expense_id") and source.get("line_key"):
-                    all_source_keys.append((source["expense_id"], source["line_key"]))
-    source_attachments = {}
-    if all_source_keys:
-        placeholders = ",".join("(?,?)" for _ in all_source_keys)
-        params = [val for pair in all_source_keys for val in pair]
-        attachment_rows = db().execute(
-            f"select id, expense_id, expense_item_key, original_filename, content_type from expense_attachments "
-            f"where (expense_id, expense_item_key) in ({placeholders})",
-            params,
-        ).fetchall()
-        for att in attachment_rows:
-            key = (att["expense_id"], att["expense_item_key"])
-            source_attachments.setdefault(key, []).append({
-                "id": att["id"],
-                "original_filename": att["original_filename"],
-                "content_type": att["content_type"],
-            })
-    for item in items:
-        for field_sources in item["expense_sources"].values():
-            for source in field_sources:
-                source["expense_url"] = url_for("expense_detail", expense_id=source["expense_id"]) if source.get("expense_id") else None
-                key = (source.get("expense_id"), source.get("line_key"))
-                source["attachments"] = source_attachments.get(key, [])
-
-    linked_invoice = customer_reimbursement_linked_invoice(reimbursement, order_id)
-    if linked_invoice and reimbursement["invoice_id"] != linked_invoice["id"]:
-        db().execute(
-            "update customer_reimbursements set invoice_id = ? where id = ?",
-            (linked_invoice["id"], reimbursement["id"]),
-        )
-        db().commit()
-        reimbursement = db().execute("select * from customer_reimbursements where id = ?", (reimbursement["id"],)).fetchone()
-    reviewer = db().execute(
-        "select name from users where id = ?",
-        (reimbursement["reviewed_by"],),
-    ).fetchone() if reimbursement["reviewed_by"] else None
-    # 客户费率一律来自合同费率版本：给 JS 的兜底单价按工单开始日期解析（缺失传 0），
-    # 行级单价已随明细行的 data-*-rate 传入；缺失项在页面顶部横幅醒目提示
-    js_rates, _ = resolve_contract_rates(order_id, order["start_date"])
-    missing_rate_summary = contract_rate_missing_summary(
-        order_id, [item.get("project_date") for item in items] or [order["start_date"]]
-    )
-    workspace = customer_reimbursement_workspace_data(order_id, reimbursement["id"], items)
-    _form_totals = dict(customer_reimbursement_totals(
-        items,
-        reimbursement["mro_supplies_total"],
-        reimbursement["rental_fuel_total"],
-    ))
-    # 报价单折扣快照：工单结算展示 折扣前应收 / 折扣 / 最终应收
-    _form_totals["gross_amount"] = float(reimbursement["gross_amount"] or 0)
-    _form_totals["discount_amount"] = float(reimbursement["discount_amount"] or 0)
-    return render_template(
-        "customer_reimbursement_form.html",
-        order=order,
-        reimbursement=reimbursement,
-        items=items,
-        totals=_form_totals,
-        js_rates={
-            "standard": js_rates["standard_rate"],
-            "transport": js_rates["transport_rate"],
-            "publicTransport": js_rates["public_transport_rate"],
-            "overtime": js_rates["overtime_rate"],
-            "holiday": js_rates["holiday_rate"],
-            "mileage": js_rates["mileage_rate"],
-        },
-        missing_rate_summary=missing_rate_summary,
-        attachments=get_customer_reimbursement_attachments(reimbursement["id"]),
-        linked_invoice=linked_invoice,
-        reviewer=reviewer,
-        email_delivery=email_delivery_summary("customer_reimbursement", reimbursement["id"]),
-        excessive_following_mileage=excessive_following_mileage_rows(order_id),
-        lodging_range=customer_reimbursement_lodging_range(order_id),
-        column_totals=customer_reimbursement_column_totals(items),
-        can_edit=can_manage_customer_reimbursement() and reimbursement["status"] in {"draft", "returned"},
-        pending_sources=customer_reimbursement_pending_sources(reimbursement),
-        workspace=workspace,
-    )
+_views_settlement_form = _split_settlement_form.register_settlement_form_routes(
+    app,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_build_customer_reimbursement_pdf=lambda: build_customer_reimbursement_pdf,
+    _cb_resolve_build_simple_xlsx=lambda: build_simple_xlsx,
+    _cb_resolve_can_create_invoice=lambda: can_create_invoice,
+    _cb_resolve_can_manage_customer_reimbursement=lambda: can_manage_customer_reimbursement,
+    _cb_resolve_can_view_customer_reimbursement=lambda: can_view_customer_reimbursement,
+    _cb_resolve_contract_rate_missing_summary=lambda: contract_rate_missing_summary,
+    _cb_resolve_create_customer_reimbursement=lambda: create_customer_reimbursement,
+    _cb_resolve_customer_reimbursement_column_totals=lambda: customer_reimbursement_column_totals,
+    _cb_resolve_customer_reimbursement_file_path=lambda: customer_reimbursement_file_path,
+    _cb_resolve_customer_reimbursement_gate_error=lambda: customer_reimbursement_gate_error,
+    _cb_resolve_customer_reimbursement_item_expense_amount=lambda: customer_reimbursement_item_expense_amount,
+    _cb_resolve_customer_reimbursement_items=lambda: customer_reimbursement_items,
+    _cb_resolve_customer_reimbursement_items_from_form=lambda: customer_reimbursement_items_from_form,
+    _cb_resolve_customer_reimbursement_linked_invoice=lambda: customer_reimbursement_linked_invoice,
+    _cb_resolve_customer_reimbursement_lodging_range=lambda: customer_reimbursement_lodging_range,
+    _cb_resolve_customer_reimbursement_pending_sources=lambda: customer_reimbursement_pending_sources,
+    _cb_resolve_customer_reimbursement_totals=lambda: customer_reimbursement_totals,
+    _cb_resolve_customer_reimbursement_workspace_data=lambda: customer_reimbursement_workspace_data,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_deliver_customer_reimbursement_email=lambda: deliver_customer_reimbursement_email,
+    _cb_resolve_email_delivery_summary=lambda: email_delivery_summary,
+    _cb_resolve_ensure_customer_reimbursement_pdf_file=lambda: ensure_customer_reimbursement_pdf_file,
+    _cb_resolve_ensure_customer_reimbursement_pdf_record=lambda: ensure_customer_reimbursement_pdf_record,
+    _cb_resolve_excessive_following_mileage_rows=lambda: excessive_following_mileage_rows,
+    _cb_resolve_flash=lambda: flash,
+    _cb_resolve_g=lambda: g,
+    _cb_resolve_get_customer_reimbursement_attachments=lambda: get_customer_reimbursement_attachments,
+    _cb_resolve_json=lambda: json,
+    _cb_resolve_latest_customer_reimbursement=lambda: latest_customer_reimbursement,
+    _cb_resolve_log_action=lambda: log_action,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_money=lambda: money,
+    _cb_resolve_money_decimal=lambda: money_decimal,
+    _cb_resolve_notify_role=lambda: notify_role,
+    _cb_resolve_now=lambda: now,
+    _cb_resolve_re=lambda: re,
+    _cb_resolve_redirect=lambda: redirect,
+    _cb_resolve_remove_customer_reimbursement_pdf=lambda: remove_customer_reimbursement_pdf,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_require_customer_reimbursement=lambda: require_customer_reimbursement,
+    _cb_resolve_require_service_order=lambda: require_service_order,
+    _cb_resolve_require_service_order_start_date=lambda: require_service_order_start_date,
+    _cb_resolve_resolve_contract_rates=lambda: resolve_contract_rates,
+    _cb_resolve_save_customer_reimbursement_items=lambda: save_customer_reimbursement_items,
+    _cb_resolve_save_customer_reimbursement_uploads=lambda: save_customer_reimbursement_uploads,
+    _cb_resolve_send_file=lambda: send_file,
+    _cb_resolve_service_order_active_invoice=lambda: service_order_active_invoice,
+    _cb_resolve_to_float=lambda: to_float,
+    _cb_resolve_update_customer_reimbursement_totals=lambda: update_customer_reimbursement_totals,
+    _cb_resolve_url_for=lambda: url_for,
+)
+customer_reimbursement_form = _views_settlement_form['customer_reimbursement_form']
+download_customer_reimbursement = _views_settlement_form['download_customer_reimbursement']
+download_customer_reimbursement_excel = _views_settlement_form['download_customer_reimbursement_excel']
+preview_customer_reimbursement = _views_settlement_form['preview_customer_reimbursement']
 
 
-@app.get("/customer-reimbursements/<int:reimbursement_id>/download")
-@login_required
-def download_customer_reimbursement(reimbursement_id):
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    reimbursement, path = ensure_customer_reimbursement_pdf_file(reimbursement, order)
-    db().commit()
-    return send_file(path, as_attachment=True, download_name=reimbursement["file_name"])
 
 
-@app.get("/customer-reimbursements/<int:reimbursement_id>/download.xlsx")
-@login_required
-def download_customer_reimbursement_excel(reimbursement_id):
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    items = customer_reimbursement_items(reimbursement_id)
-    headers = ["序号", "姓名", "项目日期", "标准工时", "交通工时", "公共交通工时", "加班工时", "假期工时", "人工费", "住宿费", "机票费", "行李费", "租车费", "燃油费", "停车费", "出租车费", "里程费", "其他", "合计"]
-    rows = []
-    for index, item in enumerate(items, 1):
-        item = dict(item)
-        expenses = [customer_reimbursement_item_expense_amount(item, key)
-                    for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")]
-        rows.append([index, item["worker_name"], item["project_date"], item["standard_hours"],
-                     item["transport_hours"], item["public_transport_hours"], item["overtime_hours"], item["holiday_hours"],
-                     item["labor_total"], *expenses, item["mileage_total"],
-                     customer_reimbursement_item_expense_amount(item, "other"), item["total"]])
-    # 合计行：逐列求和；末列取快照 total_amount（租车油费不在明细行，已计入合计）。
-    total_row = ["合计", "", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-    for item in items:
-        total_row[3] += to_float(item["standard_hours"])
-        total_row[4] += to_float(item["transport_hours"])
-        total_row[5] += to_float(item["public_transport_hours"])
-        total_row[6] += to_float(item["overtime_hours"])
-        total_row[7] += to_float(item["holiday_hours"])
-        total_row[8] += float(money_decimal(item["labor_total"]))
-        for offset, key in enumerate(("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")):
-            total_row[9 + offset] += float(money_decimal(customer_reimbursement_item_expense_amount(item, key)))
-        total_row[16] += float(money_decimal(item["mileage_total"]))
-        total_row[17] += float(money_decimal(customer_reimbursement_item_expense_amount(item, "other")))
-    total_row[18] = float(money_decimal(reimbursement["total_amount"]))
-    rows.append(total_row)
-    rows.append([
-        "说明：租车油费不在明细行，已计入合计；MRO 耗材已计入「其他」列；合计为工单结算快照总额。",
-    ] + [""] * 18)
-    workbook = build_simple_xlsx(headers, rows, sheet_name="工单结算")
-    return send_file(workbook, as_attachment=True, download_name="_".join(re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value)).strip(" .") for value in (order["order_number"], order["client_order_number"], "工单结算.xlsx") if value), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
-@app.get("/customer-reimbursements/<int:reimbursement_id>/preview")
-@login_required
-def preview_customer_reimbursement(reimbursement_id):
-    reimbursement, order = require_customer_reimbursement(reimbursement_id)
-    reimbursement = ensure_customer_reimbursement_pdf_record(reimbursement, order)
-    path = build_customer_reimbursement_pdf(
-        reimbursement,
-        order,
-        customer_reimbursement_items(reimbursement_id),
-    )
-    db().commit()
-    return send_file(
-        path,
-        mimetype="application/pdf",
-        as_attachment=False,
-        download_name=reimbursement["file_name"],
-        conditional=True,
-    )
 
 
 @app.post("/customer-reimbursements/<int:reimbursement_id>/approve")
