@@ -2485,3 +2485,11 @@ Functions: prevent_stale_business_pages, load_user, inject_globals.
 Module: `invoice_tool/request_lifecycle/hooks.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
 Verification: 35 passed, 106 subtests passed in 11.08s. app.py: 4918 → 4895 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+## Codex remaining settlement phase 16: residual_errors
+
+Functions: runtime_error, forbidden, not_found, internal_server_error, request_entity_too_large.
+Module: `invoice_tool/presentation/error_handlers.py`. Exact AST/signatures preserved against 5f8f225eb980ea3d4377fb3642785d575559f47d.
+Verification: 35 passed, 106 subtests passed in 10.90s. app.py: 4895 → 4843 lines.
+Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
