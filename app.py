@@ -97,6 +97,7 @@ from invoice_tool.customer_reimbursements import project_mapping as _split_proje
 from invoice_tool.customer_reimbursements import dates as _split_settlement_date
 from invoice_tool.customer_reimbursements import totals as _split_mro_total
 from invoice_tool.customer_reimbursements import item_queries as _split_settlement_items
+from invoice_tool.mobile_distribution import routes as _split_mobile_install
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -5494,33 +5495,23 @@ def login():
     return render_template("login.html")
 
 
-@app.get("/mobile-app")
-def mobile_app_install():
-    ipa_available = os.path.isfile(IOS_IPA_PATH) and os.path.getsize(IOS_IPA_PATH) > 0
-    manifest_url = url_for("mobile_app_manifest", _external=True, _scheme="https")
-    install_url = "itms-services://?" + urlencode({"action": "download-manifest", "url": manifest_url})
-    return render_template(
-        "mobile_app_install.html",
-        ipa_available=ipa_available,
-        install_url=install_url,
-        ios_app_version=IOS_APP_VERSION,
-    )
+_views_mobile_install = _split_mobile_install.register_mobile_install_routes(
+    app,
+    _cb_resolve_IOS_APP_VERSION=lambda: IOS_APP_VERSION,
+    _cb_resolve_IOS_BUNDLE_ID=lambda: IOS_BUNDLE_ID,
+    _cb_resolve_IOS_IPA_PATH=lambda: IOS_IPA_PATH,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_app=lambda: app,
+    _cb_resolve_html=lambda: html,
+    _cb_resolve_os=lambda: os,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_url_for=lambda: url_for,
+    _cb_resolve_urlencode=lambda: urlencode,
+)
+mobile_app_install = _views_mobile_install['mobile_app_install']
+mobile_app_manifest = _views_mobile_install['mobile_app_manifest']
 
 
-@app.get("/mobile-app/manifest.plist")
-def mobile_app_manifest():
-    if not os.path.isfile(IOS_IPA_PATH):
-        abort(404)
-    ipa_url = html.escape(url_for("mobile_app_ipa", _external=True, _scheme="https"), quote=True)
-    bundle_id = html.escape(IOS_BUNDLE_ID, quote=True)
-    version = html.escape(IOS_APP_VERSION, quote=True)
-    manifest = f'''<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>items</key><array><dict>
-<key>assets</key><array><dict><key>kind</key><string>software-package</string><key>url</key><string>{ipa_url}</string></dict></array>
-<key>metadata</key><dict><key>bundle-identifier</key><string>{bundle_id}</string><key>bundle-version</key><string>{version}</string><key>kind</key><string>software</string><key>title</key><string>Prasinos Power</string></dict>
-</dict></array></dict></plist>'''
-    return app.response_class(manifest, mimetype="application/xml")
 
 
 @app.get("/mobile-app/PrasinosPower.ipa")
