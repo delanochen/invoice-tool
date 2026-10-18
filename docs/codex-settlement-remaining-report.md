@@ -78,3 +78,7 @@ Functions: ensure_customer_reimbursement_pdf_record, build_customer_reimbursemen
 Module: `invoice_tool/customer_reimbursements/documents.py`. Exact AST/signatures preserved against 71e89cdada254dcdd6796cb669fd883ca0bf59ce.
 Verification: 9 passed, 42 subtests passed in 5.05s. app.py: 10222 → 9956 lines.
 Executor: Codex, directly authorized by user. invoice_test only; no merge/deploy.
+
+
+Final guarded milestone: 495 passed, 4 deselected, 2 warnings, 559 subtests passed in 279.66s (0:04:39)
+Four pre-existing fixture exclusions; not the full repository suite.
