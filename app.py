@@ -7394,39 +7394,16 @@ _views_draft_csrf = _split_draft_csrf.register_draft_csrf_routes(
 ai_daily_report_csrf = _views_draft_csrf['ai_daily_report_csrf']
 
 
-@app.get("/api/ai/daily-report/service-orders")
-@login_required
-def ai_daily_report_service_orders_options():
-    """JSON options for the 'New AI Daily Report' order picker.
-
-    Internal users only. Applies the same client-scope filters as the rest of
-    the app (service_order_access_filters), so the picker never leaks orders
-    the user could not otherwise see.
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-    q = request.args.get("q", "").strip()
-    try:
-        limit = min(int(request.args.get("limit", "20") or 20), 50)
-    except (TypeError, ValueError):
-        limit = 20
-    clauses, params = service_order_access_filters("service_orders")
-    clauses.append("service_orders.status != 'closed'")
-    if q:
-        clauses.append(
-            "(service_orders.order_number like ? or service_orders.client_name like ? "
-            "or service_orders.client_order_number like ? or coalesce(service_orders.site_address, '') like ?)"
-        )
-        like = f"%{q}%"
-        params.extend([like, like, like, like])
-    rows = db().execute(
-        f"select service_orders.id, service_orders.order_number, service_orders.client_name, "
-        f"service_orders.site_address "
-        f"from service_orders where {' and '.join(clauses)} "
-        f"order by service_orders.order_number limit ?",
-        params + [limit],
-    ).fetchall()
-    return jsonify({"ok": True, "orders": [dict(r) for r in rows]})
+_views_draft_orders = _split_draft_csrf.register_draft_orders_routes(
+    app,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_service_order_access_filters=lambda: service_order_access_filters,
+)
+ai_daily_report_service_orders_options = _views_draft_orders['ai_daily_report_service_orders_options']
 
 
 @app.post("/api/ai/daily-report/draft")
