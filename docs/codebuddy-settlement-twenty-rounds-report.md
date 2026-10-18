@@ -83,3 +83,11 @@
 - 迁移函数：expense_settlement_invoice_mapping。
 - app.py：12563 → 12545 行。
 - 审核验证：1 passed in 1.76s。
+
+
+## 第 11/20 轮：project_field
+
+- CodeBuddy 实际写入 `invoice_tool/customer_reimbursements/project_mapping.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：expense_settlement_invoice_field。
+- app.py：12545 → 12516 行。
+- 审核验证：1 passed, 5 subtests passed in 1.92s。

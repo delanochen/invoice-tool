@@ -3370,36 +3370,7 @@ def expense_settlement_invoice_mapping():
 
 
 def expense_settlement_invoice_field(project_name):
-    """按员工报销项目名查映射（全名精确优先，英文基名前缀匹配兜底）。
-
-    映射表存全名（如 "MRO Supplies配件及耗材费"）：先全名精确匹配；再取每行的
-    英文基名（首个非 ASCII 字符前的部分）做前缀匹配，基名长短倒序避免同前缀
-    项目混淆（如 Express Delivery Fees快递费 vs Express Delivery Fees）。
-    查不到返回 (None, None)：该项目不进入客户实报实销，也不拆发票行。
-    """
-    mapping = expense_settlement_invoice_mapping()
-    key = project_name_key(project_name)
-    if key in mapping:
-        return mapping[key]
-    bases = []
-    for row_key, value in mapping.items():
-        base = row_key
-        for index, char in enumerate(row_key):
-            if not char.isascii():
-                base = row_key[:index]
-                break
-        base = base.rstrip()
-        if base:
-            bases.append((base, value))
-    bases.sort(key=lambda item: len(item[0]), reverse=True)
-    for base, value in bases:
-        if key == base:
-            return value
-        if key.startswith(base):
-            suffix = key[len(base):].lstrip()
-            if suffix and (not suffix[0].isascii() or not suffix[0].isalnum()):
-                return value
-    return (None, None)
+    return _split_project_mapping.expense_settlement_invoice_field(project_name, expense_settlement_invoice_mapping=expense_settlement_invoice_mapping, project_name_key=project_name_key)
 
 
 def canonical_project_mapping_key(value, canonical_keys):
