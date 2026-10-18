@@ -15,3 +15,14 @@ def headquarters_coordinates(*, HEADQUARTERS_LATITUDE, HEADQUARTERS_LONGITUDE, m
     ):
         return None
     return {"latitude": latitude, "longitude": longitude}
+
+
+def get_google_places_api_key(*, GOOGLE_PLACES_API_KEY_ENV, get_google_geocoding_api_key, get_setting):
+    """Server-side Google Places API (New) key.
+
+    Falls back to the geocoding key because both are server-side keys of the
+    same Google project; if the geocoding key is API-restricted the Places
+    calls will fail with 403 and travel_tools surfaces a clear error.
+    """
+    explicit = get_setting("google_places_api_key", GOOGLE_PLACES_API_KEY_ENV).strip()
+    return explicit or get_google_geocoding_api_key()

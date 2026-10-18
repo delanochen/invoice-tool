@@ -123,3 +123,11 @@
 - 迁移函数：headquarters_coordinates。
 - app.py：12745 → 12734 行。
 - 审核验证：1 passed, 9 subtests passed in 2.20s。
+
+
+## 第 16/20 轮：places_key
+
+- CodeBuddy 实际写入 `invoice_tool/app_settings/geography.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：get_google_places_api_key。
+- app.py：12734 → 12727 行。
+- 审核验证：1 passed, 3 subtests passed in 1.95s。

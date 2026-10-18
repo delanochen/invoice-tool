@@ -1157,14 +1157,7 @@ def get_google_static_maps_api_key():
 
 
 def get_google_places_api_key():
-    """Server-side Google Places API (New) key.
-
-    Falls back to the geocoding key because both are server-side keys of the
-    same Google project; if the geocoding key is API-restricted the Places
-    calls will fail with 403 and travel_tools surfaces a clear error.
-    """
-    explicit = get_setting("google_places_api_key", GOOGLE_PLACES_API_KEY_ENV).strip()
-    return explicit or get_google_geocoding_api_key()
+    return _split_headquarters.get_google_places_api_key(GOOGLE_PLACES_API_KEY_ENV=GOOGLE_PLACES_API_KEY_ENV, get_google_geocoding_api_key=get_google_geocoding_api_key, get_setting=get_setting)
 
 
 def save_named_attachment(uploaded, directory, table, owner_column=None, owner_id=None):
