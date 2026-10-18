@@ -115,3 +115,11 @@
 - 迁移函数：delete_company_attachment, legacy_company_settings。
 - app.py：12304 → 12299 行。
 - 审核验证：1 passed, 6 subtests passed in 2.22s。
+
+
+## 第 15/20 轮：invoice_list
+
+- CodeBuddy 实际写入 `invoice_tool/query_pages/invoices.py` 并修改 app 接线，Codex 核验文件内容与累计 AST，未接手业务文件修改。
+- 迁移函数：invoices。
+- app.py：12299 → 12244 行。
+- 审核验证：1 passed, 3 subtests passed in 2.25s。

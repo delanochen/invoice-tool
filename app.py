@@ -103,6 +103,7 @@ from invoice_tool.messages import routes as _split_messages_list
 from invoice_tool.mobile_distribution import pwa_routes as _split_pwa_manifest
 from invoice_tool.dashboard import page_routes as _split_workspace_pages
 from invoice_tool.company_profile import routes as _split_company_page
+from invoice_tool.query_pages import invoices as _split_invoice_list
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
 from invoice_tool.employee_expenses import duplicates as _expense_duplicates
@@ -9462,75 +9463,19 @@ legacy_company_settings = _views_company_attachment_delete['legacy_company_setti
 
 
 
-@app.route("/invoices")
-@login_required
-def invoices():
-    if not can_view_invoices():
-        abort(403)
-    paid_status = request.args.get("paid_status", "")
-    work_order_status = request.args.get("work_order_status", "")
-    if work_order_status not in {"", "open", "closed"}:
-        work_order_status = ""
-    date_from = request.args.get("date_from", "")
-    date_to = request.args.get("date_to", "")
-    access_clause, access_params = client_filter_clause("invoices")
-    clauses = [access_clause]
-    params = list(access_params)
-    order_ids = list(dict.fromkeys(value for value in request.args.getlist("order_id") if value))
-    sites = list(dict.fromkeys(value for value in request.args.getlist("site") if value))
-    options = db().execute(f"select distinct service_orders.id, service_orders.order_number, service_orders.client_name from invoices join service_orders on service_orders.id=invoices.service_order_id join clients on clients.id=invoices.client_id where {access_clause} order by service_orders.order_number desc", access_params).fetchall()
-    for column, values in [("service_orders.id", order_ids), ("service_orders.client_name", sites)]:
-        if values:
-            clauses.append(f"{column} in ({','.join('?' for _ in values)})")
-            params.extend(values)
-    if work_order_status:
-        clauses.append("service_orders.status = ?")
-        params.append(work_order_status)
-    if paid_status == "paid":
-        clauses.append("invoices.paid_at is not null")
-    elif paid_status == "unpaid":
-        clauses.append("invoices.status = 'completed' and invoices.paid_at is null")
-    if date_from:
-        clauses.append("invoices.issue_date >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("invoices.issue_date <= ?")
-        params.append(date_to)
-    rows = db().execute(
-        f"""
-        select invoices.*, clients.name as client_name, clients.short_name as client_short_name,
-               clients.client_number, users.name as creator_name,
-               service_orders.order_number as service_order_number,
-               service_orders.status as service_order_status,
-               service_orders.client_order_number as service_client_order_number
-        from invoices
-        join clients on clients.id = invoices.client_id
-        left join users on users.id = invoices.created_by
-        left join service_orders on service_orders.id = invoices.service_order_id
-        where {" and ".join(clauses)}
-        order by invoices.issue_date desc, invoices.id desc
-        """,
-        params,
-    ).fetchall()
-    totals = {row["id"]: invoice_totals(row["id"]) for row in rows}
-    summary_totals = {}
-    for row in rows:
-        currency = row["currency"] or "USD"
-        summary_totals[currency] = summary_totals.get(currency, 0) + totals[row["id"]]["total"]
-    summary_totals = dict(sorted(summary_totals.items()))
-    return render_template(
-        "invoices.html",
-        invoices=rows,
-        totals=totals,
-        summary_totals=summary_totals,
-        labels=STATUS_LABELS,
-        order_ids=order_ids, sites=sites, order_options=options,
-        site_options=[{"client_name": name} for name in sorted({row["client_name"] for row in options if row["client_name"]})],
-        paid_status=paid_status,
-        work_order_status=work_order_status,
-        date_from=date_from,
-        date_to=date_to,
-    )
+_views_invoice_list = _split_invoice_list.register_invoice_list_routes(
+    app,
+    _cb_resolve_STATUS_LABELS=lambda: STATUS_LABELS,
+    _cb_resolve_abort=lambda: abort,
+    _cb_resolve_can_view_invoices=lambda: can_view_invoices,
+    _cb_resolve_client_filter_clause=lambda: client_filter_clause,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_invoice_totals=lambda: invoice_totals,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_render_template=lambda: render_template,
+    _cb_resolve_request=lambda: request,
+)
+invoices = _views_invoice_list['invoices']
 
 
 @app.route("/reports/invoices")
