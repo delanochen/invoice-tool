@@ -131,3 +131,11 @@
 - 迁移函数：ai_daily_report_service_orders_options。
 - app.py：11634 → 11611 行。
 - 审核验证：1 passed, 6 subtests passed in 2.07s。
+
+
+## 第 17/20 轮：draft_create
+
+- Codex 直接写入 `invoice_tool/ai_daily_report_web/lifecycle_routes.py` 并修改 app 接线，并核验文件内容与累计 AST；用户已授权由 Codex 接手。
+- 迁移函数：ai_daily_report_create_draft。
+- app.py：11611 → 11582 行。
+- 审核验证：1 passed, 6 subtests passed in 1.98s。

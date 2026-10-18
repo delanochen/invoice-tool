@@ -7406,49 +7406,20 @@ _views_draft_orders = _split_draft_csrf.register_draft_orders_routes(
 ai_daily_report_service_orders_options = _views_draft_orders['ai_daily_report_service_orders_options']
 
 
-@app.post("/api/ai/daily-report/draft")
-@login_required
-def ai_daily_report_create_draft():
-    """Create (or reuse) an AI Daily Report Draft for an order + date.
-
-    Lightweight creation entry without the AI chat: pick an order and date in
-    the Review Center, get a Draft, then continue the existing Phase 4-9
-    workflow (discover photos, classify, mileage, validation, confirm,
-    attachments, formal save). If an active draft already exists for the same
-    order + date it is returned instead (same reuse semantics as /chat).
-    """
-    if not is_internal_user():
-        return jsonify({"ok": False, "error": "无权限"}), 403
-
-    require_ai_daily_report_csrf()
-
-    body = request.get_json(silent=True) or {}
-    service_order_id = body.get("service_order_id")
-    report_date = str(body.get("report_date") or "").strip() or _ai_daily_report_business_date()
-    try:
-        service_order_id = int(service_order_id)
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "error": "缺少有效的 service_order_id"}), 400
-
-    try:
-        order = require_service_order(service_order_id)
-    except Exception:
-        return jsonify({"ok": False, "error": "工单不存在"}), 404
-
-    svc = _ai_daily_report_service()
-    existing = svc.get_active_draft(service_order_id, report_date)
-    if existing:
-        preview = svc.build_preview(svc.parse_draft_data(existing))
-        return jsonify({"ok": True, "draft_id": existing["id"], "reused": True, "preview": preview})
-
-    draft_row = svc.create_draft(
-        service_order_id=service_order_id,
-        report_date=report_date,
-        site_address=order["site_address"],
-        ai_model=deepseek_assistant_settings()["model"],
-    )
-    db().commit()
-    return jsonify({"ok": True, "draft_id": draft_row["id"], "reused": False})
+_views_draft_create = _split_draft_cancel.register_draft_create_routes(
+    app,
+    _cb_resolve__ai_daily_report_business_date=lambda: _ai_daily_report_business_date,
+    _cb_resolve__ai_daily_report_service=lambda: _ai_daily_report_service,
+    _cb_resolve_db=lambda: db,
+    _cb_resolve_deepseek_assistant_settings=lambda: deepseek_assistant_settings,
+    _cb_resolve_is_internal_user=lambda: is_internal_user,
+    _cb_resolve_jsonify=lambda: jsonify,
+    _cb_resolve_login_required=lambda: login_required,
+    _cb_resolve_request=lambda: request,
+    _cb_resolve_require_ai_daily_report_csrf=lambda: require_ai_daily_report_csrf,
+    _cb_resolve_require_service_order=lambda: require_service_order,
+)
+ai_daily_report_create_draft = _views_draft_create['ai_daily_report_create_draft']
 
 
 @app.get("/api/ai/daily-report/drafts")

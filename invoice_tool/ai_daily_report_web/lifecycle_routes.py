@@ -198,3 +198,63 @@ def register_draft_reopen_routes(app, *,
 
     app.add_url_rule('/api/ai/daily-report/draft/<int:draft_id>/reopen', endpoint='ai_daily_report_reopen', view_func=ai_daily_report_reopen, methods=['POST'])
     return {'ai_daily_report_reopen': ai_daily_report_reopen}
+
+
+def register_draft_create_routes(app, *,
+    _cb_resolve__ai_daily_report_business_date,
+    _cb_resolve__ai_daily_report_service,
+    _cb_resolve_db,
+    _cb_resolve_deepseek_assistant_settings,
+    _cb_resolve_is_internal_user,
+    _cb_resolve_jsonify,
+    _cb_resolve_login_required,
+    _cb_resolve_request,
+    _cb_resolve_require_ai_daily_report_csrf,
+    _cb_resolve_require_service_order,
+):
+    @_cb_resolve_login_required()
+    def ai_daily_report_create_draft():
+        """Create (or reuse) an AI Daily Report Draft for an order + date.
+
+    Lightweight creation entry without the AI chat: pick an order and date in
+    the Review Center, get a Draft, then continue the existing Phase 4-9
+    workflow (discover photos, classify, mileage, validation, confirm,
+    attachments, formal save). If an active draft already exists for the same
+    order + date it is returned instead (same reuse semantics as /chat).
+    """
+        if not _cb_resolve_is_internal_user()():
+            return _cb_resolve_jsonify()({"ok": False, "error": "无权限"}), 403
+
+        _cb_resolve_require_ai_daily_report_csrf()()
+
+        body = _cb_resolve_request().get_json(silent=True) or {}
+        service_order_id = body.get("service_order_id")
+        report_date = str(body.get("report_date") or "").strip() or _cb_resolve__ai_daily_report_business_date()()
+        try:
+            service_order_id = int(service_order_id)
+        except (TypeError, ValueError):
+            return _cb_resolve_jsonify()({"ok": False, "error": "缺少有效的 service_order_id"}), 400
+
+        try:
+            order = _cb_resolve_require_service_order()(service_order_id)
+        except Exception:
+            return _cb_resolve_jsonify()({"ok": False, "error": "工单不存在"}), 404
+
+        svc = _cb_resolve__ai_daily_report_service()()
+        existing = svc.get_active_draft(service_order_id, report_date)
+        if existing:
+            preview = svc.build_preview(svc.parse_draft_data(existing))
+            return _cb_resolve_jsonify()({"ok": True, "draft_id": existing["id"], "reused": True, "preview": preview})
+
+        draft_row = svc.create_draft(
+            service_order_id=service_order_id,
+            report_date=report_date,
+            site_address=order["site_address"],
+            ai_model=_cb_resolve_deepseek_assistant_settings()()["model"],
+        )
+        _cb_resolve_db()().commit()
+        return _cb_resolve_jsonify()({"ok": True, "draft_id": draft_row["id"], "reused": False})
+
+
+    app.add_url_rule('/api/ai/daily-report/draft', endpoint='ai_daily_report_create_draft', view_func=ai_daily_report_create_draft, methods=['POST'])
+    return {'ai_daily_report_create_draft': ai_daily_report_create_draft}
