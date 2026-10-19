@@ -218,7 +218,10 @@ def _posted_settlement_adjustments(form, selected_ids):
         raw = form.get(f"settled_amount_{item_id}")
         if raw is not None and str(raw).strip() != "":
             try:
-                settled_amounts[item_id] = Decimal(str(raw).strip().replace(",", ""))
+                value = Decimal(str(raw).strip().replace(",", ""))
+                if not value.is_finite():
+                    raise ValueError("non-finite amount")
+                settled_amounts[item_id] = value
             except (InvalidOperation, ValueError):
                 raise ValueError(f"报销明细 {item_id} 的客户结算金额不是有效数字。")
         reason = (form.get(f"adjustment_reason_{item_id}") or "").strip()
@@ -249,7 +252,9 @@ def replace_expense_links(api, reimbursement_id, candidate_map, selected_ids,
             raise ValueError(f"{row['expense_number']} 的该明细尚未审核通过，不能进入客户结算。")
         full_amount = _money(row["amount"])
         raw_settled = settled_amounts.get(item_id)
-        settled_amount = full_amount if raw_settled is None else _money(raw_settled)
+        settled_amount = full_amount if raw_settled is None else Decimal(str(raw_settled))
+        if not settled_amount.is_finite():
+            raise ValueError("客户结算金额必须是有限数字。")
         if settled_amount < 0:
             raise ValueError(f"{row['expense_number']} 的客户结算金额不能为负数。")
         if settled_amount > full_amount:
@@ -257,6 +262,7 @@ def replace_expense_links(api, reimbursement_id, candidate_map, selected_ids,
                 f"{row['expense_number']} 的客户结算金额 {settled_amount} "
                 f"不能超过报销金额 {full_amount}。"
             )
+        settled_amount = _money(settled_amount)
         adjustment_reason = str(adjustment_reasons.get(item_id) or "").strip()
         if settled_amount < full_amount and not adjustment_reason:
             raise ValueError(

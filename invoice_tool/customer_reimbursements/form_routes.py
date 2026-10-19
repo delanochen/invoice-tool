@@ -1,5 +1,7 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
 
+from .workspace_sources import save_workspace_sources, restore_workspace_sources
+
 
 def register_settlement_form_routes(app, *,
     _cb_resolve__merge_root_api,
@@ -107,6 +109,7 @@ def register_settlement_form_routes(app, *,
             form_url = _cb_resolve_url_for()(
                 "customer_reimbursement_form", order_id=order_id, version_id=reimbursement["id"]
             )
+        source_save_failed = False
         if _cb_resolve_request().method == "POST":
             try:
                 action = _cb_resolve_request().form.get("action", "save")
@@ -155,14 +158,24 @@ def register_settlement_form_routes(app, *,
                             )
                         )
                     raise ValueError("只有保存未提交或已退回的工单结算可以修改。")
-                if action == "submit":
-                    gate = _cb_resolve_customer_reimbursement_gate_error()(reimbursement)
-                    if gate:
-                        _cb_resolve_flash()(gate[1], "error")
-                        return _cb_resolve_redirect()(form_url)
+                api = _cb_resolve__merge_root_api()()
+                sources_saved = save_workspace_sources(api, reimbursement, order, _cb_resolve_request().form)
                 rows = _cb_resolve_customer_reimbursement_items_from_form()(order_id)
                 _cb_resolve_save_customer_reimbursement_items()(reimbursement["id"], rows)
+                if sources_saved and reimbursement["sources_frozen"]:
+                    # Rebuild this version's selected expense values even though its report snapshot is frozen.
+                    rows = api["merge_approved_expenses_into_customer_reimbursement"](
+                        rows, order_id, None, reimbursement["id"], "manual_review"
+                    )
+                    _cb_resolve_save_customer_reimbursement_items()(reimbursement["id"], rows)
                 totals = _cb_resolve_update_customer_reimbursement_totals()(reimbursement["id"], rows)
+                if action == "submit":
+                    reimbursement = _cb_resolve_db()().execute(
+                        "select * from customer_reimbursements where id = ?", (reimbursement["id"],)
+                    ).fetchone()
+                    gate = _cb_resolve_customer_reimbursement_gate_error()(reimbursement)
+                    if gate:
+                        raise ValueError(gate[1])
                 _cb_resolve_save_customer_reimbursement_uploads()(reimbursement["id"])
                 next_status = "submitted" if action == "submit" else reimbursement["status"]
                 _cb_resolve_db()().execute(
@@ -253,7 +266,12 @@ def register_settlement_form_routes(app, *,
             except ValueError as error:
                 _cb_resolve_db()().rollback()
                 _cb_resolve_flash()(str(error), "error")
-                return _cb_resolve_redirect()(form_url)
+                source_save_failed = _cb_resolve_request().form.get("workspace_sources_present") == "1"
+                if not source_save_failed:
+                    return _cb_resolve_redirect()(form_url)
+                reimbursement = _cb_resolve_db()().execute(
+                    "select * from customer_reimbursements where id = ?", (reimbursement["id"],)
+                ).fetchone()
         items = _cb_resolve_customer_reimbursement_items()(reimbursement["id"])
         items = [dict(item) for item in items]
         for item in items:
@@ -310,6 +328,8 @@ def register_settlement_form_routes(app, *,
             order_id, [item.get("project_date") for item in items] or [order["start_date"]]
         )
         workspace = _cb_resolve_customer_reimbursement_workspace_data()(order_id, reimbursement["id"], items)
+        if source_save_failed:
+            restore_workspace_sources(workspace, _cb_resolve_request().form)
         _form_totals = dict(_cb_resolve_customer_reimbursement_totals()(
             items,
             reimbursement["mro_supplies_total"],

@@ -193,6 +193,7 @@ reimbursementForm?.addEventListener("keydown", (event) => {
 });
 
 reimbursementForm?.addEventListener("submit", (event) => {
+  if (event.defaultPrevented) return;
   if (reimbursementSubmitting) {
     event.preventDefault();
     return;
