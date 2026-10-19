@@ -114,7 +114,7 @@
           <button type="button" class="erp-btn" onclick="document.querySelector('#createRevisionDialog').showModal()">创建修订版</button>
         {% endif %}
         {% if pending_revision and pending_revision.status == "approved" and can_manage_customer_reimbursement() and reimbursement.is_current %}
-          <form method="post" action="{{ url_for('promote_customer_reimbursement_revision', reimbursement_id=pending_revision.id) }}" onsubmit="return uiConfirm('修订版将替代当前版本成为有效结算，原版本只读留档。已处理完发票与应收差额才能继续，确定替代吗？');">
+          <form method="post" action="{{ url_for('promote_customer_reimbursement_revision_route', reimbursement_id=pending_revision.id) }}" onsubmit="return uiConfirm('修订版将替代当前版本成为有效结算，原版本只读留档。已处理完发票与应收差额才能继续，确定替代吗？');">
             <button class="primary" type="submit">确认替代为有效版本</button>
           </form>
         {% endif %}
@@ -332,7 +332,7 @@
 
   {% if reimbursement.status == "approved" and can_manage_customer_reimbursement() and not pending_revision %}
     <dialog id="createRevisionDialog" class="modal">
-      <form method="post" action="{{ url_for('create_customer_reimbursement_revision', reimbursement_id=reimbursement.id) }}" class="form-stack">
+      <form method="post" action="{{ url_for('create_customer_reimbursement_revision_route', reimbursement_id=reimbursement.id) }}" class="form-stack">
         <h2>创建修订版</h2>
         <p class="muted-line">修订版会从 V{{ reimbursement.version_no }} 复制完整快照：结算明细、费率、报销关联、原报销金额、客户结算金额、不计入结算的确认记录及附件，<strong>不会重新读取最新的日报 / 报销来源</strong>。原版本在新版本替代前继续有效，可随时查看与发送。</p>
         <label>修订原因 <textarea name="revision_reason" rows="4" required placeholder="例如：甲方审核后要求扣除工具费、服装费，相应调减客户结算金额"></textarea></label>
