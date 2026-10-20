@@ -47,7 +47,7 @@ def used_customer_rate_fields(row, *, to_float):
 def assert_contract_rates_covered(order_id, rows, *, CUSTOMER_REIMBURSEMENT_RATE_FIELDS, resolve_contract_rates, used_customer_rate_fields):
     """工单结算落库前的守门：用到的客户费率必须来自合同费率版本，缺失则阻止保存。"""
     label_by_field = {field: label for field, _rate_type, label in CUSTOMER_REIMBURSEMENT_RATE_FIELDS}
-    problems = {}
+    problems = set()
     for row in rows:
         used = used_customer_rate_fields(row)
         if not used:
@@ -56,7 +56,7 @@ def assert_contract_rates_covered(order_id, rows, *, CUSTOMER_REIMBURSEMENT_RATE
         for field in used:
             label = label_by_field[field]
             if label in missing:
-                problems.setdefault((str(row.get("project_date") or "")[:10], label))
+                problems.add((str(row.get("project_date") or "")[:10], label))
     if problems:
-        detail = "；".join(f"{label}（{work_date or '日期缺失'}）" for work_date, label in sorted(problems.items()))
+        detail = "；".join(f"{label}（{work_date or '日期缺失'}）" for work_date, label in sorted(problems))
         raise ValueError(f"客户费率未配置：{detail}。请先在对应合同的「费率版本」中配置后再保存工单结算。")

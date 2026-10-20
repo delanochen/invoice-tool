@@ -1777,8 +1777,10 @@ def copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, service_orde
     return _split_attachment_files.copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, service_order_id, copy_file_to_customer_reimbursement_attachment=copy_file_to_customer_reimbursement_attachment, db=db, report_attachment_path=report_attachment_path)
 
 
-def customer_reimbursement_items_from_form(order_id=None):
-    return _split_item_forms.customer_reimbursement_items_from_form(order_id, assert_contract_rates_covered=assert_contract_rates_covered, calculate_customer_reimbursement_item=calculate_customer_reimbursement_item, money_float=money_float, request=request, resolve_contract_rates=resolve_contract_rates, to_float=to_float, validate_fuel_reimbursement_allowed=validate_fuel_reimbursement_allowed)
+def customer_reimbursement_items_from_form(order_id=None, reimbursement=None):
+    existing_items = customer_reimbursement_items(reimbursement["id"]) if reimbursement is not None else []
+    settlement_basis = reimbursement["settlement_basis"] if reimbursement is not None else None
+    return _split_item_forms.customer_reimbursement_items_from_form(order_id, assert_contract_rates_covered=assert_contract_rates_covered, calculate_customer_reimbursement_item=calculate_customer_reimbursement_item, existing_items=existing_items, money_float=money_float, request=request, resolve_contract_rates=resolve_contract_rates, settlement_basis=settlement_basis, to_float=to_float, validate_fuel_reimbursement_allowed=validate_fuel_reimbursement_allowed)
 
 
 def save_customer_reimbursement_items(reimbursement_id, rows):

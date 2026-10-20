@@ -160,7 +160,7 @@ def register_settlement_form_routes(app, *,
                     raise ValueError("只有保存未提交或已退回的工单结算可以修改。")
                 api = _cb_resolve__merge_root_api()()
                 sources_saved = save_workspace_sources(api, reimbursement, order, _cb_resolve_request().form)
-                rows = _cb_resolve_customer_reimbursement_items_from_form()(order_id)
+                rows = _cb_resolve_customer_reimbursement_items_from_form()(order_id, reimbursement)
                 _cb_resolve_save_customer_reimbursement_items()(reimbursement["id"], rows)
                 if sources_saved and reimbursement["sources_frozen"]:
                     # Rebuild this version's selected expense values even though its report snapshot is frozen.
@@ -321,12 +321,24 @@ def register_settlement_form_routes(app, *,
             "select name from users where id = ?",
             (reimbursement["reviewed_by"],),
         ).fetchone() if reimbursement["reviewed_by"] else None
-        # 客户费率一律来自合同费率版本：给 JS 的兜底单价按工单开始日期解析（缺失传 0），
-        # 行级单价已随明细行的 data-*-rate 传入；缺失项在页面顶部横幅醒目提示
-        js_rates, _ = _cb_resolve_resolve_contract_rates()(order_id, order["start_date"])
-        missing_rate_summary = _cb_resolve_contract_rate_missing_summary()(
-            order_id, [item.get("project_date") for item in items] or [order["start_date"]]
-        )
+        # 合同结算按合同费率版本提示缺失；报价单结算必须沿用结算创建时固化的
+        # 报价单修订快照费率，不能再反向要求合同费率。固定总价报价尤其如此。
+        if reimbursement["settlement_basis"] == "quotation":
+            first_item = items[0] if items else {}
+            js_rates = {
+                "standard_rate": float(first_item.get("standard_rate") or 0),
+                "transport_rate": float(first_item.get("transport_rate") or 0),
+                "public_transport_rate": float(first_item.get("public_transport_rate") or 0),
+                "overtime_rate": float(first_item.get("overtime_rate") or 0),
+                "holiday_rate": float(first_item.get("holiday_rate") or 0),
+                "mileage_rate": float(first_item.get("mileage_rate") or 0),
+            }
+            missing_rate_summary = {}
+        else:
+            js_rates, _ = _cb_resolve_resolve_contract_rates()(order_id, order["start_date"])
+            missing_rate_summary = _cb_resolve_contract_rate_missing_summary()(
+                order_id, [item.get("project_date") for item in items] or [order["start_date"]]
+            )
         workspace = _cb_resolve_customer_reimbursement_workspace_data()(order_id, reimbursement["id"], items)
         if source_save_failed:
             restore_workspace_sources(workspace, _cb_resolve_request().form)
