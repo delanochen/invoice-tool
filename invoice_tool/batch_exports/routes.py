@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -13,26 +13,22 @@ from .service import EXPORT_LABELS, ensure_export_job_schema, run_export_job, ut
 def register_batch_export_routes(app, *, db, data_dir, login_required,
                                  build_service_report_docx, build_simple_xlsx,
                                  customer_reimbursement_items, expense_amount,
-                                 render_invoice_pdf):
+                                 render_invoice_pdf, is_external_manager, is_external_employee):
     def visible_order_ids(user, requested):
         requested = sorted({int(v) for v in requested if str(v).isdigit()})
         if not requested:
             return []
         placeholders = ",".join("?" for _ in requested)
-        role = str(user["role"] or "")
-        params = list(requested)
-        clause = ""
-        if role == "external_manager":
-            clause = " and client_id=?"
-            params.append(user["client_id"])
-        elif role == "external_employee":
-            clause = " and id in (select service_order_id from user_service_orders where user_id=?)"
-            params.append(user["id"])
-        rows = db().execute(f"select id from service_orders where id in ({placeholders}){clause}", tuple(params)).fetchall()
+        rows = db().execute(
+            f"select id from service_orders where id in ({placeholders})",
+            tuple(requested),
+        ).fetchall()
         return [int(row["id"]) for row in rows]
 
     @login_required
     def create_batch_export(export_type):
+        if is_external_manager() or is_external_employee():
+            abort(403)
         if export_type not in EXPORT_LABELS:
             abort(404)
         ensure_export_job_schema(db)
@@ -69,6 +65,8 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
 
     @login_required
     def batch_export_jobs():
+        if is_external_manager() or is_external_employee():
+            abort(403)
         ensure_export_job_schema(db)
         role = str(g.user["role"] or "")
         if role in {"admin", "manager", "finance"}:
@@ -79,6 +77,8 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
 
     @login_required
     def download_batch_export(job_id):
+        if is_external_manager() or is_external_employee():
+            abort(403)
         ensure_export_job_schema(db)
         row = db().execute("select * from batch_export_jobs where id=?", (job_id,)).fetchone()
         if not row:

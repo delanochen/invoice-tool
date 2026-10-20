@@ -4158,6 +4158,8 @@ _batch_export_views = register_batch_export_routes(
     customer_reimbursement_items=lambda *args, **kwargs: customer_reimbursement_items(*args, **kwargs),
     expense_amount=lambda *args, **kwargs: customer_reimbursement_item_expense_amount(*args, **kwargs),
     render_invoice_pdf=lambda *args, **kwargs: render_invoice_pdf(*args, **kwargs),
+    is_external_manager=lambda *args, **kwargs: is_external_manager(*args, **kwargs),
+    is_external_employee=lambda *args, **kwargs: is_external_employee(*args, **kwargs),
 )
 create_batch_export = _batch_export_views["create_batch_export"]
 batch_export_jobs = _batch_export_views["batch_export_jobs"]
