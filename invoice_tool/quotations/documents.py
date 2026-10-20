@@ -754,12 +754,7 @@ def build_quotation_pdf(quote, path):
         "QUOTATION<br/><font color='#66736D' size='9'>Professional Services</font>",
         styles["title"],
     ))
-    story.append(Spacer(1, 3))
-    story.append(Paragraph(
-        "<font color='#66736D'><b>Prasinos Power</b></font>",
-        styles["subtitle"],
-    ))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 7))
     story.append(_info_grid(quote, styles))
 
     story.append(_section("SCOPE OF WORK", styles))

@@ -841,13 +841,17 @@ def register_quotation_routes(app, api):
         buffer = BytesIO()
         build_quotation_pdf(dict(quotation), buffer)
         buffer.seek(0)
-        return send_file(
+        response = send_file(
             buffer,
             mimetype="application/pdf",
             as_attachment=False,
             download_name=f"{quotation['quotation_number']}.pdf",
             max_age=0,
         )
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     return {
         "can_view_quotations": can_view_quotations,
