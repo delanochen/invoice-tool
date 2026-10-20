@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -29,23 +29,15 @@ def utcnow_text():
 
 
 def ensure_export_job_schema(db):
-    db().execute(
-        """create table if not exists batch_export_jobs (
-               id text primary key,
-               user_id integer not null,
-               export_type text not null,
-               order_ids text not null,
-               status text not null,
-               progress integer not null default 0,
-               file_name text,
-               stored_path text,
-               error text,
-               created_at text not null,
-               started_at text,
-               completed_at text
-           )"""
-    )
-    db().commit()
+    """Fail clearly when migration 0317 has not been applied.
+
+    PostgreSQLConnection deliberately rejects DDL from request code, so schema
+    creation belongs to the migration step rather than the web process.
+    """
+    try:
+        db().execute("select id from batch_export_jobs limit 1").fetchone()
+    except Exception as exc:
+        raise RuntimeError("batch_export_jobs schema is missing; apply PostgreSQL migration 0317") from exc
 
 
 def _money(value):
