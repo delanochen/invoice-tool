@@ -406,7 +406,12 @@ def register_settlement_form_routes(app, *,
                          item["transport_hours"], item["public_transport_hours"], item["overtime_hours"], item["holiday_hours"],
                          item["labor_total"], *expenses, item["mileage_total"],
                          _cb_resolve_customer_reimbursement_item_expense_amount()(item, "other"), item["total"]])
-        # 合计行：逐列求和；末列取快照 total_amount（租车油费不在明细行，已计入合计）。
+        # rental_fuel_total 是此前独立于人员明细的租车加油快照。导出时不能只藏在总额里；
+        # 用专门的明细行放到「燃油费」列，既不虚构人员/日期，又能让各列与总额核对。
+        rental_fuel_total = float(_cb_resolve_money_decimal()(reimbursement["rental_fuel_total"] or 0))
+        if rental_fuel_total:
+            rows.append([len(rows) + 1, "租车油费", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, rental_fuel_total, 0, 0, 0, 0, rental_fuel_total])
+        # 合计行：逐列求和；末列仍以结算快照 total_amount 为权威值。
         total_row = ["合计", "", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for item in items:
             total_row[3] += _cb_resolve_to_float()(item["standard_hours"])
@@ -419,10 +424,11 @@ def register_settlement_form_routes(app, *,
                 total_row[9 + offset] += float(_cb_resolve_money_decimal()(_cb_resolve_customer_reimbursement_item_expense_amount()(item, key)))
             total_row[16] += float(_cb_resolve_money_decimal()(item["mileage_total"]))
             total_row[17] += float(_cb_resolve_money_decimal()(_cb_resolve_customer_reimbursement_item_expense_amount()(item, "other")))
+        total_row[13] += rental_fuel_total
         total_row[18] = float(_cb_resolve_money_decimal()(reimbursement["total_amount"]))
         rows.append(total_row)
         rows.append([
-            "说明：租车油费不在明细行，已计入合计；MRO 耗材已计入「其他」列；合计为工单结算快照总额。",
+            "说明：租车油费已在「燃油费」列单独展示；MRO 耗材已计入「其他」列；合计为工单结算快照总额。",
         ] + [""] * 18)
         workbook = _cb_resolve_build_simple_xlsx()(headers, rows, sheet_name="工单结算")
         return _cb_resolve_send_file()(workbook, as_attachment=True, download_name="_".join(_cb_resolve_re().sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value)).strip(" .") for value in (order["order_number"], order["client_order_number"], "工单结算.xlsx") if value), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

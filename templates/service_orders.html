@@ -23,6 +23,7 @@
 {% endfor %}
 
 <div class="erp-app" data-active-panel="list">
+  <form id="batchExportForm" method="post"></form>
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
@@ -43,6 +44,12 @@
         <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_order_query') }}'">工单查询</button>
       {% endif %}
       <button type="button" class="erp-btn" data-erp-action="refresh">刷新</button>
+      {% if not is_external_manager() and not is_external_employee() %}
+        <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='daily_reports') }}" data-batch-export>导出日报</button>
+        <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='settlements') }}" data-batch-export>导出工单结算</button>
+        <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='invoices') }}" data-batch-export>导出发票</button>
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('batch_export_jobs') }}'">导出任务</button>
+      {% endif %}
       <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
     </div>
@@ -57,8 +64,9 @@
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid service-orders-table" data-grid-height="100%">
           {# 空行 colspan 用同一份列数计算，避免加列后空状态提示横跨错位。 #}
-          {% set grid_columns = 11 + (1 if show_expenses else 0) + (1 if can_view_customer_reimbursement() else 0) + (2 if can_view_invoices() else 0) %}
+          {% set grid_columns = 11 + (1 if not is_external_manager() and not is_external_employee() else 0) + (1 if show_expenses else 0) + (1 if can_view_customer_reimbursement() else 0) + (2 if can_view_invoices() else 0) %}
           <thead><tr>
+            {% if not is_external_manager() and not is_external_employee() %}<th data-grid-width="46"><input type="checkbox" id="selectAllOrders" aria-label="全选工单"></th>{% endif %}
             <th>工单编号</th><th>站点名称</th><th>日报</th>{% if show_expenses %}<th>报销</th>{% endif %}
             {# data-grid-width 是给 Tabulator 镜像用的：镜像列宽跟源表 CSS 的 nth-child 无关，
                而 fitDataStretch 会把没声明宽度的列摊开，「工单结算」只有一个对勾会被撑成一大片，
@@ -72,6 +80,7 @@
             {% for order in orders %}
               {% set is_paid = order.invoice_count and order.paid_invoice_count == order.invoice_count %}
               <tr{% if order.status == "closed" and is_paid %} class="closed-paid"{% elif order.status == "closed" and order.invoice_count %} class="closed-invoiced"{% elif order.status != "closed" and order.invoice_count %} class="open-invoiced"{% endif %}>
+                {% if not is_external_manager() and not is_external_employee() %}<td><input type="checkbox" name="order_ids" value="{{ order.id }}" form="batchExportForm" class="batch-order-checkbox" aria-label="选择工单 {{ order.order_number }}"></td>{% endif %}
                 <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
                 <td>{{ order.client_name }}</td>
                 <td>{{ order.report_count }}</td>
@@ -187,4 +196,19 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+<script>
+(function(){
+  const form = document.getElementById('batchExportForm');
+  const all = document.getElementById('selectAllOrders');
+  const boxes = () => Array.from(document.querySelectorAll('.batch-order-checkbox'));
+  if (all) all.addEventListener('change', () => boxes().forEach(box => box.checked = all.checked));
+  if (form) form.addEventListener('submit', function(event){
+    if (!boxes().some(box => box.checked)) {
+      event.preventDefault();
+      window.alert('请先选择至少一个工单。');
+    }
+  });
+})();
+</script>
+
 {% endblock %}

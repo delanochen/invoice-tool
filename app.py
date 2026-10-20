@@ -182,6 +182,7 @@ from invoice_tool.photos import services as _photo_capture_services
 from invoice_tool.photos.routes import register_photo_capture_routes
 from invoice_tool.service_orders import services as _service_order_services
 from invoice_tool.service_orders.routes import register_service_order_routes
+from invoice_tool.batch_exports.routes import register_batch_export_routes
 from invoice_tool.contracts import services as _contract_services
 from invoice_tool.contracts.routes import register_contract_routes
 from invoice_tool.payment_terms import calculations as _payment_term_calculations
@@ -4145,6 +4146,22 @@ def render_invoice_pdf(invoice, client, items):
 
 def build_service_report_docx(report, order):
     return _report_documents.build_service_report_docx(report, order, BytesIO=BytesIO, Document=Document, Image=Image, ImageOps=ImageOps, Inches=Inches, OxmlElement=OxmlElement, Pt=Pt, RGBColor=RGBColor, WD_ALIGN_PARAGRAPH=WD_ALIGN_PARAGRAPH, WD_CELL_VERTICAL_ALIGNMENT=WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT=WD_TABLE_ALIGNMENT, get_company_profile=get_company_profile, get_report_attachments=get_report_attachments, hours=hours, os=os, qn=qn, report_attachment_path=report_attachment_path, report_parts=report_parts, service_report_workers=service_report_workers)
+
+
+_batch_export_views = register_batch_export_routes(
+    app,
+    db=lambda *args, **kwargs: db(*args, **kwargs),
+    data_dir=DATA_DIR,
+    login_required=login_required,
+    build_service_report_docx=lambda *args, **kwargs: build_service_report_docx(*args, **kwargs),
+    build_simple_xlsx=lambda *args, **kwargs: build_simple_xlsx(*args, **kwargs),
+    customer_reimbursement_items=lambda *args, **kwargs: customer_reimbursement_items(*args, **kwargs),
+    expense_amount=lambda *args, **kwargs: customer_reimbursement_item_expense_amount(*args, **kwargs),
+    render_invoice_pdf=lambda *args, **kwargs: render_invoice_pdf(*args, **kwargs),
+)
+create_batch_export = _batch_export_views["create_batch_export"]
+batch_export_jobs = _batch_export_views["batch_export_jobs"]
+download_batch_export = _batch_export_views["download_batch_export"]
 
 
 def send_invoice_email(invoice_id):

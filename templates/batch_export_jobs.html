@@ -1,0 +1,30 @@
+﻿{% block title %}导出任务 - 发票工具{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">{% endblock %}
+{% block content %}
+<div class="erp-app">
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">批量导出任务<small>日报 / 工单结算 / 发票 ZIP 后台任务</small></div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.reload()">刷新</button>
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('service_orders') }}'">返回工单</button>
+    </div>
+  </header>
+  <div class="erp-body"><section class="erp-panel active">
+    <div class="erp-grid-wrap"><table class="list-table erp-grid"><thead><tr>
+      <th>创建时间</th><th>类型</th><th>状态</th><th>进度</th><th>文件</th><th>错误</th>
+    </tr></thead><tbody>
+    {% for job in jobs %}
+      <tr>
+        <td>{{ job.created_at }}</td>
+        <td>{{ export_labels.get(job.export_type, job.export_type) }}</td>
+        <td>{% if job.status == 'completed' %}已完成{% elif job.status == 'failed' %}失败{% elif job.status == 'processing' %}处理中{% else %}排队中{% endif %}</td>
+        <td>{{ job.progress or 0 }}%</td>
+        <td>{% if job.status == 'completed' %}<a class="erp-btn primary" href="{{ url_for('download_batch_export', job_id=job.id) }}">下载 ZIP</a>{% else %}—{% endif %}</td>
+        <td>{{ job.error or '' }}</td>
+      </tr>
+    {% else %}<tr><td colspan="6" class="empty">暂无导出任务。</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section></div>
+</div>
+{% endblock %}
