@@ -5,6 +5,8 @@ formal work-order, billing, reimbursement, or settlement records.
 """
 from __future__ import annotations
 
+import re
+
 
 class FieldAIService:
     def __init__(self, *, db):
@@ -66,8 +68,37 @@ class FieldAIService:
             "where " + " and ".join(filters) + scope + " order by r.message_time desc, r.id desc limit ? offset ?",
             tuple(params)).fetchall()
 
+    @staticmethod
+    def _search_term(question):
+        """Extract the subject from simple identity questions without inventing context."""
+        text = str(question or "").strip()
+        text = re.sub(r"[?？!！。]+$", "", text).strip()
+        if not text:
+            return ""
+        match = re.match(r"^(.+?)(?:是谁|是什么人|是哪个人)$", text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        match = re.match(r"^(?:who\s+is|who's)\s+(.+)$", text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return text
+
     def search_wechat(self, user, question, limit=12):
-        return self.list_wechat(user, keyword=question, limit=limit)
+        term = self._search_term(question)
+        if not term:
+            return []
+        scope, scope_params = self._scope(user)
+        like = self._like_query(term)
+        return self.db().execute(
+            "select r.id, r.message_time, r.sender_name, r.content, "
+            "coalesce(nullif(m.chat_name,''),r.chat_name) as chat_name, m.service_order_id, m.project_name "
+            "from wechat_raw_messages r join wechat_group_project_mappings m on m.chat_username=r.chat_username "
+            "where m.enabled=true and r.chat_username like '%@chatroom' and r.chat_type='group' "
+            "and (lower(r.content) like ? escape '\\' or lower(r.sender_name) like ? escape '\\')" + scope +
+            " order by case when lower(r.sender_name)=lower(?) then 0 when lower(r.sender_name) like ? escape '\\' then 1 else 2 end, "
+            "r.message_time desc, r.id desc limit ?",
+            tuple([like, like] + scope_params + [term, like, max(1, min(int(limit), 100))]),
+        ).fetchall()
 
     def recent_wechat(self, user, limit=20):
         return self.list_wechat(user, limit=limit)
@@ -104,9 +135,9 @@ class FieldAIService:
         text = str(question or "").strip()
         if not text:
             return {"wechat": [], "technical_knowledge": []}
+        # Never fill a failed search with unrelated recent chat. No evidence is safer
+        # than plausible-looking but irrelevant context for the answer model.
         wechat = self.search_wechat(user, text)
-        if not wechat:
-            wechat = self.recent_wechat(user, limit=8)
         return {
             "wechat": [dict(row) for row in wechat],
             "technical_knowledge": [
