@@ -656,7 +656,7 @@ def register_quotation_routes(app, api):
             abort(403)
         quotation = _quotation_or_404(api, quotation_id)
         view = dict(quotation)
-        for column, target in (("pricing_lines", "pricing"), ("rate_schedule", "rates")):
+        for column, target in (("pricing_lines", "pricing"), ("rate_schedule", "rates"), ("travel_expenses", "travel_expenses")):
             try:
                 raw = view.get(column) or "[]"
                 view[target] = json.loads(raw) if isinstance(raw, str) and raw.strip() else (raw or [])
@@ -671,6 +671,8 @@ def register_quotation_routes(app, api):
             pricing_type_labels=PRICING_TYPE_LABELS,
             driving_mode_labels=DRIVING_MODE_LABELS,
             settlement_mode_labels=SETTLEMENT_MODE_LABELS,
+            travel_expense_methods=TRAVEL_EXPENSE_METHODS,
+            travel_expense_methods=TRAVEL_EXPENSE_METHODS,
         )
 
     @app.route("/quotations/<int:quotation_id>/edit", methods=["GET", "POST"])
