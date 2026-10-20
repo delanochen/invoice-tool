@@ -4,11 +4,21 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .erp-pager { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 12px; border-top:1px solid var(--erp-border, #e5e7eb); font-size:13px; }
+  .erp-pager a, .erp-pager .erp-cur { display:inline-block; min-width:30px; text-align:center; padding:4px 8px; border:1px solid var(--erp-border, #d1d5db); border-radius:6px; color:inherit; text-decoration:none; }
+  .erp-pager .erp-cur { background:var(--erp-primary, #2563eb); color:#fff; border-color:var(--erp-primary, #2563eb); }
+  .erp-pager .erp-disabled { opacity:.4; pointer-events:none; }
+  .erp-pager .erp-pager-info { margin-left:auto; color:#6b7280; }
+</style>
 {% endblock %}
 
 {% block content %}
-{# 只读报表：数据来自 app.py audit_log_report() 的一条 SQL，这里只做展示层统计。 #}
-{% set operator_count = rows|map(attribute='user_name')|unique|list|length %}
+{# 只读报表：数据来自 audit_log_report()；后端按 200 条/页分页，下拉选项来自日志实际值。 #}
+{% set operator_count = operator_options|length %}
+
+{# 分页链接保留全部筛选条件 #}
+{% macro page_url(p) %}{{ url_for('audit_log_report', operator=operator, entity_type=entity_type, object=object_q, content=content, action=action, date_from=date_from, date_to=date_to, page=p) }}{% endmacro %}
 
 <div class="erp-app" data-active-panel="list">
 
@@ -16,9 +26,9 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       操作日志
-      <small>审计日志 · 按时间倒序</small>
+      <small>审计日志 · 按时间倒序 · 每页 {{ per_page }} 条</small>
     </div>
-    <span class="erp-badge">{{ rows|length }} 条记录</span>
+    <span class="erp-badge">共 {{ total }} 条</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
@@ -31,40 +41,49 @@
   </header>
 
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
-  {# 只有一个视图（日志清单），不需要页签也不需要左侧菜单，
-     因此 .erp-app 走「无导航单列」布局（见 erp-ui.css）。 #}
   <div class="erp-body">
-    <!-- FilterBar：字段名与后端完全一致（q / entity_type / action / date_from / date_to） -->
+    {# FilterBar：字段名与后端一致（operator / entity_type / object / content / action / date_from / date_to） #}
     <form class="erp-filter no-print" method="get" data-erp-filter>
-      <label class="erp-field">关键词
-        <input type="search" name="q" value="{{ q }}" placeholder="操作者 / 对象 / 内容">
+      <label class="erp-field">操作者
+        <select name="operator">
+          <option value="">全部</option>
+          {% for value in operator_options %}
+            <option value="{{ value }}" {% if operator == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
       </label>
       <label class="erp-field">业务类型
         <select name="entity_type">
           <option value="">全部</option>
-          {% for value, label in entity_labels.items() %}
-            <option value="{{ value }}" {% if entity_type == value %}selected{% endif %}>{{ label }}</option>
+          {% for value in entity_type_options %}
+            <option value="{{ value }}" {% if entity_type == value %}selected{% endif %}>{{ entity_labels.get(value, value) }}</option>
           {% endfor %}
         </select>
       </label>
-      <label class="erp-field">操作
+      <label class="erp-field">动作
         <select name="action">
           <option value="">全部</option>
-          {% for value, label in action_labels.items() %}
-            <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>
+          {% for value in action_options %}
+            <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ action_labels.get(value, value) }}</option>
           {% endfor %}
         </select>
+      </label>
+      <label class="erp-field">对象
+        <input type="search" name="object" value="{{ object_q }}" placeholder="单据编号 / 对象名">
+      </label>
+      <label class="erp-field">内容
+        <input type="search" name="content" value="{{ content }}" placeholder="日志内容关键词">
       </label>
       <label class="erp-field">开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
       <label class="erp-field">结束日期 <input type="date" name="date_to" value="{{ date_to }}"></label>
-      <p class="erp-filter-note">关键词同时匹配操作者、对象与内容；日期按日志创建日期过滤。</p>
+      <p class="erp-filter-note">操作者按人精确过滤；对象匹配单据编号/名称；内容匹配日志说明；日期按日志创建日期过滤。</p>
     </form>
 
     <!-- Panel：日志清单（一条日志一行） -->
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid" data-grid-height="100%">
-          <thead><tr><th>时间</th><th>操作者</th><th>业务类型</th><th>对象</th><th>操作</th><th>内容</th></tr></thead>
+          <thead><tr><th>时间</th><th>操作者</th><th>业务类型</th><th>对象</th><th>动作</th><th>内容</th></tr></thead>
           <tbody>
             {% for row in rows %}
               <tr>
@@ -81,6 +100,24 @@
           </tbody>
         </table>
       </div>
+
+      <!-- 分页栏：每页 200 条，保留筛选条件 -->
+      {% if total_pages > 1 %}
+      <nav class="erp-pager no-print">
+        {% if page > 1 %}<a href="{{ page_url(page - 1) }}">上一页</a>{% else %}<span class="erp-cur erp-disabled">上一页</span>{% endif %}
+        {% for p in range(1, total_pages + 1) %}
+          {% if p == page %}
+            <span class="erp-cur">{{ p }}</span>
+          {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+            <a href="{{ page_url(p) }}">{{ p }}</a>
+          {% elif p == page - 3 or p == page + 3 %}
+            <span>…</span>
+          {% endif %}
+        {% endfor %}
+        {% if page < total_pages %}<a href="{{ page_url(page + 1) }}">下一页</a>{% else %}<span class="erp-cur erp-disabled">下一页</span>{% endif %}
+        <span class="erp-pager-info">第 {{ page }} / {{ total_pages }} 页 · 共 {{ total }} 条</span>
+      </nav>
+      {% endif %}
 
       <!-- 手机端：卡片替代表格 -->
       <div class="erp-cards">
@@ -105,20 +142,22 @@
 
   <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
   <footer class="erp-summary">
-    {{ summary_item('记录数', rows|length, 'muted') }}
+    {{ summary_item('本页记录', rows|length, 'muted') }}
+    {{ summary_item('符合条件总数', total, 'muted') }}
     {{ summary_item('操作者数', operator_count, 'muted') }}
   </footer>
 
-  <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
+  <!-- ───────────────────────── StatusBar ────────────────────────── -->
   <footer class="erp-status">
-    <span>记录 <b data-erp-count>{{ rows|length }}</b> 条</span>
+    <span>记录 <b>{{ total }}</b> 条（第 {{ page }}/{{ total_pages }} 页）</span>
     <span class="sep"></span>
     <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
     <span class="sep"></span>
-    <span>业务类型 <b>{{ entity_labels[entity_type] if entity_type else '全部' }}</b></span>
+    <span>操作者 <b>{{ operator or '全部' }}</b></span>
     <span class="sep"></span>
-    <span>操作 <b>{{ action_labels[action] if action else '全部' }}</b></span>
-    {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
+    <span>业务类型 <b>{{ entity_labels[entity_type] if entity_type else '全部' }}</b></span>
+    {% if object_q %}<span class="sep"></span><span>对象 <b>{{ object_q }}</b></span>{% endif %}
+    {% if content %}<span class="sep"></span><span>内容 <b>{{ content }}</b></span>{% endif %}
   </footer>
 </div>
 {% endblock %}

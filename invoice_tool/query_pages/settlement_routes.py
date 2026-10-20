@@ -163,18 +163,26 @@ def register_report_queries_routes(app, *,
 
 
 
+    AUDIT_LOG_PER_PAGE = 200
+
     @_cb_resolve_login_required()
     def audit_log_report():
         if not _cb_resolve_can_view_audit_logs()():
             _cb_resolve_abort()(403)
+        # 已知业务类型/动作的中文标签；日志里出现但不在表中的值原样显示。
         entity_labels = {
             "service_order": "工单",
             "invoice": "发票",
             "service_report": "工作日报",
             "expense": "报销",
             "customer_reimbursement": "工单结算",
+            "customer_reimbursement_attachment": "结算附件",
             "user": "用户",
             "database": "数据库",
+            "menu_permissions": "权限设置",
+            "ai_assistant": "智能助手",
+            "employee_payment": "付款单",
+            "bank_account": "银行账户",
         }
         action_labels = {
             "create": "创建",
@@ -192,52 +200,102 @@ def register_report_queries_routes(app, *,
             "send": "发送邮件",
             "login": "登录",
             "sql": "执行 SQL",
+            "query": "查询",
         }
-        q = _cb_resolve_request().args.get("q", "").strip()
-        entity_type = _cb_resolve_request().args.get("entity_type", "").strip()
-        action = _cb_resolve_request().args.get("action", "").strip()
-        date_from = _cb_resolve_request().args.get("date_from", "")
-        date_to = _cb_resolve_request().args.get("date_to", "")
+        req = _cb_resolve_request()
+        # 四个独立筛选维度：操作者 / 业务类型 / 对象 / 内容，外加动作与日期范围。
+        operator = req.args.get("operator", "").strip()
+        entity_type = req.args.get("entity_type", "").strip()
+        object_q = req.args.get("object", "").strip()
+        content = req.args.get("content", "").strip()
+        action = req.args.get("action", "").strip()
+        date_from = req.args.get("date_from", "")
+        date_to = req.args.get("date_to", "")
         clauses = ["1 = 1"]
         params = []
-        if q:
-            clauses.append("(user_name like ? or entity_label like ? or summary like ?)")
-            params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
-        if entity_type in entity_labels:
+        if operator:
+            clauses.append("user_name = ?")
+            params.append(operator)
+        if entity_type:
             clauses.append("entity_type = ?")
             params.append(entity_type)
-        else:
-            entity_type = ""
-        if action in action_labels:
+        if object_q:
+            clauses.append("(entity_label like ? or cast(entity_id as text) like ?)")
+            params.extend([f"%{object_q}%", f"%{object_q}%"])
+        if content:
+            clauses.append("summary like ?")
+            params.append(f"%{content}%")
+        if action:
             clauses.append("action = ?")
             params.append(action)
-        else:
-            action = ""
         if date_from:
             clauses.append("date(created_at) >= ?")
             params.append(date_from)
         if date_to:
             clauses.append("date(created_at) <= ?")
             params.append(date_to)
+        where = " and ".join(clauses)
+        total = _cb_resolve_db()().execute(
+            f"select count(*) as c from audit_logs where {where}", params
+        ).fetchone()["c"]
+        try:
+            page = int(req.args.get("page", "1"))
+        except (TypeError, ValueError):
+            page = 1
+        if page < 1:
+            page = 1
+        per_page = AUDIT_LOG_PER_PAGE
+        total_pages = max(1, (int(total) + per_page - 1) // per_page)
+        if page > total_pages:
+            page = total_pages
+        offset = (page - 1) * per_page
         rows = _cb_resolve_db()().execute(
             f"""
         select * from audit_logs
-        where {" and ".join(clauses)}
+        where {where}
         order by datetime(created_at) desc, id desc
-        limit 1000
+        limit ? offset ?
         """,
-            params,
+            params + [per_page, offset],
         ).fetchall()
+        # 下拉选项来自日志中实际出现的值，避免写死枚举导致筛选"不起作用"。
+        operator_options = [
+            r["user_name"]
+            for r in _cb_resolve_db()().execute(
+                "select distinct user_name from audit_logs order by user_name"
+            ).fetchall()
+        ]
+        entity_type_options = [
+            r["entity_type"]
+            for r in _cb_resolve_db()().execute(
+                "select distinct entity_type from audit_logs order by entity_type"
+            ).fetchall()
+        ]
+        action_options = [
+            r["action"]
+            for r in _cb_resolve_db()().execute(
+                "select distinct action from audit_logs order by action"
+            ).fetchall()
+        ]
         return _cb_resolve_render_template()(
             "audit_logs.html",
             rows=rows,
-            q=q,
+            operator=operator,
             entity_type=entity_type,
+            object_q=object_q,
+            content=content,
             action=action,
             date_from=date_from,
             date_to=date_to,
             entity_labels=entity_labels,
             action_labels=action_labels,
+            operator_options=operator_options,
+            entity_type_options=entity_type_options,
+            action_options=action_options,
+            page=page,
+            total_pages=total_pages,
+            total=int(total),
+            per_page=per_page,
         )
 
 
