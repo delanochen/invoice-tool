@@ -42,6 +42,12 @@ def register_wechat_intelligence_routes(
         result = service.ingest_group_catalog(groups)
         return jsonify({"ok": not result["errors"], **result}), (207 if result["errors"] else 200)
 
+    def allowed_wechat_groups():
+        if not _authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
+        groups = [dict(row) for row in service.allowed_groups()]
+        return jsonify({"ok": True, "groups": groups})
+
     @admin_required
     def wechat_sources():
         if request.method == "POST":
@@ -90,6 +96,12 @@ def register_wechat_intelligence_routes(
         methods=["POST"],
     )
     app.add_url_rule(
+        "/api/v1/wechat/groups/allowed",
+        endpoint="wechat_groups_allowed",
+        view_func=allowed_wechat_groups,
+        methods=["GET"],
+    )
+    app.add_url_rule(
         "/admin/integrations/wechat",
         endpoint="wechat_sources",
         view_func=wechat_sources,
@@ -98,5 +110,6 @@ def register_wechat_intelligence_routes(
     return {
         "ingest_wechat_messages": ingest_wechat_messages,
         "ingest_wechat_group_catalog": ingest_wechat_group_catalog,
+        "allowed_wechat_groups": allowed_wechat_groups,
         "wechat_sources": wechat_sources,
     }

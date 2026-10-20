@@ -86,6 +86,16 @@ class WeChatIntelligenceService:
                order by coalesce(m.enabled, false) desc, lower(c.chat_name), c.chat_username"""
         ).fetchall()
 
+    def allowed_groups(self):
+        return self.db().execute(
+            """select m.chat_username, coalesce(c.chat_name, m.chat_name) as chat_name,
+                      m.service_order_id, m.project_name
+               from wechat_group_project_mappings m
+               left join wechat_group_catalog c on c.chat_username = m.chat_username
+               where m.enabled = true
+               order by lower(coalesce(c.chat_name, m.chat_name)), m.chat_username"""
+        ).fetchall()
+
     def list_service_orders(self):
         return self.db().execute(
             """select id, order_number, client_order_number, client_name, status
