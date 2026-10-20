@@ -141,6 +141,19 @@ def _pricing_rate_map(api, quotation_id):
     return _rate_map_from_json(row["rate_schedule"])
 
 
+def _quotation_rate_row(api, identifier):
+    """按报价单编号（QT...，大小写不敏感）或整数 ID 定位报价单的 rate_schedule 行。"""
+    db = api["db"]
+    if identifier.isdigit():
+        return db().execute(
+            "select rate_schedule from quotations where id = ?", (int(identifier),)
+        ).fetchone()
+    return db().execute(
+        "select rate_schedule from quotations where upper(quotation_number) = upper(?)",
+        (identifier,),
+    ).fetchone()
+
+
 def _sync_quotation_rates(api, quotation_id, raw_schedule):
     """Mirror a quotation's current canonical rates into the shared model."""
     rate_map = _rate_map_from_json(raw_schedule)
@@ -528,13 +541,18 @@ def register_quotation_routes(app, api):
     @app.get("/quotations/rates-from-quote")
     @login_required
     def quotation_rates_from_quote():
-        """从一份历史报价单复制费率到表单（映射到费率表 key），生成独立草稿用。"""
+        """从一份历史报价单复制费率到表单（映射到费率表 key），生成独立草稿用。
+        支持按界面可见的报价单编号（QT...）查找，也兼容数据库 ID。"""
         if not can_view_quotations(api):
             abort(403)
-        quotation_id = request.args.get("quotation_id", "").strip()
-        if not quotation_id.isdigit():
+        identifier = (
+            request.args.get("quotation_number")
+            or request.args.get("quotation_id")
+            or ""
+        ).strip()
+        if not identifier:
             return api["jsonify"]({"rates": {}})
-        return api["jsonify"]({"rates": _pricing_rate_map(api, int(quotation_id))})
+        return api["jsonify"]({"rates": _rate_map_from_json(_quotation_rate_row(api, identifier))})
 
     @app.route("/quotations/new", methods=["GET", "POST"])
     @login_required

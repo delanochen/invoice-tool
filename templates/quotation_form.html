@@ -346,16 +346,16 @@
     const copyRatesFromQuoteBtn = document.getElementById("copyRatesFromQuoteBtn");
     if (copyRatesFromQuoteBtn) {
       copyRatesFromQuoteBtn.addEventListener("click", async () => {
-        const quotationId = prompt("粘贴要复制费率的报价单 ID（整数）：");
-        if (!quotationId || !/^\d+$/.test(quotationId)) return;
+        const quotationRef = prompt("粘贴要复制费率的报价单编号（如 QT2610001）：");
+        if (!quotationRef || !/^[A-Za-z]*\d+$/.test(quotationRef.trim())) return;
         try {
-          const resp = await fetch(`/quotations/rates-from-quote?quotation_id=${encodeURIComponent(quotationId)}`);
+          const resp = await fetch(`/quotations/rates-from-quote?quotation_number=${encodeURIComponent(quotationRef.trim())}`);
           const data = await resp.json();
           const rates = data.rates || {};
           if (!Object.keys(rates).length) { alert("未找到该报价单或没有费率数据。"); return; }
           applyRates(rates, false);
           alert("已复制费率，可在此基础上修改后保存为独立草稿。");
-        } catch (e) { alert("复制费率失败，请检查报价单 ID。"); }
+        } catch (e) { alert("复制费率失败，请检查报价单编号。"); }
       });
     }
 
