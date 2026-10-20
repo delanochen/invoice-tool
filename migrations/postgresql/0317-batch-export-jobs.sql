@@ -14,3 +14,24 @@
 );
 create index if not exists idx_batch_export_jobs_user_created on batch_export_jobs(user_id, created_at desc);
 create index if not exists idx_batch_export_jobs_status on batch_export_jobs(status);
+
+DO $do$
+BEGIN
+  IF current_database() = 'invoice_test'
+     AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='invoice_test') THEN
+    ALTER TABLE batch_export_jobs OWNER TO invoice_test;
+  END IF;
+END $do$;
+
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='invoice_app') THEN
+    GRANT SELECT,INSERT,UPDATE,DELETE ON batch_export_jobs TO invoice_app;
+  END IF;
+END $do$;
+
+INSERT INTO settings(key,value)
+VALUES ('postgresql_0317_batch_export_jobs','complete')
+ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+
+COMMIT;
