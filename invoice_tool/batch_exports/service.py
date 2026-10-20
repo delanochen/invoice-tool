@@ -67,6 +67,11 @@ def settlement_rows(reimbursement, items, expense_amount):
     if rental_fuel:
         # Do not hide this amount in the snapshot total. Show it under the dedicated fuel column.
         rows.append([len(rows) + 1, "租车油费", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, rental_fuel, 0, 0, 0, 0, rental_fuel])
+    visible_total = sum(_money(row[18]) for row in rows)
+    adjustment = round(_money(reimbursement["total_amount"]) - visible_total, 2)
+    if abs(adjustment) >= 0.005:
+        # Discounts or snapshot adjustments must also be visible so detail rows reconcile to the snapshot total.
+        rows.append([len(rows) + 1, "结算折扣/调整", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, adjustment])
     return rows
 
 
@@ -124,18 +129,26 @@ def build_master_ledger(settlement_payloads, *, expense_amount):
                 _money(item.get("miles")), _money(item.get("mileage_rate")), _money(item.get("mileage_total")), float(expense_amount(item, "other") or 0), _money(item.get("total")),
             ]
             ws.append(values)
-            first = False; seq += 1; excel_row += 1; grand_total += _money(item.get("total"))
+            first = False; seq += 1; excel_row += 1
         rental_fuel = _money(reimbursement["rental_fuel_total"])
+        visible_order_total = sum(_money(dict(item).get("total")) for item in items)
         if rental_fuel:
             values = [order["order_number"] if first else "", seq, "租车油费", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, rental_fuel, 0, 0, 0, 0, 0, 0, rental_fuel]
             ws.append(values)
-            seq += 1; excel_row += 1; grand_total += rental_fuel
+            first = False; seq += 1; excel_row += 1; visible_order_total += rental_fuel
+        snapshot_total = _money(reimbursement["total_amount"])
+        adjustment = round(snapshot_total - visible_order_total, 2)
+        if abs(adjustment) >= 0.005:
+            values = [order["order_number"] if first else "", seq, "结算折扣/调整", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, adjustment]
+            ws.append(values)
+            seq += 1; excel_row += 1
+        grand_total += snapshot_total
     total_row = ws.max_row + 1
     ws.cell(total_row, 1, "合计")
     ws.cell(total_row, 25, grand_total)
     note_row = total_row + 1
     ws.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=25)
-    ws.cell(note_row, 1, "说明：租车油费已在「加油」列单独展示；MRO 耗材已计入「其他」列；合计为工单结算快照明细汇总。")
+    ws.cell(note_row, 1, "说明：租车油费已在「加油」列单独展示；MRO 耗材已计入「其他」列；如有折扣或快照调整，会以「结算折扣/调整」行展示；合计为各工单结算快照总额。")
     for row in ws.iter_rows(min_row=3, max_row=total_row, min_col=1, max_col=25):
         for cell in row:
             cell.border = border

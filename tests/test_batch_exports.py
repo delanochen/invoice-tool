@@ -1,4 +1,4 @@
-﻿from io import BytesIO
+from io import BytesIO
 from openpyxl import load_workbook
 from invoice_tool.batch_exports.service import build_master_ledger, settlement_rows
 
@@ -45,3 +45,19 @@ def test_master_ledger_matches_reference_columns_and_fuel():
     assert ws["R4"].value == 25.5
     assert ws["Y4"].value == 25.5
     assert "租车油费已在" in ws.cell(ws.max_row, 1).value
+
+
+def test_snapshot_discount_is_visible_adjustment():
+    reimbursement = {"rental_fuel_total": 20, "total_amount": 108}
+    items = [{
+        "worker_name": "Ethan", "project_date": "2026-10-20",
+        "standard_hours": 0, "transport_hours": 0, "public_transport_hours": 0,
+        "overtime_hours": 0, "holiday_hours": 0, "labor_total": 100,
+        "lodging": 0, "airfare": 0, "baggage": 0, "rental_car": 0,
+        "fuel": 0, "parking": 0, "taxi": 0, "mileage_total": 0,
+        "other": 0, "total": 100,
+    }]
+    rows = settlement_rows(reimbursement, items, expense_amount)
+    assert rows[-1][1] == "结算折扣/调整"
+    assert rows[-1][18] == -12
+    assert round(sum(row[18] for row in rows), 2) == 108
