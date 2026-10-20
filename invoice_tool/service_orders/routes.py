@@ -48,8 +48,6 @@ def register_service_order_routes(app, *,
         buyer_id = request.args.get("buyer_id", "").strip()
         manufacturer_id = request.args.get("manufacturer_id", "").strip()
         work_order_type_id = request.args.get("work_order_type_id", "").strip()
-        start_from = request.args.get("start_from", "").strip()
-        start_to = request.args.get("start_to", "").strip()
         settlement = request.args.get("settlement", "").strip()
         invoice = request.args.get("invoice", "").strip()
         payment = request.args.get("payment", "").strip()
@@ -86,12 +84,6 @@ def register_service_order_routes(app, *,
         if work_order_type_id.isdigit():
             clauses.append("service_orders.work_order_type_id = ?")
             params.append(int(work_order_type_id))
-        if start_from:
-            clauses.append("service_orders.start_date is not null and service_orders.start_date >= ?")
-            params.append(start_from)
-        if start_to:
-            clauses.append("service_orders.start_date is not null and service_orders.start_date <= ?")
-            params.append(start_to)
         if settlement == "yes":
             clauses.append("exists (select 1 from customer_reimbursements crf where crf.service_order_id = service_orders.id)")
         elif settlement == "no":
@@ -174,8 +166,6 @@ def register_service_order_routes(app, *,
             buyer_name=buyer_name,
             manufacturer_id=manufacturer_id,
             work_order_type_id=work_order_type_id,
-            start_from=start_from,
-            start_to=start_to,
             settlement=settlement,
             invoice=invoice,
             payment=payment,

@@ -100,9 +100,14 @@ def build_master_ledger(settlement_payloads, *, expense_amount):
     ws.merge_cells("E1:M1"); ws["E1"] = "工时"
     ws.merge_cells("N1:X1"); ws["N1"] = "交通"
     ws.merge_cells("Y1:Y2"); ws["Y1"] = "合计"
-    detail = ["标准\n工时", "交通\n工时", "加班\n工时", "节假日\n工时", "标准工时费/小时", "交通工时费/小时", "加班工时费/小时", "节假日工时费/小时", "工时费\n合计", "住宿", "机票", "行李", "租车", "加油", "停车", "打车", "公里数", "里程费/英里", "里程费", "其他"]
-    for col, value in enumerate(detail, 5):
-        ws.cell(2, col, value)
+    detail_headers = {
+        "E2": "标准\n工时", "F2": "交通\n工时", "G2": "加班\n工时", "H2": "节假日\n工时",
+        "I2": "标准工时费/小时", "J2": "交通工时费/小时", "K2": "加班工时费/小时", "L2": "节假日工时费/小时",
+        "M2": "工时费\n合计", "N2": "住宿", "O2": "机票", "P2": "行李", "Q2": "租车", "R2": "加油",
+        "S2": "停车", "T2": "打车", "U2": "公里数", "V2": "里程费/英里", "W2": "里程费", "X2": "其他",
+    }
+    for cell_ref, value in detail_headers.items():
+        ws[cell_ref] = value
     header_fill = PatternFill("solid", fgColor="E2F0D9")
     thin = Side(style="thin", color="BFBFBF")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -117,6 +122,7 @@ def build_master_ledger(settlement_payloads, *, expense_amount):
     grand_total = 0.0
     for payload in settlement_payloads:
         reimbursement, order, items = payload
+        order_start_row = ws.max_row + 1
         first = True
         for raw in items:
             item = dict(raw)
@@ -141,7 +147,13 @@ def build_master_ledger(settlement_payloads, *, expense_amount):
         if abs(adjustment) >= 0.005:
             values = [order["order_number"] if first else "", seq, "结算折扣/调整", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, adjustment]
             ws.append(values)
-            seq += 1; excel_row += 1
+            first = False; seq += 1; excel_row += 1
+        order_end_row = ws.max_row
+        if order_end_row >= order_start_row:
+            ws.cell(order_start_row, 1, order["order_number"])
+            if order_end_row > order_start_row:
+                ws.merge_cells(start_row=order_start_row, start_column=1, end_row=order_end_row, end_column=1)
+            ws.cell(order_start_row, 1).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         grand_total += snapshot_total
     total_row = ws.max_row + 1
     ws.cell(total_row, 1, "合计")

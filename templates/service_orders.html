@@ -48,7 +48,7 @@
         <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='daily_reports') }}" data-batch-export>导出日报</button>
         <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='settlements') }}" data-batch-export>导出工单结算</button>
         <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='invoices') }}" data-batch-export>导出发票</button>
-        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('batch_export_jobs') }}'">导出任务</button>
+        <button type="button" class="erp-btn" onclick="if (typeof window.workspaceOpen === 'function') { window.workspaceOpen('{{ url_for('batch_export_jobs') }}', '导出任务'); } else { window.location.href='{{ url_for('batch_export_jobs') }}'; }">导出任务</button>
       {% endif %}
       <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
@@ -67,8 +67,6 @@
       <label>发票<select name="invoice"><option value="">全部</option><option value="yes"{% if invoice == 'yes' %} selected{% endif %}>已开票</option><option value="no"{% if invoice == 'no' %} selected{% endif %}>未开票</option></select></label>
       <label>核销<select name="payment"><option value="">全部</option><option value="paid"{% if payment == 'paid' %} selected{% endif %}>已核销</option><option value="unpaid"{% if payment == 'unpaid' %} selected{% endif %}>待核销</option></select></label>
     {% endif %}
-    <label>开始日期从<input type="date" name="start_from" value="{{ start_from }}"></label>
-    <label>到<input type="date" name="start_to" value="{{ start_to }}"></label>
     <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">筛选</button><a class="erp-btn" href="{{ url_for('service_orders') }}">清除</a></div>
   </form>
 

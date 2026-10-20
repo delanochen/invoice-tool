@@ -40,8 +40,12 @@ def test_master_ledger_matches_reference_columns_and_fuel():
     ws = wb["工单结算"]
     assert ws.max_column == 25
     assert ws["A1"].value == "派工单号"
+    assert ws["M2"].value == "工时费\n合计"
+    assert ws["N2"].value == "住宿"
+    assert ws["O2"].value == "机票"
     assert ws["R2"].value == "加油"
     assert ws["A3"].value == "WO-1001"
+    assert any(rng.min_col == 1 and rng.max_col == 1 and rng.min_row == 3 and rng.max_row > 3 for rng in ws.merged_cells.ranges)
     assert ws["R4"].value == 25.5
     assert ws["Y4"].value == 25.5
     assert "租车油费已在" in ws.cell(ws.max_row, 1).value
