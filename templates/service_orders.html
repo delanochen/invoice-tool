@@ -10,9 +10,8 @@
 {% endblock %}
 
 {% block content %}
-{# 只做展示层改造：数据仍来自 app.py service_orders()，不改动任何后端逻辑。
-   该页只列「进行中」工单（后端固定 status != 'closed'），完整条件查询走 /reports/service-orders。 #}
-{% set ns = namespace(report=0, expense_items=0, invoiced=0, paid=0) %}
+{# 工单清单默认显示全部状态，并在表格上方提供常用 ERP 筛选条件。 #}
+{% set ns = namespace(report=0, expense_items=0, invoiced=0, paid=0, open=0, closed=0) %}
 {# 报销列跟「工单结算」列一样按权限收口：外部角色看得到工单，但看不到报销数据。 #}
 {% set show_expenses = has_action_permission('expenses', 'view') %}
 {% for order in orders %}
@@ -20,6 +19,7 @@
   {% set ns.expense_items = ns.expense_items + (order.expense_item_count or 0)|int %}
   {% if order.invoice_count %}{% set ns.invoiced = ns.invoiced + 1 %}{% endif %}
   {% if order.invoice_count and order.paid_invoice_count == order.invoice_count %}{% set ns.paid = ns.paid + 1 %}{% endif %}
+  {% if order.status == 'closed' %}{% set ns.closed = ns.closed + 1 %}{% else %}{% set ns.open = ns.open + 1 %}{% endif %}
 {% endfor %}
 
 <div class="erp-app" data-active-panel="list">
@@ -29,7 +29,7 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       工单
-      <small>进行中的服务工单 · 按创建时间倒序{% if buyer_name %} · 站点「{{ buyer_name }}」{% endif %}</small>
+      <small>全部服务工单 · 按创建时间倒序{% if buyer_name %} · 站点「{{ buyer_name }}」{% endif %}</small>
     </div>
     <span class="erp-badge">{{ orders|length }} 个工单</span>
     <span class="erp-badge warn">待核销 {{ orders|length - ns.paid }}</span>
@@ -55,18 +55,34 @@
     </div>
   </header>
 
+  <form class="erp-filterbar service-order-filterbar no-print" method="get" action="{{ url_for('service_orders') }}">
+    <label>关键词<input type="search" name="q" value="{{ q }}" placeholder="工单号 / 服务订单号 / 客户 / 业主 / 地址"></label>
+    <label>状态<select name="status"><option value="">全部</option><option value="open"{% if status == 'open' %} selected{% endif %}>进行中</option><option value="closed"{% if status == 'closed' %} selected{% endif %}>已关闭</option></select></label>
+    {% if not is_external_manager() and not is_external_employee() %}
+      <label>客户<select name="client_id"><option value="">全部</option>{% for item in filter_clients %}<option value="{{ item.id }}"{% if client_id == item.id|string %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+      <label>站点<select name="buyer_id"><option value="">全部</option>{% for item in filter_buyers %}<option value="{{ item.id }}"{% if buyer_id == item.id|string %} selected{% endif %}>{{ item.name or item.owner_name or ('#' ~ item.id) }}{% if item.name and item.owner_name %} · {{ item.owner_name }}{% endif %}</option>{% endfor %}</select></label>
+      <label>配套机厂家<select name="manufacturer_id"><option value="">全部</option>{% for item in filter_manufacturers %}<option value="{{ item.id }}"{% if manufacturer_id == item.id|string %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+      <label>工单类型<select name="work_order_type_id"><option value="">全部</option>{% for item in filter_work_order_types %}<option value="{{ item.id }}"{% if work_order_type_id == item.id|string %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+      <label>工单结算<select name="settlement"><option value="">全部</option><option value="yes"{% if settlement == 'yes' %} selected{% endif %}>已有</option><option value="no"{% if settlement == 'no' %} selected{% endif %}>没有</option></select></label>
+      <label>发票<select name="invoice"><option value="">全部</option><option value="yes"{% if invoice == 'yes' %} selected{% endif %}>已开票</option><option value="no"{% if invoice == 'no' %} selected{% endif %}>未开票</option></select></label>
+      <label>核销<select name="payment"><option value="">全部</option><option value="paid"{% if payment == 'paid' %} selected{% endif %}>已核销</option><option value="unpaid"{% if payment == 'unpaid' %} selected{% endif %}>待核销</option></select></label>
+    {% endif %}
+    <label>开始日期从<input type="date" name="start_from" value="{{ start_from }}"></label>
+    <label>到<input type="date" name="start_to" value="{{ start_to }}"></label>
+    <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">筛选</button><a class="erp-btn" href="{{ url_for('service_orders') }}">清除</a></div>
+  </form>
+
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
   {# 只有一个视图（工单清单），不设页签也不设侧栏 → 走 erp-ui.css 的无导航单列布局 #}
   <div class="erp-body">
-    <!-- 本页不放关键词筛选：只列「进行中」工单，条件查询（含已关闭）统一走「工单查询」页，
-         避免两处各留一个半功能搜索框。2026-09-26 应用户要求移除原关键词 FilterBar。 -->
+    <!-- 默认显示全部工单；上方筛选栏负责状态、客户、站点、厂家、类型、日期和结算/开票状态过滤。 -->
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid service-orders-table" data-grid-height="100%">
           {# 空行 colspan 用同一份列数计算，避免加列后空状态提示横跨错位。 #}
           {% set grid_columns = 11 + (1 if not is_external_manager() and not is_external_employee() else 0) + (1 if show_expenses else 0) + (1 if can_view_customer_reimbursement() else 0) + (2 if can_view_invoices() else 0) %}
           <thead><tr>
-            {% if not is_external_manager() and not is_external_employee() %}<th data-grid-width="46"><input type="checkbox" id="selectAllOrders" aria-label="全选工单"></th>{% endif %}
+            {% if not is_external_manager() and not is_external_employee() %}<th data-grid-width="32" class="erp-check-col"><input type="checkbox" id="selectAllOrders" class="erp-check" aria-label="全选工单"></th>{% endif %}
             <th>工单编号</th><th>站点名称</th><th>日报</th>{% if show_expenses %}<th>报销</th>{% endif %}
             {# data-grid-width 是给 Tabulator 镜像用的：镜像列宽跟源表 CSS 的 nth-child 无关，
                而 fitDataStretch 会把没声明宽度的列摊开，「工单结算」只有一个对勾会被撑成一大片，
@@ -80,7 +96,7 @@
             {% for order in orders %}
               {% set is_paid = order.invoice_count and order.paid_invoice_count == order.invoice_count %}
               <tr{% if order.status == "closed" and is_paid %} class="closed-paid"{% elif order.status == "closed" and order.invoice_count %} class="closed-invoiced"{% elif order.status != "closed" and order.invoice_count %} class="open-invoiced"{% endif %}>
-                {% if not is_external_manager() and not is_external_employee() %}<td><input type="checkbox" name="order_ids" value="{{ order.id }}" form="batchExportForm" class="batch-order-checkbox" aria-label="选择工单 {{ order.order_number }}"></td>{% endif %}
+                {% if not is_external_manager() and not is_external_employee() %}<td class="erp-check-col"><input type="checkbox" name="order_ids" value="{{ order.id }}" form="batchExportForm" class="batch-order-checkbox erp-check" aria-label="选择工单 {{ order.order_number }}"></td>{% endif %}
                 <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
                 <td>{{ order.client_name }}</td>
                 <td>{{ order.report_count }}</td>
@@ -173,7 +189,8 @@
   <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->
   <footer class="erp-summary">
     {{ summary_item('工单数', orders|length, 'muted') }}
-    {{ summary_item('进行中', orders|length, 'warn') }}
+    {{ summary_item('进行中', ns.open, 'warn') }}
+    {{ summary_item('已关闭', ns.closed, 'pos') }}
     {{ summary_item('日报合计', ns.report, 'muted') }}
     {% if show_expenses %}{{ summary_item('报销明细合计', ns.expense_items, 'muted') }}{% endif %}
     {% if can_view_invoices() %}
@@ -187,7 +204,7 @@
   <footer class="erp-status">
     <span>记录 <b data-erp-count>{{ orders|length }}</b> 条</span>
     <span class="sep"></span>
-    <span>状态 <b>进行中</b></span>
+    <span>状态 <b>{{ '进行中' if status == 'open' else ('已关闭' if status == 'closed' else '全部') }}</b></span>
     {% if buyer_name %}<span class="sep"></span><span>站点 <b>{{ buyer_name }}</b></span>{% endif %}
     {% if q %}<span class="sep"></span><span>关键词 <b>{{ q }}</b></span>{% endif %}
   </footer>

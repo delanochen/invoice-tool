@@ -963,3 +963,16 @@
 .statement-subtotal td { background: var(--panel-alt, #fafafa); }
 .statement-review-warn { border-color: #fde68a; color: #92400e; background: #fffbeb; }
 .erp-app .text-danger { color: var(--danger, #b91c1c); }
+
+/* ERP compact filters and multi-select controls */
+.erp-filterbar { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px 10px; align-items:end; padding:8px 10px; border-bottom:1px solid var(--erp-border,#d9dee7); background:var(--erp-panel,#fff); }
+.erp-filterbar label { display:grid; gap:3px; min-width:0; font-size:11px; color:var(--erp-muted,#5b6574); }
+.erp-filterbar input,.erp-filterbar select { width:100%; min-width:0; height:28px; min-height:28px; padding:3px 7px; font-size:12px; }
+.erp-filterbar .erp-filter-actions { display:flex; gap:6px; align-items:center; min-height:28px; }
+.erp-app .erp-grid input[type="checkbox"],
+.erp-app .erp-toolbar input[type="checkbox"],
+.erp-app .erp-filterbar input[type="checkbox"],
+.tabulator input[type="checkbox"],
+.erp-check { width:14px !important; height:14px !important; min-width:14px !important; min-height:14px !important; margin:0 !important; padding:0 !important; vertical-align:middle; }
+.erp-check-col { width:32px !important; min-width:32px !important; max-width:32px !important; text-align:center !important; padding-left:5px !important; padding-right:5px !important; }
+@media (max-width:900px) { .erp-filterbar { grid-template-columns:repeat(2,minmax(0,1fr)); } }
