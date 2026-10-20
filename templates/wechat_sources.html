@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}WeChat Sources - Invoice Tool{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .source-note { margin:0 0 12px; padding:10px 12px; border:1px solid var(--erp-line); background:#fff; }
+  .source-note strong { display:block; margin-bottom:4px; }
+  .source-table input[type=text], .source-table select { min-width:160px; }
+  .source-id { font-family:monospace; font-size:11px; word-break:break-all; }
+  .source-status { white-space:nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="erp-app erp-app--flow erp-compact">
+  <header class="erp-toolbar">
+    <div class="erp-toolbar-title">WeChat Data Sources<small>Only explicitly enabled work groups may enter invoice-tool</small></div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <a class="erp-btn" href="{{ url_for('system_settings') }}">Back to System Settings</a>
+    </div>
+  </header>
+
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <div class="source-note">
+        <strong>Privacy protection is fail-closed.</strong>
+        Direct/private chats are rejected by the API and never stored. A WeChat group must appear here and be explicitly enabled before message content can be accepted.
+      </div>
+
+      {% if groups %}
+      <table class="list-table source-table">
+        <thead>
+          <tr>
+            <th>Group</th>
+            <th>Stable WeChat ID</th>
+            <th>Project label</th>
+            <th>Service order</th>
+            <th>Status</th>
+            <th>Last seen</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in groups %}
+          <tr>
+            <form method="post">
+              <input type="hidden" name="chat_username" value="{{ row.chat_username }}">
+              <td>
+                <strong>{{ row.chat_name or '(Unnamed group)' }}</strong>
+                {% if row.account_wxid %}<div class="muted-line">Account: {{ row.account_wxid }}</div>{% endif %}
+              </td>
+              <td class="source-id">{{ row.chat_username }}</td>
+              <td><input type="text" name="project_name" value="{{ row.project_name or '' }}" placeholder="AM1 / Wolf Tank / ..."></td>
+              <td>
+                <select name="service_order_id">
+                  <option value="">Not mapped</option>
+                  {% for order in service_orders %}
+                    <option value="{{ order.id }}" {% if row.service_order_id == order.id %}selected{% endif %}>
+                      {{ order.order_number }}{% if order.client_name %} - {{ order.client_name }}{% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td class="source-status">
+                <label>
+                  <input type="checkbox" name="enabled" value="1" {% if row.enabled %}checked{% endif %}>
+                  Allow collection
+                </label>
+              </td>
+              <td>{{ row.last_seen_at or '' }}</td>
+              <td><button type="submit" class="erp-btn primary">Save</button></td>
+            </form>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <div class="empty-state">
+          No WeChat work groups have been discovered yet. The Windows collector must sync the group catalog first. Private chats are never included in that catalog.
+        </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

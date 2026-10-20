@@ -4419,6 +4419,7 @@ _wechat_intelligence_exports = register_wechat_intelligence_routes(
     app,
     service=_wechat_intelligence_service,
     get_setting=get_setting,
+    admin_required=admin_required,
 )
 
 _whatsapp_service = WhatsAppService(db=db, now=now)

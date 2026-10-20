@@ -39,6 +39,113 @@ class WeChatIntelligenceService:
             (chat_username,),
         ).fetchone() is not None
 
+    def ingest_group_catalog(self, groups):
+        """Store privacy-safe group metadata only; never store private-chat entries."""
+        connection = self.db()
+        accepted, rejected, errors = [], [], []
+        timestamp = self._now()
+        for index, item in enumerate(groups):
+            try:
+                chat_username = str(item.get("chat_username") or "").strip()
+                if not chat_username.endswith("@chatroom"):
+                    rejected.append({"index": index, "reason": "not_group_chat"})
+                    continue
+                chat_name = str(item.get("chat_name") or "").strip()[:255]
+                account_wxid = str(item.get("account_wxid") or "").strip()[:255]
+                existing = connection.execute(
+                    "select id from wechat_group_catalog where chat_username = ?",
+                    (chat_username,),
+                ).fetchone()
+                if existing:
+                    connection.execute(
+                        """update wechat_group_catalog
+                           set chat_name=?, account_wxid=?, last_seen_at=?, updated_at=?
+                           where chat_username=?""",
+                        (chat_name, account_wxid, timestamp, timestamp, chat_username),
+                    )
+                else:
+                    connection.execute(
+                        """insert into wechat_group_catalog
+                           (chat_username, chat_name, account_wxid, first_seen_at, last_seen_at, updated_at)
+                           values (?, ?, ?, ?, ?, ?)""",
+                        (chat_username, chat_name, account_wxid, timestamp, timestamp, timestamp),
+                    )
+                accepted.append(chat_username)
+            except Exception as exc:
+                errors.append({"index": index, "error": str(exc)})
+        if accepted:
+            connection.commit()
+        return {"accepted": accepted, "rejected": rejected, "errors": errors}
+
+    def list_group_sources(self):
+        return self.db().execute(
+            """select c.chat_username, c.chat_name, c.account_wxid, c.last_seen_at,
+                      m.service_order_id, m.project_name, coalesce(m.enabled, false) as enabled
+               from wechat_group_catalog c
+               left join wechat_group_project_mappings m on m.chat_username = c.chat_username
+               order by coalesce(m.enabled, false) desc, lower(c.chat_name), c.chat_username"""
+        ).fetchall()
+
+    def list_service_orders(self):
+        return self.db().execute(
+            """select id, order_number, client_order_number, client_name, status
+               from service_orders
+               order by id desc
+               limit 500"""
+        ).fetchall()
+
+    def save_group_source(self, chat_username, *, enabled, service_order_id=None, project_name=""):
+        chat_username = str(chat_username or "").strip()
+        if not chat_username.endswith("@chatroom"):
+            raise ValueError("Only WeChat group chats can be enabled")
+        db = self.db()
+        catalog = db.execute(
+            "select chat_name from wechat_group_catalog where chat_username=?",
+            (chat_username,),
+        ).fetchone()
+        if not catalog:
+            raise ValueError("Unknown WeChat group; sync the group catalog first")
+
+        timestamp = self._now()
+        existing = db.execute(
+            "select id from wechat_group_project_mappings where chat_username=?",
+            (chat_username,),
+        ).fetchone()
+        chat_name = str(catalog["chat_name"] or "")
+        project_name = str(project_name or "").strip()[:255]
+        if existing:
+            db.execute(
+                """update wechat_group_project_mappings
+                   set chat_name=?, service_order_id=?, project_name=?, mapping_source='manual',
+                       confidence=1.0, enabled=?, updated_at=?
+                   where chat_username=?""",
+                (
+                    chat_name,
+                    service_order_id,
+                    project_name,
+                    bool(enabled),
+                    timestamp,
+                    chat_username,
+                ),
+            )
+        else:
+            db.execute(
+                """insert into wechat_group_project_mappings
+                   (chat_username, chat_name, service_order_id, project_name, mapping_source,
+                    confidence, enabled, created_at, updated_at)
+                   values (?, ?, ?, ?, 'manual', 1.0, ?, ?, ?)""",
+                (
+                    chat_username,
+                    chat_name,
+                    service_order_id,
+                    project_name,
+                    bool(enabled),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        db.commit()
+
     def ingest_batch(self, messages):
         accepted, duplicate, rejected, errors = [], [], [], []
         connection = self.db()

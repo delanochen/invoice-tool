@@ -43,6 +43,9 @@
     {% endif %}
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
+      {% if normalized_role() == "admin" %}
+        <a class="erp-btn" href="{{ url_for('wechat_sources') }}">WeChat Sources</a>
+      {% endif %}
       <button type="submit" class="erp-btn primary" form="settingsForm">保存系统设置</button>
     </div>
   </header>
