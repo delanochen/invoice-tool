@@ -61,10 +61,21 @@
 /* ── 报价单表单：与查看页一致的 4 个 Tab 面板 ──────────────────────────
    报价信息 / 定价汇总 / 费率与假设 / 付款与开票；面板内字段两列子网格。 */
 .erp-app .quotation-form {
-  display: block;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   margin: 0;
   background: transparent;
   border: none;
+  overflow: hidden;
+}
+.erp-app .quotation-form > .erp-panel.active {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 .erp-app .quotation-form .erp-detail-scroll { padding: 8px 10px; }
 .erp-app .quotation-form .fields-2col {
@@ -104,3 +115,14 @@
 
 /* 详情页信息网格：标签加粗品牌色 */
 .erp-app .detail-grid p strong { color: #163e36; }
+
+/* Quotation edit panels must remain vertically scrollable. */
+.erp-app .quotation-form > .erp-panel.active > .erp-detail-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.erp-app .quotation-form .pricing-rate-readonly { background: #f4f6f5; color: #4f5d57; }
+.erp-app .quotation-form .expense-config select { width: 100%; min-width: 150px; }

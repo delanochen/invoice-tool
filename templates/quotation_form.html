@@ -99,9 +99,6 @@
           <label class="erp-field">项目描述
             <textarea name="project_description" rows="3" placeholder="Project Description">{{ defaults.project_description or '' }}</textarea>
           </label>
-          <label class="erp-field">范围 1 <textarea name="scope_1" rows="2">{{ defaults.scope_1 or '' }}</textarea></label>
-          <label class="erp-field">范围 2 <textarea name="scope_2" rows="2">{{ defaults.scope_2 or '' }}</textarea></label>
-          <label class="erp-field">范围 3 <textarea name="scope_3" rows="2">{{ defaults.scope_3 or '' }}</textarea></label>
 
           <h4 class="panel-title">定价汇总</h4>
           <label class="erp-field">结算方式
@@ -123,7 +120,7 @@
                 <tr>
                   <td>{{ label }} <small class="unit">({{ unit }})</small></td>
                   <td><input type="number" step="any" min="0" name="pricing_qty_{{ key }}" class="qty" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('qty') or '' }}"></td>
-                  <td><input type="number" step="any" min="0" name="pricing_rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('rate') or '' }}"></td>
+                  <td>{% if key == 'other' %}<input type="number" step="any" min="0" name="pricing_rate_{{ key }}" class="rate" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('rate') or '' }}">{% else %}<input type="number" step="any" min="0" class="rate pricing-rate-readonly" data-key="{{ key }}" value="{{ rates.get(key, {}).get('rate') or pricing.get(key, {}).get('rate') or '' }}" readonly>{% endif %}</td>
                   <td><input type="number" step="any" min="0" name="pricing_amount_{{ key }}" class="amount" data-key="{{ key }}" value="{{ pricing.get(key, {}).get('amount') or '' }}" readonly></td>
                 </tr>
               {% endfor %}
@@ -184,16 +181,19 @@
                 {% endfor %}
               </select>
             </label>
-            <label class="erp-field">自驾里程单价（$/mile）
-              <input type="number" step="any" min="0" name="driving_mileage_rate" id="drivingMileageRate" value="{{ rates.get('mileage', {}).get('rate') or '' }}">
-            </label>
-            <label class="erp-field">自驾交通工时单价（$/hour）
-              <input type="number" step="any" min="0" name="driving_time_rate" id="drivingTimeRate" value="{{ rates.get('travel_time', {}).get('rate') or '' }}">
-            </label>
+
+
           </div>
           <small>自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。</small>
 
-          <h4 class="panel-title">项目假设</h4>
+                    <h4 class="panel-title">Travel &amp; Reimbursable Expenses</h4>
+          <div class="system-grid"><table class="pricing expense-config">
+            <thead><tr><th>Expense</th><th>Billing Method</th><th>Fixed Amount</th></tr></thead><tbody>
+            {% for key, label, default_method in travel_expense_lines %}{% set item = travel_expenses.get(key, {}) %}
+              <tr><td>{{ label }}</td><td><select name="travel_expense_method_{{ key }}" class="expense-method">{% for value, method_label in travel_expense_methods.items() %}<option value="{{ value }}" {% if (item.get('method') or default_method) == value %}selected{% endif %}>{{ method_label }}</option>{% endfor %}</select></td><td><input type="number" step="0.01" min="0" name="travel_expense_amount_{{ key }}" class="expense-amount" value="{{ item.get('amount') or '' }}"></td></tr>
+            {% endfor %}</tbody></table></div>
+
+<h4 class="panel-title">项目假设</h4>
           <div class="fields-2col">
             <label class="erp-field">预估人数（Crew Size） <input name="crew_size" value="{{ defaults.crew_size or '' }}" placeholder="persons"></label>
             <label class="erp-field">预估工作日（Workdays） <input name="workdays" value="{{ defaults.workdays or '' }}" placeholder="days"></label>
@@ -303,12 +303,6 @@
           el.value = rates[key];
         }
       });
-      if (rates) {
-        const dMileage = document.getElementById("drivingMileageRate");
-        const dTime = document.getElementById("drivingTimeRate");
-        if (onlyEmpty && dMileage.value === "" && "mileage" in rates) dMileage.value = rates.mileage;
-        if (onlyEmpty && dTime.value === "" && "travel_time" in rates) dTime.value = rates.travel_time;
-      }
       recalc();
     };
 
@@ -331,6 +325,22 @@
 
     document.querySelectorAll("table.pricing .qty, table.pricing .rate").forEach((el) => {
       el.addEventListener("input", recalc);
+    });
+    document.querySelectorAll('#rateSchedulePanel input[name^="rate_"]').forEach((el) => {
+      el.addEventListener("input", () => {
+        const target = pricingTable.querySelector(`.pricing-rate-readonly[data-key="${el.dataset.key}"]`);
+        if (target) target.value = el.value;
+        recalc();
+      });
+    });
+    document.querySelectorAll('.expense-config .expense-method').forEach((el) => {
+      const refreshExpense = () => {
+        const amount = el.closest('tr').querySelector('.expense-amount');
+        amount.disabled = el.value !== 'fixed_amount';
+        if (amount.disabled) amount.value = '';
+      };
+      el.addEventListener('change', refreshExpense);
+      refreshExpense();
     });
     taxInput.addEventListener("input", recalc);
     totalInput.addEventListener("input", recalc);

@@ -39,6 +39,8 @@ from reportlab.platypus import (
 
 from invoice_tool.commercial_billing import (
     COMMERCIAL_RATE_FORM_LINES,
+    COMMERCIAL_RATE_DISPLAY_UNITS,
+    COMMERCIAL_RATE_TYPES,
     canonical_commercial_rate_key,
 )
 
@@ -50,28 +52,31 @@ SIGNATURE_IMAGE = os.path.join(_STATIC_DIR, "signature-yongming.png")
 # ---------------------------------------------------------------------------
 
 PRICING_LINES = [
-    ("regular_labor", "Regular Labor", "Hr"),
-    ("overtime_labor", "Overtime Labor", "Hr"),
-    ("travel_time", "Travel Time", "Hr"),
-    ("waiting_standby", "Waiting / Standby Time", "Hr"),
-    ("mileage", "Mileage", "Miles"),
-    ("lodging", "Lodging", "Person/Night"),
-    ("materials_parts", "Materials / Parts", "As required"),
-    ("other", "Other", ""),
-]
+    (key, label, COMMERCIAL_RATE_DISPLAY_UNITS[unit])
+    for key, label, unit in COMMERCIAL_RATE_TYPES
+] + [("other", "Other", "")]
+
 
 RATE_SCHEDULE_LINES = COMMERCIAL_RATE_FORM_LINES
 
 TRAVEL_EXPENSES = [
-    ("Airfare", "Actual Cost"),
-    ("Rental Vehicle", "Actual Cost"),
-    ("Rental Vehicle Fuel", "Actual Cost"),
-    ("Hotel / Lodging", "Actual Cost or Agreed Rate"),
-    ("Tolls & Parking", "Actual Cost"),
-    ("Rideshare / Taxi / Public Transportation", "Actual Cost"),
-    ("Baggage / Shipping / Freight", "Actual Cost"),
-    ("Project Materials", "Actual Cost or Quoted Price"),
+    ("airfare", "Airfare", "actual_cost"),
+    ("rental_vehicle", "Rental Vehicle", "actual_cost"),
+    ("rental_vehicle_fuel", "Rental Vehicle Fuel", "actual_cost"),
+    ("hotel_lodging", "Hotel / Lodging", "actual_or_agreed_rate"),
+    ("tolls_parking", "Tolls & Parking", "actual_cost"),
+    ("rideshare_public_transport", "Rideshare / Taxi / Public Transportation", "actual_cost"),
+    ("baggage_shipping_freight", "Baggage / Shipping / Freight", "actual_cost"),
+    ("project_materials", "Project Materials", "actual_or_quoted_price"),
 ]
+TRAVEL_EXPENSE_METHODS = {
+    "not_applicable": "Not Applicable",
+    "actual_cost": "Actual Cost",
+    "actual_or_agreed_rate": "Actual Cost or Agreed Rate",
+    "actual_or_quoted_price": "Actual Cost or Quoted Price",
+    "fixed_amount": "Fixed Amount",
+}
+
 
 MINIMUM_BILLING_INCREMENT = "Minimum billing increment: 15 minutes."
 
@@ -505,17 +510,30 @@ def _rate_table(quote, lines, styles):
     return table
 
 
-def _travel_table(styles):
+def _travel_table(quote, styles):
     header = [
         Paragraph("Expense", styles["head"]),
         Paragraph("Billing Method", styles["head"]),
     ]
     data = [header]
-    for label, method in TRAVEL_EXPENSES:
-        data.append([
-            Paragraph(_esc(label), styles["cell"]),
-            Paragraph(_esc(method), styles["cell"]),
-        ])
+    try:
+        import json
+        raw = quote.get("travel_expenses") or "[]"
+        configured = json.loads(raw) if isinstance(raw, str) and raw.strip() else (raw or [])
+        by_key = {str(item.get("key")): item for item in configured if isinstance(item, dict)}
+    except (ValueError, TypeError):
+        by_key = {}
+    for key, label, default_method in TRAVEL_EXPENSES:
+        item = by_key.get(key) or {}
+        method = item.get("method") or default_method
+        if method == "not_applicable":
+            continue
+        method_text = TRAVEL_EXPENSE_METHODS.get(method, method)
+        if method == "fixed_amount":
+            method_text = f"Fixed Amount - $ {_money(item.get('amount') or 0)}"
+        data.append([Paragraph(_esc(label), styles["cell"]), Paragraph(_esc(method_text), styles["cell"])])
+    if len(data) == 1:
+        data.append([Paragraph("No reimbursable travel expenses", styles["cell"]), Paragraph("Not Applicable", styles["cell"])])
     table = Table(data, colWidths=[93 * mm, 93 * mm], repeatRows=1)
     style = _table_style()
     style.add("BACKGROUND", (0, 0), (-1, 0), MID_GREEN)
@@ -646,10 +664,10 @@ def _draw_header_footer(canvas, doc):
     canvas.saveState()
     # --- header ---
     canvas.setFillColor(DARK_GREEN)
-    canvas.setFont("Helvetica-Bold", 14)
+    canvas.setFont("Helvetica-Bold", 16)
     canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
     canvas.setFillColor(HEADER_GRAY)
-    canvas.setFont("Helvetica-Bold", 7.5)
+    canvas.setFont("Helvetica", 7)
     canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, "FIELD SERVICES \u2022 RETROFIT \u2022 COMMISSIONING")
     canvas.setStrokeColor(BORDER)
     canvas.setLineWidth(0.5)
@@ -657,7 +675,7 @@ def _draw_header_footer(canvas, doc):
     # --- footer ---
     canvas.setFillColor(HEADER_GRAY)
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(DOC_MARGIN, 7 * mm, "Prasinos Power  |  Standard Quotation Template  |  Confidential")
+    canvas.drawString(DOC_MARGIN, 7 * mm, "Prasinos Power  |  Confidential")
     canvas.drawRightString(PAGE_W - DOC_MARGIN, 7 * mm, "Page %d" % doc.page)
     canvas.setStrokeColor(BORDER)
     canvas.setLineWidth(0.5)
@@ -735,25 +753,14 @@ def build_quotation_pdf(quote, path):
     )
     story = []
     story.append(Paragraph(
-        "QUOTATION"
-        "&nbsp;&nbsp;<font color='#66736D' size='10'><b>|&nbsp;&nbsp;PROFESSIONAL SERVICES</b></font>",
+        "QUOTATION<br/><font color='#66736D' size='9'>Professional Services</font>",
         styles["title"],
     ))
-    story.append(Spacer(1, 3))
-    story.append(Paragraph(
-        "<font color='#66736D'><b>Prasinos Power</b></font>",
-        styles["subtitle"],
-    ))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 7))
     story.append(_info_grid(quote, styles))
 
     story.append(_section("SCOPE OF WORK", styles))
-    scope_rows = [
-        ("Project Description", quote.get("project_description") or ""),
-        ("Scope 1", quote.get("scope_1") or ""),
-        ("Scope 2", quote.get("scope_2") or ""),
-        ("Scope 3", quote.get("scope_3") or ""),
-    ]
+    scope_rows = [("Project Description", quote.get("project_description") or "")]
     scope_rows = [pair for pair in scope_rows if str(pair[1]).strip()]
     if not scope_rows:
         scope_rows = [("Project Description", "")]
@@ -789,7 +796,7 @@ def build_quotation_pdf(quote, path):
 
     story.append(KeepTogether([
         _section("TRAVEL & REIMBURSABLE EXPENSES", styles, level=2),
-        _travel_table(styles),
+        _travel_table(quote, styles),
     ]))
 
     story.append(KeepTogether([
