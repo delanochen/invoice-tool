@@ -1,4 +1,4 @@
-"""PP Field AI web interface. All evidence is authorized by FieldAIService."""
+"""PP Field AI web interface for administrator-enabled WeChat work groups."""
 import hmac
 import json
 import secrets
@@ -36,12 +36,12 @@ def register_field_ai_routes(app, namespace):
             question = request.form.get("question", "").strip()
             if not question or len(question) > 2000:
                 abort(400, "Question must contain 1–2000 characters")
-            # Only the same authorized WeChat evidence shown below goes to the LLM.
+            # Only administrator-enabled work-group evidence shown below goes to the LLM.
             context = service.gather_context(g.user, question)
             evidence = [{**row, "content": str(row["content"] or "")[:3000]}
                         for row in context["wechat"]]
             if not evidence:
-                answer = "没有找到你有权查看的微信群消息，无法依据消息回答。"
+                answer = "没有在已启用的工作群中找到相关微信消息，无法依据消息回答。"
             else:
                 settings = namespace["deepseek_assistant_settings"]()
                 if not settings.get("api_key"):

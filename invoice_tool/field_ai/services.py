@@ -1,7 +1,8 @@
 """Read-only retrieval core for PP Field AI.
 
-Authorization is resolved before evidence is loaded. This layer never mutates
-formal work-order, billing, reimbursement, or settlement records.
+WeChat retrieval is limited to administrator-enabled work groups and is not
+scoped by service-order assignment. This layer never mutates formal work-order,
+billing, reimbursement, or settlement records.
 """
 from __future__ import annotations
 
@@ -40,14 +41,15 @@ class FieldAIService:
         return " and m.service_order_id in (" + ",".join("?" for _ in allowed) + ")", sorted(allowed)
 
     def visible_groups(self, user):
-        scope, params = self._scope(user)
+        # WeChat work groups are independent of service orders. Any signed-in user
+        # may view groups explicitly enabled by the administrator.
         return self.db().execute(
             "select m.chat_username, m.chat_name from wechat_group_project_mappings m "
-            "where m.enabled=true and m.chat_username like '%@chatroom'" + scope +
-            " order by m.chat_name, m.chat_username", tuple(params)).fetchall()
+            "where m.enabled=true and m.chat_username like '%@chatroom' "
+            "order by m.chat_name, m.chat_username"
+        ).fetchall()
 
     def list_wechat(self, user, *, keyword="", group="", sender="", start="", end="", limit=50, offset=0):
-        scope, scope_params = self._scope(user)
         params = []
         filters = ["m.enabled=true", "r.chat_username like '%@chatroom'", "r.chat_type='group'"]
         for value, clause in ((keyword, "lower(r.content) like ? escape '\\'"),
@@ -59,13 +61,12 @@ class FieldAIService:
             if value:
                 filters.append(clause)
                 params.append(value)
-        params.extend(scope_params)
         params.extend([max(1, min(int(limit), 100)), max(0, int(offset))])
         return self.db().execute(
             "select r.id, r.message_time, r.sender_name, r.content, "
             "coalesce(nullif(m.chat_name,''),r.chat_name) as chat_name, m.service_order_id, m.project_name "
             "from wechat_raw_messages r join wechat_group_project_mappings m on m.chat_username=r.chat_username "
-            "where " + " and ".join(filters) + scope + " order by r.message_time desc, r.id desc limit ? offset ?",
+            "where " + " and ".join(filters) + " order by r.message_time desc, r.id desc limit ? offset ?",
             tuple(params)).fetchall()
 
     @staticmethod
@@ -87,17 +88,16 @@ class FieldAIService:
         term = self._search_term(question)
         if not term:
             return []
-        scope, scope_params = self._scope(user)
         like = self._like_query(term)
         return self.db().execute(
             "select r.id, r.message_time, r.sender_name, r.content, "
             "coalesce(nullif(m.chat_name,''),r.chat_name) as chat_name, m.service_order_id, m.project_name "
             "from wechat_raw_messages r join wechat_group_project_mappings m on m.chat_username=r.chat_username "
             "where m.enabled=true and r.chat_username like '%@chatroom' and r.chat_type='group' "
-            "and (lower(r.content) like ? escape '\\' or lower(r.sender_name) like ? escape '\\')" + scope +
-            " order by case when lower(r.sender_name)=lower(?) then 0 when lower(r.sender_name) like ? escape '\\' then 1 else 2 end, "
+            "and (lower(r.content) like ? escape '\\' or lower(r.sender_name) like ? escape '\\') "
+            "order by case when lower(r.sender_name)=lower(?) then 0 when lower(r.sender_name) like ? escape '\\' then 1 else 2 end, "
             "r.message_time desc, r.id desc limit ?",
-            tuple([like, like] + scope_params + [term, like, max(1, min(int(limit), 100))]),
+            tuple([like, like, term, like, max(1, min(int(limit), 100))]),
         ).fetchall()
 
     def recent_wechat(self, user, limit=20):
