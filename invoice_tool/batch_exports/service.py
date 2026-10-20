@@ -186,7 +186,15 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
             with zipfile.ZipFile(stored, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 total = max(1, len(order_ids))
                 for pos, order_id in enumerate(order_ids, 1):
-                    order = conn.execute("select * from service_orders where id=?", (order_id,)).fetchone()
+                    order = conn.execute(
+                        """select service_orders.*,
+                                  coalesce(owners.name, buyers.owner) as buyer_owner
+                           from service_orders
+                           left join buyers on buyers.id = service_orders.buyer_id
+                           left join owners on owners.id = buyers.owner_id
+                           where service_orders.id=?""",
+                        (order_id,),
+                    ).fetchone()
                     if not order:
                         missing.append(f"工单 {order_id}: 不存在")
                         continue
