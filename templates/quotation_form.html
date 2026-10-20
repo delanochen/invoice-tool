@@ -181,12 +181,8 @@
                 {% endfor %}
               </select>
             </label>
-            <label class="erp-field">自驾里程单价（$/mile）
-              <input type="number" step="any" min="0" name="driving_mileage_rate" id="drivingMileageRate" value="{{ rates.get('mileage', {}).get('rate') or '' }}">
-            </label>
-            <label class="erp-field">自驾交通工时单价（$/hour）
-              <input type="number" step="any" min="0" name="driving_time_rate" id="drivingTimeRate" value="{{ rates.get('travel_time', {}).get('rate') or '' }}">
-            </label>
+            
+            
           </div>
           <small>自驾计费只影响客户收入；员工交通工资、里程补贴与报销仍按员工标准计算。</small>
 
@@ -307,12 +303,6 @@
           el.value = rates[key];
         }
       });
-      if (rates) {
-        const dMileage = document.getElementById("drivingMileageRate");
-        const dTime = document.getElementById("drivingTimeRate");
-        if (onlyEmpty && dMileage.value === "" && "mileage" in rates) dMileage.value = rates.mileage;
-        if (onlyEmpty && dTime.value === "" && "travel_time" in rates) dTime.value = rates.travel_time;
-      }
       recalc();
     };
 
