@@ -104,3 +104,10 @@
 
 /* 详情页信息网格：标签加粗品牌色 */
 .erp-app .detail-grid p strong { color: #163e36; }
+
+/* Quotation edit panels must remain vertically scrollable. */
+.erp-app .quotation-form .erp-body > .erp-panel.active > .erp-detail-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+}
+.erp-app .quotation-form .pricing-rate-readonly { background: #f4f6f5; color: #4f5d57; }
+.erp-app .quotation-form .expense-config select { width: 100%; min-width: 150px; }

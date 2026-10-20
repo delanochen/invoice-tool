@@ -30,6 +30,8 @@ from .documents import (
     PRICING_TYPE_LABELS,
     QUOTATION_STATUS_LABELS,
     RATE_SCHEDULE_LINES,
+    TRAVEL_EXPENSES,
+    TRAVEL_EXPENSE_METHODS,
     build_quotation_pdf,
 )
 from invoice_tool.commercial_billing import (
@@ -57,7 +59,7 @@ _QUOTATION_COLUMNS = (
     "rate_schedule, crew_size, workdays, hours_per_day, expected_start_date, "
     "expected_completion, normal_working_hours, customer_provides, assumptions_other, "
     "payment_terms, payment_terms_other, quotation_validity, invoice_frequency, "
-    "pricing_type, tax_note, notes"
+    "pricing_type, tax_note, notes, travel_expenses"
 )
 # created_by / created_at / updated_at 由后端补充，不属于表单。
 _FORM_COLUMNS = _QUOTATION_COLUMNS
@@ -228,9 +230,17 @@ def quotation_form_values(api, quotation=None):
         rate_schedule = []
     else:
         pricing_lines = []
+        schedule_keys = {key for key, _label, _unit in RATE_SCHEDULE_LINES}
         for key, label, unit in PRICING_LINES:
             qty = field(f"pricing_qty_{key}")
-            rate = field(f"pricing_rate_{key}")
+            if key in schedule_keys:
+                rate = field(f"rate_{key}")
+                if not rate:
+                    legacy_key = CANONICAL_TO_LEGACY_QUOTATION_RATE_KEYS.get(key)
+                    if legacy_key:
+                        rate = field(f"rate_{legacy_key}")
+            else:
+                rate = field(f"pricing_rate_{key}")
             amount_input = field(f"pricing_amount_{key}")
             qty_decimal = _decimal(qty)
             rate_decimal = _decimal(rate)
@@ -275,6 +285,14 @@ def quotation_form_values(api, quotation=None):
     final_amount = quote_amounts_result["final_amount"]
     driving_billing_mode = normalize_driving_mode(field("driving_billing_mode", "mileage_only"))
     settlement_mode = normalize_settlement_mode(field("settlement_mode", "actual"))
+    travel_expenses = []
+    valid_expense_methods = set(TRAVEL_EXPENSE_METHODS)
+    for key, label in TRAVEL_EXPENSES:
+        method = field(f"travel_expense_method_{key}", "not_applicable") or "not_applicable"
+        if method not in valid_expense_methods:
+            method = "not_applicable"
+        amount = field(f"travel_expense_amount_{key}") if method == "fixed_amount" else ""
+        travel_expenses.append({"key": key, "label": label, "method": method, "amount": amount})
     client_id = field("client_id")
     return {
         "quotation_number": field("quotation_number"),
@@ -324,6 +342,7 @@ def quotation_form_values(api, quotation=None):
         "pricing_type": field("pricing_type", "estimated") or "estimated",
         "tax_note": field("tax_note", "Excluded unless stated") or "Excluded unless stated",
         "notes": field("notes"),
+        "travel_expenses": json.dumps(travel_expenses, ensure_ascii=False),
     }
 
 
@@ -462,6 +481,14 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         }
     except (ValueError, TypeError):
         rates = {}
+    travel_expenses = {}
+    try:
+        raw = defaults.get("travel_expenses") or "[]"
+        if isinstance(raw, str):
+            raw = json.loads(raw) if raw.strip() else []
+        travel_expenses = {str(item.get("key")): item for item in raw if isinstance(item, dict)}
+    except (ValueError, TypeError):
+        travel_expenses = {}
     client_id = defaults.get("client_id")
     if not client_id and quotation:
         # quotation 可能是 dict 或 psycopg Row；Row 没有 .get，统一按索引访问
@@ -476,6 +503,9 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         contract_rates=client_contract_rates(api, client_id),
         pricing_lines=PRICING_LINES,
         rate_schedule_lines=RATE_SCHEDULE_LINES,
+        travel_expense_lines=TRAVEL_EXPENSES,
+        travel_expense_methods=TRAVEL_EXPENSE_METHODS,
+        travel_expenses=travel_expenses,
         payment_terms_labels=PAYMENT_TERMS_LABELS,
         invoice_frequency_labels=INVOICE_FREQUENCY_LABELS,
         pricing_type_labels=PRICING_TYPE_LABELS,
