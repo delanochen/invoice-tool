@@ -84,20 +84,51 @@ class FieldAIService:
             return match.group(1).strip()
         return text
 
-    def search_wechat(self, user, question, limit=12):
-        term = self._search_term(question)
-        if not term:
+    @classmethod
+    def _search_terms(cls, question):
+        """Extract useful lookup terms instead of requiring the whole question verbatim."""
+        subject = cls._search_term(question)
+        if not subject:
             return []
-        like = self._like_query(term)
+        identity_question = subject != re.sub(r"[?？!！。]+$", "", str(question or "").strip()).strip()
+        if identity_question:
+            return [subject]
+
+        # Project/site/person names are often English inside a Chinese question.
+        latin_terms = re.findall(r"[A-Za-z][A-Za-z0-9._-]{1,}", subject)
+        if latin_terms:
+            return list(dict.fromkeys(latin_terms))[:4]
+
+        cleaned = subject
+        for phrase in (
+            "请问", "帮我查一下", "帮我查", "帮我看一下", "帮我看", "今天", "今日", "最近",
+            "有没有", "是否有", "是否", "有无", "发生过", "发生", "出现过", "出现",
+            "谁处理过", "谁处理", "谁负责的", "谁负责", "故障", "问题", "异常", "报错",
+            "场站", "项目", "情况", "怎么样", "怎么回事", "吗", "呢",
+        ):
+            cleaned = cleaned.replace(phrase, " ")
+        cleaned = re.sub(r"[?？!！。,:：，；;]+", " ", cleaned)
+        candidates = [part.strip() for part in cleaned.split() if len(part.strip()) >= 2]
+        return list(dict.fromkeys(candidates or [subject]))[:4]
+
+    def search_wechat(self, user, question, limit=12):
+        terms = self._search_terms(question)
+        if not terms:
+            return []
+        clauses = []
+        params = []
+        for term in terms:
+            like = self._like_query(term)
+            clauses.append("(lower(r.content) like ? escape '\\' or lower(r.sender_name) like ? escape '\\')")
+            params.extend([like, like])
+        params.append(max(1, min(int(limit), 100)))
         return self.db().execute(
             "select r.id, r.message_time, r.sender_name, r.content, "
             "coalesce(nullif(m.chat_name,''),r.chat_name) as chat_name, m.service_order_id, m.project_name "
             "from wechat_raw_messages r join wechat_group_project_mappings m on m.chat_username=r.chat_username "
-            "where m.enabled=true and r.chat_username like '%@chatroom' and r.chat_type='group' "
-            "and (lower(r.content) like ? escape '\\' or lower(r.sender_name) like ? escape '\\') "
-            "order by case when lower(r.sender_name)=lower(?) then 0 when lower(r.sender_name) like ? escape '\\' then 1 else 2 end, "
-            "r.message_time desc, r.id desc limit ?",
-            tuple([like, like, term, like, max(1, min(int(limit), 100))]),
+            "where m.enabled=true and r.chat_username like '%@chatroom' and r.chat_type='group' and (" +
+            " or ".join(clauses) + ") order by r.message_time desc, r.id desc limit ?",
+            tuple(params),
         ).fetchall()
 
     def recent_wechat(self, user, limit=20):

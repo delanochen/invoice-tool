@@ -81,3 +81,33 @@ def test_wechat_groups_are_not_scoped_by_service_order():
     messages = service.list_wechat(ordinary_user)
     assert [row["chat_username"] for row in groups] == ["enabled@chatroom"]
     assert [row["id"] for row in messages] == [1]
+
+
+def test_mixed_language_question_extracts_project_name():
+    assert FieldAIService._search_terms("Longbow今天有没有故障") == ["Longbow"]
+
+
+def test_longbow_question_matches_message_without_whole_question():
+    import sqlite3
+
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript("""
+        create table wechat_group_project_mappings (
+            chat_username text, chat_name text, enabled integer,
+            service_order_id integer, project_name text
+        );
+        create table wechat_raw_messages (
+            id integer, message_time text, sender_name text, content text,
+            chat_name text, chat_username text, chat_type text
+        );
+        insert into wechat_group_project_mappings values
+            ('g@chatroom', '同飞股份-美国Prasinos Power沟通', 1, null, null);
+        insert into wechat_raw_messages values
+            (1, '2026-10-20T15:07:53+00:00', '高阳',
+             'longbow 场站的甲方跟我们说有2台报错',
+             '同飞股份-美国Prasinos Power沟通', 'g@chatroom', 'group');
+    """)
+    service = FieldAIService(db=lambda: db)
+    rows = service.search_wechat({"id": 9, "role": "employee"}, "Longbow今天有没有故障")
+    assert [row["id"] for row in rows] == [1]
