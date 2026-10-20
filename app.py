@@ -224,6 +224,8 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from image_processing import compress_image
 from invoice_tool.knowledge import KnowledgeService, register_knowledge_routes
+from invoice_tool.wechat_intelligence import WeChatIntelligenceService, register_wechat_intelligence_routes
+from invoice_tool.whatsapp import WhatsAppService, register_whatsapp_routes
 from invoice_tool.catalog import (
     MRO_CANONICAL_PROJECT_NAME,
     build_catalog_services,
@@ -4411,6 +4413,22 @@ upload_knowledge_document_version = _knowledge_exports["upload_knowledge_documen
 preview_knowledge_document_version = _knowledge_exports["preview_knowledge_document_version"]
 download_knowledge_document_version = _knowledge_exports["download_knowledge_document_version"]
 delete_knowledge_document = _knowledge_exports["delete_knowledge_document"]
+
+_wechat_intelligence_service = WeChatIntelligenceService(db=db)
+_wechat_intelligence_exports = register_wechat_intelligence_routes(
+    app,
+    service=_wechat_intelligence_service,
+    get_setting=get_setting,
+)
+
+_whatsapp_service = WhatsAppService(db=db, now=now)
+_whatsapp_exports = register_whatsapp_routes(
+    app,
+    service=_whatsapp_service,
+    get_setting=get_setting,
+    login_required=login_required,
+    can_manage_users=can_manage_users,
+)
 
 register_field_routes(app, globals())
 register_staff_reports(app, globals())

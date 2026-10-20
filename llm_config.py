@@ -13,6 +13,8 @@ SCENES = (
     ("expense_review", "报销 AI 审核（文本）"),
     ("daily_vision", "日报照片识图（需视觉）"),
     ("daily_intent", "日报意图 / AI 助手（文本）"),
+    ("wechat_project_analysis", "微信项目事件分析（文本）"),
+    ("wechat_vision", "微信现场图片分析（需视觉）"),
 )
 
 SCENE_KEYS = {key for key, _label in SCENES}

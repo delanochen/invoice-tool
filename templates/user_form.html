@@ -114,6 +114,21 @@
           <label class="full-span">新增附件 <input type="file" name="attachments" multiple></label>
         </div>
 
+        <div class="erp-detail-section-title">WhatsApp - PP Field AI</div>
+        <section class="subsection full-span-block" data-whatsapp-binding data-user-id="{{ user.id }}">
+          <p><strong>Binding status: </strong><span data-whatsapp-status>Loading...</span></p>
+          <p class="empty">After binding, this WhatsApp account can query PP Field AI using this employee's existing project permissions.</p>
+          <div class="user-fact-actions">
+            <button type="button" class="erp-btn primary" data-whatsapp-generate>Generate binding code</button>
+            <button type="button" class="erp-btn danger" data-whatsapp-unbind hidden>Unbind WhatsApp</button>
+          </div>
+          <div data-whatsapp-code-box hidden>
+            <p>Within 10 minutes, send this code to PP Field AI from the WhatsApp account to bind:</p>
+            <p><code data-whatsapp-code style="font-size:20px;font-weight:700"></code></p>
+            <p class="empty">The verified Meta WhatsApp identity is stored automatically; wa_id is never entered manually.</p>
+          </div>
+        </section>
+
         {% if can_assign and normalized_role(user.role) == "external_employee" and can_manage %}
           <div class="erp-detail-section-title">外部员工工单授权</div>
           <fieldset class="plain-fieldset full-span-block">
@@ -218,6 +233,7 @@
   <script src="{{ url_for('static', filename='user-address.js', v='20260706-user-address-v1') }}"></script>
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
   <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
+  <script src="{{ url_for('static', filename='whatsapp-binding.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}
 
