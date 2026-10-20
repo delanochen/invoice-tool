@@ -60,18 +60,20 @@ PRICING_LINES = [
 RATE_SCHEDULE_LINES = COMMERCIAL_RATE_FORM_LINES
 
 TRAVEL_EXPENSES = [
-    ("airfare", "Airfare"),
-    ("rental_vehicle", "Rental Vehicle"),
-    ("rental_vehicle_fuel", "Rental Vehicle Fuel"),
-    ("hotel_lodging", "Hotel / Lodging"),
-    ("tolls_parking", "Tolls & Parking"),
-    ("rideshare_public_transport", "Rideshare / Taxi / Public Transportation"),
-    ("baggage_shipping_freight", "Baggage / Shipping / Freight"),
-    ("project_materials", "Project Materials"),
+    ("airfare", "Airfare", "actual_cost"),
+    ("rental_vehicle", "Rental Vehicle", "actual_cost"),
+    ("rental_vehicle_fuel", "Rental Vehicle Fuel", "actual_cost"),
+    ("hotel_lodging", "Hotel / Lodging", "actual_or_agreed_rate"),
+    ("tolls_parking", "Tolls & Parking", "actual_cost"),
+    ("rideshare_public_transport", "Rideshare / Taxi / Public Transportation", "actual_cost"),
+    ("baggage_shipping_freight", "Baggage / Shipping / Freight", "actual_cost"),
+    ("project_materials", "Project Materials", "actual_or_quoted_price"),
 ]
 TRAVEL_EXPENSE_METHODS = {
     "not_applicable": "Not Applicable",
     "actual_cost": "Actual Cost",
+    "actual_or_agreed_rate": "Actual Cost or Agreed Rate",
+    "actual_or_quoted_price": "Actual Cost or Quoted Price",
     "fixed_amount": "Fixed Amount",
 }
 
@@ -521,9 +523,9 @@ def _travel_table(quote, styles):
         by_key = {str(item.get("key")): item for item in configured if isinstance(item, dict)}
     except (ValueError, TypeError):
         by_key = {}
-    for key, label in TRAVEL_EXPENSES:
+    for key, label, default_method in TRAVEL_EXPENSES:
         item = by_key.get(key) or {}
-        method = item.get("method") or "not_applicable"
+        method = item.get("method") or default_method
         if method == "not_applicable":
             continue
         method_text = TRAVEL_EXPENSE_METHODS.get(method, method)

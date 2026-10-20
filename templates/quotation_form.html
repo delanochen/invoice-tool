@@ -189,8 +189,8 @@
                     <h4 class="panel-title">Travel &amp; Reimbursable Expenses</h4>
           <div class="system-grid"><table class="pricing expense-config">
             <thead><tr><th>Expense</th><th>Billing Method</th><th>Fixed Amount</th></tr></thead><tbody>
-            {% for key, label in travel_expense_lines %}{% set item = travel_expenses.get(key, {}) %}
-              <tr><td>{{ label }}</td><td><select name="travel_expense_method_{{ key }}" class="expense-method">{% for value, method_label in travel_expense_methods.items() %}<option value="{{ value }}" {% if (item.get('method') or 'not_applicable') == value %}selected{% endif %}>{{ method_label }}</option>{% endfor %}</select></td><td><input type="number" step="0.01" min="0" name="travel_expense_amount_{{ key }}" class="expense-amount" value="{{ item.get('amount') or '' }}"></td></tr>
+            {% for key, label, default_method in travel_expense_lines %}{% set item = travel_expenses.get(key, {}) %}
+              <tr><td>{{ label }}</td><td><select name="travel_expense_method_{{ key }}" class="expense-method">{% for value, method_label in travel_expense_methods.items() %}<option value="{{ value }}" {% if (item.get('method') or default_method) == value %}selected{% endif %}>{{ method_label }}</option>{% endfor %}</select></td><td><input type="number" step="0.01" min="0" name="travel_expense_amount_{{ key }}" class="expense-amount" value="{{ item.get('amount') or '' }}"></td></tr>
             {% endfor %}</tbody></table></div>
 
 <h4 class="panel-title">项目假设</h4>

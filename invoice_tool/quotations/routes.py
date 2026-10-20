@@ -287,8 +287,8 @@ def quotation_form_values(api, quotation=None):
     settlement_mode = normalize_settlement_mode(field("settlement_mode", "actual"))
     travel_expenses = []
     valid_expense_methods = set(TRAVEL_EXPENSE_METHODS)
-    for key, label in TRAVEL_EXPENSES:
-        method = field(f"travel_expense_method_{key}", "not_applicable") or "not_applicable"
+    for key, label, default_method in TRAVEL_EXPENSES:
+        method = field(f"travel_expense_method_{key}", default_method) or default_method
         if method not in valid_expense_methods:
             method = "not_applicable"
         amount = field(f"travel_expense_amount_{key}") if method == "fixed_amount" else ""
