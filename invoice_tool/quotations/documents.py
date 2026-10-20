@@ -758,12 +758,7 @@ def build_quotation_pdf(quote, path):
     story.append(_info_grid(quote, styles))
 
     story.append(_section("SCOPE OF WORK", styles))
-    scope_rows = [
-        ("Project Description", quote.get("project_description") or ""),
-        ("Scope 1", quote.get("scope_1") or ""),
-        ("Scope 2", quote.get("scope_2") or ""),
-        ("Scope 3", quote.get("scope_3") or ""),
-    ]
+    scope_rows = [("Project Description", quote.get("project_description") or "")]
     scope_rows = [pair for pair in scope_rows if str(pair[1]).strip()]
     if not scope_rows:
         scope_rows = [("Project Description", "")]
