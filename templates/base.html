@@ -126,6 +126,9 @@
           <details class="nav-group main-group {{ 'active' if active_endpoint in main_endpoints else '' }}" {% if active_endpoint in main_endpoints %}open{% endif %}>
             <summary><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>主菜单</summary>
             <div class="nav-submenu">
+              {% if has_menu_permission("field_ai") %}
+                {{ nav_link("field_ai", "PP Field AI", icon="assistant") }}
+              {% endif %}
               {% if is_external_manager() %}
                 {% if has_menu_permission("clients") and has_action_permission("clients", "view") %}{{ nav_link("clients", "客户信息", icon="clients") }}{% endif %}
                 {% if has_menu_permission("buyers") and has_action_permission("buyers", "view") %}{{ nav_link("buyers", "站点", icon="buyer") }}{% endif %}

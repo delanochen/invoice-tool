@@ -225,6 +225,7 @@ from pillow_heif import register_heif_opener
 from image_processing import compress_image
 from invoice_tool.knowledge import KnowledgeService, register_knowledge_routes
 from invoice_tool.wechat_intelligence import WeChatIntelligenceService, register_wechat_intelligence_routes
+from invoice_tool.field_ai.routes import register_field_ai_routes
 from invoice_tool.whatsapp import WhatsAppService, register_whatsapp_routes
 from invoice_tool.catalog import (
     MRO_CANONICAL_PROJECT_NAME,
@@ -4549,6 +4550,7 @@ cpa_workpaper_export = _payroll_routes["cpa_workpaper_export"]
 
 register_employee_finance_routes(app, globals())
 register_expense_smart_fill_routes(app, globals())
+register_field_ai_routes(app, globals())
 register_order_employee_settlement_routes(app, globals())
 
 # ---------------------------------------------------------------------------

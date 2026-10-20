@@ -27,54 +27,50 @@ class FieldAIService:
     @staticmethod
     def _like_query(question):
         text = str(question or "").strip().lower()
-        return "%" + text.replace("%", "\\%").replace("_", "\\_") + "%"
+        return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+    def _scope(self, user):
+        allowed = self.authorized_order_ids(user)
+        if allowed is None:
+            return "", []
+        if not allowed:
+            return " and 1=0", []
+        return " and m.service_order_id in (" + ",".join("?" for _ in allowed) + ")", sorted(allowed)
+
+    def visible_groups(self, user):
+        scope, params = self._scope(user)
+        return self.db().execute(
+            "select m.chat_username, m.chat_name from wechat_group_project_mappings m "
+            "where m.enabled=true and m.chat_username like '%@chatroom'" + scope +
+            " order by m.chat_name, m.chat_username", tuple(params)).fetchall()
+
+    def list_wechat(self, user, *, keyword="", group="", sender="", start="", end="", limit=50, offset=0):
+        scope, scope_params = self._scope(user)
+        params = []
+        filters = ["m.enabled=true", "r.chat_username like '%@chatroom'", "r.chat_type='group'"]
+        for value, clause in ((keyword, "lower(r.content) like ? escape '\\'"),
+                              (sender, "lower(r.sender_name) like ? escape '\\'")):
+            if value:
+                filters.append(clause)
+                params.append(self._like_query(value))
+        for value, clause in ((group, "r.chat_username=?"), (start, "r.message_time>=?"), (end, "r.message_time<?")):
+            if value:
+                filters.append(clause)
+                params.append(value)
+        params.extend(scope_params)
+        params.extend([max(1, min(int(limit), 100)), max(0, int(offset))])
+        return self.db().execute(
+            "select r.id, r.message_time, r.sender_name, r.content, "
+            "coalesce(nullif(m.chat_name,''),r.chat_name) as chat_name, m.service_order_id, m.project_name "
+            "from wechat_raw_messages r join wechat_group_project_mappings m on m.chat_username=r.chat_username "
+            "where " + " and ".join(filters) + scope + " order by r.message_time desc, r.id desc limit ? offset ?",
+            tuple(params)).fetchall()
 
     def search_wechat(self, user, question, limit=12):
-        allowed = self.authorized_order_ids(user)
-        if allowed == set():
-            return []
-        params = [self._like_query(question)]
-        scope = ""
-        if allowed is not None:
-            placeholders = ",".join("?" for _ in allowed)
-            scope = f" and m.service_order_id in ({placeholders})"
-            params.extend(sorted(allowed))
-        params.append(int(limit))
-        return self.db().execute(
-            f"""select r.id, r.message_time, r.sender_name, r.content,
-                       r.chat_name, m.service_order_id, m.project_name
-                from wechat_raw_messages r
-                join wechat_group_project_mappings m
-                  on m.chat_username=r.chat_username and m.enabled=true
-                where lower(r.content) like ? escape '\\'
-                  {scope}
-                order by r.message_time desc, r.id desc
-                limit ?""",
-            tuple(params),
-        ).fetchall()
+        return self.list_wechat(user, keyword=question, limit=limit)
 
     def recent_wechat(self, user, limit=20):
-        allowed = self.authorized_order_ids(user)
-        if allowed == set():
-            return []
-        params = []
-        scope = ""
-        if allowed is not None:
-            placeholders = ",".join("?" for _ in allowed)
-            scope = f" and m.service_order_id in ({placeholders})"
-            params.extend(sorted(allowed))
-        params.append(int(limit))
-        return self.db().execute(
-            f"""select r.id, r.message_time, r.sender_name, r.content,
-                       r.chat_name, m.service_order_id, m.project_name
-                from wechat_raw_messages r
-                join wechat_group_project_mappings m
-                  on m.chat_username=r.chat_username and m.enabled=true
-                where 1=1 {scope}
-                order by r.message_time desc, r.id desc
-                limit ?""",
-            tuple(params),
-        ).fetchall()
+        return self.list_wechat(user, limit=limit)
 
     def confirmed_technical_knowledge(self, user, question, limit=8):
         allowed = self.authorized_order_ids(user)
