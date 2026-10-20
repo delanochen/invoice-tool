@@ -122,3 +122,37 @@ def test_image_xml_is_not_rendered_or_sent_to_ai():
 def test_unknown_xml_is_replaced_with_safe_rich_media_label():
     xml = '<?xml version="1.0"?><msg><appmsg><title>x</title></appmsg></msg>'
     assert FieldAIService.display_message(xml) == "\U0001f4ce \u6587\u4ef6 / \u94fe\u63a5 / \u5361\u7247"
+
+
+def test_longbow_context_expands_followup_without_keyword():
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript("""
+    create table wechat_group_project_mappings (
+        chat_username text, chat_name text, enabled integer,
+        service_order_id integer, project_name text
+    );
+    create table wechat_raw_messages (
+        id integer, message_time text, sender_name text, content text,
+        chat_name text, chat_username text, chat_type text
+    );
+    insert into wechat_group_project_mappings values
+      ('g@chatroom','work-group',1,null,null);
+    insert into wechat_raw_messages values
+      (1,'2026-10-20T15:07:53+00:00','worker-a','longbow site has 2 faults','work-group','g@chatroom','group'),
+      (2,'2026-10-20T15:22:30+00:00','worker-b','when can we go?','work-group','g@chatroom','group'),
+      (3,'2026-10-20T15:22:59+00:00','worker-c','tomorrow is okay','work-group','g@chatroom','group');
+    create table technical_knowledge_candidates (
+        id integer, service_order_id integer, project_name text, equipment text,
+        component text, error_code text, symptom text, guidance text, resolution text,
+        provenance_type text, status text, updated_at text
+    );
+    """)
+    service = FieldAIService(db=lambda: db)
+    context = service.gather_context({"id": 9, "role": "admin"}, "longbow when can we go onsite")
+    contents = [row["content"] for row in context["wechat"]]
+    assert any("longbow" in item.lower() for item in contents)
+    assert "when can we go?" in contents
+    assert "tomorrow is okay" in contents
+    assert context["wechat"] == sorted(context["wechat"], key=lambda row: (row["message_time"], row["id"]))

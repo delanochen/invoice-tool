@@ -7,6 +7,7 @@ billing, reimbursement, or settlement records.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 
 
 class FieldAIService:
@@ -123,13 +124,61 @@ class FieldAIService:
             params.extend([like, like])
         params.append(max(1, min(int(limit), 100)))
         return self.db().execute(
-            "select r.id, r.message_time, r.sender_name, r.content, "
+            "select r.id, r.message_time, r.sender_name, r.content, r.chat_username, "
             "coalesce(nullif(m.chat_name,''),r.chat_name) as chat_name, m.service_order_id, m.project_name "
             "from wechat_raw_messages r join wechat_group_project_mappings m on m.chat_username=r.chat_username "
             "where m.enabled=true and r.chat_username like '%@chatroom' and r.chat_type='group' and (" +
             " or ".join(clauses) + ") order by r.message_time desc, r.id desc limit ?",
             tuple(params),
         ).fetchall()
+
+    @staticmethod
+    def _parse_message_time(value):
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    def expand_conversation(self, hits, *, minutes=20, per_hit=40, max_total=60):
+        """Expand keyword hits into nearby messages from the same authorized group.
+
+        This lets the answer model see follow-up replies that omit the original keyword,
+        e.g. `Longbow ...` followed later by `明天就可以过去`.
+        """
+        if not hits:
+            return []
+        merged = {}
+        for hit in list(hits)[:4]:
+            item = dict(hit)
+            chat_username = str(item.get("chat_username") or "")
+            anchor = self._parse_message_time(item.get("message_time"))
+            if not chat_username or anchor is None:
+                merged[item.get("id")] = item
+                continue
+            start = (anchor - timedelta(minutes=minutes)).isoformat()
+            end = (anchor + timedelta(minutes=minutes)).isoformat()
+            rows = self.db().execute(
+                "select r.id, r.message_time, r.sender_name, r.content, r.chat_username, "
+                "coalesce(nullif(m.chat_name,''),r.chat_name) as chat_name, m.service_order_id, m.project_name "
+                "from wechat_raw_messages r join wechat_group_project_mappings m on m.chat_username=r.chat_username "
+                "where m.enabled=true and r.chat_username=? and r.chat_type='group' "
+                "and r.message_time>=? and r.message_time<=? "
+                "order by r.message_time asc, r.id asc limit ?",
+                (chat_username, start, end, max(1, min(int(per_hit), 100))),
+            ).fetchall()
+            for row in rows:
+                merged[row["id"]] = dict(row)
+        ordered = sorted(
+            merged.values(),
+            key=lambda row: (str(row.get("message_time") or ""), int(row.get("id") or 0)),
+        )
+        return ordered[:max(1, min(int(max_total), 100))]
 
     @staticmethod
     def display_message(content):
@@ -192,7 +241,8 @@ class FieldAIService:
             return {"wechat": [], "technical_knowledge": []}
         # Never fill a failed search with unrelated recent chat. No evidence is safer
         # than plausible-looking but irrelevant context for the answer model.
-        wechat = self.search_wechat(user, text)
+        hits = self.search_wechat(user, text)
+        wechat = self.expand_conversation(hits)
         return {
             "wechat": [dict(row) for row in wechat],
             "technical_knowledge": [
