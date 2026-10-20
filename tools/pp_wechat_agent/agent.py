@@ -204,15 +204,8 @@ def collect_once(wxdb, *, backfill_limit=0):
                 continue
             max_seq = max(int(row.get("sort_seq") or 0) for row in rows)
             last_seq = _checkpoint(state, chat_username)
-            if last_seq is None and backfill_limit <= 0:
-                _set_checkpoint(state, chat_username, max_seq)
-                LOG.info(
-                    "initialized %s at current position; no history uploaded",
-                    group.get("chat_name") or chat_username,
-                )
-                continue
             if last_seq is None:
-                selected = rows[-backfill_limit:] if backfill_limit else []
+                selected = rows[-backfill_limit:] if backfill_limit else rows
             else:
                 selected = [
                     row for row in rows
