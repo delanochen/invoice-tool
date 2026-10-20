@@ -138,6 +138,10 @@
           </table>
         </div>
         {% endif %}
+        <h4 class="panel-title">????</h4>
+        <div class="detail-grid"><p><strong>????????</strong><span>{{ driving_mode_labels.get(quotation.driving_billing_mode, quotation.driving_billing_mode or '-') }}</span></p><p><strong>????</strong><span>{{ settlement_mode_labels.get(quotation.settlement_mode, quotation.settlement_mode or '-') }}</span></p></div>
+        <h4 class="panel-title">Travel &amp; Reimbursable Expenses</h4>
+        <div class="erp-grid-wrap"><table class="list-table erp-grid" data-grid-height="auto"><thead><tr><th>Expense</th><th>Billing Method</th><th>Fixed Amount</th></tr></thead><tbody>{% for item in quotation.travel_expenses %}<tr><td>{{ item.label }}</td><td>{{ travel_expense_methods.get(item.method, item.method or '-') }}</td><td>{% if item.method == 'fixed_amount' and item.amount %}{{ item.amount|money(quotation.currency) }}{% else %}-{% endif %}</td></tr>{% endfor %}</tbody></table></div>
         <h4 class="panel-title">项目假设</h4>
         <div class="detail-grid">
           <p><strong>预估人数</strong><span>{{ quotation.crew_size or "-" }}</span></p>
