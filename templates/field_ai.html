@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}PP Field AI{% endblock %}
 {% block head %}
 {{ super() }}
@@ -19,21 +19,31 @@
 .field-ai-empty strong{display:block;color:#20242a;font-size:24px;margin-bottom:8px}
 .field-ai-turn{margin-bottom:24px}
 .field-ai-user{display:flex;justify-content:flex-end;margin-bottom:18px}
-.field-ai-user-bubble{max-width:76%;background:#f0f2f5;border-radius:18px;padding:10px 14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-user-stack{max-width:76%;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.field-ai-user-bubble{background:#f0f2f5;border-radius:18px;padding:10px 14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-user-image{max-width:260px;max-height:220px;object-fit:contain;border-radius:12px;border:1px solid #e1e5ea;background:#f8f9fb}
 .field-ai-answer{font-size:15px;line-height:1.75;color:#20242a;white-space:pre-wrap;overflow-wrap:anywhere}
-.field-ai-error{padding:10px 12px;border:1px solid #efc1c1;background:#fff5f5;border-radius:8px;color:#a4262c}
+.field-ai-error{padding:10px 12px;border:1px solid #efc1c1;background:#fff5f5;border-radius:8px;color:#a4262c;margin-bottom:10px}
+.field-ai-image-note{margin-bottom:12px;padding:10px 12px;background:#f7f9fc;border:1px solid #e5e9ef;border-radius:9px;font-size:13px;color:#4d5968;line-height:1.6}
 .field-ai-sources{margin-top:16px;border-top:1px solid #edf0f3;padding-top:10px;font-size:13px;color:#667085}
 .field-ai-sources summary{cursor:pointer;user-select:none}
 .field-ai-sources ol{padding-left:20px;margin:10px 0 0}
 .field-ai-sources li{margin:8px 0}
 .field-ai-source-text{margin-top:3px;color:#505866;white-space:pre-wrap;overflow-wrap:anywhere}
 .field-ai-composer{padding:14px 20px 18px;background:linear-gradient(to top,#fff 78%,rgba(255,255,255,0));}
-.field-ai-form{max-width:860px;margin:0 auto;position:relative;border:1px solid #cfd5dd;border-radius:16px;background:#fff;box-shadow:0 4px 18px rgba(20,28,40,.06)}
-.field-ai-form textarea{width:100%;border:0;outline:0;resize:none;min-height:54px;max-height:180px;padding:15px 58px 13px 16px;background:transparent;font:inherit;line-height:1.45;box-sizing:border-box}
+.field-ai-form{max-width:860px;margin:0 auto;position:relative;border:1px solid #cfd5dd;border-radius:16px;background:#fff;box-shadow:0 4px 18px rgba(20,28,40,.06);padding-left:48px}
+.field-ai-form textarea{width:100%;border:0;outline:0;resize:none;min-height:54px;max-height:180px;padding:15px 58px 13px 4px;background:transparent;font:inherit;line-height:1.45;box-sizing:border-box}
+.field-ai-upload{position:absolute;left:9px;bottom:9px;width:34px;height:34px;border:0;border-radius:50%;background:#f1f3f6;color:#3f4650;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px}
+.field-ai-upload:hover{background:#e4e8ee}
 .field-ai-send{position:absolute;right:10px;bottom:9px;width:36px;height:36px;border:0;border-radius:50%;background:#1f2937;color:#fff;cursor:pointer;font-size:18px;line-height:36px;padding:0}
 .field-ai-send:hover{background:#111827}
+.field-ai-attachment-preview{display:none;max-width:860px;margin:0 auto 8px;padding:8px 10px;border:1px solid #dfe4eb;border-radius:10px;background:#fafbfc;align-items:center;gap:10px;font-size:13px}
+.field-ai-attachment-preview.visible{display:flex}
+.field-ai-attachment-preview img{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid #e2e6ec}
+.field-ai-attachment-name{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.field-ai-attachment-remove{border:0;background:transparent;cursor:pointer;font-size:17px;color:#697386}
 .field-ai-hint{max-width:860px;margin:7px auto 0;color:#9299a6;font-size:11px;text-align:center}
-@media(max-width:900px){.field-ai-shell{grid-template-columns:190px minmax(0,1fr)}.field-ai-user-bubble{max-width:88%}}
+@media(max-width:900px){.field-ai-shell{grid-template-columns:190px minmax(0,1fr)}.field-ai-user-stack{max-width:88%}}
 @media(max-width:680px){.field-ai-shell{display:block;height:auto;min-height:calc(100vh - 100px)}.field-ai-sidebar{display:none}.field-ai-main{min-height:calc(100vh - 100px)}.field-ai-chat{padding:20px 14px}.field-ai-composer{padding:10px 12px 14px}}
 </style>
 {% endblock %}
@@ -52,9 +62,23 @@
     <div class="field-ai-topbar">PP Field AI</div>
     <div class="field-ai-chat" id="fieldAiChat">
       <div class="field-ai-content" id="fieldAiContent">
-        {% if question or answer or error %}
+        {% if display_question or answer or error %}
         <div class="field-ai-turn" id="fieldAiCurrentTurn">
-          {% if question %}<div class="field-ai-user"><div class="field-ai-user-bubble">{{ question }}</div></div>{% endif %}
+          {% if display_question or image_preview %}
+          <div class="field-ai-user"><div class="field-ai-user-stack">
+            {% if image_preview %}<img class="field-ai-user-image" src="{{ image_preview }}" alt="上传的现场故障图片">{% endif %}
+            {% if display_question %}<div class="field-ai-user-bubble">{{ display_question }}</div>{% endif %}
+          </div></div>
+          {% endif %}
+          {% if image_error and not error %}<div class="field-ai-error">图片识别：{{ image_error }}</div>{% endif %}
+          {% if image_info %}
+          <div class="field-ai-image-note">
+            <strong>图片识别</strong>
+            {% if image_info.equipment %} · 设备：{{ image_info.equipment }}{% endif %}
+            {% if image_info.fault_codes %} · 故障码：{{ image_info.fault_codes|join('、') }}{% endif %}
+            {% if image_info.fault_summary %}<br>{{ image_info.fault_summary }}{% endif %}
+          </div>
+          {% endif %}
           {% if error %}<div class="field-ai-error">{{ error }}</div>{% endif %}
           {% if answer %}<div class="field-ai-answer">{{ answer }}</div>{% endif %}
           {% if evidence %}
@@ -69,62 +93,73 @@
           {% endif %}
         </div>
         {% else %}
-        <div class="field-ai-empty" id="fieldAiEmpty"><div><strong>PP Field AI</strong><span>输入项目、设备、故障或现场安排相关问题。</span></div></div>
+        <div class="field-ai-empty" id="fieldAiEmpty"><div><strong>PP Field AI</strong><span>输入问题，或上传手操器/HMI 故障照片。</span></div></div>
         {% endif %}
       </div>
     </div>
 
     <div class="field-ai-composer">
-      <form method="post" class="field-ai-form" id="fieldAiForm">
+      <div class="field-ai-attachment-preview" id="fieldAiAttachmentPreview">
+        <img id="fieldAiAttachmentImage" alt="待上传图片">
+        <span class="field-ai-attachment-name" id="fieldAiAttachmentName"></span>
+        <button type="button" class="field-ai-attachment-remove" id="fieldAiAttachmentRemove" title="移除图片">×</button>
+      </div>
+      <form method="post" enctype="multipart/form-data" class="field-ai-form" id="fieldAiForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <textarea id="question" name="question" required maxlength="2000" rows="1" placeholder="向 PP Field AI 提问…">{{ '' if answer or error else question }}</textarea>
+        <input type="file" id="fieldAiImage" name="image" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+        <button class="field-ai-upload" type="button" id="fieldAiUpload" title="上传/拍摄故障照片" aria-label="上传照片">＋</button>
+        <textarea id="question" name="question" maxlength="2000" rows="1" placeholder="向 PP Field AI 提问，或上传故障照片…">{{ '' if answer or error else question }}</textarea>
         <button class="field-ai-send" type="submit" title="发送" aria-label="发送">↑</button>
       </form>
-      <div class="field-ai-hint">回答基于当前已接入并有权限访问的项目资料。</div>
+      <div class="field-ai-hint">可以拍摄手操器/HMI 故障画面，AI 会识别故障码并检索历史处理记录。</div>
     </div>
   </section>
 </div>
 <script>
 (function(){
-  const storageKey = 'pp-field-ai-history-v1';
-  const historyEl = document.getElementById('fieldAiHistory');
-  const contentEl = document.getElementById('fieldAiContent');
-  const textarea = document.getElementById('question');
-  const newBtn = document.getElementById('fieldAiNewChat');
-  const current = {{ {'question': question, 'answer': answer, 'error': error}|tojson }};
+  const storageKey='pp-field-ai-history-v1';
+  const historyEl=document.getElementById('fieldAiHistory');
+  const contentEl=document.getElementById('fieldAiContent');
+  const textarea=document.getElementById('question');
+  const newBtn=document.getElementById('fieldAiNewChat');
+  const uploadBtn=document.getElementById('fieldAiUpload');
+  const imageInput=document.getElementById('fieldAiImage');
+  const preview=document.getElementById('fieldAiAttachmentPreview');
+  const previewImage=document.getElementById('fieldAiAttachmentImage');
+  const previewName=document.getElementById('fieldAiAttachmentName');
+  const previewRemove=document.getElementById('fieldAiAttachmentRemove');
+  const form=document.getElementById('fieldAiForm');
+  const current={{ {'question': display_question, 'answer': answer, 'error': error, 'image_name': image_name}|tojson }};
 
-  function load(){
-    try { return JSON.parse(localStorage.getItem(storageKey) || '[]'); } catch(e) { return []; }
-  }
-  function save(items){ localStorage.setItem(storageKey, JSON.stringify(items.slice(0,30))); }
-  function esc(value){ const d=document.createElement('div'); d.textContent=value || ''; return d.innerHTML; }
+  function load(){try{return JSON.parse(localStorage.getItem(storageKey)||'[]');}catch(e){return[];}}
+  function save(items){localStorage.setItem(storageKey,JSON.stringify(items.slice(0,30)));}
+  function esc(value){const d=document.createElement('div');d.textContent=value||'';return d.innerHTML;}
   function renderHistory(activeId){
     const items=load();
-    if(!items.length){ historyEl.innerHTML='<div class="field-ai-history-empty">暂无对话</div>'; return; }
+    if(!items.length){historyEl.innerHTML='<div class="field-ai-history-empty">暂无对话</div>';return;}
     historyEl.innerHTML='';
-    items.forEach(item=>{
-      const b=document.createElement('button');
-      b.type='button'; b.className='field-ai-history-item'+(item.id===activeId?' active':'');
-      b.textContent=item.question || '未命名对话'; b.title=item.question || '';
-      b.addEventListener('click',()=>showItem(item));
-      historyEl.appendChild(b);
-    });
+    items.forEach(item=>{const b=document.createElement('button');b.type='button';b.className='field-ai-history-item'+(item.id===activeId?' active':'');b.textContent=item.question||'图片故障分析';b.title=item.question||item.image_name||'';b.addEventListener('click',()=>showItem(item));historyEl.appendChild(b);});
   }
   function showItem(item){
-    contentEl.innerHTML='<div class="field-ai-turn"><div class="field-ai-user"><div class="field-ai-user-bubble">'+esc(item.question)+'</div></div>'+
-      (item.error?'<div class="field-ai-error">'+esc(item.error)+'</div>':'')+
-      (item.answer?'<div class="field-ai-answer">'+esc(item.answer)+'</div>':'')+'</div>';
+    contentEl.innerHTML='<div class="field-ai-turn"><div class="field-ai-user"><div class="field-ai-user-stack"><div class="field-ai-user-bubble">'+esc(item.question||'图片故障分析')+'</div></div></div>'+(item.error?'<div class="field-ai-error">'+esc(item.error)+'</div>':'')+(item.answer?'<div class="field-ai-answer">'+esc(item.answer)+'</div>':'')+'</div>';
     renderHistory(item.id);
   }
-  if(current.question && (current.answer || current.error)){
-    const items=load();
-    const latest={id:Date.now().toString(),question:current.question,answer:current.answer,error:current.error,createdAt:new Date().toISOString()};
-    const duplicate=items.find(x=>x.question===latest.question && x.answer===latest.answer && x.error===latest.error);
-    if(!duplicate){ items.unshift(latest); save(items); renderHistory(latest.id); } else { renderHistory(duplicate.id); }
-  } else { renderHistory(); }
-  newBtn.addEventListener('click',()=>{ contentEl.innerHTML='<div class="field-ai-empty"><div><strong>PP Field AI</strong><span>输入项目、设备、故障或现场安排相关问题。</span></div></div>'; textarea.value=''; textarea.focus(); renderHistory(); });
-  textarea.addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); document.getElementById('fieldAiForm').requestSubmit(); } });
-  textarea.addEventListener('input',()=>{ textarea.style.height='auto'; textarea.style.height=Math.min(textarea.scrollHeight,180)+'px'; });
+  if(current.question&&(current.answer||current.error)){
+    const items=load();const latest={id:Date.now().toString(),question:current.question,answer:current.answer,error:current.error,image_name:current.image_name,createdAt:new Date().toISOString()};
+    const duplicate=items.find(x=>x.question===latest.question&&x.answer===latest.answer&&x.error===latest.error);
+    if(!duplicate){items.unshift(latest);save(items);renderHistory(latest.id);}else{renderHistory(duplicate.id);}
+  }else{renderHistory();}
+  function clearImage(){imageInput.value='';preview.classList.remove('visible');previewImage.removeAttribute('src');previewName.textContent='';}
+  uploadBtn.addEventListener('click',()=>imageInput.click());
+  imageInput.addEventListener('change',()=>{
+    const file=imageInput.files&&imageInput.files[0];if(!file){clearImage();return;}
+    previewName.textContent=file.name;const reader=new FileReader();reader.onload=e=>{previewImage.src=e.target.result;preview.classList.add('visible');};reader.readAsDataURL(file);
+  });
+  previewRemove.addEventListener('click',clearImage);
+  newBtn.addEventListener('click',()=>{contentEl.innerHTML='<div class="field-ai-empty"><div><strong>PP Field AI</strong><span>输入问题，或上传手操器/HMI 故障照片。</span></div></div>';textarea.value='';clearImage();textarea.focus();renderHistory();});
+  textarea.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
+  textarea.addEventListener('input',()=>{textarea.style.height='auto';textarea.style.height=Math.min(textarea.scrollHeight,180)+'px';});
+  form.addEventListener('submit',e=>{if(!textarea.value.trim()&&!(imageInput.files&&imageInput.files.length)){e.preventDefault();textarea.focus();}});
 })();
 </script>
 {% endblock %}
