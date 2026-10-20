@@ -111,3 +111,14 @@ def test_longbow_question_matches_message_without_whole_question():
     service = FieldAIService(db=lambda: db)
     rows = service.search_wechat({"id": 9, "role": "employee"}, "Longbow今天有没有故障")
     assert [row["id"] for row in rows] == [1]
+
+
+def test_image_xml_is_not_rendered_or_sent_to_ai():
+    xml = '<?xml version="1.0"?><msg><img aeskey="secret" cdnthumburl="https://example.invalid/x" /></msg>'
+    assert FieldAIService.display_message(xml) == "\U0001f5bc \u56fe\u7247"
+    assert '<msg>' not in FieldAIService.display_message(xml)
+
+
+def test_unknown_xml_is_replaced_with_safe_rich_media_label():
+    xml = '<?xml version="1.0"?><msg><appmsg><title>x</title></appmsg></msg>'
+    assert FieldAIService.display_message(xml) == "\U0001f4ce \u6587\u4ef6 / \u94fe\u63a5 / \u5361\u7247"

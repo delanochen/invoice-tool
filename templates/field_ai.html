@@ -14,7 +14,7 @@
 </form>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}
 {% if answer %}<h3>回答</h3><div style="white-space:pre-wrap">{{ answer }}</div>{% endif %}
-{% if evidence %}<h3>引用依据</h3><ol>{% for row in evidence %}<li><strong>{{ row.chat_name }}</strong> · {{ row.message_time }} · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.content }}</div></li>{% endfor %}</ol>{% endif %}
+{% if evidence %}<h3>引用依据</h3><ol>{% for row in evidence %}<li><strong>{{ row.chat_name }}</strong> · {{ row.message_time }} · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.display_content }}</div></li>{% endfor %}</ol>{% endif %}
 </section>
 <section id="wechat">
 <h2>微信消息</h2>
@@ -27,7 +27,7 @@
 <button type="submit">搜索</button>
 </form>
 <p>按时间倒序，每页 50 条。第 {{ page }} 页</p>
-{% for row in rows %}<article style="border-bottom:1px solid #ddd;padding:12px 0"><strong>{{ row.chat_name }}</strong> · <time>{{ row.message_time }}</time> · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.content }}</div></article>{% else %}<p>没有符合条件且有权查看的消息。</p>{% endfor %}
+{% for row in rows %}<article style="border-bottom:1px solid #ddd;padding:12px 0"><strong>{{ row.chat_name }}</strong> · <time>{{ row.message_time }}</time> · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.display_content }}</div></article>{% else %}<p>没有符合条件且有权查看的消息。</p>{% endfor %}
 {% if page > 1 %}<a href="{{ url_for('field_ai', page=page-1, **filters) }}#wechat">上一页</a>{% endif %}
 {% if has_next %}<a href="{{ url_for('field_ai', page=page+1, **filters) }}#wechat">下一页</a>{% endif %}
 </section>

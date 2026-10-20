@@ -38,8 +38,9 @@ def register_field_ai_routes(app, namespace):
                 abort(400, "Question must contain 1–2000 characters")
             # Only administrator-enabled work-group evidence shown below goes to the LLM.
             context = service.gather_context(g.user, question)
-            evidence = [{**row, "content": str(row["content"] or "")[:3000]}
-                        for row in context["wechat"]]
+            evidence = service.present_rows(context["wechat"])
+            for row in evidence:
+                row["content"] = str(row.get("display_content") or "")[:3000]
             if not evidence:
                 answer = "没有在已启用的工作群中找到相关微信消息，无法依据消息回答。"
             else:
@@ -58,7 +59,7 @@ def register_field_ai_routes(app, namespace):
                     except Exception:
                         app.logger.warning("Field AI provider request failed")
                         error = "AI 服务暂时不可用，请重试；检索依据仍显示在下方。"
-        rows = service.list_wechat(g.user, **query, limit=51, offset=(page-1)*50)
+        rows = service.present_rows(service.list_wechat(g.user, **query, limit=51, offset=(page-1)*50))
         return render_template("field_ai.html", groups=service.visible_groups(g.user),
                                rows=rows[:50], has_next=len(rows)>50, page=page,
                                filters=filters, csrf_token=token, question=question,

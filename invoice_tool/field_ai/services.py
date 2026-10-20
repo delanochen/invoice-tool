@@ -131,6 +131,30 @@ class FieldAIService:
             tuple(params),
         ).fetchall()
 
+    @staticmethod
+    def display_message(content):
+        text = str(content or "").strip()
+        lowered = text.lower()
+        if lowered.startswith("<?xml") or lowered.startswith("<msg"):
+            if "<img" in lowered:
+                return "\U0001f5bc \u56fe\u7247"
+            if "<videomsg" in lowered or "<video" in lowered:
+                return "\U0001f3ac \u89c6\u9891"
+            if "<voicemsg" in lowered or "<voice" in lowered:
+                return "\U0001f3a4 \u8bed\u97f3"
+            if "<appmsg" in lowered:
+                return "\U0001f4ce \u6587\u4ef6 / \u94fe\u63a5 / \u5361\u7247"
+            return "\U0001f4ce \u5fae\u4fe1\u5bcc\u5a92\u4f53\u6d88\u606f"
+        return text
+
+    def present_rows(self, rows):
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["display_content"] = self.display_message(item.get("content"))
+            result.append(item)
+        return result
+
     def recent_wechat(self, user, limit=20):
         return self.list_wechat(user, limit=limit)
 
