@@ -16,13 +16,18 @@ def register_whatsapp_routes(app, *, service, get_setting, login_required, can_m
                 return challenge, 200
             abort(403)
 
-        app_secret = get_setting("whatsapp_app_secret") or ""
+        app_secret = str(get_setting("whatsapp_app_secret") or "").strip()
+        if not app_secret:
+            # Fail closed: never accept an unsigned Meta webhook merely because
+            # server configuration is incomplete.
+            return jsonify({"ok": False, "error": "webhook_not_configured"}), 503
         signature = request.headers.get("X-Hub-Signature-256", "")
-        if app_secret:
-            import hashlib
-            expected = "sha256=" + hmac.new(app_secret.encode("utf-8"), request.get_data(), hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(signature, expected):
-                abort(403)
+        import hashlib
+        expected = "sha256=" + hmac.new(
+            app_secret.encode("utf-8"), request.get_data(), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            abort(403)
         payload = request.get_json(silent=True) or {}
         processed = 0
         for entry in payload.get("entry", []):
