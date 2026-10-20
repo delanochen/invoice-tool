@@ -314,6 +314,23 @@ def quotation_form_values(api, quotation=None):
     }
 
 
+def quotation_has_business_changes(quotation, values):
+    """Return True only when persisted quotation business data actually changes."""
+    for column in (item.strip() for item in _FORM_COLUMNS.split(",")):
+        old = quotation[column] if column in quotation.keys() else None
+        new = values.get(column)
+        if isinstance(old, Decimal) or isinstance(new, Decimal):
+            try:
+                if Decimal(str(old or 0)) != Decimal(str(new or 0)):
+                    return True
+                continue
+            except (InvalidOperation, ValueError):
+                pass
+        if (old if old is not None else "") != (new if new is not None else ""):
+            return True
+    return False
+
+
 def create_quotation_revision(api, quotation_id, values):
     """Append an immutable commercial snapshot after each create/edit.
 
@@ -623,6 +640,9 @@ def register_quotation_routes(app, api):
                 flash("请填写报价单编号和报价日期。", "error")
                 return _render_form(api, quotation, clients, "编辑报价单", defaults=request.form, errors=["编号与日期必填"])
             columns = [column.strip() for column in _FORM_COLUMNS.split(",")]
+            if not quotation_has_business_changes(quotation, values):
+                flash("No quotation changes detected; revision unchanged.", "success")
+                return redirect(api["url_for"]("quotation_detail", quotation_id=quotation_id))
             api["db"]().execute(
                 f"""
                 update quotations set {", ".join(f"{column} = ?" for column in columns)}, updated_at = ? where id = ?
