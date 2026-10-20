@@ -1,34 +1,130 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}PP Field AI{% endblock %}
+{% block head %}
+{{ super() }}
+<style>
+.field-ai-shell{display:grid;grid-template-columns:260px minmax(0,1fr);height:calc(100vh - 112px);min-height:560px;border:1px solid var(--border-color,#d9dee7);border-radius:10px;overflow:hidden;background:#fff}
+.field-ai-sidebar{background:#f7f8fa;border-right:1px solid #e3e7ee;display:flex;flex-direction:column;min-width:0}
+.field-ai-sidebar-head{padding:14px;border-bottom:1px solid #e3e7ee}
+.field-ai-new{width:100%;display:flex;align-items:center;justify-content:center;gap:6px}
+.field-ai-history{padding:8px;overflow:auto;flex:1}
+.field-ai-history-empty{padding:18px 10px;color:#7a8494;font-size:13px;text-align:center}
+.field-ai-history-item{display:block;width:100%;border:0;background:transparent;text-align:left;padding:10px 11px;border-radius:7px;cursor:pointer;color:#222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.field-ai-history-item:hover,.field-ai-history-item.active{background:#e9edf3}
+.field-ai-main{display:flex;flex-direction:column;min-width:0;background:#fff}
+.field-ai-topbar{height:54px;padding:0 20px;border-bottom:1px solid #eef1f4;display:flex;align-items:center;font-weight:600}
+.field-ai-chat{flex:1;overflow:auto;padding:28px 22px 18px}
+.field-ai-content{max-width:860px;margin:0 auto}
+.field-ai-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#7a8494;text-align:center}
+.field-ai-empty strong{display:block;color:#20242a;font-size:24px;margin-bottom:8px}
+.field-ai-turn{margin-bottom:24px}
+.field-ai-user{display:flex;justify-content:flex-end;margin-bottom:18px}
+.field-ai-user-bubble{max-width:76%;background:#f0f2f5;border-radius:18px;padding:10px 14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-answer{font-size:15px;line-height:1.75;color:#20242a;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-error{padding:10px 12px;border:1px solid #efc1c1;background:#fff5f5;border-radius:8px;color:#a4262c}
+.field-ai-sources{margin-top:16px;border-top:1px solid #edf0f3;padding-top:10px;font-size:13px;color:#667085}
+.field-ai-sources summary{cursor:pointer;user-select:none}
+.field-ai-sources ol{padding-left:20px;margin:10px 0 0}
+.field-ai-sources li{margin:8px 0}
+.field-ai-source-text{margin-top:3px;color:#505866;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-composer{padding:14px 20px 18px;background:linear-gradient(to top,#fff 78%,rgba(255,255,255,0));}
+.field-ai-form{max-width:860px;margin:0 auto;position:relative;border:1px solid #cfd5dd;border-radius:16px;background:#fff;box-shadow:0 4px 18px rgba(20,28,40,.06)}
+.field-ai-form textarea{width:100%;border:0;outline:0;resize:none;min-height:54px;max-height:180px;padding:15px 58px 13px 16px;background:transparent;font:inherit;line-height:1.45;box-sizing:border-box}
+.field-ai-send{position:absolute;right:10px;bottom:9px;width:36px;height:36px;border:0;border-radius:50%;background:#1f2937;color:#fff;cursor:pointer;font-size:18px;line-height:36px;padding:0}
+.field-ai-send:hover{background:#111827}
+.field-ai-hint{max-width:860px;margin:7px auto 0;color:#9299a6;font-size:11px;text-align:center}
+@media(max-width:900px){.field-ai-shell{grid-template-columns:190px minmax(0,1fr)}.field-ai-user-bubble{max-width:88%}}
+@media(max-width:680px){.field-ai-shell{display:block;height:auto;min-height:calc(100vh - 100px)}.field-ai-sidebar{display:none}.field-ai-main{min-height:calc(100vh - 100px)}.field-ai-chat{padding:20px 14px}.field-ai-composer{padding:10px 12px 14px}}
+</style>
+{% endblock %}
 {% block content %}
-<h1>PP Field AI</h1>
-<p>仅显示已启用的授权工作群。</p>
-<nav aria-label="PP Field AI"><a href="#ai">AI 问答</a> · <a href="#wechat">微信消息</a></nav>
-<section id="ai">
-<h2>AI 问答</h2>
-<form method="post">
-<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<label for="question">输入问题</label>
-<textarea id="question" name="question" required maxlength="2000" rows="3" style="width:100%">{{ question }}</textarea>
-<button type="submit">提问</button>
-</form>
-{% if error %}<p role="alert">{{ error }}</p>{% endif %}
-{% if answer %}<h3>回答</h3><div style="white-space:pre-wrap">{{ answer }}</div>{% endif %}
-{% if evidence %}<h3>引用依据</h3><ol>{% for row in evidence %}<li><strong>{{ row.chat_name }}</strong> · {{ row.message_time }} · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.display_content }}</div></li>{% endfor %}</ol>{% endif %}
-</section>
-<section id="wechat">
-<h2>微信消息</h2>
-<form method="get" action="{{ url_for('field_ai') }}#wechat">
-<label>工作群 <select name="group"><option value="">全部授权群</option>{% for group in groups %}<option value="{{ group.chat_username }}" {% if filters.group == group.chat_username %}selected{% endif %}>{{ group.chat_name }}</option>{% endfor %}</select></label>
-<label>关键词 <input name="keyword" value="{{ filters.keyword }}" maxlength="255"></label>
-<label>发送人 <input name="sender" value="{{ filters.sender }}" maxlength="255"></label>
-<label>开始日期 <input type="date" name="start" value="{{ filters.start }}"></label>
-<label>结束日期 <input type="date" name="end" value="{{ filters.end }}"></label>
-<button type="submit">搜索</button>
-</form>
-<p>按时间倒序，每页 50 条。第 {{ page }} 页</p>
-{% for row in rows %}<article style="border-bottom:1px solid #ddd;padding:12px 0"><strong>{{ row.chat_name }}</strong> · <time>{{ row.message_time }}</time> · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.display_content }}</div></article>{% else %}<p>没有符合条件且有权查看的消息。</p>{% endfor %}
-{% if page > 1 %}<a href="{{ url_for('field_ai', page=page-1, **filters) }}#wechat">上一页</a>{% endif %}
-{% if has_next %}<a href="{{ url_for('field_ai', page=page+1, **filters) }}#wechat">下一页</a>{% endif %}
-</section>
+<div class="field-ai-shell">
+  <aside class="field-ai-sidebar">
+    <div class="field-ai-sidebar-head">
+      <button type="button" class="erp-btn field-ai-new" id="fieldAiNewChat">＋ 新对话</button>
+    </div>
+    <div class="field-ai-history" id="fieldAiHistory">
+      <div class="field-ai-history-empty">暂无对话</div>
+    </div>
+  </aside>
+
+  <section class="field-ai-main">
+    <div class="field-ai-topbar">PP Field AI</div>
+    <div class="field-ai-chat" id="fieldAiChat">
+      <div class="field-ai-content" id="fieldAiContent">
+        {% if question or answer or error %}
+        <div class="field-ai-turn" id="fieldAiCurrentTurn">
+          {% if question %}<div class="field-ai-user"><div class="field-ai-user-bubble">{{ question }}</div></div>{% endif %}
+          {% if error %}<div class="field-ai-error">{{ error }}</div>{% endif %}
+          {% if answer %}<div class="field-ai-answer">{{ answer }}</div>{% endif %}
+          {% if evidence %}
+          <details class="field-ai-sources">
+            <summary>查看回答依据（{{ evidence|length }}）</summary>
+            <ol>
+              {% for row in evidence %}
+              <li><strong>{{ row.chat_name }}</strong> · {{ row.message_time }} · {{ row.sender_name }}<div class="field-ai-source-text">{{ row.display_content }}</div></li>
+              {% endfor %}
+            </ol>
+          </details>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="field-ai-empty" id="fieldAiEmpty"><div><strong>PP Field AI</strong><span>输入项目、设备、故障或现场安排相关问题。</span></div></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="field-ai-composer">
+      <form method="post" class="field-ai-form" id="fieldAiForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <textarea id="question" name="question" required maxlength="2000" rows="1" placeholder="向 PP Field AI 提问…">{{ '' if answer or error else question }}</textarea>
+        <button class="field-ai-send" type="submit" title="发送" aria-label="发送">↑</button>
+      </form>
+      <div class="field-ai-hint">回答基于当前已接入并有权限访问的项目资料。</div>
+    </div>
+  </section>
+</div>
+<script>
+(function(){
+  const storageKey = 'pp-field-ai-history-v1';
+  const historyEl = document.getElementById('fieldAiHistory');
+  const contentEl = document.getElementById('fieldAiContent');
+  const textarea = document.getElementById('question');
+  const newBtn = document.getElementById('fieldAiNewChat');
+  const current = {{ {'question': question, 'answer': answer, 'error': error}|tojson }};
+
+  function load(){
+    try { return JSON.parse(localStorage.getItem(storageKey) || '[]'); } catch(e) { return []; }
+  }
+  function save(items){ localStorage.setItem(storageKey, JSON.stringify(items.slice(0,30))); }
+  function esc(value){ const d=document.createElement('div'); d.textContent=value || ''; return d.innerHTML; }
+  function renderHistory(activeId){
+    const items=load();
+    if(!items.length){ historyEl.innerHTML='<div class="field-ai-history-empty">暂无对话</div>'; return; }
+    historyEl.innerHTML='';
+    items.forEach(item=>{
+      const b=document.createElement('button');
+      b.type='button'; b.className='field-ai-history-item'+(item.id===activeId?' active':'');
+      b.textContent=item.question || '未命名对话'; b.title=item.question || '';
+      b.addEventListener('click',()=>showItem(item));
+      historyEl.appendChild(b);
+    });
+  }
+  function showItem(item){
+    contentEl.innerHTML='<div class="field-ai-turn"><div class="field-ai-user"><div class="field-ai-user-bubble">'+esc(item.question)+'</div></div>'+
+      (item.error?'<div class="field-ai-error">'+esc(item.error)+'</div>':'')+
+      (item.answer?'<div class="field-ai-answer">'+esc(item.answer)+'</div>':'')+'</div>';
+    renderHistory(item.id);
+  }
+  if(current.question && (current.answer || current.error)){
+    const items=load();
+    const latest={id:Date.now().toString(),question:current.question,answer:current.answer,error:current.error,createdAt:new Date().toISOString()};
+    const duplicate=items.find(x=>x.question===latest.question && x.answer===latest.answer && x.error===latest.error);
+    if(!duplicate){ items.unshift(latest); save(items); renderHistory(latest.id); } else { renderHistory(duplicate.id); }
+  } else { renderHistory(); }
+  newBtn.addEventListener('click',()=>{ contentEl.innerHTML='<div class="field-ai-empty"><div><strong>PP Field AI</strong><span>输入项目、设备、故障或现场安排相关问题。</span></div></div>'; textarea.value=''; textarea.focus(); renderHistory(); });
+  textarea.addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); document.getElementById('fieldAiForm').requestSubmit(); } });
+  textarea.addEventListener('input',()=>{ textarea.style.height='auto'; textarea.style.height=Math.min(textarea.scrollHeight,180)+'px'; });
+})();
+</script>
 {% endblock %}
