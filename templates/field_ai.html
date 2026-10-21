@@ -138,19 +138,26 @@
   const conversationContext=document.getElementById('fieldAiConversationContext');
   const current={{ {'question': display_question, 'answer': answer, 'error': error, 'image_name': image_name}|tojson }};
 
-  function load(){try{const items=JSON.parse(localStorage.getItem(storageKey)||'[]');return Array.isArray(items)?items:[];}catch(e){return[];}}
+  let activeConversationId=null;
+  function normalizeItem(item){
+    if(Array.isArray(item.turns)&&item.turns.length)return item;
+    const firstTurn={question:item.question||'',answer:item.answer||'',error:item.error||'',image_name:item.image_name||null};
+    return {...item,title:item.title||item.question||'图片故障分析',turns:[firstTurn]};
+  }
+  function load(){try{const items=JSON.parse(localStorage.getItem(storageKey)||'[]');return Array.isArray(items)?items.map(normalizeItem):[];}catch(e){return[];}}
   function sortItems(items){return [...items].sort((a,b)=>(Number(Boolean(b.pinned))-Number(Boolean(a.pinned)))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));}
   function save(items){localStorage.setItem(storageKey,JSON.stringify(sortItems(items).slice(0,30)));}
   function esc(value){const d=document.createElement('div');d.textContent=value||'';return d.innerHTML;}
-  function deleteItem(id){const items=load().filter(item=>item.id!==id);save(items);renderHistory();}
-  function togglePin(id){const items=load();const item=items.find(entry=>entry.id===id);if(item){item.pinned=!item.pinned;save(items);}renderHistory(id);}
+  function deleteItem(id){const items=load().filter(item=>item.id!==id);save(items);if(activeConversationId===id){activeConversationId=null;conversationContext.value='';}renderHistory(activeConversationId);}
+  function togglePin(id){const items=load();const item=items.find(entry=>entry.id===id);if(item){item.pinned=!item.pinned;save(items);}renderHistory(activeConversationId);}
+  function renderTurn(turn){return '<div class="field-ai-turn"><div class="field-ai-user"><div class="field-ai-user-stack"><div class="field-ai-user-bubble">'+esc(turn.question||'图片故障分析')+'</div></div></div>'+(turn.error?'<div class="field-ai-error">'+esc(turn.error)+'</div>':'')+(turn.answer?'<div class="field-ai-answer">'+esc(turn.answer)+'</div>':'')+'</div>';}
   function renderHistory(activeId){
     const items=sortItems(load());
     if(!items.length){historyEl.innerHTML='<div class="field-ai-history-empty">暂无对话</div>';return;}
     historyEl.innerHTML='';
     items.forEach(item=>{
       const row=document.createElement('div');row.className='field-ai-history-row'+(item.id===activeId?' active':'');
-      const b=document.createElement('button');b.type='button';b.className='field-ai-history-item';b.textContent=item.question||'图片故障分析';b.title=item.question||item.image_name||'';b.addEventListener('click',()=>showItem(item));
+      const b=document.createElement('button');b.type='button';b.className='field-ai-history-item';b.textContent=item.title||item.question||'图片故障分析';b.title=item.title||item.question||item.image_name||'';b.addEventListener('click',()=>showItem(item));
       const actions=document.createElement('div');actions.className='field-ai-history-actions';
       const pin=document.createElement('button');pin.type='button';pin.className='field-ai-history-action'+(item.pinned?' pinned':'');pin.textContent='📌';pin.title=item.pinned?'取消置顶':'置顶';pin.addEventListener('click',e=>{e.stopPropagation();togglePin(item.id);});
       const del=document.createElement('button');del.type='button';del.className='field-ai-history-action';del.textContent='×';del.title='删除对话';del.addEventListener('click',e=>{e.stopPropagation();if(confirm('删除这条对话记录？'))deleteItem(item.id);});
@@ -158,16 +165,19 @@
     });
   }
   function showItem(item){
-    contentEl.innerHTML='<div class="field-ai-turn"><div class="field-ai-user"><div class="field-ai-user-stack"><div class="field-ai-user-bubble">'+esc(item.question||'图片故障分析')+'</div></div></div>'+(item.error?'<div class="field-ai-error">'+esc(item.error)+'</div>':'')+(item.answer?'<div class="field-ai-answer">'+esc(item.answer)+'</div>':'')+'</div>';
-    conversationContext.value=JSON.stringify({question:item.question||'',answer:item.answer||''});
-    renderHistory(item.id);
+    const normalized=normalizeItem(item);const turns=normalized.turns||[];const last=turns[turns.length-1]||{};
+    activeConversationId=normalized.id;
+    contentEl.innerHTML=turns.map(renderTurn).join('');
+    conversationContext.value=JSON.stringify({question:last.question||'',answer:last.answer||''});
+    renderHistory(activeConversationId);
   }
   if(current.question&&(current.answer||current.error)){
-    const items=load();const latest={id:Date.now().toString(),question:current.question,answer:current.answer,error:current.error,image_name:current.image_name,createdAt:new Date().toISOString(),pinned:false};
-    const duplicate=items.find(x=>x.question===latest.question&&x.answer===latest.answer&&x.error===latest.error);
+    const items=load();const firstTurn={question:current.question,answer:current.answer,error:current.error,image_name:current.image_name};
+    const latest={id:Date.now().toString(),title:current.question||'图片故障分析',question:current.question,answer:current.answer,error:current.error,image_name:current.image_name,turns:[firstTurn],createdAt:new Date().toISOString(),pinned:false};
+    const duplicate=items.find(x=>{const last=(x.turns||[])[(x.turns||[]).length-1]||x;return last.question===current.question&&last.answer===current.answer&&last.error===current.error;});
     const active=duplicate||latest;
     if(!duplicate){items.unshift(latest);save(items);}
-    conversationContext.value=JSON.stringify({question:active.question||'',answer:active.answer||''});renderHistory(active.id);
+    showItem(active);
   }else{renderHistory();}
   function clearImage(){imageInput.value='';preview.classList.remove('visible');previewImage.removeAttribute('src');previewName.textContent='';}
   uploadBtn.addEventListener('click',()=>imageInput.click());
@@ -176,7 +186,7 @@
     previewName.textContent=file.name;const reader=new FileReader();reader.onload=e=>{previewImage.src=e.target.result;preview.classList.add('visible');};reader.readAsDataURL(file);
   });
   previewRemove.addEventListener('click',clearImage);
-  newBtn.addEventListener('click',()=>{contentEl.innerHTML='<div class="field-ai-empty"><div><strong>PP Field AI</strong><span>输入问题，或上传手操器/HMI 故障照片。</span></div></div>';textarea.value='';conversationContext.value='';clearImage();textarea.focus();renderHistory();});
+  newBtn.addEventListener('click',()=>{activeConversationId=null;contentEl.innerHTML='<div class="field-ai-empty"><div><strong>PP Field AI</strong><span>输入问题，或上传手操器/HMI 故障照片。</span></div></div>';textarea.value='';conversationContext.value='';clearImage();textarea.focus();renderHistory();});
   textarea.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
   textarea.addEventListener('input',()=>{textarea.style.height='auto';textarea.style.height=Math.min(textarea.scrollHeight,180)+'px';});
   form.addEventListener('submit',async e=>{
@@ -196,11 +206,18 @@
       if(!turn) throw new Error('没有收到有效回答，请重试。');
       const answerText=turn.querySelector('.field-ai-answer')?.textContent?.trim()||'';
       const errorText=turn.querySelector('.field-ai-error')?.textContent?.trim()||'';
-      contentEl.innerHTML=turn.outerHTML;
-      const latest={id:Date.now().toString(),question:question||'图片故障分析',answer:answerText,error:errorText,image_name:hasImage?(imageInput.files[0]?.name||''):null,createdAt:new Date().toISOString(),pinned:false};
-      const items=load();items.unshift(latest);save(items);conversationContext.value=JSON.stringify({question:latest.question,answer:latest.answer});renderHistory(latest.id);
+      const turnData={question:question||'图片故障分析',answer:answerText,error:errorText,image_name:hasImage?(imageInput.files[0]?.name||''):null};
+      const items=load();let active=activeConversationId?items.find(item=>item.id===activeConversationId):null;
+      if(active){
+        active.turns=Array.isArray(active.turns)?active.turns:[];active.turns.push(turnData);active.createdAt=new Date().toISOString();active.question=active.title||active.question||turnData.question;active.answer=turnData.answer;active.error=turnData.error;
+        contentEl.insertAdjacentHTML('beforeend',turn.outerHTML);
+      }else{
+        active={id:Date.now().toString(),title:turnData.question,question:turnData.question,answer:turnData.answer,error:turnData.error,image_name:turnData.image_name,turns:[turnData],createdAt:new Date().toISOString(),pinned:false};
+        items.unshift(active);activeConversationId=active.id;contentEl.innerHTML=turn.outerHTML;
+      }
+      save(items);activeConversationId=active.id;conversationContext.value=JSON.stringify({question:turnData.question,answer:turnData.answer});renderHistory(activeConversationId);
       textarea.value='';textarea.style.height='auto';clearImage();
-      document.getElementById('fieldAiChat')?.scrollTo({top:0,behavior:'smooth'});
+      const chat=document.getElementById('fieldAiChat');if(chat)chat.scrollTo({top:chat.scrollHeight,behavior:'smooth'});
     }catch(error){
       const existing=contentEl.querySelector('.field-ai-submit-error');if(existing)existing.remove();
       const box=document.createElement('div');box.className='field-ai-error field-ai-submit-error';box.textContent=error.message||'提交失败，请重试。';contentEl.prepend(box);
