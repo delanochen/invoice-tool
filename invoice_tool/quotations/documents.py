@@ -467,10 +467,9 @@ def _totals_table(quote, subtotal, tax, total, styles):
             Paragraph(_esc(f"$ {_money(value)}"), value_style),
         ]
 
-    discount_amount = _money(quote.get("discount_amount") or 0)
+    discount_amount = quote.get("discount_amount") or 0
     final_amount = quote.get("final_amount")
-    final_value = _money(final_amount if final_amount is not None else
-                         (total - (quote.get("discount_amount") or 0)))
+    final_value = final_amount if final_amount is not None else total - discount_amount
     discount_row = row("Discount", discount_amount, styles["cell"], styles["cell_right"])
     final_row = row("FINAL QUOTED AMOUNT", final_value, styles["total"], styles["total_value"])
     data = [
