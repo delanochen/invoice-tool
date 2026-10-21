@@ -184,7 +184,15 @@ class FieldAIService:
     def display_message(content):
         text = str(content or "").strip()
         lowered = text.lower()
-        if lowered.startswith("<?xml") or lowered.startswith("<msg"):
+        # WeChat media payloads may be prefixed by a sender label such as
+        # "David_Huang_DR:\n<?xml ...>". Never expose the raw XML in Field AI.
+        xml_pos = lowered.find("<?xml")
+        msg_pos = lowered.find("<msg")
+        xml_like = (
+            0 <= xml_pos <= 200
+            or 0 <= msg_pos <= 200
+        )
+        if xml_like:
             if "<img" in lowered:
                 return "\U0001f5bc \u56fe\u7247"
             if "<videomsg" in lowered or "<video" in lowered:
