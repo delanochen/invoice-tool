@@ -22,8 +22,9 @@
   {% if order.status == 'closed' %}{% set ns.closed = ns.closed + 1 %}{% else %}{% set ns.open = ns.open + 1 %}{% endif %}
 {% endfor %}
 
+<form id="batchExportForm" method="post"></form>
+
 <div class="erp-app" data-active-panel="list">
-  <form id="batchExportForm" method="post"></form>
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
@@ -55,7 +56,12 @@
     </div>
   </header>
 
-  <form class="erp-filterbar service-order-filterbar no-print" method="get" action="{{ url_for('service_orders') }}">
+
+
+  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
+  {# 只有一个视图（工单清单），不设页签也不设侧栏 → 走 erp-ui.css 的无导航单列布局 #}
+  <div class="erp-body">
+  <form class="erp-filter service-order-filterbar no-print" method="get" action="{{ url_for('service_orders') }}">
     <label>关键词<input type="search" name="q" value="{{ q }}" placeholder="工单号 / 服务订单号 / 客户 / 业主 / 地址"></label>
     <label>状态<select name="status"><option value="">全部</option><option value="open"{% if status == 'open' %} selected{% endif %}>进行中</option><option value="closed"{% if status == 'closed' %} selected{% endif %}>已关闭</option></select></label>
     {% if not is_external_manager() and not is_external_employee() %}
@@ -69,19 +75,15 @@
     {% endif %}
     <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">筛选</button><a class="erp-btn" href="{{ url_for('service_orders') }}">清除</a></div>
   </form>
-
-  <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
-  {# 只有一个视图（工单清单），不设页签也不设侧栏 → 走 erp-ui.css 的无导航单列布局 #}
-  <div class="erp-body">
     <!-- 默认显示全部工单；上方筛选栏负责状态、客户、站点、厂家、类型、日期和结算/开票状态过滤。 -->
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid service-orders-table" data-grid-height="100%">
           {# 空行 colspan 用同一份列数计算，避免加列后空状态提示横跨错位。 #}
-          {% set grid_columns = 11 + (1 if not is_external_manager() and not is_external_employee() else 0) + (1 if show_expenses else 0) + (1 if can_view_customer_reimbursement() else 0) + (2 if can_view_invoices() else 0) %}
+          {% set grid_columns = 12 + (1 if not is_external_manager() and not is_external_employee() else 0) + (1 if show_expenses else 0) + (1 if can_view_customer_reimbursement() else 0) + (2 if can_view_invoices() else 0) %}
           <thead><tr>
             {% if not is_external_manager() and not is_external_employee() %}<th data-grid-width="32" class="erp-check-col"><input type="checkbox" id="selectAllOrders" class="erp-check" aria-label="全选工单"></th>{% endif %}
-            <th>工单编号</th><th>站点名称</th><th>日报</th>{% if show_expenses %}<th>报销</th>{% endif %}
+            <th>工单编号</th><th>站点名称</th><th>客户</th><th>日报</th>{% if show_expenses %}<th>报销</th>{% endif %}
             {# data-grid-width 是给 Tabulator 镜像用的：镜像列宽跟源表 CSS 的 nth-child 无关，
                而 fitDataStretch 会把没声明宽度的列摊开，「工单结算」只有一个对勾会被撑成一大片，
                所以钉死在 Tabulator 的 minWidth（85）上。 #}
@@ -97,6 +99,7 @@
                 {% if not is_external_manager() and not is_external_employee() %}<td class="erp-check-col"><input type="checkbox" name="order_ids" value="{{ order.id }}" form="batchExportForm" class="batch-order-checkbox erp-check" aria-label="选择工单 {{ order.order_number }}"></td>{% endif %}
                 <td><a href="{{ url_for('service_order_detail', order_id=order.id) }}">{{ order.order_number }}</a></td>
                 <td>{{ order.client_name }}</td>
+                <td>{{ order.customer_name or "-" }}</td>
                 <td>{{ order.report_count }}</td>
                 {% if show_expenses %}<td>{{ order.expense_item_count or 0 }}</td>{% endif %}
                 {# 只表达「有没有工单结算单」：有打勾，没有留空（不写占位符，用户明确要求空）。 #}
