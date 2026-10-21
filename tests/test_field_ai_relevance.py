@@ -156,3 +156,38 @@ def test_longbow_context_expands_followup_without_keyword():
     assert "when can we go?" in contents
     assert "tomorrow is okay" in contents
     assert context["wechat"] == sorted(context["wechat"], key=lambda row: (row["message_time"], row["id"]))
+
+
+def test_address_lookup_uses_specific_place_term_only():
+    assert FieldAIService._search_terms("犹他州的项目地址") == ["犹他州"]
+    assert not FieldAIService._needs_conversation_expansion("犹他州的项目地址")
+
+
+def test_simple_lookup_does_not_expand_unrelated_nearby_messages():
+    import sqlite3
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript("""
+    create table wechat_group_project_mappings (
+        chat_username text, chat_name text, enabled integer,
+        service_order_id integer, project_name text
+    );
+    create table wechat_raw_messages (
+        id integer, message_time text, sender_name text, content text,
+        chat_name text, chat_username text, chat_type text
+    );
+    insert into wechat_group_project_mappings values
+      ('g@chatroom','work-group',1,null,null);
+    insert into wechat_raw_messages values
+      (1,'2026-09-29T18:02:00+00:00','worker-a','犹他州项目地址 8348 S 18150 W, Fairfield, UT 84013','work-group','g@chatroom','group'),
+      (2,'2026-09-29T18:17:16+00:00','worker-a','没停','work-group','g@chatroom','group'),
+      (3,'2026-09-29T18:17:25+00:00','worker-a','就是报故障','work-group','g@chatroom','group');
+    create table technical_knowledge_candidates (
+        id integer, service_order_id integer, project_name text, equipment text,
+        component text, error_code text, symptom text, guidance text, resolution text,
+        provenance_type text, status text, updated_at text
+    );
+    """)
+    service = FieldAIService(db=lambda: db)
+    context = service.gather_context({"id": 9, "role": "admin"}, "犹他州的项目地址")
+    assert [row["id"] for row in context["wechat"]] == [1]

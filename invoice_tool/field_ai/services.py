@@ -105,7 +105,8 @@ class FieldAIService:
             "请问", "帮我查一下", "帮我查", "帮我看一下", "帮我看", "今天", "今日", "最近",
             "有没有", "是否有", "是否", "有无", "发生过", "发生", "出现过", "出现",
             "谁处理过", "谁处理", "谁负责的", "谁负责", "故障", "问题", "异常", "报错",
-            "场站", "项目", "情况", "怎么样", "怎么回事", "吗", "呢",
+            "场站", "项目", "情况", "怎么样", "怎么回事", "地址", "位置", "在哪里", "在哪儿", "哪儿",
+            "的", "吗", "呢",
         ):
             cleaned = cleaned.replace(phrase, " ")
         cleaned = re.sub(r"[?？!！。,:：，；;]+", " ", cleaned)
@@ -242,6 +243,18 @@ class FieldAIService:
             tuple(params),
         ).fetchall()
 
+    @staticmethod
+    def _needs_conversation_expansion(question):
+        text = str(question or "").lower()
+        # Expand nearby chat only when conversational context is likely to matter.
+        # Simple lookup questions (address/location/contact/etc.) should surface only
+        # directly matching evidence instead of dumping an unrelated time window.
+        triggers = (
+            "怎么", "如何", "为什么", "原因", "处理", "解决", "修", "故障", "异常", "报错",
+            "下一步", "后来", "当时", "结果", "什么时候可以", "何时可以", "when can", "what happened",
+        )
+        return any(trigger in text for trigger in triggers)
+
     def gather_context(self, user, question):
         """Return permission-filtered evidence for a later LLM answer step."""
         text = str(question or "").strip()
@@ -250,7 +263,7 @@ class FieldAIService:
         # Never fill a failed search with unrelated recent chat. No evidence is safer
         # than plausible-looking but irrelevant context for the answer model.
         hits = self.search_wechat(user, text)
-        wechat = self.expand_conversation(hits)
+        wechat = self.expand_conversation(hits) if self._needs_conversation_expansion(text) else hits
         return {
             "wechat": [dict(row) for row in wechat],
             "technical_knowledge": [
