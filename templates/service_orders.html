@@ -61,7 +61,7 @@
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
   {# 只有一个视图（工单清单），不设页签也不设侧栏 → 走 erp-ui.css 的无导航单列布局 #}
   <div class="erp-body">
-  <form class="erp-filter service-order-filterbar no-print" method="get" action="{{ url_for('service_orders') }}">
+  <form class="erp-filter erp-filterbar service-order-filterbar no-print" method="get" action="{{ url_for('service_orders') }}">
     <label>关键词<input type="search" name="q" value="{{ q }}" placeholder="工单号 / 服务订单号 / 客户 / 业主 / 地址"></label>
     <label>状态<select name="status"><option value="">全部</option><option value="open"{% if status == 'open' %} selected{% endif %}>进行中</option><option value="closed"{% if status == 'closed' %} selected{% endif %}>已关闭</option></select></label>
     {% if not is_external_manager() and not is_external_employee() %}
