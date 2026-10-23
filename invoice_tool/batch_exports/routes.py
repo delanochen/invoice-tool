@@ -13,7 +13,8 @@ from .service import EXPORT_LABELS, ensure_export_job_schema, run_export_job, ut
 def register_batch_export_routes(app, *, db, data_dir, login_required,
                                  build_service_report_docx, build_simple_xlsx,
                                  customer_reimbursement_items, expense_amount,
-                                 render_invoice_pdf, is_external_manager, is_external_employee):
+                                 render_invoice_pdf, report_attachment_path,
+                                 is_external_manager, is_external_employee):
     def visible_order_ids(user, requested):
         requested = sorted({int(v) for v in requested if str(v).isdigit()})
         if not requested:
@@ -55,6 +56,7 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
                 customer_reimbursement_items=customer_reimbursement_items,
                 expense_amount=expense_amount,
                 render_invoice_pdf=render_invoice_pdf,
+                report_attachment_path=report_attachment_path,
             ),
             daemon=True,
             name=f"batch-export-{job_id[:8]}",

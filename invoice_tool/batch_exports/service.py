@@ -14,6 +14,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 EXPORT_LABELS = {
     "daily_reports": "日报",
+    "mileage_proofs": "批导里程",
     "settlements": "工单结算",
     "invoices": "发票",
 }
@@ -179,7 +180,7 @@ def build_master_ledger(settlement_payloads, *, expense_amount):
 
 
 def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, build_simple_xlsx,
-                   customer_reimbursement_items, expense_amount, render_invoice_pdf):
+                   customer_reimbursement_items, expense_amount, render_invoice_pdf, report_attachment_path):
     with app.app_context():
         ensure_export_job_schema(db)
         conn = db()
@@ -219,6 +220,32 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                             data = build_service_report_docx(report, order)
                             name = safe_name(f"{order.get('client_order_number') if hasattr(order,'get') else order['client_order_number'] or order_no}-{report['report_date']}-report.docx", "service-report.docx")
                             archive.writestr(f"日报/{order_no}/{name}", data)
+                    elif export_type == "mileage_proofs":
+                        reports = conn.execute(
+                            "select id, report_date from service_reports where service_order_id=? order by report_date,id",
+                            (order_id,),
+                        ).fetchall()
+                        if not reports:
+                            missing.append(f"{order_no}: 无日报")
+                        for report in reports:
+                            report_date = safe_name(report["report_date"] or f"report-{report['id']}", f"report-{report['id']}")
+                            attachments = conn.execute(
+                                "select * from service_report_attachments where report_id=? and category='mileage_proof' order by id",
+                                (report["id"],),
+                            ).fetchall()
+                            if not attachments:
+                                missing.append(f"{order_no} / {report_date}: 无里程佐证")
+                                continue
+                            for attachment in attachments:
+                                source_path = report_attachment_path(attachment)
+                                if not source_path or not os.path.isfile(source_path):
+                                    missing.append(f"{order_no} / {report_date}: 里程佐证文件缺失 - {attachment['original_filename'] or attachment['id']}")
+                                    continue
+                                filename = safe_name(
+                                    attachment["original_filename"] or os.path.basename(attachment["stored_filename"]),
+                                    f"mileage-proof-{attachment['id']}",
+                                )
+                                archive.write(source_path, f"批导里程/{order_no}/{report_date}/{filename}")
                     elif export_type == "settlements":
                         reimbursement = conn.execute("select * from customer_reimbursements where service_order_id=? and is_current=true order by id desc limit 1", (order_id,)).fetchone()
                         if not reimbursement:
