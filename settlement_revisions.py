@@ -76,6 +76,12 @@ def _copy_attachments(api, source_id, target_id):
         data = dict(attachment)
         data.pop("id", None)
         data["customer_reimbursement_id"] = target_id
+        # 修订版附件是“原结算附件”的独立快照，不是把同一员工报销附件再次传递到结算。
+        # source_expense_attachment_id 在全表上有唯一约束，只能属于第一次传递形成的附件记录；
+        # 修订版继续保留文件本身、文件名、上传人与时间，但必须清空这个来源占位，
+        # 否则复制 V1 -> V2 会因唯一键冲突而导致创建修订版 500/540。
+        if "source_expense_attachment_id" in data:
+            data["source_expense_attachment_id"] = None
         data["stored_filename"] = f"{secrets.token_hex(12)}-{attachment['original_filename']}"
         columns = ", ".join(data)
         placeholders = ", ".join("?" for _ in data)
