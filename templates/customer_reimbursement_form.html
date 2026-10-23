@@ -83,6 +83,11 @@
       <p class="muted-line">{{ order.order_number }} · {{ order.client_order_number }}
         {% if reimbursement.revision_reason %}· 修订原因：{{ reimbursement.revision_reason }}{% endif %}
       </p>
+      {% if not reimbursement.is_current %}
+        <p class="muted-line"><strong>正在查看 V{{ reimbursement.version_no }}</strong> · 当前正式生效版本仍为 V{{ current_version.version_no }}{% if reimbursement.status in ['draft','returned'] %} · 此版本可继续编辑{% else %} · 此版本正在审核流程中{% endif %}</p>
+      {% elif pending_revision %}
+        <p class="muted-line">当前正式生效版本 V{{ reimbursement.version_no }} · 修订版 V{{ pending_revision.version_no }} 正在处理中</p>
+      {% endif %}
     </div>
     <div class="actions">
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
@@ -113,7 +118,7 @@
           {# 修订版：从当前有效版本复制完整快照（不重读来源），原版本在替代前继续有效。 #}
           <button type="button" class="erp-btn" onclick="const d=document.querySelector('#createRevisionDialog'); document.body.appendChild(d); d.showModal()">创建修订版</button>
         {% endif %}
-        {% if pending_revision and pending_revision.status == "approved" and can_manage_customer_reimbursement() and reimbursement.is_current %}
+        {% if pending_revision and pending_revision.status == "approved" and can_manage_customer_reimbursement() and (reimbursement.is_current or reimbursement.id == pending_revision.id) %}
           <form method="post" action="{{ url_for('promote_customer_reimbursement_revision_route', reimbursement_id=pending_revision.id) }}" onsubmit="return uiConfirm('修订版将替代当前版本成为有效结算，原版本只读留档。已处理完发票与应收差额才能继续，确定替代吗？');">
             <button class="primary" type="submit">确认替代为有效版本</button>
           </form>
@@ -353,7 +358,7 @@
       </div>
     </div>
     <div class="table-scroll"><table class="list-table compact-table">
-      <thead><tr><th>版本</th><th>状态</th><th>合计</th><th>修订原因</th><th>来源版本</th><th>创建人</th><th>创建时间</th></tr></thead>
+      <thead><tr><th>版本</th><th>状态</th><th data-grid-no-calc>合计</th><th>修订原因</th><th>来源版本</th><th>创建人</th><th>创建时间</th></tr></thead>
       <tbody>
       {% for version in settlement_versions %}
         <tr>
@@ -369,7 +374,7 @@
       </tbody>
     </table></div>
     {% if pending_revision %}
-      <p class="flash">修订版 V{{ pending_revision.version_no }} 正在处理中（{{ customer_reimbursement_labels[pending_revision.status] }}），当前有效版本仍是 V{{ reimbursement.version_no }}，可继续发送 / 开票。</p>
+      <p class="flash">修订版 V{{ pending_revision.version_no }} 正在处理中（{{ customer_reimbursement_labels[pending_revision.status] }}），当前正式生效版本仍是 V{{ current_version.version_no }}。可点击上方版本号在各版本之间切换查看。</p>
     {% endif %}
   </section>
   {% endif %}

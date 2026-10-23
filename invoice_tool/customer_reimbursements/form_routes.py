@@ -92,10 +92,27 @@ def register_settlement_form_routes(app, *,
         # POST 带 version_id（表单隐藏域）时作用于该版本——修订版草稿
         # （is_current=false）必须能保存 / 提交 / 审核，否则「沿用现有保存、
         # 确认、审核流程」落空。校验：同工单 + 同系列，跨系列一律不认。
+        version_rows = _cb_resolve_settlement_versions()(_cb_resolve__merge_root_api()(), order_id)
+        current_version = next((version for version in version_rows if version["is_current"]), reimbursement)
+        pending_revision = next(
+            (
+                version for version in reversed(version_rows)
+                if not version["is_current"] and version["status"] != "superseded"
+            ),
+            None,
+        )
         requested_version_id = (
             _cb_resolve_request().args.get("version_id", type=int) if _cb_resolve_request().method == "GET"
             else _cb_resolve_request().form.get("version_id", type=int)
         )
+        # 从工单默认进入结算页时，如果已有正在处理的修订版，优先打开修订版。
+        # 用户显式点击版本记录（带 version_id）时尊重选择，因此仍可随时查看 V1 / 历史版本。
+        if _cb_resolve_request().method == "GET" and not requested_version_id and pending_revision:
+            return _cb_resolve_redirect()(
+                _cb_resolve_url_for()(
+                    "customer_reimbursement_form", order_id=order_id, version_id=pending_revision["id"]
+                )
+            )
         if requested_version_id and requested_version_id != reimbursement["id"]:
             candidate = _cb_resolve_db()().execute(
                 "select * from customer_reimbursements where id = ? and service_order_id = ?",
@@ -350,15 +367,6 @@ def register_settlement_form_routes(app, *,
         # 报价单折扣快照：工单结算展示 折扣前应收 / 折扣 / 最终应收
         _form_totals["gross_amount"] = float(reimbursement["gross_amount"] or 0)
         _form_totals["discount_amount"] = float(reimbursement["discount_amount"] or 0)
-        # 版本列表 / 在处理中的修订版（settlement_revisions 模块函数第一个参数是 api dict）
-        version_rows = _cb_resolve_settlement_versions()(_cb_resolve__merge_root_api()(), order_id)
-        pending_revision = next(
-            (
-                version for version in version_rows
-                if not version["is_current"] and version["status"] != "superseded"
-            ),
-            None,
-        )
         return _cb_resolve_render_template()(
             "customer_reimbursement_form.html",
             order=order,
@@ -377,6 +385,7 @@ def register_settlement_form_routes(app, *,
             attachments=_cb_resolve_get_customer_reimbursement_attachments()(reimbursement["id"]),
             settlement_versions=version_rows,
             pending_revision=pending_revision,
+            current_version=current_version,
             linked_invoice=linked_invoice,
             reviewer=reviewer,
             email_delivery=_cb_resolve_email_delivery_summary()("customer_reimbursement", reimbursement["id"]),

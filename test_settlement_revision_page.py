@@ -35,6 +35,34 @@ class RevisionPageTest(fixtures.SettlementSettledAmountTest):
             revision_id = revision['id']
             self.module.db().execute("update customer_reimbursements set status='approved' where id=?", (revision_id,))
             self.module.db().commit()
-        response = client.get(f'/service-orders/{self.order_id}/customer-reimbursement')
+        response = client.get(f'/service-orders/{self.order_id}/customer-reimbursement', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(f'action="/customer-reimbursements/{revision_id}/promote"', response.get_data(as_text=True))
+        page = response.get_data(as_text=True)
+        self.assertIn(f'action="/customer-reimbursements/{revision_id}/promote"', page)
+        self.assertIn(f'name="version_id" value="{revision_id}"', page)
+        self.assertIn('data-grid-no-calc', page)
+
+    def test_pending_revision_is_default_but_current_version_remains_viewable(self):
+        reimbursement_id = self.make_settlement()
+        client = self.client_for_settlement(reimbursement_id, 'approved')
+        with self.module.app.test_request_context():
+            self.module.g.user = {'id': self.uid, 'name': 'Settled Adj'}
+            revision = settlement_revisions.create_customer_reimbursement_revision(self.api, reimbursement_id, 'Customer adjustment')
+            revision_id = revision['id']
+            self.module.db().commit()
+
+        response = client.get(f'/service-orders/{self.order_id}/customer-reimbursement')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(f'version_id={revision_id}', response.headers['Location'])
+
+        revision_page = client.get(response.headers['Location'])
+        self.assertEqual(revision_page.status_code, 200)
+        revision_html = revision_page.get_data(as_text=True)
+        self.assertIn(f'name="version_id" value="{revision_id}"', revision_html)
+        self.assertIn('此版本可继续编辑', revision_html)
+
+        current_page = client.get(f'/service-orders/{self.order_id}/customer-reimbursement?version_id={reimbursement_id}')
+        self.assertEqual(current_page.status_code, 200)
+        current_html = current_page.get_data(as_text=True)
+        self.assertIn(f'name="version_id" value="{reimbursement_id}"', current_html)
+        self.assertIn('当前正式生效版本', current_html)
