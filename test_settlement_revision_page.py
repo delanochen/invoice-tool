@@ -20,7 +20,9 @@ class RevisionPageTest(fixtures.SettlementSettledAmountTest):
         client = self.client_for_settlement(reimbursement_id, 'submitted')
         response = client.post(f'/customer-reimbursements/{reimbursement_id}/approve', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn(f'action="/customer-reimbursements/{reimbursement_id}/revision"', response.get_data(as_text=True))
+        page = response.get_data(as_text=True)
+        self.assertIn(f'action="/customer-reimbursements/{reimbursement_id}/revision"', page)
+        self.assertIn("document.body.appendChild(d); d.showModal()", page)
         with self.module.app.app_context():
             self.assertEqual(self.module.db().execute('select status from customer_reimbursements where id=?', (reimbursement_id,)).fetchone()['status'], 'approved')
 

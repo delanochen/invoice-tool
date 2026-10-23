@@ -960,8 +960,8 @@ def order_has_approved_reimbursement(order_id):
     return _split_report_locks.order_has_approved_reimbursement(order_id, db=db)
 
 
-def report_locked_by_approved_reimbursement(order):
-    return _split_report_locks.report_locked_by_approved_reimbursement(order, flash=flash, order_has_approved_reimbursement=order_has_approved_reimbursement)
+def report_locked_by_approved_reimbursement(order, silent=False):
+    return _split_report_locks.report_locked_by_approved_reimbursement(order, flash=flash, order_has_approved_reimbursement=order_has_approved_reimbursement, silent=silent)
 
 
 def can_create_service_report(order=None):

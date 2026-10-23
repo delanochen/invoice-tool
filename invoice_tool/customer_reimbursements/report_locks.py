@@ -17,13 +17,19 @@ def order_has_approved_reimbursement(order_id, *, db):
     return row is not None
 
 
-def report_locked_by_approved_reimbursement(order, *, flash, order_has_approved_reimbursement):
-    """Flash a friendly lock message and return True when the order is locked."""
+def report_locked_by_approved_reimbursement(order, *, flash, order_has_approved_reimbursement, silent=False):
+    """Return True when an approved settlement freezes report writes.
+
+    Locked reports remain viewable through the internal edit page, while create,
+    save and delete operations stay blocked so approved settlement inputs cannot
+    drift after approval.
+    """
     if order and order_has_approved_reimbursement(order["id"]):
-        flash(
-            "该工单的客户结算已通过审核，日报已锁定。如需新建、修改或删除日报，"
-            "请先在工单结算页面将结算退回为草稿。",
-            "error",
-        )
+        if not silent:
+            flash(
+                "该工单的客户结算已通过审核：不能新增、保存修改或删除日报；已有日报仍可打开只读查看。"
+                "如需调整数据，请先在工单结算页面将结算退回为草稿。",
+                "error",
+            )
         return True
     return False

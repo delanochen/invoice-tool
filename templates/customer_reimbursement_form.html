@@ -106,12 +106,12 @@
         <form method="post" action="{{ url_for('approve_customer_reimbursement', reimbursement_id=reimbursement.id) }}">
           <button class="primary" type="submit">审核通过</button>
         </form>
-        <button class="danger" type="button" onclick="document.querySelector('#returnCustomerReimbursementDialog').showModal()">退回</button>
+        <button class="danger" type="button" onclick="const d=document.querySelector('#returnCustomerReimbursementDialog'); document.body.appendChild(d); d.showModal()">退回</button>
       {% endif %}
       {% if reimbursement.status == "approved" %}
         {% if can_manage_customer_reimbursement() and not pending_revision %}
           {# 修订版：从当前有效版本复制完整快照（不重读来源），原版本在替代前继续有效。 #}
-          <button type="button" class="erp-btn" onclick="document.querySelector('#createRevisionDialog').showModal()">创建修订版</button>
+          <button type="button" class="erp-btn" onclick="const d=document.querySelector('#createRevisionDialog'); document.body.appendChild(d); d.showModal()">创建修订版</button>
         {% endif %}
         {% if pending_revision and pending_revision.status == "approved" and can_manage_customer_reimbursement() and reimbursement.is_current %}
           <form method="post" action="{{ url_for('promote_customer_reimbursement_revision_route', reimbursement_id=pending_revision.id) }}" onsubmit="return uiConfirm('修订版将替代当前版本成为有效结算，原版本只读留档。已处理完发票与应收差额才能继续，确定替代吗？');">

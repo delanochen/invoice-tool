@@ -105,8 +105,13 @@ class ReportWriteModuleContractTest(unittest.TestCase):
         for table in ('service_reports','service_report_workers','service_report_saved_parts','service_report_replaced_parts','service_report_attachments'):
             self.assertEqual(self.count(table),0)
 
-    def test_approved_settlement_guard_prevents_edit_and_delete(self):
+    def test_approved_settlement_guard_allows_readonly_view_but_prevents_writes(self):
         with patch.object(self.module,'report_locked_by_approved_reimbursement',return_value=True):
+            response = self.http.get(f'/service-reports/{self.report_id}/edit')
+            self.assertEqual(response.status_code,200)
+            page = response.get_data(as_text=True)
+            self.assertIn('本页仅用于内部查看', page)
+            self.assertNotIn('id="saveServiceReport"', page)
             self.assertEqual(self.http.post(f'/service-reports/{self.report_id}/edit',data=self.form(service_description='Blocked')).status_code,302)
             self.assertEqual(self.http.post(f'/service-reports/{self.report_id}/delete').status_code,302)
         self.assertEqual(self.count('service_reports'),1)
