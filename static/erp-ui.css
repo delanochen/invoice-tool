@@ -742,6 +742,27 @@
   }
 }
 
+/* 工单手机清单：筛选和汇总较多，固定外壳会把卡片区挤成一条。
+   保留 ERP 控件密度，改为整页滚动，汇总自然排在全部卡片后面。 */
+@media screen and (max-width: 1024px) {
+  .erp-app:has(.service-orders-table) {
+    display: block;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .erp-app:has(.service-orders-table) .erp-body,
+  .erp-app:has(.service-orders-table) .erp-body > .erp-panel.active,
+  .erp-app:has(.service-orders-table) .erp-cards {
+    overflow: visible;
+  }
+  .erp-app:has(.service-orders-table) > .erp-toolbar,
+  .erp-app:has(.service-orders-table) > .erp-summary,
+  .erp-app:has(.service-orders-table) > .erp-status {
+    position: static;
+  }
+}
+
 /* ---------------------------------------------------- WorkOrderDetailPanel */
 .erp-detail-backdrop {
   position: fixed;

@@ -278,7 +278,9 @@
     if (statusBarEl) {
       document.documentElement.style.setProperty('--erp-status-h', `${statusBarEl.offsetHeight}px`);
     }
-    if (app.classList.contains('erp-app--flow')) {
+    const mobileOrderList = window.matchMedia('(max-width: 1024px)').matches
+      && app.querySelector('.service-orders-table');
+    if (app.classList.contains('erp-app--flow') || mobileOrderList) {
       app.style.height = '';
       return;
     }

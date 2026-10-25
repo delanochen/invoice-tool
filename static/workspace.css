@@ -5,6 +5,8 @@
    iframe 底部（ERP 汇总栏/状态栏所在）被推出屏幕外。改 flex 分配即可。 */
 .workspace-shell { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 .workspace-shell > .topbar { flex: 0 0 auto; }
+/* 页面内的 ERP 状态栏已显示版本，工作区外壳不再叠加悬浮版本。 */
+.workspace-shell > .app-version { display: none; }
 .workspace-shell > .main { flex: 1 1 auto; min-height: 0; padding: 0; display: flex; flex-direction: column; }
 .workspace-shell > .main > .flash-stack { position: static; margin: 8px 16px; }
 #workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
