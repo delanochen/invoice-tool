@@ -436,10 +436,10 @@ def register_field_routes(app, api):
         candidates = []
         for match in re.finditer(labels + r'\s*[:：#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})', text, re.I):
             value = match.group(1).strip('._/-')
-            if re.fullmatch(r'\d{13}', value) and value not in candidates:
+            if re.fullmatch(r'[A-Za-z0-9]{13}', value) and value not in candidates:
                 candidates.append(value)
         if not candidates:
-            candidates.extend(dict.fromkeys(re.findall(r'(?<![A-Z0-9_-])\d{13}(?![A-Z0-9_-])', text, re.I)))
+            candidates.extend(dict.fromkeys(re.findall(r'(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])', text, re.I)))
         return jsonify(ok=True, candidates=candidates[:5])
 
     @app.get('/api/field/photos')

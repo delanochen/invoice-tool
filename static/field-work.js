@@ -205,7 +205,7 @@
       const result = await response.json().catch(()=>({}));
       if (!response.ok) throw new Error(result.error || '铭牌识别失败');
       if (!result.candidates?.length) {
-        if (automatic) { notice('自动识别中，请保持13位数字清晰并完整位于框内。'); return; }
+        if (automatic) { notice('自动识别中，请保持13位字母或数字清晰并完整位于框内。'); return; }
         throw new Error('没有识别到 Machine Number，请靠近铭牌重试或手工输入。');
       }
       stopCamera();
