@@ -1,5 +1,13 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
 
+from urllib.parse import quote
+
+from flask import Response
+from werkzeug.datastructures import Headers
+
+from invoice_tool.attachments.download_capacity import limited_archive_download
+from invoice_tool.attachments.streaming_zip import stream_attachment_zip
+
 
 def register_order_attachments_routes(app, *,
     _cb_resolve_ALLOWED_IMAGE_EXTENSIONS,
@@ -58,6 +66,7 @@ def register_order_attachments_routes(app, *,
 
 
     @_cb_resolve_login_required()
+    @limited_archive_download
     def download_service_order_attachments(order_id):
         order = _cb_resolve_require_service_order()(order_id)
         categories = {"self_check": "自检照片", "arrival": "进场照片", "departure": "离场照片",
@@ -111,36 +120,14 @@ def register_order_attachments_routes(app, *,
                 )
                 for row in _cb_resolve_db()().execute('select * from customer_reimbursement_attachments where customer_reimbursement_id=? order by id', (reimbursement['id'],)):
                     collect('工单结算', _cb_resolve_customer_reimbursement_attachment_path()(row), row['original_filename'], _cb_resolve_CUSTOMER_REIMBURSEMENT_DIR())
-        archive_file = _cb_resolve_tempfile().SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode='w+b')
-        try:
-            with _cb_resolve_zipfile().ZipFile(archive_file, 'w', compression=_cb_resolve_zipfile().ZIP_STORED, allowZip64=True) as archive:
-                used = set()
-                missing = {folder: [] for folder in folders}
-                for folder in folders:
-                    archive.writestr(folder+'/', b'')
-                for folder, path, name in files:
-                    if not path.is_file():
-                        missing[folder].append(name)
-                        continue
-                    stem, suffix = _cb_resolve_os().path.splitext(name)
-                    candidate = folder+'/'+name
-                    index = 2
-                    while candidate.casefold() in used:
-                        candidate = f'{folder}/{stem}-{index}{suffix}'
-                        index += 1
-                    used.add(candidate.casefold())
-                    archive.write(path, candidate)
-                for folder, names in missing.items():
-                    if names:
-                        archive.writestr(folder+'/缺失文件说明.txt', ('以下附件有记录，但服务器文件不存在：\n'+'\n'.join(names)).encode('utf-8'))
-            archive_file.seek(0)
-            response = _cb_resolve_send_file()(archive_file, mimetype='application/zip', as_attachment=True,
-                                 download_name=f"{_cb_resolve_secure_filename()(order['order_number']) or order_id}-附件.zip")
-            response.call_on_close(archive_file.close)
-            return response
-        except Exception:
-            archive_file.close()
-            raise
+        filename = f"{_cb_resolve_secure_filename()(order['order_number']) or order_id}-附件.zip"
+        headers = Headers({'Cache-Control': 'private, no-store', 'X-Accel-Buffering': 'no'})
+        # RFC 5987 preserves the Chinese filename without unsafe header bytes.
+        headers['Content-Disposition'] = "attachment; filename=attachments.zip; filename*=UTF-8''" + quote(filename, safe='')
+        # Do not buffer to compute Content-Length: an archive may be many GiB.
+        # All permissions and DB queries finish before iterating the response.
+        return Response(stream_attachment_zip(folders, files), mimetype='application/zip',
+                        headers=headers, direct_passthrough=True)
 
 
     app.add_url_rule('/service-orders/<int:order_id>/import-google-photos', endpoint='import_google_photos_for_service_order', view_func=import_google_photos_for_service_order, methods=['POST'])

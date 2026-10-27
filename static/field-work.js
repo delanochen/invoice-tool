@@ -315,7 +315,7 @@
       try { profile = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { profile = null; }
       if (!profile) { lock('首次使用需要联网登录。'); return; }
       setFieldText('networkStatus', '离线暂存');
-      notice('暂时无法连接系统。使用最近同步的工单，照片先保存在本机。');
+      notice('服务器暂未响应或连接不稳定。使用最近同步的工单，照片先保存在本机。');
     }
     identityReady = true;
     $('loginPanel').hidden = true;

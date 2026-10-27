@@ -3,7 +3,7 @@
   const tabs = [], bar = document.getElementById('workspaceTabs'), pages = document.getElementById('workspacePages');
   const notice = document.getElementById('workspaceNotice');
   const AUTO_RETRY_DELAYS = [1200, 3000, 7000];
-  const LOAD_TIMEOUT = 15000;
+  const LOAD_TIMEOUT = 45000;
   let active, serial = 0;
   const localUrl = value => {
     try {
@@ -54,7 +54,7 @@
   function showLoadFailure(tab, final = false, message = '') {
     tab.failed = true;
     tab.failure.querySelector('[data-workspace-load-message]').textContent = message || (final
-      ? T('该页面未能从服务器加载。可能是网络或 Cloudflare 隧道短暂中断；如果正在上传附件，也请确认所选本地文件仍然存在。')
+      ? T('服务器暂时未能完成页面加载，可能是服务器繁忙或连接不稳定。请稍后重新加载。')
       : T('页面连接短暂中断，系统正在自动重新加载…'));
     tab.failure.querySelector('[data-workspace-retry]').hidden = !final;
     if (active === tab) activate(tab);
