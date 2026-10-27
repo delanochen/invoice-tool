@@ -133,6 +133,7 @@
           </select>
         </label>
         <label>开始日期 <input type="date" name="start_date" value="{{ order.start_date if order and order.start_date else '' }}"></label>
+        <label>预计结算日 <input type="date" name="expected_settlement_date" value="{{ order.expected_settlement_date if order and order.expected_settlement_date else '' }}"></label>
         {% if order %}
           <label>状态
             <select name="status">
