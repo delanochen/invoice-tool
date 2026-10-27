@@ -7,6 +7,14 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+
+<style id="compact-work-order-filter">
+@media (min-width: 1025px) {
+  .erp-app .service-order-filterbar {
+    grid-template-columns: minmax(130px,1.25fr) repeat(8,minmax(72px,1fr)) 124px auto;
+  }
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -75,7 +83,6 @@
       <label>核销<select name="payment"><option value="">全部</option><option value="paid"{% if payment == 'paid' %} selected{% endif %}>已核销</option><option value="unpaid"{% if payment == 'unpaid' %} selected{% endif %}>待核销</option></select></label>
     {% endif %}
     <label>预计结算日起 <input type="date" name="expected_settlement_from" value="{{ expected_settlement_from }}"></label>
-    <label>预计结算日止 <input type="date" name="expected_settlement_to" value="{{ expected_settlement_to }}"></label>
     <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">筛选</button><a class="erp-btn" href="{{ url_for('service_orders') }}">清除</a></div>
   </form>
     <!-- 默认显示全部工单；上方筛选栏负责状态、客户、站点、厂家、类型、日期和结算/开票状态过滤。 -->
