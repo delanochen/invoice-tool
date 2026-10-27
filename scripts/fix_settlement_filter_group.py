@@ -20,6 +20,7 @@ def update(source):
         # Replace back to front so offsets of the original form stay valid.
         source=source[:extra.start()]+source[extra.end():]
         source=source[:primary.start()]+merged+source[primary.end():]
+    source=re.sub(r'(?m)^[ \t]+$', '', source)
     validate(source)
     return source
 
