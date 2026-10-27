@@ -7,6 +7,14 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+
+<style id="compact-work-order-filter">
+@media (min-width: 1025px) {
+  .erp-app .service-order-filterbar {
+    grid-template-columns: minmax(130px,1.25fr) repeat(8,minmax(72px,1fr)) 124px auto;
+  }
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -53,11 +61,10 @@
   <div class="erp-body">
     <!-- 本页不放关键词筛选：只列「进行中」工单，条件查询（含已关闭）统一走「工单查询」页，
          避免两处各留一个半功能搜索框。2026-09-26 应用户要求移除原关键词 FilterBar。 -->
-    <form class="erp-filter erp-filterbar no-print" method="get" data-erp-filter>
+    <form class="erp-filter erp-filterbar service-order-filterbar no-print" method="get" data-erp-filter>
       <label class="erp-field">关键词 <input type="search" name="q" value="{{ q }}"></label>
       {% if buyer_id %}<input type="hidden" name="buyer_id" value="{{ buyer_id }}">{% endif %}
       <label class="erp-field">预计结算日起 <input type="date" name="expected_settlement_from" value="{{ expected_settlement_from }}"></label>
-      <label class="erp-field">预计结算日止 <input type="date" name="expected_settlement_to" value="{{ expected_settlement_to }}"></label>
       <button type="submit" class="erp-btn primary">查询</button>
       <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
     </form>
