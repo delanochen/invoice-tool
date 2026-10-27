@@ -64,7 +64,7 @@
     <form class="erp-filter erp-filterbar service-order-filterbar no-print" method="get" data-erp-filter>
       <label class="erp-field">关键词 <input type="search" name="q" value="{{ q }}"></label>
       {% if buyer_id %}<input type="hidden" name="buyer_id" value="{{ buyer_id }}">{% endif %}
-      <label class="erp-field">预计结算日起 <input type="date" name="expected_settlement_from" value="{{ expected_settlement_from }}"></label>
+      <label class="erp-field">预计结算日 <input type="date" name="expected_settlement_date" value="{{ expected_settlement_date }}"></label>
       <button type="submit" class="erp-btn primary">查询</button>
       <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
     </form>

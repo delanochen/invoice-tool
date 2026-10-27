@@ -1,6 +1,6 @@
 """Work-order CRUD endpoints with explicit application dependencies."""
 import shutil
-from .settlement_dates import optional_settlement_date, settlement_date_filters
+from .settlement_dates import optional_settlement_date, exact_settlement_date_filter
 from decimal import Decimal
 from flask import abort, flash, g, redirect, render_template, request, url_for
 
@@ -63,7 +63,7 @@ def register_service_order_routes(app, *,
                 "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_orders.client_order_number like ?)"
             )
             params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
-        settlement_filters = settlement_date_filters(request.args, clauses, params)
+        settlement_filters = exact_settlement_date_filter(request.args, clauses, params)
         if buyer_id.isdigit():
             clauses.append("service_orders.buyer_id = ?")
             params.append(int(buyer_id))

@@ -31,7 +31,7 @@ def validate(source):
     forms=[m[0] for m in re.finditer(r'<form\b[^>]*>.*?</form>',source,re.S) if 'name="q"' in m[0]]
     assert len(forms)==1
     assert forms[0].count('name="q"')==1
-    assert forms[0].count('name="expected_settlement_from"')==1
+    assert forms[0].count('name="expected_settlement_date"')==1
     assert 'repeat(8,minmax(72px,1fr)) 124px auto' in source
     assert forms[0].count('type="submit"')==1
 
