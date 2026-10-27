@@ -3347,6 +3347,7 @@ CREATE TABLE public.service_orders (
     buyer_contact_name text,
     buyer_contact_details text,
     start_date text,
+    expected_settlement_date text,
     work_order_type_id bigint,
     client_id bigint,
     region_code text DEFAULT 'americas'::text NOT NULL,

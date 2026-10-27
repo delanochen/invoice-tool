@@ -1,5 +1,6 @@
 """Work-order CRUD endpoints with explicit application dependencies."""
 import shutil
+from .settlement_dates import optional_settlement_date, settlement_date_filters
 from decimal import Decimal
 from flask import abort, flash, g, redirect, render_template, request, url_for
 
@@ -62,6 +63,7 @@ def register_service_order_routes(app, *,
                 "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_orders.client_order_number like ?)"
             )
             params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+        settlement_filters = settlement_date_filters(request.args, clauses, params)
         if buyer_id.isdigit():
             clauses.append("service_orders.buyer_id = ?")
             params.append(int(buyer_id))
@@ -114,7 +116,7 @@ def register_service_order_routes(app, *,
             """,
             params,
         ).fetchall()
-        return render_template("service_orders.html", orders=rows, q=q, buyer_id=buyer_id, buyer_name=buyer_name)
+        return render_template("service_orders.html", orders=rows, q=q, buyer_id=buyer_id, buyer_name=buyer_name, **settlement_filters)
 
 
     @login_required
@@ -223,9 +225,9 @@ def register_service_order_routes(app, *,
                 """
                 insert into service_orders (
                     order_number, client_id, contract_id, quotation_id, settlement_basis, buyer_id, manufacturer_id, client_name, buyer_contact_name, buyer_contact_details,
-                    site_address, client_order_number, start_date, work_order_type_id,
+                    site_address, client_order_number, start_date, expected_settlement_date, work_order_type_id,
                     region_code, country_code, created_by, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     order_number,
@@ -241,6 +243,7 @@ def register_service_order_routes(app, *,
                     site_address,
                     client_order_number,
                     request.form.get("start_date") or None,
+                    optional_settlement_date(request.form.get("expected_settlement_date")),
                     work_order_type["id"],
                     country["region_code"],
                     country["code"],
@@ -411,7 +414,7 @@ def register_service_order_routes(app, *,
                 """
                 update service_orders
                 set client_id = ?, contract_id = ?, quotation_id = ?, buyer_id = ?, manufacturer_id = ?, client_name = ?, buyer_contact_name = ?, buyer_contact_details = ?,
-                    site_address = ?, client_order_number = ?, start_date = ?,
+                    site_address = ?, client_order_number = ?, start_date = ?, expected_settlement_date = ?,
                     work_order_type_id = ?, status = ?, region_code = ?, country_code = ?
                 where id = ?
                 """,
@@ -427,6 +430,7 @@ def register_service_order_routes(app, *,
                     site_address,
                     request.form.get("client_order_number", "").strip(),
                     request.form.get("start_date") or None,
+                    optional_settlement_date(request.form.get("expected_settlement_date")),
                     work_order_type["id"],
                     request.form.get("status", "open"),
                     country["region_code"],

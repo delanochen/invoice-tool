@@ -1,4 +1,5 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
+from invoice_tool.service_orders.settlement_dates import settlement_date_filters
 
 
 def register_order_query_page_routes(app, *,
@@ -39,6 +40,7 @@ def register_order_query_page_routes(app, *,
         if date_to:
             clauses.append("service_orders.start_date <= ?")
             params.append(date_to)
+        settlement_filters = settlement_date_filters(_cb_resolve_request().args, clauses, params)
         if status:
             clauses.append("service_orders.status = ?")
             params.append(status)
@@ -81,6 +83,7 @@ def register_order_query_page_routes(app, *,
             date_from=date_from,
             date_to=date_to,
             status=status,
+            **settlement_filters,
         )
 
 
