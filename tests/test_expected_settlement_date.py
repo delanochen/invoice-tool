@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import MagicMock
 from flask import Flask, g
 from werkzeug.exceptions import BadRequest
-from invoice_tool.service_orders.settlement_dates import optional_settlement_date, settlement_date_filters
+from invoice_tool.service_orders.settlement_dates import optional_settlement_date, settlement_date_filters, exact_settlement_date_filter
 from invoice_tool.service_orders.routes import register_service_order_routes
 from invoice_tool.query_pages.orders import register_order_query_page_routes
 
@@ -16,6 +16,23 @@ class SettlementDateTests(unittest.TestCase):
         for value in ['2026-02-29', '2026-13-01', '20261026', '2026-W43-1', "x' or 1=1"]:
             with self.subTest(value=value), self.assertRaises(BadRequest):
                 optional_settlement_date(value)
+
+    def test_exact_date_and_legacy_list_urls(self):
+        for args, expected in [
+            ({}, None),
+            ({'expected_settlement_date':'2026-10-24'}, '2026-10-24'),
+            ({'expected_settlement_from':'2026-10-24','expected_settlement_to':'2026-10-31'}, '2026-10-24'),
+            ({'expected_settlement_date':'2026-10-25','expected_settlement_from':'2026-10-24'}, '2026-10-25'),
+            ({'expected_settlement_date':'','expected_settlement_from':'2026-10-24'}, None),
+        ]:
+            with self.subTest(args=args):
+                clauses=[];params=[]
+                context=exact_settlement_date_filter(args,clauses,params)
+                self.assertEqual({'expected_settlement_date':expected or ''},context)
+                self.assertEqual([expected] if expected else [],params)
+                self.assertEqual(['service_orders.expected_settlement_date = ?'] if expected else [],clauses)
+        with self.assertRaises(BadRequest):
+            exact_settlement_date_filter({'expected_settlement_date':'2026-02-30'},[],[])
 
     def test_range_boundaries(self):
         for args, expected in [({}, []), ({'expected_settlement_from':'2026-10-26'}, ['2026-10-26']), ({'expected_settlement_to':'2026-10-26'}, ['2026-10-26']), ({'expected_settlement_from':'2026-10-26','expected_settlement_to':'2026-10-26'}, ['2026-10-26','2026-10-26'])]:
@@ -41,12 +58,13 @@ class SettlementDateTests(unittest.TestCase):
             from unittest.mock import patch
             with patch('invoice_tool.service_orders.routes.render_template', return_value='ok') as render:
                 self.assertEqual('ok',views['service_orders']())
-            sql,params=next(call.args for call in deps['db'].return_value.execute.call_args_list if 'expected_settlement_date >= ?' in call.args[0])
+            sql,params=next(call.args for call in deps['db'].return_value.execute.call_args_list if 'expected_settlement_date = ?' in call.args[0])
             self.assertIn('service_orders.client_id = ?',sql)
-            self.assertIn('expected_settlement_date >= ?',sql)
-            self.assertIn('expected_settlement_date <= ?',sql)
-            self.assertEqual([7,'2026-10-01','2026-10-31'],params)
-            self.assertEqual('2026-10-31',render.call_args.kwargs['expected_settlement_to'])
+            self.assertIn('expected_settlement_date = ?',sql)
+            self.assertNotIn('expected_settlement_date >= ?',sql)
+            self.assertNotIn('expected_settlement_date <= ?',sql)
+            self.assertEqual([7,'2026-10-01'],params)
+            self.assertEqual('2026-10-01',render.call_args.kwargs['expected_settlement_date'])
 
     def test_create_edit_and_clear_date(self):
         for action in ['new_service_order', 'edit_service_order']:

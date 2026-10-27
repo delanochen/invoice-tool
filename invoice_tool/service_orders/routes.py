@@ -1,6 +1,6 @@
 """Work-order CRUD endpoints with explicit application dependencies."""
 import shutil
-from .settlement_dates import optional_settlement_date, settlement_date_filters
+from .settlement_dates import optional_settlement_date, exact_settlement_date_filter
 from decimal import Decimal
 from flask import abort, flash, g, redirect, render_template, request, url_for
 
@@ -97,7 +97,7 @@ def register_service_order_routes(app, *,
             clauses.append("exists (select 1 from invoices pv where pv.service_order_id = service_orders.id and pv.status != 'void') and not exists (select 1 from invoices pu where pu.service_order_id = service_orders.id and pu.status != 'void' and pu.paid_at is null)")
         elif payment == "unpaid":
             clauses.append("exists (select 1 from invoices pu where pu.service_order_id = service_orders.id and pu.status != 'void' and pu.paid_at is null)")
-        settlement_filters = settlement_date_filters(request.args, clauses, params)
+        settlement_filters = exact_settlement_date_filter(request.args, clauses, params)
         if buyer_id.isdigit():
             clauses.append("service_orders.buyer_id = ?")
             params.append(int(buyer_id))

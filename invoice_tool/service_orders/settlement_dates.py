@@ -28,3 +28,15 @@ def settlement_date_filters(args, clauses, params):
         clauses.append("service_orders.expected_settlement_date <= ?")
         params.append(end)
     return {"expected_settlement_from": start or "", "expected_settlement_to": end or ""}
+
+
+def exact_settlement_date_filter(args, clauses, params):
+    # Older bookmarked list URLs used the range-start parameter.
+    value = args.get("expected_settlement_date")
+    if value is None:
+        value = args.get("expected_settlement_from")
+    value = optional_settlement_date(value)
+    if value:
+        clauses.append("service_orders.expected_settlement_date = ?")
+        params.append(value)
+    return {"expected_settlement_date": value or ""}
