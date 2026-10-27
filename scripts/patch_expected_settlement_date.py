@@ -39,9 +39,13 @@ def apply():
     inputs='''      <label class="erp-field">预计结算日起 <input type="date" name="expected_settlement_from" value="{{ expected_settlement_from }}"></label>
       <label class="erp-field">预计结算日止 <input type="date" name="expected_settlement_to" value="{{ expected_settlement_to }}"></label>
 '''
-    if 'data-erp-filter' in s:
-        start=s.index('data-erp-filter');end=s.index('</form>',start)
-        s=s[:end]+inputs+s[end:]
+    existing=next((match for match in re.finditer(r'<form\b[^>]*>.*?</form>',s,re.S) if 'name="q"' in match[0]),None)
+    if existing:
+        form=existing[0]
+        if 'data-erp-filter' not in form:
+            form=form.replace('method="get"','method="get" data-erp-filter',1)
+        form=form.replace('</form>',inputs+'</form>',1)
+        s=s[:existing.start()]+form+s[existing.end():]
     else:
         marker='    <section class="erp-panel active" data-erp-panel="list">'
         form='''    <form class="erp-filter erp-filterbar no-print" method="get" data-erp-filter>
