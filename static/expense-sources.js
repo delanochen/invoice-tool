@@ -5,6 +5,16 @@
 
   let activePopup = null;
 
+  // Read-only settlements still allow inspecting sources. Keep editing controls disabled.
+  cells.forEach(cell => {
+    const fieldset = cell.closest('fieldset[disabled]');
+    if (!fieldset) return;
+    fieldset.querySelectorAll('input, select, textarea, button').forEach(control => {
+      control.disabled = !control.matches('.expense-source-icon, .expense-source-popup-close');
+    });
+    fieldset.disabled = false;
+  });
+
   // 解析金额字符串为数字
   function parseAmount(value) {
     if (typeof value === 'number') return value;
@@ -32,7 +42,7 @@
     if (badge) badge.style.display = isAdjusted ? '' : 'none';
 
     // 更新弹窗中的汇总
-    const popup = cell.querySelector('.expense-source-popup');
+    const popup = activePopup?.cell === cell ? activePopup.popup : cell.querySelector('.expense-source-popup');
     if (popup) {
       const currentDisplay = popup.querySelector('.current-amount-display');
       const diffDisplay = popup.querySelector('.diff-amount');
@@ -71,12 +81,23 @@
   }
 
   // 打开弹窗
-  function openPopup(cell) {
+  function openPopup(cell, anchor) {
     closePopup();
-    const popup = cell.querySelector('.expense-source-popup');
-    const icon = cell.querySelector('.expense-source-icon');
+    const source = cell.querySelector('.expense-source-popup');
+    const icon = anchor || cell.querySelector('.expense-source-icon');
+    const popup = source?.cloneNode(true);
     if (!popup || !icon) return;
 
+    document.body.appendChild(popup);
+    popup.addEventListener('click', event => event.stopPropagation());
+    popup.querySelector('.expense-source-popup-close')?.addEventListener('click', closePopup);
+    popup.querySelector('.restore-auto-amount')?.addEventListener('click', () => {
+      const input = cell.querySelector('input[data-auto-amount]');
+      if (!input || input.disabled || input.readOnly) return;
+      input.value = input.dataset.autoAmount;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      updateAdjustedState(cell);
+    });
     popup.hidden = false;
     popup.style.position = 'fixed';
     icon.classList.add('active');
@@ -88,7 +109,7 @@
   // 关闭弹窗
   function closePopup() {
     if (!activePopup) return;
-    activePopup.popup.hidden = true;
+    activePopup.popup.remove();
     activePopup.icon.classList.remove('active');
     activePopup = null;
   }
@@ -99,6 +120,11 @@
     const popup = cell.querySelector('.expense-source-popup');
     const input = cell.querySelector('input[data-auto-amount]');
     if (!icon || !popup) return;
+
+    icon.addEventListener('expense-source-open', event => {
+      if (activePopup?.icon === event.detail.anchor) closePopup();
+      else openPopup(cell, event.detail.anchor);
+    });
 
     // 图标点击切换
     icon.addEventListener('click', event => {
