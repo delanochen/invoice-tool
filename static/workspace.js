@@ -73,6 +73,14 @@
     tab.loadTimer = setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT);
   }
   function pageLoadFailed(tab) {
+    // Slow images or scripts must not discard an already received document.
+    try {
+      const doc = tab.frame.contentWindow.document;
+      if (doc.documentElement.dataset.workspaceReady === '1' && doc.querySelector('.main')) {
+        attach(tab);
+        return;
+      }
+    } catch { /* Network/browser error documents may be inaccessible. */ }
     if (tab.retryTimer) return;
     if (tab.loadTimer) clearTimeout(tab.loadTimer);
     tab.loadTimer = null;
@@ -101,6 +109,8 @@
     if (tab.loadTimer) clearTimeout(tab.loadTimer);
     tab.retryTimer = null; tab.loadTimer = null; tab.loadFailures = 0; tab.failed = false;
     if (active === tab) activate(tab);
+    if (tab.attachedDocument === doc) return;
+    tab.attachedDocument = doc;
     // 让页面内的脚本也能请求「在工作区里新开一个标签页」（而不是自己 location.href 跳走，
     // 那会把当前标签的页面整个换掉）。工作区内所有站内跳转都应走这里，见
     // selectable-table-actions.js 的 detailUrl 按钮。
@@ -177,6 +187,11 @@
     tab.loadTimer = setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT);
     frame.src = url;
   }
+  window.addEventListener('message', event => {
+    if (event.origin !== location.origin || event.data?.type !== 'workspace:ready') return;
+    const tab = tabs.find(item => item.frame.contentWindow === event.source);
+    if (tab) attach(tab);
+  });
   document.querySelectorAll('#topnav a').forEach(link => link.addEventListener('click', event => {
     if (event.ctrlKey || event.metaKey || event.shiftKey || link.target) return;
     // 现场工作（/field/）：交还浏览器原生导航整页进入，不另开浏览器标签页，也不塞进工作区 iframe。

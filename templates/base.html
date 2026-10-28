@@ -457,6 +457,12 @@
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
+    <script>
+      if (window.parent !== window) {
+        document.documentElement.dataset.workspaceReady = '1';
+        window.parent.postMessage({type: 'workspace:ready'}, location.origin);
+      }
+    </script>
     <div class="app-version no-print" title="当前部署版本">v{{ app_version }}</div>
     <dialog id="imageAttachmentPreviewDialog" class="modal preview-modal image-attachment-preview-modal no-print">
       <div class="modal-header">
