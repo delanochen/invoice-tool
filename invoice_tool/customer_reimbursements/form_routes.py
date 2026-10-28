@@ -1,6 +1,7 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
 
 from .workspace_sources import save_workspace_sources, restore_workspace_sources
+from .source_display import enrich_expense_source_details
 
 
 def register_settlement_form_routes(app, *,
@@ -279,6 +280,7 @@ def register_settlement_form_routes(app, *,
                 item["expense_sources"] = _cb_resolve_json().loads(item.get("auto_expense_sources") or '{}')
             except (ValueError, TypeError):
                 item["expense_sources"] = {}
+        enrich_expense_source_details(items, reimbursement["id"], _cb_resolve_db()())
         # 为每个来源补充附件信息和报销单链接
         all_source_keys = []
         for item in items:

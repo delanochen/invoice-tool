@@ -301,7 +301,10 @@
             original.dispatchEvent(new Event(eventName,{bubbles:true}));
           });
         } else if (copy.matches('button,a,[onclick],[data-image-preview]') || original.hasAttribute('onclick')) {
-          copy.addEventListener('click',event => { event.preventDefault(); event.stopPropagation(); original.click(); });
+          copy.addEventListener('click',event => { event.preventDefault(); event.stopPropagation();
+            if (original.matches('.expense-source-icon')) {
+              original.dispatchEvent(new CustomEvent('expense-source-open', {detail: {anchor: copy}}));
+            } else original.click(); });
         }
       });
       wrapper.addEventListener('focusout', () => setTimeout(() => this.schedule(),0));

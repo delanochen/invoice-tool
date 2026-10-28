@@ -320,6 +320,7 @@ def linked_approved_expense_rows(api, reimbursement_id, order_id, cutoff_at=None
                coalesce(customer_reimbursement_expense_links.settled_amount,
                         customer_reimbursement_expense_links.amount_snapshot,
                         expense_items.amount) as amount,
+               customer_reimbursement_expense_links.adjustment_reason,
                expense_items.fuel_vehicle_type,
                expenses.id as expense_id, expenses.expense_number, expense_items.line_key,
                expense_items.description as item_description,
