@@ -487,7 +487,6 @@
                     data-image-preview
                     data-preview-name="{{ attachment.original_filename }}"
                   >
-                    <img class="inline-thumb" src="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
                     {{ attachment.original_filename }}
                   </a>
                 {% else %}
