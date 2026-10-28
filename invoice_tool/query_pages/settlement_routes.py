@@ -113,6 +113,9 @@ def register_report_queries_routes(app, *,
         rows = _cb_resolve_db()().execute(
             f"""
         select customer_reimbursements.*,
+               coalesce((select sum(items.transport_hours)
+                         from customer_reimbursement_items items
+                         where items.customer_reimbursement_id = customer_reimbursements.id), 0) as transport_hours,
                service_orders.order_number,
                service_orders.client_name,
                service_orders.client_order_number,
@@ -141,6 +144,7 @@ def register_report_queries_routes(app, *,
             [_cb_resolve_current_language()(), *params],
         ).fetchall()
         totals = {
+            "transport_hours": sum(float(row["transport_hours"] or 0) for row in rows),
             "labor_total": sum(float(row["labor_total"] or 0) for row in rows),
             "travel_total": sum(float(row["travel_total"] or 0) for row in rows),
             "mileage_total": sum(float(row["mileage_total"] or 0) for row in rows),

@@ -40,6 +40,7 @@ def stream_attachment_zip(folders, files):
     """
     output = _Output()
     used = set()
+    source_paths = set()
     missing = {folder: [] for folder in folders}
     with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_STORED,
                          allowZip64=True) as archive:
@@ -47,6 +48,10 @@ def stream_attachment_zip(folders, files):
             archive.writestr(folder + '/', b'')
             yield output.drain()
         for folder, path, name in files:
+            source_path = path.resolve()
+            if source_path in source_paths:
+                continue
+            source_paths.add(source_path)
             if not path.is_file():
                 missing[folder].append(name)
                 continue

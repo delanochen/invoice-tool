@@ -97,7 +97,14 @@ def register_order_attachments_routes(app, *,
                         collect('现场工作照片', path, '-'.join(path.relative_to(picture_dir).parts), picture_dir)
         if _cb_resolve_can_view_customer_reimbursement()():
             reimbursements = _cb_resolve_db()().execute(
-                'select * from customer_reimbursements where service_order_id=? order by id',
+                """select * from customer_reimbursements
+                   where service_order_id=?
+                     and (is_current or not exists (
+                         select 1 from customer_reimbursements current_row
+                         where current_row.service_order_id=customer_reimbursements.service_order_id
+                           and current_row.is_current
+                     ))
+                   order by id""",
                 (order_id,),
             ).fetchall()
             for reimbursement in reimbursements:
