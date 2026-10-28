@@ -37,3 +37,10 @@
   important milestones, and commit every phase separately.
 - Tests may connect only to PostgreSQL `invoice_test`. They must never connect
   to `invoice_production` or any other non-`invoice_test` database.
+
+## Release notes
+
+- Every version upgrade must add an entry to `release_notes.json` in the same change.
+- Write the concrete upgrade reason, resulting changes, version and release date in clear Chinese. Do not invent missing historical reasons.
+- Preserve prior entries and run `tests/test_release_notes.py` before release. The current `VERSION` must have a complete entry.
+- The System Settings → 版本说明 page reads this file directly; commit messages alone are insufficient.

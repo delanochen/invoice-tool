@@ -416,7 +416,7 @@
     if(!window.Tabulator || location.pathname.includes('/print')) { document.documentElement.classList.remove('grids-pending'); return; }
     for(const [source,instance] of instances)if(!source.isConnected){clearTimeout(instance.timer);instance.listeners.abort();instance.observer.disconnect();instance.resizeObserver.disconnect();instance.grid.destroy();instance.shell.remove();instances.delete(source);}
     document.querySelectorAll('table').forEach(source=>{
-      if(instances.has(source) || source.closest('.system-grid') || !source.tHead?.rows[0]?.cells.length) return;
+      if(instances.has(source) || source.hasAttribute('data-no-system-grid') || source.closest('.system-grid') || !source.tHead?.rows[0]?.cells.length) return;
       try { const instance=new Grid(source); instances.set(source,instance); } catch(error) { source.dataset.gridFailed='true'; source.previousElementSibling?.classList.contains('grid-building') && source.previousElementSibling.remove(); console.error('Grid initialization failed',error); }
     });
     settle();

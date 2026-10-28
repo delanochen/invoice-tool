@@ -111,7 +111,7 @@
         {% set finance_endpoints = ["finance_overview", "bank_accounts", "bank_transactions", "employee_advances", "employee_ledger", "payment_batches", "payment_batch_detail", "bank_reconciliation", "accounting_vouchers", "accounting_voucher_detail", "accounting_receipts", "accounting_prepayment_apply", "accounting_periods", "accounting_opening_balances", "accounting_trial_balance", "accounting_income_statement", "accounting_balance_sheet", "accounting_receivable_aging", "accounting_customer_statement", "accounting_sales_tax_liability", "accounting_account_ledger", "tax_review", "tax_review_component", "save_tax_review", "annual_tax_summary", "annual_tax_summary_components", "annual_tax_summary_export", "cpa_workpaper", "cpa_workpaper_export", "policy_decisions", "policy_decisions_export"] %}
         {% set asset_endpoints = ["assets", "asset_detail"] %}
         {% set basic_data_endpoints = ["clients", "owners", "manufacturers", "buyers", "work_order_types", "projects", "countries", "company_info", "users", "new_user", "edit_user"] %}
-        {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions"] %}
+        {% set system_config_endpoints = ["payment_terms", "edit_payment_term", "toggle_payment_term", "recalculate_payment_term_invoices", "system_settings", "menu_permissions", "release_notes"] %}
         {% macro nav_icon(name) -%}
           {%- if name -%}<svg class="nav-item-icon" aria-hidden="true" focusable="false"><use href="#ni-{{ name }}"></use></svg>{%- endif -%}
         {%- endmacro %}
@@ -390,7 +390,15 @@
                 <div class="nav-submenu">
                   {% if normalized_role() == "admin" %}{{ nav_link("menu_permissions", "权限管理", icon="permission") }}{% endif %}
                   {% if has_menu_permission("payment_terms") and has_action_permission("payment_terms", "view") %}{{ nav_link("payment_terms", "账期管理", icon="terms") }}{% endif %}
-                  {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}{{ nav_link("system_settings", "系统设置", icon="settings") }}{% endif %}
+                  {% if has_menu_permission("system_settings") and has_action_permission("system_settings", "view") %}
+                    <details class="nav-subgroup {{ 'active' if active_endpoint in ['system_settings', 'release_notes'] else '' }}" {% if active_endpoint in ['system_settings', 'release_notes'] %}open{% endif %}>
+                      <summary>{{ nav_icon("settings") }}系统设置</summary>
+                      <div class="nav-submenu">
+                        {{ nav_link("system_settings", "系统参数", icon="settings") }}
+                        {{ nav_link("release_notes", "版本说明", icon="book") }}
+                      </div>
+                    </details>
+                  {% endif %}
                 </div>
               </details>
             {% endif %}

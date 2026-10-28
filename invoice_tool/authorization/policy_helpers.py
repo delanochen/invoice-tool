@@ -328,6 +328,7 @@ def required_action_for_request(*, g, request):
         ("users", "GET"): ("users", "view"),
         ("users", "POST"): ("users", "create"),
         ("system_settings", "GET"): ("system_settings", "view"),
+        ("release_notes", "GET"): ("system_settings", "view"),
         ("system_settings", "POST"): ("system_settings", "edit"),
         ("deepseek_connection_test", "POST"): ("system_settings", "edit"),
         ("database_console", "GET"): ("database_console", "view"),

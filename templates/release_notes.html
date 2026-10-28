@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}版本说明 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+  .release-notes .erp-grid { table-layout: fixed; width: 100%; }
+  .release-notes .erp-grid th:nth-child(1) { width: 100px; }
+  .release-notes .erp-grid th:nth-child(2) { width: 110px; }
+  .release-notes .erp-grid th:nth-child(3) { width: 35%; }
+  .release-notes .erp-grid td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+  .release-notes ul { padding-left: 18px; margin: 4px 0; }
+  .release-notes summary { cursor: pointer; }
+  @media (max-width: 700px) { .release-notes .erp-grid { min-width: 680px; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="erp-app erp-app--flow release-notes">
+  <header class="erp-toolbar">
+    <div class="erp-toolbar-title">版本说明 <small>升级原因与改动记录</small></div>
+    <span class="erp-badge">当前版本 {{ app_version }}</span>
+    <span class="erp-toolbar-spacer"></span>
+    <span class="erp-meta">{{ total }} 个版本</span>
+  </header>
+  <form class="erp-filter" method="get">
+    <label class="erp-field">版本 / 关键词
+      <input type="search" name="q" value="{{ q }}" placeholder="版本号、功能名称或问题描述">
+    </label>
+    <button class="erp-btn primary" type="submit">查询</button>
+    <a class="erp-btn" href="{{ url_for('release_notes') }}">重置</a>
+  </form>
+  <div class="erp-grid-wrap">
+    <table class="list-table erp-grid" data-no-system-grid>
+      <thead><tr><th>版本</th><th>发布日期</th><th>升级原因</th><th>具体改动</th></tr></thead>
+      <tbody>
+      {% for release in releases %}
+        <tr>
+          <td>{{ release.version }}{% if release.version == app_version %} <span class="erp-badge">当前</span>{% endif %}</td>
+          <td>{{ release.date }}</td>
+          <td>{{ release.reason }}</td>
+          <td>
+            <details {% if loop.first and page == 1 and not q %}open{% endif %}>
+              <summary>{{ release.changes|length }} 项说明</summary>
+              <ul>{% for change in release.changes %}<li>{{ change }}</li>{% endfor %}</ul>
+              {% if release.source %}<span class="erp-meta">记录来源：{{ release.source }}</span>{% endif %}
+            </details>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="empty">没有符合条件的版本说明。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <footer class="erp-status">
+    <span>第 {{ page }} / {{ pages }} 页 · 共 {{ total }} 个版本</span>
+    {% if page > 1 %}<a class="erp-btn" href="{{ url_for('release_notes', q=q, page=page-1) }}">上一页</a>{% endif %}
+    {% if page < pages %}<a class="erp-btn" href="{{ url_for('release_notes', q=q, page=page+1) }}">下一页</a>{% endif %}
+  </footer>
+</div>
+{% endblock %}

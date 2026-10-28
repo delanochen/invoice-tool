@@ -1,5 +1,7 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
 
+from .release_notes import load_release_notes, release_notes_context
+
 
 def register_system_settings_routes(app, *,
     _cb_resolve_ACTION_LABELS,
@@ -340,6 +342,15 @@ def register_system_settings_routes(app, *,
         )
 
 
+    @_cb_resolve_login_required()
+    def release_notes():
+        args = _cb_resolve_request().args
+        return _cb_resolve_render_template()(
+            'release_notes.html',
+            **release_notes_context(load_release_notes(), args.get('q', ''), args.get('page', 1)),
+        )
+
+    app.add_url_rule('/settings/release-notes', endpoint='release_notes', view_func=release_notes, methods=['GET'])
     app.add_url_rule('/settings/system', endpoint='system_settings', view_func=system_settings, methods=['GET', 'POST'])
     app.add_url_rule('/settings/menu-permissions', endpoint='menu_permissions', view_func=menu_permissions, methods=['GET', 'POST'])
     app.add_url_rule('/settings/database', endpoint='database_console', view_func=database_console, methods=['GET', 'POST'])
