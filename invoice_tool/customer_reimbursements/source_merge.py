@@ -125,6 +125,7 @@ def merge_approved_expenses_into_customer_reimbursement(
             # 报销原额：amount 是「客户认可金额」（部分计入时小于原额）。
             # 来源明细面板用它显示员工实际报销了多少，避免看起来像报销被改小。
             "source_amount": _row_field(expense_item, "full_amount", expense_item["amount"]),
+            "adjustment_reason": _row_field(expense_item, "adjustment_reason", "") or "",
             "date": expense_item["expense_date"],
         })
         auto_field = f"auto_{field_name}"

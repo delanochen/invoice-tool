@@ -26,7 +26,7 @@ class MemoryTransaction:
             is_current=i == 10, sources_frozen=i == 11, lodging_person_nights=1,
             expense_selection_mode='manual_review', reviewed_by=None, invoice_id=None,
             file_name='settlement.pdf', mro_supplies_total=0, rental_fuel_total=0,
-            gross_amount=0, discount_amount=0) for i in (10, 11)}
+            gross_amount=0, discount_amount=0, settlement_basis='contract') for i in (10, 11)}
         self.links = {10: {7: (373.99, '')}, 11: {7: (373.99, '')}}
         self.items = {i: [dict(worker_name='Test', project_date='2026-10-19',
             auto_expense_sources='{}')] for i in self.records}

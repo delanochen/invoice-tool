@@ -27,12 +27,12 @@
                data-auto-amount="{{ auto_amount }}" data-field-name="{{ field_name }}"
                {% if readonly %}readonly title="金额来自结算池勾选的报销明细，请在结算池中勾选/取消来调整"{% endif %}
                class="{% if is_adjusted %}is-adjusted{% endif %}">
-        {% if auto_amount > 0 %}
+        {% if sources or auto_amount > 0 %}
         <button type="button" class="expense-source-icon" title="查看来源明细" aria-label="查看来源明细">ⓘ</button>
         {% endif %}
         {% if is_adjusted %}<span class="adjusted-badge">已调整</span>{% endif %}
       </div>
-      {% if auto_amount > 0 %}
+      {% if sources or auto_amount > 0 %}
       <div class="expense-source-popup" hidden>
         <div class="expense-source-popup-header">
           <strong>来源明细</strong>
@@ -47,10 +47,17 @@
               {% else %}
               <span class="translatable-text">{{ source.expense_number }} · 第{{ source.line_number }}项</span>
               {% endif %}
-              <span class="expense-source-amount">{{ source.amount|money }}</span>
+              <span class="expense-source-amount">结算 {{ source.amount|money }}</span>
             </div>
             <div class="expense-source-meta">{{ source.worker_name }} · {{ source.date }} · {{ source.project_name }}</div>
-            {% if source.description %}<div class="expense-source-desc">{{ source.description }}</div>{% endif %}
+            {% set document_amount = source.source_amount if source.source_amount is defined and source.source_amount is not none else none %}
+            <div class="expense-source-row"><span>单据金额</span><strong>{% if document_amount is not none %}{{ document_amount|money }}{% else %}历史快照未记录{% endif %}</strong></div>
+            <div class="expense-source-row"><span>结算金额</span><strong>{{ source.amount|money }}</strong></div>
+            <div class="expense-source-desc">说明：{{ source.description or '无' }}</div>
+            {% if document_amount is not none and document_amount|float > source.amount|float %}
+            <div class="expense-source-row"><span>核减金额</span><strong>{{ (document_amount|float - source.amount|float)|money }}</strong></div>
+            <div class="expense-source-desc">核减原因：{{ source.adjustment_reason or '未记录核减原因，请核实' }}</div>
+            {% elif source.adjustment_reason %}<div class="expense-source-desc">结算说明：{{ source.adjustment_reason }}</div>{% endif %}
             {% if source.attachments %}
             <div class="expense-source-attachments">
               {% for att in source.attachments %}<span class="expense-source-attachment" title="{{ att.original_filename }}">📎 {{ att.original_filename }}</span>{% endfor %}
