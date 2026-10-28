@@ -24,6 +24,7 @@
     tabs.forEach(item => {
       item.frame.hidden = item !== tab || item.failed;
       item.failure.hidden = item !== tab || !item.failed;
+      item.loading.hidden = item !== tab || !item.isLoading;
       item.node.classList.toggle('active', item === tab);
       item.button.setAttribute('aria-selected', String(item === tab));
       item.button.tabIndex = item === tab ? 0 : -1;
@@ -44,7 +45,7 @@
     const index = tabs.indexOf(tab);
     if (tab.retryTimer) clearTimeout(tab.retryTimer);
     if (tab.loadTimer) clearTimeout(tab.loadTimer);
-    tabs.splice(index, 1); tab.node.remove(); tab.frame.remove(); tab.failure.remove();
+    tabs.splice(index, 1); tab.node.remove(); tab.frame.remove(); tab.failure.remove(); tab.loading.remove();
     if (!tabs.length) open('/'); else if (active === tab) activate(tabs[Math.min(index, tabs.length - 1)]);
   }
   function changed(source) {
@@ -52,11 +53,21 @@
     if (active) notice.hidden = !active.stale;
   }
   function showLoadFailure(tab, final = false, message = '') {
+    tab.isLoading = false;
+    tab.frame.setAttribute('aria-busy', 'false');
     tab.failed = true;
     tab.failure.querySelector('[data-workspace-load-message]').textContent = message || (final
       ? T('服务器暂时未能完成页面加载，可能是服务器繁忙或连接不稳定。请稍后重新加载。')
       : T('页面连接短暂中断，系统正在自动重新加载…'));
     tab.failure.querySelector('[data-workspace-retry]').hidden = !final;
+    if (active === tab) activate(tab);
+  }
+  function showLoading(tab, message = '正在加载页面，请稍候…') {
+    tab.loadingDocument = tab.attachedDocument;
+    tab.isLoading = true;
+    tab.failed = false;
+    tab.frame.setAttribute('aria-busy', 'true');
+    tab.loading.querySelector('[data-workspace-loading-message]').textContent = T(message);
     if (active === tab) activate(tab);
   }
   function retryLoad(tab, automatic = false) {
@@ -65,10 +76,7 @@
     tab.retryTimer = null;
     tab.loadTimer = null;
     if (!automatic) tab.loadFailures = 0;
-    tab.failed = true;
-    tab.failure.querySelector('[data-workspace-load-message]').textContent = T('正在重新连接服务器并加载页面…');
-    tab.failure.querySelector('[data-workspace-retry]').hidden = true;
-    if (active === tab) activate(tab);
+    showLoading(tab, '正在重新连接服务器并加载页面…');
     tab.frame.src = tab.url;
     tab.loadTimer = setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT);
   }
@@ -76,7 +84,7 @@
     // Slow images or scripts must not discard an already received document.
     try {
       const doc = tab.frame.contentWindow.document;
-      if (doc.documentElement.dataset.workspaceReady === '1' && doc.querySelector('.main')) {
+      if (doc !== tab.loadingDocument && doc.documentElement.dataset.workspaceReady === '1' && doc.querySelector('.main')) {
         attach(tab);
         return;
       }
@@ -108,6 +116,8 @@
     if (tab.retryTimer) clearTimeout(tab.retryTimer);
     if (tab.loadTimer) clearTimeout(tab.loadTimer);
     tab.retryTimer = null; tab.loadTimer = null; tab.loadFailures = 0; tab.failed = false;
+    tab.isLoading = false;
+    tab.frame.setAttribute('aria-busy', 'false');
     if (active === tab) activate(tab);
     if (tab.attachedDocument === doc) return;
     tab.attachedDocument = doc;
@@ -162,15 +172,19 @@
     if (!url) return;
     const existing = tabs.find(tab => key(tab.url) === key(url));
     if (existing) { activate(existing); return; }
-    const node = document.createElement('div'), button = document.createElement('button'), closeButton = document.createElement('button'), frame = document.createElement('iframe'), failure = document.createElement('section');
+    const node = document.createElement('div'), button = document.createElement('button'), closeButton = document.createElement('button'), frame = document.createElement('iframe'), failure = document.createElement('section'), loading = document.createElement('section');
     node.className = 'workspace-tab'; button.type = closeButton.type = 'button'; button.setAttribute('role', 'tab');
     frame.id = 'workspace-page-' + (++serial); frame.title = title; frame.setAttribute('role', 'tabpanel');
     frame.setAttribute('allow', 'web-share; clipboard-write');
+    frame.setAttribute('aria-busy', 'true');
+    loading.className = 'workspace-loading'; loading.hidden = true;
+    loading.setAttribute('role', 'status'); loading.setAttribute('aria-live', 'polite');
+    loading.innerHTML = '<span class="workspace-loading-spinner" aria-hidden="true"></span><span data-workspace-loading-message>' + T('正在加载页面，请稍候…') + '</span>';
     failure.className = 'workspace-load-failure'; failure.hidden = true;
     failure.innerHTML = '<div class="workspace-load-failure-card"><div class="workspace-load-failure-icon" aria-hidden="true">!</div><h2>' + T('页面加载失败') + '</h2><p data-workspace-load-message></p><button type="button" data-workspace-retry hidden>' + T('重新加载') + '</button><small>' + T('如果仍然失败，请检查网络后稍候再试；已经选择的本地附件可能需要重新选择。') + '</small></div>';
     button.id = 'workspace-tab-' + serial; button.setAttribute('aria-controls', frame.id); frame.setAttribute('aria-labelledby', button.id);
     closeButton.className = 'workspace-close'; closeButton.textContent = '×';
-    const tab = {url, title, node, button, close: closeButton, frame, failure, dirty: false, stale: false, failed: false, loadFailures: 0, retryTimer: null, loadTimer: null};
+    const tab = {url, title, node, button, close: closeButton, frame, failure, loading, isLoading: true, dirty: false, stale: false, failed: false, loadFailures: 0, retryTimer: null, loadTimer: null};
     button.addEventListener('click', () => activate(tab)); closeButton.addEventListener('click', () => close(tab));
     failure.querySelector('[data-workspace-retry]').addEventListener('click', () => retryLoad(tab));
     button.addEventListener('keydown', event => {
@@ -183,7 +197,7 @@
     frame.addEventListener('load', () => attach(tab));
     frame.addEventListener('error', () => pageLoadFailed(tab));
     node.append(button, closeButton); bar.append(node); tabs.push(tab); paint(tab);
-    pages.append(frame, failure); activate(tab);
+    pages.append(frame, loading, failure); activate(tab);
     tab.loadTimer = setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT);
     frame.src = url;
   }
@@ -198,7 +212,16 @@
     if (/^\/field\/?$/.test(new URL(link.href).pathname)) return;
     event.preventDefault(); open(link.href, link.textContent.trim());
   }));
-  const refresh = () => { if (active && allowDiscard(active)) { active.dirty = false; active.frame.contentWindow.location.reload(); } };
+  const refresh = () => {
+    if (active && allowDiscard(active)) {
+      active.dirty = false;
+      showLoading(active);
+      if (active.loadTimer) clearTimeout(active.loadTimer);
+      const tab = active;
+      tab.loadTimer = setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT);
+      tab.frame.contentWindow.location.reload();
+    }
+  };
   document.getElementById('workspaceRefresh').addEventListener('click', refresh);
   document.getElementById('workspaceNoticeRefresh').addEventListener('click', refresh);
   document.getElementById('workspaceCloseOthers').addEventListener('click', () => {

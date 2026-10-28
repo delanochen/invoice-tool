@@ -7,9 +7,9 @@ function setup() {
   const timers = new Map(), windowEvents = {}, elements = {}, frames = [];
   let sequence = 0;
   function node(tag) {
-    return {tag, hidden:false, handlers:{}, children:[], dataset:{},
+    return {tag, hidden:false, handlers:{}, children:[], dataset:{}, attributes:{},
       classList:{toggle(){}, add(){}, remove(){}},
-      setAttribute(){}, removeAttribute(){}, scrollIntoView(){}, focus(){}, remove(){},
+      setAttribute(name,value){this.attributes[name]=value;}, removeAttribute(){}, scrollIntoView(){}, focus(){}, remove(){},
       append(...children){this.children.push(...children);},
       addEventListener(name, fn){(this.handlers[name] ||= []).push(fn);},
       querySelector(selector){return (this.queries ||= {})[selector] ||= node('control');},
@@ -29,7 +29,7 @@ function setup() {
         doc.querySelector = selector => selector === '.main' && doc.hasMain ? node('main') : null;
         const win = node('window');
         win.document = doc;
-        win.location = {href:'https://example.test/service-orders',pathname:'/service-orders'};
+        win.location = {href:'https://example.test/service-orders',pathname:'/service-orders',reload(){element.reloads=(element.reloads || 0)+1;}};
         element.contentWindow = win;
         element.navigations = [];
         Object.defineProperty(element, 'src', {set(value){this.navigations.push(value);}});
@@ -45,12 +45,13 @@ function setup() {
     clearTimeout:id=>timers.delete(id)};
   vm.runInNewContext(source, context);
   const frame = frames[0], doc = frame.contentWindow.document;
-  return {frame,doc,timers,windowEvents,location,elements,
+  return {frame,frames,doc,timers,windowEvents,location,elements,
     ready() {doc.hasMain=true;doc.documentElement.dataset.workspaceReady='1';},
     message(origin=location.origin, source=frame.contentWindow){windowEvents.message({origin,source,data:{type:'workspace:ready'}});},
     fire(delay){const entry=[...timers.entries()].find(([, timer])=>timer.delay===delay);assert.ok(entry);timers.delete(entry[0]);entry[1].fn();},
     load(){frame.handlers.load[0]();},
-    failure(){return elements.workspacePages.children.find(child=>child.tag==='section');}
+    failure(){return elements.workspacePages.children.find(child=>child.className==='workspace-load-failure');},
+    loading(){return elements.workspacePages.children.find(child=>child.className==='workspace-loading');}
   };
 }
 
@@ -60,6 +61,8 @@ function setup() {
   assert.equal(s.failure().hidden,true);
   assert.equal(s.frame.hidden,false);
   assert.equal(s.frame.navigations.length,1);
+  assert.equal(s.loading().hidden,true,'ready page hides loading animation');
+  assert.equal(s.frame.attributes['aria-busy'],'false');
 }
 {
   const s=setup();s.ready();s.fire(45000);
@@ -83,6 +86,8 @@ function setup() {
   assert.equal(s.failure().hidden,false,'actual missing page retains retry behavior');
   s.fire(1200);
   assert.equal(s.frame.navigations.length,2);
+  assert.equal(s.loading().hidden,false,'retry displays loading animation');
+  assert.equal(s.failure().hidden,true,'retry is not presented as a terminal failure');
 }
 {
   const s=setup();s.frame.contentWindow.location.pathname='/login';s.load();
@@ -92,4 +97,27 @@ function setup() {
   const s=setup();s.doc.documentElement.dataset.workspaceReady='1';s.fire(45000);
   assert.equal(s.failure().hidden,false,'marker without application content is not ready');
 }
-console.log('Workspace loading: 7 regressions passed; no network or database');
+{
+  const s=setup();
+  assert.equal(s.loading().hidden,false,'initial loading is visible');
+  assert.equal(s.loading().attributes.role,'status');
+  assert.equal(s.frame.attributes['aria-busy'],'true');
+  assert.equal(s.failure().hidden,true);
+}
+{
+  const s=setup();s.ready();s.message();
+  s.elements.workspaceRefresh.handlers.click[0]();
+  assert.equal(s.loading().hidden,false,'refresh shows loading animation');
+  assert.equal(s.frame.reloads,1);
+  assert.equal(s.frame.attributes['aria-busy'],'true');
+  s.fire(45000);
+  assert.equal(s.failure().hidden,false,'old document must not conceal a timed-out refresh');
+}
+{
+  const s=setup();s.location.hash='#%2Fservice-orders%2F34';s.windowEvents.hashchange();
+  const overlays=s.elements.workspacePages.children.filter(child=>child.className==='workspace-loading');
+  assert.equal(overlays.length,2);
+  assert.equal(overlays[0].hidden,true,'inactive tab loading indicator stays hidden');
+  assert.equal(overlays[1].hidden,false);
+}
+console.log('Workspace loading: 10 regressions passed; no network or database');
