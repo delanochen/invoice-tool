@@ -92,28 +92,46 @@
   }
 
   const KIND_LABEL = {equipment:'设备',arrival:'进场',departure:'离场',safety:'自检',general:'非设备',legacy:'历史'};
+  let kindChangeGeneration = 0;
   function photoTypeLabel(t){return KIND_LABEL[t]||t||'-';}
   function setKindChoiceActive(type) {
     $('arrivalKind').classList.toggle('primary',type==='arrival');
     $('departureKind').classList.toggle('primary',type==='departure');
     $('safetyKind').classList.toggle('primary',type==='safety');
   }
-  function chooseKind(type) {
+  async function chooseKind(type) {
+    const generation = ++kindChangeGeneration;
+    if (taking || processingFiles || syncing || captureContext) {
+      notice('正在处理照片，请完成后再切换照片类型。',true);
+      return;
+    }
     // 非设备照片按钮：先展开 进场/离场/自检 三选一，不直接开始本组。
     if (type === 'general') {
       $('generalKindChoices').hidden = false;
-      setKindChoiceActive(null);
-      $('generalKind').classList.add('primary');
-      $('equipmentKind').classList.remove('primary');
-      $('deviceSession').hidden = true;  // 展开非设备菜单：立即隐藏设备区域（避免从设备照片切回时残留显示）
+      // Expanding choices does not change the actual capture type.
+      setKindChoiceActive(batch?.type);
       return;
     }
-    // 选中 进场/离场/自检 后保留二级菜单，便于查看/切换；切回设备照片时才收起。
-    $('generalKindChoices').hidden = type === 'equipment';
-    setKindChoiceActive(type);
     if (batch?.type && batch.type !== type) {
-      queued(batch.id).then(items => { if (items.length) notice('当前组已有照片，请先完成上传或删除后再更换类型。',true); else startKind(type); });
-    } else startKind(type);
+      const currentBatch = batch;
+      let items;
+      try { items = await queued(currentBatch.id); }
+      catch (_) {
+        if (generation === kindChangeGeneration) notice('无法检查待上传照片，照片类型未切换，请重试。',true);
+        return;
+      }
+      if (generation !== kindChangeGeneration || batch !== currentBatch) return;
+      if (items.length) {
+        notice('当前仍为「'+photoTypeLabel(currentBatch.type)+'」照片；请先完成上传或删除当前组照片，再切换类型。',true);
+        return;
+      }
+    }
+    if (taking || processingFiles || syncing || captureContext) {
+      notice('正在处理照片，请完成后再切换照片类型。',true);
+      return;
+    }
+    // Update highlighted choices only after the change has been accepted.
+    startKind(type);
   }
   function startKind(type) {
     const previousType = batch?.type;
@@ -503,7 +521,10 @@
         location_note:'原图已有水印，未检查拍摄位置。',source,error:''};
     }
     if (!batch) throw new Error('请先确认本组照片类型。');
-    if (batch.type === 'equipment' && !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');
+    // Freeze the shutter-time metadata before asynchronous location checks.
+    const photoType = batch.type, captureBatchId = batch.id;
+    const captureDevice = deviceSession ? {...deviceSession} : null;
+    if (photoType === 'equipment' && !captureDevice) throw new Error('请先确认本组照片类型和设备信息。');
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
     // Current phone location does not prove where an imported photo was taken.
@@ -529,12 +550,12 @@
     if (!technician) throw new Error('请选择施工员。');
     return {client_id:key(),user_id:profile.user.id,employee_name:technician.name,technician_user_id:technician.id,
       order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
-      captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:batch.id,photo_type:batch.type,timezone_name:timezoneName,
+      captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,timezone_name:timezoneName,
       latitude:keepsOriginalWatermark ? 0 : position.latitude,longitude:keepsOriginalWatermark ? 0 : position.longitude,accuracy:keepsOriginalWatermark ? 100000 : position.accuracy,
       location_verified:!keepsOriginalWatermark,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : locationNote,source,error:'',
-      ...(batch.type === 'equipment' ? {equipment_number:deviceSession.equipment_number,
-      position_number:deviceSession.position_number,container_number:deviceSession.container_number,
-      equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number} : {})};
+      ...(photoType === 'equipment' ? {equipment_number:captureDevice.equipment_number,
+      position_number:captureDevice.position_number,container_number:captureDevice.container_number,
+      equipment_session:captureDevice.id,no_equipment_number:captureDevice.no_equipment_number} : {})};
   }
   async function processedPhoto(source, context) {
     const width = source.videoWidth || source.naturalWidth || source.width;
@@ -647,7 +668,7 @@
         }
         view.photo = photo;
         const update = (node, text) => { const translated = fieldText(text); if (node.textContent !== translated) node.textContent = translated; };
-        update(view.title,(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number);
+        update(view.title,photoTypeLabel(photo.photo_type)+' · '+(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number);
         update(view.date,photo.source === 'file' || photo.watermark_source === 'original' ? (photo.manual_capture_date || '上传时识别拍摄日期') : new Date(photo.captured_at).toLocaleString());
         update(view.watermark,photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印');
         update(view.status,uploadingPhotoId === photo.client_id ? `${fieldText('正在上传')} ${uploadIndex}/${uploadTotal}` : photo.error || '本机草稿');
