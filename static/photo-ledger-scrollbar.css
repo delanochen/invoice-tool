@@ -1,0 +1,16 @@
+/* Keep a horizontal control within view without changing ledger row layout. */
+.photo-ledger-scrollbar {
+  position: fixed;
+  z-index: 35;
+  height: 18px;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  box-sizing: border-box;
+  background: #f2f4f7;
+  border: 1px solid #cbd5df;
+  box-shadow: 0 -2px 5px #152c3d18;
+  direction: ltr;
+}
+.photo-ledger-scrollbar[hidden] { display: none !important; }
+.photo-ledger-scrollbar > div { height: 1px; }
+@media print { .photo-ledger-scrollbar { display: none !important; } }

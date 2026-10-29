@@ -4,12 +4,13 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='photo-ledger-scrollbar.css', v=app_version) }}">
 {% endblock %}
 
 {% block content %}
 {# 只读台账 + 批量操作：数据来自 field_work.py field_photo_query()，
    这里只做展示层改造，筛选字段名、批量下载/删除所需的 data-* 与 ID 全部保持原样。 #}
-<div class="erp-app" data-active-panel="list">
+<div class="erp-app photo-ledger-page" data-active-panel="list">
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
@@ -91,4 +92,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='photo-ledger-scrollbar.js', v=app_version) }}"></script>
 {% endblock %}
