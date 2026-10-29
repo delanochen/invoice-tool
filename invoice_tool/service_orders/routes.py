@@ -73,9 +73,9 @@ def register_service_order_routes(app, *,
                 "or work_order_types.name like ?)"
             )
             params.extend([f"%{q}%"] * 8)
-        if status in {"open", "closed"}:
+        if status in {"not_started", "open", "settling", "closed"}:
             clauses.append("service_orders.status = ?")
-            params.append("closed" if status == "closed" else "open")
+            params.append(status)
         if client_id.isdigit():
             clauses.append("service_orders.client_id = ?")
             params.append(int(client_id))
