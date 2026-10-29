@@ -4,12 +4,36 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<style>
+/* Keep all order actions reachable on phones, including short landscape views. */
+@media screen and (max-width: 1024px) {
+  .erp-app.service-order-detail-page,
+  .workspace-embedded .erp-app.service-order-detail-page {
+    display: block;
+    height: auto;
+    min-height: calc(100dvh - 24px);
+    overflow: visible;
+  }
+  .service-order-detail-page .erp-toolbar { flex-wrap: wrap; }
+  .service-order-detail-page .erp-toolbar-title { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .service-order-detail-page .erp-toolbar-title small { white-space: normal; }
+  .service-order-detail-page .erp-toolbar-group { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .service-order-detail-page .erp-toolbar-group > * { flex-shrink: 0; max-width: 100%; }
+  .erp-app.service-order-detail-page .erp-body,
+  .erp-app.service-order-detail-page .erp-body > .erp-panel.active,
+  .erp-app.service-order-detail-page .erp-cards,
+  .erp-app.service-order-detail-page .erp-detail-scroll { overflow: visible; }
+  .service-order-detail-page > .erp-toolbar,
+  .service-order-detail-page > .erp-summary,
+  .service-order-detail-page > .erp-status { position: static; }
+}
+</style>
 {% endblock %}
 
 {% block content %}
 {# 工单详情：数据全部来自 app.py service_order_detail()。只读详情 + 各子表用顶部页签切换。 #}
 {% set report_write_locked = customer_reimbursement and customer_reimbursement.status == "approved" %}
-<div class="erp-app" data-active-panel="info">
+<div class="erp-app service-order-detail-page" data-active-panel="info">
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
