@@ -124,6 +124,8 @@ def register_field_routes(app, api):
     def order_rows():
         clauses, params = api['service_order_access_filters']()
         clauses.append("service_orders.status != 'closed'")
+        clauses.append('''not exists (select 1 from customer_reimbursements
+            where customer_reimbursements.service_order_id = service_orders.id)''')
         return api['db']().execute('''
             select service_orders.id, service_orders.order_number, service_orders.client_name,
                    service_orders.site_address, buyers.latitude, buyers.longitude,

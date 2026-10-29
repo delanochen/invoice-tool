@@ -72,7 +72,9 @@
   <div class="erp-body">
   <form class="erp-filter erp-filterbar service-order-filterbar no-print" method="get" data-erp-filter action="{{ url_for('service_orders') }}">
     <label>关键词<input type="search" name="q" value="{{ q }}" placeholder="工单号 / 服务订单号 / 客户 / 业主 / 地址"></label>
-    <label>状态<select name="status"><option value="">全部</option><option value="open"{% if status == 'open' %} selected{% endif %}>进行中</option><option value="closed"{% if status == 'closed' %} selected{% endif %}>已关闭</option></select></label>
+    <label>状态<select name="status"><option value="">全部</option><option value="not_started" {% if order.status == "not_started" %}selected{% endif %}>未开始</option>
+              <option value="open"{% if status == 'open' %} selected{% endif %}>进行中</option><option value="settling" {% if order.status == "settling" %}selected{% endif %}>结算中</option>
+              <option value="closed"{% if status == 'closed' %} selected{% endif %}>已关闭</option></select></label>
     {% if not is_external_manager() and not is_external_employee() %}
       <label>客户<select name="client_id"><option value="">全部</option>{% for item in filter_clients %}<option value="{{ item.id }}"{% if client_id == item.id|string %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
       <label>站点<select name="buyer_id"><option value="">全部</option>{% for item in filter_buyers %}<option value="{{ item.id }}"{% if buyer_id == item.id|string %} selected{% endif %}>{{ item.name or item.owner_name or ('#' ~ item.id) }}{% if item.name and item.owner_name %} · {{ item.owner_name }}{% endif %}</option>{% endfor %}</select></label>
@@ -156,7 +158,7 @@
                 </td>
                 <td>{{ order.work_order_type_name or "-" }}</td>
                 <td>{{ order.site_address }}</td>
-                <td>{{ "已关闭" if order.status == "closed" else "进行中" }}</td>
+                <td>{{ "已关闭" if order.status == "closed" else ("结算中" if order.status == "settling" else ("未开始" if order.status == "not_started" else "进行中")) }}</td>
               </tr>
             {% else %}
               <tr><td colspan="{{ grid_columns }}" class="empty">还没有工单。</td></tr>
@@ -175,7 +177,7 @@
               <span class="erp-card-customer">{{ order.client_name }}</span>
             </div>
             <div class="erp-card-sub">
-              <span>{{ '已关闭' if order.status == 'closed' else '进行中' }}</span>
+              <span>{{ '已关闭' if order.status == 'closed' else ('结算中' if order.status == 'settling' else ('未开始' if order.status == 'not_started' else '进行中')) }}</span>
               <span>{{ order.start_date or '未排期' }}</span>
               <span>{{ order.work_order_type_name or '未分类' }}</span>
             </div>

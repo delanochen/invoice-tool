@@ -17,7 +17,7 @@
       {{ order.order_number }}
       <small>{{ order.client_name }}{% if order.buyer_owner %} · {{ order.buyer_owner }}{% endif %}{% if order.buyer_equipment_manufacturer %} · {{ order.buyer_equipment_manufacturer }}{% endif %} · {{ order.client_order_number }}</small>
     </div>
-    <span class="status {{ 'completed' if order.status == 'closed' else 'draft' }}">{{ "已关闭" if order.status == "closed" else "进行中" }}</span>
+    <span class="status {{ 'completed' if order.status == 'closed' else 'draft' }}">{{ "已关闭" if order.status == "closed" else ("结算中" if order.status == "settling" else ("未开始" if order.status == "not_started" else "进行中")) }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('download_service_order_attachments', order_id=order.id) }}'">批量下载附件</button>
@@ -121,7 +121,7 @@
           {% if can_view_invoices() %}
             <p><strong>开票状态</strong><span class="status {% if invoices %}completed{% else %}draft{% endif %}">{% if invoices %}已开票{% else %}未开票{% endif %}</span></p>
           {% endif %}
-          <p><strong>工单状态</strong><span>{{ "已关闭" if order.status == "closed" else "进行中" }}</span></p>
+          <p><strong>工单状态</strong><span>{{ "已关闭" if order.status == "closed" else ("结算中" if order.status == "settling" else ("未开始" if order.status == "not_started" else "进行中")) }}</span></p>
         </div>
       </div>
     </section>
@@ -476,7 +476,7 @@
     <span class="sep"></span>
     <span>客户 <b>{{ order.client_name }}</b></span>
     <span class="sep"></span>
-    <span>状态 <b>{{ "已关闭" if order.status == "closed" else "进行中" }}</b></span>
+    <span>状态 <b>{{ "已关闭" if order.status == "closed" else ("结算中" if order.status == "settling" else ("未开始" if order.status == "not_started" else "进行中")) }}</b></span>
     <span class="sep"></span>
     <span>类型 <b>{{ order.work_order_type_name or "-" }}</b></span>
   </footer>

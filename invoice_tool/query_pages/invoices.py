@@ -18,7 +18,7 @@ def register_invoice_list_routes(app, *,
             _cb_resolve_abort()(403)
         paid_status = _cb_resolve_request().args.get("paid_status", "")
         work_order_status = _cb_resolve_request().args.get("work_order_status", "")
-        if work_order_status not in {"", "open", "closed"}:
+        if work_order_status not in {"", "not_started", "open", "settling", "closed"}:
             work_order_status = ""
         date_from = _cb_resolve_request().args.get("date_from", "")
         date_to = _cb_resolve_request().args.get("date_to", "")
@@ -107,7 +107,7 @@ def register_invoice_query_page_routes(app, *,
         date_from = _cb_resolve_request().args.get("date_from", "")
         date_to = _cb_resolve_request().args.get("date_to", "")
         work_order_status = _cb_resolve_request().args.get("work_order_status", "")
-        if work_order_status not in {"", "open", "closed"}:
+        if work_order_status not in {"", "not_started", "open", "settling", "closed"}:
             work_order_status = ""
         region_code, country_code, countries, regions, location_clauses, location_params = _cb_resolve_report_location_filters()()
         available_statuses = set(_cb_resolve_STATUS_LABELS().keys())
