@@ -34,7 +34,7 @@ class FieldWorkJsContractTest(unittest.TestCase):
     def test_02_non_equipment_hides_device_session(self):
         # The single rule above covers arrival/departure/safety; assert the hidden
         # toggle is the only visibility rule and non-equipment always hides.
-        self.assertEqual(self.code.count("$('deviceSession').hidden"), 3)  # startKind + completeBatch + general menu
+        self.assertEqual(self.code.count("$('deviceSession').hidden"), 2)  # accepted startKind + completeBatch
         self.assertIn("$('deviceSession').hidden = type !== 'equipment'", self.code)
 
     # 6-9. state cleanup on kind switch
@@ -64,14 +64,14 @@ class FieldWorkJsContractTest(unittest.TestCase):
     # 12. non-equipment payload has NO device keys
     def test_08_non_equipment_payload_excludes_device_keys(self):
         # Equipment-only device fields are spread conditionally:
-        self.assertIn("...(batch.type === 'equipment' ? {equipment_number:deviceSession.equipment_number,", self.pack)
-        self.assertIn("equipment_session:deviceSession.id,no_equipment_number:deviceSession.no_equipment_number} : {})", self.pack)
+        self.assertIn("...(photoType === 'equipment' ? {equipment_number:captureDevice.equipment_number,", self.pack)
+        self.assertIn("equipment_session:captureDevice.id,no_equipment_number:captureDevice.no_equipment_number} : {})", self.pack)
         # No other place adds device fields to payloads.
-        self.assertNotIn("equipment_number:deviceSession.equipment_number,position_number", self.pack.replace("...(batch.type === 'equipment' ? {", ""))
+        self.assertNotIn("equipment_number:captureDevice.equipment_number,position_number", self.pack.replace("...(photoType === 'equipment' ? {", ""))
 
     # 13. equipment flow still requires session
     def test_09_equipment_requires_device_session(self):
-        self.assertIn("if (batch.type === 'equipment' && !deviceSession) throw new Error('请先确认本组照片类型和设备信息。');", self.code)
+        self.assertIn("if (photoType === 'equipment' && !captureDevice) throw new Error('请先确认本组照片类型和设备信息。');", self.code)
         self.assertIn("if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;", self.code)
         self.assertIn("noNumber = $('noEquipmentNumber').checked;", self.code)
 
@@ -80,9 +80,10 @@ class FieldWorkJsContractTest(unittest.TestCase):
         assignments = re.findall(r"photo_type\s*:\s*[^,}]+", self.code)
         self.assertEqual(
             sorted(assignments),
-            sorted(["photo_type:'legacy'", "photo_type:batch.type"]),
+            sorted(["photo_type:'legacy'", "photo_type:photoType"]),
             "photo_type must never be re-derived from device info: %r" % assignments,
         )
+        self.assertIn("const photoType = batch.type, captureBatchId = batch.id;", self.code)
         # Final photo types in the label map (new flow never persists 'general').
         for final_type in ("equipment", "arrival", "departure", "safety"):
             self.assertIn("%s:'" % final_type, self.code)  # JS object keys are unquoted
@@ -109,17 +110,16 @@ class FieldWorkJsContractTest(unittest.TestCase):
 
     # 15b. non-equipment button highlight
     def test_13_non_equipment_button_highlight(self):
-        self.assertIn("$('generalKind').classList.add('primary');", self.code)
-        self.assertIn("$('equipmentKind').classList.remove('primary');", self.code)
+        self.assertIn("$('generalKind').classList.toggle('primary',type!=='equipment');", self.code)
+        self.assertIn("$('equipmentKind').classList.toggle('primary',type==='equipment');", self.code)
 
-    # 15c. opening the non-equipment menu immediately hides the device area,
-    #      even before a second-level type is chosen (switch back from equipment).
-    def test_14_general_menu_immediately_hides_device_session(self):
+    # Opening a submenu must not make the controls disagree with the capture type.
+    def test_14_general_menu_preserves_current_capture_state(self):
         general_branch = self.code.split("if (type === 'general') {")[1].split("return;")[0]
         self.assertIn("$('generalKindChoices').hidden = false;", general_branch)
-        self.assertIn("$('generalKind').classList.add('primary');", general_branch)
-        self.assertIn("$('equipmentKind').classList.remove('primary');", general_branch)
-        self.assertIn("$('deviceSession').hidden = true;", general_branch)
+        self.assertIn("setKindChoiceActive(batch?.type);", general_branch)
+        self.assertNotIn("$('deviceSession').hidden = true;", general_branch)
+        self.assertNotIn("batch.type =", general_branch)
 
     # 17. watermark time: two-step flow — password dialog first, then the
     #     time dialog (replaces the old "use system time" checkbox).
