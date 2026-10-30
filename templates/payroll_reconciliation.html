@@ -2,7 +2,11 @@
 {% block title %}工资差额核对{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
-<style>.payroll-difference-dialog{width:min(1000px,96vw);max-width:96vw}.payroll-difference-dialog .table-scroll{max-height:65vh;overflow:auto}</style>
+<style>
+.payroll-difference-dialog{width:min(1000px,96vw);max-width:96vw}.payroll-difference-dialog .table-scroll{max-height:65vh;overflow:auto}
+.payroll-status{display:inline-block;padding:2px 8px;border:1px solid var(--erp-border,#ccd3dc);border-radius:999px;white-space:nowrap;font-size:12px}
+.payroll-reason{margin-top:4px;max-width:360px;white-space:normal;line-height:1.35}
+</style>
 {% endblock %}
 {% block content %}
 <div class="erp-app erp-compact">
@@ -14,14 +18,15 @@
   <a class="erp-btn" href="{{ url_for('payroll_calendar') }}">工资日历</a>
 </header>
 <div class="erp-body"><section class="erp-panel active"><div class="erp-detail-scroll">
-<p>补录、修改或删除日报后，原SL金额保持不变。正差额经确认生成补发草稿，仍需审核付款；减少金额或历史来源不明确时请先人工核对。已支付列按工资应付金额统计，借款抵扣和其他调整请查看付款单。</p>
+<p>补录、修改或删除日报后，原SL金额保持不变。绝对差额 ≤ $0.02 视为舍入误差，不进入待处理列表；正差额确认后才可生成补发草稿；负差额不会自动扣款。尚未入单、历史纠偏、手工SL冲突或组件未闭合会单独标记原因。</p>
 <table class="list-table erp-grid">
-<thead><tr><th>员工</th><th>工资周期</th><th>当前应付</th><th>已入单</th><th>已支付工资金额</th><th>待处理差额</th><th>原SL</th><th>处理</th></tr></thead>
+<thead><tr><th>员工</th><th>工资周期</th><th>当前应付</th><th>已入单</th><th>已支付工资金额</th><th>待处理差额</th><th>状态</th><th>原SL</th><th>处理</th></tr></thead>
 <tbody>{% for row in reconciliation_rows %}
 <tr>
 <td>{{ row.employee_name }}</td><td>{{ row.period_start }} ~ {{ row.period_end }}</td>
 <td>{{ row.expected|money }}</td><td>{{ row.recorded|money }}</td><td>{{ row.paid|money }}</td>
 <td><strong>{{ row.difference|money }}</strong></td>
+<td><span class="payroll-status">{{ row.status_label }}</span></td>
 <td>{% for payment in row.orders %}<a href="{{ url_for('employee_payment_detail', payment_id=payment.id) }}">{{ payment.payment_number }}</a>{% if not loop.last %}、{% endif %}{% else %}尚未入单{% endfor %}</td>
 <td>
 <button class="erp-btn" type="button" data-dialog-open="payrollDifference-{{ loop.index }}">查看差额明细</button>
@@ -31,9 +36,11 @@
 <input type="hidden" name="period_start" value="{{ row.period_start }}">
 <input type="hidden" name="revision" value="{{ row.revision }}">
 <button class="erp-btn" type="submit">确认生成补发草稿</button>
-</form>{% else %}{{ row.blocked_reason or '请联系财务处理' }}{% endif %}</td>
+</form>
+{% else %}<div class="payroll-reason">{{ row.blocked_reason or '请联系财务处理' }}</div>{% endif %}
+</td>
 </tr>
-{% else %}<tr><td colspan="8" class="empty">已生成工资周期内，当前未发现待处理金额差额。</td></tr>{% endfor %}</tbody></table>
+{% else %}<tr><td colspan="9" class="empty">已生成工资周期内，当前未发现需要处理的工资差额。</td></tr>{% endfor %}</tbody></table>
 {% if unlinked_manual %}
 <h3>未关联周期的手工SL</h3>
 <p>以下记录无法自动判断属于哪个工资周期。相关员工的补发会暂停自动生成，避免重复计薪。</p>
@@ -44,10 +51,11 @@
 {% for row in reconciliation_rows %}
 <dialog id="payrollDifference-{{ loop.index }}" class="modal-dialog payroll-difference-dialog" aria-labelledby="payrollDifferenceTitle-{{ loop.index }}">
 <div class="dialog-header"><h2 id="payrollDifferenceTitle-{{ loop.index }}">差额明细 · {{ row.employee_name }}</h2><button class="small" type="button" data-dialog-close>关闭</button></div>
-<p>{{ row.period_start }} 至 {{ row.period_end }} · 待处理差额 {{ row.difference|money }}</p>
+<p>{{ row.period_start }} 至 {{ row.period_end }} · {{ row.status_label }} · 待处理差额 {{ row.difference|money }}</p>
+{% if row.blocked_reason %}<p><strong>处理说明：</strong>{{ row.blocked_reason }}</p>{% endif %}
 <div class="table-scroll"><table class="list-table" data-no-system-grid>
 <thead><tr><th>工作日期</th><th>工单</th><th>项目</th><th>差额</th><th>日报</th></tr></thead><tbody>
-{% for line in row.changes %}<tr><td>{{ line.service_date or '周期项目' }}</td><td>{{ line.work_order_id or '—' }}</td><td>{{ line.component_name }}</td><td>{{ line.amount|money }}</td><td>{% if line.daily_report_id %}<a href="{{ url_for('edit_service_report', report_id=line.daily_report_id) }}">日报 #{{ line.daily_report_id }}</a>{% else %}多个日报或周期项目{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="empty">暂无可拆分的差额明细，请联系财务核对来源。</td></tr>{% endfor %}
+{% for line in row.changes %}<tr><td>{{ line.service_date or '周期项目' }}</td><td>{{ line.work_order_id or '—' }}</td><td>{{ line.component_name }}</td><td>{{ line.amount|money }}</td><td>{% if line.daily_report_id %}<a href="{{ url_for('edit_service_report', report_id=line.daily_report_id) }}">日报 #{{ line.daily_report_id }}</a>{% else %}多个日报或周期项目{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="empty">暂无可拆分的差额明细，请按上方状态说明处理。</td></tr>{% endfor %}
 </tbody></table></div>
 </dialog>
 {% endfor %}

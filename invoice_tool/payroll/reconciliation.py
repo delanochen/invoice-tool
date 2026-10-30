@@ -12,6 +12,7 @@ from .tax import money, TAX_CATEGORIES
 SYSTEM_SOURCES = {"system_payroll", "system_payroll_adjustment"}
 IGNORED_STATUSES = {"cancelled", "rejected"}
 HELD_CORRECTIONS = {"correction_pending", "partially_superseded", "superseded"}
+ROUNDING_TOLERANCE = Decimal("0.02")
 PERIOD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})$")
 
 
@@ -95,7 +96,8 @@ def build_reconciliation_services(api):
                 paid = money(sum((money(p["gross_amount"]) for p in valid_orders
                                   if p["status"] in {"paid", "reconciled"}), Decimal(0)))
                 delta = money(expected-recorded_total)
-                if not delta and not include_balanced:
+                rounding_only = abs(delta) <= ROUNDING_TOLERANCE
+                if rounding_only and not include_balanced:
                     continue
                 current, _ = api["payroll_payment_components"](start, worker, expected)
                 current = [dict(row) for row in current]
@@ -108,35 +110,62 @@ def build_reconciliation_services(api):
                             where c.effective_payment_order_id in ({marks}) order by c.id""",
                         [p["id"] for p in valid_orders]).fetchall()]
                 changes = component_difference(current, recorded)
-                reason = ""
-                if any(p.get("correction_status", "none") in HELD_CORRECTIONS for p in all_orders):
-                    reason = "原工资存在待处理的历史纠偏，请先完成纠偏。"
                 snapshot_complete = money(sum((money(c["amount"]) for c in recorded), Decimal(0))) == recorded_total
-                if not snapshot_complete:
-                    reason = "原SL金额与有效组件快照不一致，需要人工核对。"
-                if any(p.get("correction_status", "none") == "replacement" for p in valid_orders):
+                reason = ""
+                status = "supplement"
+                status_label = "可生成补发"
+                if not valid_orders and abs(expected) > ROUNDING_TOLERANCE:
+                    status = "unbilled"
+                    status_label = "尚未入单"
+                    reason = "当前工资尚未形成有效SL，请先确认原工资单状态，不直接生成补发草稿。"
+                elif any(p.get("correction_status", "none") in HELD_CORRECTIONS for p in all_orders):
+                    status = "historical_change"
+                    status_label = "历史纠偏待处理"
+                    reason = "原工资存在待处理的历史纠偏，请先完成纠偏。"
+                elif not snapshot_complete:
+                    status = "source_mismatch"
+                    status_label = "历史来源异常"
+                    reason = "原SL金额与有效组件快照不一致，需要人工核对来源。"
+                elif any(p.get("correction_status", "none") == "replacement" for p in valid_orders):
+                    status = "historical_change"
+                    status_label = "历史工资已变更"
                     reason = "已应用历史纠偏的工资按冻结结果核对，请人工审核差额。"
-                if worker in unlinked:
+                elif worker in unlinked:
+                    status = "manual_conflict"
+                    status_label = "手工SL冲突"
                     reason = "存在未关联工资周期的手工SL，请先核对，避免重复补发。"
-                if delta <= 0 or any(c["amount"] < 0 for c in changes):
-                    reason = "存在工资减少或组件抵减，需要人工审核，不自动扣款。"
+                elif delta < -ROUNDING_TOLERANCE or any(c["amount"] < -ROUNDING_TOLERANCE for c in changes):
+                    status = "negative_review"
+                    status_label = "负差额待审核"
+                    reason = "当前工资低于原SL或存在组件抵减，需要人工审核；系统不会自动扣款。"
                 carry = api.get("flag_carry_forward_components")
                 if carry and carry(worker, current, start_text, end_text):
+                    status = "historical_change"
+                    status_label = "历史结转待核对"
                     reason = "涉及历史纠偏结转组件，请先核对原SL归属。"
                 if any(int(p["employee_id"]) == worker and p["source_type"] not in SYSTEM_SOURCES
                        and p["source_number"] == start_text+"~"+end_text
                        and p["status"] not in IGNORED_STATUSES for p in payments):
+                    status = "manual_conflict"
+                    status_label = "本周期另有手工SL"
                     reason = "本周期另有手工或约定工资SL，需要人工核对。"
                 if money(sum((c["amount"] for c in changes), Decimal(0))) != delta:
-                    reason = "差额与工资组件未闭合，需要人工核对。"
+                    status = "source_mismatch"
+                    status_label = "组件未闭合"
+                    reason = "差额与工资组件未闭合，需要人工核对来源。"
+                if rounding_only:
+                    status = "rounding"
+                    status_label = "舍入误差"
+                    reason = "差额在 ±$0.02 容差内，按舍入误差处理。"
                 name = current_row["worker_name"] if current_row else all_orders[0]["employee_name"]
                 output.append(dict(employee_id=worker, employee_name=name,
                     period_start=start_text, period_end=end_text,
                     expected=expected, recorded=recorded_total, paid=paid,
-                    difference=delta, orders=valid_orders, changes=changes,
+                    difference=delta, raw_difference=delta, orders=valid_orders, changes=changes,
                     revision=revision_token(current, all_orders, recorded),
-                    snapshot_complete=snapshot_complete,
-                    blocked_reason=reason, can_create=delta > 0 and not reason))
+                    snapshot_complete=snapshot_complete, status=status, status_label=status_label,
+                    rounding_only=rounding_only, blocked_reason=reason,
+                    can_create=status == "supplement" and delta > ROUNDING_TOLERANCE))
         return output
 
     def notify(actor="", event="", previous=None):

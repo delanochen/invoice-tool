@@ -62,6 +62,21 @@ class PayrollLateReportsTest(unittest.TestCase):
         self.assertEqual(self._components(original["id"]),lines)
         self.assertEqual(self.pending(),[])
 
+    def test_rounding_difference_up_to_two_cents_is_not_pending(self):
+        self._report(self.order1,"2026-08-03")
+        self._generate()
+        original=self._payment()
+        with self.module.app.app_context():
+            db=self.module.db()
+            db.execute("update employee_payment_orders set gross_amount=gross_amount+0.02 where id=?",(original["id"],))
+            db.commit()
+            visible=self.module.payroll_reconciliation_rows(fixture.PERIOD_START, include_balanced=True)
+        self.assertEqual(self.pending(),[])
+        row=next(row for row in visible if row["employee_id"]==self.worker_id)
+        self.assertEqual(row["difference"],Decimal("-0.02"))
+        self.assertEqual(row["status"],"rounding")
+        self.assertFalse(row["can_create"])
+
     def test_negative_difference_requires_review_and_cannot_create(self):
         report=self._report(self.order1,"2026-08-03")
         self._generate()
@@ -72,6 +87,8 @@ class PayrollLateReportsTest(unittest.TestCase):
             db.commit()
         row=self.pending()[0]
         self.assertLess(row["difference"],0)
+        self.assertEqual(row["status"],"negative_review")
+        self.assertEqual(row["status_label"],"负差额待审核")
         self.assertFalse(row["can_create"])
         self.confirm(row)
         self.assertEqual(self._payment()["id"],original["id"])
@@ -94,9 +111,13 @@ class PayrollLateReportsTest(unittest.TestCase):
             db.commit()
         row=next(row for row in self.pending() if row["employee_id"]==worker)
         self.assertEqual(row["recorded"],0)
-        self.assertTrue(row["can_create"],row["blocked_reason"])
+        self.assertEqual(row["status"],"unbilled")
+        self.assertEqual(row["status_label"],"尚未入单")
+        self.assertFalse(row["can_create"])
+        before_id=self._payment()["id"]
         self.confirm(row)
-        self.assertFalse(any(row["employee_id"]==worker for row in self.pending()))
+        self.assertEqual(self._payment()["id"],before_id)
+        self.assertTrue(any(row["employee_id"]==worker for row in self.pending()))
 
     def test_notifications_deduplicate_and_include_actor(self):
         self.seed_late()
