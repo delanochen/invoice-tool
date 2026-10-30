@@ -75,7 +75,32 @@
 }
 .service-report-form .form-field .field-label { font-size: 12px; }
 .service-report-form textarea { font-size: 12px; }
-.service-report-form .photo-source-actions .button { min-height: 24px; padding: 2px 9px; font-size: 12px; }
+.service-report-form .photo-source-actions > .photo-local-picker,
+.service-report-form .photo-source-actions > button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 148px;
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 3px 9px;
+  border: 1px solid #a9b4c5;
+  border-radius: 2px;
+  background: linear-gradient(#fff, #eef1f5);
+  color: #1f2733;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.service-report-form .photo-source-actions > .photo-local-picker:hover,
+.service-report-form .photo-source-actions > button:hover {
+  background: linear-gradient(180deg, #f7faff 0%, #e2e9f3 100%);
+}
 </style>
 {% endblock %}
 {% block title %}工作日报 - 发票工具{% endblock %}
