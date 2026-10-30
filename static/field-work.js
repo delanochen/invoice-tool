@@ -96,9 +96,12 @@
   let kindChangeGeneration = 0;
   function photoTypeLabel(t){return KIND_LABEL[t]||t||'-';}
   function setKindChoiceActive(type) {
-    $('arrivalKind').classList.toggle('primary',type==='arrival');
-    $('departureKind').classList.toggle('primary',type==='departure');
-    $('safetyKind').classList.toggle('primary',type==='safety');
+    const nonEquipment = ['general','arrival','departure','safety'].includes(type);
+    for (const [id, active] of [['equipmentKind',type==='equipment'],['generalKind',nonEquipment],
+      ['arrivalKind',type==='arrival'],['departureKind',type==='departure'],['safetyKind',type==='safety']]) {
+      $(id).classList.toggle('primary',active);
+      $(id).setAttribute('aria-pressed',String(active));
+    }
   }
   async function chooseKind(type) {
     const generation = ++kindChangeGeneration;
@@ -106,11 +109,9 @@
       notice('正在处理照片，请完成后再切换照片类型。',true);
       return;
     }
-    // 非设备照片按钮：先展开 进场/离场/自检 三选一，不直接开始本组。
-    if (type === 'general') {
-      $('generalKindChoices').hidden = false;
-      // Expanding choices does not change the actual capture type.
-      setKindChoiceActive(batch?.type);
+    // Reopening the non-equipment choices preserves an already selected subtype.
+    if (type === 'general' && ['arrival','departure','safety'].includes(batch?.type)) {
+      startKind(batch.type);
       return;
     }
     if (batch?.type && batch.type !== type) {
@@ -145,9 +146,8 @@
     $('generalKindChoices').hidden = type === 'equipment';
     setKindChoiceActive(type);
     $('timeSettings').hidden = false;
-    const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：不填写设备信息。'};
+    const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：请先选择进场、离场或自检照片。'};
     setFieldText('kindStatus', KIND_TEXT[type] || KIND_TEXT.general);
-    $('equipmentKind').classList.toggle('primary',type==='equipment'); $('generalKind').classList.toggle('primary',type!=='equipment');
     if (type !== 'equipment') deviceSession = null;  // 非设备照片不建立设备 session
     else if (previousType !== 'equipment') resetDevice();
     renderQueue();
@@ -496,6 +496,7 @@
     if (!identityReady || !profile?.can_capture) return;
     if (!recognitionOnly && captureMode !== 'camera') return;
     if (!batch?.type) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
+    if (batch.type === 'general') { notice('请先选择进场、离场或自检照片。',true); return; }
     if (!useSystemTime && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
     if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;
     const selected = chosenOrder();
@@ -536,6 +537,7 @@
         location_note:'原图已有水印，未检查拍摄位置。',source,error:''};
     }
     if (!batch) throw new Error('请先确认本组照片类型。');
+    if (batch.type === 'general') throw new Error('请先选择进场、离场或自检照片。');
     // Freeze the shutter-time metadata before asynchronous location checks.
     const photoType = batch.type, captureBatchId = batch.id;
     const captureDevice = deviceSession ? {...deviceSession} : null;
@@ -855,7 +857,7 @@
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
-    $('equipmentKind').classList.remove('primary'); $('generalKind').classList.remove('primary'); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
+    setKindChoiceActive(null); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
   async function loadLedger() {
