@@ -14,6 +14,7 @@
   let ledgerPhotos = [], ledgerPhotoIndex = 0, ledgerTouchStart = null;
   let captureMode = 'camera', deviceStatusText = '';
   let deletingDrafts = false, deleteDraftSnapshot = null;
+  let cameraStripSession = null;
   const queueViews = new Map();
   let queueRenderGeneration = 0, uploadingPhotoId = null, uploadIndex = 0, uploadTotal = 0;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
@@ -476,6 +477,8 @@
     previewURL = null;
   }
   function stopCamera() {
+    cameraStripSession = null;
+    clearRecentCaptures();
     clearInterval(scanTimer); scanTimer = null;
     clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
     clearTimeout(ocrStartTimer); ocrStartTimer = null;
@@ -505,6 +508,8 @@
       $('cameraView').hidden = false;
       $('cameraStage').hidden = false;
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
+      clearRecentCaptures();
+      cameraStripSession = recognitionOnly ? null : {batchId:batch.id, ids:new Set()};
       document.body.classList.add('camera-active');
       document.body.classList.toggle('recognition-mode', recognitionOnly);
       window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
@@ -579,9 +584,11 @@
   }
   async function keepCapture(source, context) {
     if (!context || context.user_id !== profile?.user.id || !identityReady) throw new Error('账号已改变，请重新拍照。');
+    const stripSession = cameraStripSession;
     const photo = {...context,blob:await processedPhoto(source,context)};
     // Do not report success or clear the capture until the IDB transaction commits.
     await storePhoto(photo);
+    if (stripSession && stripSession === cameraStripSession && photo.source === 'camera' && photo.batch_id === stripSession.batchId) stripSession.ids.add(photo.client_id);
     notice('照片已保存为本机草稿：'+photo.order_number+'。完成本组后再统一上传。');
     await renderQueue();
   }
@@ -649,7 +656,7 @@
     queueViews.clear();
     $('queueList').replaceChildren();
   }
-  // Keep at most twelve recent camera photos in memory, scoped to the signed-in user.
+  // Only photos saved during this camera opening and in its locked batch belong here.
   const recentCaptureViews = new Map();
   function clearRecentCaptures() {
     for (const view of recentCaptureViews.values()) URL.revokeObjectURL(view.url);
@@ -658,22 +665,21 @@
     $('recentCaptures').hidden = true;
   }
   function renderRecentCaptures(photos) {
+    if (!cameraStripSession) { clearRecentCaptures(); return; }
+    photos = photos.filter(photo => cameraStripSession.ids.has(photo.client_id) && photo.batch_id === cameraStripSession.batchId);
     const pending = new Map(photos.map(photo => [photo.client_id, photo]));
     for (const [id, view] of recentCaptureViews) {
       if (view.photo.user_id !== profile?.user.id || (!pending.has(id) && !view.uploaded)) {
         URL.revokeObjectURL(view.url); recentCaptureViews.delete(id);
       }
     }
-    for (const photo of photos.filter(photo => photo.source === 'camera').slice(-12)) {
+    for (const photo of photos.filter(photo => photo.source === 'camera')) {
       if (!recentCaptureViews.has(photo.client_id)) {
         recentCaptureViews.set(photo.client_id, {photo, url:URL.createObjectURL(photo.blob), uploaded:false});
       } else recentCaptureViews.get(photo.client_id).photo = photo;
     }
     const ordered = [...recentCaptureViews.entries()].sort((a,b) => a[1].photo.captured_at.localeCompare(b[1].photo.captured_at));
-    while (ordered.length > 12) {
-      const [id, view] = ordered.shift(); URL.revokeObjectURL(view.url); recentCaptureViews.delete(id);
-    }
-    const strip = $('recentCaptures'), previousLast = strip.lastElementChild?.dataset.photoId;
+    const strip = $('recentCaptures'), previousLast = strip.lastElementChild?.dataset.photoId, previousScroll = strip.scrollLeft;
     strip.replaceChildren();
     const orderId = chosenOrder()?.id;
     for (const [id, view] of ordered) {
@@ -690,7 +696,7 @@
       strip.append(button);
     }
     strip.hidden = !strip.children.length;
-    if (previousLast !== strip.lastElementChild?.dataset.photoId) strip.scrollLeft = strip.scrollWidth;
+    strip.scrollLeft = previousLast !== strip.lastElementChild?.dataset.photoId ? strip.scrollWidth : previousScroll;
   }
   async function renderQueue() {
     const generation = ++queueRenderGeneration;
