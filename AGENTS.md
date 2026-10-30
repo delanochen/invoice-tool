@@ -1,5 +1,13 @@
 # Agent instructions for this repository
 
+## Interface style and button contract
+
+- Keep management interfaces in the established compact ERP style.
+- Read `docs/erp-button-standard.md` before adding or changing buttons or toolbars.
+- All new management pages must extend `base.html` and use `erp-btn` for action buttons. Reuse semantic variants such as `primary` and `danger` without changing geometry.
+- `static/erp-buttons.css` is the only source of action-button height, padding, radius, font size and line height. Do not add page-local or inline geometry overrides, including mobile rules. Tabs, map/camera controls and grid widgets keep their own component styles.
+- Run `node --test tests/erp_buttons.test.cjs` before completing button/layout changes or releasing a new management page; verify desktop, mobile and landscape, including links, submit forms, disabled and file-picker controls.
+
 ## Shared test server and database
 
 - A shared test environment is available on `192.168.7.202`.

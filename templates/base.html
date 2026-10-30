@@ -35,6 +35,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='system-grid.css', v=app_version) }}">
     <script src="{{ url_for('static', filename='grid-bootstrap.js', v=app_version) }}"></script>
     {% block head %}{% endblock %}
+    {# Shared action geometry must follow all page-specific styles. #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='erp-buttons.css', v=app_version) }}">
   </head>
   <body class="{% block body_class %}{% endblock %}" data-grid-user="{{ g.user.id if g.user else '' }}">
     {% if deployment_env == 'test' %}

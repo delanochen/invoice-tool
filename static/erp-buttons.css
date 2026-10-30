@@ -1,0 +1,86 @@
+/* Authoritative ERP action-button geometry. Load after page styles in base.html.
+ * Important declarations are limited to geometry/typography: legacy page rules
+ * must not resize a link, submit button or file label independently.
+ * Navigation tabs, map/camera controls and grid widgets are not action buttons.
+ */
+:root {
+  --erp-button-height: 28px;
+  --erp-button-font-size: 12px;
+  --erp-button-line-height: 18px;
+  --erp-button-padding-x: 9px;
+  --erp-button-radius: 2px;
+}
+@media (max-width: 640px) {
+  :root {
+    --erp-button-height: 32px;
+    --erp-button-font-size: 13px;
+  }
+}
+@media screen {
+  body :is(
+    .erp-btn, .button, .unified-file-button, .photo-local-picker,
+    .actions button, .form-actions button, .row-actions button,
+    .toolbar-actions button, .filter-actions button, .table-toolbar button,
+    .erp-toolbar button, .erp-filterbar button, .dialog-actions button,
+    .preview-tools button, .photo-source-actions > button
+  ) {
+    box-sizing: border-box !important;
+    display: inline-flex;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+    height: var(--erp-button-height) !important;
+    min-height: var(--erp-button-height) !important;
+    max-height: var(--erp-button-height) !important;
+    padding: 0 var(--erp-button-padding-x) !important;
+    margin-block: 0 !important;
+    border-width: 1px !important;
+    border-style: solid !important;
+    border-radius: var(--erp-button-radius) !important;
+    font-family: inherit !important;
+    font-size: var(--erp-button-font-size) !important;
+    font-weight: 400 !important;
+    line-height: var(--erp-button-line-height) !important;
+    white-space: nowrap !important;
+    text-decoration: none;
+    vertical-align: middle;
+    gap: 4px;
+  }
+  body :is(
+    .erp-btn, .button, .unified-file-button, .photo-local-picker,
+    .actions button, .form-actions button, .row-actions button,
+    .toolbar-actions button, .filter-actions button, .table-toolbar button,
+    .erp-toolbar button, .erp-filterbar button, .dialog-actions button,
+    .preview-tools button, .photo-source-actions > button
+  ):not(.primary):not(.danger):not(.link) {
+    border-color: #a9b4c5;
+    color: #1f2733;
+    background: linear-gradient(#fff, #eef1f5);
+  }
+  body :is(.actions, .form-actions, .row-actions, .toolbar-actions,
+    .filter-actions, .table-toolbar, .erp-toolbar-group, .service-report-nav,
+    .photo-source-actions, .dialog-actions, .preview-tools) {
+    align-items: center;
+  }
+  body :is(.actions, .form-actions, .row-actions, .toolbar-actions,
+    .filter-actions, .table-toolbar, .erp-toolbar, .erp-filterbar) form {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+  }
+  body :is(.erp-btn, .button, .unified-file-button, .photo-local-picker, button)[hidden] {
+    display: none !important;
+  }
+  /* The browser file button follows the same size as JS-enhanced file pickers. */
+  input[type="file"]::file-selector-button {
+    box-sizing: border-box;
+    height: var(--erp-button-height) !important;
+    min-height: var(--erp-button-height) !important;
+    padding: 0 var(--erp-button-padding-x) !important;
+    border: 1px solid #a9b4c5;
+    border-radius: var(--erp-button-radius) !important;
+    font: inherit;
+    font-size: var(--erp-button-font-size) !important;
+    line-height: var(--erp-button-line-height) !important;
+  }
+}
