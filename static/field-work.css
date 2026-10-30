@@ -25,3 +25,30 @@ body[data-panel="camera"] .card{padding:14px;margin:8px 0}body[data-panel="camer
 
 .photo-card img,.ledger-table img{width:120px;height:120px;object-fit:contain}.photo-card{grid-template-columns:120px 1fr}.ledger-photo-dialog{background:#fff;color:var(--ink)}.ledger-photo-head{flex-wrap:wrap}.ledger-photo-head strong{white-space:normal}.ledger-preview-tools{display:flex;flex-wrap:wrap;gap:6px}.ledger-preview-tools button{min-height:32px;padding:4px 10px;background:white;color:var(--ink)}.ledger-photo-stage{overflow:auto;background:#f8fafc;display:grid;place-items:center}.ledger-photo-stage img{transform-origin:center;cursor:zoom-in}.ledger-photo-stage img.is-fit{width:auto;height:auto;max-width:100%;max-height:100%}.ledger-photo-stage img.is-original,.ledger-photo-stage img.is-zoomed{width:auto;height:auto;max-width:none;max-height:none;justify-self:start;align-self:start;transform-origin:top left}.ledger-photo-detail,.ledger-photo-head span{color:var(--muted)}
 .ledger-photo-dialog[open]{display:flex;flex-direction:column;gap:8px}.ledger-photo-head>.ledger-preview-tools{flex-direction:row;margin-left:auto}.ledger-photo-stage{flex:1;min-height:0;height:auto}.ledger-photo-head,.ledger-photo-detail{flex-shrink:0}.ledger-photo-detail{margin:0 4px}.ledger-photo-head button{border-radius:6px}
+
+/* Compact OCR guide and a single row of recent captures below the shutter. */
+.ocr-guide { top:50%; height:clamp(44px,12%,90px); transform:translateY(-50%); border-radius:8px; }
+.recognized-number {
+  white-space:nowrap; overflow-wrap:normal; word-break:normal;
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:clamp(15px,5.6vw,25px); letter-spacing:0; padding:14px 4px;
+}
+#recentCaptures { display:none; }
+.camera-active:not(.recognition-mode) #recentCaptures:not([hidden]) {
+  position:fixed; z-index:44; left:12px; right:12px;
+  bottom:calc(8px + env(safe-area-inset-bottom)); height:68px;
+  display:flex; gap:6px; overflow-x:auto; overflow-y:hidden;
+  padding:3px; border-radius:8px; background:#071d18e6;
+  overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch;
+}
+.recent-capture { flex:0 0 66px; min-width:0; min-height:0; height:60px;
+  display:flex; flex-direction:column; gap:0; padding:0; overflow:hidden;
+  border:1px solid #60736e; border-radius:5px; background:#102e29; color:white; }
+.recent-capture img { width:100%; height:42px; object-fit:cover; }
+.recent-capture span { font-size:10px; line-height:16px; white-space:nowrap; }
+@media (orientation:landscape) and (max-height:500px) {
+  .camera-active:not(.recognition-mode) #recentCaptures:not([hidden]) { height:52px; }
+  .recent-capture { height:44px; flex-basis:60px; }
+  .recent-capture img { height:28px; }
+  .camera-active:not(.recognition-mode) .camera-actions { bottom:calc(66px + env(safe-area-inset-bottom)); }
+}

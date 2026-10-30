@@ -211,8 +211,17 @@
     ocrBusy = true;
     const button = $('recognizeDevice'); button.disabled = true;
     try {
-      const video = $('viewfinder'), cropWidth = Math.round(video.videoWidth * .82), cropHeight = Math.round(video.videoHeight * .28);
-      const cropX = Math.round((video.videoWidth - cropWidth) / 2), cropY = Math.round((video.videoHeight - cropHeight) / 2);
+      const video = $('viewfinder');
+      // The video is object-fit:contain: map the visible guide through letterboxing.
+      const frame = video.getBoundingClientRect(), guide = $('ocrGuide').getBoundingClientRect();
+      const fit = Math.min(frame.width / video.videoWidth, frame.height / video.videoHeight);
+      const left = frame.left + (frame.width - video.videoWidth * fit) / 2;
+      const top = frame.top + (frame.height - video.videoHeight * fit) / 2;
+      const cropX = Math.max(0, Math.round((guide.left - left) / fit));
+      const cropY = Math.max(0, Math.round((guide.top - top) / fit));
+      const cropWidth = Math.min(video.videoWidth - cropX, Math.round(guide.width / fit));
+      const cropHeight = Math.min(video.videoHeight - cropY, Math.round(guide.height / fit));
+      if (!fit || cropWidth <= 0 || cropHeight <= 0) throw new Error('请将铭牌放入扫描框后重试。');
       const scale = Math.min(3, Math.max(1, 1800 / cropWidth));
       const canvas = document.createElement('canvas'); canvas.width = Math.round(cropWidth * scale); canvas.height = Math.round(cropHeight * scale);
       canvas.getContext('2d').drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
@@ -323,7 +332,7 @@
       if (!response.ok) throw new Error('服务器暂时不可用');
       const next = await response.json();
       if (generation !== bootstrapGeneration) return;
-      if (profile && profile.user.id !== next.user.id) { stopCamera(); clearPreview(); currentOrder = null; captureContext = null; $('timezoneName').value = ''; $('ledgerList').replaceChildren(); }
+      if (profile && profile.user.id !== next.user.id) { stopCamera(); clearPreview(); clearRecentCaptures(); currentOrder = null; captureContext = null; $('timezoneName').value = ''; $('ledgerList').replaceChildren(); }
       profile = next;
       try { localStorage.setItem(SESSION_KEY, JSON.stringify(profile)); }
       catch (_) { notice('无法保存离线登录资料，请检查手机存储空间。',true); }
@@ -501,6 +510,7 @@
       window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
       $('ocrGuide').hidden = !recognitionOnly;
       $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
+      await renderQueue();
       scanDevice(); scanTimer = setInterval(scanDevice, 800);
       if (recognitionOnly) { ocrStartTimer = setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
     } catch (error) { notice('无法打开相机，请检查相机权限，或切换到“上传”选择照片。',true); stopCamera(); }
@@ -633,16 +643,61 @@
   });
   $('photoFile').addEventListener('cancel', () => { captureContext = null; });
   function clearQueueViews() {
+    clearRecentCaptures();
     queueRenderGeneration++;
     for (const view of queueViews.values()) URL.revokeObjectURL(view.url);
     queueViews.clear();
     $('queueList').replaceChildren();
+  }
+  // Keep at most twelve recent camera photos in memory, scoped to the signed-in user.
+  const recentCaptureViews = new Map();
+  function clearRecentCaptures() {
+    for (const view of recentCaptureViews.values()) URL.revokeObjectURL(view.url);
+    recentCaptureViews.clear();
+    $('recentCaptures').replaceChildren();
+    $('recentCaptures').hidden = true;
+  }
+  function renderRecentCaptures(photos) {
+    const pending = new Map(photos.map(photo => [photo.client_id, photo]));
+    for (const [id, view] of recentCaptureViews) {
+      if (view.photo.user_id !== profile?.user.id || (!pending.has(id) && !view.uploaded)) {
+        URL.revokeObjectURL(view.url); recentCaptureViews.delete(id);
+      }
+    }
+    for (const photo of photos.filter(photo => photo.source === 'camera').slice(-12)) {
+      if (!recentCaptureViews.has(photo.client_id)) {
+        recentCaptureViews.set(photo.client_id, {photo, url:URL.createObjectURL(photo.blob), uploaded:false});
+      } else recentCaptureViews.get(photo.client_id).photo = photo;
+    }
+    const ordered = [...recentCaptureViews.entries()].sort((a,b) => a[1].photo.captured_at.localeCompare(b[1].photo.captured_at));
+    while (ordered.length > 12) {
+      const [id, view] = ordered.shift(); URL.revokeObjectURL(view.url); recentCaptureViews.delete(id);
+    }
+    const strip = $('recentCaptures'), previousLast = strip.lastElementChild?.dataset.photoId;
+    strip.replaceChildren();
+    const orderId = chosenOrder()?.id;
+    for (const [id, view] of ordered) {
+      if (String(view.photo.order_id) !== String(orderId)) continue;
+      const button = document.createElement('button'); button.type = 'button';
+      button.className = 'recent-capture'; button.dataset.photoId = id;
+      const image = document.createElement('img'); image.src = view.url; image.alt = fieldText('照片预览');
+      const status = textNode('span', view.uploaded ? '已上传' : uploadingPhotoId === id ? '正在上传' : view.photo.error ? '上传失败' : '本机草稿');
+      status.textContent = fieldText(status.textContent);
+      button.title = fieldText(view.photo.error || status.textContent);
+      button.append(image, status);
+      image.onerror = () => { image.hidden = true; };
+      button.addEventListener('click', () => openDraft(view.photo, view.uploaded));
+      strip.append(button);
+    }
+    strip.hidden = !strip.children.length;
+    if (previousLast !== strip.lastElementChild?.dataset.photoId) strip.scrollLeft = strip.scrollWidth;
   }
   async function renderQueue() {
     const generation = ++queueRenderGeneration;
     try {
       const photos = await queued();
       if (generation !== queueRenderGeneration) return;
+      renderRecentCaptures(photos);
       $('queueCount').textContent = String(photos.length);
       const ids = new Set(photos.map(photo => photo.client_id));
       for (const [id, view] of queueViews) {
@@ -699,7 +754,8 @@
       notice('照片已交给手机保存；请在“下载”中确认并移入相册。');
     } catch(error) { if (error.name !== 'AbortError') notice('无法打开手机保存菜单：'+error.message,true); }
   }
-  function openDraft(photo) {
+  function openDraft(photo, uploaded = false) {
+    $('deleteDraft').hidden = uploaded;
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
     $('draftLarge').src=previewURL; setFieldText('draftDetail',(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印')); $('draftDialog').showModal();
   }
@@ -774,6 +830,8 @@
           }
           if (!response.ok || !result.ok) throw new Error((result.error || '上传未成功，照片仍保留')+' [HTTP '+response.status+' / '+(response.headers.get('X-Field-Version') || '未知服务版本')+']');
           await storePhoto(photo,true);
+          const recent = recentCaptureViews.get(photo.client_id);
+          if (recent) { recent.uploaded = true; recent.photo = photo; }
           notice('照片已上传到 '+photo.order_number+'，系统已按拍摄日期归档。');
         } catch(error) {
           photo.error = error.message; await storePhoto(photo);
@@ -998,7 +1056,7 @@
   $('watermarkTimeDialog').addEventListener('cancel',event=>{event.preventDefault();cancelWatermarkTime();});
   $('completeBatch').addEventListener('click',completeBatch);
   $('closeDraft').addEventListener('click',()=>$('draftDialog').close());
-  $('deleteDraft').addEventListener('click',async()=>{if(!draftSelection)return;await storePhoto(draftSelection,true);draftSelection=null;$('draftDialog').close();await renderQueue();notice('已删除本机草稿照片。');});
+  $('deleteDraft').addEventListener('click',async()=>{if(!draftSelection || $('deleteDraft').hidden)return;await storePhoto(draftSelection,true);draftSelection=null;$('draftDialog').close();await renderQueue();notice('已删除本机草稿照片。');});
   $('closeLedgerPhoto').addEventListener('click',()=>$('ledgerPhotoDialog').close());
   $('previousLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex-1));
   $('nextLedgerPhoto').addEventListener('click',()=>openLedgerPhoto(ledgerPhotoIndex+1));
