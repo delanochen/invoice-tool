@@ -4571,6 +4571,8 @@ cpa_workpaper = _payroll_routes["cpa_workpaper"]
 cpa_workpaper_export = _payroll_routes["cpa_workpaper_export"]
 
 register_employee_finance_routes(app, globals())
+from invoice_tool.payroll.reconciliation import install_payroll_reconciliation
+install_payroll_reconciliation(app, globals())
 register_expense_smart_fill_routes(app, globals())
 register_field_ai_routes(app, globals())
 register_order_employee_settlement_routes(app, globals())

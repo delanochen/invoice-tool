@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}工资差额核对{% endblock %}
+{% block content %}
+<div class="erp-app erp-compact">
+<header class="erp-toolbar">
+  <div class="erp-toolbar-title">工资差额核对<small>按工作日期核对当前工资与SL快照</small></div>
+  <span class="erp-badge">{{ reconciliation_rows|length }} 项待处理</span>
+  <span class="erp-toolbar-spacer"></span>
+  <a class="erp-btn" href="{{ url_for('employee_payments') }}">付款中心</a>
+  <a class="erp-btn" href="{{ url_for('payroll_calendar') }}">工资日历</a>
+</header>
+<div class="erp-body"><section class="erp-panel active"><div class="erp-detail-scroll">
+<p>补录、修改或删除日报后，原SL金额保持不变。正差额经确认生成补发草稿，仍需审核付款；减少金额或历史来源不明确时请先人工核对。已支付列按工资应付金额统计，借款抵扣和其他调整请查看付款单。</p>
+<table class="list-table erp-grid">
+<thead><tr><th>员工</th><th>工资周期</th><th>当前应付</th><th>已入单</th><th>已支付工资金额</th><th>待处理差额</th><th>原SL</th><th>处理</th></tr></thead>
+<tbody>{% for row in reconciliation_rows %}
+<tr>
+<td>{{ row.employee_name }}</td><td>{{ row.period_start }} ~ {{ row.period_end }}</td>
+<td>{{ row.expected|money }}</td><td>{{ row.recorded|money }}</td><td>{{ row.paid|money }}</td>
+<td><strong>{{ row.difference|money }}</strong></td>
+<td>{% for payment in row.orders %}<a href="{{ url_for('employee_payment_detail', payment_id=payment.id) }}">{{ payment.payment_number }}</a>{% if not loop.last %}、{% endif %}{% else %}尚未入单{% endfor %}</td>
+<td>{% if row.can_create and has_action_permission('employee_payments','create') %}
+<form method="post" action="{{ url_for('confirm_payroll_reconciliation') }}">
+<input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+<input type="hidden" name="period_start" value="{{ row.period_start }}">
+<input type="hidden" name="revision" value="{{ row.revision }}">
+<button class="erp-btn" type="submit">确认生成补发草稿</button>
+</form>{% else %}{{ row.blocked_reason or '请联系财务处理' }}{% endif %}</td>
+</tr>
+<tr><td colspan="8">
+<details><summary>查看差额明细</summary>
+<table class="list-table"><thead><tr><th>工作日期</th><th>工单</th><th>项目</th><th>差额</th><th>日报</th></tr></thead><tbody>
+{% for line in row.changes %}<tr><td>{{ line.service_date or '周期项目' }}</td><td>{{ line.work_order_id or '—' }}</td><td>{{ line.component_name }}</td><td>{{ line.amount|money }}</td><td>{% if line.daily_report_id %}<a href="{{ url_for('edit_service_report', report_id=line.daily_report_id) }}">日报 #{{ line.daily_report_id }}</a>{% else %}多个日报或周期项目{% endif %}</td></tr>{% endfor %}
+</tbody></table></details>
+</td></tr>
+{% else %}<tr><td colspan="8" class="empty">已生成工资周期内，当前未发现待处理金额差额。</td></tr>{% endfor %}</tbody></table>
+{% if unlinked_manual %}
+<h3>未关联周期的手工SL</h3>
+<p>以下记录无法自动判断属于哪个工资周期。相关员工的补发会暂停自动生成，避免重复计薪。</p>
+<table class="list-table"><thead><tr><th>付款单</th><th>员工</th><th>金额</th></tr></thead><tbody>
+{% for payment in unlinked_manual %}<tr><td><a href="{{ url_for('employee_payment_detail', payment_id=payment.id) }}">{{ payment.payment_number }}</a></td><td>{{ payment.employee_name }}</td><td>{{ payment.gross_amount|money }}</td></tr>{% endfor %}
+</tbody></table>{% endif %}
+</div></section></div></div>
+{% endblock %}

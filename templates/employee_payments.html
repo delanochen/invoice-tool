@@ -16,6 +16,7 @@
       <small>财务管理 · 工资与员工报销</small>
     </div>
     <span class="erp-badge">{{ rows|length }} 张付款单</span>
+    {% if can_view_all %}<a class="erp-btn" href="{{ url_for('payroll_reconciliation') }}">工资差额核对 · {{ reconciliation_rows|length }} 项待处理</a>{% endif %}
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
