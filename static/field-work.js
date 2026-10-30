@@ -75,14 +75,14 @@
   }
   function confirmDevice() {
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
-    if (!number && !noNumber) { notice('请输入设备编号，或勾选“此设备没有编号”。', true); $('equipmentNumber').focus(); return false; }
+    if (!number && !noNumber) { notice('请输入设备编号，或勾选“无编号”。', true); $('equipmentNumber').focus(); return false; }
     deviceSession = {id:key(), equipment_number:noNumber ? '' : number,
       position_number:$('positionNumber').value.trim().toUpperCase(), container_number:$('containerNumber').value.trim().toUpperCase(),
       no_equipment_number:noNumber};
     $('equipmentNumber').closest('fieldset').classList.add('locked');
     $('equipmentNumber').value = deviceSession.equipment_number;
     $('equipmentNumber').disabled = noNumber;
-    setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}。后续照片沿用；换设备请点“下一台设备”。`);
+    setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}。后续照片沿用；换设备请点“清除”。`);
     return true;
   }
 
@@ -1000,8 +1000,9 @@
     } catch (error) { notice(error.message || '删除失败，请稍后重试。', true); }
     finally { button.disabled = false; }
   });
-  $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再进入下一台设备。',true);return;} stopCamera(); resetDevice(); $('equipmentNumber').focus(); });
+  $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再清除设备信息。',true);return;} if(taking || processingFiles || captureContext || syncing) return; stopCamera(); resetDevice(); $('photoNote').value=''; $('photoNote').style.height=''; $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; $('equipmentNumber').required = !$('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
+  $('photoNote').addEventListener('input', () => { $('photoNote').style.height='auto'; $('photoNote').style.height=Math.max(44,$('photoNote').scrollHeight)+'px'; });
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请点击“打开相机”确认。'); });
   $('positionNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','位置号已修改，请点击“打开相机”确认。'); });
   $('containerNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','集装箱号已修改，请点击“打开相机”确认。'); });

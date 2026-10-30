@@ -28,16 +28,13 @@
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
         <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><div id="generalKindChoices" hidden style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;"><button id="arrivalKind" type="button">进场照片</button><button id="departureKind" type="button">离场照片</button><button id="safetyKind" type="button">自检照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
-          <div class="time-actions" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;"><button id="adjustWatermarkTime" type="button">调整水印时间</button><span id="watermarkModeText" class="muted">使用当前系统时间</span></div>
-          <p class="muted">默认使用手机当前时间；补录照片时可点击“调整水印时间”设置本组水印时间。</p>
+          <div class="time-actions" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;"><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" type="button">调整</button></div>
         </fieldset>
-        <fieldset id="deviceSession" class="device-session" hidden><legend>当前设备</legend>
-          <label>铭牌号（Machine Number，必填）<span class="machine-number-row"><input id="equipmentNumber" required maxlength="200" autocomplete="off" placeholder="识别或输入一次"><button id="recognizeDevice" class="ocr-button" type="button" title="识别铭牌" aria-label="识别铭牌">T</button></span></label>
+        <fieldset id="deviceSession" class="device-session" hidden><legend>当前设备</legend><div class="device-heading-actions"><button id="nextDevice" type="button">清除</button></div>
+          <div class="equipment-label-row"><label for="equipmentNumber">铭牌号（Machine Number）</label><label class="check-label no-number-option"><input id="noEquipmentNumber" type="checkbox">无编号</label></div><label class="equipment-input-label"><span class="machine-number-row"><input id="equipmentNumber" required maxlength="200" autocomplete="off" placeholder="识别或输入一次"><button id="recognizeDevice" class="ocr-button" type="button" title="识别铭牌" aria-label="识别铭牌">T</button></span></label>
           <label>位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如：B6-1（可留空）"></label>
           <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off" placeholder="可留空"></label>
-          <div id="deviceNoteSlot"><label id="captureNote">工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
-          <label class="check-label"><input id="noEquipmentNumber" type="checkbox"> 此设备没有编号</label>
-          <div class="device-actions"><button id="nextDevice" type="button">下一台设备</button></div>
+          <div id="deviceNoteSlot"><label id="captureNote">工作备注<textarea id="photoNote" rows="1" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
           <p id="deviceStatus" class="muted" hidden>填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
         <div id="generalNoteSlot"></div>

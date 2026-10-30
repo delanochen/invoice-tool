@@ -52,3 +52,18 @@ body[data-panel="camera"] .card{padding:14px;margin:8px 0}body[data-panel="camer
   .recent-capture img { height:28px; }
   .camera-active:not(.recognition-mode) .camera-actions { bottom:calc(66px + env(safe-area-inset-bottom)); }
 }
+
+/* Compact capture form, full-width identifiers. */
+body[data-panel="camera"] .card{padding:12px}
+body[data-panel="camera"] #captureDetails label{gap:4px;margin-bottom:8px}
+body[data-panel="camera"] .capture-kind,body[data-panel="camera"] #timeSettings,body[data-panel="camera"] .device-session{margin:8px 0;padding:8px 10px;border:0;border-top:1px solid var(--line);border-radius:0}
+#timeSettings .time-actions{justify-content:space-between;flex-wrap:nowrap!important}
+#timeSettings .time-actions button{flex-shrink:0}
+.device-heading-actions{display:flex;justify-content:flex-end;margin-top:-24px;margin-bottom:4px}
+#nextDevice{color:var(--green);border:0;background:transparent;padding:8px;min-height:44px}
+.equipment-label-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+body[data-panel="camera"] .equipment-label-row label{margin:0!important}
+.equipment-label-row>label:first-child{min-width:0}
+body[data-panel="camera"] .no-number-option{flex-shrink:0;min-height:44px;gap:4px!important;font-size:13px;cursor:pointer}
+#photoNote{height:44px;min-height:44px;overflow-y:hidden;resize:none}
+#deviceSession>label{width:100%}
