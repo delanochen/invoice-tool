@@ -16,6 +16,10 @@ ROUNDING_TOLERANCE = Decimal("0.02")
 PERIOD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})$")
 
 
+def is_rounding_difference(amount):
+    return abs(money(amount)) <= ROUNDING_TOLERANCE
+
+
 def component_identity(row):
     return (str(row.get("service_date") or ""), row["component_code"],
             int(row.get("work_order_id") or 0))
@@ -96,7 +100,7 @@ def build_reconciliation_services(api):
                 paid = money(sum((money(p["gross_amount"]) for p in valid_orders
                                   if p["status"] in {"paid", "reconciled"}), Decimal(0)))
                 delta = money(expected-recorded_total)
-                rounding_only = abs(delta) <= ROUNDING_TOLERANCE
+                rounding_only = is_rounding_difference(delta)
                 if rounding_only and not include_balanced:
                     continue
                 current, _ = api["payroll_payment_components"](start, worker, expected)
