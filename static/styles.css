@@ -3177,3 +3177,29 @@ body.service-order-map-page {
   letter-spacing: .04em;
 }
 
+
+/* One compact attachment picker across forms and dynamically added rows. */
+input[type="file"].unified-file-input {
+  position: absolute !important; width: 1px !important; height: 1px !important;
+  min-height: 0 !important; min-width: 0 !important; margin: 0 !important;
+  padding: 0 !important; border: 0 !important; opacity: 0; pointer-events: none;
+}
+.unified-file-control {
+  display: inline-flex; flex-direction: column; align-items: flex-start;
+  gap: 4px; min-width: 0; max-width: 100%; border: 0; padding: 0;
+}
+.unified-file-control .unified-file-button,
+.photo-local-picker, .native-photo-picker {
+  box-sizing: border-box; width: auto; min-height: 28px; height: auto;
+  padding: 3px 9px; border: 1px solid #a9b4c5; border-radius: 2px;
+  font-family: inherit; font-size: 12px; font-weight: 400; line-height: 20px;
+  color: #1f2733; background: linear-gradient(#fff, #eef1f5); cursor: pointer;
+}
+.unified-file-status { max-width: 100%; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.unified-file-status[hidden] { display: none; }
+.compact-file-picker > span:not(.unified-file-control) { display: none; }
+.compact-file-picker > .unified-file-control { margin: 0; }
+.unified-file-button:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+@media (max-width: 1024px) {
+  .unified-file-control .unified-file-button { min-height: 32px; font-size: 13px; }
+}
