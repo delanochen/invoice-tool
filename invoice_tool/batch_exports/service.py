@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
+from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
+
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -256,6 +258,34 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                             xlsx = build_settlement_xlsx(reimbursement, order, items, expense_amount=expense_amount, build_simple_xlsx=build_simple_xlsx)
                             data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
                             archive.writestr(f"工单结算/{order_no}_工单结算.xlsx", data)
+                            attachment_root = Path(data_dir) / "customer-reimbursements" / str(reimbursement["id"]) / "attachments"
+                            attachment_names = set()
+                            attachment_sources = set()
+                            for attachment in exportable_settlement_attachments(conn, reimbursement["id"]):
+                                source_path = attachment_root / attachment["stored_filename"]
+                                source_path = source_path.resolve()
+                                if not source_path.is_relative_to(attachment_root.resolve()):
+                                    raise ValueError("Invalid settlement attachment path")
+                                if source_path in attachment_sources:
+                                    continue
+                                attachment_sources.add(source_path)
+                                if not source_path.is_file():
+                                    missing.append(
+                                        f"{order_no}: 结算附件文件缺失 - {attachment['original_filename'] or attachment['id']}"
+                                    )
+                                    continue
+                                filename = safe_name(
+                                    attachment["original_filename"] or attachment["stored_filename"],
+                                    f"attachment-{attachment['id']}",
+                                )
+                                stem, suffix = os.path.splitext(filename)
+                                candidate, index = filename, 2
+                                while candidate.casefold() in attachment_names:
+                                    candidate = f"{stem}-{index}{suffix}"
+                                    index += 1
+                                attachment_names.add(candidate.casefold())
+                                filename = candidate
+                                archive.write(source_path, f"工单结算/{order_no}_附件/{filename}")
                     elif export_type == "invoices":
                         invoices = conn.execute("select * from invoices where service_order_id=? and status!='void' order by id", (order_id,)).fetchall()
                         if not invoices:

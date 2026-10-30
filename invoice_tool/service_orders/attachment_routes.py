@@ -1,3 +1,4 @@
+from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
 """Business routes with explicit current-app resolvers; no reverse import."""
 
 from urllib.parse import quote
@@ -125,7 +126,7 @@ def register_order_attachments_routes(app, *,
                     current_reimbursement['file_name'],
                     _cb_resolve_CUSTOMER_REIMBURSEMENT_DIR(),
                 )
-                for row in _cb_resolve_db()().execute('select * from customer_reimbursement_attachments where customer_reimbursement_id=? order by id', (reimbursement['id'],)):
+                for row in exportable_settlement_attachments(_cb_resolve_db()(), reimbursement['id']):
                     collect('工单结算', _cb_resolve_customer_reimbursement_attachment_path()(row), row['original_filename'], _cb_resolve_CUSTOMER_REIMBURSEMENT_DIR())
         filename = f"{_cb_resolve_secure_filename()(order['order_number']) or order_id}-附件.zip"
         headers = Headers({'Cache-Control': 'private, no-store', 'X-Accel-Buffering': 'no'})
