@@ -130,10 +130,6 @@ def build_reconciliation_services(api):
                     status = "source_mismatch"
                     status_label = "历史来源异常"
                     reason = "原SL金额与有效组件快照不一致，需要人工核对来源。"
-                elif any(p.get("correction_status", "none") == "replacement" for p in valid_orders):
-                    status = "historical_change"
-                    status_label = "历史工资已变更"
-                    reason = "已应用历史纠偏的工资按冻结结果核对，请人工审核差额。"
                 elif worker in unlinked:
                     status = "manual_conflict"
                     status_label = "手工SL冲突"
@@ -142,6 +138,9 @@ def build_reconciliation_services(api):
                     status = "negative_review"
                     status_label = "负差额待审核"
                     reason = "当前工资低于原SL或存在组件抵减，需要人工审核；系统不会自动扣款。"
+                if status == "supplement" and any(
+                        p.get("correction_status", "none") == "replacement" for p in valid_orders):
+                    status_label = "历史工资已变更 · 正差额可补发"
                 carry = api.get("flag_carry_forward_components")
                 if carry and carry(worker, current, start_text, end_text):
                     status = "historical_change"

@@ -56,6 +56,32 @@ class PayrollLateReportsTest(unittest.TestCase):
         self._generate()
         self.assertEqual(self._payment()["id"],adjustment["id"])
 
+    def test_replacement_positive_difference_renders_and_creates_frozen_supplement(self):
+        original, lines, _ = self.seed_late(paid=True)
+        with self.module.app.app_context():
+            db = self.module.db()
+            db.execute("update employee_payment_orders set correction_status='replacement' where id=?", (original["id"],))
+            db.commit()
+            original = dict(db.execute("select * from employee_payment_orders where id=?", (original["id"],)).fetchone())
+        row = self.pending()[0]
+        self.assertTrue(row["can_create"], row["blocked_reason"])
+        self.assertEqual(row["status_label"], "历史工资已变更 · 正差额可补发")
+        page = self.http.get("/employee-payments/payroll-reconciliation")
+        self.assertIn("确认生成补发草稿", page.get_data(as_text=True))
+        self.confirm(row)
+        adjustment = self._payment()
+        self.assertEqual(adjustment["source_type"], "system_payroll_adjustment")
+        self.assertEqual(adjustment["status"], "draft")
+        self.assertEqual(self._components(original["id"]), lines)
+        with self.module.app.app_context():
+            after = dict(self.module.db().execute("select * from employee_payment_orders where id=?", (original["id"],)).fetchone())
+        for key in ("gross_amount", "status", "payment_number"):
+            self.assertEqual(after[key], original[key])
+        self.assertEqual(after["correction_status"], "replacement")
+        self.assertEqual(self.pending(), [])
+        self.confirm(row)
+        self.assertEqual(self._payment()["id"], adjustment["id"])
+
     def test_unpaid_original_stays_intact(self):
         original,lines,_=self.seed_late()
         self.confirm(self.pending()[0])
