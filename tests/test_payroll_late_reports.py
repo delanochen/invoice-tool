@@ -68,7 +68,10 @@ class PayrollLateReportsTest(unittest.TestCase):
         original=self._payment()
         with self.module.app.app_context():
             db=self.module.db()
-            db.execute("update employee_payment_orders set gross_amount=gross_amount+0.02 where id=?",(original["id"],))
+            db.execute("""update employee_payment_orders
+                        set gross_amount=gross_amount+0.02,
+                            tax_review_required_total=tax_review_required_total+0.02
+                        where id=?""",(original["id"],))
             db.commit()
             visible=self.module.payroll_reconciliation_rows(fixture.PERIOD_START, include_balanced=True)
         self.assertEqual(self.pending(),[])
