@@ -26,6 +26,9 @@
   .erp-app .dash-chart-head .erp-filter { border: 0; background: none; padding: 0; margin: 0; gap: 5px; }
   .erp-app .dash-chart .bar-chart { margin: 0; }
   .erp-app .dash-chart .bar-item small { font-size: 10.5px; }
+  .erp-app .settlement-chart { overflow-x: auto; justify-content: flex-start; }
+  .erp-app .settlement-chart .bar-item { flex: 1 0 92px; min-width: 92px; }
+  .erp-app .settlement-chart .bar-item small, .erp-app .settlement-chart .bar-item strong { white-space: nowrap; }
   @media (max-width: 1100px) { .erp-app .dash-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 1024px) { .erp-app .dash-charts { grid-template-columns: minmax(0, 1fr); } }
 </style>
@@ -108,19 +111,20 @@
           </section>
 
           <section class="dash-chart">
-            <div class="dash-chart-head"><h2>月度核销趋势</h2></div>
-            {% if paid_chart %}
-              <div class="bar-chart">
-                {% for point in paid_chart %}
+            <div class="dash-chart-head"><h2>最新10笔工单结算</h2><small>按预计结算日期排列</small></div>
+            {% if settlement_chart %}
+              <div class="bar-chart settlement-chart">
+                {% for point in settlement_chart %}
                   <div class="bar-item">
                     <div class="bar-track"><span style="height: {{ point.height }}%"></span></div>
-                    <small>{{ point.month }}</small>
+                    <small>{{ point.expected_date or "未填写日期" }}</small>
+                    <small>{{ point.order_number }}</small>
                     <strong>{{ point.value|money }}</strong>
                   </div>
                 {% endfor %}
               </div>
             {% else %}
-              <p class="erp-empty">还没有核销数据。</p>
+              <p class="erp-empty">暂无可显示的工单结算。</p>
             {% endif %}
           </section>
         </div>

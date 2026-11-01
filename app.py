@@ -2263,6 +2263,7 @@ _views_dashboard_page = _split_workspace_pages.register_dashboard_page_routes(
     _cb_resolve_is_external_user=lambda: is_external_user,
     _cb_resolve_login_required=lambda: login_required,
     _cb_resolve_monthly_paid_chart=lambda: monthly_paid_chart,
+    _cb_resolve_can_view_customer_reimbursement=lambda: can_view_customer_reimbursement,
     _cb_resolve_monthly_project_chart=lambda: monthly_project_chart,
     _cb_resolve_redirect=lambda: redirect,
     _cb_resolve_render_template=lambda: render_template,

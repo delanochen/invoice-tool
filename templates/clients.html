@@ -12,9 +12,6 @@
       <span class="erp-toolbar-spacer"></span>
       <div class="erp-toolbar-group">
         {% if not is_external_manager() %}
-          <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
-          <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
-          <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
           <button type="button" class="erp-btn primary" data-dialog-open="newClientDialog">新增客户</button>
         {% endif %}
         {% if not is_external_manager() %}<button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
@@ -25,13 +22,7 @@
     </header>
 
     <div class="erp-body">
-      {% if not is_external_manager() %}
-        <form class="erp-filter no-print" method="get" data-erp-filter>
-          <label class="erp-field">查找客户 <input type="search" name="q" value="{{ q or '' }}" placeholder="客户编号、公司名称、简称、联系人或邮箱"></label>
-        </form>
-      {% endif %}
-
-      <section class="erp-panel active" data-erp-panel="list">
+<section class="erp-panel active" data-erp-panel="list">
         <div class="erp-grid-wrap">
           <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>

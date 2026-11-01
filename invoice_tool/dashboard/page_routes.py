@@ -1,3 +1,5 @@
+from .charts import latest_settlement_chart
+
 """Business routes with explicit current-app resolvers; no reverse import."""
 
 
@@ -37,6 +39,7 @@ def register_dashboard_page_routes(app, *,
     _cb_resolve_render_template,
     _cb_resolve_request,
     _cb_resolve_url_for,
+    _cb_resolve_can_view_customer_reimbursement=None,
 ):
     @_cb_resolve_login_required()
     def dashboard():
@@ -51,7 +54,14 @@ def register_dashboard_page_routes(app, *,
         if not project_filter_submitted and not selected_project_ids:
             selected_project_ids = [str(project["id"]) for project in project_options]
         chart = _cb_resolve_monthly_project_chart()(selected_project_ids)
-        paid_chart = _cb_resolve_monthly_paid_chart()()
+        settlement_chart = latest_settlement_chart(
+            db=_cb_resolve_db(),
+            client_filter_clause=_cb_resolve_client_filter_clause(),
+            can_view_customer_reimbursement=(
+                _cb_resolve_can_view_customer_reimbursement()
+                if _cb_resolve_can_view_customer_reimbursement else lambda: False
+            ),
+        )
         access_clause, access_params = _cb_resolve_client_filter_clause()("invoices")
         recent = _cb_resolve_db()().execute(
             f"""
@@ -66,7 +76,7 @@ def register_dashboard_page_routes(app, *,
             "dashboard.html",
             metrics=metrics,
             chart=chart,
-            paid_chart=paid_chart,
+            settlement_chart=settlement_chart,
             recent=recent,
             labels=_cb_resolve_STATUS_LABELS(),
             project_options=project_options,

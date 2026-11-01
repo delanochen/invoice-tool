@@ -2,6 +2,22 @@
 (() => {
   const t = text => window.uiTranslate?.(text) || text;
   function setup(input) {
+    if (input.dataset.localPhoto) {
+      const button = input.parentElement.querySelector('[data-local-photo-picker]');
+      if (button && !button.dataset.filePickerReady) {
+        button.dataset.filePickerReady = 'true';
+        button.addEventListener('click', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          // Keep this synchronous: Safari requires the original user gesture.
+          if (!input.disabled) input.click();
+        });
+        const syncDisabled = () => { button.disabled = input.disabled; };
+        new MutationObserver(syncDisabled).observe(input, {attributes:true, attributeFilter:['disabled']});
+        syncDisabled();
+      }
+      return;
+    }
     if (input.dataset.filePickerReady || input.closest('.photo-local-picker,.native-photo-picker') || input.id === 'clockCamera') return;
     input.dataset.filePickerReady = 'true';
     input.classList.add('unified-file-input');

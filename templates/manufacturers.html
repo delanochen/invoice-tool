@@ -14,9 +14,6 @@
       <span class="erp-badge"><span data-list-count>{{ manufacturers|length }}</span> 个厂家</span>
       <span class="erp-toolbar-spacer"></span>
       <div class="erp-toolbar-group">
-        <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
-        <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
-        <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
         {% if can_create %}<button type="button" class="erp-btn primary" data-dialog-open="newManufacturerDialog">新增厂家</button>{% endif %}
         {% if can_edit %}<button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
         {% if can_delete %}<form method="post" data-row-action-form="deleteUrl" data-local-delete data-confirm="确定删除这个厂家吗？">
@@ -26,9 +23,6 @@
     </header>
 
     <div class="erp-body">
-      <form class="erp-filter no-print" method="get" data-erp-filter>
-        <label class="erp-field">查找厂家 <input type="search" name="q" value="{{ q or '' }}" placeholder="编号或名称"></label>
-      </form>
 
       <section class="erp-panel active" data-erp-panel="list">
         <div class="erp-grid-wrap">
