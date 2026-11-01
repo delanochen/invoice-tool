@@ -1,4 +1,5 @@
 """Legacy-compatible dashboard_monthly helpers; explicit runtime dependencies."""
+from decimal import Decimal
 
 def monthly_chart(*, client_filter_clause, db, invoice_totals):
     access_clause, access_params = client_filter_clause("invoices")
@@ -77,7 +78,7 @@ def monthly_paid_chart(*, client_filter_clause, db, invoice_totals):
 
 
 def latest_settlement_chart(*, db, client_filter_clause, can_view_customer_reimbursement):
-    """Latest ten current settlements, displayed by expected settlement date."""
+    """Group the latest ten current settlements by expected settlement date."""
     if not can_view_customer_reimbursement():
         return []
     access_clause, access_params = client_filter_clause("service_orders")
@@ -99,10 +100,16 @@ def latest_settlement_chart(*, db, client_filter_clause, can_view_customer_reimb
         """,
         access_params,
     ).fetchall()
-    points = [{"id": row["id"], "order_number": row["order_number"],
-               "expected_date": str(row["expected_settlement_date"] or ""),
-               "value": float(row["total_amount"] or 0)} for row in rows]
-    points.sort(key=lambda point: (not bool(point["expected_date"]), point["expected_date"], -point["id"]))
+    buckets = {}
+    for row in rows:
+        expected_date = str(row["expected_settlement_date"] or "").strip()
+        bucket = buckets.setdefault(expected_date, {
+            "expected_date": expected_date, "value": Decimal("0"), "count": 0,
+        })
+        bucket["value"] += Decimal(str(row["total_amount"] or 0))
+        bucket["count"] += 1
+    points = [{**bucket, "value": float(bucket["value"])} for bucket in buckets.values()]
+    points.sort(key=lambda point: (not bool(point["expected_date"]), point["expected_date"]))
     max_value = max((point["value"] for point in points), default=0) or 1
     for point in points:
         point["height"] = max(0, round(point["value"] / max_value * 100))
