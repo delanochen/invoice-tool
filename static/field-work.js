@@ -356,7 +356,6 @@
     $('technicianSelect').replaceChildren(...technicians.map(person => new Option(person.name, String(person.id))));
     $('technicianSelect').value = technicians.some(person => String(person.id) === technicianId)
       ? technicianId : String(profile.user.id);
-    setFieldText('versionText', '系统版本 V' + profile.version);
     if (!$('timezoneName').value) $('timezoneName').value = localStorage.getItem('field-timezone-' + profile.user.id) || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     $('createOrder').hidden = !profile.create_order_url;
     if (profile.create_order_url) $('createOrder').href = profile.create_order_url;
