@@ -17,14 +17,16 @@
   .erp-app .dash-metric.warn strong { color: #b45309; }
   .erp-app .dash-metric.neg strong { color: #b42318; }
   .erp-app .dash-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .erp-app .dash-chart { border: 1px solid var(--erp-line-soft); background: #fff; padding: 4px 6px 6px; min-width: 0; }
+  /* 两张图并排时必须等高：面板改成纵向 flex，柱子区域吃掉剩余高度并让内容沉底，
+     否则右图内容停在顶部，与左图底边错开一大块空白。 */
+  .erp-app .dash-chart { border: 1px solid var(--erp-line-soft); background: #fff; padding: 4px 6px 6px; min-width: 0; display: flex; flex-direction: column; }
   .erp-app .dash-chart-head {
     display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
     margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px solid var(--erp-line-soft);
   }
   .erp-app .dash-chart-head h2 { margin: 0; font-size: 12.5px; font-weight: 700; }
   .erp-app .dash-chart-head .erp-filter { border: 0; background: none; padding: 0; margin: 0; gap: 5px; }
-  .erp-app .dash-chart .bar-chart { margin: 0; }
+  .erp-app .dash-chart .bar-chart { margin: 0; flex: 1 1 auto; }
   .erp-app .dash-chart .bar-item small { font-size: 10.5px; }
   .erp-app .settlement-chart { overflow-x: auto; justify-content: flex-start; }
   .erp-app .settlement-chart .bar-item { flex: 1 0 92px; min-width: 92px; }

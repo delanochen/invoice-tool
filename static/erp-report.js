@@ -315,19 +315,6 @@
   window.visualViewport?.addEventListener('scroll', scheduleViewportFit);
   if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(fitViewport)).observe(document.documentElement);
 
-  /* --------------------------------- 版本号并入 StatusBar（C/S 客户端观感） */
-  // 右下角浮标会压住状态栏右端；ERP 客户端惯例是把版本放在状态栏最右。
-  const versionBadge = document.querySelector('.app-version');
-  const statusBar = app.querySelector('.erp-status');
-  if (versionBadge && statusBar && !statusBar.querySelector('.erp-status-version')) {
-    const slot = document.createElement('span');
-    slot.className = 'erp-status-version';
-    slot.textContent = versionBadge.textContent.trim();
-    statusBar.appendChild(slot);
-    versionBadge.style.display = 'none';
-    fitViewport();   // 版本号入栏后状态栏高度可能变化，重算 --erp-status-h
-  }
-
   /* -------------------------------------------- StatusBar 记录数同步 */
   // system-grid.js 在本脚本之后才构建 Tabulator，因此要等 .grid-count 出现。
   const countTarget = app.querySelector('[data-erp-count]');

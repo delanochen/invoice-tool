@@ -312,6 +312,14 @@
   white-space: nowrap;
 }
 .topbar-logout:hover { background: linear-gradient(180deg, #f7faff 0%, #e2e9f3 100%); border-color: #8a94a6; }
+/* 版本号唯一展示点：顶栏「退出」之后，低调小字，不占操作空间。 */
+.topbar-version {
+  font-size: 11px;
+  color: #7a8797;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .2px;
+}
 .topbar-right .sidebar-language-form { margin: 0; }
 .topbar-right .sidebar-language {
   font-size: 11.5px;

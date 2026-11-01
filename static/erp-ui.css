@@ -552,13 +552,6 @@
 }
 .erp-status .sep { width: 1px; align-self: stretch; background: var(--erp-line); }
 .erp-status b { color: var(--erp-ink); }
-/* 版本号由 erp-report.js 从右下角浮标搬进状态栏（C/S 客户端惯例：状态栏最右） */
-.erp-status .erp-status-version {
-  margin-left: auto;
-  padding-left: 6px;
-  border-left: 1px solid var(--erp-line);
-  color: var(--erp-muted);
-}
 
 /* ----------------------------------------------- 详情字段区（合同/工单详情） */
 /* 覆盖 styles.css 的 .detail-grid（gap 14px）：ERP 页面字段行距收紧，矮窗口一屏可见 */
