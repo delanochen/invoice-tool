@@ -95,6 +95,9 @@ def register_employee_grade_routes(
                         f"与 v{right['version_no']}（{right['effective_from']} ～ {right['effective_to'] or '长期'}）"
                     )
         snapshot = employee_grade_rate_snapshot(db(), grade_id, date.today().isoformat())
+        configured = employee_grade_rate_snapshot(
+            db(), grade_id, date.today().isoformat(), apply_car_allowance_policy=False
+        )
         missing = [key for key, value in snapshot["rates"].items() if value["source"] == "missing"]
         # 费率为 0 有两种来源：列里就是 0（新建等级默认值），或版本里明确写了 0。
         # 两者都不会落进 missing，但固化进版本后会明确按 0 计薪，必须让用户看见。
@@ -112,6 +115,7 @@ def register_employee_grade_routes(
             "versions": versions,
             "item_map": item_map,
             "rates": snapshot["rates"],
+            "configured_rates": configured["rates"],
             "current_version": snapshot["version"],
             "missing_rates": missing,
             "zero_rate_labels": zero_labels,
@@ -268,14 +272,14 @@ def register_employee_grade_routes(
                 return None  # 新建等级没提交费率字段 = 不维护
 
             car_method = request.form.get("car_allowance_method", "").strip()
-            if car_method not in {"mileage", "hourly"}:
+            if car_method not in {"mileage", "hourly", "none"}:
                 car_method = existing["car_allowance_method"] if existing is not None else "mileage"
             # car_hourly_rate 历史上就是跟随交通时薪写入的（test_payment_terms 有断言钉住），保持口径不变
             transport_hourly_rate = grade_rate("transport_hourly_rate")
             values = (
                 grade_name,
                 request.form.get("description", "").strip(),
-                # 基本工资 / 餐补不是「费率」，维持原来的 0 默认
+                # 保留旧版本未设置固定工资、餐补时的静态兜底；新界面在费率版本维护。
                 grade_number("base_salary"),
                 max(grade_number("meal_daily_amount"), 0),
                 car_method,

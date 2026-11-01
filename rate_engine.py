@@ -20,6 +20,8 @@ EMPLOYEE_RATE_TYPES = (
     ("public_transport_hours", "公共交通工时", "hour"),
     ("mileage", "里程补贴", "mile"),
     ("rental_drive_hours", "租车驾驶工时", "hour"),
+    ("meal_daily_amount", "餐费补贴", "day"),
+    ("base_salary", "固定基本工资", "period"),
 )
 
 CONTRACT_RATE_LABELS = {key: label for key, label, _ in CONTRACT_RATE_TYPES}
@@ -37,7 +39,13 @@ EMPLOYEE_STATIC_RATE_COLUMNS = {
     "public_transport_hours": "transport_hourly_rate",
     "mileage": "car_mileage_rate",
     "rental_drive_hours": "rental_driving_hourly_rate",
+    "meal_daily_amount": "meal_daily_amount",
+    "base_salary": "base_salary",
 }
+
+EMPLOYEE_TRANSPORT_RATE_TYPES = frozenset({
+    "travel_hours", "public_transport_hours", "mileage", "rental_drive_hours",
+})
 
 
 def _iso_day(value):
@@ -122,6 +130,14 @@ def employee_rate(connection, user_id, work_date, rate_type):
     if not row or not row["employee_grade_id"]:
         return {"rate": 0.0, "unit": RATE_UNITS.get(rate_type, "hour"), "source": "missing_grade", "version_id": None, "version_no": None}
 
+    if (
+        "car_allowance_method" in row.keys()
+        and row["car_allowance_method"] == "none"
+        and rate_type in EMPLOYEE_TRANSPORT_RATE_TYPES
+    ):
+        return {"rate": 0.0, "unit": RATE_UNITS.get(rate_type, "hour"),
+                "source": "no_car_allowance", "version_id": None, "version_no": None}
+
     version = _version_for_day(
         connection,
         "employee_rate_versions",
@@ -168,15 +184,16 @@ def employee_rate(connection, user_id, work_date, rate_type):
     return {"rate": 0.0, "unit": RATE_UNITS.get(rate_type, "hour"), "source": "missing", "version_id": None, "version_no": None}
 
 
-def employee_grade_rate_snapshot(connection, grade_id, work_date):
+def employee_grade_rate_snapshot(connection, grade_id, work_date, *, apply_car_allowance_policy=True):
     """员工等级在指定日期实际生效的费率快照。
 
     口径与 employee_rate() 完全一致：先取当天生效的费率版本条目，
     没有版本（或版本里缺该条目）时回退到等级资料里的静态费率列。
 
     返回 {"version": row|None, "rates": {rate_type: {"rate", "unit", "source"}}}，
-    source ∈ {"version", "static", "missing"}；"missing" 表示没有版本条目、
+    source ∈ {"version", "static", "missing", "no_car_allowance"}；"missing" 表示没有版本条目、
     静态列也没值（调用方负责提示缺费率，不要用默认价兜底）。
+    车补为「无」时交通项实际费率为 0；复制费率版本可显式读取未覆盖的已保存费率。
     """
     grade = connection.execute("select * from employee_grades where id = ?", (grade_id,)).fetchone()
     if not grade:
@@ -193,6 +210,14 @@ def employee_grade_rate_snapshot(connection, grade_id, work_date):
     grade_keys = set(grade.keys())
     rates = {}
     for key, _label, unit in EMPLOYEE_RATE_TYPES:
+        if (
+            apply_car_allowance_policy
+            and "car_allowance_method" in grade_keys
+            and grade["car_allowance_method"] == "none"
+            and key in EMPLOYEE_TRANSPORT_RATE_TYPES
+        ):
+            rates[key] = {"rate": 0.0, "unit": unit, "source": "no_car_allowance"}
+            continue
         item = items.get(key)
         if item:
             rates[key] = {"rate": float(item["rate"] or 0), "unit": item["unit"] or unit, "source": "version"}
@@ -208,17 +233,18 @@ def employee_grade_rate_snapshot(connection, grade_id, work_date):
 
 
 def current_rate_values(connection, grade_id, work_date):
-    """把「当前生效费率」取成 7 项数值，供「按当前费率建版本」一键固化。
+    """把「当前生效费率」取成数值，供「按当前费率建版本」一键固化。
 
-    "当前生效费率" 的口径完全复用 employee_grade_rate_snapshot()（版本优先、静态兜底），
-    也就是「员工等级」页面上那一栏数字、以及工资计算实际取的值 —— 三者同一口径，
-    不在这里另立一套默认价。
+    复用 employee_grade_rate_snapshot()（版本优先、静态兜底），不另立默认价。
+    复制时保留已维护的交通费率，不把「无车补」的运行时覆盖值固化进新版本。
 
     任一项 source == "missing"（既没有版本条目也没有等级静态值）时直接拒绝：
     固化出一条按 0 计薪的版本，比「没有版本」更危险 —— 没有版本时页面会明确
     提示「未设置」，而一条全 0 的版本看起来是「已配置」，会静默把工资算成 0。
     """
-    snapshot = employee_grade_rate_snapshot(connection, grade_id, _iso_day(work_date))
+    snapshot = employee_grade_rate_snapshot(
+        connection, grade_id, _iso_day(work_date), apply_car_allowance_policy=False
+    )
     values = {}
     missing = []
     for key, label, _unit in EMPLOYEE_RATE_TYPES:
@@ -234,7 +260,7 @@ def current_rate_values(connection, grade_id, work_date):
         )
     if not any(values.values()):
         raise ValueError(
-            "当前 7 项费率全是 0，固化成版本后工资会按 0 计算；请在下方表单里填写真实费率。"
+            "当前费率全是 0，固化成版本后工资会按 0 计算；请在下方表单里填写真实费率。"
         )
     return values
 
@@ -506,10 +532,17 @@ def register_rate_routes(app, api):
                         (source["id"],),
                     ).fetchall()
                 }
-                rate_values = {key: source_items.get(key, 0) for key, _label, _unit in EMPLOYEE_RATE_TYPES}
+                rate_values = {
+                    key: source_items.get(key, float(grade[key] or 0) if key in {"meal_daily_amount", "base_salary"} else 0)
+                    for key, _label, _unit in EMPLOYEE_RATE_TYPES
+                }
                 notes = notes or f"复制自 v{source['version_no']}"
             else:
-                rate_values = {key: _float_form(key) for key, _label, _unit in EMPLOYEE_RATE_TYPES}
+                rate_values = {
+                    key: float(grade[key] or 0)
+                    if key in {"meal_daily_amount", "base_salary"} and key not in request.form else _float_form(key)
+                    for key, _label, _unit in EMPLOYEE_RATE_TYPES
+                }
             effective_to = _prepare_new_version_range(
                 api["db"](), "employee_rate_versions", "employee_grade_id", grade_id, effective_from, effective_to
             )
@@ -590,7 +623,17 @@ def register_rate_routes(app, api):
             effective_from = request.form.get("effective_from", "").strip()
             effective_to = request.form.get("effective_to", "").strip() or None
             _validate_dates(effective_from, effective_to)
-            rates = {key: _float_form(key) for key, _label, _unit in EMPLOYEE_RATE_TYPES}
+            existing_items = {
+                item["rate_type"]: float(item["rate"] or 0)
+                for item in api["db"]().execute(
+                    "select rate_type, rate from employee_rate_items where version_id = ?", (version_id,)
+                ).fetchall()
+            }
+            rates = {
+                key: existing_items.get(key, float(grade[key] or 0))
+                if key in {"meal_daily_amount", "base_salary"} and key not in request.form else _float_form(key)
+                for key, _label, _unit in EMPLOYEE_RATE_TYPES
+            }
             effective_to = _validate_range_against_versions(
                 api["db"](), "employee_rate_versions", "employee_grade_id", grade_id,
                 version_id, effective_from, effective_to,
@@ -599,11 +642,17 @@ def register_rate_routes(app, api):
                 "update employee_rate_versions set effective_from = ?, effective_to = ?, notes = ?, updated_at = ? where id = ?",
                 (effective_from, effective_to, request.form.get("notes", "").strip(), api["now"](), version_id),
             )
-            for key, _label, _unit in EMPLOYEE_RATE_TYPES:
-                api["db"]().execute(
-                    "update employee_rate_items set rate = ? where version_id = ? and rate_type = ?",
-                    (rates[key], version_id, key),
-                )
+            for key, _label, unit in EMPLOYEE_RATE_TYPES:
+                if key not in existing_items:
+                    api["db"]().execute(
+                        "insert into employee_rate_items (version_id, rate_type, unit, rate) values (?, ?, ?, ?)",
+                        (version_id, key, unit, _rate_value(rates[key])),
+                    )
+                else:
+                    api["db"]().execute(
+                        "update employee_rate_items set rate = ? where version_id = ? and rate_type = ?",
+                        (rates[key], version_id, key),
+                    )
             api["log_action"](
                 "update", "employee_rate_version", version_id, f"{grade['grade_name']} v{version['version_no']}",
                 f"编辑：生效 {effective_from} 至 {effective_to or '长期'}",
