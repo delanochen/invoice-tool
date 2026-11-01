@@ -93,10 +93,27 @@ def register_settlement_form_routes(app, *,
         # POST 带 version_id（表单隐藏域）时作用于该版本——修订版草稿
         # （is_current=false）必须能保存 / 提交 / 审核，否则「沿用现有保存、
         # 确认、审核流程」落空。校验：同工单 + 同系列，跨系列一律不认。
+        version_rows = _cb_resolve_settlement_versions()(_cb_resolve__merge_root_api()(), order_id)
+        current_version = next((version for version in version_rows if version["is_current"]), reimbursement)
+        pending_revision = next(
+            (
+                version for version in reversed(version_rows)
+                if not version["is_current"] and version["status"] != "superseded"
+            ),
+            None,
+        )
         requested_version_id = (
             _cb_resolve_request().args.get("version_id", type=int) if _cb_resolve_request().method == "GET"
             else _cb_resolve_request().form.get("version_id", type=int)
         )
+        # 从工单默认进入结算页时，如果已有正在处理的修订版，优先打开修订版。
+        # 用户显式点击版本记录（带 version_id）时尊重选择，因此仍可随时查看 V1 / 历史版本。
+        if _cb_resolve_request().method == "GET" and not requested_version_id and pending_revision:
+            return _cb_resolve_redirect()(
+                _cb_resolve_url_for()(
+                    "customer_reimbursement_form", order_id=order_id, version_id=pending_revision["id"]
+                )
+            )
         if requested_version_id and requested_version_id != reimbursement["id"]:
             candidate = _cb_resolve_db()().execute(
                 "select * from customer_reimbursements where id = ? and service_order_id = ?",
@@ -161,7 +178,7 @@ def register_settlement_form_routes(app, *,
                     raise ValueError("只有保存未提交或已退回的工单结算可以修改。")
                 api = _cb_resolve__merge_root_api()()
                 sources_saved = save_workspace_sources(api, reimbursement, order, _cb_resolve_request().form)
-                rows = _cb_resolve_customer_reimbursement_items_from_form()(order_id)
+                rows = _cb_resolve_customer_reimbursement_items_from_form()(order_id, reimbursement)
                 _cb_resolve_save_customer_reimbursement_items()(reimbursement["id"], rows)
                 if sources_saved and reimbursement["sources_frozen"]:
                     # Rebuild this version's selected expense values even though its report snapshot is frozen.
@@ -323,12 +340,24 @@ def register_settlement_form_routes(app, *,
             "select name from users where id = ?",
             (reimbursement["reviewed_by"],),
         ).fetchone() if reimbursement["reviewed_by"] else None
-        # 客户费率一律来自合同费率版本：给 JS 的兜底单价按工单开始日期解析（缺失传 0），
-        # 行级单价已随明细行的 data-*-rate 传入；缺失项在页面顶部横幅醒目提示
-        js_rates, _ = _cb_resolve_resolve_contract_rates()(order_id, order["start_date"])
-        missing_rate_summary = _cb_resolve_contract_rate_missing_summary()(
-            order_id, [item.get("project_date") for item in items] or [order["start_date"]]
-        )
+        # 合同结算按合同费率版本提示缺失；报价单结算必须沿用结算创建时固化的
+        # 报价单修订快照费率，不能再反向要求合同费率。固定总价报价尤其如此。
+        if reimbursement["settlement_basis"] == "quotation":
+            first_item = items[0] if items else {}
+            js_rates = {
+                "standard_rate": float(first_item.get("standard_rate") or 0),
+                "transport_rate": float(first_item.get("transport_rate") or 0),
+                "public_transport_rate": float(first_item.get("public_transport_rate") or 0),
+                "overtime_rate": float(first_item.get("overtime_rate") or 0),
+                "holiday_rate": float(first_item.get("holiday_rate") or 0),
+                "mileage_rate": float(first_item.get("mileage_rate") or 0),
+            }
+            missing_rate_summary = {}
+        else:
+            js_rates, _ = _cb_resolve_resolve_contract_rates()(order_id, order["start_date"])
+            missing_rate_summary = _cb_resolve_contract_rate_missing_summary()(
+                order_id, [item.get("project_date") for item in items] or [order["start_date"]]
+            )
         workspace = _cb_resolve_customer_reimbursement_workspace_data()(order_id, reimbursement["id"], items)
         if source_save_failed:
             restore_workspace_sources(workspace, _cb_resolve_request().form)
@@ -340,15 +369,6 @@ def register_settlement_form_routes(app, *,
         # 报价单折扣快照：工单结算展示 折扣前应收 / 折扣 / 最终应收
         _form_totals["gross_amount"] = float(reimbursement["gross_amount"] or 0)
         _form_totals["discount_amount"] = float(reimbursement["discount_amount"] or 0)
-        # 版本列表 / 在处理中的修订版（settlement_revisions 模块函数第一个参数是 api dict）
-        version_rows = _cb_resolve_settlement_versions()(_cb_resolve__merge_root_api()(), order_id)
-        pending_revision = next(
-            (
-                version for version in version_rows
-                if not version["is_current"] and version["status"] != "superseded"
-            ),
-            None,
-        )
         return _cb_resolve_render_template()(
             "customer_reimbursement_form.html",
             order=order,
@@ -367,6 +387,7 @@ def register_settlement_form_routes(app, *,
             attachments=_cb_resolve_get_customer_reimbursement_attachments()(reimbursement["id"]),
             settlement_versions=version_rows,
             pending_revision=pending_revision,
+            current_version=current_version,
             linked_invoice=linked_invoice,
             reviewer=reviewer,
             email_delivery=_cb_resolve_email_delivery_summary()("customer_reimbursement", reimbursement["id"]),
@@ -408,7 +429,12 @@ def register_settlement_form_routes(app, *,
                          item["transport_hours"], item["public_transport_hours"], item["overtime_hours"], item["holiday_hours"],
                          item["labor_total"], *expenses, item["mileage_total"],
                          _cb_resolve_customer_reimbursement_item_expense_amount()(item, "other"), item["total"]])
-        # 合计行：逐列求和；末列取快照 total_amount（租车油费不在明细行，已计入合计）。
+        # rental_fuel_total 是此前独立于人员明细的租车加油快照。导出时不能只藏在总额里；
+        # 用专门的明细行放到「燃油费」列，既不虚构人员/日期，又能让各列与总额核对。
+        rental_fuel_total = float(_cb_resolve_money_decimal()(reimbursement["rental_fuel_total"] or 0))
+        if rental_fuel_total:
+            rows.append([len(rows) + 1, "租车油费", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, rental_fuel_total, 0, 0, 0, 0, rental_fuel_total])
+        # 合计行：逐列求和；末列仍以结算快照 total_amount 为权威值。
         total_row = ["合计", "", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         for item in items:
             total_row[3] += _cb_resolve_to_float()(item["standard_hours"])
@@ -421,10 +447,11 @@ def register_settlement_form_routes(app, *,
                 total_row[9 + offset] += float(_cb_resolve_money_decimal()(_cb_resolve_customer_reimbursement_item_expense_amount()(item, key)))
             total_row[16] += float(_cb_resolve_money_decimal()(item["mileage_total"]))
             total_row[17] += float(_cb_resolve_money_decimal()(_cb_resolve_customer_reimbursement_item_expense_amount()(item, "other")))
+        total_row[13] += rental_fuel_total
         total_row[18] = float(_cb_resolve_money_decimal()(reimbursement["total_amount"]))
         rows.append(total_row)
         rows.append([
-            "说明：租车油费不在明细行，已计入合计；MRO 耗材已计入「其他」列；合计为工单结算快照总额。",
+            "说明：租车油费已在「燃油费」列单独展示；MRO 耗材已计入「其他」列；合计为工单结算快照总额。",
         ] + [""] * 18)
         workbook = _cb_resolve_build_simple_xlsx()(headers, rows, sheet_name="工单结算")
         return _cb_resolve_send_file()(workbook, as_attachment=True, download_name="_".join(_cb_resolve_re().sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value)).strip(" .") for value in (order["order_number"], order["client_order_number"], "工单结算.xlsx") if value), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

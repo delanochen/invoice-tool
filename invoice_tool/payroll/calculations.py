@@ -95,7 +95,8 @@ def _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detai
             "grade_name": row["grade_name"] or "未指定",
             "base_salary": float(row["base_salary"] or 0),
             "meal_daily_amount": float(row["meal_daily_amount"] or 0),
-            "car_allowance_method": "mileage",
+            "car_allowance_method": (row["car_allowance_method"] or "mileage")
+                if "car_allowance_method" in row.keys() else "mileage",
             "car_mileage_rate": float(row["car_mileage_rate"] or 0),
             "rental_driving_hourly_rate": float(
                 row["rental_driving_hourly_rate"]
@@ -114,6 +115,7 @@ def _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detai
             "self_drive_travel_hours": 0, "following_travel_hours": 0,
             "rental_driving_hours": 0, "rental_driving_miles": 0,
             "report_writing_count": 0,
+            "meal_rates": {},
         })
 
     rate_cache = {}
@@ -139,21 +141,29 @@ def _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detai
         worker["pay_holiday"] += row["holiday_hours"] * dated_rate(worker_id, work_date, "holiday_hours")
         if row["attendance_date"]:
             worker["attendance_dates"].add(row["attendance_date"])
+            worker["meal_rates"][row["attendance_date"]] = float(row["meal_daily_amount"] or 0)
         travel_mode = row["worker_travel_mode"] or "legacy"
+        car_allowance_enabled = (
+            "car_allowance_method" not in row.keys()
+            or row["car_allowance_method"] != "none"
+        )
         if travel_mode in {"self_drive", "legacy"}:
             miles = float(row["worker_driving_miles"] or 0)
             worker["driving_miles"] += miles
             worker["self_drive_travel_hours"] += float(row["worker_travel_hours"] or 0)
-            worker["pay_self_drive"] += miles * dated_rate(worker_id, work_date, "mileage")
+            if car_allowance_enabled:
+                worker["pay_self_drive"] += miles * dated_rate(worker_id, work_date, "mileage")
         if travel_mode == "following":
             hours_value = float(row["worker_travel_hours"] or 0)
             worker["following_travel_hours"] += hours_value
-            worker["pay_following"] += hours_value * dated_rate(worker_id, work_date, "travel_hours")
+            if car_allowance_enabled:
+                worker["pay_following"] += hours_value * dated_rate(worker_id, work_date, "travel_hours")
         if travel_mode == "rental_drive":
             hours_value = float(row["worker_travel_hours"] or 0)
             worker["rental_driving_hours"] += hours_value
             worker["rental_driving_miles"] += float(row["worker_driving_miles"] or 0)
-            worker["pay_rental"] += hours_value * dated_rate(worker_id, work_date, "rental_drive_hours")
+            if car_allowance_enabled:
+                worker["pay_rental"] += hours_value * dated_rate(worker_id, work_date, "rental_drive_hours")
 
     for row in writer_rows:
         if detail:
@@ -214,7 +224,8 @@ def aggregate_payroll_rows(
 
         transport_pay = following_allowance + rental_driving_allowance
         car_allowance = self_drive_allowance
-        meal_allowance = attendance_days * worker["meal_daily_amount"]
+        meal_allowance = sum(worker["meal_rates"].values())
+        worker["meal_daily_amount"] = effective_display_rate(meal_allowance, attendance_days)
         report_writing_fee = worker["report_writing_count"] * subsidy_settings["report_writing_fee"]
         subsidy_total = car_allowance + meal_allowance + report_writing_fee
         total_pay = worker["base_salary"] + standard_pay + transport_pay + overtime_pay + holiday_pay + subsidy_total
@@ -287,16 +298,14 @@ def payroll_component_rows(entries, writer_rows, subsidy_settings, period_start,
     payroll = _accumulate_buckets(entries, writer_rows, period_start, rate_resolver, detail=True)
     writing_fee = float(subsidy_settings["report_writing_fee"] or 0)
     rows = []
-    worker_meal = {}
     worker_base = {}
     meal_emitted = set()
     for bucket in payroll.values():
         service_date = bucket["attendance_date"] or None
         report_ids = bucket["report_ids"]
         worker_id = bucket["worker_id"]
-        if worker_id not in worker_meal:
-            # 与周期级工资行一致：meal / base 取该 worker 首个 bucket 的等级值。
-            worker_meal[worker_id] = float(bucket["meal_daily_amount"] or 0)
+        if worker_id not in worker_base:
+            # 与周期级工资行一致，base 取该 worker 首个 bucket 的等级值。
             worker_base[worker_id] = float(bucket["base_salary"] or 0)
         for code, amount_key, qty_key, unit in COMPONENT_QTY_SPECS:
             amount = float(bucket[amount_key] or 0)
@@ -323,15 +332,16 @@ def payroll_component_rows(entries, writer_rows, subsidy_settings, period_start,
                 "daily_report_id": next(iter(report_ids)) if len(report_ids) == 1 else None,
             })
         meal_key = (worker_id, bucket["attendance_date"])
+        meal_rate = float(bucket["meal_rates"].get(bucket["attendance_date"], 0))
         if (
             bucket["attendance_bucket"] and bucket["attendance_date"]
-            and meal_key not in meal_emitted and worker_meal[worker_id]
+            and meal_key not in meal_emitted and meal_rate
         ):
             meal_emitted.add(meal_key)
             rows.append({
                 "worker_id": worker_id, "component_code": "meal_allowance",
-                "amount": worker_meal[worker_id], "quantity": 1.0, "unit": "day",
-                "unit_rate": worker_meal[worker_id],
+                "amount": meal_rate, "quantity": 1.0, "unit": "day",
+                "unit_rate": meal_rate,
                 "service_date": bucket["attendance_date"],
                 "work_order_id": bucket["service_order_id"],
                 "order_number": bucket["order_number"], "report_ids": set(report_ids),

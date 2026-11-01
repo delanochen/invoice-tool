@@ -45,7 +45,7 @@
     background: #fff4e5; color: #8a4b00; font-size: 11.5px;
   }
 
-  /* 费率读数块：紧凑字段矩阵，比表格更适合「7 项固定费率 + 来源标注」 */
+  /* 费率读数块：紧凑字段矩阵，显示各项费率及来源 */
   .erp-app .rate-metrics {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 1px;
     background: var(--erp-line-soft); border: 1px solid var(--erp-line);
@@ -217,7 +217,7 @@
                     {% set item = panel.item_map.get(version.id, {}).get(key) %}
                     <div class="rate-metric">
                       <span>{{ label }}</span>
-                      <strong>{{ item.rate|money if item else '—' }}<small>/{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></strong>
+                      <strong>{{ item.rate|money if item else (grade[key]|money if key in ['meal_daily_amount', 'base_salary'] else '—') }}<small>/{{ {'hour':'小时','mile':'英里','day':'天','period':'工资周期'}.get(unit, unit) }}</small></strong>
                     </div>
                   {% endfor %}
                 </div>
@@ -237,9 +237,9 @@
               <p class="full-span"><strong>等级描述</strong><span>{{ grade.description or '-' }}</span></p>
               <p><strong>员工人数</strong><span class="translatable-text">{{ panel.total }} 名（在职 {{ panel.active }}）</span></p>
               <p><strong>费率版本</strong><span class="translatable-text">{{ panel.versions|length }} 个{% if panel.current_version %}（当前 v{{ panel.current_version.version_no }}）{% endif %}</span></p>
-              <p><strong>基本工资</strong><span>{{ grade.base_salary|money }}</span></p>
-              <p><strong>餐费补贴/天</strong><span>{{ grade.meal_daily_amount|money }}</span></p>
-              <p><strong>车补计算方式</strong><span>{{ '按时长' if grade.car_allowance_method == 'hourly' else '按里程' }}</span></p>
+              <p><strong>固定基本工资/周期</strong><span>{{ panel.rates['base_salary'].rate|money }}</span></p>
+              <p><strong>餐费补贴/天</strong><span>{{ panel.rates['meal_daily_amount'].rate|money }}</span></p>
+              <p><strong>交通补贴</strong><span>{{ '无' if grade.car_allowance_method == 'none' else '发放' }}</span></p>
               <p class="full-span"><strong>静态兜底费率</strong><span>下面这组数字只在「当天没有生效费率版本」时参与工资计算，已经不在「编辑等级」里维护了；调整费率请到「费率版本」页签新增版本。</span></p>
               <p><strong>车补里程单价</strong><span>{{ static_rate(grade.car_mileage_rate) }}</span></p>
               <p><strong>租车驾驶补贴/小时</strong><span>{{ static_rate(grade.rental_driving_hourly_rate) }}</span></p>
@@ -247,7 +247,7 @@
               <p><strong>交通时薪</strong><span>{{ static_rate(grade.transport_hourly_rate) }}</span></p>
               <p><strong>加班时薪</strong><span>{{ static_rate(grade.overtime_hourly_rate) }}</span></p>
               <p><strong>假期时薪</strong><span>{{ static_rate(grade.holiday_hourly_rate) }}</span></p>
-              <p class="full-span"><strong>规则</strong><span>等级被员工使用时不能删除；仍有在职员工使用时不能停用；员工全部停用后可停用等级。计算工资按工作日落在的有效期版本取费率，没有版本时用上面的静态兜底费率。基本工资、餐补、车补方式在「编辑等级」里维护，费率一律在「费率版本」里按生效日期维护。</span></p>
+              <p class="full-span"><strong>规则</strong><span>等级被员工使用时不能删除；仍有在职员工使用时不能停用。固定基本工资和餐补统一在费率版本维护。固定基本工资按工资周期开始日取值，每周期一次；餐补按工作日取值，同一天一次。旧版本缺少这些项目时保留原等级值兜底。交通补贴发放时，自驾按里程，随行和租车驾驶按时长；选择「无」时交通金额为 0。</span></p>
             </div>
           </div>
         </section>
@@ -289,13 +289,12 @@
     <div class="form-grid two-columns">
       <label>等级 <input name="grade_name" value="{{ grade.grade_name if grade else '' }}" required></label>
       <label>等级描述 <input name="description" value="{{ grade.description if grade else '' }}"></label>
-      <label>基本工资 <input type="number" step="0.01" min="0" name="base_salary" value="{{ grade.base_salary if grade else 0 }}"></label>
-      <label>餐费补贴/天 <input type="number" step="0.01" min="0" name="meal_daily_amount" value="{{ grade.meal_daily_amount if grade else 0 }}"></label>
-      <label>车补计算方式
-        <select name="car_allowance_method"><option value="mileage" {% if not grade or grade.car_allowance_method != 'hourly' %}selected{% endif %}>按里程</option><option value="hourly" {% if grade and grade.car_allowance_method == 'hourly' %}selected{% endif %}>按时长</option></select>
+      <label>交通补贴
+        <select name="car_allowance_method"><option value="mileage" {% if not grade or grade.car_allowance_method != 'none' %}selected{% endif %}>发放</option><option value="none" {% if grade and grade.car_allowance_method == 'none' %}selected{% endif %}>无</option></select>
       </label>
     </div>
-    <p class="muted-line">费率（标准 / 加班 / 节假日 / 交通 / 里程 / 租车驾驶）不在本窗口维护：切到「费率版本」页签按生效日期新增版本，历史工资口径才不会跟着变。</p>
+    <p class="muted-line">车补选择「无」时，里程、交通及公共交通对应工资均为 0；日报里程和时长、已维护的费率版本仍保留。</p>
+    <p class="muted-line">固定基本工资、餐补及各项工资单价统一在「费率版本」维护。本窗口只维护等级资料和是否发放交通补贴。</p>
     <div class="form-actions"><button class="primary" type="submit">保存等级</button></div>
   </form>
 {% endmacro %}
@@ -317,7 +316,7 @@
           <label>生效日期 <input type="date" name="effective_from" required></label>
           <label>结束日期 <input type="date" name="effective_to"><small>留空表示持续有效；不能与其他有效版本重叠。</small></label>
           {% for key, label, unit in rate_types %}
-            <label>{{ label }} <input type="number" step="0.01" min="0" name="{{ key }}" value="{{ '%.2f'|format(panel.rates[key].rate or 0) }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
+            <label>{{ label }} <input type="number" step="0.01" min="0" name="{{ key }}" value="{{ '%.2f'|format(panel.configured_rates[key].rate or 0) }}" required><small>单位：{{ {'hour':'小时','mile':'英里','day':'天','period':'工资周期'}.get(unit, unit) }}</small></label>
           {% endfor %}
           <label class="full-span">备注 <input name="notes" placeholder="例如 2027 年调薪"></label>
         </div>
@@ -348,7 +347,7 @@
             <label>结束日期 <input type="date" name="effective_to" value="{{ version.effective_to or '' }}"><small>留空表示持续有效；不能与其他有效版本重叠。</small></label>
             {% for key, label, unit in rate_types %}
               {% set item = version_items.get(key) %}
-              <label>{{ label }} <input type="number" step="0.01" min="0" name="{{ key }}" value="{{ '%.2f'|format(item.rate) if item else '0.00' }}" required><small>单位：{{ {'hour':'小时','mile':'英里'}.get(unit, unit) }}</small></label>
+              <label>{{ label }} <input type="number" step="0.01" min="0" name="{{ key }}" value="{{ '%.2f'|format(item.rate) if item else ('%.2f'|format(panel.grade[key] or 0) if key in ['meal_daily_amount', 'base_salary'] else '0.00') }}" required><small>单位：{{ {'hour':'小时','mile':'英里','day':'天','period':'工资周期'}.get(unit, unit) }}</small></label>
             {% endfor %}
             <label class="full-span">备注 <input name="notes" value="{{ version.notes or '' }}"></label>
           </div>

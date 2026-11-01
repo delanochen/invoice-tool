@@ -1,5 +1,6 @@
 """Expense attachment preview, download and interpretation endpoints."""
 import secrets
+from invoice_tool.attachments.thumbnails import attachment_thumbnail_response
 from flask import abort, g, flash, redirect, render_template, request, url_for, jsonify, send_file
 
 
@@ -18,6 +19,8 @@ def register_expense_attachment_routes(app, *,
         if not attachment:
             abort(404)
         require_expense(attachment["expense_id"])
+        if request.args.get('thumbnail') == '1':
+            return attachment_thumbnail_response(expense_attachment_path(attachment))
         return safe_attachment_response(
             expense_attachment_path(attachment),
             attachment["original_filename"],

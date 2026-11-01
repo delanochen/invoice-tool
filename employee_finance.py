@@ -1423,6 +1423,8 @@ def register_employee_finance_routes(app, api):
         return render_template("employee_payments.html", rows=rows, employees=employees, accounts=accounts,
                                advances=advances, agreements=agreements, status=status, employee_id=employee_id,
                                date_from=date_from, date_to=date_to,
+                               reconciliation_rows=(api["payroll_reconciliation_rows"](employee_id=employee_id or None)
+                                   if can_view_all and api.get("payroll_reconciliation_rows") else []),
                                status_labels=PAYMENT_STATUS_LABELS, type_labels=PAYMENT_TYPE_LABELS,
                                method_labels=PAYMENT_METHOD_LABELS, can_view_all=can_view_all)
 
@@ -1484,6 +1486,7 @@ def register_employee_finance_routes(app, api):
         _require(api, "employee_payments", "create")
         try:
             period_start = date.fromisoformat(request.form.get("period_start", ""))
+            api["db"]().begin_write()
             batch = api["payroll_rows_for_period"](period_start)
             agreements = api["db"]().execute(
                 "select * from employee_salary_agreements where is_active=1 and effective_from<=? and (effective_to is null or effective_to>=?)",
@@ -1537,6 +1540,7 @@ def register_employee_finance_routes(app, api):
                 )
 
             for row in batch["rows"]:
+                api["db"]().execute("select id from users where id=? for update", (row["worker_id"],)).fetchone()
                 agreement = replacements.get(row["worker_id"])
                 amount = agreement["amount"] if agreement else row["total_pay"]
                 source_kind = "offline_salary" if agreement else "system_payroll"
@@ -1591,7 +1595,12 @@ def register_employee_finance_routes(app, api):
                         agreement["employee_id"], agreement["amount"], batch["period_end"])
                     _write_components(payment_id, agreement["employee_id"], components, totals, agreement["amount"])
                 created += int(inserted)
-            api["db"]().commit(); flash(f"已生成 {created} 张付款单；重复来源已自动跳过。", "success")
+            api["db"]().commit()
+            pending = api.get("payroll_reconciliation_rows")
+            if pending and pending(period_start.isoformat()):
+                flash(f"已生成 {created} 张付款单；已有周期存在工资差额，请进入「工资差额核对」处理，补录工资不会自动补发。", "warning")
+            else:
+                flash(f"已生成 {created} 张付款单；重复来源已自动跳过。", "success")
         except (ValueError, TypeError) as error:
             api["db"]().rollback(); flash(str(error), "error")
         return redirect(url_for("employee_payments"))
@@ -1638,6 +1647,7 @@ def register_employee_finance_routes(app, api):
     @app.post("/employee-payments/<int:payment_id>/transition")
     @api["login_required"]
     def transition_employee_payment(payment_id):
+        api["db"]().begin_write()
         payment = _payment_order(api, payment_id)
         _require_payment_access(api, payment)
         action = request.form.get("action", "")
@@ -1667,6 +1677,12 @@ def register_employee_finance_routes(app, api):
                 if not source or payment["status"] != source:
                     raise ValueError("付款单当前状态不允许执行该操作。")
                 _require(api, "employee_payments", permission)
+                if action in {"submit","approve","ready","retry","mark_paid"}:
+                    api["db"]().begin_write()
+                    payroll_gate = api.get("payroll_payment_change_reason")
+                    reason = payroll_gate(payment) if payroll_gate else ""
+                    if reason:
+                        raise ValueError(reason)
                 if target == "pending_payment":
                     _create_advance_application(api, payment)
                 if target == "paid":
@@ -1811,6 +1827,7 @@ def register_employee_finance_routes(app, api):
         _require(api, "employee_payments", "pay")
         back = request.referrer or url_for("employee_ledger")
         try:
+            api["db"]().begin_write()
             raw_ids = [value for value in request.form.getlist("payment_id") if str(value).strip().isdigit()]
             ids = sorted({int(value) for value in raw_ids})
             if not ids:

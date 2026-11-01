@@ -1,6 +1,6 @@
 """Legacy-compatible item_forms helpers; explicit runtime dependencies."""
 
-def customer_reimbursement_items_from_form(order_id=None, *, assert_contract_rates_covered, calculate_customer_reimbursement_item, money_float, request, resolve_contract_rates, to_float, validate_fuel_reimbursement_allowed):
+def customer_reimbursement_items_from_form(order_id=None, *, assert_contract_rates_covered, calculate_customer_reimbursement_item, existing_items=None, money_float, request, resolve_contract_rates, settlement_basis=None, to_float, validate_fuel_reimbursement_allowed):
     if order_id is None:
         # 没有工单就无法从合同费率版本解析客户费率，禁止静默使用默认价
         raise ValueError("工单结算必须关联工单才能解析客户费率，请刷新页面后重试。")
@@ -18,6 +18,16 @@ def customer_reimbursement_items_from_form(order_id=None, *, assert_contract_rat
     source_report_ids = request.form.getlist("source_report_id")
     source_worker_user_ids = request.form.getlist("source_worker_user_id")
     count = max((len(values) for values in posted.values()), default=0)
+    existing_items = [dict(item) for item in (existing_items or [])]
+    existing_by_source = {
+        (item.get("source_report_id"), item.get("source_worker_user_id")): item
+        for item in existing_items
+        if item.get("source_report_id") is not None and item.get("source_worker_user_id") is not None
+    }
+    existing_by_identity = {
+        (str(item.get("project_date") or "")[:10], str(item.get("worker_name") or "")): item
+        for item in existing_items
+    }
     rows = []
     for index in range(count):
         worker_name = posted["worker_name"][index].strip() if index < len(posted["worker_name"]) else ""
@@ -44,16 +54,27 @@ def customer_reimbursement_items_from_form(order_id=None, *, assert_contract_rat
         for name in auto_field_names:
             values = posted_auto[name]
             row[name] = money_float(values[index]) if index < len(values) else 0
-        effective_rates, _missing = resolve_contract_rates(order_id, project_date)
-        row.update(effective_rates)
+        if settlement_basis == "quotation":
+            existing = existing_by_source.get((row.get("source_report_id"), row.get("source_worker_user_id")))
+            if existing is None:
+                existing = existing_by_identity.get((str(project_date)[:10], worker_name))
+            if existing is None:
+                raise ValueError("报价单结算明细无法匹配原结算快照，请刷新页面后重试。")
+            for rate_field in ("standard_rate", "transport_rate", "public_transport_rate", "overtime_rate", "holiday_rate", "mileage_rate"):
+                row[rate_field] = money_float(existing.get(rate_field) or 0)
+        else:
+            effective_rates, _missing = resolve_contract_rates(order_id, project_date)
+            row.update(effective_rates)
         if not row["worker_name"] or not row["project_date"]:
             raise ValueError("工单结算每一行都必须有姓名和项目时间。")
         validate_fuel_reimbursement_allowed(row["fuel"], "工单结算油费")
         rows.append(calculate_customer_reimbursement_item(row, len(rows)))
     if not rows:
         raise ValueError("工单结算至少需要一行明细。")
-    # 守门：用到的客户费率必须来自合同费率版本，缺失则阻止保存
-    assert_contract_rates_covered(order_id, rows)
+    # 只有合同结算依赖合同费率版本。报价单结算沿用创建结算时固化的报价快照费率；
+    # 固定总价报价尤其不能因为日报里存在工时/里程就反向要求合同费率。
+    if settlement_basis != "quotation":
+        assert_contract_rates_covered(order_id, rows)
     return rows
 
 

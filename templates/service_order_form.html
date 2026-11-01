@@ -137,7 +137,9 @@
         {% if order %}
           <label>状态
             <select name="status">
-              <option value="open" {% if order.status != "closed" %}selected{% endif %}>进行中</option>
+              <option value="not_started" {% if order.status == "not_started" %}selected{% endif %}>未开始</option>
+              <option value="open" {% if order.status == "open" %}selected{% endif %}>进行中</option>
+              <option value="settling" {% if order.status == "settling" %}selected{% endif %}>结算中</option>
               <option value="closed" {% if order.status == "closed" %}selected{% endif %}{% if order.status != "closed" and not invoice_count %} disabled title="该工单尚未开具发票，不能标记为已完成"{% endif %}>已完成</option>
             </select>
           </label>
@@ -151,7 +153,7 @@
   <footer class="erp-status">
     <span>工单 <b>{{ order.order_number if order else '新建' }}</b></span>
     <span class="sep"></span>
-    <span>状态 <b>{% if order %}{{ '进行中' if order.status != 'closed' else '已完成' }}{% else %}未保存{% endif %}</b></span>
+    <span>状态 <b>{% if order %}{{ '已完成' if order.status == 'closed' else ('结算中' if order.status == 'settling' else ('未开始' if order.status == 'not_started' else '进行中')) }}{% else %}未保存{% endif %}</b></span>
     {% if start_date_only %}<span class="sep"></span><span>仅可修改开始日期</span>{% endif %}
   </footer>
 </div>

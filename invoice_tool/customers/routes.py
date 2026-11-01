@@ -3,6 +3,7 @@
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 
 from database import IntegrityError
+from invoice_tool.presentation.delete_response import delete_response
 from invoice_tool.customers.services import (
     localized_state_name,
     state_code_from_address,
@@ -171,12 +172,10 @@ def register_customer_routes(
         invoice_count = db().execute("select count(*) as count from invoices where client_id = ?", (client_id,)).fetchone()["count"]
         contract_count = db().execute("select count(*) as count from contracts where client_id = ?", (client_id,)).fetchone()["count"]
         if invoice_count or contract_count:
-            flash("这个客户已有合同或发票记录，不能删除。可以编辑客户资料以保留历史记录。", "error")
-            return redirect(url_for("clients"))
+            return delete_response("clients", "这个客户已有合同或发票记录，不能删除。可以编辑客户资料以保留历史记录。", success=False)
         db().execute("delete from clients where id = ?", (client_id,))
         db().commit()
-        flash("客户已删除。", "success")
-        return redirect(url_for("clients"))
+        return delete_response("clients", "客户已删除。", success=True)
 
     @login_required
     def owners():
@@ -256,19 +255,16 @@ def register_customer_routes(
         if not owner:
             abort(404)
         if owner["name"] == "未知":
-            flash("默认业主不能删除。", "error")
-            return redirect(url_for("owners"))
+            return delete_response("owners", "默认业主不能删除。", success=False)
         used = db().execute(
             "select count(*) as count from buyers where owner_id = ?",
             (owner_id,),
         ).fetchone()["count"]
         if used:
-            flash("这个业主已有站点，不能删除。可以编辑业主资料。", "error")
-            return redirect(url_for("owners"))
+            return delete_response("owners", "这个业主已有站点，不能删除。可以编辑业主资料。", success=False)
         db().execute("delete from owners where id = ?", (owner_id,))
         db().commit()
-        flash("业主已删除。", "success")
-        return redirect(url_for("owners"))
+        return delete_response("owners", "业主已删除。", success=True)
 
     @login_required
     def manufacturers():
@@ -352,12 +348,10 @@ def register_customer_routes(
             (manufacturer_id,),
         ).fetchone()["count"]
         if used:
-            flash("这个厂家已有站点，不能删除。可以编辑厂家资料。", "error")
-            return redirect(url_for("manufacturers"))
+            return delete_response("manufacturers", "这个厂家已有站点，不能删除。可以编辑厂家资料。", success=False)
         db().execute("delete from manufacturers where id = ?", (manufacturer_id,))
         db().commit()
-        flash("厂家已删除。", "success")
-        return redirect(url_for("manufacturers"))
+        return delete_response("manufacturers", "厂家已删除。", success=True)
 
     @login_required
     def buyers():
@@ -714,12 +708,10 @@ def register_customer_routes(
             (buyer_id,),
         ).fetchone()["count"]
         if used:
-            flash("这个站点已有工单，不能删除。可以编辑站点资料。", "error")
-            return redirect(url_for("buyers"))
+            return delete_response("buyers", "这个站点已有工单，不能删除。可以编辑站点资料。", success=False)
         db().execute("delete from buyers where id = ?", (buyer_id,))
         db().commit()
-        flash("站点已删除。", "success")
-        return redirect(url_for("buyers"))
+        return delete_response("buyers", "站点已删除。", success=True)
 
     app.add_url_rule('/clients', endpoint='clients', view_func=clients, methods=['GET', 'POST'])
     app.add_url_rule('/clients/<int:client_id>/edit', endpoint='edit_client', view_func=edit_client, methods=['GET', 'POST'])

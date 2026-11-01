@@ -257,6 +257,37 @@ def customer_reimbursement_outgoing_attachments(reimbursement, order, *, build_c
     return reimbursement, attachments
 
 
+EMAIL_ATTACHMENT_RAW_LIMIT = 17 * 1024 * 1024
+
+
+def _split_email_attachment_batches(attachments, limit=EMAIL_ATTACHMENT_RAW_LIMIT):
+    """Split raw attachments into Gmail-safe batches before MIME/base64 expansion."""
+    oversized = [
+        attachment["filename"]
+        for attachment in attachments
+        if len(attachment.get("content") or b"") > limit
+    ]
+    if oversized:
+        raise ValueError(
+            "以下单个附件过大，无法通过 Gmail 直接发送（单个文件需控制在约 17 MB 以内）："
+            + "、".join(oversized)
+        )
+    batches = []
+    current = []
+    current_size = 0
+    for attachment in attachments:
+        size = len(attachment.get("content") or b"")
+        if current and current_size + size > limit:
+            batches.append(current)
+            current = []
+            current_size = 0
+        current.append(attachment)
+        current_size += size
+    if current or not batches:
+        batches.append(current)
+    return batches
+
+
 def deliver_customer_reimbursement_email(reimbursement, order, *, customer_reimbursement_outgoing_attachments, db, html, log_action, re, record_email_delivery, send_email):
     client = db().execute("select * from clients where id = ?", (order["client_id"],)).fetchone() if order["client_id"] else None
     if not client:
@@ -270,19 +301,29 @@ def deliver_customer_reimbursement_email(reimbursement, order, *, customer_reimb
         "Please find the customer reimbursement statement and supporting documents attached."
     )
     reimbursement, attachments = customer_reimbursement_outgoing_attachments(reimbursement, order)
-    send_email(
-        to=recipient,
-        subject=subject,
-        html=f"<p>{html.escape(body).replace(chr(10), '<br>')}</p>",
-        attachments=attachments,
-    )
+    batches = _split_email_attachment_batches(attachments)
+    total_parts = len(batches)
+    for index, batch in enumerate(batches, start=1):
+        part_subject = subject if total_parts == 1 else f"{subject} (Part {index}/{total_parts})"
+        part_body = body
+        if total_parts > 1:
+            part_body += (
+                f"\n\nThis is part {index} of {total_parts}. "
+                "The documents were split into multiple emails to stay within email size limits."
+            )
+        send_email(
+            to=recipient,
+            subject=part_subject,
+            html=f"<p>{html.escape(part_body).replace(chr(10), '<br>')}</p>",
+            attachments=batch,
+        )
     record_email_delivery("customer_reimbursement", reimbursement["id"], recipient, subject)
     log_action(
         "send",
         "customer_reimbursement",
         reimbursement["id"],
         reimbursement["file_name"],
-        f"发送至：{recipient}；附件：{len(attachments)} 个",
+        f"发送至：{recipient}；附件：{len(attachments)} 个；邮件分批：{total_parts} 封",
     )
     return recipient
 

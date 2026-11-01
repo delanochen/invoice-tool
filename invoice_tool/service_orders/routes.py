@@ -44,8 +44,15 @@ def register_service_order_routes(app, *,
     @login_required
     def service_orders():
         q = request.args.get("q", "").strip()
+        status = request.args.get("status", "").strip()
+        client_id = request.args.get("client_id", "").strip()
         buyer_id = request.args.get("buyer_id", "").strip()
-        clauses = ["service_orders.status != 'closed'"]
+        manufacturer_id = request.args.get("manufacturer_id", "").strip()
+        work_order_type_id = request.args.get("work_order_type_id", "").strip()
+        settlement = request.args.get("settlement", "").strip()
+        invoice = request.args.get("invoice", "").strip()
+        payment = request.args.get("payment", "").strip()
+        clauses = ["1 = 1"]
         params = []
         if is_external_manager():
             if not g.user["client_id"]:
@@ -60,9 +67,36 @@ def register_service_order_routes(app, *,
             params.append(g.user["id"])
         if q:
             clauses.append(
-                "(service_orders.order_number like ? or service_orders.client_name like ? or coalesce(owners.name, buyers.owner) like ? or service_orders.client_order_number like ?)"
+                "(service_orders.order_number like ? or service_orders.client_name like ? or clients.name like ? "
+                "or coalesce(owners.name, buyers.owner) like ? or service_orders.client_order_number like ? "
+                "or service_orders.site_address like ? or coalesce(order_manufacturers.name, buyers.equipment_manufacturer) like ? "
+                "or work_order_types.name like ?)"
             )
-            params.extend([f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"])
+            params.extend([f"%{q}%"] * 8)
+        if status in {"not_started", "open", "settling", "closed"}:
+            clauses.append("service_orders.status = ?")
+            params.append(status)
+        if client_id.isdigit():
+            clauses.append("service_orders.client_id = ?")
+            params.append(int(client_id))
+        if manufacturer_id.isdigit():
+            clauses.append("service_orders.manufacturer_id = ?")
+            params.append(int(manufacturer_id))
+        if work_order_type_id.isdigit():
+            clauses.append("service_orders.work_order_type_id = ?")
+            params.append(int(work_order_type_id))
+        if settlement == "yes":
+            clauses.append("exists (select 1 from customer_reimbursements crf where crf.service_order_id = service_orders.id)")
+        elif settlement == "no":
+            clauses.append("not exists (select 1 from customer_reimbursements crf where crf.service_order_id = service_orders.id)")
+        if invoice == "yes":
+            clauses.append("exists (select 1 from invoices ivf where ivf.service_order_id = service_orders.id and ivf.status != 'void')")
+        elif invoice == "no":
+            clauses.append("not exists (select 1 from invoices ivf where ivf.service_order_id = service_orders.id and ivf.status != 'void')")
+        if payment == "paid":
+            clauses.append("exists (select 1 from invoices pv where pv.service_order_id = service_orders.id and pv.status != 'void') and not exists (select 1 from invoices pu where pu.service_order_id = service_orders.id and pu.status != 'void' and pu.paid_at is null)")
+        elif payment == "unpaid":
+            clauses.append("exists (select 1 from invoices pu where pu.service_order_id = service_orders.id and pu.status != 'void' and pu.paid_at is null)")
         settlement_filters = exact_settlement_date_filter(request.args, clauses, params)
         if buyer_id.isdigit():
             clauses.append("service_orders.buyer_id = ?")
@@ -116,7 +150,33 @@ def register_service_order_routes(app, *,
             """,
             params,
         ).fetchall()
-        return render_template("service_orders.html", orders=rows, q=q, buyer_id=buyer_id, buyer_name=buyer_name, **settlement_filters)
+        filter_clients = db().execute("select id, name from clients order by name").fetchall()
+        filter_buyers = db().execute(
+            "select buyers.id, buyers.name, coalesce(owners.name, buyers.owner) as owner_name "
+            "from buyers left join owners on owners.id = buyers.owner_id "
+            "order by coalesce(owners.name, buyers.owner), buyers.name"
+        ).fetchall()
+        filter_manufacturers = db().execute("select id, name from manufacturers order by name").fetchall()
+        filter_work_order_types = db().execute("select id, name from work_order_types order by name").fetchall()
+        return render_template(
+            "service_orders.html",
+            orders=rows,
+            q=q,
+            status=status,
+            client_id=client_id,
+            buyer_id=buyer_id,
+            buyer_name=buyer_name,
+            **settlement_filters,
+            manufacturer_id=manufacturer_id,
+            work_order_type_id=work_order_type_id,
+            settlement=settlement,
+            invoice=invoice,
+            payment=payment,
+            filter_clients=filter_clients,
+            filter_buyers=filter_buyers,
+            filter_manufacturers=filter_manufacturers,
+            filter_work_order_types=filter_work_order_types,
+        )
 
 
     @login_required

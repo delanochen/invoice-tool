@@ -5,43 +5,41 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 {% endblock %}
 {% block content %}
-  <div class="erp-app" data-active-panel="list">
+  <div class="erp-app" data-active-panel="list" data-selectable-scope data-local-list>
     <header class="erp-toolbar no-print">
       <div class="erp-toolbar-title">工单类型<small>基础数据 · 工单类型</small></div>
-      <span class="erp-badge">{{ work_order_types|length }} 个类型</span>
+      <span class="erp-badge"><span data-list-count>{{ work_order_types|length }}</span> 个类型</span>
       <span class="erp-toolbar-spacer"></span>
       <div class="erp-toolbar-group">
         <button type="button" class="erp-btn primary" data-dialog-open="newWorkOrderTypeDialog">新增工单类型</button>
+        <button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>
+        <form method="post" data-row-action-form="deleteUrl" data-local-delete data-confirm="确定删除这个工单类型吗？">
+          <button class="erp-btn danger" type="submit" disabled>删除</button>
+        </form>
       </div>
     </header>
 
     <div class="erp-body">
       <section class="erp-panel active" data-erp-panel="list">
         <div class="erp-grid-wrap">
-          <table class="list-table erp-grid" data-grid-height="100%">
+          <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>
               <tr>
-                <th>编码</th><th>名称</th><th>说明</th><th>状态</th><th>操作</th>
+                <th>编码</th><th>名称</th><th>说明</th><th>状态</th>
               </tr>
             </thead>
             <tbody>
               {% for item in work_order_types %}
-                <tr>
+                <tr tabindex="0" data-row-id="{{ item.id }}" aria-selected="false"
+                  data-edit-target="editWorkOrderType{{ item.id }}"
+                  data-delete-url="{{ url_for('delete_work_order_type', type_id=item.id) }}">
                   <td>{{ item.code }}</td>
                   <td>{{ item.name }}</td>
                   <td>{{ item.description or "-" }}</td>
                   <td>{{ "启用" if item.is_active else "停用" }}</td>
-                  <td>
-                    <div class="row-actions">
-                      <button class="small" type="button" data-dialog-open="editWorkOrderType{{ item.id }}">编辑</button>
-                      <form method="post" action="{{ url_for('delete_work_order_type', type_id=item.id) }}" onsubmit="return confirm('确定删除这个工单类型吗？');">
-                        <button class="danger small" type="submit">删除</button>
-                      </form>
-                    </div>
-                  </td>
                 </tr>
               {% else %}
-                <tr><td colspan="5" class="empty">还没有工单类型。</td></tr>
+                <tr><td colspan="4" class="empty">还没有工单类型。</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -50,10 +48,10 @@
     </div>
 
     <footer class="erp-summary">
-      {{ summary_item('类型数', work_order_types|length, 'muted') }}
+      <div class="erp-summary-item muted"><span>类型数</span><strong data-list-count>{{ work_order_types|length }}</strong></div>
     </footer>
     <footer class="erp-status">
-      <span>记录 <b>{{ work_order_types|length }}</b> 条</span>
+      <span>记录 <b data-list-count>{{ work_order_types|length }}</b> 条</span>
     </footer>
   </div>
 
@@ -96,5 +94,7 @@
   {% endfor %}
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='local-list-actions.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
 {% endblock %}

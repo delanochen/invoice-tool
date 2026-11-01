@@ -1,5 +1,13 @@
 # Agent instructions for this repository
 
+## Interface style and button contract
+
+- Keep management interfaces in the established compact ERP style.
+- Read `docs/erp-button-standard.md` before adding or changing buttons or toolbars.
+- All new management pages must extend `base.html` and use `erp-btn` for action buttons. Reuse semantic variants such as `primary` and `danger` without changing geometry.
+- `static/erp-buttons.css` is the only source of action-button height, padding, radius, font size and line height. Do not add page-local or inline geometry overrides, including mobile rules. Tabs, map/camera controls and grid widgets keep their own component styles.
+- Run `node --test tests/erp_buttons.test.cjs` before completing button/layout changes or releasing a new management page; verify desktop, mobile and landscape, including links, submit forms, disabled and file-picker controls.
+
 ## Shared test server and database
 
 - A shared test environment is available on `192.168.7.202`.
@@ -37,3 +45,10 @@
   important milestones, and commit every phase separately.
 - Tests may connect only to PostgreSQL `invoice_test`. They must never connect
   to `invoice_production` or any other non-`invoice_test` database.
+
+## Release notes
+
+- Every version upgrade must add an entry to `release_notes.json` in the same change.
+- Write the concrete upgrade reason, resulting changes, version and release date in clear Chinese. Do not invent missing historical reasons.
+- Preserve prior entries and run `tests/test_release_notes.py` before release. The current `VERSION` must have a complete entry.
+- The System Settings → 版本说明 page reads this file directly; commit messages alone are insufficient.

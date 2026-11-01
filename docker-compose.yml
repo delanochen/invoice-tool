@@ -28,7 +28,7 @@ services:
       - "${DATA_HOST_DIR:-/srv/invoice-tool/data}:/app/data"
       - "${SHARED_PHOTOS_HOST_DIR:-/srv/invoice-tool/shared-photos}:/app/shared-photos"
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.10.7
     container_name: invoice-tool-cloudflared
     restart: unless-stopped
     command: tunnel --no-autoupdate run

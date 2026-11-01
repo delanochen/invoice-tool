@@ -1,0 +1,23 @@
+name: ERP button consistency
+on:
+  pull_request:
+  push:
+    branches: [main, staging]
+jobs:
+  button-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser test dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/erp-buttons" --no-audit --no-fund playwright@1.62.1
+          "$RUNNER_TEMP/erp-buttons/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Check ERP action buttons
+        run: node --test tests/erp_buttons.test.cjs
+        env:
+          NODE_PATH: ${{ runner.temp }}/erp-buttons/node_modules

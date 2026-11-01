@@ -1,33 +1,229 @@
 {% extends "base.html" %}
+{% block title %}PP Field AI{% endblock %}
+{% block head %}
+{{ super() }}
+<style>
+.field-ai-shell{display:grid;grid-template-columns:260px minmax(0,1fr);height:calc(100vh - 112px);min-height:560px;border:1px solid var(--border-color,#d9dee7);border-radius:10px;overflow:hidden;background:#fff}
+.field-ai-sidebar{background:#f7f8fa;border-right:1px solid #e3e7ee;display:flex;flex-direction:column;min-width:0}
+.field-ai-sidebar-head{padding:14px;border-bottom:1px solid #e3e7ee}
+.field-ai-new{width:100%;display:flex;align-items:center;justify-content:center;gap:6px}
+.field-ai-history{padding:8px;overflow:auto;flex:1}
+.field-ai-history-empty{padding:18px 10px;color:#7a8494;font-size:13px;text-align:center}
+.field-ai-history-row{display:flex;align-items:center;gap:4px;border-radius:7px}
+.field-ai-history-row:hover,.field-ai-history-row.active{background:#e9edf3}
+.field-ai-history-item{display:block;min-width:0;flex:1;border:0;background:transparent;text-align:left;padding:10px 8px 10px 11px;border-radius:7px;cursor:pointer;color:#222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.field-ai-history-actions{display:flex;align-items:center;gap:2px;padding-right:5px}
+.field-ai-history-action{width:26px;height:26px;border:0;background:transparent;border-radius:6px;cursor:pointer;color:#687386;font-size:14px;line-height:26px;padding:0}
+.field-ai-history-action:hover{background:#dfe5ec;color:#222}
+.field-ai-history-action.pinned{color:#b7791f}
+.field-ai-main{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:#fff}
+.field-ai-topbar{height:54px;padding:0 20px;border-bottom:1px solid #eef1f4;display:flex;align-items:center;font-weight:600}
+.field-ai-chat{flex:1;min-height:0;overflow:auto;padding:28px 22px 18px}
+.field-ai-content{max-width:860px;margin:0 auto}
+.field-ai-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#7a8494;text-align:center}
+.field-ai-empty strong{display:block;color:#20242a;font-size:24px;margin-bottom:8px}
+.field-ai-turn{margin-bottom:24px}
+.field-ai-user{display:flex;justify-content:flex-end;margin-bottom:18px}
+.field-ai-user-stack{max-width:76%;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.field-ai-user-bubble{background:#f0f2f5;border-radius:18px;padding:10px 14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-user-image{max-width:260px;max-height:220px;object-fit:contain;border-radius:12px;border:1px solid #e1e5ea;background:#f8f9fb}
+.field-ai-answer{font-size:15px;line-height:1.75;color:#20242a;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-error{padding:10px 12px;border:1px solid #efc1c1;background:#fff5f5;border-radius:8px;color:#a4262c;margin-bottom:10px}
+.field-ai-image-note{margin-bottom:12px;padding:10px 12px;background:#f7f9fc;border:1px solid #e5e9ef;border-radius:9px;font-size:13px;color:#4d5968;line-height:1.6}
+.field-ai-sources{margin-top:16px;border-top:1px solid #edf0f3;padding-top:10px;font-size:13px;color:#667085}
+.field-ai-sources summary{cursor:pointer;user-select:none}
+.field-ai-sources ol{padding-left:20px;margin:10px 0 0}
+.field-ai-sources li{margin:8px 0}
+.field-ai-source-text{margin-top:3px;color:#505866;white-space:pre-wrap;overflow-wrap:anywhere}
+.field-ai-composer{padding:14px 20px 18px;background:linear-gradient(to top,#fff 78%,rgba(255,255,255,0));}
+.field-ai-form{max-width:860px;margin:0 auto;position:relative;border:1px solid #cfd5dd;border-radius:16px;background:#fff;box-shadow:0 4px 18px rgba(20,28,40,.06);padding-left:48px}
+.field-ai-form textarea{width:100%;border:0;outline:0;resize:none;min-height:54px;max-height:180px;padding:15px 58px 13px 4px;background:transparent;font:inherit;line-height:1.45;box-sizing:border-box}
+.field-ai-upload{position:absolute;left:9px;bottom:9px;width:34px;height:34px;border:0;border-radius:50%;background:#f1f3f6;color:#3f4650;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px}
+.field-ai-upload:hover{background:#e4e8ee}
+.field-ai-send{position:absolute;right:10px;bottom:9px;width:36px;height:36px;border:0;border-radius:50%;background:#1f2937;color:#fff;cursor:pointer;font-size:18px;line-height:36px;padding:0}
+.field-ai-send:hover{background:#111827}
+.field-ai-attachment-preview{display:none;max-width:860px;margin:0 auto 8px;padding:8px 10px;border:1px solid #dfe4eb;border-radius:10px;background:#fafbfc;align-items:center;gap:10px;font-size:13px}
+.field-ai-attachment-preview.visible{display:flex}
+.field-ai-attachment-preview img{width:52px;height:52px;object-fit:cover;border-radius:7px;border:1px solid #e2e6ec}
+.field-ai-attachment-name{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.field-ai-attachment-remove{border:0;background:transparent;cursor:pointer;font-size:17px;color:#697386}
+.field-ai-hint{max-width:860px;margin:7px auto 0;color:#9299a6;font-size:11px;text-align:center}
+@media(max-width:900px){.field-ai-shell{grid-template-columns:190px minmax(0,1fr)}.field-ai-user-stack{max-width:88%}}
+@media(max-width:680px){.field-ai-shell{display:block;height:auto;min-height:calc(100vh - 100px)}.field-ai-sidebar{display:none}.field-ai-main{min-height:calc(100vh - 100px)}.field-ai-chat{padding:20px 14px}.field-ai-composer{padding:10px 12px 14px}}
+</style>
+{% endblock %}
 {% block content %}
-<h1>PP Field AI</h1>
-<p>仅显示已启用的授权工作群。普通用户仅可查看已分配工单对应群；未映射工单的群仅限管理员、经理和财务。</p>
-<nav aria-label="PP Field AI"><a href="#ai">AI 问答</a> · <a href="#wechat">微信消息</a></nav>
-<section id="ai">
-<h2>AI 问答</h2>
-<form method="post">
-<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<label for="question">输入问题</label>
-<textarea id="question" name="question" required maxlength="2000" rows="3" style="width:100%">{{ question }}</textarea>
-<button type="submit">提问</button>
-</form>
-{% if error %}<p role="alert">{{ error }}</p>{% endif %}
-{% if answer %}<h3>回答</h3><div style="white-space:pre-wrap">{{ answer }}</div>{% endif %}
-{% if evidence %}<h3>引用依据</h3><ol>{% for row in evidence %}<li><strong>{{ row.chat_name }}</strong> · {{ row.message_time }} · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.content }}</div></li>{% endfor %}</ol>{% endif %}
-</section>
-<section id="wechat">
-<h2>微信消息</h2>
-<form method="get" action="{{ url_for('field_ai') }}#wechat">
-<label>工作群 <select name="group"><option value="">全部授权群</option>{% for group in groups %}<option value="{{ group.chat_username }}" {% if filters.group == group.chat_username %}selected{% endif %}>{{ group.chat_name }}</option>{% endfor %}</select></label>
-<label>关键词 <input name="keyword" value="{{ filters.keyword }}" maxlength="255"></label>
-<label>发送人 <input name="sender" value="{{ filters.sender }}" maxlength="255"></label>
-<label>开始日期 <input type="date" name="start" value="{{ filters.start }}"></label>
-<label>结束日期 <input type="date" name="end" value="{{ filters.end }}"></label>
-<button type="submit">搜索</button>
-</form>
-<p>按时间倒序，每页 50 条。第 {{ page }} 页</p>
-{% for row in rows %}<article style="border-bottom:1px solid #ddd;padding:12px 0"><strong>{{ row.chat_name }}</strong> · <time>{{ row.message_time }}</time> · {{ row.sender_name }}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.content }}</div></article>{% else %}<p>没有符合条件且有权查看的消息。</p>{% endfor %}
-{% if page > 1 %}<a href="{{ url_for('field_ai', page=page-1, **filters) }}#wechat">上一页</a>{% endif %}
-{% if has_next %}<a href="{{ url_for('field_ai', page=page+1, **filters) }}#wechat">下一页</a>{% endif %}
-</section>
+<div class="field-ai-shell">
+  <aside class="field-ai-sidebar">
+    <div class="field-ai-sidebar-head">
+      <button type="button" class="erp-btn field-ai-new" id="fieldAiNewChat">＋ 新对话</button>
+    </div>
+    <div class="field-ai-history" id="fieldAiHistory">
+      <div class="field-ai-history-empty">暂无对话</div>
+    </div>
+  </aside>
+
+  <section class="field-ai-main">
+    <div class="field-ai-topbar">PP Field AI</div>
+    <div class="field-ai-chat" id="fieldAiChat">
+      <div class="field-ai-content" id="fieldAiContent">
+        {% if display_question or answer or error %}
+        <div class="field-ai-turn" id="fieldAiCurrentTurn">
+          {% if display_question or image_preview %}
+          <div class="field-ai-user"><div class="field-ai-user-stack">
+            {% if image_preview %}<img class="field-ai-user-image" src="{{ image_preview }}" alt="上传的现场故障图片">{% endif %}
+            {% if display_question %}<div class="field-ai-user-bubble">{{ display_question }}</div>{% endif %}
+          </div></div>
+          {% endif %}
+          {% if image_error and not error %}<div class="field-ai-error">图片识别：{{ image_error }}</div>{% endif %}
+          {% if image_info %}
+          <div class="field-ai-image-note">
+            <strong>图片识别</strong>
+            {% if image_info.equipment %} · 设备：{{ image_info.equipment }}{% endif %}
+            {% if image_info.fault_codes %} · 故障码：{{ image_info.fault_codes|join('、') }}{% endif %}
+            {% if image_info.fault_summary %}<br>{{ image_info.fault_summary }}{% endif %}
+          </div>
+          {% endif %}
+          {% if error %}<div class="field-ai-error">{{ error }}</div>{% endif %}
+          {% if answer %}<div class="field-ai-answer">{{ answer }}</div>{% endif %}
+          {% if evidence %}
+          <details class="field-ai-sources">
+            <summary>查看回答依据（{{ evidence|length }}）</summary>
+            <ol>
+              {% for row in evidence %}
+              <li><strong>{{ row.chat_name }}</strong> · {{ row.message_time }} · {{ row.sender_name }}<div class="field-ai-source-text">{{ row.display_content }}</div></li>
+              {% endfor %}
+            </ol>
+          </details>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="field-ai-empty" id="fieldAiEmpty"><div><strong>PP Field AI</strong><span>输入问题，或上传手操器/HMI 故障照片。</span></div></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="field-ai-composer">
+      <div class="field-ai-attachment-preview" id="fieldAiAttachmentPreview">
+        <img id="fieldAiAttachmentImage" alt="待上传图片">
+        <span class="field-ai-attachment-name" id="fieldAiAttachmentName"></span>
+        <button type="button" class="field-ai-attachment-remove" id="fieldAiAttachmentRemove" title="移除图片">×</button>
+      </div>
+      <form method="post" enctype="multipart/form-data" class="field-ai-form" id="fieldAiForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="conversation_context" id="fieldAiConversationContext" value="">
+        <input type="file" id="fieldAiImage" name="image" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+        <button class="field-ai-upload" type="button" id="fieldAiUpload" title="上传/拍摄故障照片" aria-label="上传照片">＋</button>
+        <textarea id="question" name="question" maxlength="2000" rows="1" placeholder="向 PP Field AI 提问，或上传故障照片…">{{ '' if answer or error else question }}</textarea>
+        <button class="field-ai-send" type="submit" title="发送" aria-label="发送">↑</button>
+      </form>
+      <div class="field-ai-hint">可以拍摄手操器/HMI 故障画面，AI 会识别故障码并检索历史处理记录。</div>
+    </div>
+  </section>
+</div>
+<script>
+(function(){
+  const storageKey='pp-field-ai-history-v1';
+  const historyEl=document.getElementById('fieldAiHistory');
+  const contentEl=document.getElementById('fieldAiContent');
+  const textarea=document.getElementById('question');
+  const newBtn=document.getElementById('fieldAiNewChat');
+  const uploadBtn=document.getElementById('fieldAiUpload');
+  const imageInput=document.getElementById('fieldAiImage');
+  const preview=document.getElementById('fieldAiAttachmentPreview');
+  const previewImage=document.getElementById('fieldAiAttachmentImage');
+  const previewName=document.getElementById('fieldAiAttachmentName');
+  const previewRemove=document.getElementById('fieldAiAttachmentRemove');
+  const form=document.getElementById('fieldAiForm');
+  const conversationContext=document.getElementById('fieldAiConversationContext');
+  const current={{ {'question': display_question, 'answer': answer, 'error': error, 'image_name': image_name}|tojson }};
+
+  let activeConversationId=null;
+  function normalizeItem(item){
+    if(Array.isArray(item.turns)&&item.turns.length)return item;
+    const firstTurn={question:item.question||'',answer:item.answer||'',error:item.error||'',image_name:item.image_name||null};
+    return {...item,title:item.title||item.question||'图片故障分析',turns:[firstTurn]};
+  }
+  function load(){try{const items=JSON.parse(localStorage.getItem(storageKey)||'[]');return Array.isArray(items)?items.map(normalizeItem):[];}catch(e){return[];}}
+  function sortItems(items){return [...items].sort((a,b)=>(Number(Boolean(b.pinned))-Number(Boolean(a.pinned)))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));}
+  function save(items){localStorage.setItem(storageKey,JSON.stringify(sortItems(items).slice(0,30)));}
+  function esc(value){const d=document.createElement('div');d.textContent=value||'';return d.innerHTML;}
+  function deleteItem(id){const items=load().filter(item=>item.id!==id);save(items);if(activeConversationId===id){activeConversationId=null;conversationContext.value='';}renderHistory(activeConversationId);}
+  function togglePin(id){const items=load();const item=items.find(entry=>entry.id===id);if(item){item.pinned=!item.pinned;save(items);}renderHistory(activeConversationId);}
+  function renderTurn(turn){return '<div class="field-ai-turn"><div class="field-ai-user"><div class="field-ai-user-stack"><div class="field-ai-user-bubble">'+esc(turn.question||'图片故障分析')+'</div></div></div>'+(turn.error?'<div class="field-ai-error">'+esc(turn.error)+'</div>':'')+(turn.answer?'<div class="field-ai-answer">'+esc(turn.answer)+'</div>':'')+'</div>';}
+  function renderHistory(activeId){
+    const items=sortItems(load());
+    if(!items.length){historyEl.innerHTML='<div class="field-ai-history-empty">暂无对话</div>';return;}
+    historyEl.innerHTML='';
+    items.forEach(item=>{
+      const row=document.createElement('div');row.className='field-ai-history-row'+(item.id===activeId?' active':'');
+      const b=document.createElement('button');b.type='button';b.className='field-ai-history-item';b.textContent=item.title||item.question||'图片故障分析';b.title=item.title||item.question||item.image_name||'';b.addEventListener('click',()=>showItem(item));
+      const actions=document.createElement('div');actions.className='field-ai-history-actions';
+      const pin=document.createElement('button');pin.type='button';pin.className='field-ai-history-action'+(item.pinned?' pinned':'');pin.textContent='📌';pin.title=item.pinned?'取消置顶':'置顶';pin.addEventListener('click',e=>{e.stopPropagation();togglePin(item.id);});
+      const del=document.createElement('button');del.type='button';del.className='field-ai-history-action';del.textContent='×';del.title='删除对话';del.addEventListener('click',e=>{e.stopPropagation();if(confirm('删除这条对话记录？'))deleteItem(item.id);});
+      actions.append(pin,del);row.append(b,actions);historyEl.appendChild(row);
+    });
+  }
+  function showItem(item){
+    const normalized=normalizeItem(item);const turns=normalized.turns||[];const last=turns[turns.length-1]||{};
+    activeConversationId=normalized.id;
+    contentEl.innerHTML=turns.map(renderTurn).join('');
+    conversationContext.value=JSON.stringify({question:last.question||'',answer:last.answer||''});
+    renderHistory(activeConversationId);
+  }
+  if(current.question&&(current.answer||current.error)){
+    const items=load();const firstTurn={question:current.question,answer:current.answer,error:current.error,image_name:current.image_name};
+    const latest={id:Date.now().toString(),title:current.question||'图片故障分析',question:current.question,answer:current.answer,error:current.error,image_name:current.image_name,turns:[firstTurn],createdAt:new Date().toISOString(),pinned:false};
+    const duplicate=items.find(x=>{const last=(x.turns||[])[(x.turns||[]).length-1]||x;return last.question===current.question&&last.answer===current.answer&&last.error===current.error;});
+    const active=duplicate||latest;
+    if(!duplicate){items.unshift(latest);save(items);}
+    showItem(active);
+  }else{renderHistory();}
+  function clearImage(){imageInput.value='';preview.classList.remove('visible');previewImage.removeAttribute('src');previewName.textContent='';}
+  uploadBtn.addEventListener('click',()=>imageInput.click());
+  imageInput.addEventListener('change',()=>{
+    const file=imageInput.files&&imageInput.files[0];if(!file){clearImage();return;}
+    previewName.textContent=file.name;const reader=new FileReader();reader.onload=e=>{previewImage.src=e.target.result;preview.classList.add('visible');};reader.readAsDataURL(file);
+  });
+  previewRemove.addEventListener('click',clearImage);
+  newBtn.addEventListener('click',()=>{activeConversationId=null;contentEl.innerHTML='<div class="field-ai-empty"><div><strong>PP Field AI</strong><span>输入问题，或上传手操器/HMI 故障照片。</span></div></div>';textarea.value='';conversationContext.value='';clearImage();textarea.focus();renderHistory();});
+  textarea.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit();}});
+  textarea.addEventListener('input',()=>{textarea.style.height='auto';textarea.style.height=Math.min(textarea.scrollHeight,180)+'px';});
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const hasImage=Boolean(imageInput.files&&imageInput.files.length);
+    const question=textarea.value.trim();
+    if(!question&&!hasImage){textarea.focus();return;}
+    const submit=form.querySelector('[type="submit"]');
+    const originalLabel=submit.textContent;
+    submit.disabled=true;submit.textContent='…';
+    try{
+      const response=await fetch(form.action||window.location.href,{method:'POST',body:new FormData(form),credentials:'same-origin'});
+      const html=await response.text();
+      if(!response.ok) throw new Error('提交失败（'+response.status+'）');
+      const doc=new DOMParser().parseFromString(html,'text/html');
+      const turn=doc.getElementById('fieldAiCurrentTurn');
+      if(!turn) throw new Error('没有收到有效回答，请重试。');
+      const answerText=turn.querySelector('.field-ai-answer')?.textContent?.trim()||'';
+      const errorText=turn.querySelector('.field-ai-error')?.textContent?.trim()||'';
+      const turnData={question:question||'图片故障分析',answer:answerText,error:errorText,image_name:hasImage?(imageInput.files[0]?.name||''):null};
+      const items=load();let active=activeConversationId?items.find(item=>item.id===activeConversationId):null;
+      if(active){
+        active.turns=Array.isArray(active.turns)?active.turns:[];active.turns.push(turnData);active.createdAt=new Date().toISOString();active.question=active.title||active.question||turnData.question;active.answer=turnData.answer;active.error=turnData.error;
+        contentEl.insertAdjacentHTML('beforeend',turn.outerHTML);
+      }else{
+        active={id:Date.now().toString(),title:turnData.question,question:turnData.question,answer:turnData.answer,error:turnData.error,image_name:turnData.image_name,turns:[turnData],createdAt:new Date().toISOString(),pinned:false};
+        items.unshift(active);activeConversationId=active.id;contentEl.innerHTML=turn.outerHTML;
+      }
+      save(items);activeConversationId=active.id;conversationContext.value=JSON.stringify({question:turnData.question,answer:turnData.answer});renderHistory(activeConversationId);
+      textarea.value='';textarea.style.height='auto';clearImage();
+      const chat=document.getElementById('fieldAiChat');if(chat)chat.scrollTo({top:chat.scrollHeight,behavior:'smooth'});
+    }catch(error){
+      const existing=contentEl.querySelector('.field-ai-submit-error');if(existing)existing.remove();
+      const box=document.createElement('div');box.className='field-ai-error field-ai-submit-error';box.textContent=error.message||'提交失败，请重试。';contentEl.prepend(box);
+      textarea.focus();
+    }finally{submit.disabled=false;submit.textContent=originalLabel;}
+  });
+})();
+</script>
 {% endblock %}

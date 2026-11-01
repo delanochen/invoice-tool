@@ -74,3 +74,36 @@ def monthly_paid_chart(*, client_filter_clause, db, invoice_totals):
         return []
     max_value = max(buckets.values()) or 1
     return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
+
+
+def latest_settlement_chart(*, db, client_filter_clause, can_view_customer_reimbursement):
+    """Latest ten current settlements, displayed by expected settlement date."""
+    if not can_view_customer_reimbursement():
+        return []
+    access_clause, access_params = client_filter_clause("service_orders")
+    rows = db().execute(
+        f"""
+        select customer_reimbursements.id, customer_reimbursements.total_amount,
+               service_orders.order_number, service_orders.expected_settlement_date
+        from customer_reimbursements
+        join service_orders on service_orders.id = customer_reimbursements.service_order_id
+        where {access_clause}
+          and customer_reimbursements.status != 'superseded'
+          and (customer_reimbursements.is_current or not exists (
+              select 1 from customer_reimbursements current_row
+              where current_row.service_order_id = customer_reimbursements.service_order_id
+                and current_row.is_current
+          ))
+        order by customer_reimbursements.created_at desc, customer_reimbursements.id desc
+        limit 10
+        """,
+        access_params,
+    ).fetchall()
+    points = [{"id": row["id"], "order_number": row["order_number"],
+               "expected_date": str(row["expected_settlement_date"] or ""),
+               "value": float(row["total_amount"] or 0)} for row in rows]
+    points.sort(key=lambda point: (not bool(point["expected_date"]), point["expected_date"], -point["id"]))
+    max_value = max((point["value"] for point in points), default=0) or 1
+    for point in points:
+        point["height"] = max(0, round(point["value"] / max_value * 100))
+    return points

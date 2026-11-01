@@ -75,7 +75,6 @@
 }
 .service-report-form .form-field .field-label { font-size: 12px; }
 .service-report-form textarea { font-size: 12px; }
-.service-report-form .photo-source-actions .button { min-height: 24px; padding: 2px 9px; font-size: 12px; }
 </style>
 {% endblock %}
 {% block title %}工作日报 - 发票工具{% endblock %}
@@ -100,7 +99,7 @@
         {% endif %}
       {% endif %}
       <button type="button" onclick="window.location.href='{{ url_for('service_order_detail', order_id=order.id) }}'">返回工单</button>
-      {% if is_edit and can_create_service_report(order) %}
+      {% if is_edit and can_create_service_report(order) and not report_locked %}
         <button type="button" onclick="window.location.href='{{ url_for('new_service_report', order_id=order.id, copy_from=report.id) }}'">复制日报</button>
       {% endif %}
       {% if is_edit %}
@@ -112,6 +111,9 @@
       {% if can_edit_report %}<button class="erp-btn primary" type="submit" form="serviceReportForm" id="saveServiceReport">保存</button>{% endif %}
     </div>
   </header>
+  {% if report_locked %}
+    <div class="flash">该工单的客户结算已通过审核。本页仅用于内部查看，日报内容已锁定，不能保存修改、复制新增或删除；如需调整，请先将工单结算退回为草稿。</div>
+  {% endif %}
   {% if source_report %}<p class="muted-line">已复制 {{ source_report.report_date }} 的日报内容，日期默认今天。照片和附件请重新上传，保存后生成新日报。</p>{% endif %}
   <form method="post" {% if not is_edit %}action="{{ url_for('new_service_report', order_id=order.id) }}"{% endif %} enctype="multipart/form-data" class="panel service-report-form" id="serviceReportForm">
     <input type="hidden" name="save_token" value="{{ save_token }}">
@@ -248,7 +250,7 @@
     <section class="subsection" id="report-photos-departure">
       <h2>现场到达时间照片</h2>
       <div class="photo-source-actions">
-        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="arrival_photos" accept="image/*,.heic,.heif" multiple data-local-photo="arrival"></label>
+        <span class="photo-local-control"><button type="button" class="erp-btn" data-local-photo-picker="arrival" aria-controls="localPhoto-arrival">从本机上传</button><input type="file" id="localPhoto-arrival" aria-label="从本机上传" name="arrival_photos" accept="image/*,.heic,.heif" multiple data-local-photo="arrival" hidden></span>
         <button type="button" class="small" data-open-nas="arrival">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="arrival"></div>
@@ -260,7 +262,7 @@
     <section class="subsection" id="report-photos-self-check">
       <h2>离开现场时间照片</h2>
       <div class="photo-source-actions">
-        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="departure_photos" accept="image/*,.heic,.heif" multiple data-local-photo="departure"></label>
+        <span class="photo-local-control"><button type="button" class="erp-btn" data-local-photo-picker="departure" aria-controls="localPhoto-departure">从本机上传</button><input type="file" id="localPhoto-departure" aria-label="从本机上传" name="departure_photos" accept="image/*,.heic,.heif" multiple data-local-photo="departure" hidden></span>
         <button type="button" class="small" data-open-nas="departure">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="departure"></div>
@@ -272,7 +274,7 @@
     <section class="subsection" id="report-photos-site">
       <h2>自检照片</h2>
       <div class="photo-source-actions">
-        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="self_check_photos" accept="image/*,.heic,.heif" multiple data-local-photo="self_check"></label>
+        <span class="photo-local-control"><button type="button" class="erp-btn" data-local-photo-picker="self_check" aria-controls="localPhoto-self_check">从本机上传</button><input type="file" id="localPhoto-self_check" aria-label="从本机上传" name="self_check_photos" accept="image/*,.heic,.heif" multiple data-local-photo="self_check" hidden></span>
         <button type="button" class="small" data-open-nas="self_check">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="self_check"></div>
@@ -284,7 +286,7 @@
     <section class="subsection" id="report-mileage-proof">
       <h2>现场服务照片</h2>
       <div class="photo-source-actions">
-        <label class="button small photo-local-picker"><span>从本机选择</span><input type="file" aria-label="从本机选择" name="site_photos" accept="image/*,.heic,.heif" multiple data-local-photo="site"></label>
+        <span class="photo-local-control"><button type="button" class="erp-btn" data-local-photo-picker="site" aria-controls="localPhoto-site">从本机上传</button><input type="file" id="localPhoto-site" aria-label="从本机上传" name="site_photos" accept="image/*,.heic,.heif" multiple data-local-photo="site" hidden></span>
         <button type="button" class="small" data-open-nas="site">从服务器选择</button>
       </div>
       <div class="selected-photo-grid" data-local-list="site"></div>

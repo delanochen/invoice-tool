@@ -178,11 +178,13 @@ def register_report_write_routes(app, *,
         report, order = require_service_report(report_id)
         if is_external_employee() and report["created_by"] != g.user["id"]:
             abort(403)
-        if report_locked_by_approved_reimbursement(order):
-            return redirect(url_for("service_order_detail", order_id=order["id"]))
+        report_locked = report_locked_by_approved_reimbursement(order, silent=True)
         users_rows = service_report_worker_options(order, report_id=report_id)
         report_writers = report_writer_options()
         if request.method == "POST":
+            if report_locked:
+                report_locked_by_approved_reimbursement(order)
+                return redirect(url_for("edit_service_report", report_id=report_id))
             if is_external_manager():
                 abort(403)
             save_token = request.form.get("save_token", "")
@@ -256,7 +258,8 @@ def register_report_write_routes(app, *,
             attachments=get_report_attachments(report_id),
             save_token=secrets.token_urlsafe(24),
             is_edit=True,
-            can_edit_report=not is_external_manager(),
+            can_edit_report=not is_external_manager() and not report_locked,
+            report_locked=report_locked,
             adjacent_reports=same_order_adjacent_report_ids(report_id),
         )
 

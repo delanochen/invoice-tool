@@ -56,8 +56,10 @@
       <label class="erp-field">工单状态
         <select name="work_order_status">
           <option value="">全部状态</option>
-          <option value="open" {% if work_order_status == "open" %}selected{% endif %}>进行中</option>
-          <option value="closed" {% if work_order_status == "closed" %}selected{% endif %}>已关闭</option>
+          <option value="not_started" {% if work_order_status == "not_started" %}selected{% endif %}>未开始</option>
+              <option value="open" {% if work_order_status == "open" %}selected{% endif %}>进行中</option>
+          <option value="settling" {% if work_order_status == "settling" %}selected{% endif %}>结算中</option>
+              <option value="closed" {% if work_order_status == "closed" %}selected{% endif %}>已关闭</option>
         </select>
       </label>
       <label class="erp-field">开始日期 <input type="date" name="date_from" value="{{ date_from }}"></label>
@@ -81,7 +83,7 @@
               <tr>
                 <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
                 <td>{% if invoice.service_order_number %}<a href="{{ url_for('service_order_detail', order_id=invoice.service_order_id) }}">{{ invoice.service_order_number }}</a>{% else %}-{% endif %}</td>
-                <td>{% if invoice.service_order_status == "closed" %}<span class="status completed">已关闭</span>{% elif invoice.service_order_status %}<span class="status submitted">进行中</span>{% else %}-{% endif %}</td>
+                <td>{% if invoice.service_order_status == "closed" %}<span class="status completed">已关闭</span>{% elif invoice.service_order_status == "not_started" %}<span class="status draft">未开始</span>{% elif invoice.service_order_status == "settling" %}<span class="status submitted">结算中</span>{% elif invoice.service_order_status %}<span class="status submitted">进行中</span>{% else %}-{% endif %}</td>
                 <td>{{ invoice.service_client_order_number or "-" }}</td>
                 <td>{{ invoice.issue_date }}</td>
                 <td>{{ invoice.due_date }}</td>
@@ -139,7 +141,7 @@
     <span class="sep"></span>
     <span>日期 <b>{{ date_from or '不限' }} ~ {{ date_to or '不限' }}</b></span>
     <span class="sep"></span>
-    <span>工单状态 <b>{{ '进行中' if work_order_status == 'open' else ('已关闭' if work_order_status == 'closed' else '全部') }}</b></span>
+    <span>工单状态 <b>{{ '进行中' if work_order_status == 'open' else ('已关闭' if work_order_status == 'closed' else ('结算中' if work_order_status == 'settling' else ('未开始' if work_order_status == 'not_started' else '全部'))) }}</b></span>
     <span class="sep"></span>
     <span>核销 <b>{{ '已核销' if paid_status == 'paid' else ('待核销' if paid_status == 'unpaid' else '全部') }}</b></span>
   </footer>

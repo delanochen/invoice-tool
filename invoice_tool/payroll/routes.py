@@ -202,6 +202,9 @@ def register_payroll_routes(app, api):
         return api["render_template"](
             "payroll_calendar.html",
             visible_month=visible_month,
+            reconciliation_rows=(api["payroll_reconciliation_rows"]()
+                if api.get("payroll_reconciliation_rows") and api["normalized_role"]() in {"admin","manager","finance"}
+                and api["has_action_permission"]("employee_payments","view") else []),
             previous_month=previous_month,
             next_month=next_month,
             weeks=api["payroll_calendar_weeks"](visible_month.year, visible_month.month, periods),

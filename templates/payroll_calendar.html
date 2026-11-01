@@ -32,6 +32,7 @@
     </div>
     <span class="erp-badge">{{ visible_month.strftime("%Y-%m") }}</span>
     <span class="erp-badge">{{ ns.batches }} 个发薪批次</span>
+    {% if reconciliation_rows %}<a class="erp-btn" href="{{ url_for('payroll_reconciliation') }}">工资有变动 · {{ reconciliation_rows|length }} 项待核对</a>{% endif %}
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('payroll_calendar', year=previous_month.year, month=previous_month.month) }}'">上个月</button>
@@ -65,6 +66,9 @@
                     {{ period.label }}
                   </button>
                   <small>{{ period.period_start.strftime("%m/%d") }}-{{ period.period_end.strftime("%m/%d") }}</small>
+                  {% for item in reconciliation_rows if item.period_start == period.period_start.isoformat() %}
+                  <small>{{ item.employee_name }} · 待核对 {{ item.difference|money }}</small>
+                  {% endfor %}
                 {% endfor %}
               </div>
             {% endfor %}
@@ -189,9 +193,17 @@
           summary.innerHTML = [
             `${t("计薪周期")}：${payload.period_start} ${t("至")} ${payload.period_end}`,
             `${t("发薪日期")}：${payload.pay_date}`,
-            `${t("状态")}：${payload.status === "paid" ? t("已发放") : t("待发放")}`,
+            `${t("状态")}：${payload.status === "paid" ? t("已到计划发薪日（付款状态请看SL）") : t("未到计划发薪日")}`,
             `${t("合计")}：${money(payload.totals.total_pay)}`
           ].map((item) => `<span>${escapeHtml(item)}</span>`).join("");
+          if (payload.reconciliation) {
+            summary.innerHTML += payload.reconciliation.map(row => {
+              const text = row.employee_name + " · 当前应付 " + money(row.expected) +
+                " · 已入单 " + money(row.recorded) + " · 已支付工资金额 " + money(row.paid) +
+                " · 待处理差额 " + money(row.difference);
+              return "<span>" + escapeHtml(text) + "</span>";
+            }).join("");
+          }
           renderRows(payload);
         });
       });

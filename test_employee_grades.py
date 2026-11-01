@@ -519,8 +519,8 @@ class EmployeeGradesWorkbenchTest(unittest.TestCase):
             self.assertNotIn(f'name="{field}"', dialog, field)
         for label in ('标准时薪', '交通时薪', '加班时薪', '假期时薪', '车补里程单价', '租车驾驶补贴/小时'):
             self.assertNotIn(label, dialog, label)
-        self.assertIn('name="base_salary"', dialog)
-        self.assertIn('name="meal_daily_amount"', dialog)
+        self.assertNotIn('name="base_salary"', dialog)
+        self.assertNotIn('name="meal_daily_amount"', dialog)
         self.assertIn('name="car_allowance_method"', dialog)
 
         # 费率入口统一在「费率版本」页签的新增弹窗，不再另放当前费率/一键固化板块

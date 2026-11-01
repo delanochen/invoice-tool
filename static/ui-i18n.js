@@ -4821,30 +4821,7 @@
     }
   }).observe(document.body, { childList: true, subtree: true });
 
-  for (const input of document.querySelectorAll("input[type='file']")) {
-    // These inputs already have a translated, clickable label and photo previews.
-    // Adding another file control inside the label breaks its compact layout.
-    if (input.closest('.photo-local-picker')) continue;
-    input.classList.add("translated-file-input");
-    const control = document.createElement("span");
-    control.className = "translated-file-control";
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "small";
-    button.textContent = translations["选择文件"];
-    const status = document.createElement("span");
-    status.className = "translated-file-status";
-    status.textContent = translations["未选择任何文件"];
-    button.addEventListener("click", () => input.click());
-    input.addEventListener("change", () => {
-      const count = input.files?.length || 0;
-      if (!count) status.textContent = translations["未选择任何文件"];
-      else if (count === 1) status.textContent = input.files[0].name;
-      else status.textContent = `${count} ${translations["个文件已选择"]}`;
-    });
-    control.append(button, status);
-    input.insertAdjacentElement("afterend", control);
-  }
+  // File inputs are enhanced for every language by file-picker.js.
 
   const translateElement = (element) => {
     if (element.nodeType === Node.TEXT_NODE) {

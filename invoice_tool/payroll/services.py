@@ -137,10 +137,17 @@ def build_payroll_services(api):
             params,
         ).fetchall()
         entries = []
+        meal_rates = {}
         for row in rows:
             hours = api["split_report_labor_hours"](row, row["worker_count"])
             entry = dict(row)
             entry.update(hours)
+            meal_key = (row["worker_id"], row["actual_work_date"] or row["report_date"])
+            if meal_key not in meal_rates:
+                meal_rates[meal_key] = employee_rate(
+                    api["db"](), meal_key[0], meal_key[1], "meal_daily_amount"
+                )["rate"]
+            entry["meal_daily_amount"] = meal_rates[meal_key]
             entry["work_hours"] = hours["standard_hours"] + hours["overtime_hours"] + hours["holiday_hours"]
             entries.append(entry)
         return entries
@@ -208,6 +215,14 @@ def build_payroll_services(api):
             and period_start.isoformat() <= str(row["settlement_date"]) <= period_end.isoformat()
             and (not worker_id or str(row["employee_id"]) == str(worker_id))
         ]
+        base_rates = {}
+        rows = [dict(row) for row in rows]
+        writer_rows = [dict(row) for row in writer_rows]
+        for row in rows + writer_rows:
+            employee_id = row["worker_id"]
+            if employee_id not in base_rates:
+                base_rates[employee_id] = rate_resolver(employee_id, period_start.isoformat(), "base_salary")
+            row["base_salary"] = base_rates[employee_id]
         return rows, writer_rows, subsidy_settings, rate_resolver, payable_fixed
 
     def _apply_fixed_project_pay(payroll_rows, totals, fixed_rows, detail=False):
