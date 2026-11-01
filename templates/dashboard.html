@@ -111,14 +111,14 @@
           </section>
 
           <section class="dash-chart">
-            <div class="dash-chart-head"><h2>最新10笔工单结算</h2><small>按预计结算日期排列</small></div>
+            <div class="dash-chart-head"><h2>最新10笔工单结算</h2><small>按预计结算日期汇总</small></div>
             {% if settlement_chart %}
               <div class="bar-chart settlement-chart">
                 {% for point in settlement_chart %}
                   <div class="bar-item">
                     <div class="bar-track"><span style="height: {{ point.height }}%"></span></div>
                     <small>{{ point.expected_date or "未填写日期" }}</small>
-                    <small>{{ point.order_number }}</small>
+                    <small>{{ point.count }}笔结算</small>
                     <strong>{{ point.value|money }}</strong>
                   </div>
                 {% endfor %}

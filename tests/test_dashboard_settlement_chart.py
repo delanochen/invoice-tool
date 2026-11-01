@@ -22,7 +22,7 @@ class SettlementChartTest(unittest.TestCase):
             dict(id=12,order_number='SO12',total_amount=200,expected_settlement_date=None),
             dict(id=11,order_number='SO11',total_amount=100,expected_settlement_date='2026-12-01'),
             dict(id=10,order_number='SO10',total_amount=0,expected_settlement_date='2026-11-01')])
-        self.assertEqual([10,11,12],[p['id'] for p in points])
+        self.assertEqual(['2026-11-01','2026-12-01',''],[p['expected_date'] for p in points])
         self.assertEqual([0,50,100],[p['height'] for p in points])
         sql,params=db.execute.call_args.args
         self.assertEqual([7],params)
@@ -31,6 +31,20 @@ class SettlementChartTest(unittest.TestCase):
         self.assertIn('current_row.is_current',sql)
         self.assertIn('created_at desc, customer_reimbursements.id desc',sql)
         self.assertIn('limit 10',sql)
+
+    def test_same_dates_and_undated_settlements_are_summed(self):
+        from decimal import Decimal
+        points,_=self.chart([
+            dict(id=5,order_number='A',total_amount=Decimal('0.10'),expected_settlement_date='2026-11-20'),
+            dict(id=4,order_number='B',total_amount=Decimal('0.20'),expected_settlement_date='2026-11-20'),
+            dict(id=3,order_number='C',total_amount=100,expected_settlement_date='2026-11-19'),
+            dict(id=2,order_number='D',total_amount=200,expected_settlement_date=None),
+            dict(id=1,order_number='E',total_amount=300,expected_settlement_date='')])
+        self.assertEqual(['2026-11-19','2026-11-20',''],[p['expected_date'] for p in points])
+        self.assertEqual([100,0.30,500],[p['value'] for p in points])
+        self.assertEqual([1,2,2],[p['count'] for p in points])
+        self.assertTrue(all('order_number' not in p for p in points))
+        self.assertEqual(5,sum(p['count'] for p in points))
 
     def test_denied_does_not_query(self):
         db=MagicMock()
@@ -63,7 +77,8 @@ class SettlementChartTest(unittest.TestCase):
         views=register_dashboard_page_routes(app,**deps)
         with app.test_request_context('/'):
             html=views['dashboard']()
-        self.assertIn('SO-TEST',html)
+        self.assertNotIn('SO-TEST',html)
+        self.assertIn('1笔结算',html)
         self.assertIn('2026-11-20',html)
         self.assertIn('1234.50',html)
         self.assertNotIn('paid_chart',captured)
