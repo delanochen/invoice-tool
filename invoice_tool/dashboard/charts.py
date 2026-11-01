@@ -1,5 +1,4 @@
 """Legacy-compatible dashboard_monthly helpers; explicit runtime dependencies."""
-from decimal import Decimal
 
 def monthly_chart(*, client_filter_clause, db, invoice_totals):
     access_clause, access_params = client_filter_clause("invoices")
@@ -77,15 +76,16 @@ def monthly_paid_chart(*, client_filter_clause, db, invoice_totals):
     return [{"month": month, "value": value, "height": round(value / max_value * 100)} for month, value in buckets.items()]
 
 
-def latest_settlement_chart(*, db, client_filter_clause, can_view_customer_reimbursement):
-    """Group the latest ten current settlements by expected settlement date."""
+def settlement_by_date_chart(*, db, client_filter_clause, can_view_customer_reimbursement):
+    """Group every current work-order settlement by its expected settlement date."""
     if not can_view_customer_reimbursement():
         return []
     access_clause, access_params = client_filter_clause("service_orders")
     rows = db().execute(
         f"""
-        select customer_reimbursements.id, customer_reimbursements.total_amount,
-               service_orders.order_number, service_orders.expected_settlement_date
+        select coalesce(service_orders.expected_settlement_date, '') as expected_date,
+               count(*) as settlement_count,
+               coalesce(sum(customer_reimbursements.total_amount), 0) as total
         from customer_reimbursements
         join service_orders on service_orders.id = customer_reimbursements.service_order_id
         where {access_clause}
@@ -95,20 +95,19 @@ def latest_settlement_chart(*, db, client_filter_clause, can_view_customer_reimb
               where current_row.service_order_id = customer_reimbursements.service_order_id
                 and current_row.is_current
           ))
-        order by customer_reimbursements.created_at desc, customer_reimbursements.id desc
-        limit 10
+        group by coalesce(service_orders.expected_settlement_date, '')
         """,
         access_params,
     ).fetchall()
     buckets = {}
     for row in rows:
-        expected_date = str(row["expected_settlement_date"] or "").strip()
+        expected_date = str(row["expected_date"] or "").strip()
         bucket = buckets.setdefault(expected_date, {
-            "expected_date": expected_date, "value": Decimal("0"), "count": 0,
+            "expected_date": expected_date, "value": 0.0, "count": 0,
         })
-        bucket["value"] += Decimal(str(row["total_amount"] or 0))
-        bucket["count"] += 1
-    points = [{**bucket, "value": float(bucket["value"])} for bucket in buckets.values()]
+        bucket["value"] += float(row["total"] or 0)
+        bucket["count"] += int(row["settlement_count"] or 0)
+    points = [{**bucket, "value": round(bucket["value"], 2)} for bucket in buckets.values()]
     points.sort(key=lambda point: (not bool(point["expected_date"]), point["expected_date"]))
     max_value = max((point["value"] for point in points), default=0) or 1
     for point in points:

@@ -5,23 +5,23 @@ import unittest
 from unittest.mock import MagicMock
 from flask import Flask, request
 from jinja2 import ChoiceLoader, DictLoader
-from invoice_tool.dashboard.charts import latest_settlement_chart
+from invoice_tool.dashboard.charts import settlement_by_date_chart
 from invoice_tool.dashboard.page_routes import register_dashboard_page_routes
 
 class SettlementChartTest(unittest.TestCase):
     def chart(self, rows):
         db=MagicMock()
         db.execute.return_value.fetchall.return_value=rows
-        points=latest_settlement_chart(db=lambda:db,
+        points=settlement_by_date_chart(db=lambda:db,
             client_filter_clause=lambda alias:(alias+'.client_id = ?', [7]),
             can_view_customer_reimbursement=lambda:True)
         return points,db
 
     def test_date_sort_amounts_and_missing_date_last(self):
         points,db=self.chart([
-            dict(id=12,order_number='SO12',total_amount=200,expected_settlement_date=None),
-            dict(id=11,order_number='SO11',total_amount=100,expected_settlement_date='2026-12-01'),
-            dict(id=10,order_number='SO10',total_amount=0,expected_settlement_date='2026-11-01')])
+            dict(expected_date=None, total=200, settlement_count=1),
+            dict(expected_date='2026-12-01', total=100, settlement_count=1),
+            dict(expected_date='2026-11-01', total=0, settlement_count=1)])
         self.assertEqual(['2026-11-01','2026-12-01',''],[p['expected_date'] for p in points])
         self.assertEqual([0,50,100],[p['height'] for p in points])
         sql,params=db.execute.call_args.args
@@ -29,31 +29,41 @@ class SettlementChartTest(unittest.TestCase):
         self.assertIn('service_orders.client_id = ?',sql)
         self.assertIn("status != 'superseded'",sql)
         self.assertIn('current_row.is_current',sql)
-        self.assertIn('created_at desc, customer_reimbursements.id desc',sql)
-        self.assertIn('limit 10',sql)
+        self.assertIn('coalesce(service_orders.expected_settlement_date',sql)
+        self.assertIn('sum(customer_reimbursements.total_amount)',sql)
+        self.assertIn('group by',sql)
+        # The whole current settlement set is aggregated: no latest-ten sampling.
+        self.assertNotIn('limit 10',sql)
+        self.assertNotIn('order by customer_reimbursements.created_at',sql)
 
-    def test_same_dates_and_undated_settlements_are_summed(self):
-        from decimal import Decimal
+    def test_all_settlements_for_one_date_are_aggregated(self):
         points,_=self.chart([
-            dict(id=5,order_number='A',total_amount=Decimal('0.10'),expected_settlement_date='2026-11-20'),
-            dict(id=4,order_number='B',total_amount=Decimal('0.20'),expected_settlement_date='2026-11-20'),
-            dict(id=3,order_number='C',total_amount=100,expected_settlement_date='2026-11-19'),
-            dict(id=2,order_number='D',total_amount=200,expected_settlement_date=None),
-            dict(id=1,order_number='E',total_amount=300,expected_settlement_date='')])
+            dict(expected_date='2026-10-31', total=252218.64, settlement_count=13)])
+        self.assertEqual(['2026-10-31'],[p['expected_date'] for p in points])
+        self.assertEqual([252218.64],[p['value'] for p in points])
+        self.assertEqual([13],[p['count'] for p in points])
+
+    def test_same_dates_and_undated_settlements_are_merged(self):
+        points,_=self.chart([
+            dict(expected_date='2026-11-20', total=0.10, settlement_count=1),
+            dict(expected_date=' 2026-11-20 ', total=0.20, settlement_count=2),
+            dict(expected_date='2026-11-19', total=100, settlement_count=1),
+            dict(expected_date=None, total=200, settlement_count=1),
+            dict(expected_date='', total=300, settlement_count=1)])
         self.assertEqual(['2026-11-19','2026-11-20',''],[p['expected_date'] for p in points])
         self.assertEqual([100,0.30,500],[p['value'] for p in points])
-        self.assertEqual([1,2,2],[p['count'] for p in points])
+        self.assertEqual([1,3,2],[p['count'] for p in points])
         self.assertTrue(all('order_number' not in p for p in points))
-        self.assertEqual(5,sum(p['count'] for p in points))
+        self.assertEqual(6,sum(p['count'] for p in points))
 
     def test_denied_does_not_query(self):
         db=MagicMock()
-        self.assertEqual([],latest_settlement_chart(db=db,client_filter_clause=MagicMock(),can_view_customer_reimbursement=lambda:False))
+        self.assertEqual([],settlement_by_date_chart(db=db,client_filter_clause=MagicMock(),can_view_customer_reimbursement=lambda:False))
         db.assert_not_called()
 
     def test_empty_and_zero_values(self):
         self.assertEqual([],self.chart([])[0])
-        self.assertEqual(0,self.chart([dict(id=1,order_number='SO1',total_amount=None,expected_settlement_date='')])[0][0]['height'])
+        self.assertEqual(0,self.chart([dict(expected_date='',total=None,settlement_count=0)])[0][0]['height'])
 
     def test_route_and_real_template_show_settlement_fields(self):
         root=Path(__file__).resolve().parents[1]
@@ -64,7 +74,7 @@ class SettlementChartTest(unittest.TestCase):
         db=MagicMock()
         def execute(sql,params):
             result=MagicMock()
-            result.fetchall.return_value=([dict(id=1,order_number='SO-TEST',total_amount=1234.5,expected_settlement_date='2026-11-20')] if 'from customer_reimbursements' in sql else [])
+            result.fetchall.return_value=([dict(expected_date='2026-11-20',total=1234.5,settlement_count=1)] if 'from customer_reimbursements' in sql else [])
             return result
         db.execute.side_effect=execute
         metrics=dict.fromkeys(['invoice_count','unpaid_payroll','completed','paid','unpaid','total','pending_reimbursement','pending_expenses','reimbursed_expenses'],0)
@@ -81,6 +91,8 @@ class SettlementChartTest(unittest.TestCase):
         self.assertIn('1笔结算',html)
         self.assertIn('2026-11-20',html)
         self.assertIn('1234.50',html)
+        self.assertIn('工单结算到期分布',html)
+        self.assertNotIn('最新10笔工单结算',html)
         self.assertNotIn('paid_chart',captured)
         values['monthly_paid_chart'].assert_not_called()
 

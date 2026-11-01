@@ -1,4 +1,4 @@
-from .charts import latest_settlement_chart
+from .charts import settlement_by_date_chart
 
 """Business routes with explicit current-app resolvers; no reverse import."""
 
@@ -54,7 +54,7 @@ def register_dashboard_page_routes(app, *,
         if not project_filter_submitted and not selected_project_ids:
             selected_project_ids = [str(project["id"]) for project in project_options]
         chart = _cb_resolve_monthly_project_chart()(selected_project_ids)
-        settlement_chart = latest_settlement_chart(
+        settlement_chart = settlement_by_date_chart(
             db=_cb_resolve_db(),
             client_filter_clause=_cb_resolve_client_filter_clause(),
             can_view_customer_reimbursement=(
