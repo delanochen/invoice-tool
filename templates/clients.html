@@ -5,10 +5,10 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 {% endblock %}
 {% block content %}
-  <div class="erp-app" data-active-panel="list">
+  <div class="erp-app" data-active-panel="list" data-selectable-scope data-local-list>
     <header class="erp-toolbar no-print">
       <div class="erp-toolbar-title">客户资料<small>基础数据 · 客户</small></div>
-      <span class="erp-badge">{{ clients|length }} 个客户</span>
+      <span class="erp-badge"><span data-list-count>{{ clients|length }}</span> 个客户</span>
       <span class="erp-toolbar-spacer"></span>
       <div class="erp-toolbar-group">
         {% if not is_external_manager() %}
@@ -17,6 +17,10 @@
           <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
           <button type="button" class="erp-btn primary" data-dialog-open="newClientDialog">新增客户</button>
         {% endif %}
+        {% if not is_external_manager() %}<button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
+        {% if not is_external_manager() %}<form method="post" data-row-action-form="deleteUrl" data-local-delete data-confirm="确定删除这个客户吗？">
+          <button class="erp-btn danger" type="submit" disabled>删除</button>
+        </form>{% endif %}
       </div>
     </header>
 
@@ -29,7 +33,7 @@
 
       <section class="erp-panel active" data-erp-panel="list">
         <div class="erp-grid-wrap">
-          <table class="list-table erp-grid" data-grid-height="100%">
+          <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>
               <tr>
                 <th>编号</th>
@@ -40,12 +44,14 @@
                 <th>国家/地区</th>
                 <th>账期方案</th>
                 <th>地址</th>
-                {% if not is_external_manager() %}<th>操作</th>{% endif %}
+
               </tr>
             </thead>
             <tbody>
               {% for client in clients %}
-                <tr>
+                <tr tabindex="0" data-row-id="{{ client.id }}" aria-selected="false"
+                  {% if not is_external_manager() %}data-edit-target="editClient{{ client.id }}"{% endif %}
+                  {% if not is_external_manager() %}data-delete-url="{{ url_for('delete_client', client_id=client.id) }}"{% endif %}>
                   <td>{{ client.client_number }}</td>
                   <td>{{ client.name }}</td>
                   <td>{{ client.short_name }}</td>
@@ -54,19 +60,10 @@
                   <td>{{ client.country or "-" }}</td>
                   <td>{{ client.payment_term_name or "Net 30" }}</td>
                   <td>{{ client.address or "-" }}</td>
-                  {% if not is_external_manager() %}
-                    <td>
-                      <div class="row-actions">
-                        <button class="small" type="button" data-dialog-open="editClient{{ client.id }}">编辑</button>
-                        <form method="post" action="{{ url_for('delete_client', client_id=client.id) }}" onsubmit="return confirm('确定删除这个客户吗？已有发票的客户不会被删除。');">
-                          <button class="danger small" type="submit">删除</button>
-                        </form>
-                      </div>
-                    </td>
-                  {% endif %}
+
                 </tr>
               {% else %}
-                <tr><td colspan="{% if not is_external_manager() %}9{% else %}8{% endif %}" class="empty">没有符合条件的客户。</td></tr>
+                <tr><td colspan="8" class="empty">没有符合条件的客户。</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -75,10 +72,10 @@
     </div>
 
     <footer class="erp-summary">
-      {{ summary_item('客户数', clients|length, 'muted') }}
+      <div class="erp-summary-item muted"><span>客户数</span><strong data-list-count>{{ clients|length }}</strong></div>
     </footer>
     <footer class="erp-status">
-      <span>记录 <b>{{ clients|length }}</b> 条</span>
+      <span>记录 <b data-list-count>{{ clients|length }}</b> 条</span>
     </footer>
   </div>
 
@@ -137,6 +134,8 @@
   {% endif %}
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='local-list-actions.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

@@ -8,16 +8,20 @@
   {% set can_create = has_action_permission("owners", "create") %}
   {% set can_edit = has_action_permission("owners", "edit") %}
   {% set can_delete = has_action_permission("owners", "delete") %}
-  <div class="erp-app" data-active-panel="list">
+  <div class="erp-app" data-active-panel="list" data-selectable-scope data-local-list>
     <header class="erp-toolbar no-print">
       <div class="erp-toolbar-title">业主资料<small>基础数据 · 业主</small></div>
-      <span class="erp-badge">{{ owners|length }} 个业主</span>
+      <span class="erp-badge"><span data-list-count>{{ owners|length }}</span> 个业主</span>
       <span class="erp-toolbar-spacer"></span>
       <div class="erp-toolbar-group">
         <button type="button" class="erp-btn primary" data-erp-action="query">查询</button>
         <button type="button" class="erp-btn" data-erp-action="reset">重置</button>
         <button type="button" class="erp-btn erp-filter-toggle" data-erp-action="toggle-filter" aria-expanded="true">筛选</button>
         {% if can_create %}<button type="button" class="erp-btn primary" data-dialog-open="newOwnerDialog">新增业主</button>{% endif %}
+        {% if can_edit %}<button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>{% endif %}
+        {% if can_delete %}<form method="post" data-row-action-form="deleteUrl" data-local-delete data-confirm="确定删除这个业主吗？">
+          <button class="erp-btn danger" type="submit" disabled>删除</button>
+        </form>{% endif %}
       </div>
     </header>
 
@@ -28,30 +32,25 @@
 
       <section class="erp-panel active" data-erp-panel="list">
         <div class="erp-grid-wrap">
-          <table class="list-table erp-grid" data-grid-height="100%">
+          <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">
             <thead>
               <tr>
                 <th>业主编号</th>
                 <th>业主名称</th>
-                {% if can_edit or can_delete %}<th>操作</th>{% endif %}
+
               </tr>
             </thead>
             <tbody>
               {% for owner in owners %}
-                <tr>
+                <tr tabindex="0" data-row-id="{{ owner.id }}" aria-selected="false"
+                  {% if can_edit %}data-edit-target="editOwner{{ owner.id }}"{% endif %}
+                  {% if can_delete %}data-delete-url="{{ url_for('delete_owner', owner_id=owner.id) }}"{% endif %}>
                   <td>{{ owner.owner_number }}</td>
                   <td>{{ owner.name }}</td>
-                  {% if can_edit or can_delete %}<td>
-                    <div class="row-actions">
-                      {% if can_edit %}<button class="small" type="button" data-dialog-open="editOwner{{ owner.id }}">编辑</button>{% endif %}
-                      {% if can_delete %}<form method="post" action="{{ url_for('delete_owner', owner_id=owner.id) }}" onsubmit="return confirm('确定删除这个业主吗？已有站点的业主不会被删除。');">
-                        <button class="danger small" type="submit">删除</button>
-                      </form>{% endif %}
-                    </div>
-                  </td>{% endif %}
+
                 </tr>
               {% else %}
-                <tr><td colspan="{{ 3 if can_edit or can_delete else 2 }}" class="empty">还没有业主资料。</td></tr>
+                <tr><td colspan="2" class="empty">还没有业主资料。</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -60,10 +59,10 @@
     </div>
 
     <footer class="erp-summary">
-      {{ summary_item('业主数', owners|length, 'muted') }}
+      <div class="erp-summary-item muted"><span>业主数</span><strong data-list-count>{{ owners|length }}</strong></div>
     </footer>
     <footer class="erp-status">
-      <span>记录 <b>{{ owners|length }}</b> 条</span>
+      <span>记录 <b data-list-count>{{ owners|length }}</b> 条</span>
     </footer>
   </div>
 
@@ -98,6 +97,8 @@
   {% endfor %}{% endif %}
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v=app_version) }}"></script>
+  <script src="{{ url_for('static', filename='local-list-actions.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='modal-forms.js', v=app_version) }}"></script>
   <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 {% endblock %}

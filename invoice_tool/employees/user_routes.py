@@ -18,6 +18,7 @@ from flask import (
 from werkzeug.security import generate_password_hash
 
 from database import IntegrityError
+from invoice_tool.presentation.delete_response import delete_response
 
 
 def register_employee_user_routes(
@@ -455,24 +456,20 @@ def register_employee_user_routes(
     @login_required
     def delete_user(user_id):
         if user_id == g.user["id"]:
-            flash("不能删除当前登录用户。", "error")
-            return redirect(url_for("users"))
+            return delete_response("users", "不能删除当前登录用户。", success=False)
         user = db().execute("select * from users where id = ?", (user_id,)).fetchone()
         if not user:
             abort(404)
         admin_count = db().execute("select count(*) as count from users where role = 'admin'").fetchone()["count"]
         if user["role"] == "admin" and admin_count <= 1:
-            flash("至少需要保留一个管理员。", "error")
-            return redirect(url_for("users"))
+            return delete_response("users", "至少需要保留一个管理员。", success=False)
         invoice_count = db().execute("select count(*) as count from invoices where created_by = ?", (user_id,)).fetchone()["count"]
         if invoice_count:
-            flash("这个用户已经创建过发票，不能删除。", "error")
-            return redirect(url_for("users"))
+            return delete_response("users", "这个用户已经创建过发票，不能删除。", success=False)
         db().execute("delete from messages where user_id = ?", (user_id,))
         db().execute("delete from users where id = ?", (user_id,))
         db().commit()
-        flash("用户已删除。", "success")
-        return redirect(url_for("users"))
+        return delete_response("users", "用户已删除。", success=True)
 
     app.add_url_rule('/users', endpoint='users', view_func=users, methods=['GET', 'POST'])
     app.add_url_rule('/users/<int:user_id>/edit', endpoint='edit_user', view_func=edit_user, methods=['GET', 'POST'])

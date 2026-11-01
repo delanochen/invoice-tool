@@ -147,12 +147,12 @@
         this.rows.get(row.getData()._id)?.click();
       });
       this.observer = new MutationObserver(records => {
-        // Row selection only changes a CSS class. Replacing all Tabulator data
+        // Row selection only changes a CSS class and its accessibility state. Replacing all Tabulator data
         // for that visual-only change resets the grid's vertical scroll and
         // makes selecting an employee look like a page refresh.
         const selectionOnly = records.length && records.every(record =>
           record.type === 'attributes' &&
-          record.attributeName === 'class' &&
+          ['class', 'aria-selected'].includes(record.attributeName) &&
           record.target.matches('tbody tr[data-row-id]')
         );
         if (selectionOnly) {

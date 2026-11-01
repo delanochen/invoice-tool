@@ -6,26 +6,16 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='user-details.css', v=app_version) }}">
 {% endblock %}
 {% block content %}
-  <div class="erp-app" data-active-panel="list">
+  <div class="erp-app" data-active-panel="list" data-selectable-scope data-local-list>
     <header class="erp-toolbar no-print">
       <div class="erp-toolbar-title">用户管理<small>基础数据 · 用户</small></div>
-      <span class="erp-badge">{{ users|length }} 个用户</span>
+      <span class="erp-badge"><span data-list-count>{{ users|length }}</span> 个用户</span>
       <span class="erp-toolbar-spacer"></span>
       <div class="erp-toolbar-group">
         {% if can_assign %}
           <button type="button" class="erp-btn primary" data-dialog-open="newUserDialog">新增用户</button>
         {% endif %}
-        {# 导出走通用「导出可见表格」机制：report-export.js 从 system-grid 镜像取当前
-           筛选/排序/分组后的行，POST 给 export_visible_report 换 xlsx。按钮动作由
-           erp-report.js 的 data-erp-action="export" 派发（本页此前没加载它）。 #}
-        <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
-      </div>
-    </header>
 
-    <div class="erp-body">
-      <section class="erp-panel active" data-erp-panel="list" data-selectable-scope>
-        <div class="erp-toolbar-group no-print" style="padding:4px 2px;flex:0 0 auto;" data-selection-toolbar>
-          <span class="erp-badge" data-selected-label>{{ users|length }} 个用户</span>
           <button class="erp-btn" type="button" data-row-action="editTarget" data-action-mode="dialog" disabled>编辑</button>
           {% if can_approve %}
             <form method="post" data-row-action-form="statusUrl">
@@ -34,11 +24,21 @@
             </form>
           {% endif %}
           {% if can_manage %}
-            <form method="post" data-row-action-form="deleteUrl" onsubmit="return confirm('确定删除这个用户吗？');">
-              <button class="erp-btn" type="submit" disabled>删除</button>
+            <form method="post" data-row-action-form="deleteUrl" data-local-delete data-confirm="确定删除这个用户吗？">
+              <button class="erp-btn danger" type="submit" disabled>删除</button>
             </form>
           {% endif %}
-        </div>
+
+        {# 导出走通用「导出可见表格」机制：report-export.js 从 system-grid 镜像取当前
+           筛选/排序/分组后的行，POST 给 export_visible_report 换 xlsx。按钮动作由
+           erp-report.js 的 data-erp-action="export" 派发（本页此前没加载它）。 #}
+        <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
+      </div>
+    </header>
+
+    <div class="erp-body">
+      <section class="erp-panel active" data-erp-panel="list">
+
         {# 表头固定 + 表格内部滚动：必须用 .erp-grid-wrap 包 + 表上 data-grid-height="100%"。
            少任何一半，Tabulator 就退回「按内容长高」——滚动发生在包裹层上，表头跟着滚走
            （实测 60 行时表头位移 -240px）。#}
@@ -87,10 +87,10 @@
     </div>
 
     <footer class="erp-summary">
-      {{ summary_item('用户数', users|length, 'muted') }}
+      <div class="erp-summary-item muted"><span>用户数</span><strong data-list-count>{{ users|length }}</strong></div>
     </footer>
     <footer class="erp-status">
-      <span>记录 <b>{{ users|length }}</b> 条</span>
+      <span>记录 <b data-list-count>{{ users|length }}</b> 条</span>
     </footer>
   </div>
 
@@ -336,6 +336,7 @@
   {% endfor %}
 {% endblock %}
 {% block scripts %}
+  <script src="{{ url_for('static', filename='local-list-actions.js', v=app_version) }}"></script>
   {# 导出配置必须先于 report-export.js 赋值：它在顶层就把 window.reportExportConfig
      读进模块内常量，之后再赋值新对象不会生效。 #}
   <script>window.reportExportConfig = {url: {{ url_for('export_visible_report')|tojson }}, title: "用户管理"};</script>
@@ -345,5 +346,5 @@
   <script src="{{ url_for('static', filename='user-address.js', v='20260706-user-address-v1') }}"></script>
   <script src="{{ url_for('static', filename='user-order-assignments.js', v='20260619-status-filter') }}"></script>
   <script src="{{ url_for('static', filename='user-attachments.js', v='20260619-async-delete') }}"></script>
-  <script src="{{ url_for('static', filename='selectable-table-actions.js', v='20261004-status-submit-v1') }}"></script>
+  <script src="{{ url_for('static', filename='selectable-table-actions.js', v=app_version) }}"></script>
 {% endblock %}

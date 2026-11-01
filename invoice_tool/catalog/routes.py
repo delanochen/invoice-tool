@@ -5,6 +5,7 @@ import re
 from flask import abort, flash, redirect, render_template, request, url_for
 
 from database import IntegrityError
+from invoice_tool.presentation.delete_response import delete_response
 from .services import normalized_project_name, project_name_key
 
 
@@ -85,12 +86,10 @@ def register_catalog_routes(
             (type_id,),
         ).fetchone()["count"]
         if used:
-            flash("这个工单类型已有工单使用，不能删除，可以停用。", "error")
-            return redirect(url_for("work_order_types"))
+            return delete_response("work_order_types", "这个工单类型已有工单使用，不能删除，可以停用。", success=False)
         db().execute("delete from work_order_types where id = ?", (type_id,))
         db().commit()
-        flash("工单类型已删除。", "success")
-        return redirect(url_for("work_order_types"))
+        return delete_response("work_order_types", "工单类型已删除。", success=True)
 
     @login_required
     def projects():
@@ -255,12 +254,10 @@ def register_catalog_routes(
         invoice_used = db().execute("select count(*) as count from invoice_items where project_id = ?", (project_id,)).fetchone()["count"]
         expense_used = db().execute("select count(*) as count from expense_items where project_id = ?", (project_id,)).fetchone()["count"]
         if invoice_used or expense_used:
-            flash("这个项目已有发票或报销记录，不能删除。可以停用该项目。", "error")
-            return redirect(url_for("projects"))
+            return delete_response("projects", "这个项目已有发票或报销记录，不能删除。可以停用该项目。", success=False)
         db().execute("delete from projects where id = ?", (project_id,))
         db().commit()
-        flash("项目已删除。", "success")
-        return redirect(url_for("projects"))
+        return delete_response("projects", "项目已删除。", success=True)
 
     @login_required
     def countries():

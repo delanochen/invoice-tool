@@ -11,9 +11,10 @@
 {% endblock %}
 
 {% block content %}
+{% set files_active = request.args.get('panel') == 'files' %}
 {# ERP 化：公司资料（表单）与已保存附件（表格）拆成两个页签，不再纵向堆叠。
    字段名 / name / 路由与只读判断全部保持原样。 #}
-<div class="erp-app erp-compact" data-active-panel="profile">
+<div class="erp-app erp-compact" data-active-panel="{{ 'files' if request.args.get('panel') == 'files' else 'profile' }}">
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
@@ -33,12 +34,12 @@
   <!-- ────────────────────────────────── 内容区 ──────────────────────────── -->
   <div class="erp-body">
     <nav class="erp-tabs" aria-label="公司信息视图">
-      {{ tab_button('profile', '公司资料', true) }}
-      {{ tab_button('files', '已保存附件', false, attachments|length) }}
+      {{ tab_button('profile', '公司资料', not files_active) }}
+      {{ tab_button('files', '已保存附件', files_active, attachments|length) }}
     </nav>
 
-    <section class="erp-panel active" data-erp-panel="profile">
-      <form method="post" enctype="multipart/form-data" class="form-stack" id="companyInfoForm">
+    <section class="erp-panel{{ '' if files_active else ' active' }}" data-erp-panel="profile">
+      <form method="post" class="form-stack erp-detail-scroll" id="companyInfoForm">
         <div class="form-grid two-columns">
           <label>公司名称 <input name="company_name" value="{{ company.name }}" required {% if not can_manage_company_info() %}readonly{% endif %}></label>
           <label>邮箱 <input type="email" name="company_email" value="{{ company.email }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
@@ -58,20 +59,18 @@
           <label>SWIFT/BIC 代码 <input name="payment_swift_bic" value="{{ payment.swift_bic }}" {% if not can_manage_company_info() %}readonly{% endif %}></label>
           <label class="full-span">条款 <textarea name="invoice_terms" rows="4" {% if not can_manage_company_info() %}readonly{% endif %}>{{ terms }}</textarea></label>
           <label class="full-span">税务说明 <textarea name="company_tax_note" rows="3" {% if not can_manage_company_info() %}readonly{% endif %}>{{ company.tax_note }}</textarea></label>
-          {% if can_manage_company_info() %}
-            <div class="full-span form-field">
-              <span class="field-label">公司附件</span>
-              <input type="file" name="attachments" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx">
-            </div>
-          {% endif %}
         </div>
-        {% if can_manage_company_info() %}
-          <div class="form-actions"><button class="primary" type="submit">保存公司信息</button></div>
-        {% endif %}
       </form>
     </section>
 
-    <section class="erp-panel" data-erp-panel="files">
+    <section class="erp-panel{{ ' active' if files_active else '' }}" data-erp-panel="files">
+      {% if can_manage_company_info() %}
+        <form method="post" enctype="multipart/form-data" class="erp-panel-actions">
+          <input type="hidden" name="action" value="upload_attachments">
+          <input type="file" name="attachments" aria-label="公司附件" multiple required accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx">
+          <button class="erp-btn primary" type="submit">确认上传</button>
+        </form>
+      {% endif %}
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid" data-grid-height="100%">
           <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>

@@ -33,6 +33,17 @@ def register_company_page_routes(app, *,
         if _cb_resolve_request().method == "POST" and not _cb_resolve_can_manage_company_info()():
             _cb_resolve_abort()(403)
         if _cb_resolve_request().method == "POST":
+            if _cb_resolve_request().form.get("action") == "upload_attachments":
+                try:
+                    for uploaded in _cb_resolve_uploaded_attachments_from_request()():
+                        _cb_resolve_save_named_attachment()(uploaded, _cb_resolve_COMPANY_ATTACHMENT_DIR(), "company_attachments")
+                except ValueError as error:
+                    _cb_resolve_db()().rollback()
+                    _cb_resolve_flash()(str(error), "error")
+                else:
+                    _cb_resolve_db()().commit()
+                    _cb_resolve_flash()("公司附件已上传。", "success")
+                return _cb_resolve_redirect()(_cb_resolve_url_for()("company_info", panel="files"))
             for key in ("name", "address", "email", "phone", "registration_number", "ein"):
                 _cb_resolve_set_setting()(f"company_{key}", _cb_resolve_request().form.get(f"company_{key}", "").strip())
             timezone_name = _cb_resolve_request().form.get("app_timezone", _cb_resolve_DEFAULT_TIMEZONE()).strip() or _cb_resolve_DEFAULT_TIMEZONE()
