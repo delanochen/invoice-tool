@@ -22,8 +22,9 @@ class SettlementChartTest(unittest.TestCase):
             dict(expected_date=None, total=200, settlement_count=1),
             dict(expected_date='2026-12-01', total=100, settlement_count=1),
             dict(expected_date='2026-11-01', total=0, settlement_count=1)])
-        self.assertEqual(['2026-11-01','2026-12-01',''],[p['expected_date'] for p in points])
-        self.assertEqual([0,50,100],[p['height'] for p in points])
+        # 倒序：最新在左、最早在右，未填写日期仍在最后。
+        self.assertEqual(['2026-12-01','2026-11-01',''],[p['expected_date'] for p in points])
+        self.assertEqual([50,0,100],[p['height'] for p in points])
         sql,params=db.execute.call_args.args
         self.assertEqual([7],params)
         self.assertIn('service_orders.client_id = ?',sql)
@@ -50,9 +51,9 @@ class SettlementChartTest(unittest.TestCase):
             dict(expected_date='2026-11-19', total=100, settlement_count=1),
             dict(expected_date=None, total=200, settlement_count=1),
             dict(expected_date='', total=300, settlement_count=1)])
-        self.assertEqual(['2026-11-19','2026-11-20',''],[p['expected_date'] for p in points])
-        self.assertEqual([100,0.30,500],[p['value'] for p in points])
-        self.assertEqual([1,3,2],[p['count'] for p in points])
+        self.assertEqual(['2026-11-20','2026-11-19',''],[p['expected_date'] for p in points])
+        self.assertEqual([0.30,100,500],[p['value'] for p in points])
+        self.assertEqual([3,1,2],[p['count'] for p in points])
         self.assertTrue(all('order_number' not in p for p in points))
         self.assertEqual(6,sum(p['count'] for p in points))
 

@@ -108,7 +108,8 @@ def settlement_by_date_chart(*, db, client_filter_clause, can_view_customer_reim
         bucket["value"] += float(row["total"] or 0)
         bucket["count"] += int(row["settlement_count"] or 0)
     points = [{**bucket, "value": round(bucket["value"], 2)} for bucket in buckets.values()]
-    points.sort(key=lambda point: (not bool(point["expected_date"]), point["expected_date"]))
+    # 日期倒序：最新到期日在左，最早的在最右；未填写日期的排最后。
+    points.sort(key=lambda point: (bool(point["expected_date"]), point["expected_date"]), reverse=True)
     max_value = max((point["value"] for point in points), default=0) or 1
     for point in points:
         point["height"] = max(0, round(point["value"] / max_value * 100))
