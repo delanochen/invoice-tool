@@ -337,6 +337,53 @@ def employee_finance_summary(api, employee_id):
     }
 
 
+# 已生成（未作废）的工资付款单：状态不在 rejected/cancelled 内即视为有效。
+PAYROLL_OVERLAP_IGNORED_STATUSES = ("rejected", "cancelled")
+
+
+def _reject_overlapping_payroll(api, period_start, period_end, employee_ids):
+    """生成工资前校验：同一员工已有有效工资单期间与所选期间重叠则整体拒绝。
+
+    已生成期间来自 employee_payment_orders.source_number（「YYYY-MM-DD~YYYY-MM-DD」），
+    仅看 payment_type='salary' 且 source_type 为 system_payroll/offline_salary 的单据。
+    与所选期间完全相同的单据沿用 source_key 去重逻辑（自动跳过），不在此拦截。
+    重叠判定：new_start <= existing_end and new_end >= existing_start。
+    """
+    if not employee_ids:
+        return
+    placeholders = ",".join("?" for _ in PAYROLL_OVERLAP_IGNORED_STATUSES)
+    rows = api["db"]().execute(
+        "select o.employee_id,o.source_number,u.name employee_name from employee_payment_orders o "
+        "left join users u on u.id=o.employee_id "
+        "where o.payment_type='salary' and o.source_type in ('system_payroll','offline_salary') "
+        f"and o.status not in ({placeholders}) order by o.employee_id,o.source_number",
+        PAYROLL_OVERLAP_IGNORED_STATUSES,
+    ).fetchall()
+    conflicts = {}
+    for row in rows:
+        if row["employee_id"] not in employee_ids:
+            continue
+        try:
+            start_text, end_text = str(row["source_number"] or "").split("~", 1)
+            existing_start = date.fromisoformat(start_text.strip())
+            existing_end = date.fromisoformat(end_text.strip())
+        except ValueError:
+            continue
+        if existing_start == period_start and existing_end == period_end:
+            continue
+        if period_start <= existing_end and period_end >= existing_start:
+            name = row["employee_name"] or f"#{row['employee_id']}"
+            ranges = conflicts.setdefault(name, [])
+            label = f"{existing_start.isoformat()}~{existing_end.isoformat()}"
+            if label not in ranges:
+                ranges.append(label)
+    if conflicts:
+        raise ValueError("；".join(
+            f"员工 {name} 的 {'、'.join(ranges)} 已生成工资，与所选期间重叠，未生成"
+            for name, ranges in conflicts.items()
+        ))
+
+
 def _insert_payment(api, *, employee_id, payment_type, gross_amount, source_type,
                     source_id=None, source_number="", source_key="", description="",
                     other_adjustment=Decimal("0"), advance_id=None, advance_offset=Decimal("0")):
@@ -1493,6 +1540,10 @@ def register_employee_finance_routes(app, api):
                 (batch["period_end"].isoformat(), period_start.isoformat()),
             ).fetchall()
             replacements = {row["employee_id"]: row for row in agreements if row["replaces_system_payroll"]}
+            _reject_overlapping_payroll(
+                api, period_start, batch["period_end"],
+                {row["worker_id"] for row in batch["rows"]} | {row["employee_id"] for row in agreements},
+            )
             created = 0
 
             def _write_components(payment_id, employee_id, components, totals, gross_amount):

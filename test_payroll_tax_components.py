@@ -174,6 +174,43 @@ class PayrollTaxComponentTest(unittest.TestCase):
 
     # ------------------------------------------------------------------
 
+    def _seed_salary_order(self, period_text, status="draft", key_suffix="x"):
+        with self.module.app.app_context():
+            db = self.module.db()
+            db.execute(
+                "insert into employee_payment_orders (payment_number,employee_id,payment_type,status,"
+                "currency,gross_amount,advance_offset,other_adjustment,net_amount,description,"
+                "source_type,source_number,source_key,created_by,created_at,updated_at) "
+                "values (?,?,'salary',?,'USD',100,0,0,100,'seed','system_payroll',?,?,?,?,?)",
+                ("SL-SEED-" + key_suffix, self.worker_id, status, period_text,
+                 "seed:" + key_suffix, self.admin_id, self.module.now(), self.module.now()),
+            )
+            db.commit()
+
+    def _salary_count(self):
+        with self.module.app.app_context():
+            return self.module.db().execute(
+                "select count(*) c from employee_payment_orders where payment_type='salary'"
+            ).fetchone()["c"]
+
+    def test_overlapping_generated_period_blocks_generation(self):
+        """所选期间与同员工已生成（有效）工资期间重叠 → 整体拒绝并提示重叠期间。"""
+        self._seed_tax_status(self.worker_id, [("W2", "2026-07-01", None)])
+        self._report(self.order1, "2026-08-03", service_hours=8, writer=False)
+        self._seed_salary_order("2026-07-27~2026-08-09", key_suffix="a")
+        page = self._generate().get_data(as_text=True)
+        self.assertIn("员工 Worker 的 2026-07-27~2026-08-09 已生成工资，与所选期间重叠，未生成", page)
+        self.assertEqual(self._salary_count(), 1)
+
+    def test_cancelled_or_adjacent_period_does_not_block(self):
+        """已作废(cancelled/rejected)或相邻不重叠的期间不拦截。"""
+        self._seed_tax_status(self.worker_id, [("W2", "2026-07-01", None)])
+        self._report(self.order1, "2026-08-03", service_hours=8, writer=False)
+        self._seed_salary_order("2026-07-27~2026-08-09", status="cancelled", key_suffix="b")
+        self._seed_salary_order("2026-07-20~2026-08-02", key_suffix="c")
+        self._generate()
+        self.assertEqual(self._salary_count(), 3)
+
     def test_standard_overtime_writer_meal_base_snapshot_and_totals(self):
         """普通工资 + 加班 + 撰写费 + 餐补 + 基本工资；多 service_date；sum==gross。"""
         self._seed_tax_status(self.worker_id, [("W2", "2026-07-01", None)])
