@@ -16,6 +16,9 @@ POLL_SECONDS = max(10, int(os.environ.get("PHOTO_WORKER_INTERVAL_SECONDS", "60")
 STABLE_SECONDS = max(30, int(os.environ.get("PHOTO_WORKER_STABLE_SECONDS", "120")))
 BATCH_SIZE = max(1, int(os.environ.get("PHOTO_WORKER_BATCH_SIZE", "10")))
 BACKUP_DAYS = max(0, int(os.environ.get("PHOTO_BACKUP_DAYS", "7")))
+# Full maintenance (dedupe, rename, picture/thumbnail validation, backup cleanup) of an
+# unchanged order folder runs at most this often. Changed folders are handled every cycle.
+MAINTENANCE_SECONDS = max(POLL_SECONDS, int(os.environ.get("PHOTO_WORKER_MAINTENANCE_SECONDS", "21600")))
 STATE_DIRS = {"pictures", "thumbnails", "processing", "failed", "original_backup"}
 IGNORED_DIRS = {"@eadir"}
 
@@ -51,7 +54,29 @@ def source_relative_path(order_dir, source):
     return relative
 
 
-def pending_sources(order_dir):
+def directory_signature(order_dir):
+    """Cheap change detector: directory count plus newest directory mtime.
+
+    Adding, removing or renaming a file updates its parent directory's mtime, so this
+    notices new uploads without stat-ing or opening every photo in the tree.
+    """
+    count = 0
+    newest = 0.0
+    for current, dirnames, _filenames in os.walk(order_dir):
+        dirnames[:] = [name for name in dirnames if name.casefold() not in IGNORED_DIRS]
+        try:
+            newest = max(newest, os.stat(current).st_mtime)
+        except OSError:
+            continue
+        count += 1
+    return count, newest
+
+
+# order folder path -> {"signature": ..., "maintained_at": float, "dirty": bool}
+_ORDER_STATE = {}
+
+
+def pending_sources(order_dir, unstable=None):
     cutoff = time.time() - STABLE_SECONDS
     sources = []
     for source in order_dir.rglob("*"):
@@ -64,6 +89,8 @@ def pending_sources(order_dir):
             continue
         try:
             if source.stat().st_mtime > cutoff:
+                if unstable is not None:
+                    unstable.append(source)
                 continue
         except OSError:
             continue
@@ -413,24 +440,54 @@ def clean_backups(order_dir):
 
 def run_once():
     processed = 0
+    now = time.time()
+    seen = set()
     for order_dir in order_directories():
-        clean_backups(order_dir)
-        clean_duplicate_pictures(order_dir)
-        rename_existing_pictures_by_datetime(order_dir)
-        repair_or_quarantine_pictures(order_dir)
-        for source in [*interrupted_sources(order_dir), *pending_sources(order_dir)]:
+        key = str(order_dir)
+        seen.add(key)
+        state = _ORDER_STATE.get(key)
+        signature = directory_signature(order_dir)
+        maintenance_due = state is None or now - state["maintained_at"] >= MAINTENANCE_SECONDS
+        if state is not None and not state["dirty"] and not maintenance_due and signature == state["signature"]:
+            continue
+
+        if maintenance_due:
+            clean_backups(order_dir)
+            clean_duplicate_pictures(order_dir)
+            rename_existing_pictures_by_datetime(order_dir)
+            repair_or_quarantine_pictures(order_dir)
+
+        unstable = []
+        sources = [*interrupted_sources(order_dir), *pending_sources(order_dir, unstable)]
+        batch_full = False
+        for source in sources:
             process_source(order_dir, source)
             clean_duplicate_pictures(order_dir)
             processed += 1
             if processed >= BATCH_SIZE:
-                return processed
+                batch_full = True
+                break
+
+        _ORDER_STATE[key] = {
+            # Re-read after processing so our own moves don't look like new uploads.
+            "signature": directory_signature(order_dir),
+            "maintained_at": now if maintenance_due else state["maintained_at"],
+            # Re-check next cycle while files are still settling or the batch cut us off.
+            "dirty": bool(unstable) or batch_full,
+        }
+        if batch_full:
+            return processed
+    for key in list(_ORDER_STATE):
+        if key not in seen:
+            del _ORDER_STATE[key]
     return processed
 
 
 def main():
     log(
         f"photo worker started root={ROOT} interval={POLL_SECONDS}s "
-        f"stable={STABLE_SECONDS}s batch={BATCH_SIZE} backup_days={BACKUP_DAYS}"
+        f"stable={STABLE_SECONDS}s batch={BATCH_SIZE} backup_days={BACKUP_DAYS} "
+        f"maintenance={MAINTENANCE_SECONDS}s incremental=on"
     )
     while True:
         try:
