@@ -12,7 +12,7 @@ function setup(type = 'departure') {
   const $ = id => {
     if (!elements.has(id)) {
       const flags = new Set();
-      elements.set(id, {hidden:false, textContent:'', append(){}, classList:{
+      elements.set(id, {hidden:false, textContent:'', append(){}, attrs:{}, setAttribute(name,value){this.attrs[name]=String(value);}, getAttribute(name){return this.attrs[name] ?? null;}, classList:{
         add:value=>flags.add(value), remove:value=>flags.delete(value),
         contains:value=>flags.has(value), toggle(value,yes){yes ? flags.add(value) : flags.delete(value);},
       }});
@@ -36,9 +36,9 @@ for (const desired of ['arrival','safety','equipment']) {
     c.queued=async()=>[queuedPhoto];
     await c.chooseKind(desired);
     assert.equal(c.batch.type,'departure');
-    assert.equal($('departureKind').classList.contains('primary'),true);
-    assert.equal($('arrivalKind').classList.contains('primary'),false);
-    assert.equal($('safetyKind').classList.contains('primary'),false);
+    assert.equal($('departureKind').getAttribute('aria-pressed')==='true',true);
+    assert.equal($('arrivalKind').getAttribute('aria-pressed')==='true',false);
+    assert.equal($('safetyKind').getAttribute('aria-pressed')==='true',false);
     assert.equal(queuedPhoto.photo_type,'departure');
     assert(notices.at(-1).includes('离场'));
   });
@@ -47,20 +47,18 @@ test('accepted switch updates actual type and highlighted type together',async()
   const {context:c,$}=setup();
   await c.chooseKind('arrival');
   assert.equal(c.batch.type,'arrival');
-  assert.equal($('arrivalKind').classList.contains('primary'),true);
-  assert.equal($('departureKind').classList.contains('primary'),false);
+  assert.equal($('arrivalKind').getAttribute('aria-pressed')==='true',true);
+  assert.equal($('departureKind').getAttribute('aria-pressed')==='true',false);
   await c.chooseKind('safety');
   assert.equal(c.batch.type,'safety');
-  assert.equal($('safetyKind').classList.contains('primary'),true);
+  assert.equal($('safetyKind').getAttribute('aria-pressed')==='true',true);
 });
-test('opening non-equipment choices preserves the current capture state',async()=>{
+test('single-row type control shows device fields only for equipment',async()=>{
   for(const type of ['equipment','departure','arrival','safety']) {
     const {context:c,$}=setup(type);
-    await c.chooseKind('general');
     assert.equal(c.batch.type,type);
-    assert.equal($('generalKindChoices').hidden,false);
     assert.equal($('deviceSession').hidden,type!=='equipment');
-    if(type!=='equipment')assert.equal($(type+'Kind').classList.contains('primary'),true);
+    for(const kind of ['equipment','departure','arrival','safety']) assert.equal($(kind+'Kind').getAttribute('aria-pressed'),String(kind===type));
   }
 });
 for(const flag of ['taking','processingFiles','syncing','captureContext']) {
@@ -68,7 +66,7 @@ for(const flag of ['taking','processingFiles','syncing','captureContext']) {
     const {context:c,$}=setup();c[flag]=true;
     await c.chooseKind('arrival');
     assert.equal(c.batch.type,'departure');
-    assert.equal($('departureKind').classList.contains('primary'),true);
+    assert.equal($('departureKind').getAttribute('aria-pressed')==='true',true);
   });
 }
 test('out-of-order queue checks cannot apply an obsolete selection',async()=>{
@@ -77,7 +75,7 @@ test('out-of-order queue checks cannot apply an obsolete selection',async()=>{
   const first=c.chooseKind('arrival');const last=c.chooseKind('safety');
   pending[1]([]);await last;pending[0]([]);await first;
   assert.equal(c.batch.type,'safety');
-  assert.equal($('safetyKind').classList.contains('primary'),true);
+  assert.equal($('safetyKind').getAttribute('aria-pressed')==='true',true);
 });
 test('capture starting while the queue check is pending keeps its original type',async()=>{
   const {context:c}=setup();let resolve;
@@ -89,7 +87,7 @@ test('queue read failure preserves both capture type and highlighted choice',asy
   const {context:c,$,notices}=setup();c.queued=async()=>{throw new Error('storage unavailable');};
   await c.chooseKind('arrival');
   assert.equal(c.batch.type,'departure');
-  assert.equal($('departureKind').classList.contains('primary'),true);
+  assert.equal($('departureKind').getAttribute('aria-pressed')==='true',true);
   assert(notices.at(-1).includes('未切换'));
 });
 const contextStart=source.indexOf('  async function makeContext(');

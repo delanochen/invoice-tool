@@ -56,7 +56,6 @@
     $('cameraView').hidden = mode !== 'camera';
     $('uploadControls').hidden = mode !== 'upload';
     $('captureDetails').hidden = false;
-    $('captureKind').hidden = mode !== 'camera';
     $('uploadHeader').hidden = mode !== 'upload';
     $('timeSettings').hidden = mode !== 'camera' || !batch?.type;
     $('captureNote').hidden = mode !== 'camera';
@@ -101,13 +100,8 @@
   let kindChangeGeneration = 0;
   function photoTypeLabel(t){return KIND_LABEL[t]||t||'-';}
   function setKindChoiceActive(type) {
-    const nonEquipment = ['general','arrival','departure','safety'].includes(type);
-    for (const [id, active] of [['equipmentKind',type==='equipment'],['generalKind',nonEquipment],
-      ['arrivalKind',type==='arrival'],['departureKind',type==='departure'],['safetyKind',type==='safety']]) {
-      $(id).classList.toggle('primary',active);
-      $(id).setAttribute('aria-pressed',String(active));
-    }
-    if (typeof document !== 'undefined') for (const button of document.querySelectorAll('#uploadTypeSeg button')) button.setAttribute('aria-pressed',String(button.dataset.kind===type));
+    // 拍照与上传共用同一行照片类型分段按钮：进场 / 离场 / 自检 / 设备
+    for (const kind of ['arrival','departure','safety','equipment']) $(kind+'Kind').setAttribute('aria-pressed',String(kind===type));
     if (typeof refreshUploadControls === 'function') refreshUploadControls();
   }
   async function chooseKind(type) {
@@ -150,7 +144,6 @@
     if (typeChanged) clearDeviceInputs();  // 换组：不残留上一组的设备信息
     $(type === 'equipment' ? 'deviceNoteSlot' : 'generalNoteSlot').append($('captureNote'));
     $('deviceSession').hidden = type !== 'equipment';  // 非设备照片（进场/离场/自检）不填写设备信息，隐藏设备区域
-    $('generalKindChoices').hidden = type === 'equipment';
     setKindChoiceActive(type);
     $('timeSettings').hidden = typeof captureMode !== 'undefined' && captureMode !== 'camera';
     const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：请先选择进场、离场或自检照片。'};
@@ -539,8 +532,8 @@
     const typed = UPLOAD_TYPES.includes(batch?.type);
     $('fileCapture').classList.toggle('disabled', !typed || wmBusy);
     $('photoFile').disabled = !typed || wmBusy;
-    $('uploadTypeHint').classList.toggle('warn', !typed);
-    setFieldText('uploadTypeHint', typed ? UPLOAD_TYPE_TEXT[batch.type] : '请选择照片类型（两种上传方式均必填）');
+    $('kindStatus').classList.toggle('warn', !typed);
+    setFieldText('kindStatus', typed ? UPLOAD_TYPE_TEXT[batch.type] : captureMode === 'upload' ? '请选择照片类型（两种上传方式均必填）' : '请选择照片类型。');
     $('uploadKeepMode').setAttribute('aria-pressed', String(!uploadWatermark));
     $('uploadWatermarkMode').setAttribute('aria-pressed', String(uploadWatermark));
     setFieldText('uploadModeNote', uploadWatermark ? '支持相册多选。按每张照片的 EXIF 拍摄时间生成水印，可整体调整时间。' : '支持相册多选。保留照片原样，点击完成后上传原文件，由服务器压缩归档。');
@@ -1161,7 +1154,7 @@
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
-    setKindChoiceActive(null); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; setUploadWatermark(false);
+    setKindChoiceActive(null); setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; setUploadWatermark(false);
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
   async function loadLedger() {
@@ -1326,7 +1319,6 @@
     $('watermarkPasswordDialog').showModal();
     $('watermarkPassword').focus();
   });
-  for (const button of document.querySelectorAll('#uploadTypeSeg button')) button.addEventListener('click', () => { if (!wmBusy) chooseKind(button.dataset.kind); });
   $('wmAdjust').addEventListener('input', renderWatermarkPanel);
   $('wmClear').addEventListener('click', () => { if (!wmBusy) clearWatermarkItems(); });
   $('wmUpload').addEventListener('click', uploadWatermarkItems);
@@ -1370,7 +1362,7 @@
     finally { deletingDrafts = false; await renderQueue(); }
   });
   $('retryUpload').addEventListener('click',()=>syncQueue()); $('reloadOrders').addEventListener('click',bootstrap);
-  $('equipmentKind').addEventListener('click',()=>chooseKind('equipment')); $('generalKind').addEventListener('click',()=>chooseKind('general'));
+  $('equipmentKind').addEventListener('click',()=>chooseKind('equipment'));
   $('arrivalKind').addEventListener('click',()=>chooseKind('arrival')); $('departureKind').addEventListener('click',()=>chooseKind('departure')); $('safetyKind').addEventListener('click',()=>chooseKind('safety'));
   $('adjustWatermarkTime').addEventListener('click',openWatermarkDialog);
   $('verifyTimePassword').addEventListener('click',verifyTimePassword);

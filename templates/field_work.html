@@ -29,13 +29,10 @@
             <button id="uploadKeepMode" class="upload-mode-card" type="button" aria-pressed="true"><b>上传不生成水印</b><span>保留照片原样，不添加系统水印</span></button>
             <button id="uploadWatermarkMode" class="upload-mode-card" type="button" aria-pressed="false"><b>上传并生成水印</b><span>按拍摄时间添加水印，可批量调整时间</span></button>
           </div>
-          <div class="upload-type-label">照片类型 <span class="required-mark">*</span></div>
-          <div id="uploadTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button type="button" data-kind="arrival" aria-pressed="false">进场</button><button type="button" data-kind="departure" aria-pressed="false">离场</button><button type="button" data-kind="safety" aria-pressed="false">自检</button><button type="button" data-kind="equipment" aria-pressed="false">设备</button></div>
-          <p id="uploadTypeHint" class="muted upload-type-hint warn">请选择照片类型（两种上传方式均必填）</p>
         </div>
         <div id="captureDetails">
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
-        <fieldset id="captureKind" class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><div id="generalKindChoices" hidden style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;"><button id="arrivalKind" type="button">进场照片</button><button id="departureKind" type="button">离场照片</button><button id="safetyKind" type="button">自检照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
+        <fieldset id="captureKind" class="capture-kind photo-type-block"><legend>本组照片类型 <span class="required-mark">*</span></legend><div id="photoTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button id="arrivalKind" type="button" data-kind="arrival" aria-pressed="false">进场</button><button id="departureKind" type="button" data-kind="departure" aria-pressed="false">离场</button><button id="safetyKind" type="button" data-kind="safety" aria-pressed="false">自检</button><button id="equipmentKind" type="button" data-kind="equipment" aria-pressed="false">设备</button></div><p id="kindStatus" class="muted upload-type-hint warn">请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
           <div class="time-actions" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;"><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" type="button">调整</button></div>
         </fieldset>
