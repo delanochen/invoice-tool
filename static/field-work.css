@@ -100,3 +100,57 @@ body[data-panel="camera"] .no-number-option{flex-shrink:0;min-height:44px;gap:4p
 .wm-bar{height:10px;background:#e4eae8;border-radius:10px;overflow:hidden;margin-top:6px}.wm-bar i{display:block;height:100%;width:0;background:var(--green);border-radius:10px;transition:width .2s}
 .wm-upload{width:100%;margin-top:12px;font-weight:700}.wm-upload:disabled{background:#e4eae8;color:#93a39f;border-color:#dce6e2;opacity:1;cursor:not-allowed}
 @media(max-width:600px){.wm-grid{grid-template-columns:1fr 1fr}.wm-time{grid-template-columns:1fr}.wm-arrow{display:none}.wm-meta{font-size:11px}}
+/* 0.1.468 现场工作紧凑布局（拍照 / 上传），相机全屏状态不受影响 */
+body[data-panel="camera"] main{padding-top:10px}
+body[data-panel="camera"] .section-heading h1{font-size:21px;margin:2px 0 8px}
+body[data-panel="camera"]:not(.camera-active) .card{padding:12px;margin:6px 0;border-radius:16px}
+body[data-panel="camera"]:not(.camera-active) .card label{gap:4px;font-size:13px;margin-bottom:8px}
+body[data-panel="camera"]:not(.camera-active) .card input,body[data-panel="camera"]:not(.camera-active) .card select{min-height:40px;padding:7px 10px}
+body[data-panel="camera"]:not(.camera-active) .card button,body[data-panel="camera"]:not(.camera-active) .card .button{min-height:40px;padding:7px 12px}
+body[data-panel="camera"]:not(.camera-active) .card textarea{min-height:40px;padding:7px 10px}
+body[data-panel="camera"]:not(.camera-active) #orderContext{margin:0 0 4px}
+body[data-panel="camera"]:not(.camera-active) .capture-kind,body[data-panel="camera"]:not(.camera-active) #timeSettings,body[data-panel="camera"]:not(.camera-active) .device-session{margin:6px 0;padding:6px 0 4px}
+body[data-panel="camera"]:not(.camera-active) .card legend{font-size:12px;font-weight:700;color:var(--muted);padding:0 4px 0 0}
+/* 拍照/上传：紧凑分段控件 */
+#captureSource .kind-actions{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px;background:#eef3f1;border-radius:11px}
+#captureSource .kind-actions button{min-height:36px!important;padding:5px 8px!important;border:0;border-radius:8px;background:transparent;color:var(--muted);font-weight:700}
+#captureSource .kind-actions button[aria-pressed=true]{background:#fff;color:var(--green);box-shadow:0 1px 3px #0002}
+/* 照片类型一行四个 */
+body[data-panel="camera"] .upload-type-seg{padding:3px;gap:3px;border-radius:11px}
+body[data-panel="camera"]:not(.camera-active) .upload-type-seg button{min-height:36px;padding:4px 6px;border-radius:8px}
+body[data-panel="camera"] .upload-type-hint{margin:4px 0 0;font-size:12px}
+/* 上传方式卡片：单行 */
+body[data-panel="camera"] .upload-header{margin:2px 0 4px}
+body[data-panel="camera"] .upload-mode-cards{gap:6px}
+body[data-panel="camera"]:not(.camera-active) .upload-mode-card{min-height:44px;padding:6px 26px 6px 10px;gap:0;border-radius:11px}
+.upload-mode-card b{font-size:14px;line-height:1.25}.upload-mode-card span{font-size:11px;line-height:1.3}
+.upload-mode-card[aria-pressed=true]::after{width:16px;height:16px;font-size:10px;right:7px;top:50%;transform:translateY(-50%)}
+/* 水印时间：标签 + 值 + 调整 同一行 */
+body[data-panel="camera"]:not(.camera-active) #timeSettings{display:flex;align-items:center;gap:8px}
+body[data-panel="camera"]:not(.camera-active) #timeSettings legend{float:left;padding:0;margin:0;font-size:12px}
+body[data-panel="camera"]:not(.camera-active) #timeSettings .time-actions{flex:1;justify-content:flex-end;gap:8px!important}
+body[data-panel="camera"]:not(.camera-active) #timeSettings #watermarkModeText{flex:1;font-size:13px}
+body[data-panel="camera"]:not(.camera-active) #adjustWatermarkTime{min-height:34px;padding:4px 12px}
+/* 设备信息：位置号 / 集装箱号两列 */
+body[data-panel="camera"]:not(.camera-active) .device-session label:has(#positionNumber),body[data-panel="camera"]:not(.camera-active) .device-session label:has(#containerNumber){float:left;width:calc(50% - 4px)}
+body[data-panel="camera"]:not(.camera-active) .device-session label:has(#positionNumber){margin-right:8px}
+body[data-panel="camera"]:not(.camera-active) #deviceNoteSlot,body[data-panel="camera"]:not(.camera-active) #deviceStatus{clear:both}
+body[data-panel="camera"]:not(.camera-active) .device-heading-actions{margin-top:-24px;margin-bottom:0}
+body[data-panel="camera"]:not(.camera-active) .device-heading-actions button{min-height:30px;padding:3px 10px}
+body[data-panel="camera"]:not(.camera-active) #deviceStatus{margin:2px 0 0;font-size:12px}
+body[data-panel="camera"]:not(.camera-active) .camera-actions{margin-top:4px}
+/* 上传面板 */
+body[data-panel="camera"] .native-photo-picker{margin:2px 0 4px}
+body[data-panel="camera"] #photoProcessStatus{margin:2px 0;font-size:12px}
+body[data-panel="camera"] .wm-panel{margin-top:8px;padding-top:8px}
+body[data-panel="camera"] .wm-heading{margin-bottom:6px}
+body[data-panel="camera"] .wm-time{padding:8px 10px;gap:6px;border-radius:12px}
+body[data-panel="camera"] .wm-v{font-size:16px;margin-top:2px}
+body[data-panel="camera"] .wm-grid{gap:6px;margin-top:8px}
+body[data-panel="camera"] .wm-warn{margin-top:8px;padding:8px 10px}
+body[data-panel="camera"] .wm-upload{margin-top:8px}
+@media(max-width:600px){body[data-panel="camera"] .wm-time{grid-template-columns:auto 1fr;align-items:center}body[data-panel="camera"] .wm-adjust{grid-column:1/-1}body[data-panel="camera"] .wm-time>div:first-child{grid-column:1/-1;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}}
+body[data-panel="camera"] .upload-mode-card span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+body[data-panel="camera"] #uploadControls small,body[data-panel="camera"] #photoProcessStatus{font-size:11px;line-height:1.4;display:block}
+body[data-panel="camera"] .wm-adjust{display:flex;align-items:center;gap:8px}body[data-panel="camera"] .wm-adjust input{flex:1;min-height:38px}
+body[data-panel="camera"] .wm-heading strong{font-size:15px}
