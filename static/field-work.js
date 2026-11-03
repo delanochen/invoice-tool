@@ -13,6 +13,7 @@
   let batch = null, timeAuthorized = false, useSystemTime = true, draftSelection = null;
   let ledgerPhotos = [], ledgerPhotoIndex = 0, ledgerTouchStart = null;
   let captureMode = 'camera', deviceStatusText = '';
+  let uploadWatermark = false, pendingUploadWatermark = false, wmItems = [], wmBusy = false;
   let deletingDrafts = false, deleteDraftSnapshot = null;
   let cameraStripSession = null;
   const queueViews = new Map();
@@ -54,9 +55,13 @@
     if (deviceStatusText) setFieldText('deviceStatus', deviceStatusText);
     $('cameraView').hidden = mode !== 'camera';
     $('uploadControls').hidden = mode !== 'upload';
-    $('captureDetails').hidden = mode !== 'camera';
+    $('captureDetails').hidden = false;
+    $('captureKind').hidden = mode !== 'camera';
+    $('uploadHeader').hidden = mode !== 'upload';
+    $('timeSettings').hidden = mode !== 'camera' || !batch?.type;
     $('captureNote').hidden = mode !== 'camera';
-    $('existingWatermark').checked = true;
+    if (mode !== 'upload') setUploadWatermark(false);
+    refreshUploadControls();
     for (const value of ['camera', 'upload']) {
       $(value + 'Mode').classList.toggle('primary', value === mode);
       $(value + 'Mode').setAttribute('aria-pressed', String(value === mode));
@@ -102,6 +107,8 @@
       $(id).classList.toggle('primary',active);
       $(id).setAttribute('aria-pressed',String(active));
     }
+    if (typeof document !== 'undefined') for (const button of document.querySelectorAll('#uploadTypeSeg button')) button.setAttribute('aria-pressed',String(button.dataset.kind===type));
+    if (typeof refreshUploadControls === 'function') refreshUploadControls();
   }
   async function chooseKind(type) {
     const generation = ++kindChangeGeneration;
@@ -145,7 +152,7 @@
     $('deviceSession').hidden = type !== 'equipment';  // 非设备照片（进场/离场/自检）不填写设备信息，隐藏设备区域
     $('generalKindChoices').hidden = type === 'equipment';
     setKindChoiceActive(type);
-    $('timeSettings').hidden = false;
+    $('timeSettings').hidden = typeof captureMode !== 'undefined' && captureMode !== 'camera';
     const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：请先选择进场、离场或自检照片。'};
     setFieldText('kindStatus', KIND_TEXT[type] || KIND_TEXT.general);
     if (type !== 'equipment') deviceSession = null;  // 非设备照片不建立设备 session
@@ -161,6 +168,7 @@
       return;
     }
     $('watermarkPasswordDialog').close();
+    if (pendingUploadWatermark) { pendingUploadWatermark = false; setUploadWatermark(true); return; }
     openWatermarkTimeDialog();
   }
   function openWatermarkDialog() {
@@ -195,7 +203,7 @@
     $('watermarkTimeDialog').close();
   }
   function cancelWatermarkTime() { $('watermarkTimeDialog').close(); }
-  function cancelWatermarkPassword() { $('watermarkPasswordDialog').close(); }
+  function cancelWatermarkPassword() { pendingUploadWatermark = false; $('watermarkPasswordDialog').close(); }
   async function scanDevice() {
     if (!stream || deviceSession || !('BarcodeDetector' in window)) return;
     try {
@@ -520,20 +528,225 @@
       if (recognitionOnly) { ocrStartTimer = setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
     } catch (error) { notice('无法打开相机，请检查相机权限，或切换到“上传”选择照片。',true); stopCamera(); }
   }
+  // ---- 0.1.467 上传方式（不生成水印 / 生成水印）与 EXIF 时间批量调整 ----
+  const UPLOAD_TYPES = ['arrival','departure','safety','equipment'];
+  const UPLOAD_TYPE_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。'};
+  const pad2 = n => String(n).padStart(2,'0');
+  const localInput = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const localText = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const shortText = d => `${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  function refreshUploadControls() {
+    const typed = UPLOAD_TYPES.includes(batch?.type);
+    $('fileCapture').classList.toggle('disabled', !typed || wmBusy);
+    $('photoFile').disabled = !typed || wmBusy;
+    $('uploadTypeHint').classList.toggle('warn', !typed);
+    setFieldText('uploadTypeHint', typed ? UPLOAD_TYPE_TEXT[batch.type] : '请选择照片类型（两种上传方式均必填）');
+    $('uploadKeepMode').setAttribute('aria-pressed', String(!uploadWatermark));
+    $('uploadWatermarkMode').setAttribute('aria-pressed', String(uploadWatermark));
+    setFieldText('uploadModeNote', uploadWatermark ? '支持相册多选。按每张照片的 EXIF 拍摄时间生成水印，可整体调整时间。' : '支持相册多选。保留照片原样，点击完成后上传原文件，由服务器压缩归档。');
+  }
+  function setUploadWatermark(on) {
+    uploadWatermark = Boolean(on);
+    if (!uploadWatermark) clearWatermarkItems();
+    refreshUploadControls();
+  }
+  function readExifDate(buffer) {
+    try {
+      const v = new DataView(buffer);
+      if (v.byteLength < 4 || v.getUint16(0) !== 0xFFD8) return null;
+      let o = 2;
+      while (o + 4 <= v.byteLength) {
+        const marker = v.getUint16(o);
+        if ((marker & 0xFF00) !== 0xFF00 || marker === 0xFFDA) return null;
+        const length = v.getUint16(o + 2);
+        if (marker === 0xFFE1 && o + 10 <= v.byteLength && v.getUint32(o + 4) === 0x45786966) return exifTiffDate(v, o + 10);
+        o += 2 + length;
+      }
+    } catch (_) {}
+    return null;
+  }
+  function exifTiffDate(v, t) {
+    const le = v.getUint16(t) === 0x4949;
+    const u16 = p => v.getUint16(p, le), u32 = p => v.getUint32(p, le);
+    const entries = ifd => {
+      const out = {}, count = u16(ifd);
+      for (let i = 0; i < count; i++) { const e = ifd + 2 + i * 12; out[u16(e)] = {count:u32(e + 4), at:e + 8}; }
+      return out;
+    };
+    const text = entry => {
+      if (!entry || entry.count < 19) return null;
+      const start = entry.count > 4 ? t + u32(entry.at) : entry.at;
+      let s = ''; for (let i = 0; i < 19; i++) s += String.fromCharCode(v.getUint8(start + i));
+      const m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
+      if (!m) return null;
+      const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+      return Number.isNaN(d.getTime()) || d.getFullYear() < 2000 ? null : d;
+    };
+    const ifd0 = entries(t + u32(t + 4));
+    let exif = {};
+    if (ifd0[0x8769]) exif = entries(t + u32(ifd0[0x8769].at));
+    return text(exif[0x9003]) || text(exif[0x9004]) || text(ifd0[0x0132]);
+  }
+  function clearWatermarkItems() {
+    for (const item of wmItems) URL.revokeObjectURL(item.url);
+    wmItems = [];
+    $('wmAdjust').value = '';
+    $('wmProgress').hidden = true;
+    renderWatermarkPanel();
+  }
+  async function stageWatermarkFiles(files) {
+    clearWatermarkItems();
+    setFieldText('photoProcessStatus', `正在读取 ${files.length} 张照片的 EXIF 拍摄时间…`);
+    const items = [];
+    for (const file of files) {
+      let exif = null;
+      try { exif = readExifDate(await file.slice(0, 512 * 1024).arrayBuffer()); } catch (_) {}
+      items.push({id:key(), file, exif, url:URL.createObjectURL(file), state:'pending'});
+    }
+    items.sort((a, b) => (a.exif ? a.exif.getTime() : Infinity) - (b.exif ? b.exif.getTime() : Infinity));
+    wmItems = items;
+    const base = wmBase();
+    $('wmAdjust').value = base ? localInput(base) : localInput(new Date());
+    setFieldText('photoProcessStatus', `已选择 ${items.length} 张照片，请确认水印时间后上传。`);
+    renderWatermarkPanel();
+  }
+  const wmBase = () => wmItems.find(item => item.exif)?.exif || null;
+  const wmManual = () => wmItems.length === 1 && !wmItems[0].exif;
+  function wmOffsetMs() {
+    const base = wmBase(), adjusted = new Date($('wmAdjust').value);
+    if (!base || Number.isNaN(adjusted.getTime())) return 0;
+    const baseMinute = new Date(base); baseMinute.setSeconds(0, 0);
+    return adjusted.getTime() - baseMinute.getTime();
+  }
+  function offsetText(ms) {
+    if (!ms) return '时间不调整';
+    const minutes = Math.round(Math.abs(ms) / 60000);
+    return `整体${ms < 0 ? '提前' : '推后'} ${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+  }
+  function renderWatermarkPanel() {
+    $('wmPanel').hidden = !uploadWatermark || !wmItems.length;
+    if ($('wmPanel').hidden) return;
+    const base = wmBase(), manual = wmManual(), offset = wmOffsetMs();
+    const missing = manual ? 0 : wmItems.filter(item => !item.exif).length;
+    setFieldText('wmCount', `· 已选 ${wmItems.length} 张`);
+    setFieldText('wmBaseLabel', manual ? '该照片没有 EXIF 拍摄时间' : '基准照片（最早 EXIF 拍摄时间）');
+    setFieldText('wmBaseTime', base ? localText(base) : '请手动输入水印时间');
+    setFieldText('wmAdjustLabel', manual ? '水印时间' : '调整为');
+    $('wmAdjust').disabled = wmBusy || (!base && !manual);
+    $('wmOffset').parentElement.hidden = manual || !base;
+    setFieldText('wmOffset', offsetText(offset));
+    const grid = $('wmGrid'); grid.replaceChildren();
+    wmItems.forEach((item, index) => {
+      const card = document.createElement('div');
+      card.className = 'wm-thumb' + (!item.exif && !manual ? ' no-exif' : '');
+      card.dataset.state = item.state;
+      const img = document.createElement('img'); img.src = item.url; img.alt = item.file.name || ''; img.loading = 'lazy';
+      card.append(img);
+      if (index === 0 && base && item.exif) card.append(textNode('span', '基准', 'wm-tag'));
+      if (item.state !== 'pending') card.append(textNode('span', item.state === 'done' ? '✓' : item.state === 'error' ? '!' : '…', 'wm-state'));
+      const meta = document.createElement('div'); meta.className = 'wm-meta';
+      if (item.exif) {
+        meta.append(textNode('span','原始 '), textNode('s', shortText(item.exif)), textNode('span',' → '), textNode('b', shortText(new Date(item.exif.getTime() + offset))));
+      } else if (manual) {
+        const value = new Date($('wmAdjust').value);
+        meta.append(textNode('span','无 EXIF · 水印 '), textNode('b', Number.isNaN(value.getTime()) ? '-' : shortText(value)));
+      } else {
+        meta.append(textNode('span','⚠ 无 EXIF 时间'));
+        const remove = textNode('button','剔除','wm-remove'); remove.type = 'button'; remove.disabled = wmBusy;
+        remove.addEventListener('click', () => { URL.revokeObjectURL(item.url); wmItems = wmItems.filter(other => other !== item); if (!wmItems.length) clearWatermarkItems(); else renderWatermarkPanel(); });
+        meta.append(remove);
+      }
+      card.append(meta); grid.append(card);
+    });
+    $('wmWarn').hidden = !missing;
+    if (missing) setFieldText('wmWarn', `还有 ${missing} 张照片缺少 EXIF 时间，请先剔除`);
+    const ready = wmItems.length - missing;
+    const validTime = !Number.isNaN(new Date($('wmAdjust').value).getTime());
+    $('wmUpload').disabled = wmBusy || Boolean(missing) || !ready || !validTime;
+    setFieldText('wmUpload', wmBusy ? '上传中，请勿关闭页面' : `上传 ${ready} 张并生成水印`);
+  }
+  function setWatermarkProgress(text, done, total) {
+    $('wmProgress').hidden = false;
+    setFieldText('wmProgressText', text);
+    setFieldText('wmProgressCount', total ? `${done} / ${total}` : '');
+    $('wmBar').style.width = total ? `${Math.round(done / total * 100)}%` : '100%';
+  }
+  async function uploadWatermarkItems() {
+    if (wmBusy || taking || processingFiles || syncing) return;
+    if (!timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
+    if (!UPLOAD_TYPES.includes(batch?.type)) { notice('请先选择照片类型。',true); return; }
+    const manual = wmManual();
+    if (!manual && wmItems.some(item => !item.exif)) { notice('还有照片缺少 EXIF 时间，请先剔除。',true); return; }
+    const adjusted = new Date($('wmAdjust').value);
+    if (Number.isNaN(adjusted.getTime())) { notice('请选择有效的水印时间。',true); $('wmAdjust').focus(); return; }
+    if (batch.type === 'equipment' && !deviceSession && !confirmDevice()) return;
+    const selected = chosenOrder();
+    if (!selected) { notice('请先在上方选择工单。',true); return; }
+    const items = wmItems.slice(), offset = manual ? 0 : wmOffsetMs();
+    wmBusy = true; taking = true; processingFiles = true; processingTotal = items.length; processingDone = 0;
+    refreshUploadControls(); renderWatermarkPanel();
+    let saved = 0;
+    try {
+      setWatermarkProgress('正在检查位置…', 0, items.length);
+      const baseContext = await makeContext('file', {order:{...selected}, userId:profile.user.id, watermarkSource:'system'});
+      if (baseContext) baseContext.watermark_source = 'system';
+      for (const item of baseContext ? items : []) {
+        item.state = 'processing'; renderWatermarkPanel();
+        setWatermarkProgress('正在生成水印…', processingDone, items.length);
+        try {
+          const shot = manual ? new Date() : item.exif;
+          const watermark = manual ? new Date(adjusted.getTime() + Math.floor(Math.random() * 60) * 1000) : new Date(item.exif.getTime() + offset);
+          const context = {...baseContext, client_id:key(), captured_at:shot.toISOString(), watermark_at:watermark.toISOString(),
+            watermark_offset_minutes:Math.round(offset / 60000)};
+          const image = new Image(); image.src = item.url; await image.decode();
+          await keepCapture(image, context);
+          item.state = 'done'; saved++;
+        } catch (error) { item.state = 'error'; notice(`照片 ${item.file.name || processingDone + 1} 未保存：${error.message}。`,true); }
+        processingDone++;
+        renderWatermarkPanel();
+      }
+      if (saved) setWatermarkProgress('已生成水印，正在上传…', saved, items.length);
+    } catch (error) {
+      notice('照片未保存：'+error.message+'。请保留原照片后重试。',true);
+    } finally {
+      taking = false; processingFiles = false; processingTotal = 0; processingDone = 0;
+    }
+    try {
+      if (saved) {
+        await completeBatch();
+        const remaining = batch ? (await queued(batch.id)).length : 0;
+        if (wmItems.length) setWatermarkProgress(remaining ? `已上传 ${saved - remaining} 张，${remaining} 张待重试` : `已上传 ${saved} 张并生成水印`, saved - remaining, saved);
+      }
+    } finally {
+      wmBusy = false;
+      // 已保存为草稿的照片不再留在面板中，避免重复生成；未上传的草稿用「重试上传」继续。
+      for (const item of items) if (item.state === 'done') URL.revokeObjectURL(item.url);
+      wmItems = wmItems.filter(item => item.state !== 'done');
+      for (const item of wmItems) item.state = 'pending';
+      if (!wmItems.length) $('wmProgress').hidden = true;
+      refreshUploadControls(); renderWatermarkPanel(); await renderQueue();
+    }
+  }
   async function makeContext(source, lockedSelection = null) {
     const resolved = chosenOrder();
     if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
     const selected = lockedSelection?.order || cameraSelection?.order || {...resolved};
     if (source === 'file' && lockedSelection?.watermarkSource === 'original') {
       if (!batch || lockedSelection.userId !== profile.user.id) throw new Error('照片功能尚未准备好，请稍后重试。');
+      if (!UPLOAD_TYPES.includes(batch.type)) throw new Error('请先选择照片类型。');
+      const originalDevice = batch.type === 'equipment' ? (deviceSession ? {...deviceSession} : null) : null;
+      if (batch.type === 'equipment' && !originalDevice) throw new Error('请先确认设备信息。');
+      const originalTech = profile.technicians?.find(person => String(person.id) === $('technicianSelect').value) || {id:profile.user.id, name:profile.user.name};
       const actual = new Date().toISOString();
       const timezoneName = $('timezoneName').value.trim() || 'UTC';
       new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
-      return {client_id:key(),user_id:profile.user.id,employee_name:profile.user.name,technician_user_id:profile.user.id,
+      return {client_id:key(),user_id:profile.user.id,employee_name:originalTech.name,technician_user_id:originalTech.id,
         order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
-        captured_at:actual,watermark_at:actual,batch_id:batch.id,photo_type:'legacy',timezone_name:timezoneName,
+        captured_at:actual,watermark_at:actual,batch_id:batch.id,photo_type:batch.type,timezone_name:timezoneName,
         latitude:0,longitude:0,accuracy:100000,location_verified:false,note:'',
-        location_note:'原图已有水印，未检查拍摄位置。',source,error:''};
+        location_note:'原图已有水印，未检查拍摄位置。',source,error:'',
+        ...(originalDevice ? {equipment_number:originalDevice.equipment_number,position_number:originalDevice.position_number,
+        container_number:originalDevice.container_number,equipment_session:originalDevice.id,no_equipment_number:originalDevice.no_equipment_number} : {})};
     }
     if (!batch) throw new Error('请先确认本组照片类型。');
     if (batch.type === 'general') throw new Error('请先选择进场、离场或自检照片。');
@@ -616,12 +829,16 @@
     if (!selected) { reject('请先在上方选择工单。'); $('orderSelect').focus(); return; }
     // This handler runs on the native file input itself. iPhone/PWA therefore
     // receives a direct trusted user gesture instead of a scripted input click.
-    batch ||= {id:key(),type:null,actual_start:Date.now(),watermark_start:null};
-    captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:'original'};
+    if (!UPLOAD_TYPES.includes(batch?.type)) { reject('请先选择照片类型：进场、离场、自检或设备。'); return; }
+    if (wmBusy) { reject('正在上传，请稍候。'); return; }
+    if (batch.type === 'equipment' && !deviceSession && !confirmDevice()) { event.preventDefault(); captureContext = null; return; }
+    if (uploadWatermark && !timeAuthorized) { reject('请先验证水印时间调整密码。'); return; }
+    captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:uploadWatermark ? 'system' : 'original'};
   });
   $('photoFile').addEventListener('change', async () => {
     const files = Array.from($('photoFile').files || []), selection = captureContext; captureContext = null;
     if (!files.length || !selection) return;
+    if (selection.watermarkSource === 'system') { $('photoFile').value = ''; await stageWatermarkFiles(files); return; }
     taking = true; processingFiles = true; processingTotal = files.length; processingDone = 0;
     setFieldText('photoProcessStatus', selection.watermarkSource === 'original'
       ? `已跳过位置检查，正在准备处理 ${files.length} 张照片…`
@@ -856,7 +1073,7 @@
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
-    setKindChoiceActive(null); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; $('existingWatermark').checked=true;
+    setKindChoiceActive(null); $('generalKindChoices').hidden = true; setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; setUploadWatermark(false);
     notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
   }
   async function loadLedger() {
@@ -1011,6 +1228,20 @@
   $('refreshLocation').addEventListener('click', () => locate().catch(error => notice(error.message,true)));
   $('cameraMode').addEventListener('click', () => setCaptureMode('camera'));
   $('uploadMode').addEventListener('click', () => setCaptureMode('upload'));
+  $('uploadKeepMode').addEventListener('click', () => { if (!wmBusy) setUploadWatermark(false); });
+  $('uploadWatermarkMode').addEventListener('click', () => {
+    if (wmBusy || taking || processingFiles) return;
+    if (timeAuthorized) { setUploadWatermark(true); return; }
+    pendingUploadWatermark = true;
+    $('watermarkPassword').value = '';
+    setFieldText('passwordStatus','请输入水印时间调整密码。');
+    $('watermarkPasswordDialog').showModal();
+    $('watermarkPassword').focus();
+  });
+  for (const button of document.querySelectorAll('#uploadTypeSeg button')) button.addEventListener('click', () => { if (!wmBusy) chooseKind(button.dataset.kind); });
+  $('wmAdjust').addEventListener('input', renderWatermarkPanel);
+  $('wmClear').addEventListener('click', () => { if (!wmBusy) clearWatermarkItems(); });
+  $('wmUpload').addEventListener('click', uploadWatermarkItems);
   $('openCamera').addEventListener('click',()=>openCamera(false)); $('closeCamera').addEventListener('click',stopCamera);
   $('deleteAllDrafts').addEventListener('click', async () => {
     if (syncing || taking || processingFiles || deletingDrafts || !identityReady) return;

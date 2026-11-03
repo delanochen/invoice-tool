@@ -24,9 +24,18 @@
         <p id="orderContext" class="muted"></p>
 
         <fieldset id="captureSource" class="capture-kind" hidden><legend>拍照或上传</legend><div class="kind-actions"><button id="cameraMode" class="primary" type="button" aria-pressed="true">拍照</button><button id="uploadMode" type="button" aria-pressed="false">上传</button></div></fieldset>
+        <div id="uploadHeader" class="upload-header" hidden>
+          <div class="upload-mode-cards" role="group" aria-label="上传方式">
+            <button id="uploadKeepMode" class="upload-mode-card" type="button" aria-pressed="true"><b>上传不生成水印</b><span>保留照片原样，不添加系统水印</span></button>
+            <button id="uploadWatermarkMode" class="upload-mode-card" type="button" aria-pressed="false"><b>上传并生成水印</b><span>按拍摄时间添加水印，可批量调整时间</span></button>
+          </div>
+          <div class="upload-type-label">照片类型 <span class="required-mark">*</span></div>
+          <div id="uploadTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button type="button" data-kind="arrival" aria-pressed="false">进场</button><button type="button" data-kind="departure" aria-pressed="false">离场</button><button type="button" data-kind="safety" aria-pressed="false">自检</button><button type="button" data-kind="equipment" aria-pressed="false">设备</button></div>
+          <p id="uploadTypeHint" class="muted upload-type-hint warn">请选择照片类型（两种上传方式均必填）</p>
+        </div>
         <div id="captureDetails">
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
-        <fieldset class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><div id="generalKindChoices" hidden style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;"><button id="arrivalKind" type="button">进场照片</button><button id="departureKind" type="button">离场照片</button><button id="safetyKind" type="button">自检照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
+        <fieldset id="captureKind" class="capture-kind"><legend>本组照片类型</legend><div class="kind-actions"><button id="equipmentKind" type="button">设备照片</button><button id="generalKind" type="button">非设备照片</button></div><div id="generalKindChoices" hidden style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;"><button id="arrivalKind" type="button">进场照片</button><button id="departureKind" type="button">离场照片</button><button id="safetyKind" type="button">自检照片</button></div><p id="kindStatus" class="muted" hidden>请选择照片类型。</p></fieldset>
         <fieldset id="timeSettings" hidden><legend>水印时间</legend>
           <div class="time-actions" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;"><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" type="button">调整</button></div>
         </fieldset>
@@ -47,10 +56,22 @@
         <div id="recentCaptures" class="recent-captures" aria-label="本次拍摄的照片" hidden></div>
         </div>
         <div id="uploadControls" hidden>
-        <input id="existingWatermark" type="checkbox" checked hidden><p class="muted">上传照片默认保留原图水印，不再添加系统水印。</p>
-        <label id="fileCapture" class="native-photo-picker button"><span>选择照片上传</span><input id="photoFile" type="file" accept="image/*,.heic,.heif,.avif" multiple></label>
+        <label id="fileCapture" class="native-photo-picker button disabled"><span>选择照片上传</span><input id="photoFile" type="file" accept="image/*,.heic,.heif,.avif" multiple></label>
         <p id="photoProcessStatus" class="muted" role="status" aria-live="polite">选择照片后将在这里显示处理进度。</p>
-        <small class="muted">支持相册多选。点击完成后上传原文件，由服务器压缩归档。</small>
+        <small id="uploadModeNote" class="muted">支持相册多选。点击完成后上传原文件，由服务器压缩归档。</small>
+        <section id="wmPanel" class="wm-panel" hidden aria-label="水印时间调整">
+          <div class="wm-heading"><strong>水印时间调整</strong><span id="wmCount" class="muted"></span><button id="wmClear" class="text-button" type="button">重新选择</button></div>
+          <div class="wm-time">
+            <div><div class="wm-k" id="wmBaseLabel">基准照片（最早 EXIF 拍摄时间）</div><div class="wm-v" id="wmBaseTime">-</div></div>
+            <div class="wm-arrow" aria-hidden="true">→</div>
+            <label class="wm-adjust"><span class="wm-k" id="wmAdjustLabel">调整为</span><input id="wmAdjust" type="datetime-local" step="60"></label>
+            <div class="wm-delta"><span>所有照片按相同间隔平移：</span><span id="wmOffset" class="wm-pill">时间不调整</span></div>
+          </div>
+          <div id="wmGrid" class="wm-grid"></div>
+          <p id="wmWarn" class="wm-warn" hidden></p>
+          <div id="wmProgress" class="wm-progress" hidden><div class="wm-progress-text"><span id="wmProgressText">正在生成水印…</span><span id="wmProgressCount"></span></div><div class="wm-bar"><i id="wmBar"></i></div></div>
+          <button id="wmUpload" class="primary wm-upload" type="button" disabled>上传并生成水印</button>
+        </section>
         </div>
       </div>
       <div id="draftCard" class="card" hidden><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><div class="draft-actions"><button id="retryUpload" type="button">重试上传</button><button id="deleteAllDrafts" type="button" class="danger">全部删除</button></div></div><div id="queueList"></div></div>

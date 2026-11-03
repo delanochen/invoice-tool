@@ -67,3 +67,36 @@ body[data-panel="camera"] .equipment-label-row label{margin:0!important}
 body[data-panel="camera"] .no-number-option{flex-shrink:0;min-height:44px;gap:4px!important;font-size:13px;cursor:pointer}
 #photoNote{height:44px;min-height:44px;overflow-y:hidden;resize:none}
 #deviceSession>label{width:100%}
+
+/* 0.1.467 上传方式卡片 / 照片类型 / 水印时间调整 */
+.upload-header{margin:4px 0 10px}.upload-mode-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.upload-mode-card{position:relative;display:grid;justify-content:start;align-content:center;justify-items:start;gap:4px;text-align:left;min-height:76px;padding:12px 34px 12px 14px}
+.upload-mode-card b{font-size:15px}.upload-mode-card span{font-size:12px;color:var(--muted);font-weight:400;line-height:1.4}
+.upload-mode-card[aria-pressed=true]{border:2px solid var(--green);background:#f0faf6}
+.upload-mode-card[aria-pressed=true]::after{content:"✓";position:absolute;right:10px;top:10px;width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;font-size:12px;display:grid;place-items:center}
+.upload-type-label{font-size:14px;font-weight:600;margin:14px 0 8px}.required-mark{color:#a33624}
+.upload-type-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px;background:#eef3f1;border-radius:12px}
+.upload-type-seg button{min-height:38px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-weight:700;padding:6px}
+.upload-type-seg button[aria-pressed=true]{background:#fff;color:var(--green);box-shadow:0 1px 3px #0002}
+.upload-type-hint{margin:6px 0 0}.upload-type-hint.warn{color:#b45309}
+.wm-panel{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+.wm-heading{display:flex;align-items:center;gap:8px;margin-bottom:10px}.wm-heading .text-button{margin-left:auto;min-height:32px}
+.wm-time{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end;background:#f6faf9;border:1px solid var(--line);border-radius:14px;padding:12px}
+.wm-k{font-size:12px;color:var(--muted);font-weight:400}.wm-v{font-size:18px;font-weight:700;margin-top:4px}.wm-arrow{color:var(--muted);font-size:20px;padding-bottom:10px}
+.wm-adjust{margin:0;gap:4px}.wm-adjust input{border-color:var(--green);font-weight:600}
+.wm-delta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:14px}.wm-pill{background:#e5f4ed;color:var(--green);font-weight:700;padding:3px 10px;border-radius:20px}
+.wm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.wm-thumb{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+.wm-thumb img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#dfe7e4}
+.wm-meta{padding:6px 8px;font-size:12px;line-height:1.5}.wm-meta s{color:var(--muted)}.wm-meta b{color:var(--green)}
+.wm-tag{position:absolute;left:6px;top:6px;background:var(--green);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px}
+.wm-thumb.no-exif{border:2px solid #dc2626}.wm-thumb.no-exif img{filter:grayscale(.6) opacity(.7)}
+.wm-thumb.no-exif .wm-meta{display:flex;justify-content:space-between;align-items:center;gap:6px;color:#a33624}
+.wm-thumb .wm-remove{min-height:30px;padding:3px 10px;font-size:12px;border-color:#dc2626;color:#dc2626}
+.wm-state{position:absolute;right:6px;top:6px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:13px;color:#fff;box-shadow:0 0 0 2px #fff}
+.wm-thumb[data-state=done] .wm-state{background:var(--green)}.wm-thumb[data-state=error] .wm-state{background:#dc2626}.wm-thumb[data-state=processing] .wm-state{background:#f5b942}
+.wm-warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:12px;padding:10px 12px;font-size:13px;margin:12px 0 0}
+.wm-progress{margin-top:12px}.wm-progress-text{display:flex;justify-content:space-between;font-size:14px;font-weight:600}
+.wm-bar{height:10px;background:#e4eae8;border-radius:10px;overflow:hidden;margin-top:6px}.wm-bar i{display:block;height:100%;width:0;background:var(--green);border-radius:10px;transition:width .2s}
+.wm-upload{width:100%;margin-top:12px;font-weight:700}.wm-upload:disabled{background:#e4eae8;color:#93a39f;border-color:#dce6e2;opacity:1;cursor:not-allowed}
+@media(max-width:600px){.wm-grid{grid-template-columns:1fr 1fr}.wm-time{grid-template-columns:1fr}.wm-arrow{display:none}.wm-meta{font-size:11px}}
