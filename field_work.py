@@ -295,8 +295,9 @@ def register_field_routes(app, api):
             tz_name = 'UTC'
             local = captured
             lat, lng, accuracy = 0.0, 0.0, 100000.0
-        if not location_verified and not (source == 'file' and watermark_source == 'original'):
-            return jsonify(error='只有保留原图水印的选图可以跳过位置检查。'), 422
+        if not location_verified and source != 'file':
+            # 选图上传（保留原图水印或生成水印）均不检查位置；拍照仍必须通过位置检查。
+            return jsonify(error='只有选图上传可以跳过位置检查。'), 422
         note = request.form.get('note', '').strip()[:1000]
         has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
                                                                    'equipment_session', 'no_equipment_number'))
@@ -356,6 +357,7 @@ def register_field_routes(app, api):
                 if previous['content_hash'] != digest or previous['order_id'] != order_id:
                     return jsonify(error='照片编号已用于不同的内容。'), 409
                 return jsonify(ok=True, id=previous['id'], duplicate=True, capture_date=previous['capture_date'])
+        if original_import:
             try:
                 local, capture_date_source, candidates = resolve_capture_date(content, tz_name, request.form.get('manual_capture_date', ''))
             except (OSError, RuntimeError, subprocess.TimeoutExpired):
@@ -366,6 +368,10 @@ def register_field_routes(app, api):
                 return jsonify(error='请选择照片的拍摄日期。', needs_capture_date=True, date_candidates=candidates), 422
             captured = local
             watermark_at = local.isoformat()
+        elif source == 'file':
+            # 选图并生成水印：captured_at 为照片 EXIF 原始时间，watermark_at 为调整后的水印时间（由前端绘制到照片上）。
+            local = watermark.astimezone(ZoneInfo(tz_name))
+            capture_date_source = 'watermark' if watermark != captured else 'exif'
         db.execute('begin immediate')
         try:
             previous = db.execute('select * from field_photos where user_id = ? and client_id = ?', (g.user['id'], key)).fetchone()

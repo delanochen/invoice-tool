@@ -237,7 +237,13 @@ class FieldWorkTest(unittest.TestCase):
         listed = self.http.get('/api/field/photos').json['rows'][0]
         self.assertEqual(listed['watermark_source'], 'original')
         self.assertEqual(self.upload(source='camera', watermark_source='original').status_code, 422)
-        self.assertEqual(self.upload(source='file', watermark_source='system', location_verified='false').status_code, 422)
+        generated = self.upload(source='file', watermark_source='system', location_verified='false', latitude='0', longitude='0', accuracy='100000',
+                                watermark_at=(self.capture_time - timedelta(hours=1)).isoformat(), photo_type='arrival')
+        self.assertEqual(generated.status_code, 200, generated.text)
+        with self.module.app.app_context():
+            generated_row = self.module.db().execute('select location_verified, photo_type, capture_date_source, watermark_at from field_photos where id = ?', (generated.json['id'],)).fetchone()
+        self.assertEqual((generated_row['location_verified'], generated_row['photo_type'], generated_row['capture_date_source']), (0, 'arrival', 'watermark'))
+        self.assertEqual(self.upload(source='camera', watermark_source='system', location_verified='false').status_code, 422)
         repaired = self.upload(client_id='old-draft', source='file', watermark_source='original',
                                location_verified='false', captured_at='invalid', timezone_name='Old/Phone', latitude='nan', manual_capture_date='2026-09-11')
         self.assertEqual(repaired.status_code, 200, repaired.text)
@@ -401,8 +407,8 @@ class FieldWorkTest(unittest.TestCase):
         script = (fixture.ROOT / 'static' / 'field-work.js').read_text(encoding='utf-8')
         self.assertIn("context.watermark_source !== 'original'", script)
         self.assertIn("watermarkSource:'original'", script)
-        self.assertIn("if (!keepsOriginalWatermark) {", script)
-        self.assertIn("location_verified:!keepsOriginalWatermark", script)
+        self.assertIn("if (!skipsLocation) {", script)
+        self.assertIn("location_verified:!skipsLocation", script)
         self.assertIn("if (selection.watermarkSource === 'original') await keepOriginalFile(file,context)", script)
         self.assertIn("data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg')", script)
         self.assertIn("thumb.replaceWith(fallback)", script)

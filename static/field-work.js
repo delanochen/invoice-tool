@@ -587,6 +587,86 @@
     if (ifd0[0x8769]) exif = entries(t + u32(ifd0[0x8769].at));
     return text(exif[0x9003]) || text(exif[0x9004]) || text(ifd0[0x0132]);
   }
+  const isHeif = file => /\.(heic|heif)$/i.test(file.name || '') || /^image\/hei[cf]/i.test(file.type || '');
+  function heifExifLocation(v) {
+    // ISOBMFF: meta → iinf（找 Exif 项）+ iloc（该项在文件中的偏移和长度）
+    const type = p => String.fromCharCode(v.getUint8(p), v.getUint8(p + 1), v.getUint8(p + 2), v.getUint8(p + 3));
+    const boxes = (start, end) => {
+      const out = [];
+      for (let p = start; p + 8 <= end;) {
+        let size = v.getUint32(p), header = 8;
+        if (size === 1) { size = v.getUint32(p + 8) * 4294967296 + v.getUint32(p + 12); header = 16; }
+        else if (size === 0) size = end - p;
+        if (size < header) break;
+        out.push({type:type(p + 4), body:p + header, end:Math.min(p + size, end)});
+        p += size;
+      }
+      return out;
+    };
+    const meta = boxes(0, v.byteLength).find(box => box.type === 'meta');
+    if (!meta) return null;
+    const children = boxes(meta.body + 4, meta.end);
+    const iinf = children.find(box => box.type === 'iinf'), iloc = children.find(box => box.type === 'iloc');
+    if (!iinf || !iloc) return null;
+    const iinfVersion = v.getUint8(iinf.body);
+    let exifId = null;
+    for (const infe of boxes(iinf.body + 4 + (iinfVersion === 0 ? 2 : 4), iinf.end)) {
+      if (infe.type !== 'infe') continue;
+      const version = v.getUint8(infe.body);
+      if (version < 2) continue;
+      const id = version === 2 ? v.getUint16(infe.body + 4) : v.getUint32(infe.body + 4);
+      if (type(infe.body + 4 + (version === 2 ? 2 : 4) + 2) === 'Exif') { exifId = id; break; }
+    }
+    if (exifId == null) return null;
+    let p = iloc.body;
+    const version = v.getUint8(p); p += 4;
+    const sizes = v.getUint16(p); p += 2;
+    const offsetSize = sizes >> 12, lengthSize = (sizes >> 8) & 15, baseSize = (sizes >> 4) & 15, indexSize = version ? sizes & 15 : 0;
+    const read = n => { let value = 0; for (let i = 0; i < n; i++) value = value * 256 + v.getUint8(p + i); p += n; return value; };
+    const count = version < 2 ? read(2) : read(4);
+    for (let i = 0; i < count; i++) {
+      const id = version < 2 ? read(2) : read(4);
+      const method = version ? read(2) & 15 : 0;
+      read(2);
+      const base = read(baseSize), extents = read(2);
+      let first = null;
+      for (let e = 0; e < extents; e++) { read(indexSize); const offset = read(offsetSize), length = read(lengthSize); first ||= {offset:base + offset, length}; }
+      if (id === exifId) return method === 0 && first ? first : null;
+    }
+    return null;
+  }
+  async function readPhotoExifDate(file) {
+    try {
+      const head = await file.slice(0, 1024 * 1024).arrayBuffer();
+      if (!isHeif(file)) return readExifDate(head);
+      const location = heifExifLocation(new DataView(head));
+      if (!location || !location.length || location.length > 4 * 1024 * 1024) return null;
+      const exif = new DataView(await file.slice(location.offset, location.offset + location.length).arrayBuffer());
+      const tiff = 4 + exif.getUint32(0);
+      return tiff + 8 <= exif.byteLength ? exifTiffDate(exif, tiff) : null;
+    } catch (_) { return null; }
+  }
+  let heicLoader = null;
+  function loadHeicDecoder() {
+    heicLoader ||= new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/static/vendor/heic2any/heic2any.min.js';
+      script.onload = () => window.heic2any ? resolve(window.heic2any) : reject(new Error('HEIC 解码器加载失败'));
+      script.onerror = () => { heicLoader = null; reject(new Error('HEIC 解码器加载失败，请检查网络')); };
+      document.head.append(script);
+    });
+    return heicLoader;
+  }
+  async function decodableUrl(file) {
+    // Safari 可直接解码 HEIC；其他浏览器转为 JPEG 后用于缩略图和绘制水印。
+    const url = URL.createObjectURL(file);
+    if (!isHeif(file)) return url;
+    try { const probe = new Image(); probe.src = url; await probe.decode(); return url; }
+    catch (_) { URL.revokeObjectURL(url); }
+    const heic2any = await loadHeicDecoder();
+    const converted = await heic2any({blob:file, toType:'image/jpeg', quality:0.92});
+    return URL.createObjectURL(Array.isArray(converted) ? converted[0] : converted);
+  }
   function clearWatermarkItems() {
     for (const item of wmItems) URL.revokeObjectURL(item.url);
     wmItems = [];
@@ -598,10 +678,16 @@
     clearWatermarkItems();
     setFieldText('photoProcessStatus', `正在读取 ${files.length} 张照片的 EXIF 拍摄时间…`);
     const items = [];
+    let index = 0;
     for (const file of files) {
-      let exif = null;
-      try { exif = readExifDate(await file.slice(0, 512 * 1024).arrayBuffer()); } catch (_) {}
-      items.push({id:key(), file, exif, url:URL.createObjectURL(file), state:'pending'});
+      index++;
+      const exif = await readPhotoExifDate(file);
+      let url;
+      try {
+        if (isHeif(file)) setFieldText('photoProcessStatus', `正在转换 HEIC 照片 ${index}/${files.length}…`);
+        url = await decodableUrl(file);
+      } catch (error) { notice(`照片 ${file.name || index} 无法读取：${error.message}`,true); continue; }
+      items.push({id:key(), file, exif, url, state:'pending'});
     }
     items.sort((a, b) => (a.exif ? a.exif.getTime() : Infinity) - (b.exif ? b.exif.getTime() : Infinity));
     wmItems = items;
@@ -687,7 +773,7 @@
     refreshUploadControls(); renderWatermarkPanel();
     let saved = 0;
     try {
-      setWatermarkProgress('正在检查位置…', 0, items.length);
+      setWatermarkProgress('正在准备照片…', 0, items.length);
       const baseContext = await makeContext('file', {order:{...selected}, userId:profile.user.id, watermarkSource:'system'});
       if (baseContext) baseContext.watermark_source = 'system';
       for (const item of baseContext ? items : []) {
@@ -756,8 +842,10 @@
     if (photoType === 'equipment' && !captureDevice) throw new Error('请先确认本组照片类型和设备信息。');
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
-    // Current phone location does not prove where an imported photo was taken.
-    if (!keepsOriginalWatermark) {
+    // Current phone location does not prove where an imported photo was taken:
+    // every selected-file upload (keep original or generate watermark) skips the location check.
+    const skipsLocation = source === 'file';
+    if (!skipsLocation) {
       await locate();
       if (!(await checkLocation(true, selected))) return null;
     }
@@ -780,8 +868,8 @@
     return {client_id:key(),user_id:profile.user.id,employee_name:technician.name,technician_user_id:technician.id,
       order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
       captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,timezone_name:timezoneName,
-      latitude:keepsOriginalWatermark ? 0 : position.latitude,longitude:keepsOriginalWatermark ? 0 : position.longitude,accuracy:keepsOriginalWatermark ? 100000 : position.accuracy,
-      location_verified:!keepsOriginalWatermark,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : locationNote,source,error:'',
+      latitude:skipsLocation ? 0 : position.latitude,longitude:skipsLocation ? 0 : position.longitude,accuracy:skipsLocation ? 100000 : position.accuracy,
+      location_verified:!skipsLocation,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
       ...(photoType === 'equipment' ? {equipment_number:captureDevice.equipment_number,
       position_number:captureDevice.position_number,container_number:captureDevice.container_number,
       equipment_session:captureDevice.id,no_equipment_number:captureDevice.no_equipment_number} : {})};
