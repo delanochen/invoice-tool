@@ -64,7 +64,7 @@
         <button type="button" class="erp-btn" onclick="document.querySelector('#googlePhotosImportDialog').showModal()">导入 Google Photos</button>
       {% endif %}
       {% if can_create_expense() %}
-        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增报销</button>
+        <button type="button" class="erp-btn" data-workspace-url="{{ url_for('new_expense', order_id=order.id) }}">新增报销</button>
       {% endif %}
       {% if can_delete_order %}
         <form method="post" action="{{ url_for('delete_service_order', order_id=order.id) }}" style="display:inline;"
@@ -273,8 +273,8 @@
         {% set expense_summary %}{{ expenses|length }} 张报销 · 合计 {{ expense_total|money(expense_currency) }}{% endset %}
         <span class="erp-badge" data-selected-label>{{ expense_summary|trim }}</span>
         {% if can_create_expense() %}
-          <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('new_expense', order_id=order.id) }}'">新增员工报销</button>
-          <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('expense_smart_fill', order_id=order.id) }}'">智能填报</button>
+          <button class="erp-btn" type="button" data-workspace-url="{{ url_for('new_expense', order_id=order.id) }}">新增员工报销</button>
+          <button class="erp-btn" type="button" data-workspace-url="{{ url_for('expense_smart_fill', order_id=order.id) }}">智能填报</button>
         {% endif %}
         <button class="erp-btn" type="button" data-row-action="detailUrl" disabled>查看</button>
       </div>
