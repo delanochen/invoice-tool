@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}合并开票 - 发票工具{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+{% endblock %}
+
+{% block content %}
+{# 合并开票选单页：单选就是普通开票，多选才是一张发票覆盖多个工单。
+   勾选后的工单结算会带进发票表单预填发票行，金额与税额仍走原有表单逻辑。 #}
+<div class="erp-app" data-active-panel="list">
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      合并开票
+      <small>同客户、已审核、未开票的工单结算</small>
+    </div>
+    <span class="erp-badge">{{ candidates|length }} 份可开票结算</span>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('invoices') }}'">返回发票列表</button>
+      <button type="button" class="erp-btn primary" id="mergeSubmit" disabled>下一步：生成发票</button>
+    </div>
+  </header>
+
+  <div class="erp-body">
+    {% if not candidates %}
+      <section class="erp-panel active">
+        <p class="empty-state">没有可合并开票的工单结算。只有审核通过、尚未生成发票、且工单上没有其它有效发票的结算才会列在这里。</p>
+      </section>
+    {% else %}
+      <section class="erp-panel active">
+        <table class="erp-grid">
+          <thead>
+            <tr>
+              <th class="check-col"><input type="checkbox" id="mergeAll"></th>
+              <th>客户</th>
+              <th>工单号</th>
+              <th>客户 PO</th>
+              <th class="num">结算金额</th>
+              <th>结算创建时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for client_name, rows in groups.items() %}
+              <tr class="group-row"><td colspan="6"><strong>{{ client_name }}</strong>（{{ rows|length }} 份）</td></tr>
+              {% for row in rows %}
+                <tr>
+                  <td class="check-col"><input type="checkbox" name="reimbursement_id" value="{{ row.reimbursement_id }}"></td>
+                  <td>{{ client_name }}</td>
+                  <td>{{ row.order_number }}</td>
+                  <td>{{ row.client_order_number or "-" }}</td>
+                  <td class="num">{{ "%.2f"|format(row.total_amount or 0) }}</td>
+                  <td>{{ row.created_at }}</td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="hint">勾选后点「下一步」：同一客户的多份结算会合并成一张发票，发票行逐份预填，可在表单里再调整。</p>
+      </section>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+  (function () {
+    var submit = document.getElementById('mergeSubmit');
+    var all = document.getElementById('mergeAll');
+    if (!submit) { return; }
+    function selected() {
+      return Array.prototype.slice.call(document.querySelectorAll('input[name="reimbursement_id"]:checked'))
+        .map(function (box) { return box.value; });
+    }
+    function refresh() {
+      var ids = selected();
+      submit.disabled = ids.length === 0;
+      submit.textContent = ids.length > 1 ? ('下一步：合并 ' + ids.length + ' 份生成一张发票') : '下一步：生成发票';
+    }
+    if (all) {
+      all.addEventListener('change', function () {
+        document.querySelectorAll('input[name="reimbursement_id"]').forEach(function (box) {
+          box.checked = all.checked;
+        });
+        refresh();
+      });
+    }
+    document.querySelectorAll('input[name="reimbursement_id"]').forEach(function (box) {
+      box.addEventListener('change', refresh);
+    });
+    submit.addEventListener('click', function () {
+      var ids = selected();
+      if (!ids.length) { return; }
+      window.location.href = '{{ url_for('new_invoice') }}?customer_reimbursement_ids=' + ids.join(',');
+    });
+    refresh();
+  })();
+</script>
+{% endblock %}

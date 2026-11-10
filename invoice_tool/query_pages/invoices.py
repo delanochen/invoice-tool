@@ -29,10 +29,23 @@ def register_invoice_list_routes(app, *,
         order_ids = list(dict.fromkeys(value for value in _cb_resolve_request().args.getlist("order_id") if value))
         sites = list(dict.fromkeys(value for value in _cb_resolve_request().args.getlist("site") if value))
         options = _cb_resolve_db()().execute(f"select distinct service_orders.id, service_orders.order_number, service_orders.client_name from invoices join service_orders on service_orders.id=invoices.service_order_id join clients on clients.id=invoices.client_id where {access_clause} order by service_orders.order_number desc", access_params).fetchall()
-        for column, values in [("service_orders.id", order_ids), ("service_orders.client_name", sites)]:
-            if values:
-                clauses.append(f"{column} in ({','.join('?' for _ in values)})")
-                params.extend(values)
+        # 按工单筛发票：一张发票可能覆盖多个工单，只看旧列会漏掉"非主工单"的那几张。
+        if order_ids:
+            marks = ",".join("?" for _ in order_ids)
+            if _invoice_order_links.supports_invoice_orders(_cb_resolve_db()()):
+                clauses.append(
+                    "(invoices.service_order_id in (%s) or invoices.id in (select io_f.invoice_id"
+                    " from invoice_orders io_f where io_f.service_order_id in (%s)"
+                    " and io_f.released_at is null))" % (marks, marks)
+                )
+                params.extend(order_ids)
+                params.extend(order_ids)
+            else:
+                clauses.append("invoices.service_order_id in (%s)" % marks)
+                params.extend(order_ids)
+        if sites:
+            clauses.append("service_orders.client_name in (%s)" % ",".join("?" for _ in sites))
+            params.extend(sites)
         if work_order_status:
             clauses.append("service_orders.status = ?")
             params.append(work_order_status)
@@ -86,8 +99,47 @@ def register_invoice_list_routes(app, *,
         )
 
 
+    @_cb_resolve_login_required()
+    def invoice_merge():
+        """合并开票选单页：列同客户、已审核未开票的工单结算，勾选后进发票表单。"""
+        if not _cb_resolve_can_view_invoices()():
+            _cb_resolve_abort()(403)
+        connection = _cb_resolve_db()()
+        rows = connection.execute(
+            """
+            select cr.id as reimbursement_id, cr.service_order_id, cr.total_amount, cr.status,
+                   cr.created_at, so.order_number, so.client_order_number, so.client_name,
+                   clients.name as client_display
+            from customer_reimbursements cr
+            join service_orders so on so.id = cr.service_order_id
+            left join clients on clients.id = so.client_id
+            where cr.status = 'approved' and cr.invoice_id is null
+              and so.status != 'closed'
+            order by coalesce(clients.name, so.client_name), so.order_number
+            """
+        ).fetchall()
+        candidates = []
+        for row in rows:
+            if _invoice_order_links.invoice_ids_for_service_order(
+                row["service_order_id"], db=_cb_resolve_db()
+            ):
+                continue
+            candidates.append(row)
+        groups = {}
+        for row in candidates:
+            key = row["client_display"] or row["client_name"] or "-"
+            groups.setdefault(key, []).append(row)
+        return _cb_resolve_render_template()(
+            "invoice_merge.html",
+            groups=groups,
+            candidates=candidates,
+            labels=_cb_resolve_STATUS_LABELS(),
+        )
+
+
     app.add_url_rule('/invoices', endpoint='invoices', view_func=invoices, methods=['GET'])
-    return {'invoices': invoices}
+    app.add_url_rule('/invoices/merge', endpoint='invoice_merge', view_func=invoice_merge, methods=['GET'])
+    return {'invoices': invoices, 'invoice_merge': invoice_merge}
 
 
 def register_invoice_query_page_routes(app, *,

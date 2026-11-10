@@ -3123,6 +3123,7 @@ _views_invoice_list = _split_invoice_list.register_invoice_list_routes(
     _cb_resolve_request=lambda: request,
 )
 invoices = _views_invoice_list['invoices']
+invoice_merge = _views_invoice_list['invoice_merge']
 
 
 _views_invoice_query_page = _split_invoice_list.register_invoice_query_page_routes(

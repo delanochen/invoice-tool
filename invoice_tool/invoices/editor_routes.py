@@ -40,15 +40,56 @@ def register_invoice_editor_routes(app, *,
             _cb_resolve_abort()(403)
         requested_order_id = _cb_resolve_request().args.get("service_order_id", "")
         requested_reimbursement_id = _cb_resolve_request().args.get("customer_reimbursement_id", "")
+        requested_reimbursement_ids = _cb_resolve_request().args.get("customer_reimbursement_ids", "")
         source_reimbursement = None
         source_order = None
         prefilled_items = []
-        if _cb_resolve_request().method == "GET" and not requested_reimbursement_id.isdigit():
+        merge_ids = []
+        if requested_reimbursement_ids.strip():
+            for part in requested_reimbursement_ids.split(","):
+                part = part.strip()
+                if part.isdigit() and int(part) not in merge_ids:
+                    merge_ids.append(int(part))
+        if _cb_resolve_request().method == "GET" and merge_ids:
+            # 合并开票：多份工单结算 → 一张发票。逐份校验并拼接发票行，
+            # 主工单取第一份结算的工单（旧列单值保持兼容）。
+            merged_reimbursements = []
+            merged_items = []
+            for reimbursement_id in merge_ids:
+                reimbursement, order = _cb_resolve_require_customer_reimbursement()(reimbursement_id)
+                if reimbursement["invoice_id"]:
+                    _cb_resolve_flash()("工单结算 %s 已经生成过发票。" % order["order_number"], "error")
+                    return _cb_resolve_redirect()(_cb_resolve_url_for()("invoice_merge"))
+                if _cb_resolve_service_order_active_invoice()(order["id"]):
+                    _cb_resolve_flash()("工单 %s 已经有关联发票。" % order["order_number"], "error")
+                    return _cb_resolve_redirect()(_cb_resolve_url_for()("invoice_merge"))
+                if reimbursement["status"] != "approved":
+                    _cb_resolve_flash()("工单 %s 的结算还未审核通过。" % order["order_number"], "error")
+                    return _cb_resolve_redirect()(_cb_resolve_url_for()("invoice_merge"))
+                merged_reimbursements.append((reimbursement, order))
+            client_ids = {order["client_id"] for _, order in merged_reimbursements}
+            if len(client_ids) != 1:
+                _cb_resolve_flash()("合并开票的工单必须属于同一客户。", "error")
+                return _cb_resolve_redirect()(_cb_resolve_url_for()("invoice_merge"))
+            start_date_redirect = _cb_resolve_require_service_order_start_date()(merged_reimbursements[0][1])
+            if start_date_redirect:
+                return start_date_redirect
+            for reimbursement, _order in merged_reimbursements:
+                try:
+                    merged_items.extend(_cb_resolve_customer_reimbursement_invoice_items()(reimbursement))
+                except ValueError as error:
+                    _cb_resolve_flash()(str(error), "error")
+                    return _cb_resolve_redirect()(_cb_resolve_url_for()("invoice_merge"))
+            source_reimbursement, source_order = merged_reimbursements[0]
+            prefilled_items = merged_items
+            requested_order_id = str(source_order["id"])
+            requested_reimbursement_id = ""
+        if _cb_resolve_request().method == "GET" and not requested_reimbursement_id.isdigit() and not merge_ids:
             _cb_resolve_flash()("请从审核通过的工单结算生成发票。", "error")
             if requested_order_id.isdigit():
                 return _cb_resolve_redirect()(_cb_resolve_url_for()("customer_reimbursement_form", order_id=int(requested_order_id)))
             return _cb_resolve_redirect()(_cb_resolve_url_for()("service_orders"))
-        if _cb_resolve_request().method == "GET" and requested_order_id.isdigit():
+        if _cb_resolve_request().method == "GET" and requested_order_id.isdigit() and not merge_ids:
             requested_order = _cb_resolve_require_service_order()(int(requested_order_id))
             start_date_redirect = _cb_resolve_require_service_order_start_date()(requested_order)
             if start_date_redirect:
@@ -136,6 +177,7 @@ def register_invoice_editor_routes(app, *,
             "due_date": _cb_resolve_calculate_payment_due_date()(today.isoformat(), selected_term).isoformat(),
             "service_order_id": int(requested_order_id) if requested_order_id.isdigit() else None,
             "customer_reimbursement_id": source_reimbursement["id"] if source_reimbursement else None,
+            "customer_reimbursement_ids": ",".join(str(i) for i in merge_ids) if merge_ids else "",
             "client_id": source_order["client_id"] if source_order else None,
         }
         return _cb_resolve_render_template()(
@@ -144,7 +186,7 @@ def register_invoice_editor_routes(app, *,
             projects=projects_rows,
             service_orders=service_orders_rows,
             defaults=defaults,
-            form_title="根据工单结算生成发票" if source_reimbursement else "新建发票",
+            form_title="合并多个工单结算生成一张发票" if merge_ids else ("根据工单结算生成发票" if source_reimbursement else "新建发票"),
             form_items=prefilled_items,
             is_edit=False,
             attachments=[],

@@ -32,6 +32,7 @@
       <button type="button" class="erp-btn" data-erp-action="export">导出 Excel</button>
       <button type="button" class="erp-btn" data-erp-action="print">打印</button>
       {% if can_create_invoice() %}
+        <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('invoice_merge') }}'">合并开票</button>
         <button type="button" class="erp-btn primary" onclick="window.location.href='{{ url_for('new_invoice') }}'">新建发票</button>
       {% endif %}
     </div>

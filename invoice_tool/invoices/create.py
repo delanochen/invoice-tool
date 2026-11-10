@@ -1,33 +1,62 @@
 """Legacy-compatible invoice_create helpers; explicit runtime dependencies."""
 
+
+def _requested_reimbursement_ids(request):
+    """合并开票：`customer_reimbursement_ids`（逗号分隔）优先，其次单个 id。"""
+    raw = (request.form.get("customer_reimbursement_ids") or "").strip()
+    ids = []
+    if raw:
+        for part in raw.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if not part.isdigit():
+                raise ValueError("工单结算来源无效。")
+            number = int(part)
+            if number not in ids:
+                ids.append(number)
+    if ids:
+        return ids
+    single = (request.form.get("customer_reimbursement_id") or "").strip()
+    if single:
+        if not single.isdigit():
+            raise ValueError("工单结算来源无效。")
+        return [int(single)]
+    return []
+
+
 def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_access_client, copy_customer_reimbursement_attachments_to_invoice, copy_mileage_proofs_to_invoice, db, finish_invoice_save_token, g, invoice_items_from_form, invoice_number_exists, invoice_totals, log_action, money, next_invoice_number, now, posted_client_id, posted_service_order_id, recognize_invoice_if_accounting_enabled, record_invoice_order, request, save_uploaded_attachment, service_order_active_invoice, to_float, uploaded_attachments_from_request):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
-    service_order_id = posted_service_order_id(require_start_date=True, required=True)
-    source_reimbursement = None
-    reimbursement_id = request.form.get("customer_reimbursement_id", "")
-    if reimbursement_id:
-        if not reimbursement_id.isdigit():
-            raise ValueError("工单结算来源无效。")
-        source_reimbursement = db().execute(
+    reimbursement_ids = _requested_reimbursement_ids(request)
+    source_reimbursements = []
+    for reimbursement_id in reimbursement_ids:
+        reimbursement = db().execute(
             "select * from customer_reimbursements where id = ?",
-            (int(reimbursement_id),),
+            (reimbursement_id,),
         ).fetchone()
-        if not source_reimbursement or source_reimbursement["service_order_id"] != service_order_id:
-            raise ValueError("工单结算与所选工单不匹配。")
-        if source_reimbursement["status"] != "approved":
+        if not reimbursement:
+            raise ValueError("工单结算来源无效。")
+        if reimbursement["status"] != "approved":
             raise ValueError("工单结算审核通过后才能生成发票。")
-        if source_reimbursement["invoice_id"]:
+        if reimbursement["invoice_id"]:
             raise ValueError("这份工单结算已经生成过发票。")
-        if service_order_active_invoice(service_order_id):
-            raise ValueError("这个工单已经有关联发票，不能重复生成。")
+        if service_order_active_invoice(reimbursement["service_order_id"]):
+            raise ValueError("工单 %s 已经有关联发票，不能重复生成。" % reimbursement["service_order_id"])
         source_order = db().execute(
             "select client_id from service_orders where id = ?",
-            (service_order_id,),
+            (reimbursement["service_order_id"],),
         ).fetchone()
         if source_order and source_order["client_id"] and client_id != source_order["client_id"]:
             raise ValueError("发票客户必须与工单关联客户一致。")
+        source_reimbursements.append(reimbursement)
+    # 合并开票：主工单仍是第一张结算的工单（旧列保持单值，兼容历史读取）；
+    # 其余工单只进关系表。
+    service_order_id = posted_service_order_id(require_start_date=True, required=True)
+    if source_reimbursements and service_order_id != source_reimbursements[0]["service_order_id"]:
+        raise ValueError("主工单必须与第一份工单结算一致。")
+    source_reimbursement = source_reimbursements[0] if source_reimbursements else None
     invoice_number = request.form.get("invoice_number", "").strip()
     if not invoice_number:
         invoice_number = next_invoice_number()
@@ -78,22 +107,24 @@ def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_acce
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
     if source_reimbursement:
-        copy_customer_reimbursement_attachments_to_invoice(invoice_id, source_reimbursement["id"])
+        for reimbursement in source_reimbursements:
+            copy_customer_reimbursement_attachments_to_invoice(invoice_id, reimbursement["id"])
         copy_mileage_proofs_to_invoice(invoice_id, service_order_id)
-    if source_reimbursement:
-        db().execute(
-            "update customer_reimbursements set invoice_id = ? where id = ? and invoice_id is null",
-            (invoice_id, source_reimbursement["id"]),
-        )
+        for reimbursement in source_reimbursements:
+            db().execute(
+                "update customer_reimbursements set invoice_id = ? where id = ? and invoice_id is null",
+                (invoice_id, reimbursement["id"]),
+            )
     # Phase 1 双写：单工单开票仍写 invoices.service_order_id，同时记录关系表；
-    # 失败只回滚保存点，不阻断开票（由回填脚本兜底）。
-    record_invoice_order(
-        invoice_id,
-        service_order_id,
-        db=db,
-        customer_reimbursement_id=source_reimbursement["id"] if source_reimbursement else None,
-        now=now,
-    )
+    # 失败只回滚保存点，不阻断开票（由回填脚本兜底）。合并开票时每个工单一行关联。
+    for reimbursement in source_reimbursements or [None]:
+        record_invoice_order(
+            invoice_id,
+            reimbursement["service_order_id"] if reimbursement else service_order_id,
+            db=db,
+            customer_reimbursement_id=reimbursement["id"] if reimbursement else None,
+            now=now,
+        )
     invoice_summary = f"金额：{money(invoice_totals(invoice_id)['total'], request.form.get('currency', 'USD'))}"
     log_action("create", "invoice", invoice_id, invoice_number, invoice_summary)
     db().commit()
