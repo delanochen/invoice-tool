@@ -1,3 +1,9 @@
+## [0.1.472] - 2026-11-10
+
+- 新增 `scripts/ensure_test_tunnel_network.sh`：幂等地把共享 cloudflared 隧道容器挂到测试网络 `invoice-tool-test_default`，并核对网络里同时存在 `invoice-tool-test` 与 `invoice-tool-cloudflared`；失败只记录 WARN，不阻断部署。
+- 测试部署脚本在构建后调用该脚本；生产部署脚本在构建后也调用一次，因为生产 compose 重建 cloudflared 会丢失测试网络的挂接（这正是测试站出现 502/`no such host` 的原因）。
+- 只改部署脚本，未改应用代码、数据库与缓存头。
+
 ## [0.1.471] - 2026-11-10
 
 - 公开的 `/static/` 资源改由 WSGI 中间件统一改写缓存头，去掉 Cookie 维度的 `Vary` 与 `Set-Cookie`，改为 `public, max-age=31536000, immutable`。

@@ -61,6 +61,7 @@ python3 "$APP_DIR/scripts/backup_postgresql.py" --container invoice-tool-postgre
   --database "$DATABASE" --output "$BACKUP_DIR/invoice-test-$(date +%Y%m%d-%H%M%S).dump"
 git reset --hard "$NEW_COMMIT"
 if upgrade_schema && build_current_version; then
+  sh "$APP_DIR/scripts/ensure_test_tunnel_network.sh" || log "WARN test tunnel network ensure failed"
   i=0
   while [ "$i" -lt 30 ]; do
     if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null && verify_runtime; then

@@ -206,6 +206,7 @@ if ! upgrade_postgresql_schema; then
   exit 1
 fi
 if build_current_version && wait_ok=0; then
+  sh "$APP_DIR/scripts/ensure_test_tunnel_network.sh" || log "WARN test tunnel network ensure failed"
   i=0
   while [ "$i" -lt 30 ]; do
     if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null; then

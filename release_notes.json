@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.1.472",
+    "date": "2026-11-10",
+    "reason": "测试站的公网入口依赖一次手动 docker network connect；隧道容器被重建后挂接丢失，测试站立即 502（日志 dial tcp: lookup invoice-tool-test: no such host）。需要让这一步可重复执行并在部署流程里自动完成。",
+    "changes": [
+      "新增 scripts/ensure_test_tunnel_network.sh：检查 cloudflared 容器的网络列表，缺失时执行 docker network connect，再用 docker network inspect 核对网络内成员，全过程幂等、不重启容器、不改 compose 配置。",
+      "scripts/debian-test-deploy.sh 在 build_current_version 之后调用该脚本，失败仅记 WARN，不影响本地健康检查。",
+      "scripts/debian-auto-deploy.sh 在 build_current_version 之后同样调用一次，覆盖“生产部署重建 cloudflared 导致测试网络挂接丢失”的场景。",
+      "未改动应用代码、数据库结构与响应头。"
+    ]
+  },
+  {
     "version": "0.1.471",
     "date": "2026-11-10",
     "reason": "国内访问 Cloudflare 边缘对 /static/ 资源始终回源校验（连续 8 次 REVALIDATED、无 HIT、无 Age），根因是 Flask 读取 session 后给公开静态资源也加上了 Vary: Cookie，共享缓存无法按 Cookie 分键。",
