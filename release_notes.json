@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.1.471",
+    "date": "2026-11-10",
+    "reason": "国内访问 Cloudflare 边缘对 /static/ 资源始终回源校验（连续 8 次 REVALIDATED、无 HIT、无 Age），根因是 Flask 读取 session 后给公开静态资源也加上了 Vary: Cookie，共享缓存无法按 Cookie 分键。",
+    "changes": [
+      "新增 WSGI 中间件 PublicStaticCacheMiddleware，对 /static/ 且 GET/HEAD 且返回 200/304 的响应重写缓存头为 public, max-age=31536000, immutable，并删除 Set-Cookie、Vary: Cookie、Expires、Pragma，仅保留 Vary: Accept-Encoding。",
+      "中间件位于整个 Flask 栈之外，因此不受 Flask 在 after_request 之后（save_session 阶段）追加 Vary: Cookie 的影响。",
+      "业务页面（HTML 仍为 no-store, private）与私有附件缩略图（继续 Vary: Cookie）不受影响；动态路径、非 2xx 响应与 POST 请求均不改写。",
+      "新增 test_public_static_cache.py：4 个中间件单测 + 1 个真实 Flask session 集成测试；不涉及数据库迁移。"
+    ]
+  },
+  {
     "version": "0.1.470",
     "date": "2026-11-07",
     "reason": "修复从工单新增员工报销或智能填报时覆盖原工单工作区页签，完成后需要重新打开工单的问题。",

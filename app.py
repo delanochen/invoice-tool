@@ -169,6 +169,7 @@ from invoice_tool.audit_log import request_helpers as _split_residual_audit
 from invoice_tool.geocoding import address_helpers as _split_residual_geo_values
 from invoice_tool.ai_daily_report_web import value_helpers as _split_residual_ai_values
 from invoice_tool.request_lifecycle import hooks as _split_residual_hooks
+from invoice_tool.request_lifecycle.static_cache import PublicStaticCacheMiddleware
 from invoice_tool.presentation import error_handlers as _split_residual_errors
 from invoice_tool.employee_expenses import forms as _expense_forms
 from invoice_tool.employee_expenses import storage as _expense_storage
@@ -586,6 +587,9 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Public, versioned static assets are shared-cacheable; the session layer adds
+# Vary: Cookie after every after_request hook, so normalise outside Flask.
+app.wsgi_app = PublicStaticCacheMiddleware(app.wsgi_app)
 
 from settlement_request_limits import register_settlement_request_limits
 
