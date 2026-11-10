@@ -1,4 +1,5 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
+from invoice_tool.invoices import order_links as _invoice_order_links
 from invoice_tool.service_orders.settlement_dates import settlement_date_filters
 
 
@@ -44,6 +45,9 @@ def register_order_query_page_routes(app, *,
         if status:
             clauses.append("service_orders.status = ?")
             params.append(status)
+        invoice_count_cond = _invoice_order_links.invoice_order_sql(
+            _cb_resolve_db()(), 'iv', 'service_orders.id'
+        )
         rows = _cb_resolve_db()().execute(
             f"""
         select service_orders.*,
@@ -53,8 +57,10 @@ def register_order_query_page_routes(app, *,
                coalesce(country_local.name, country_zh.name, service_orders.country_code) as country_name,
                coalesce(country_local.region_name, country_zh.region_name, service_orders.region_code) as region_name,
                count(distinct service_reports.id) as report_count,
-               count(distinct invoices.id) as invoice_count,
-               count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count,
+               (select count(distinct iv.id) from invoices iv
+                 where {invoice_count_cond} and iv.status != 'void') as invoice_count,
+               (select count(distinct iv.id) from invoices iv
+                 where {invoice_count_cond} and iv.status != 'void' and iv.paid_at is not null) as paid_invoice_count,
                coalesce(sum(case when expenses.status = 'approved' then expenses.amount else 0 end), 0) as approved_expense_total
         from service_orders
         left join work_order_types on work_order_types.id = service_orders.work_order_type_id
@@ -66,7 +72,6 @@ def register_order_query_page_routes(app, *,
         left join country_translations country_zh
           on country_zh.country_code = service_orders.country_code and country_zh.language_code = 'zh-CN'
         left join service_reports on service_reports.service_order_id = service_orders.id
-        left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
         left join expenses on expenses.service_order_id = service_orders.id
         where {" and ".join(clauses)}
         group by service_orders.id, work_order_types.id, owners.id, buyers.id, order_manufacturers.id, country_local.name, country_zh.name, country_local.region_name, country_zh.region_name

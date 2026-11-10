@@ -9,6 +9,7 @@ from io import BytesIO
 from pathlib import Path
 
 from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
+from invoice_tool.invoices import order_links as _invoice_order_links
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -287,7 +288,11 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                                 filename = candidate
                                 archive.write(source_path, f"工单结算/{order_no}_附件/{filename}")
                     elif export_type == "invoices":
-                        invoices = conn.execute("select * from invoices where service_order_id=? and status!='void' order by id", (order_id,)).fetchall()
+                        invoice_cond = _invoice_order_links.invoice_order_sql(conn, 'invoices', '?')
+                        invoices = conn.execute(
+                            "select * from invoices where (%s) and status!='void' order by id" % invoice_cond,
+                            _invoice_order_links.invoice_order_params(invoice_cond, order_id),
+                        ).fetchall()
                         if not invoices:
                             missing.append(f"{order_no}: 无发票")
                         for invoice in invoices:

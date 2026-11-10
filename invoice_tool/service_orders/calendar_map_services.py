@@ -1,4 +1,5 @@
 """Work-order calendar and map queries and presentation helpers."""
+from invoice_tool.invoices import order_links as _invoice_order_links
 
 def service_order_access_filters(table_alias="service_orders", *, g, is_external_employee, is_external_manager):
     clauses = []
@@ -21,6 +22,7 @@ def service_order_calendar_rows(date_from, date_to, *, db, service_order_access_
     clauses, params = service_order_access_filters("service_orders")
     clauses.append("service_orders.calendar_date between ? and ?")
     params.extend([date_from.isoformat(), date_to.isoformat()])
+    invoice_cond = _invoice_order_links.invoice_order_sql(db(), 'invoices', 'service_orders.id')
     return db().execute(
         f"""
         with report_dates as (
@@ -57,12 +59,11 @@ def service_order_calendar_rows(date_from, date_to, *, db, service_order_access_
                coalesce(owners.name, buyers.owner) as buyer_owner,
                (
                    select count(*) from invoices
-                   where invoices.service_order_id = service_orders.id and invoices.status != 'void'
+                   where {invoice_cond} and invoices.status != 'void'
                ) as invoice_count,
                (
                    select count(*) from invoices
-                   where invoices.service_order_id = service_orders.id
-                     and invoices.status != 'void' and invoices.paid_at is not null
+                   where {invoice_cond} and invoices.status != 'void' and invoices.paid_at is not null
                ) as paid_invoice_count
         from calendar_orders as service_orders
         left join clients on clients.id = service_orders.client_id
