@@ -38,12 +38,18 @@ build_current_version() {
   export APP_VERSION
   compose up -d --build
 }
+ensure_tunnel_network() {
+  sh "$APP_DIR/scripts/ensure_test_tunnel_network.sh" || log "WARN test tunnel network ensure failed"
+}
 
 trap cleanup EXIT INT TERM
 mkdir "$LOCK_DIR" 2>/dev/null || { log "another test deployment is running"; exit 0; }
 cd "$APP_DIR"
 [ -f "$STATE_DIR/app.env" ] || { log "missing $STATE_DIR/app.env"; exit 1; }
 mkdir -p "$BACKUP_DIR" "$STATE_DIR/data" "$STATE_DIR/shared-photos"
+# 在任何 git reset 之前先修好隧道网络挂接：本脚本随后会用 git reset --hard 改写自身，
+# shell 按字节偏移续读脚本，reset 之后的分支不保证执行，所以这一步必须前置。
+ensure_tunnel_network
 
 OLD_COMMIT="$(git rev-parse HEAD)"
 git fetch --quiet origin "$BRANCH"
@@ -61,7 +67,7 @@ python3 "$APP_DIR/scripts/backup_postgresql.py" --container invoice-tool-postgre
   --database "$DATABASE" --output "$BACKUP_DIR/invoice-test-$(date +%Y%m%d-%H%M%S).dump"
 git reset --hard "$NEW_COMMIT"
 if upgrade_schema && build_current_version; then
-  sh "$APP_DIR/scripts/ensure_test_tunnel_network.sh" || log "WARN test tunnel network ensure failed"
+  ensure_tunnel_network
   i=0
   while [ "$i" -lt 30 ]; do
     if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null && verify_runtime; then

@@ -1,3 +1,8 @@
+## [0.1.473] - 2026-11-10
+
+- 隧道网络挂接改为在部署脚本最前面执行：本脚本会 `git reset --hard` 改写自身，shell 按字节偏移续读，reset 之后的步骤不保证被执行，因此把挂接放在 reset 之前。
+- 构建完成后仍再执行一次挂接，覆盖“compose up 重建容器”的场景。
+
 ## [0.1.472] - 2026-11-10
 
 - 新增 `scripts/ensure_test_tunnel_network.sh`：幂等地把共享 cloudflared 隧道容器挂到测试网络 `invoice-tool-test_default`，并核对网络里同时存在 `invoice-tool-test` 与 `invoice-tool-cloudflared`；失败只记录 WARN，不阻断部署。

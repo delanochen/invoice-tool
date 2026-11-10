@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.1.473",
+    "date": "2026-11-10",
+    "reason": "0.1.472 把挂接写在 build 之后，但部署脚本会用 git reset --hard 改写自身，shell 续读可能跳过新增步骤，导致挂接实际没执行。",
+    "changes": [
+      "scripts/debian-test-deploy.sh 增加 ensure_tunnel_network 函数，并在 git reset --hard 之前调用一次，构建之后再调用一次。",
+      "保留 0.1.472 的 scripts/ensure_test_tunnel_network.sh 与生产部署脚本中的调用。",
+      "只改部署脚本，未改应用代码与数据库。"
+    ]
+  },
+  {
     "version": "0.1.472",
     "date": "2026-11-10",
     "reason": "测试站的公网入口依赖一次手动 docker network connect；隧道容器被重建后挂接丢失，测试站立即 502（日志 dial tcp: lookup invoice-tool-test: no such host）。需要让这一步可重复执行并在部署流程里自动完成。",
