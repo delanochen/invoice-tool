@@ -126,6 +126,64 @@ def invoice_order_params(clause, order_id):
     return (order_id,) * str(clause).count('?')
 
 
+def orders_for_invoices(invoice_ids, *, db, include_released=False):
+    """发票 → 覆盖的工单列表（多工单展示用）。
+
+    关系表里有该发票的记录（含已释放）就以表为准；没有记录（尚未回填）才回退旧列。
+    返回 {invoice_id: [{'service_order_id': .., 'order_number': ..}, ...]}。
+    """
+    ids = []
+    for value in invoice_ids or []:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number and number not in ids:
+            ids.append(number)
+    if not ids:
+        return {}
+    connection = db()
+    result = {}
+    if supports_invoice_orders(connection):
+        try:
+            rows = connection.execute(
+                "select io.invoice_id, io.service_order_id, io.released_at, so.order_number"
+                " from invoice_orders io left join service_orders so on so.id = io.service_order_id"
+                " where io.invoice_id in (%s) order by io.id" % ", ".join("?" for _ in ids),
+                tuple(ids),
+            ).fetchall()
+        except Exception:
+            rows = []
+        seen = set()
+        for row in rows:
+            seen.add(row['invoice_id'])
+            if row['released_at'] is not None and not include_released:
+                continue
+            result.setdefault(row['invoice_id'], []).append({
+                'service_order_id': row['service_order_id'],
+                'order_number': row['order_number'],
+            })
+        if seen:
+            # 表里已有记录的发票不再回退旧列，避免已释放的关联被"复活"
+            ids = [number for number in ids if number not in seen]
+            if not ids:
+                return result
+    rows = connection.execute(
+        "select invoices.id, invoices.service_order_id, so.order_number"
+        " from invoices left join service_orders so on so.id = invoices.service_order_id"
+        " where invoices.id in (%s)" % ", ".join("?" for _ in ids),
+        tuple(ids),
+    ).fetchall()
+    for row in rows:
+        if not row['service_order_id']:
+            continue
+        result[row['id']] = [{
+            'service_order_id': row['service_order_id'],
+            'order_number': row['order_number'],
+        }]
+    return result
+
+
 def service_order_link_state(service_order_id, *, db):
     """工单在关系表里的状态。
 

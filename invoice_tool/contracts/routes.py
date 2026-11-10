@@ -3,6 +3,7 @@ import os
 import shutil
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 from database import IntegrityError
+from invoice_tool.invoices import order_links as _invoice_order_links
 
 
 def register_contract_routes(app, *, CONTRACT_STATUS_LABELS, CONTRACT_TYPE_LABELS, STATUS_LABELS, can_manage_contracts, can_view_contracts, contract_attachment_path, contract_form_values, db, ensure_commercial_document, is_external_manager, log_action, next_contract_number, now, require_contract_access, safe_attachment_response, save_contract_uploads, contract_attachments_root, login_required):
@@ -147,14 +148,18 @@ def register_contract_routes(app, *, CONTRACT_STATUS_LABELS, CONTRACT_TYPE_LABEL
             """,
             (contract_id,),
         ).fetchall()
+        contract_invoice_cond = _invoice_order_links.invoice_order_sql(db(), 'invoices', 'so.id')
         invoices = db().execute(
             """
             select distinct invoices.*
             from invoices
-            join service_orders on service_orders.id = invoices.service_order_id
-            where service_orders.contract_id = ? and invoices.status != 'void'
+            where invoices.status != 'void'
+              and exists (
+                  select 1 from service_orders so
+                  where so.contract_id = ? and (%s)
+              )
             order by invoices.issue_date desc, invoices.id desc
-            """,
+            """ % contract_invoice_cond,
             (contract_id,),
         ).fetchall()
         return render_template(

@@ -1,4 +1,6 @@
 """Work-order numbering and deletion dependencies; preserve legacy behavior."""
+from invoice_tool.invoices import order_links as _invoice_order_links
+
 
 def next_service_order_number(*, date, db, lock_number_allocation):
     lock_number_allocation(db())
@@ -23,14 +25,15 @@ def next_service_order_number(*, date, db, lock_number_allocation):
 
 
 def service_order_dependency_counts(order_id, *, db):
+    invoice_cond = _invoice_order_links.invoice_order_sql(db(), 'invoices', '?')
     return {
         "reports": db().execute(
             "select count(*) as count from service_reports where service_order_id = ?",
             (order_id,),
         ).fetchone()["count"],
         "invoices": db().execute(
-            "select count(*) as count from invoices where service_order_id = ? and status != 'void'",
-            (order_id,),
+            "select count(*) as count from invoices where (%s) and status != 'void'" % invoice_cond,
+            _invoice_order_links.invoice_order_params(invoice_cond, order_id),
         ).fetchone()["count"],
         "customer_reimbursements": db().execute(
             "select count(*) as count from customer_reimbursements where service_order_id = ?",

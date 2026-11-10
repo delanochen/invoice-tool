@@ -82,7 +82,7 @@
             {% for invoice in invoices %}
               <tr>
                 <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.invoice_number }}</a></td>
-                <td>{% if invoice.service_order_number %}<a href="{{ url_for('service_order_detail', order_id=invoice.service_order_id) }}">{{ invoice.service_order_number }}</a>{% else %}-{% endif %}</td>
+                <td>{% set linked = (invoice_linked_orders|default({})).get(invoice.id) %}{% if linked and linked|length > 1 %}{% for o in linked[:2] %}<a href="{{ url_for('service_order_detail', order_id=o.service_order_id) }}">{{ o.order_number }}</a>{% if not loop.last %}、{% endif %}{% endfor %} <span class="muted" title="{% for o in linked %}{{ o.order_number }}{% if not loop.last %}、{% endif %}{% endfor %}">等 {{ linked|length }} 个</span>{% elif linked %}<a href="{{ url_for('service_order_detail', order_id=linked[0].service_order_id) }}">{{ linked[0].order_number }}</a>{% elif invoice.service_order_number %}<a href="{{ url_for('service_order_detail', order_id=invoice.service_order_id) }}">{{ invoice.service_order_number }}</a>{% else %}-{% endif %}</td>
                 <td>{% if invoice.service_order_status == "closed" %}<span class="status completed">已关闭</span>{% elif invoice.service_order_status == "not_started" %}<span class="status draft">未开始</span>{% elif invoice.service_order_status == "settling" %}<span class="status submitted">结算中</span>{% elif invoice.service_order_status %}<span class="status submitted">进行中</span>{% else %}-{% endif %}</td>
                 <td>{{ invoice.service_client_order_number or "-" }}</td>
                 <td>{{ invoice.issue_date }}</td>
@@ -105,7 +105,7 @@
           <article class="erp-card">
             <div class="erp-card-head">
               <span class="erp-card-code">{{ invoice.invoice_number }}</span>
-              <span class="erp-card-customer">{{ invoice.service_order_number or '-' }}</span>
+              <span class="erp-card-customer">{% set linked = (invoice_linked_orders|default({})).get(invoice.id) %}{% if linked and linked|length > 1 %}{{ linked[0].order_number }} 等 {{ linked|length }} 个{% elif linked %}{{ linked[0].order_number }}{% else %}{{ invoice.service_order_number or '-' }}{% endif %}</span>
             </div>
             <div class="erp-card-sub">
               <span>{{ invoice.issue_date }}</span>

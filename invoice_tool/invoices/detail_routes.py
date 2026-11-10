@@ -1,6 +1,8 @@
 """Invoice 发票详情; legacy business behavior preserved."""
 from flask import g, request, abort, flash, redirect, url_for, jsonify, send_file
 
+from invoice_tool.invoices import order_links as _invoice_order_links
+
 
 def register_invoice_detail_routes(app, *,
     resolve_STATUS_LABELS,
@@ -25,6 +27,7 @@ def register_invoice_detail_routes(app, *,
             return redirect(url_for("edit_invoice", invoice_id=invoice_id))
         creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
         service_order = invoice_service_order(invoice)
+        linked_orders = _invoice_order_links.orders_for_invoices([invoice_id], db=db).get(invoice_id, [])
         has_accounting_voucher = bool(db().execute(
             "select 1 from posting_events where source_type='invoice' and source_id=? "
         "and event_type='invoice.confirmed' limit 1", (invoice_id,),
@@ -37,6 +40,7 @@ def register_invoice_detail_routes(app, *,
             totals=invoice_totals(invoice_id),
             creator=creator,
             service_order=service_order,
+            linked_orders=linked_orders,
             attachments=get_invoice_attachments(invoice_id),
             company=get_company_profile(),
             accounting_enabled=accounting_base_enabled(),

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import os
 import re
+
+from invoice_tool.invoices import order_links as _invoice_order_links
 import shutil
 from pathlib import Path
 
@@ -132,14 +134,15 @@ def _expense_candidates(api, order_id):
 def downstream_counts(api, order_id):
     """工单下游关联（只作提示，不拦）：结算单 / 发票 / 利润台账 / AI 草稿 / 人员指派。"""
     db = api["db"]()
+    invoice_cond = _invoice_order_links.invoice_order_sql(db, 'invoices', '?')
     counts = {
         "customer_reimbursements": db.execute(
             "select count(*) as count from customer_reimbursements where service_order_id = ?",
             (order_id,),
         ).fetchone()["count"],
         "invoices": db.execute(
-            "select count(*) as count from invoices where service_order_id = ? and status != 'void'",
-            (order_id,),
+            "select count(*) as count from invoices where (%s) and status != 'void'" % invoice_cond,
+            _invoice_order_links.invoice_order_params(invoice_cond, order_id),
         ).fetchone()["count"],
         "profit_ledger": db.execute(
             "select count(*) as count from profit_ledger where service_order_id = ?",

@@ -1,4 +1,5 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
+from invoice_tool.invoices import order_links as _invoice_order_links
 
 
 def register_invoice_list_routes(app, *,
@@ -61,6 +62,8 @@ def register_invoice_list_routes(app, *,
         """,
             params,
         ).fetchall()
+        total_ids = [row["id"] for row in rows]
+        linked_orders = _invoice_order_links.orders_for_invoices(total_ids, db=_cb_resolve_db())
         totals = {row["id"]: _cb_resolve_invoice_totals()(row["id"]) for row in rows}
         summary_totals = {}
         for row in rows:
@@ -70,6 +73,7 @@ def register_invoice_list_routes(app, *,
         return _cb_resolve_render_template()(
             "invoices.html",
             invoices=rows,
+            invoice_linked_orders=linked_orders,
             totals=totals,
             summary_totals=summary_totals,
             labels=_cb_resolve_STATUS_LABELS(),

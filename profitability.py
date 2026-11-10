@@ -6,6 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from flask import abort, render_template, request
 
+from invoice_tool.invoices import order_links as _invoice_order_links
 from rate_engine import CONTRACT_RATE_LABELS, contract_rate, employee_rate
 # 住宿人晚的估算与结算前审核页共用同一套口径（settlement_review 不反向 import
 # 本模块，无循环依赖）。
@@ -197,6 +198,7 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
     if order_id:
         clauses.append("service_reports.service_order_id = ?")
         params.append(order_id)
+    invoice_cond = _invoice_order_links.invoice_order_sql(api["db"](), 'inv', 'service_orders.id')
     reports = api["db"]().execute(
         f"""
         select service_reports.*, service_orders.order_number, service_orders.client_name,
@@ -205,7 +207,7 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
                exists(select 1 from customer_reimbursements cr
                       where cr.service_order_id = service_orders.id) as has_settlement,
                exists(select 1 from invoices inv
-                      where inv.service_order_id = service_orders.id and inv.status != 'void') as has_invoice
+                      where {invoice_cond} and inv.status != 'void') as has_invoice
         from service_reports
         join service_orders on service_orders.id = service_reports.service_order_id
         where {' and '.join(clauses)}
@@ -313,12 +315,13 @@ def _labor_lines(api, start_date, end_date, order_id=None, employee_id=None):
     if employee_id:
         fixed_clauses.append("s.employee_id=?")
         fixed_params.append(employee_id)
+    fixed_invoice_cond = _invoice_order_links.invoice_order_sql(api["db"](), 'inv', 'so.id')
     fixed_rows = api["db"]().execute(
         f"""
         select s.*, u.name as employee_name, so.order_number, so.client_name,
                so.status as order_status,
                exists(select 1 from customer_reimbursements cr where cr.service_order_id=so.id) as has_settlement,
-               exists(select 1 from invoices inv where inv.service_order_id=so.id and inv.status!='void') as has_invoice
+               exists(select 1 from invoices inv where {fixed_invoice_cond} and inv.status!='void') as has_invoice
         from service_order_employee_settlements s
         join users u on u.id=s.employee_id
         join service_orders so on so.id=s.service_order_id
@@ -608,6 +611,7 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
     if employee_id:
         clauses.append("coalesce(expenses.beneficiary_id, expenses.created_by) = ?")
         params.append(employee_id)
+    expense_invoice_cond = _invoice_order_links.invoice_order_sql(api["db"](), 'inv', 'service_orders.id')
     rows = api["db"]().execute(
         f"""
         select expense_items.id as expense_item_id, expense_items.amount,
@@ -622,7 +626,7 @@ def _expense_lines(api, start_date, end_date, order_id=None, employee_id=None):
                exists(select 1 from customer_reimbursements cr
                       where cr.service_order_id = service_orders.id) as has_settlement,
                exists(select 1 from invoices inv
-                      where inv.service_order_id = service_orders.id and inv.status != 'void') as has_invoice
+                      where {expense_invoice_cond} and inv.status != 'void') as has_invoice
         from expenses
         join expense_items on expense_items.expense_id = expenses.id
         join service_orders on service_orders.id = expenses.service_order_id

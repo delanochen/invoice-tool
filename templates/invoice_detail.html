@@ -156,7 +156,9 @@
       </section>
       <section class="meta-list">
         <p><span>Invoice No.</span><strong>{{ invoice.invoice_number }}</strong></p>
-        {% if service_order and service_order.client_order_number %}
+        {% if linked_orders and linked_orders|length > 1 %}
+          <p><span>Service Orders</span><strong>{% for o in linked_orders %}<a href="{{ url_for('service_order_detail', order_id=o.service_order_id) }}">{{ o.order_number }}</a>{% if not loop.last %}、{% endif %}{% endfor %}</strong></p>
+        {% elif service_order and service_order.client_order_number %}
           <p><span>Service Order</span><strong><a href="{{ url_for('service_order_detail', order_id=service_order.id) }}">{{ service_order.client_order_number }}</a></strong></p>
         {% endif %}
         <p><span>Issue Date</span><strong>{{ invoice.issue_date }}</strong></p>
