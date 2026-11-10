@@ -18,3 +18,14 @@ def invoice_service_order(invoice, *, db):
         "select id, order_number, client_order_number from service_orders where id = ?",
         (order_id,),
     ).fetchone()
+
+
+def invoice_linked_orders(invoice, *, db):
+    """发票覆盖的全部工单（多工单单据样式用）。返回 [] 表示没有关联工单。"""
+    if not invoice:
+        return []
+    try:
+        invoice_id = invoice["id"]
+    except Exception:
+        return []
+    return _invoice_order_links.orders_for_invoices([invoice_id], db=db).get(invoice_id, [])

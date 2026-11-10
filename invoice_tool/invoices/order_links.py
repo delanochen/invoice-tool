@@ -147,7 +147,8 @@ def orders_for_invoices(invoice_ids, *, db, include_released=False):
     if supports_invoice_orders(connection):
         try:
             rows = connection.execute(
-                "select io.invoice_id, io.service_order_id, io.released_at, so.order_number"
+                "select io.invoice_id, io.service_order_id, io.released_at, so.order_number,"
+                " so.client_order_number"
                 " from invoice_orders io left join service_orders so on so.id = io.service_order_id"
                 " where io.invoice_id in (%s) order by io.id" % ", ".join("?" for _ in ids),
                 tuple(ids),
@@ -162,6 +163,7 @@ def orders_for_invoices(invoice_ids, *, db, include_released=False):
             result.setdefault(row['invoice_id'], []).append({
                 'service_order_id': row['service_order_id'],
                 'order_number': row['order_number'],
+                'client_order_number': row['client_order_number'],
             })
         if seen:
             # 表里已有记录的发票不再回退旧列，避免已释放的关联被"复活"
@@ -169,7 +171,7 @@ def orders_for_invoices(invoice_ids, *, db, include_released=False):
             if not ids:
                 return result
     rows = connection.execute(
-        "select invoices.id, invoices.service_order_id, so.order_number"
+        "select invoices.id, invoices.service_order_id, so.order_number, so.client_order_number"
         " from invoices left join service_orders so on so.id = invoices.service_order_id"
         " where invoices.id in (%s)" % ", ".join("?" for _ in ids),
         tuple(ids),
@@ -180,6 +182,7 @@ def orders_for_invoices(invoice_ids, *, db, include_released=False):
         result[row['id']] = [{
             'service_order_id': row['service_order_id'],
             'order_number': row['order_number'],
+            'client_order_number': row['client_order_number'],
         }]
     return result
 

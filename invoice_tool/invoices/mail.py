@@ -1,6 +1,6 @@
 """Legacy-compatible invoice_mail helpers; explicit runtime dependencies."""
 
-def send_invoice_email(invoice_id, *, db, get_company_profile, get_invoice_terms, get_payment_instructions, invoice_email_attachments, invoice_service_order, invoice_totals, load_invoice, log_action, now, record_email_delivery, render_template, send_email):
+def send_invoice_email(invoice_id, *, db, get_company_profile, get_invoice_terms, get_payment_instructions, invoice_email_attachments, invoice_service_order, invoice_totals, load_invoice, log_action, now, record_email_delivery, render_template, send_email, invoice_linked_orders=None):
     invoice, client, items = load_invoice(invoice_id)
     if not client["email"]:
         raise RuntimeError("客户没有邮箱，无法发送。")
@@ -10,6 +10,7 @@ def send_invoice_email(invoice_id, *, db, get_company_profile, get_invoice_terms
         invoice=invoice,
         client=client,
         service_order=invoice_service_order(invoice),
+        linked_orders=invoice_linked_orders(invoice) if invoice_linked_orders else [],
         items=items,
         totals=invoice_totals(invoice_id),
         company=get_company_profile(),

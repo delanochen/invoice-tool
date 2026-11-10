@@ -1992,6 +1992,10 @@ def invoice_service_order(invoice):
     return _split_invoice_loading.invoice_service_order(invoice, db=db)
 
 
+def invoice_linked_orders(invoice):
+    return _split_invoice_loading.invoice_linked_orders(invoice, db=db)
+
+
 def create_message(user_id, title, body, link=None):
     return _split_residual_messages.create_message(user_id, title, body, link, db=db, now=now)
 
@@ -4142,11 +4146,11 @@ def invoice_email_attachments(invoice, client, items):
 
 
 def render_invoice_export_html(invoice, client, items):
-    return _invoice_exports.render_invoice_export_html(invoice, client, items, STATUS_LABELS=STATUS_LABELS, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, render_template=render_template)
+    return _invoice_exports.render_invoice_export_html(invoice, client, items, STATUS_LABELS=STATUS_LABELS, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, render_template=render_template, invoice_linked_orders=invoice_linked_orders)
 
 
 def render_invoice_pdf(invoice, client, items):
-    return _invoice_pdf.render_invoice_pdf(invoice, client, items, A4=A4, BytesIO=BytesIO, UnicodeCIDFont=UnicodeCIDFont, canvas=canvas, colors=colors, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, money=money, pdf_text=pdf_text, pdfmetrics=pdfmetrics)
+    return _invoice_pdf.render_invoice_pdf(invoice, client, items, A4=A4, BytesIO=BytesIO, UnicodeCIDFont=UnicodeCIDFont, canvas=canvas, colors=colors, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, money=money, pdf_text=pdf_text, pdfmetrics=pdfmetrics, invoice_linked_orders=invoice_linked_orders)
 
 
 def build_service_report_docx(report, order):
@@ -4173,7 +4177,7 @@ download_batch_export = _batch_export_views["download_batch_export"]
 
 
 def send_invoice_email(invoice_id):
-    return _split_invoice_mail.send_invoice_email(invoice_id, db=db, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_email_attachments=invoice_email_attachments, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, load_invoice=load_invoice, log_action=log_action, now=now, record_email_delivery=record_email_delivery, render_template=render_template, send_email=send_email)
+    return _split_invoice_mail.send_invoice_email(invoice_id, db=db, get_company_profile=get_company_profile, get_invoice_terms=get_invoice_terms, get_payment_instructions=get_payment_instructions, invoice_email_attachments=invoice_email_attachments, invoice_service_order=invoice_service_order, invoice_totals=invoice_totals, load_invoice=load_invoice, log_action=log_action, now=now, record_email_delivery=record_email_delivery, render_template=render_template, send_email=send_email, invoice_linked_orders=invoice_linked_orders)
 
 
 def send_email(to, subject, html, attachments=None):

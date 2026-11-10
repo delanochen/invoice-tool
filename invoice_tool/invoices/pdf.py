@@ -1,6 +1,19 @@
 """Legacy-compatible invoice helpers with explicit runtime dependencies."""
 
-def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, canvas, colors, get_company_profile, get_invoice_terms, get_payment_instructions, invoice_service_order, invoice_totals, money, pdf_text, pdfmetrics):
+
+def invoice_order_metadata(linked_orders, service_order):
+    """PDF 元数据里的工单行：多工单并列，单工单沿用客户 PO 号。返回 (label, value) 或 None。"""
+    if len(linked_orders or []) > 1:
+        order_text = ", ".join(
+            str(order["client_order_number"] or order["order_number"] or "")
+            for order in linked_orders
+        )
+        return ("Service Orders", order_text.strip(", ") or "-")
+    if service_order and service_order["client_order_number"]:
+        return ("Service Order", service_order["client_order_number"])
+    return None
+
+def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, canvas, colors, get_company_profile, get_invoice_terms, get_payment_instructions, invoice_service_order, invoice_totals, money, pdf_text, pdfmetrics, invoice_linked_orders=None):
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
     buffer = BytesIO()
     page = canvas.Canvas(buffer, pagesize=A4)
@@ -13,6 +26,7 @@ def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, c
     terms = get_invoice_terms()
     totals = invoice_totals(invoice["id"])
     service_order = invoice_service_order(invoice)
+    linked_orders = invoice_linked_orders(invoice) if invoice_linked_orders else []
 
     def ensure_space(required):
         nonlocal y
@@ -80,8 +94,9 @@ def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, c
     page.setFont("STSong-Light", 10)
     meta_y = top - 40
     metadata = [("Invoice No.", invoice["invoice_number"])]
-    if service_order and service_order["client_order_number"]:
-        metadata.append(("Service Order", service_order["client_order_number"]))
+    order_meta = invoice_order_metadata(linked_orders, service_order)
+    if order_meta:
+        metadata.append(order_meta)
     metadata.extend(
         (
             ("Issue Date", invoice["issue_date"]),

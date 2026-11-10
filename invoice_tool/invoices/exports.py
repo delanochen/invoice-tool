@@ -14,12 +14,13 @@ def build_invoice_zip(invoice, client, items, *, BytesIO, attachment_file_path, 
     return archive_name, buffer.getvalue()
 
 
-def render_invoice_export_html(invoice, client, items, *, STATUS_LABELS, get_company_profile, get_invoice_terms, get_payment_instructions, invoice_service_order, invoice_totals, render_template):
+def render_invoice_export_html(invoice, client, items, *, STATUS_LABELS, get_company_profile, get_invoice_terms, get_payment_instructions, invoice_service_order, invoice_totals, render_template, invoice_linked_orders=None):
     return render_template(
         "invoice_export.html",
         invoice=invoice,
         client=client,
         service_order=invoice_service_order(invoice),
+        linked_orders=invoice_linked_orders(invoice) if invoice_linked_orders else [],
         items=items,
         totals=invoice_totals(invoice["id"]),
         company=get_company_profile(),
