@@ -104,6 +104,28 @@ def invoice_order_ids(invoice_id, *, db, include_released=False):
     return [legacy] if legacy else []
 
 
+def invoice_order_sql(connection, invoice_alias='invoices', order_expr='service_orders.id'):
+    """布尔 SQL 表达式：这张发票属于该工单（旧列命中，或关系表里有未释放的关联）。
+
+    用于列表/统计/导出里"按工单筛发票"的地方。SQLite 上没有关系表，退化为只看旧列。
+    `order_expr` 可以是列引用，也可以是 `?` 占位符（调用方按 clause.count('?') 补参数）。
+    """
+    legacy = "%s.service_order_id = %s" % (invoice_alias, order_expr)
+    if not supports_invoice_orders(connection):
+        return legacy
+    link_alias = "io_%s" % invoice_alias.replace('.', '_')
+    return (
+        "(%s or exists (select 1 from invoice_orders %s"
+        " where %s.invoice_id = %s.id and %s.service_order_id = %s and %s.released_at is null))"
+        % (legacy, link_alias, link_alias, invoice_alias, link_alias, order_expr, link_alias)
+    )
+
+
+def invoice_order_params(clause, order_id):
+    """按子句里 `?` 的个数重复工单 id，避免调用方手数占位符。"""
+    return (order_id,) * str(clause).count('?')
+
+
 def service_order_link_state(service_order_id, *, db):
     """工单在关系表里的状态。
 

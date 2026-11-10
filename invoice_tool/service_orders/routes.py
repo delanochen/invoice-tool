@@ -3,6 +3,7 @@ import shutil
 from .settlement_dates import optional_settlement_date, exact_settlement_date_filter
 from decimal import Decimal
 from flask import abort, flash, g, redirect, render_template, request, url_for
+from invoice_tool.invoices import order_links as _invoice_order_links
 
 
 def register_service_order_routes(app, *,
@@ -89,14 +90,26 @@ def register_service_order_routes(app, *,
             clauses.append("exists (select 1 from customer_reimbursements crf where crf.service_order_id = service_orders.id)")
         elif settlement == "no":
             clauses.append("not exists (select 1 from customer_reimbursements crf where crf.service_order_id = service_orders.id)")
+        invoice_cond = _invoice_order_links.invoice_order_sql(db(), 'ivf', 'service_orders.id')
         if invoice == "yes":
-            clauses.append("exists (select 1 from invoices ivf where ivf.service_order_id = service_orders.id and ivf.status != 'void')")
+            clauses.append(
+                "exists (select 1 from invoices ivf where %s and ivf.status != 'void')" % invoice_cond
+            )
         elif invoice == "no":
-            clauses.append("not exists (select 1 from invoices ivf where ivf.service_order_id = service_orders.id and ivf.status != 'void')")
+            clauses.append(
+                "not exists (select 1 from invoices ivf where %s and ivf.status != 'void')" % invoice_cond
+            )
         if payment == "paid":
-            clauses.append("exists (select 1 from invoices pv where pv.service_order_id = service_orders.id and pv.status != 'void') and not exists (select 1 from invoices pu where pu.service_order_id = service_orders.id and pu.status != 'void' and pu.paid_at is null)")
+            clauses.append(
+                "exists (select 1 from invoices pv where %s and pv.status != 'void')"
+                " and not exists (select 1 from invoices pu where %s and pu.status != 'void' and pu.paid_at is null)"
+                % (invoice_cond.replace('ivf', 'pv'), invoice_cond.replace('ivf', 'pu'))
+            )
         elif payment == "unpaid":
-            clauses.append("exists (select 1 from invoices pu where pu.service_order_id = service_orders.id and pu.status != 'void' and pu.paid_at is null)")
+            clauses.append(
+                "exists (select 1 from invoices pu where %s and pu.status != 'void' and pu.paid_at is null)"
+                % invoice_cond.replace('ivf', 'pu')
+            )
         settlement_filters = exact_settlement_date_filter(request.args, clauses, params)
         if buyer_id.isdigit():
             clauses.append("service_orders.buyer_id = ?")
@@ -112,6 +125,7 @@ def register_service_order_routes(app, *,
             buyer_name = (buyer_row["name"] or buyer_row["owner_name"] or "") if buyer_row else ""
         else:
             buyer_name = ""
+        invoice_count_cond = _invoice_order_links.invoice_order_sql(db(), 'iv', 'service_orders.id')
         rows = db().execute(
             f"""
             select service_orders.*,
@@ -128,8 +142,10 @@ def register_service_order_routes(app, *,
                    (select count(*) from expense_items
                      join expenses on expenses.id = expense_items.expense_id
                     where expenses.service_order_id = service_orders.id) as expense_item_count,
-                   count(distinct invoices.id) as invoice_count,
-                   count(distinct case when invoices.paid_at is not null then invoices.id end) as paid_invoice_count,
+                   (select count(distinct iv.id) from invoices iv
+                     where {invoice_count_cond} and iv.status != 'void') as invoice_count,
+                   (select count(distinct iv.id) from invoices iv
+                     where {invoice_count_cond} and iv.status != 'void' and iv.paid_at is not null) as paid_invoice_count,
                    -- 是否已有工单结算单：用相关子查询，不再 join 一张一对多的表，
                    -- 免得 group by 行集膨胀（列表页「工单结算」列只表达有/无）。
                    (select count(*) from customer_reimbursements
@@ -143,7 +159,6 @@ def register_service_order_routes(app, *,
             left join contracts on contracts.id = service_orders.contract_id
             left join quotations on quotations.id = service_orders.quotation_id
             left join service_reports on service_reports.service_order_id = service_orders.id
-            left join invoices on invoices.service_order_id = service_orders.id and invoices.status != 'void'
             where {" and ".join(clauses)}
             group by service_orders.id, clients.id, work_order_types.id, owners.id, buyers.id, order_manufacturers.id, contracts.id, quotations.id
             order by service_orders.created_at desc, service_orders.id desc
@@ -540,14 +555,15 @@ def register_service_order_routes(app, *,
             """,
             (order_id,),
         ).fetchall()
+        invoices_cond = _invoice_order_links.invoice_order_sql(db(), 'invoices', '?')
         invoices_rows = db().execute(
             """
             select invoices.*, clients.name as client_name
             from invoices left join clients on clients.id = invoices.client_id
-            where invoices.service_order_id = ? and invoices.status != 'void'
+            where (%s) and invoices.status != 'void'
             order by invoices.issue_date desc, invoices.id desc
-            """,
-            (order_id,),
+            """ % invoices_cond,
+            _invoice_order_links.invoice_order_params(invoices_cond, order_id),
         ).fetchall()
         if is_external_user():
             expenses_rows = []
