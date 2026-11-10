@@ -27,7 +27,9 @@ def register_invoice_detail_routes(app, *,
             return redirect(url_for("edit_invoice", invoice_id=invoice_id))
         creator = db().execute("select name, email from users where id = ?", (invoice["created_by"],)).fetchone()
         service_order = invoice_service_order(invoice)
-        linked_orders = _invoice_order_links.orders_for_invoices([invoice_id], db=db).get(invoice_id, [])
+        linked_orders = _invoice_order_links.orders_for_invoices(
+            [invoice_id], db=db, include_released=True
+        ).get(invoice_id, [])
         has_accounting_voucher = bool(db().execute(
             "select 1 from posting_events where source_type='invoice' and source_id=? "
         "and event_type='invoice.confirmed' limit 1", (invoice_id,),

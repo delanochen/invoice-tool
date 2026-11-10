@@ -76,7 +76,8 @@ def register_invoice_list_routes(app, *,
             params,
         ).fetchall()
         total_ids = [row["id"] for row in rows]
-        linked_orders = _invoice_order_links.orders_for_invoices(total_ids, db=_cb_resolve_db())
+        # 含已释放的关联：作废过的合并发票也要能显示它当时覆盖的工单。
+        linked_orders = _invoice_order_links.orders_for_invoices(total_ids, db=_cb_resolve_db(), include_released=True)
         totals = {row["id"]: _cb_resolve_invoice_totals()(row["id"]) for row in rows}
         summary_totals = {}
         for row in rows:
