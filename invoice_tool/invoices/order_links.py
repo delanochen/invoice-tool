@@ -5,7 +5,8 @@
   所以这些函数在 SQLite 上退化为"读旧列 / 不写关系表"，现有单测不受影响。
 * 关系表写入用 SAVEPOINT 包住：表缺失或写入失败时只回滚该保存点，发票本身的创建/作废照旧成功，
   由 `scripts/backfill_invoice_orders.py` 幂等补回填兜底。
-* Phase 1 不改读取路径：这里只提供双写与释放，读取仍走 `invoices.service_order_id`。
+* Phase 1 只做写入兼容（双写 + 作废释放）；读取仍以旧列为主，`invoice_ids_for_service_order`
+  用于把"工单 → 发票"的读取逐步切到关系表。
 """
 from datetime import datetime, timezone
 
@@ -101,6 +102,58 @@ def invoice_order_ids(invoice_id, *, db, include_released=False):
     ).fetchone()
     legacy = row['service_order_id'] if row else None
     return [legacy] if legacy else []
+
+
+def service_order_link_state(service_order_id, *, db):
+    """工单在关系表里的状态。
+
+    返回 {'has_rows': bool, 'active_invoice_ids': [...]}。
+    has_rows=True 表示关系表已经覆盖这个工单（含已释放），此时调用方必须以表为准，
+    不能再回退旧列——否则已经释放开票资格的工单会被旧列"复活"成仍有发票。
+    """
+    if not service_order_id:
+        return {'has_rows': False, 'active_invoice_ids': []}
+    connection = db()
+    if not supports_invoice_orders(connection):
+        return {'has_rows': False, 'active_invoice_ids': []}
+    try:
+        rows = connection.execute(
+            "select invoice_id, released_at from invoice_orders where service_order_id = ? order by id",
+            (service_order_id,),
+        ).fetchall()
+    except Exception:
+        return {'has_rows': False, 'active_invoice_ids': []}
+    active = [row['invoice_id'] for row in rows if row['released_at'] is None]
+    return {'has_rows': bool(rows), 'active_invoice_ids': active}
+
+
+def invoice_ids_for_service_order(service_order_id, *, db, include_released=False):
+    """工单被哪些发票覆盖（一张发票可覆盖多个工单）。
+
+    关系表里有该工单的记录（含已释放）就以表为准；表缺失或没有记录时回退旧列，
+    保证回填之前创建的老发票仍能被查到。
+    """
+    if not service_order_id:
+        return []
+    connection = db()
+    state = service_order_link_state(service_order_id, db=db)
+    if state['has_rows'] and not include_released:
+        return state['active_invoice_ids']
+    if state['has_rows']:
+        try:
+            rows = connection.execute(
+                "select invoice_id from invoice_orders where service_order_id = ? order by id",
+                (service_order_id,),
+            ).fetchall()
+        except Exception:
+            rows = []
+        return [row['invoice_id'] for row in rows]
+    row = connection.execute(
+        "select id from invoices where service_order_id = ? and status != 'void'"
+        " order by issue_date desc, id desc limit 1",
+        (service_order_id,),
+    ).fetchone()
+    return [row['id']] if row else []
 
 
 def primary_order_id(invoice, *, db):

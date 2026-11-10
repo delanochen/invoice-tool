@@ -41,17 +41,44 @@ def _fallback_row_for_worker(candidates_by_worker, worker_key, *, _reimbursement
     return max(rows, key=lambda r: _reimbursement_date_key(r.get("project_date")))
 
 
-def service_order_active_invoice(order_id, *, db):
-    return db().execute(
-        """
+LEGACY_ACTIVE_INVOICE_SQL = """
         select *
         from invoices
         where service_order_id = ? and status != 'void'
         order by issue_date desc, id desc
         limit 1
-        """,
-        (order_id,),
-    ).fetchone()
+        """
+
+
+def service_order_active_invoice(order_id, *, db):
+    """工单当前的有效发票。
+
+    一张发票可以覆盖多个工单（invoice_orders 关系表），因此先用关系表拿到覆盖该工单的
+    发票 id，再取其中最新的一张；关系表缺失或该工单尚未回填时回退旧列，老数据照常可查。
+    """
+    if not order_id:
+        return None
+    has_links = False
+    invoice_ids = []
+    try:
+        from invoice_tool.invoices.order_links import service_order_link_state
+        state = service_order_link_state(order_id, db=db)
+        has_links = state['has_rows']
+        invoice_ids = state['active_invoice_ids']
+    except Exception:
+        has_links = False
+        invoice_ids = []
+    if has_links:
+        # 关系表已覆盖该工单：只认关系表。全部释放表示工单开票资格已被收回，不能回退旧列。
+        if not invoice_ids:
+            return None
+        row = db().execute(
+            "select * from invoices where id in (%s) and status != 'void'"
+            " order by issue_date desc, id desc limit 1" % ", ".join("?" for _ in invoice_ids),
+            tuple(invoice_ids),
+        ).fetchone()
+        return row
+    return db().execute(LEGACY_ACTIVE_INVOICE_SQL, (order_id,)).fetchone()
 
 
 def remove_customer_reimbursement_pdf(reimbursement, *, customer_reimbursement_file_path, os):
