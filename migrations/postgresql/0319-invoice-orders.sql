@@ -40,4 +40,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS invoice_orders_active_order_uidx
 CREATE INDEX IF NOT EXISTS invoice_orders_invoice_idx
     ON public.invoice_orders (invoice_id);
 
+-- 新表默认只有迁移执行角色可用：应用连接用的是独立角色（生产 invoice_app / 测试 invoice_test），
+-- 不给授权的话开票写入会直接 permission denied。这里按存在性授权，避免写死角色名。
+DO $$
+DECLARE app_role text;
+BEGIN
+    FOREACH app_role IN ARRAY ARRAY['invoice_app', 'invoice_test'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_role) THEN
+            EXECUTE format(
+                'GRANT SELECT, INSERT, UPDATE, DELETE ON public.invoice_orders TO %I', app_role
+            );
+        END IF;
+    END LOOP;
+END $$;
+
 COMMIT;

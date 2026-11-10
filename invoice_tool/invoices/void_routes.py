@@ -10,6 +10,7 @@ def register_invoice_void_routes(app, *,
     db,
     log_action,
     login_required,
+    release_invoice_orders,
     require_invoice_access,
 ):
     @login_required
@@ -34,6 +35,8 @@ def register_invoice_void_routes(app, *,
                 )
                 log_action("void", "invoice", invoice_id, invoice["invoice_number"],
                            f"会计冲销：{reason_code}")
+                # 作废、释放工单开票资格在同一事务内完成。
+                release_invoice_orders(invoice_id, db=db)
                 db().commit()
             except (InvoiceVoidError, PostingError, ValueError) as error:
                 db().rollback()
@@ -49,6 +52,7 @@ def register_invoice_void_routes(app, *,
             return redirect(url_for("invoice_detail", invoice_id=invoice_id))
         db().execute("update invoices set status = 'void' where id = ?", (invoice_id,))
         log_action("void", "invoice", invoice_id, invoice["invoice_number"], "作废发票")
+        release_invoice_orders(invoice_id, db=db)
         db().commit()
         flash("发票已作废。", "success")
         return redirect(url_for("invoice_detail", invoice_id=invoice_id))

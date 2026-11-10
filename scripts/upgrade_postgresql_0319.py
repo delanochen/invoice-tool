@@ -1,13 +1,12 @@
-"""Apply the invoice_orders migration to invoice_test (or an explicit rehearsal copy).
+"""Apply the invoice_orders migration to invoice_test only.
 
-生产库不在允许列表内：回填演练只允许跑在 invoice_test，或者生产库的一致性副本
-（invoice_phase1_rehearsal，由 pg_dump/pg_restore 生成），避免误改生产。
+仓库约定：开发与验证只在 invoice_test 进行，生产副本不参与演练。
 """
 import argparse
 from pathlib import Path
 import subprocess
 
-ALLOWED_DATABASES = ('invoice_test', 'invoice_phase1_rehearsal')
+ALLOWED_DATABASES = ('invoice_test',)
 
 
 def main():

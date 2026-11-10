@@ -101,7 +101,7 @@ select i.service_order_id, i.id, i.invoice_number, i.status, i.issue_date
 """
 
 
-ALLOWED_DATABASES = ('invoice_test', 'invoice_phase1_rehearsal')
+ALLOWED_DATABASES = ('invoice_test',)
 
 
 def main():

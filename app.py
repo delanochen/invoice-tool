@@ -67,6 +67,7 @@ from invoice_tool.invoices import loading as _split_invoice_loading
 from invoice_tool.invoices import create as _split_invoice_create
 from invoice_tool.invoices import update as _split_invoice_update
 from invoice_tool.invoices import mail as _split_invoice_mail
+from invoice_tool.invoices import order_links as _split_invoice_order_links
 from invoice_tool.shared_attachments import named as _split_named_attachment
 from invoice_tool.shared_attachments import company as _split_company_attachments
 from invoice_tool.email_delivery import record as _split_delivery_record
@@ -3982,7 +3983,7 @@ def posted_service_order_id(require_start_date=False, required=False):
 
 
 def create_invoice_from_form(save_token=None):
-    return _split_invoice_create.create_invoice_from_form(save_token, IntegrityError=IntegrityError, abort=abort, can_access_client=can_access_client, copy_customer_reimbursement_attachments_to_invoice=copy_customer_reimbursement_attachments_to_invoice, copy_mileage_proofs_to_invoice=copy_mileage_proofs_to_invoice, db=db, finish_invoice_save_token=finish_invoice_save_token, g=g, invoice_items_from_form=invoice_items_from_form, invoice_number_exists=invoice_number_exists, invoice_totals=invoice_totals, log_action=log_action, money=money, next_invoice_number=next_invoice_number, now=now, posted_client_id=posted_client_id, posted_service_order_id=posted_service_order_id, recognize_invoice_if_accounting_enabled=recognize_invoice_if_accounting_enabled, request=request, save_uploaded_attachment=save_uploaded_attachment, service_order_active_invoice=service_order_active_invoice, to_float=to_float, uploaded_attachments_from_request=uploaded_attachments_from_request)
+    return _split_invoice_create.create_invoice_from_form(save_token, IntegrityError=IntegrityError, abort=abort, can_access_client=can_access_client, copy_customer_reimbursement_attachments_to_invoice=copy_customer_reimbursement_attachments_to_invoice, copy_mileage_proofs_to_invoice=copy_mileage_proofs_to_invoice, db=db, finish_invoice_save_token=finish_invoice_save_token, g=g, invoice_items_from_form=invoice_items_from_form, invoice_number_exists=invoice_number_exists, invoice_totals=invoice_totals, log_action=log_action, money=money, next_invoice_number=next_invoice_number, now=now, posted_client_id=posted_client_id, posted_service_order_id=posted_service_order_id, recognize_invoice_if_accounting_enabled=recognize_invoice_if_accounting_enabled, record_invoice_order=_split_invoice_order_links.record_invoice_order, request=request, save_uploaded_attachment=save_uploaded_attachment, service_order_active_invoice=service_order_active_invoice, to_float=to_float, uploaded_attachments_from_request=uploaded_attachments_from_request)
 
 
 
@@ -4031,6 +4032,7 @@ _invoice_void_views = register_invoice_void_routes(
     db=lambda *args, **kwargs: db(*args, **kwargs),
     log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
     login_required=login_required,
+    release_invoice_orders=lambda *args, **kwargs: _split_invoice_order_links.release_invoice_orders(*args, **kwargs),
     require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
 )
 void_invoice = _invoice_void_views['void_invoice']

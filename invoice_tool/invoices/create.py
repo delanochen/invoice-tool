@@ -1,6 +1,6 @@
 """Legacy-compatible invoice_create helpers; explicit runtime dependencies."""
 
-def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_access_client, copy_customer_reimbursement_attachments_to_invoice, copy_mileage_proofs_to_invoice, db, finish_invoice_save_token, g, invoice_items_from_form, invoice_number_exists, invoice_totals, log_action, money, next_invoice_number, now, posted_client_id, posted_service_order_id, recognize_invoice_if_accounting_enabled, request, save_uploaded_attachment, service_order_active_invoice, to_float, uploaded_attachments_from_request):
+def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_access_client, copy_customer_reimbursement_attachments_to_invoice, copy_mileage_proofs_to_invoice, db, finish_invoice_save_token, g, invoice_items_from_form, invoice_number_exists, invoice_totals, log_action, money, next_invoice_number, now, posted_client_id, posted_service_order_id, recognize_invoice_if_accounting_enabled, record_invoice_order, request, save_uploaded_attachment, service_order_active_invoice, to_float, uploaded_attachments_from_request):
     client_id = posted_client_id()
     if not can_access_client(client_id):
         abort(403)
@@ -85,6 +85,15 @@ def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_acce
             "update customer_reimbursements set invoice_id = ? where id = ? and invoice_id is null",
             (invoice_id, source_reimbursement["id"]),
         )
+    # Phase 1 双写：单工单开票仍写 invoices.service_order_id，同时记录关系表；
+    # 失败只回滚保存点，不阻断开票（由回填脚本兜底）。
+    record_invoice_order(
+        invoice_id,
+        service_order_id,
+        db=db,
+        customer_reimbursement_id=source_reimbursement["id"] if source_reimbursement else None,
+        now=now,
+    )
     invoice_summary = f"金额：{money(invoice_totals(invoice_id)['total'], request.form.get('currency', 'USD'))}"
     log_action("create", "invoice", invoice_id, invoice_number, invoice_summary)
     db().commit()
