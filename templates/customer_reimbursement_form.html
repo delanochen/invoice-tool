@@ -502,7 +502,7 @@
               <td>{{ attachment.uploaded_at|local_datetime }}</td>
               <td>
                 <div class="row-actions">
-                  <a class="button small" data-attachment-download href="{{ url_for('download_customer_reimbursement_attachment', attachment_id=attachment.id) }}">下载</a>
+                  <a class="button small" data-attachment-download download href="{{ url_for('download_customer_reimbursement_attachment', attachment_id=attachment.id) }}">下载</a>
                   {% if can_edit %}
                     <button class="danger small" type="submit" form="deleteCustomerReimbursementAttachment{{ attachment.id }}">删除</button>
                   {% endif %}

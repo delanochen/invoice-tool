@@ -44,7 +44,7 @@
     <span class="status {{ 'completed' if order.status == 'closed' else 'draft' }}">{{ "已关闭" if order.status == "closed" else ("结算中" if order.status == "settling" else ("未开始" if order.status == "not_started" else "进行中")) }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
-      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('download_service_order_attachments', order_id=order.id) }}'">批量下载附件</button>
+      <a class="erp-btn" download href="{{ url_for('download_service_order_attachments', order_id=order.id) }}">批量下载附件</a>
       {% if has_menu_permission("field_work") %}
         <a class="erp-btn" href="{{ url_for('field_work', order_id=order.id) }}">工单拍照</a>
         <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('field_photo_query', order_id=order.id) }}'">照片台账</button>
@@ -339,8 +339,8 @@
                       data-workspace-title="工单结算 · {{ order.order_number }}">{% if customer_reimbursement %}编辑工单结算{% else %}生成工单结算{% endif %}</button>
             {% endif %}
             {# 下载类保持浏览器原生行为，不进 iframe 标签。 #}
-            <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}'">下载 PDF</button>
-            <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('download_customer_reimbursement_excel', reimbursement_id=customer_reimbursement.id) }}'">导出 Excel</button>
+            <a class="erp-btn" download href="{{ url_for('download_customer_reimbursement', reimbursement_id=customer_reimbursement.id) }}">下载 PDF</a>
+            <a class="erp-btn" download href="{{ url_for('download_customer_reimbursement_excel', reimbursement_id=customer_reimbursement.id) }}">导出 Excel</a>
           </div>
           <div class="erp-source-metrics">
             <div class="erp-source-metric"><span>工时费小计</span><strong>{{ customer_reimbursement.labor_total|money }}</strong></div>

@@ -90,7 +90,7 @@
                 </td>
                 <td>{{ attachment.uploader_name or "-" }}</td>
                 <td>{{ attachment.uploaded_at|local_datetime }}</td>
-                <td><button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('download_contract_attachment', attachment_id=attachment.id) }}'">下载</button></td>
+                <td><a class="erp-btn" download href="{{ url_for('download_contract_attachment', attachment_id=attachment.id) }}">下载</a></td>
               </tr>
             {% else %}
               <tr><td colspan="4" class="empty">还没有合同附件。</td></tr>

@@ -126,7 +126,7 @@
                 <td>{{ attachment.uploaded_at[:10] }}</td>
                 <td>
                   <div class="row-actions">
-                    <a class="button small" data-attachment-download href="{{ url_for('download_attachment', attachment_id=attachment.id) }}">下载</a>
+                    <a class="button small" data-attachment-download download href="{{ url_for('download_attachment', attachment_id=attachment.id) }}">下载</a>
                     <button class="danger small" type="submit" form="deleteAttachmentForm{{ attachment.id }}">删除</button>
                   </div>
                 </td>
