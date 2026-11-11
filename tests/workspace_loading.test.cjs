@@ -120,4 +120,24 @@ function setup() {
   assert.equal(overlays[0].hidden,true,'inactive tab loading indicator stays hidden');
   assert.equal(overlays[1].hidden,false);
 }
-console.log('Workspace loading: 10 regressions passed; no network or database');
+{
+  const s = setup();
+  s.ready();
+  s.message();
+  const template = fs.readFileSync('templates/service_orders.html', 'utf8');
+  assert.match(template, /<a class="erp-btn" href="\{\{ url_for\('invoice_merge'\) \}\}">[^<]+<\/a>/);
+  const mergeLink = {
+    href: '/invoices/merge', dataset: {}, textContent: 'Merge invoices',
+    hasAttribute: () => false, getAttribute: () => '/invoices/merge',
+  };
+  let intercepted = false;
+  const click = {target: {closest: () => mergeLink}, button: 0, preventDefault() {intercepted = true;}};
+  s.doc.handlers.click[0](click);
+  assert.ok(intercepted);
+  assert.equal(s.frames.length, 2);
+  assert.deepEqual(s.frame.navigations, ['/service-orders']);
+  assert.deepEqual(s.frames[1].navigations, ['/invoices/merge']);
+  s.doc.handlers.click[0](click);
+  assert.equal(s.frames.length, 2, 'reopening reuses the merge tab');
+}
+console.log('Workspace loading: 11 regressions passed; no network or database');
