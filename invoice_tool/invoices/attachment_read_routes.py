@@ -8,12 +8,16 @@ from werkzeug.datastructures import Headers
 
 from invoice_tool.attachments.download_capacity import limited_archive_download
 from invoice_tool.attachments.streaming_zip import stream_attachment_zip
+from invoice_tool.invoices import linked_attachments as _linked_attachments
 
 
 def register_invoice_attachment_read_routes(app, *,
     attachment_file_path,
+    customer_reimbursement_attachment_path,
     db,
+    get_customer_reimbursement_attachments,
     login_required,
+    normalized_attachment_filename,
     require_invoice_access,
     safe_attachment_response,
 ):
@@ -41,22 +45,43 @@ def register_invoice_attachment_read_routes(app, *,
             (invoice_id,),
         ).fetchall()
         files, seen = [], set()
+        own_names = set()
         for row in rows:
             try:
                 path = Path(attachment_file_path(row)).resolve()
             except OSError:
                 continue
+            own_names.add(normalized_attachment_filename(row["original_filename"]))
             if path in seen:
                 continue
             seen.add(path)
             name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(row["original_filename"])).strip('. ') or '附件'
             files.append(('发票附件', path, name))
+
+        # 关联结算的凭证直接读源文件打包，不再依赖发票附件里的副本。
+        for entry in _linked_attachments.settlement_attachment_entries(
+            _linked_attachments.invoice_settlements(invoice_id, db=db),
+            get_customer_reimbursement_attachments=get_customer_reimbursement_attachments,
+            normalized_attachment_filename=normalized_attachment_filename,
+            skip_names=own_names,
+        ):
+            try:
+                path = Path(customer_reimbursement_attachment_path(entry)).resolve()
+            except OSError:
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(entry["original_filename"])).strip('. ') or '附件'
+            files.append((entry["folder"], path, name))
+
         if not files:
             abort(404)
+        folders = sorted({folder for folder, _, _ in files})
         filename = 'invoice-%s-attachments.zip' % invoice_id
         headers = Headers({'Cache-Control': 'private, no-store', 'X-Accel-Buffering': 'no'})
         headers['Content-Disposition'] = "attachment; filename=attachments.zip; filename*=UTF-8''" + quote(filename, safe='')
-        return Response(stream_attachment_zip(['发票附件'], files), mimetype='application/zip',
+        return Response(stream_attachment_zip(folders, files), mimetype='application/zip',
                         headers=headers, direct_passthrough=True)
 
 

@@ -204,7 +204,7 @@
     <section class="erp-panel no-print" data-erp-panel="attachments">
       <div class="erp-detail-scroll">
         <div class="attachment-panel attachment-download-scope">
-          <div class="panel-title"><h2>附件清单</h2>{% if attachments %}<a class="small" download href="{{ url_for('download_invoice_attachments', invoice_id=invoice.id) }}">下载全部附件（ZIP）</a>{% endif %}</div>
+          <div class="panel-title"><h2>附件清单</h2>{% if attachments or linked_attachments %}<a class="small" download href="{{ url_for('download_invoice_attachments', invoice_id=invoice.id) }}">下载全部附件（ZIP）</a>{% endif %}</div>
           <table class="list-table attachment-table erp-grid">
       <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
       <tbody>
@@ -235,6 +235,22 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if linked_attachments %}
+    <div class="panel-title"><h2>关联结算凭证<small>（只读引用，不占发票附件空间）</small></h2></div>
+    <table class="list-table attachment-table erp-grid">
+      <thead><tr><th>来源结算</th><th>文件名</th><th>上传人</th><th>上传时间</th></tr></thead>
+      <tbody>
+        {% for entry in linked_attachments %}
+          <tr>
+            <td>{{ entry.order_number or "" }} {{ entry.settlement_label }}</td>
+            <td>{{ entry.original_filename }}</td>
+            <td>{{ entry.uploader_name or "Unknown" }}</td>
+            <td>{{ (entry.uploaded_at or "")[:10] }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
     <form id="detailAttachmentForm" method="post" action="{{ url_for('upload_attachment', invoice_id=invoice.id) }}" enctype="multipart/form-data" class="attachment-upload form-stack">
       <div class="file-picker-row">
         <span>继续上传附件（可多选）</span>

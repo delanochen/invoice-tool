@@ -107,8 +107,8 @@ def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_acce
         if uploaded and uploaded.filename:
             save_uploaded_attachment(invoice_id, uploaded)
     if source_reimbursement:
-        for reimbursement in source_reimbursements:
-            copy_customer_reimbursement_attachments_to_invoice(invoice_id, reimbursement["id"])
+        # 结算附件不再复制成发票附件副本（磁盘上会存两份），改为详情页按结算只读引用、
+        # 打包下载时读源文件，见 invoice_tool/invoices/linked_attachments.py。
         copy_mileage_proofs_to_invoice(invoice_id, service_order_id)
         for reimbursement in source_reimbursements:
             db().execute(

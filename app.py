@@ -4009,6 +4009,7 @@ _invoice_detail_views = register_invoice_detail_routes(
     db=lambda *args, **kwargs: db(*args, **kwargs),
     email_delivery_summary=lambda *args, **kwargs: email_delivery_summary(*args, **kwargs),
     get_company_profile=lambda *args, **kwargs: get_company_profile(*args, **kwargs),
+    get_customer_reimbursement_attachments=lambda *args, **kwargs: get_customer_reimbursement_attachments(*args, **kwargs),
     get_invoice_attachments=lambda *args, **kwargs: get_invoice_attachments(*args, **kwargs),
     get_invoice_terms=lambda *args, **kwargs: get_invoice_terms(*args, **kwargs),
     get_payment_instructions=lambda *args, **kwargs: get_payment_instructions(*args, **kwargs),
@@ -4016,6 +4017,7 @@ _invoice_detail_views = register_invoice_detail_routes(
     invoice_totals=lambda *args, **kwargs: invoice_totals(*args, **kwargs),
     load_invoice=lambda *args, **kwargs: load_invoice(*args, **kwargs),
     login_required=login_required,
+    normalized_attachment_filename=lambda *args, **kwargs: normalized_attachment_filename(*args, **kwargs),
     render_template=lambda *args, **kwargs: render_template(*args, **kwargs),
 )
 invoice_detail = _invoice_detail_views['invoice_detail']
@@ -4107,8 +4109,11 @@ delete_attachment = _invoice_attachment_write_views['delete_attachment']
 _invoice_attachment_read_views = register_invoice_attachment_read_routes(
     app,
     attachment_file_path=lambda *args, **kwargs: attachment_file_path(*args, **kwargs),
+    customer_reimbursement_attachment_path=lambda *args, **kwargs: customer_reimbursement_attachment_path(*args, **kwargs),
     db=lambda *args, **kwargs: db(*args, **kwargs),
+    get_customer_reimbursement_attachments=lambda *args, **kwargs: get_customer_reimbursement_attachments(*args, **kwargs),
     login_required=login_required,
+    normalized_attachment_filename=lambda *args, **kwargs: normalized_attachment_filename(*args, **kwargs),
     require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
     safe_attachment_response=lambda *args, **kwargs: safe_attachment_response(*args, **kwargs),
 )
