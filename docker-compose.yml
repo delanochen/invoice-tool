@@ -37,6 +37,18 @@ services:
     depends_on:
       - invoice-tool
 
+  # 同一个隧道的第二个 connector：边缘侧在两条连接间做冗余，
+  # 单条 QUIC 断连（no recent network activity）时请求不会整片 502/503。
+  cloudflared-2:
+    image: cloudflare/cloudflared:2026.10.7
+    container_name: invoice-tool-cloudflared-2
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}"
+    depends_on:
+      - invoice-tool
+
   photo-worker:
     build:
       context: .

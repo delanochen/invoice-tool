@@ -1,3 +1,9 @@
+## [0.1.478] - 2026-11-11
+
+- 部署脚本改为只更新应用服务（`compose up -d --build --no-deps invoice-tool photo-worker`）：原来每次发版都会重建 `cloudflared`，隧道重新握手期间公网会出现 502/503。
+- `docker-compose.yml` 新增第二个隧道 connector `cloudflared-2`（同一 `TUNNEL_TOKEN`），边缘侧两条连接做主备，单条 QUIC 断连不再整片失败。
+- `scripts/ensure_test_tunnel_network.sh` 支持同时挂接两个 connector 到测试网络（否则边缘把测试站流量分给未挂接的那条时仍会 502）。
+
 ## [0.1.477] - 2026-11-11
 
 - 合并开票的发票行改为**按发票项目归并**：原来是把每份结算的行直接拼起来，同一项目（MRO Supplies / Fuel / Airfare …）在发票上会重复出现多次。现在按 `project_id` 合并金额、一行一个项目，金额用 Decimal 相加并保留两位（`invoice_tool/invoices/merge_items.py`）。

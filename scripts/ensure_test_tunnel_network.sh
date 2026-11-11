@@ -19,38 +19,54 @@
 set -eu
 
 TUNNEL_CONTAINER="${INVOICE_TEST_TUNNEL_CONTAINER:-invoice-tool-cloudflared}"
+# 可选的第二个 connector（同一隧道冗余），存在时要一起挂到测试网络，
+# 否则边缘把测试站流量分给它时仍会 502（lookup invoice-tool-test）。
+TUNNEL_CONTAINER_2="${INVOICE_TEST_TUNNEL_CONTAINER_2:-invoice-tool-cloudflared-2}"
 NETWORK="${INVOICE_TEST_NETWORK:-invoice-tool-test_default}"
 APP_CONTAINER="${INVOICE_TEST_APP_CONTAINER:-invoice-tool-test}"
 
 log() { printf '%s %s\n' "$(date -Is)" "$*"; }
 
-if ! docker inspect "$TUNNEL_CONTAINER" >/dev/null 2>&1; then
-  log "WARN tunnel container $TUNNEL_CONTAINER not found; skip network attach"
-  exit 0
-fi
+attach() {
+  tunnel="$1"
+  if ! docker inspect "$tunnel" >/dev/null 2>&1; then
+    log "WARN tunnel container $tunnel not found; skip network attach"
+    return 0
+  fi
+  networks="$(docker inspect "$tunnel" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}')"
+  case " $networks " in
+    *" $NETWORK "*)
+      log "tunnel $tunnel already attached to $NETWORK"
+      ;;
+    *)
+      docker network connect "$NETWORK" "$tunnel"
+      log "attached $tunnel to $NETWORK"
+      ;;
+  esac
+}
 
 if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
   log "WARN test network $NETWORK not found; skip network attach"
   exit 0
 fi
 
-networks="$(docker inspect "$TUNNEL_CONTAINER" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}')"
-case " $networks " in
-  *" $NETWORK "*)
-    log "tunnel already attached to $NETWORK"
-    ;;
-  *)
-    docker network connect "$NETWORK" "$TUNNEL_CONTAINER"
-    log "attached $TUNNEL_CONTAINER to $NETWORK"
-    ;;
-esac
+attach "$TUNNEL_CONTAINER"
+attach "$TUNNEL_CONTAINER_2"
+
+for tunnel in "$TUNNEL_CONTAINER" "$TUNNEL_CONTAINER_2"; do
+  case "$(docker inspect "$tunnel" >/dev/null 2>&1 && echo present || echo absent)" in
+    present)
+      members="$(docker network inspect "$NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}')"
+      case " $members " in
+        *" $tunnel "*) log "network $NETWORK has $tunnel" ;;
+        *) log "WARN network $NETWORK is missing $tunnel" ;;
+      esac
+      ;;
+  esac
+done
 
 members="$(docker network inspect "$NETWORK" --format '{{range .Containers}}{{.Name}} {{end}}')"
 case " $members " in
   *" $APP_CONTAINER "*) log "network $NETWORK has $APP_CONTAINER" ;;
   *) log "WARN network $NETWORK is missing $APP_CONTAINER" ;;
-esac
-case " $members " in
-  *" $TUNNEL_CONTAINER "*) log "network $NETWORK has $TUNNEL_CONTAINER" ;;
-  *) log "WARN network $NETWORK is missing $TUNNEL_CONTAINER" ;;
 esac

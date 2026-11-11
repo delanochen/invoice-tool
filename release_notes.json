@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.1.478",
+    "date": "2026-11-11",
+    "reason": "公网偶发 502/503 来自隧道：每次发版都会重建 cloudflared 容器，且只有单条 connector。",
+    "changes": [
+      "部署只更新 invoice-tool / photo-worker（--no-deps），发版不再重建隧道容器。",
+      "新增第二个 connector（cloudflared-2），同一隧道双连接冗余。",
+      "ensure_test_tunnel_network.sh 同时把两个 connector 挂到测试网络。"
+    ]
+  },
+  {
     "version": "0.1.477",
     "date": "2026-11-11",
     "reason": "合并开票应该把多张工单的同类费用合成一行（按发票项目），而不是按工单罗列多行。",

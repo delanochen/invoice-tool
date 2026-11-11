@@ -173,7 +173,9 @@ build_current_version() {
     return 1
   fi
   export APP_VERSION
-  compose up -d --build
+  # 只更新应用服务：cloudflared 一旦被重建，隧道要重新握手（几秒内公网 502/503），
+  # 且会丢掉测试网络挂接。用 --no-deps 把隧道容器排除在发版之外。
+  compose up -d --build --no-deps invoice-tool photo-worker
 }
 trap cleanup EXIT INT TERM
 
