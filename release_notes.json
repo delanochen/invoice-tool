@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.1.474",
+    "date": "2026-11-10",
+    "reason": "客户要求多个工单对应一张发票。Phase 1 用 invoice_orders 关系表承载，读取侧已全域切到关系表，本次补上「合并开票」的选单页与写入，并只发布到测试环境验证。",
+    "changes": [
+      "新增 /invoices/merge 选单页：按客户分组列出已审核、未开票、工单未关闭且没有其它有效发票的结算，勾选后带 customer_reimbursement_ids 进入发票表单。",
+      "发票表单支持多份结算：逐份校验（已开票、工单已有关联发票、未审核、跨客户都拦），发票行逐份预填，主工单取第一份结算的工单。",
+      "create 侧循环写入 invoice_orders 与回写 customer_reimbursements.invoice_id，每份结算一行关联，金额按整数分记录。",
+      "发票列表的工单筛选改为关系表子查询，非主工单的发票也能筛出来；列表与详情的多工单显示包含已释放关联，作废后仍能看到发票覆盖过的工单。",
+      "新增 migrations/postgresql/0319-invoice-orders.sql：invoice_orders 表、两条唯一索引、invoice_items.service_order_id，末尾按角色授权。",
+      "新增 scripts/upgrade_postgresql_0319.py（只允许 invoice_test）与 scripts/backfill_invoice_orders.py（默认体检，--apply 才写，可重复执行）。",
+      "本次只发布到测试环境，生产数据库未执行迁移与回填。"
+    ]
+  },
+  {
     "version": "0.1.473",
     "date": "2026-11-10",
     "reason": "0.1.472 把挂接写在 build 之后，但部署脚本会用 git reset --hard 改写自身，shell 续读可能跳过新增步骤，导致挂接实际没执行。",
