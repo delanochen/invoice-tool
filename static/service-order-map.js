@@ -82,7 +82,7 @@ function ensureMarker(buyer, position, placement) {
   const zIndexOffset = buyer.inspection_status === "overdue" ? 60 : buyer.inspection_status === "warning" ? 45 : buyer.inspection_status === "fresh" ? 30 : 10;
   if (!marker) {
     marker = L.marker(position, { icon: siteMarkerIcon(buyer, placement), title: buyer.name, zIndexOffset });
-    marker.bindPopup(buyerDetails(buyer), { maxWidth: 340 });
+    marker.bindPopup(buyerDetails(buyer), { maxWidth: 340, className: "service-map-site-popup" });
     markersById.set(buyer.id, marker);
   } else {
     marker.setLatLng(position);

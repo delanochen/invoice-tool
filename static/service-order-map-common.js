@@ -157,13 +157,13 @@ function setupMapFilterAutoClose() {
   });
 }
 
-function buyerDetails(buyer) {
+function buyerDetails(buyer, { showTitle = true } = {}) {
   const invoices = mapConfig.showInvoiceAmounts ? `
     <dt>${t("发票")}</dt><dd>${money(buyer.paid_invoice_amount)} / ${money(buyer.completed_invoice_amount)}</dd>
   ` : "";
   return `
     <div class="map-order-popup">
-      <strong>${escapeHtml(buyer.name)}</strong>
+      ${showTitle ? `<strong>${escapeHtml(buyer.name)}</strong>` : ""}
       <span>${buyerAddressLink(buyer)}</span>
       <dl>
         <dt>${t("联系人")}</dt><dd>${escapeHtml(buyer.contact_name || "-")}</dd>
@@ -177,8 +177,8 @@ function buyerDetails(buyer) {
   `;
 }
 
-function buyerClusterDetails(buyers) {
-  if (buyers.length === 1) return buyerDetails(buyers[0]);
+function buyerClusterDetails(buyers, { showTitle = true } = {}) {
+  if (buyers.length === 1) return buyerDetails(buyers[0], { showTitle });
   const items = buyers.map((buyer) => `
     <div class="map-cluster-buyer">
       <strong><a href="${escapeHtml(buyer.detail_url)}">${escapeHtml(buyer.buyer_number)} · ${escapeHtml(buyer.name)}</a></strong>
@@ -187,7 +187,7 @@ function buyerClusterDetails(buyers) {
   `).join("");
   return `
     <div class="map-order-popup map-cluster-popup">
-      <strong>${buyers.length} ${t("个站点")}</strong>
+      ${showTitle ? `<strong>${buyers.length} ${t("个站点")}</strong>` : ""}
       <span>${t("此区域有多个站点地址很近。")}</span>
       <div class="map-cluster-list">${items}</div>
     </div>

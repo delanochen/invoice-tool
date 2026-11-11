@@ -179,9 +179,17 @@ function defineSiteMarkerOverlay() {
   };
 }
 
+function mapInfoWindow(title, content) {
+  const header = document.createElement("strong");
+  header.className = "map-info-window-title";
+  header.textContent = title;
+  return new google.maps.InfoWindow({ ariaLabel: title, headerContent: header, content, maxWidth: 340 });
+}
+
 function openBuyerInfo(buyers, marker) {
   if (activeInfoWindow) activeInfoWindow.close();
-  activeInfoWindow = new google.maps.InfoWindow({ content: buyerClusterDetails(buyers) });
+  const title = buyers.length === 1 ? buyers[0].name : `${buyers.length} ${t("个站点")}`;
+  activeInfoWindow = mapInfoWindow(title, buyerClusterDetails(buyers, { showTitle: false }));
   activeInfoWindow.setPosition(marker.getPosition());
   activeInfoWindow.open({ map: serviceMap });
 }
@@ -223,9 +231,7 @@ function addHeadquartersMarker() {
       strokeOpacity: 0
     }
   });
-  const info = new google.maps.InfoWindow({
-    content: `<strong>${escapeHtml(headquarters.name)}</strong><br>${escapeHtml(headquarters.address)}`
-  });
+  const info = mapInfoWindow(headquarters.name, escapeHtml(headquarters.address));
   marker.addListener("mouseover", () => info.open({ map: serviceMap, anchor: marker }));
   marker.addListener("mouseout", () => info.close());
 }
