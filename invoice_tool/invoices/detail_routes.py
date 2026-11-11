@@ -45,6 +45,40 @@ def register_invoice_detail_routes(app, *,
             normalized_attachment_filename=normalized_attachment_filename,
             skip_names=[normalized_attachment_filename(row["original_filename"]) for row in attachments],
         )
+        # 附件清单统一成一个列表（发票自身附件在前，关联结算凭证在后）并分页：
+        # 合并发票可能带几百条凭证，一次渲染 430 行会让跨境页面变慢。
+        attachment_rows = [
+            {
+                "kind": "invoice",
+                "id": row["id"],
+                "original_filename": row["original_filename"],
+                "content_type": row["content_type"],
+                "uploader_name": row["uploader_name"],
+                "uploaded_at": row["uploaded_at"],
+            }
+            for row in attachments
+        ] + [
+            {
+                "kind": "settlement",
+                "id": entry["attachment_id"],
+                "original_filename": entry["original_filename"],
+                "content_type": entry["content_type"],
+                "uploader_name": entry["uploader_name"],
+                "uploaded_at": entry["uploaded_at"],
+                "order_number": entry["order_number"],
+                "settlement_label": entry["settlement_label"],
+            }
+            for entry in linked_attachment_rows
+        ]
+        page_size = 50
+        attachment_total = len(attachment_rows)
+        attachment_pages = max(1, -(-attachment_total // page_size))
+        try:
+            attachment_page = int(request.args.get("page") or 1)
+        except (TypeError, ValueError):
+            attachment_page = 1
+        attachment_page = min(max(1, attachment_page), attachment_pages)
+        page_start = (attachment_page - 1) * page_size
         return render_template(
             "invoice_detail.html",
             invoice=invoice,
@@ -56,6 +90,11 @@ def register_invoice_detail_routes(app, *,
             linked_orders=linked_orders,
             attachments=attachments,
             linked_attachments=linked_attachment_rows,
+            attachment_rows=attachment_rows[page_start:page_start + page_size],
+            attachment_total=attachment_total,
+            attachment_page=attachment_page,
+            attachment_pages=attachment_pages,
+            attachment_page_size=page_size,
             company=get_company_profile(),
             accounting_enabled=accounting_base_enabled(),
             has_accounting_voucher=has_accounting_voucher,

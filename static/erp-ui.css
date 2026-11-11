@@ -1020,3 +1020,17 @@
   }
   .erp-filter > .erp-filter-note { grid-column: 1 / -1; }
 }
+
+/* 附件清单分页条（发票详情） */
+.attachment-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 2px;
+  font-size: 13px;
+}
+.attachment-pager .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.attachment-pager .pager-jump { display: flex; align-items: center; gap: 4px; }
+.attachment-pager .pager-jump label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.attachment-pager .pager-jump input[type="number"] { width: 64px; padding: 2px 4px; text-align: center; }

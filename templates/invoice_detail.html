@@ -27,7 +27,7 @@
       <small>{{ labels[invoice.status] }} · 开票人 {{ creator.name if creator else "Unknown" }}</small>
     </div>
     <span class="erp-badge">{{ invoice.currency }} {{ totals.total|money(invoice.currency) }}</span>
-    <span class="erp-badge">附件 {{ attachments|length }}</span>
+    <span class="erp-badge">附件 {{ attachment_total }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button onclick="window.print()">发票预览</button>
@@ -206,52 +206,72 @@
     <section class="erp-panel no-print" data-erp-panel="attachments">
       <div class="erp-detail-scroll">
         <div class="attachment-panel attachment-download-scope">
-          <div class="panel-title"><h2>附件清单</h2>{% if attachments or linked_attachments %}<a class="small" download href="{{ url_for('download_invoice_attachments', invoice_id=invoice.id) }}">下载全部附件（ZIP）</a>{% endif %}</div>
+          <div class="panel-title"><h2>附件清单</h2>{% if attachment_total %}<a class="small" download href="{{ url_for('download_invoice_attachments', invoice_id=invoice.id) }}">下载全部附件（ZIP）</a>{% endif %}</div>
           <table class="list-table attachment-table erp-grid">
-      <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>文件名</th><th>来源</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
       <tbody>
-        {% for attachment in attachments %}
-          <tr id="invoiceAttachmentRow{{ attachment.id }}">
+        {% for row in attachment_rows %}
+          <tr {% if row.kind == 'invoice' %}id="invoiceAttachmentRow{{ row.id }}"{% endif %}>
             <td>
-              <a href="{{ url_for('preview_attachment', attachment_id=attachment.id) }}"
-                 class="attachment-preview-link" data-preview-name="{{ attachment.original_filename }}"
-                 data-content-type="{{ attachment.content_type or '' }}"
-                 {% if (attachment.content_type or '').startswith('image/') %}data-image-preview{% endif %}>
-                {% if (attachment.content_type or '').startswith('image/') %}
-                  <img class="inline-thumb" src="{{ url_for('preview_attachment', attachment_id=attachment.id) }}" alt="{{ attachment.original_filename }}">
+              {% if row.kind == 'invoice' %}
+              <a href="{{ url_for('preview_attachment', attachment_id=row.id) }}"
+                 class="attachment-preview-link" data-preview-name="{{ row.original_filename }}"
+                 data-content-type="{{ row.content_type or '' }}"
+                 {% if (row.content_type or '').startswith('image/') %}data-image-preview{% endif %}>
+                {% if (row.content_type or '').startswith('image/') %}
+                  <img class="inline-thumb" src="{{ url_for('preview_attachment', attachment_id=row.id) }}" alt="{{ row.original_filename }}">
                 {% endif %}
-                {{ attachment.original_filename }}
+                {{ row.original_filename }}
               </a>
+              {% else %}
+              <a href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=row.id) }}"
+                 class="attachment-preview-link" data-preview-name="{{ row.original_filename }}"
+                 data-content-type="{{ row.content_type or '' }}">{{ row.original_filename }}</a>
+              {% endif %}
             </td>
-            <td>{{ attachment.uploader_name or "Unknown" }}</td>
-            <td>{{ attachment.uploaded_at[:10] }}</td>
+            <td>{% if row.kind == 'invoice' %}<span class="erp-badge">发票附件</span>{% else %}<span class="erp-badge">{{ row.order_number or "" }} {{ row.settlement_label }}</span>{% endif %}</td>
+            <td>{{ row.uploader_name or "Unknown" }}</td>
+            <td>{{ (row.uploaded_at or "")[:10] }}</td>
             <td>
               <div class="row-actions">
-                <a class="button small" data-attachment-download download href="{{ url_for('download_attachment', attachment_id=attachment.id) }}">下载</a>
-                <form method="post" action="{{ url_for('delete_attachment', attachment_id=attachment.id) }}" data-delete-invoice-attachment data-row-id="invoiceAttachmentRow{{ attachment.id }}"><button class="danger small" type="submit">删除</button></form>
+                {% if row.kind == 'invoice' %}
+                <a class="button small" data-attachment-download download href="{{ url_for('download_attachment', attachment_id=row.id) }}">下载</a>
+                <form method="post" action="{{ url_for('delete_attachment', attachment_id=row.id) }}" data-delete-invoice-attachment data-row-id="invoiceAttachmentRow{{ row.id }}"><button class="danger small" type="submit">删除</button></form>
+                {% else %}
+                <a class="button small" data-attachment-download download href="{{ url_for('download_customer_reimbursement_attachment', attachment_id=row.id) }}">下载</a>
+                {% endif %}
               </div>
             </td>
           </tr>
         {% else %}
-          <tr data-empty-attachments><td colspan="4" class="empty">还没有附件。</td></tr>
+          <tr data-empty-attachments><td colspan="5" class="empty">还没有附件。</td></tr>
         {% endfor %}
       </tbody>
     </table>
-    {% if linked_attachments %}
-    <div class="panel-title"><h2>关联结算凭证<small>（只读引用，不占发票附件空间）</small></h2></div>
-    <table class="list-table attachment-table erp-grid">
-      <thead><tr><th>来源结算</th><th>文件名</th><th>上传人</th><th>上传时间</th></tr></thead>
-      <tbody>
-        {% for entry in linked_attachments %}
-          <tr>
-            <td>{{ entry.order_number or "" }} {{ entry.settlement_label }}</td>
-            <td>{{ entry.original_filename }}</td>
-            <td>{{ entry.uploader_name or "Unknown" }}</td>
-            <td>{{ (entry.uploaded_at or "")[:10] }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% if attachment_pages > 1 %}
+    <div class="attachment-pager">
+      <span>第 {{ attachment_page }} / {{ attachment_pages }} 页 · 共 {{ attachment_total }} 个附件（每页 {{ attachment_page_size }}）</span>
+      <span class="pager">
+        {% if attachment_page > 1 %}
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('invoice_detail', invoice_id=invoice.id, page=1) }}">首页</a>
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('invoice_detail', invoice_id=invoice.id, page=attachment_page-1) }}">上一页</a>
+        {% else %}
+        <span class="erp-btn disabled">首页</span>
+        <span class="erp-btn disabled">上一页</span>
+        {% endif %}
+        <form class="pager-jump" method="get" action="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">
+          <label>跳至 <input type="number" name="page" min="1" max="{{ attachment_pages }}" value="{{ attachment_page }}" aria-label="页码"> 页</label>
+          <button class="small" type="submit">跳转</button>
+        </form>
+        {% if attachment_page < attachment_pages %}
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('invoice_detail', invoice_id=invoice.id, page=attachment_page+1) }}">下一页</a>
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('invoice_detail', invoice_id=invoice.id, page=attachment_pages) }}">尾页</a>
+        {% else %}
+        <span class="erp-btn disabled">下一页</span>
+        <span class="erp-btn disabled">尾页</span>
+        {% endif %}
+      </span>
+    </div>
     {% endif %}
     <form id="detailAttachmentForm" method="post" action="{{ url_for('upload_attachment', invoice_id=invoice.id) }}" enctype="multipart/form-data" class="attachment-upload form-stack">
       <div class="file-picker-row">
@@ -274,7 +294,7 @@
     {{ summary_item('小计', totals.subtotal|money(invoice.currency)) }}
     {{ summary_item('税额', totals.tax|money(invoice.currency)) }}
     {{ summary_item('应收合计', totals.total|money(invoice.currency), 'pos') }}
-    {{ summary_item('附件', attachments|length, 'muted') }}
+    {{ summary_item('附件', attachment_total, 'muted') }}
   </footer>
 
   <!-- ───────────────────────────────── StatusBar ────────────────────────── -->
