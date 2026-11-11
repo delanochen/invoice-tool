@@ -204,7 +204,7 @@
     <section class="erp-panel no-print" data-erp-panel="attachments">
       <div class="erp-detail-scroll">
         <div class="attachment-panel attachment-download-scope">
-          <div class="panel-title"><h2>附件清单</h2>{% if attachments %}<button class="small" type="button" data-download-all-attachments>下载全部附件</button>{% endif %}</div>
+          <div class="panel-title"><h2>附件清单</h2>{% if attachments %}<a class="small" download href="{{ url_for('download_invoice_attachments', invoice_id=invoice.id) }}">下载全部附件（ZIP）</a>{% endif %}</div>
           <table class="list-table attachment-table erp-grid">
       <thead><tr><th>文件名</th><th>上传人</th><th>上传时间</th><th>操作</th></tr></thead>
       <tbody>

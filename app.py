@@ -4114,6 +4114,7 @@ _invoice_attachment_read_views = register_invoice_attachment_read_routes(
 )
 download_attachment = _invoice_attachment_read_views['download_attachment']
 preview_attachment = _invoice_attachment_read_views['preview_attachment']
+download_invoice_attachments = _invoice_attachment_read_views['download_invoice_attachments']
 
 
 
