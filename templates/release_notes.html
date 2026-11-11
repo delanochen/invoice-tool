@@ -10,6 +10,12 @@
   .release-notes .erp-grid td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
   .release-notes ul { padding-left: 18px; margin: 4px 0; }
   .release-notes summary { cursor: pointer; }
+  .release-notes .erp-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .release-notes .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+  .release-notes .pager-jump { display: flex; align-items: center; gap: 6px; }
+  .release-notes .pager-jump label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .release-notes .pager-jump input[type="number"] { width: 64px; padding: 2px 4px; text-align: center; }
+  .release-notes .erp-btn.disabled { opacity: .45; pointer-events: none; }
   @media (max-width: 700px) { .release-notes .erp-grid { min-width: 680px; } }
 </style>
 {% endblock %}
@@ -52,8 +58,27 @@
   </div>
   <footer class="erp-status">
     <span>第 {{ page }} / {{ pages }} 页 · 共 {{ total }} 个版本</span>
-    {% if page > 1 %}<a class="erp-btn" href="{{ url_for('release_notes', q=q, page=page-1) }}">上一页</a>{% endif %}
-    {% if page < pages %}<a class="erp-btn" href="{{ url_for('release_notes', q=q, page=page+1) }}">下一页</a>{% endif %}
+    <span class="pager">
+      {% if page > 1 %}
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('release_notes', q=q, page=1) }}">首页</a>
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('release_notes', q=q, page=page-1) }}">上一页</a>
+      {% else %}
+        <span class="erp-btn disabled">首页</span>
+        <span class="erp-btn disabled">上一页</span>
+      {% endif %}
+      <form class="pager-jump" method="get" action="{{ url_for('release_notes') }}">
+        <input type="hidden" name="q" value="{{ q }}">
+        <label>跳至 <input type="number" name="page" min="1" max="{{ pages }}" value="{{ page }}" aria-label="页码"> 页</label>
+        <button class="erp-btn" type="submit">跳转</button>
+      </form>
+      {% if page < pages %}
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('release_notes', q=q, page=page+1) }}">下一页</a>
+        <a class="erp-btn" data-workspace-same-tab href="{{ url_for('release_notes', q=q, page=pages) }}">尾页</a>
+      {% else %}
+        <span class="erp-btn disabled">下一页</span>
+        <span class="erp-btn disabled">尾页</span>
+      {% endif %}
+    </span>
   </footer>
 </div>
 {% endblock %}

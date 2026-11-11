@@ -163,6 +163,12 @@
       if (url && /^\/field\/?(?:[?#]|$)/.test(url)) { event.preventDefault(); location.assign(url); return; }
       if (link.target) return;
       if (!url || link.getAttribute('href').startsWith('#') || /\.(?:pdf|zip|xlsx?|csv|jpe?g|png|webp)(?:[?#]|$)|\/(?:download|preview|print|export)(?:[/?-]|$)|^\/field\/?(?:[?#]|$)/i.test(url)) return;
+      // 同一页面的翻页/筛选（路径相同，只有 page、q 之类查询参数变化）留在当前标签内导航，
+      // 否则每点一次「下一页」就新开一个标签，版本说明这类页面会堆出一排同名标签。
+      if (link.dataset.workspaceSameTab !== undefined) return;
+      try {
+        if (new URL(link.href, location.origin).pathname === win.location.pathname) return;
+      } catch { /* 解析失败按跨页处理 */ }
       // List/detail/edit links open independently. GET filter forms stay in their tab.
       event.preventDefault(); open(url, link.textContent.trim());
     });
