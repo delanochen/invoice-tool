@@ -1,3 +1,7 @@
+## [0.1.479] - 2026-11-11
+
+- 空发版，用于验证 0.1.478 的部署脚本改动：这次发版**不应**重建 `invoice-tool-cloudflared`（容器 `StartedAt` 保持不变即证明）。
+
 ## [0.1.478] - 2026-11-11
 
 - 部署脚本改为只更新应用服务（`compose up -d --build --no-deps invoice-tool photo-worker`）：原来每次发版都会重建 `cloudflared`，隧道重新握手期间公网会出现 502/503。
