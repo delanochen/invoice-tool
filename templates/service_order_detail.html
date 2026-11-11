@@ -428,10 +428,7 @@
       <div class="erp-toolbar-group no-print" style="padding:0 0 5px;flex:0 0 auto;">
         <span class="erp-badge" data-selected-label>{{ invoices|length }} 张发票</span>
         <button class="erp-btn" type="button" data-row-action="detailUrl" disabled>预览发票</button>
-        <button class="erp-btn" type="button" data-row-action="pdfUrl" disabled>导出发票</button>
-        <form method="post" data-row-action-form="zipUrl" style="display:inline">
-          <button class="erp-btn" type="submit" disabled>导出 ZIP</button>
-        </form>
+        <button class="erp-btn" type="button" data-row-action="pdfUrl" disabled>下载发票（PDF）</button>
       </div>
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid selectable-list-table" data-selectable-table data-grid-height="100%">

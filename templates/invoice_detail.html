@@ -31,8 +31,10 @@
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button onclick="window.print()">发票预览</button>
-      <button type="button" onclick="window.location.href='{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}'">导出发票</button>
-      <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button type="submit">导出 ZIP</button></form>
+      <a class="erp-btn" download href="{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}">下载发票（PDF）</a>
+      {% if attachments or linked_attachments %}
+        <a class="erp-btn" download href="{{ url_for('download_invoice_attachments', invoice_id=invoice.id) }}">下载附件（ZIP）</a>
+      {% endif %}
       {% if invoice.status == "completed" and not is_external_manager() %}
         <form class="email-send-action" method="post" action="{{ url_for('send_invoice', invoice_id=invoice.id) }}">
           <button type="submit">发送邮件</button>

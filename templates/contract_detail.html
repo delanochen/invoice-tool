@@ -182,8 +182,8 @@
                   <td>
                     <div class="row-actions">
                       <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('invoice_detail', invoice_id=invoice.id) }}'">预览发票</button>
-                      <button class="erp-btn" type="button" onclick="window.location.href='{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}'">导出发票</button>
-                      <form method="post" action="{{ url_for('export_invoice', invoice_id=invoice.id) }}"><button class="erp-btn" type="submit">导出 ZIP</button></form>
+                      <a class="erp-btn" download href="{{ url_for('export_invoice_pdf', invoice_id=invoice.id) }}">下载发票（PDF）</a>
+                      <a class="erp-btn" download href="{{ url_for('download_invoice_attachments', invoice_id=invoice.id) }}">下载附件（ZIP）</a>
                     </div>
                   </td>
                 </tr>
