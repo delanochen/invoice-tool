@@ -32,7 +32,9 @@ def settlement_attachment_entries(settlements, *, get_customer_reimbursement_att
     for settlement in settlements:
         order_number = settlement["order_number"] if "order_number" in settlement.keys() else None
         label = settlement["file_name"] or ("结算 %s" % settlement["id"])
-        folder = '-'.join(part for part in (order_number, label) if part).strip() or ("结算 %s" % settlement["id"])
+        # 打包目录用「工单号-结算ID」：结算的 file_name 本身是 PDF 文件名，直接当目录名
+        # 会让解压出来的层级看着像文件名。具体结算单号仍在详情页「来源」列显示。
+        folder = '-'.join(part for part in (order_number, "结算%s" % settlement["id"]) if part)
         for attachment in get_customer_reimbursement_attachments(settlement["id"]):
             name = attachment["original_filename"] or "附件"
             if normalized_attachment_filename(name) in skipped:
