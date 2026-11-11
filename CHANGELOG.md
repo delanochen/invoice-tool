@@ -1,3 +1,8 @@
+## [0.1.477] - 2026-11-11
+
+- 合并开票的发票行改为**按发票项目归并**：原来是把每份结算的行直接拼起来，同一项目（MRO Supplies / Fuel / Airfare …）在发票上会重复出现多次。现在按 `project_id` 合并金额、一行一个项目，金额用 Decimal 相加并保留两位（`invoice_tool/invoices/merge_items.py`）。
+- 新增 `tests/test_invoice_merge_items.py`：同项目跨结算合并、分位精确（10.10+20.20）、空输入三种情况。
+
 ## [0.1.476] - 2026-11-11
 
 - 修复：合并开票时 `invoice_orders.amount_cents` 每一行都写成**整张发票总额**。`create.py` 调 `record_invoice_order` 时没传 `amount_cents`，helper 回退成发票合计，多工单时按工单看金额就会重复计算。现在逐份结算写自己那一份（结算金额转整数分）。

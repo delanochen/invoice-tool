@@ -1,5 +1,7 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
 
+from invoice_tool.invoices.merge_items import merge_items_by_project
+
 
 def register_invoice_editor_routes(app, *,
     _cb_resolve_IntegrityError,
@@ -81,7 +83,8 @@ def register_invoice_editor_routes(app, *,
                     _cb_resolve_flash()(str(error), "error")
                     return _cb_resolve_redirect()(_cb_resolve_url_for()("invoice_merge"))
             source_reimbursement, source_order = merged_reimbursements[0]
-            prefilled_items = merged_items
+            # 按发票项目归并：同一类型的费用合成一行，而不是按工单罗列多行。
+            prefilled_items = merge_items_by_project(merged_items)
             requested_order_id = str(source_order["id"])
             requested_reimbursement_id = ""
         if _cb_resolve_request().method == "GET" and not requested_reimbursement_id.isdigit() and not merge_ids:
