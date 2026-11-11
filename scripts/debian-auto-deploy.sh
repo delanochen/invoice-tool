@@ -194,11 +194,17 @@ git fetch --quiet origin main
 NEW_COMMIT="$(git rev-parse origin/main)"
 if [ "$OLD_COMMIT" = "$NEW_COMMIT" ]; then
   upgrade_postgresql_schema || exit 1
+  # 无新提交也会重建容器，挂接同样可能丢；这里补一次（幂等）。
+  sh "$APP_DIR/scripts/ensure_test_tunnel_network.sh" || log "WARN test tunnel network ensure failed"
   log "already current: $OLD_COMMIT"
   exit 0
 fi
 
 log "deploying $NEW_COMMIT"
+# 隧道挂接必须在任何 git reset 之前跑：reset 会改写正在执行的脚本，sh 按字节偏移续读，
+# reset 之后的分支不保证执行（0.1.472 就是这么被静默跳过的）。
+# 生产 compose 重建 cloudflared 会丢掉测试网络挂接，所以重建前后各确保一次。
+sh "$APP_DIR/scripts/ensure_test_tunnel_network.sh" || log "WARN test tunnel network ensure (pre-build) failed"
 git reset --hard "$NEW_COMMIT"
 if ! upgrade_postgresql_schema; then
   log "schema upgrade failed; restoring application checkout to $OLD_COMMIT"
@@ -206,6 +212,7 @@ if ! upgrade_postgresql_schema; then
   exit 1
 fi
 if build_current_version && wait_ok=0; then
+  sh "$APP_DIR/scripts/ensure_test_tunnel_network.sh" || log "WARN test tunnel network ensure failed"
   i=0
   while [ "$i" -lt 30 ]; do
     if curl -fsS --max-time 5 "$HEALTH_URL" >/dev/null; then

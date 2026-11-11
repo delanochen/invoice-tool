@@ -1,5 +1,37 @@
 [
   {
+    "version": "0.1.473",
+    "date": "2026-11-10",
+    "reason": "0.1.472 把挂接写在 build 之后，但部署脚本会用 git reset --hard 改写自身，shell 续读可能跳过新增步骤，导致挂接实际没执行。",
+    "changes": [
+      "scripts/debian-test-deploy.sh 增加 ensure_tunnel_network 函数，并在 git reset --hard 之前调用一次，构建之后再调用一次。",
+      "保留 0.1.472 的 scripts/ensure_test_tunnel_network.sh 与生产部署脚本中的调用。",
+      "只改部署脚本，未改应用代码与数据库。"
+    ]
+  },
+  {
+    "version": "0.1.472",
+    "date": "2026-11-10",
+    "reason": "测试站的公网入口依赖一次手动 docker network connect；隧道容器被重建后挂接丢失，测试站立即 502（日志 dial tcp: lookup invoice-tool-test: no such host）。需要让这一步可重复执行并在部署流程里自动完成。",
+    "changes": [
+      "新增 scripts/ensure_test_tunnel_network.sh：检查 cloudflared 容器的网络列表，缺失时执行 docker network connect，再用 docker network inspect 核对网络内成员，全过程幂等、不重启容器、不改 compose 配置。",
+      "scripts/debian-test-deploy.sh 在 build_current_version 之后调用该脚本，失败仅记 WARN，不影响本地健康检查。",
+      "scripts/debian-auto-deploy.sh 在 build_current_version 之后同样调用一次，覆盖“生产部署重建 cloudflared 导致测试网络挂接丢失”的场景。",
+      "未改动应用代码、数据库结构与响应头。"
+    ]
+  },
+  {
+    "version": "0.1.471",
+    "date": "2026-11-10",
+    "reason": "国内访问 Cloudflare 边缘对 /static/ 资源始终回源校验（连续 8 次 REVALIDATED、无 HIT、无 Age），根因是 Flask 读取 session 后给公开静态资源也加上了 Vary: Cookie，共享缓存无法按 Cookie 分键。",
+    "changes": [
+      "新增 WSGI 中间件 PublicStaticCacheMiddleware，对 /static/ 且 GET/HEAD 且返回 200/304 的响应重写缓存头为 public, max-age=31536000, immutable，并删除 Set-Cookie、Vary: Cookie、Expires、Pragma，仅保留 Vary: Accept-Encoding。",
+      "中间件位于整个 Flask 栈之外，因此不受 Flask 在 after_request 之后（save_session 阶段）追加 Vary: Cookie 的影响。",
+      "业务页面（HTML 仍为 no-store, private）与私有附件缩略图（继续 Vary: Cookie）不受影响；动态路径、非 2xx 响应与 POST 请求均不改写。",
+      "新增 test_public_static_cache.py：4 个中间件单测 + 1 个真实 Flask session 集成测试；不涉及数据库迁移。"
+    ]
+  },
+  {
     "version": "0.1.470",
     "date": "2026-11-07",
     "reason": "修复从工单新增员工报销或智能填报时覆盖原工单工作区页签，完成后需要重新打开工单的问题。",
