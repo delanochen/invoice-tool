@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.1.476",
+    "date": "2026-11-11",
+    "reason": "合并开票时关系表按工单记的金额被写成整张发票总额，多工单会重复计算；改成逐份结算记自己那份，并让体检能发现这类错误。",
+    "changes": [
+      "create.py 写 invoice_orders 时传入该份结算的金额（整数分），不再回退到发票合计。",
+      "backfill_invoice_orders.py 的 amount_mismatch：有 customer_reimbursement_id 时比结算金额，否则比发票明细合计。"
+    ]
+  },
+  {
     "version": "0.1.475",
     "date": "2026-11-11",
     "reason": "生产上删除发票后，工单仍被 invoice_orders 的有效关联占着开票资格，导致「合并开票」列不出这些工单；同时把合并开票入口从发票查询移到工单列表。",

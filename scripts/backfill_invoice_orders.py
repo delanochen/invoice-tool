@@ -88,10 +88,14 @@ CHECKS = {
     """,
     'amount_mismatch': """
         select count(*) from public.invoice_orders io
-         where io.amount_cents <> round((
-             select coalesce(sum(ii.amount), 0) from public.invoice_items ii where ii.invoice_id = io.invoice_id
-         )::numeric * 100)::bigint
-           and exists (select 1 from public.invoices i where i.id = io.invoice_id)
+         where exists (select 1 from public.invoices i where i.id = io.invoice_id)
+           and io.amount_cents <> coalesce(
+               (select round(cr.total_amount::numeric * 100)::bigint
+                  from public.customer_reimbursements cr
+                 where cr.id = io.customer_reimbursement_id),
+               (select round(coalesce(sum(ii.amount), 0)::numeric * 100)::bigint
+                  from public.invoice_items ii where ii.invoice_id = io.invoice_id)
+           )
     """,
     # 已作废但仍占着工单的链接；回填的 --apply 会把它们释放。
     'void_unreleased': """

@@ -118,11 +118,17 @@ def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_acce
     # Phase 1 双写：单工单开票仍写 invoices.service_order_id，同时记录关系表；
     # 失败只回滚保存点，不阻断开票（由回填脚本兜底）。合并开票时每个工单一行关联。
     for reimbursement in source_reimbursements or [None]:
+        # 每份结算记自己那一份金额（整数分）；合并时若都记整张发票总额，工单口径的金额会重复计算。
+        order_amount_cents = (
+            int(round(to_float(reimbursement["total_amount"] or 0) * 100))
+            if reimbursement is not None else None
+        )
         record_invoice_order(
             invoice_id,
             reimbursement["service_order_id"] if reimbursement else service_order_id,
             db=db,
             customer_reimbursement_id=reimbursement["id"] if reimbursement else None,
+            amount_cents=order_amount_cents,
             now=now,
         )
     invoice_summary = f"金额：{money(invoice_totals(invoice_id)['total'], request.form.get('currency', 'USD'))}"
