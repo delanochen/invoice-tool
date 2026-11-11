@@ -1,3 +1,9 @@
+## [0.1.475] - 2026-11-11
+
+- 修复：**物理删除发票不会释放 `invoice_orders` 关联**。删除入口只清了 `customer_reimbursements.invoice_id` 和发票行，关联行仍是「未释放」，于是工单列表显示未开票、却在合并开票页列不出来。现在删除与作废一样，在同一事务里 `release_invoice_orders`，并在操作日志里记下释放条数。
+- 回填脚本新增体检项 `orphan_active`（指向已不存在发票的有效关联），`--apply` 时一并释放；`amount_mismatch` 只统计发票仍存在的关联，避免已删发票的残留行制造噪声。
+- 「合并开票」入口从「发票查询」工具栏移到「工单列表」工具栏（`templates/service_orders.html`）：发票查询只做查询，合并开票属于产生业务单据的动作，放在工单列表更符合操作路径。权限闸门仍是 `can_create_invoice()`。
+
 ## [0.1.474] - 2026-11-10
 
 - 新增 `invoice_orders` 关系表（`migrations/postgresql/0319-invoice-orders.sql`），一张发票可以关联多个工单；唯一索引同时限制「同一发票+工单」重复与「同一工单多张有效发票」。

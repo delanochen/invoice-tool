@@ -52,6 +52,12 @@ UPDATE public.invoice_orders io
  WHERE i.id = io.invoice_id
    AND i.status = 'void'
    AND io.released_at IS NULL;
+-- 发票被物理删除后，关联行会一直占着工单的开票资格（删除入口在 v0.1.475 才补上释放）。
+-- 这里把指向已不存在发票的有效关联一并释放，可重复执行。
+UPDATE public.invoice_orders io
+   SET released_at = now()
+ WHERE io.released_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM public.invoices i WHERE i.id = io.invoice_id);
 COMMIT;
 """
 
@@ -61,6 +67,12 @@ CHECKS = {
     'links_total': "select count(*) from public.invoice_orders",
     'links_active': "select count(*) from public.invoice_orders where released_at is null",
     'links_released': "select count(*) from public.invoice_orders where released_at is not null",
+    # 指向已不存在发票的有效关联：会错误地占住工单的开票资格，也会让合并开票页漏掉这些工单。
+    'orphan_active': """
+        select count(*) from public.invoice_orders io
+         where io.released_at is null
+           and not exists (select 1 from public.invoices i where i.id = io.invoice_id)
+    """,
     'pending_legacy': """
         select count(*) from public.invoices i
          where i.service_order_id is not null
@@ -79,6 +91,7 @@ CHECKS = {
          where io.amount_cents <> round((
              select coalesce(sum(ii.amount), 0) from public.invoice_items ii where ii.invoice_id = io.invoice_id
          )::numeric * 100)::bigint
+           and exists (select 1 from public.invoices i where i.id = io.invoice_id)
     """,
     # 已作废但仍占着工单的链接；回填的 --apply 会把它们释放。
     'void_unreleased': """
@@ -164,7 +177,7 @@ def main():
         report['result'] = 'applied'
 
     print(json.dumps(report, ensure_ascii=False))
-    if before['conflict_orders'] and not args.apply:
+    if (before['conflict_orders'] or before.get('orphan_active')) and not args.apply:
         sys.exit(2)
 
 

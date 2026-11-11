@@ -9,6 +9,7 @@ def register_invoice_delete_routes(app, *,
     invoice_attachment_path,
     log_action,
     login_required,
+    release_invoice_orders,
     require_invoice_access,
     resolve_shutil,
 ):
@@ -33,8 +34,14 @@ def register_invoice_delete_routes(app, *,
                  url_for("edit_invoice", invoice_id=invoice_id)),
             )
             db().execute("update customer_reimbursements set invoice_id = null where invoice_id = ?", (invoice_id,))
+            # v0.1.475: 物理删除也必须释放工单关联，否则 invoice_orders 里会留下指向不存在发票的
+            # 有效关联，把工单的开票资格一直占着（工单列表显示未开票、合并开票页却列不出来）。
+            released = release_invoice_orders(invoice_id, db=db)
             db().execute("delete from invoices where id = ?", (invoice_id,))
-            log_action("delete", "invoice", invoice_id, invoice["invoice_number"], f"删除状态为 {invoice['status']} 的发票")
+            log_action(
+                "delete", "invoice", invoice_id, invoice["invoice_number"],
+                f"删除状态为 {invoice['status']} 的发票" + (f"，释放 {released} 条工单关联" if released else ""),
+            )
             db().commit()
         except IntegrityError:
             db().rollback()

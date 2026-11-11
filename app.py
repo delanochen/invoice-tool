@@ -4055,6 +4055,7 @@ _invoice_delete_views = register_invoice_delete_routes(
     invoice_attachment_path=lambda *args, **kwargs: invoice_attachment_path(*args, **kwargs),
     log_action=lambda *args, **kwargs: log_action(*args, **kwargs),
     login_required=login_required,
+    release_invoice_orders=lambda *args, **kwargs: _split_invoice_order_links.release_invoice_orders(*args, **kwargs),
     require_invoice_access=lambda *args, **kwargs: require_invoice_access(*args, **kwargs),
     resolve_shutil=lambda: shutil,
 )
