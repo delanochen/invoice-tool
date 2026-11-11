@@ -101,7 +101,7 @@ select i.service_order_id, i.id, i.invoice_number, i.status, i.issue_date
 """
 
 
-ALLOWED_DATABASES = ('invoice_test',)
+ALLOWED_DATABASES = ('invoice_test', 'invoice_production')
 
 
 def main():
@@ -110,7 +110,11 @@ def main():
     parser.add_argument('--container', default='invoice-tool-postgres')
     parser.add_argument('--apply', action='store_true', help='实际写入；默认只做体检')
     parser.add_argument('--force', action='store_true', help='即使存在历史重复有效发票也继续回填')
+    parser.add_argument('--allow-production', action='store_true', help='生产库必须显式带上这个开关')
     args = parser.parse_args()
+
+    if args.database == 'invoice_production' and not args.allow_production:
+        raise SystemExit('Refusing production database without --allow-production')
 
     command = ['docker', 'exec', '-i', args.container, 'psql', '-U', 'invoice_owner', '-d', args.database, '-At']
 

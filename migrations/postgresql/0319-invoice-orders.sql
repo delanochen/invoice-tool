@@ -50,6 +50,12 @@ BEGIN
             EXECUTE format(
                 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.invoice_orders TO %I', app_role
             );
+            -- identity 列的序列属于建表角色；应用角色不带 id 插入时要 nextval，必须单独授权。
+            IF to_regclass('public.invoice_orders_id_seq') IS NOT NULL THEN
+                EXECUTE format(
+                    'GRANT USAGE, SELECT ON SEQUENCE public.invoice_orders_id_seq TO %I', app_role
+                );
+            END IF;
         END IF;
     END LOOP;
 END $$;
