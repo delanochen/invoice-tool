@@ -80,7 +80,7 @@
   <div class="erp-body">
     <nav class="erp-tabs no-print" aria-label="发票视图">
       {{ tab_button('paper', '发票正文', active=true) }}
-      {{ tab_button('attachments', '附件清单', count=attachments|length) }}
+      {{ tab_button('attachments', '附件清单', count=attachment_total) }}
     </nav>
 
     <section class="erp-panel active" data-erp-panel="paper">
@@ -226,7 +226,8 @@
               {% else %}
               <a href="{{ url_for('preview_customer_reimbursement_attachment', attachment_id=row.id) }}"
                  class="attachment-preview-link" data-preview-name="{{ row.original_filename }}"
-                 data-content-type="{{ row.content_type or '' }}">{{ row.original_filename }}</a>
+                 data-content-type="{{ row.content_type or '' }}"
+                 {% if (row.content_type or '').startswith('image/') %}data-image-preview{% endif %}>{{ row.original_filename }}</a>
               {% endif %}
             </td>
             <td>{% if row.kind == 'invoice' %}<span class="erp-badge">发票附件</span>{% else %}<span class="erp-badge">{{ row.order_number or "" }} {{ row.settlement_label }}</span>{% endif %}</td>

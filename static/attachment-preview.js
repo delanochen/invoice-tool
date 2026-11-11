@@ -24,6 +24,15 @@ function lockImagePreviewPage(position) {
   Object.assign(body.style,{position:'fixed',top:`${-position.y}px`,left:`${-position.x}px`,width:`${width}px`,overflow:'visible'});
 }
 
+function imageAttachmentFitScale() {
+  const image = imageAttachmentPreviewImage;
+  const viewport = imageAttachmentViewport;
+  if (!image?.naturalWidth || !image.naturalHeight || !viewport?.clientWidth || !viewport.clientHeight) {
+    return null;
+  }
+  return Math.min(1, viewport.clientWidth / image.naturalWidth, viewport.clientHeight / image.naturalHeight);
+}
+
 function applyImageAttachmentPreviewZoom() {
   if (!imageAttachmentPreviewImage) return;
   imageAttachmentPreviewImage.classList.toggle("is-fit", imageAttachmentPreviewMode === "fit");
@@ -35,11 +44,12 @@ function applyImageAttachmentPreviewZoom() {
       : imageAttachmentPreviewMode === "original" ? "原图" : `${Math.round(imageAttachmentPreviewZoom * 100)}%`;
   }
   // Real dimensions participate in scrolling; transforms can put pixels outside the reachable area.
-  const image=imageAttachmentPreviewImage, viewport=imageAttachmentViewport;
-  if(viewport && image.naturalWidth && viewport.clientWidth && viewport.clientHeight) {
-    const factor=imageAttachmentPreviewMode==='fit'
-      ? Math.min(1,viewport.clientWidth/image.naturalWidth,viewport.clientHeight/image.naturalHeight)
-      : imageAttachmentPreviewMode==='original' ? 1 : imageAttachmentPreviewZoom;
+  const image = imageAttachmentPreviewImage;
+  const fitScale = imageAttachmentFitScale();
+  if (fitScale !== null) {
+    const factor = imageAttachmentPreviewMode === "fit"
+      ? fitScale
+      : imageAttachmentPreviewMode === "original" ? 1 : imageAttachmentPreviewZoom;
     image.style.width=`${image.naturalWidth*factor}px`;
     image.style.height=`${image.naturalHeight*factor}px`;
     image.style.transform='none';
@@ -62,9 +72,16 @@ function setImageAttachmentPreviewOriginal() {
 }
 
 function setImageAttachmentPreviewZoom(nextZoom) {
+  const fitScale = imageAttachmentFitScale();
+  if (fitScale === null) return;
   imageAttachmentPreviewMode = "zoom";
-  imageAttachmentPreviewZoom = Math.max(0.25, Math.min(nextZoom, 4));
+  imageAttachmentPreviewZoom = Math.max(fitScale / 4, Math.min(nextZoom, 4));
   applyImageAttachmentPreviewZoom();
+}
+
+function stepImageAttachmentPreviewZoom(multiplier) {
+  const currentZoom = imageAttachmentPreviewMode === "fit" ? imageAttachmentFitScale() : imageAttachmentPreviewZoom;
+  if (currentZoom !== null) setImageAttachmentPreviewZoom(currentZoom * multiplier);
 }
 
 function closeImageAttachmentPreview() {
@@ -151,13 +168,13 @@ document.addEventListener('click', event => {
 
 imageAttachmentPreviewFit?.addEventListener("click", setImageAttachmentPreviewFit);
 imageAttachmentPreviewOriginal?.addEventListener("click", setImageAttachmentPreviewOriginal);
-imageAttachmentPreviewIn?.addEventListener("click", () => setImageAttachmentPreviewZoom((imageAttachmentPreviewMode === "fit" ? 1 : imageAttachmentPreviewZoom) + 0.25));
-imageAttachmentPreviewOut?.addEventListener("click", () => setImageAttachmentPreviewZoom((imageAttachmentPreviewMode === "fit" ? 1 : imageAttachmentPreviewZoom) - 0.25));
+imageAttachmentPreviewIn?.addEventListener("click", () => stepImageAttachmentPreviewZoom(1.25));
+imageAttachmentPreviewOut?.addEventListener("click", () => stepImageAttachmentPreviewZoom(1 / 1.25));
 imageAttachmentPreviewClose?.addEventListener("click", closeImageAttachmentPreview);
 
 imageAttachmentPreviewImage?.addEventListener("click", () => {
   if (imageAttachmentPreviewMode === "fit") {
-    setImageAttachmentPreviewZoom(2);
+    stepImageAttachmentPreviewZoom(2);
   } else {
     setImageAttachmentPreviewFit();
   }

@@ -12,8 +12,16 @@ const fs=require('node:fs'),assert=require('node:assert/strict');
   await page.locator('a').click();await page.waitForFunction(()=>document.querySelector('img').naturalWidth>0);
   await page.evaluate(()=>window.scrollTo(0,0));
   assert.ok(Math.abs(await page.locator('a').evaluate(e=>e.getBoundingClientRect().top)-backgroundTop)<1,'background stays fixed while preview is open');
-  for(const action of ['[data-image-preview-in]','[data-image-preview-original]']) {
+  const imageWidth = () => page.locator('img').evaluate(img => img.getBoundingClientRect().width);
+  const fitWidth = await imageWidth();
+  await page.locator('[data-image-preview-out]').click();
+  assert.ok(Math.abs(await imageWidth() - fitWidth / 1.25) < 1, 'first zoom-out starts at fit size');
+  await page.locator('[data-image-preview-fit]').click();
+  let expectedWidth = fitWidth;
+  for(const action of ['[data-image-preview-in]','[data-image-preview-in]','[data-image-preview-original]']) {
    await page.locator(action).click();
+   expectedWidth = action === '[data-image-preview-original]' ? size[0] : expectedWidth * 1.25;
+   assert.ok(Math.abs(await imageWidth() - expectedWidth) < 1, 'zoom follows the current size and original is 100%');
    const bounds=await page.locator('img').evaluate(img=>{const v=img.parentElement;v.scrollTo(0,0);const a=img.getBoundingClientRect(),b=v.getBoundingClientRect();const start={x:a.left-b.left,y:a.top-b.top};v.scrollTo(v.scrollWidth,v.scrollHeight);const end=img.getBoundingClientRect();return {start,right:end.right-b.right,bottom:end.bottom-b.bottom,width:a.width,scroll:v.scrollWidth};});
    assert.ok(bounds.start.x>=-1 && bounds.start.y>=-1,JSON.stringify(bounds));assert.ok(bounds.right<=1&&bounds.bottom<=1,JSON.stringify(bounds));
   }

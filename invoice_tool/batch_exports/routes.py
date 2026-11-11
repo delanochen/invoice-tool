@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import threading
 import uuid
 
@@ -71,11 +72,29 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
             abort(403)
         ensure_export_job_schema(db)
         role = str(g.user["role"] or "")
-        if role in {"admin", "manager", "finance"}:
-            rows = db().execute("select * from batch_export_jobs order by created_at desc limit 200").fetchall()
-        else:
-            rows = db().execute("select * from batch_export_jobs where user_id=? order by created_at desc limit 200", (g.user["id"],)).fetchall()
-        return render_template("batch_export_jobs.html", jobs=rows, export_labels=EXPORT_LABELS)
+        query = (
+            "select jobs.*, users.name as operator_name from batch_export_jobs jobs "
+            "left join users on users.id = jobs.user_id "
+        )
+        params = ()
+        if role not in {"admin", "manager", "finance"}:
+            query += "where jobs.user_id = ? "
+            params = (g.user["id"],)
+        rows = db().execute(query + "order by jobs.created_at desc limit 200", params).fetchall()
+        jobs = []
+        for row in rows:
+            job = dict(row)
+            job["file_size"] = None
+            if job["status"] == "completed" and job["stored_path"]:
+                try:
+                    file_stat = os.stat(job["stored_path"])
+                except OSError:
+                    pass
+                else:
+                    if stat.S_ISREG(file_stat.st_mode):
+                        job["file_size"] = file_stat.st_size
+            jobs.append(job)
+        return render_template("batch_export_jobs.html", jobs=jobs, export_labels=EXPORT_LABELS)
 
     @login_required
     def download_batch_export(job_id):

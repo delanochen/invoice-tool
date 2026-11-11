@@ -177,7 +177,7 @@ class SuspiciousAttachmentPreviewContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = read("templates", "expense_detail.html")
-        cls.app = read("app.py")
+        cls.duplicates = read("invoice_tool", "employee_expenses", "duplicates.py")
 
     def test_01_both_cells_go_through_the_shared_macro(self):
         # 「当前附件」与「匹配记录」两列都走 suspect_attachment()，宏内部按 is_image_attachment
@@ -193,7 +193,7 @@ class SuspiciousAttachmentPreviewContract(unittest.TestCase):
 
     def test_02_query_carries_attachment_content_type(self):
         # 没有 content_type 就无法判断该弹窗还是该新开页（回到按扩展名猜的脆弱老路）
-        query = self.app.split("def expense_duplicate_checks(")[1].split(").fetchall()")[0]
+        query = self.duplicates.split("def expense_duplicate_checks(")[1].split(").fetchall()")[0]
         self.assertIn("current_attachment.content_type as attachment_content_type", query)
         self.assertIn("matched_attachment.content_type as matched_attachment_content_type", query)
 

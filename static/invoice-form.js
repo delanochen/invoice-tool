@@ -5,12 +5,6 @@ const attachmentList = document.querySelector("#attachmentList");
 const selectedAttachmentDialog = document.querySelector("#selectedAttachmentDialog");
 const selectedAttachmentFrame = document.querySelector("#selectedAttachmentFrame");
 const selectedAttachmentTitle = document.querySelector("#selectedAttachmentTitle");
-const selectedAttachmentImage = document.querySelector("#selectedAttachmentImage");
-const selectedImagePreviewWrap = document.querySelector("#selectedImagePreviewWrap");
-const selectedZoomFitBtn = document.querySelector("#selectedZoomFitBtn");
-const selectedZoomOutBtn = document.querySelector("#selectedZoomOutBtn");
-const selectedZoomOriginalBtn = document.querySelector("#selectedZoomOriginalBtn");
-const selectedZoomInBtn = document.querySelector("#selectedZoomInBtn");
 const closeSelectedAttachment = document.querySelector("#closeSelectedAttachment");
 const invoiceForm = document.querySelector("#invoiceForm");
 const invoiceClientId = document.querySelector("#invoiceClientId");
@@ -20,8 +14,6 @@ const invoicePaymentTermHint = document.querySelector("#invoicePaymentTermHint")
 let invoiceSubmitting = false;
 let selectedAttachmentUrls = [];
 let selectedFiles = [];
-let selectedPreviewMode = "fit";
-let selectedPreviewZoom = 1;
 const existingAttachmentNames = new Set(
   Array.from(document.querySelectorAll(".attachment-preview-link")).map((link) =>
     (link.dataset.previewName || link.textContent || "").trim().toLocaleLowerCase()
@@ -135,56 +127,6 @@ function revokeSelectedUrls() {
   selectedAttachmentUrls = [];
 }
 
-function applySelectedZoom() {
-  selectedAttachmentImage.classList.toggle("is-fit", selectedPreviewMode === "fit");
-  selectedAttachmentImage.classList.toggle("is-original", selectedPreviewMode === "original");
-  selectedAttachmentImage.classList.toggle("is-zoomed", selectedPreviewMode === "zoom");
-  selectedAttachmentImage.style.transform = selectedPreviewMode === "zoom" ? `scale(${selectedPreviewZoom})` : "none";
-}
-
-function setSelectedFitPreview() {
-  selectedPreviewMode = "fit";
-  selectedPreviewZoom = 1;
-  applySelectedZoom();
-}
-
-function setSelectedOriginalPreview() {
-  selectedPreviewMode = "original";
-  selectedPreviewZoom = 1;
-  applySelectedZoom();
-}
-
-function setSelectedZoomPreview(nextZoom) {
-  selectedPreviewMode = "zoom";
-  selectedPreviewZoom = Math.max(0.25, Math.min(nextZoom, 4));
-  applySelectedZoom();
-}
-
-function showSelectedPreview(file, url) {
-  selectedAttachmentTitle.textContent = file.name;
-  if (file.type.startsWith("image/")) {
-    selectedAttachmentFrame.src = "about:blank";
-    selectedAttachmentFrame.hidden = true;
-    selectedImagePreviewWrap.hidden = false;
-    selectedZoomFitBtn.hidden = false;
-    selectedZoomOutBtn.hidden = false;
-    selectedZoomOriginalBtn.hidden = false;
-    selectedZoomInBtn.hidden = false;
-    selectedAttachmentImage.src = url;
-    setSelectedFitPreview();
-  } else {
-    selectedAttachmentImage.removeAttribute("src");
-    selectedImagePreviewWrap.hidden = true;
-    selectedAttachmentFrame.hidden = false;
-    selectedZoomFitBtn.hidden = true;
-    selectedZoomOutBtn.hidden = true;
-    selectedZoomOriginalBtn.hidden = true;
-    selectedZoomInBtn.hidden = true;
-    selectedAttachmentFrame.src = url;
-  }
-  selectedAttachmentDialog.showModal();
-}
-
 function renderAttachmentList() {
   revokeSelectedUrls();
   attachmentList.innerHTML = "";
@@ -196,10 +138,16 @@ function renderAttachmentList() {
     selectedAttachmentUrls.push(url);
     link.href = url;
     link.textContent = file.name;
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      showSelectedPreview(file, url);
-    });
+    if (file.type.startsWith("image/")) {
+      link.dataset.imagePreview = "";
+    } else {
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        selectedAttachmentTitle.textContent = file.name;
+        selectedAttachmentFrame.src = url;
+        selectedAttachmentDialog.showModal();
+      });
+    }
     remove.type = "button";
     remove.className = "danger small";
     remove.textContent = "删除";
@@ -245,22 +193,8 @@ if (attachmentsInput && attachmentList) {
   });
 }
 
-selectedZoomInBtn?.addEventListener("click", () => setSelectedZoomPreview((selectedPreviewMode === "fit" ? 1 : selectedPreviewZoom) + 0.25));
-selectedZoomOutBtn?.addEventListener("click", () => setSelectedZoomPreview((selectedPreviewMode === "fit" ? 1 : selectedPreviewZoom) - 0.25));
-selectedZoomFitBtn?.addEventListener("click", setSelectedFitPreview);
-selectedZoomOriginalBtn?.addEventListener("click", setSelectedOriginalPreview);
-
-selectedAttachmentImage?.addEventListener("click", () => {
-  if (selectedPreviewMode === "fit") {
-    setSelectedZoomPreview(2);
-  } else {
-    setSelectedFitPreview();
-  }
-});
-
 closeSelectedAttachment?.addEventListener("click", () => {
   selectedAttachmentFrame.src = "about:blank";
-  selectedAttachmentImage.removeAttribute("src");
   selectedAttachmentDialog.close();
 });
 
