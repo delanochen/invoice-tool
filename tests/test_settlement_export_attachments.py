@@ -132,7 +132,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             create table batch_export_jobs(id text,order_ids text,export_type text,status text,progress integer,started_at text,file_name text,stored_path text,completed_at text,error text);
             insert into batch_export_jobs(id,order_ids,export_type) values('test','[1]','settlements');
             create table service_orders(id integer,order_number text,buyer_id integer,client_order_number text,client_name text);
-            insert into service_orders values(1,'SO-TEST',null,null,'Test Site');
+            insert into service_orders values(1,'SO-TEST',null,'SHPG2026102913515','Test Site');
             create table users (id integer, name text);
             create table field_photos (order_id integer, user_id integer, photo_type text, repair_phase text, captured_at text, id integer);
             create table field_repairs (id text,order_id integer,completed_date text,equipment_model text,equipment_number text,fault text,result text,work_content text);
@@ -174,25 +174,25 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             self.assertEqual(job["file_name"], "SHPG2026102913515.zip")
             with ZipFile(job["stored_path"]) as archive:
                 names = archive.namelist()
-                self.assertIn("SO-TEST/工单结算表.xlsx", names)
-                report_path = "SO-TEST/现场维修统计表.xlsx"
+                self.assertIn("SHPG2026102913515/工单结算表.xlsx", names)
+                report_path = "SHPG2026102913515/现场维修统计表.xlsx"
                 self.assertIn(report_path, names)
                 from openpyxl import load_workbook
                 report = load_workbook(BytesIO(archive.read(report_path))).active
                 self.assertEqual([cell.value for cell in report[3]][:5],
                                  ["2026-11-12", "Test Site", "LCI-400CR", "12345", "Fuse replacement"])
-                self.assertIn("SO-TEST/附件/", names)
+                self.assertIn("SHPG2026102913515/附件/", names)
                 self.assertIn("工单结算总账单.xlsx", names)
-                self.assertIn("SO-TEST/", names)
-                self.assertIn("SO-TEST/日报/SO-TEST-2026-11-12-report.docx", names)
-                self.assertIn("SO-TEST/日报/SO-TEST-2026-11-12-report-2.docx", names)
+                self.assertIn("SHPG2026102913515/", names)
+                self.assertIn("SHPG2026102913515/日报/SHPG2026102913515-2026-11-12-report.docx", names)
+                self.assertIn("SHPG2026102913515/日报/SHPG2026102913515-2026-11-12-report-2.docx", names)
                 self.assertEqual(
-                    archive.read("SO-TEST/日报/SO-TEST-2026-11-12-report_里程佐证/1-route.pdf"), b"route",
+                    archive.read("SHPG2026102913515/日报/SHPG2026102913515-2026-11-12-report_里程佐证/1-route.pdf"), b"route",
                 )
                 self.assertEqual([name for name in names if name.endswith("工单结算总账单.xlsx")],
                                  ["工单结算总账单.xlsx"])
                 self.assertFalse(any(name.startswith("工单结算/") for name in names))
-                bodies = [archive.read(name) for name in names if name.startswith("SO-TEST/")]
+                bodies = [archive.read(name) for name in names if name.startswith("SHPG2026102913515/")]
                 self.assertNotIn(b'zero.pdf',bodies)
                 self.assertNotIn(b'proof.png',bodies)
                 self.assertIn(b'positive.pdf',bodies)

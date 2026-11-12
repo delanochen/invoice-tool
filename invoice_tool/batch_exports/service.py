@@ -292,7 +292,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
                         if len(contexts) == 1:
                             zip_name = os.path.splitext(settlement_export_filename(context, conn))[0] + ".zip"
-                        folder_base = order_no
+                        folder_base = safe_name(order["client_order_number"], order_no)
                         attachment_folder = folder_base
                         duplicate = 2
                         while attachment_folder.casefold() in settlement_folders:
