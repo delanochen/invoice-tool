@@ -40,6 +40,19 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
     def names(self):
         return [row["original_filename"] for row in exportable_settlement_attachments(self.conn, 10)]
 
+    def test_export_filename_uses_customer_order_site_state_and_dates(self):
+        from invoice_tool.customer_reimbursements.expense_report import settlement_export_filename
+
+        self.conn.execute("create table buyers (id integer, name text, state_code text)")
+        self.conn.execute("insert into buyers values (1, 'Wever / East', 'ia')")
+        order = {"buyer_id": 1, "client_order_number": "SHPG2026102913515",
+                 "order_number": "SO2610004", "site_address": "Wever, IA 52658"}
+        context = (order, {}, "INV-1", "2026-11-02", "2026-11-06")
+        expected = "工单_SHPG2026102913515_Wever - East_IA_2026-11-02~2026-11-06.xlsx"
+        self.assertEqual(settlement_export_filename(context, self.conn), expected)
+        self.conn.execute("update buyers set state_code = null")
+        self.assertEqual(settlement_export_filename(context, self.conn), expected)
+
     def test_manual_kept_zero_customer_amount_excluded_positive_kept(self):
         self.conn.executemany(
             "insert into expense_items(id, expense_id, line_key, amount) values(?,?,?,?)",
@@ -135,7 +148,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             root.mkdir(parents=True)
             for name in ('zero.pdf','positive.pdf','manual.pdf','proof.png'):
                 (root/name).write_bytes(name.encode())
-            context = (None, {"id": 10}, "INV-1", None, None)
+            context = ({"order_number": "SO-TEST"}, {"id": 10}, "INV-1", None, None)
             with (
                 patch('invoice_tool.batch_exports.service.batch_contexts', return_value={1: context}),
                 patch('invoice_tool.batch_exports.service.build_expense_report', return_value=BytesIO(b'xlsx')),
@@ -148,6 +161,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             job=self.conn.execute("select * from batch_export_jobs").fetchone()
             self.assertEqual(job['status'],'completed',job['error'])
             with ZipFile(job['stored_path']) as archive:
+                self.assertIn("工单结算/工单_SO-TEST.xlsx", archive.namelist())
                 bodies=[archive.read(name) for name in archive.namelist()]
                 self.assertNotIn(b'zero.pdf',bodies)
                 self.assertNotIn(b'proof.png',bodies)

@@ -1,6 +1,6 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
 
-from .expense_report import build_expense_report, export_context
+from .expense_report import build_expense_report, export_context, settlement_export_filename
 from .workspace_sources import save_workspace_sources, restore_workspace_sources
 from .source_display import enrich_expense_source_details
 
@@ -44,7 +44,6 @@ def register_settlement_form_routes(app, *,
     _cb_resolve_money_decimal,
     _cb_resolve_notify_role,
     _cb_resolve_now,
-    _cb_resolve_re,
     _cb_resolve_redirect,
     _cb_resolve_remove_customer_reimbursement_pdf,
     _cb_resolve_render_template,
@@ -433,7 +432,11 @@ def register_settlement_form_routes(app, *,
             expense_amount=_cb_resolve_customer_reimbursement_item_expense_amount(),
             company=_cb_resolve_get_company_profile()(),
         )
-        return _cb_resolve_send_file()(workbook, as_attachment=True, download_name="_".join(_cb_resolve_re().sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value)).strip(" .") for value in (order["order_number"], order["client_order_number"], "工单结算.xlsx") if value), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        return _cb_resolve_send_file()(
+            workbook, as_attachment=True,
+            download_name=settlement_export_filename(context, _cb_resolve_db()()),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
 
     @_cb_resolve_login_required()

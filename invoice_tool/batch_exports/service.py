@@ -9,7 +9,7 @@ from io import BytesIO
 from pathlib import Path
 
 from invoice_tool.customer_reimbursements.expense_report import (
-    batch_contexts, build_batch_summary, build_expense_report,
+    batch_contexts, build_batch_summary, build_expense_report, settlement_export_filename,
 )
 from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
 from invoice_tool.invoices import order_links as _invoice_order_links
@@ -203,6 +203,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
             stored = root / f"{job_id}.zip"
             missing = []
             settlement_payloads = []
+            settlement_filenames = set()
             contexts = batch_contexts(conn, order_ids) if export_type == "settlements" else {}
             company = get_company_profile() if contexts and get_company_profile else None
             with zipfile.ZipFile(stored, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -275,7 +276,14 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         settlement_payloads.append((context, items))
                         xlsx = build_expense_report(context, items, expense_amount=expense_amount, company=company)
                         data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
-                        archive.writestr(f"工单结算/{order_no}_工单结算.xlsx", data)
+                        filename = settlement_export_filename(context, conn)
+                        stem = os.path.splitext(filename)[0]
+                        duplicate = 2
+                        while filename.casefold() in settlement_filenames:
+                            filename = f"{stem}_{order_no}_{duplicate}.xlsx"
+                            duplicate += 1
+                        settlement_filenames.add(filename.casefold())
+                        archive.writestr(f"工单结算/{filename}", data)
                         attachment_root = Path(data_dir) / "customer-reimbursements" / str(reimbursement["id"]) / "attachments"
                         attachment_names = set()
                         attachment_sources = set()

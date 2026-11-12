@@ -3483,7 +3483,6 @@ _views_settlement_form = _split_settlement_form.register_settlement_form_routes(
     _cb_resolve_money_decimal=lambda: money_decimal,
     _cb_resolve_notify_role=lambda: notify_role,
     _cb_resolve_now=lambda: now,
-    _cb_resolve_re=lambda: re,
     _cb_resolve_redirect=lambda: redirect,
     _cb_resolve_remove_customer_reimbursement_pdf=lambda: remove_customer_reimbursement_pdf,
     _cb_resolve_render_template=lambda: render_template,
