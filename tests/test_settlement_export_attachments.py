@@ -164,7 +164,17 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             insert into customer_reimbursements values(10,1,true);
             insert into expense_items values(1,100,'a',50),(2,101,'b',60);
             insert into expense_attachments values(11,100,'a'),(12,101,'b');
+            alter table expense_items add column project_id integer;
+            alter table expense_items add column project text;
+            update expense_items set project='Taxi Fare / Ride-Hailing Fare打车费' where id=2;
             insert into customer_reimbursement_expense_links values(10,1,50,0),(10,2,60,25);
+            alter table customer_reimbursement_expense_links add column adjustment_reason text;
+            update customer_reimbursement_expense_links set adjustment_reason='仅结算工单内行程';
+            create table projects(id integer, name text);
+            create table expenses(id integer, expense_date text, created_by integer, beneficiary_id integer);
+            insert into users values(10,'张三'),(11,'代填人');
+            insert into expenses values(100,'2026-11-05',11,10),(101,'2026-11-05',11,10);
+
             insert into customer_reimbursement_attachments values
             (1,10,'receipt.pdf','zero.pdf',11),(2,10,'receipt.pdf','positive.pdf',12),
             (3,10,'receipt.pdf','manual.pdf',null),(4,10,'里程佐证-2026-11-12-map.png','proof.png',null);
@@ -221,7 +231,11 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                 bodies = [archive.read(name) for name in names if name.startswith("SHPG2026102913515/")]
                 self.assertNotIn(b'zero.pdf',bodies)
                 self.assertNotIn(b'proof.png',bodies)
-                self.assertIn(b'positive.pdf',bodies)
+                self.assertEqual(archive.read("SHPG2026102913515/附件/张三_11-05_打车费_60.00.pdf"), b'positive.pdf')
+                note = archive.read("SHPG2026102913515/附件/张三_11-05_打车费_60.00.txt").decode("utf-8-sig")
+                self.assertIn("原报销金额 60.00，工单结算金额 25.00", note)
+                self.assertIn("\n调整理由：仅结算工单内行程\n", note)
+                self.assertEqual(len([name for name in names if "/附件/" in name and name.endswith(".txt")]), 1)
                 self.assertIn(b'manual.pdf',bodies)
                 self.assertEqual(len(archive.namelist()),len(set(archive.namelist())))
                 self.assertIsNone(archive.testzip())

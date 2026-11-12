@@ -46,3 +46,33 @@ def exportable_settlement_attachments(conn, reimbursement_id):
         """,
         (reimbursement_id,),
     ).fetchall()
+
+
+def settlement_attachment_expenses(conn, reimbursement_id):
+    """Map source attachments to the expense lines included in the export."""
+    rows = conn.execute(
+        """
+        select ea.id as attachment_id, expenses.expense_date,
+               coalesce(beneficiary.name, creator.name) as worker_name,
+               coalesce(projects.name, ei.project) as project_name,
+               coalesce(links.amount_snapshot, ei.amount, 0) as original_amount,
+               coalesce(links.settled_amount, links.amount_snapshot, ei.amount, 0) as settled_amount,
+               links.adjustment_reason
+        from customer_reimbursement_expense_links links
+        join expense_items ei on ei.id = links.expense_item_id
+        join expenses on expenses.id = ei.expense_id
+        join expense_attachments ea on ea.expense_id = ei.expense_id
+            and (coalesce(ea.expense_item_key, '') = '' or ea.expense_item_key = ei.line_key)
+        left join projects on projects.id = ei.project_id
+        left join users creator on creator.id = expenses.created_by
+        left join users beneficiary on beneficiary.id = expenses.beneficiary_id
+        where links.customer_reimbursement_id = ?
+          and coalesce(links.settled_amount, links.amount_snapshot, ei.amount, 0) > 0
+        order by ei.id, ea.id
+        """,
+        (reimbursement_id,),
+    ).fetchall()
+    by_attachment = {}
+    for row in rows:
+        by_attachment.setdefault(row["attachment_id"], []).append(row)
+    return by_attachment

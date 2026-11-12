@@ -9,9 +9,9 @@ from io import BytesIO
 from pathlib import Path
 
 from invoice_tool.customer_reimbursements.expense_report import (
-    batch_contexts, build_batch_summary, build_expense_report, settlement_export_filename, settlement_filename_dates,
+    batch_contexts, build_batch_summary, build_expense_report, cents, settlement_export_filename, settlement_filename_dates,
 )
-from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
+from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments, settlement_attachment_expenses
 from invoice_tool.invoices import order_links as _invoice_order_links
 from invoice_tool.service_reports.mileage_export import write_mileage_documents
 from invoice_tool.service_reports.field_repairs import build_field_repair_workbook
@@ -31,6 +31,37 @@ EXPORT_LABELS = {
 def safe_name(value, fallback="file"):
     text = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value or "")).strip(" .")
     return text or fallback
+
+
+def expense_project_name(value):
+    label = str(value or "")
+    chinese = re.findall(r"[\u3400-\u9fff]+", label)
+    return safe_name("".join(chinese) or label, "报销")
+
+
+def settlement_attachment_name_and_note(filename, expenses):
+    if not expenses:
+        return filename, None
+    first = expenses[0]
+    worker = safe_name(first["worker_name"], "报销人")
+    date = safe_name(str(first["expense_date"] or "")[5:10], "日期未知")
+    projects = dict.fromkeys(expense_project_name(row["project_name"]) for row in expenses)
+    project = "+".join(projects)[:30].rstrip(" .+")
+    original_total = sum(cents(row["original_amount"]) for row in expenses)
+    suffix = os.path.splitext(filename)[1]
+    filename = f"{worker}_{date}_{project}_{original_total / 100:.2f}{suffix}"
+    adjustments = []
+    for row in expenses:
+        original = cents(row["original_amount"])
+        settled = cents(row["settled_amount"])
+        if original == settled:
+            continue
+        reason = str(row["adjustment_reason"] or "").strip() or "调整理由未填写"
+        adjustments.append(
+            f"{expense_project_name(row['project_name'])}：原报销金额 {original / 100:.2f}，"
+            f"工单结算金额 {settled / 100:.2f}\n调整理由：{reason}"
+        )
+    return filename, ("\n\n".join(adjustments) + "\n") if adjustments else None
 
 
 def invoice_pdf_bytes(conn, invoice, render_invoice_pdf):
@@ -336,8 +367,15 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         )
                         attachment_root = Path(data_dir) / "customer-reimbursements" / str(reimbursement["id"]) / "attachments"
                         attachment_names = set()
+                        attachment_stems = set()
                         attachment_sources = set()
-                        for attachment in exportable_settlement_attachments(conn, reimbursement["id"]):
+                        attachments = exportable_settlement_attachments(conn, reimbursement["id"])
+                        expenses_by_attachment = (
+                            settlement_attachment_expenses(conn, reimbursement["id"])
+                            if any(row["source_expense_attachment_id"] is not None for row in attachments)
+                            else {}
+                        )
+                        for attachment in attachments:
                             source_path = attachment_root / attachment["stored_filename"]
                             source_path = source_path.resolve()
                             if not source_path.is_relative_to(attachment_root.resolve()):
@@ -354,14 +392,29 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                                 attachment["original_filename"] or attachment["stored_filename"],
                                 f"attachment-{attachment['id']}",
                             )
+                            filename, note = settlement_attachment_name_and_note(
+                                filename, expenses_by_attachment.get(attachment["source_expense_attachment_id"]),
+                            )
                             stem, suffix = os.path.splitext(filename)
-                            candidate, index = filename, 2
-                            while candidate.casefold() in attachment_names:
-                                candidate = f"{stem}-{index}{suffix}"
+                            note_suffix = "_说明.txt" if suffix.lower() == ".txt" else ".txt"
+                            candidate_stem, index = stem, 2
+                            while (
+                                candidate_stem.casefold() in attachment_stems
+                                or (candidate_stem + suffix).casefold() in attachment_names
+                                or (note and (candidate_stem + note_suffix).casefold() in attachment_names)
+                            ):
+                                candidate_stem = f"{stem}_{index:02d}"
                                 index += 1
-                            attachment_names.add(candidate.casefold())
-                            filename = candidate
+                            filename = candidate_stem + suffix
+                            attachment_stems.add(candidate_stem.casefold())
+                            attachment_names.add(filename.casefold())
                             archive.write(source_path, f"{attachment_folder}/附件/{filename}")
+                            if note:
+                                note_name = candidate_stem + note_suffix
+                                attachment_names.add(note_name.casefold())
+                                archive.writestr(
+                                    f"{attachment_folder}/附件/{note_name}", note.encode("utf-8-sig"),
+                                )
                     elif export_type == "invoices":
                         invoice_cond = _invoice_order_links.invoice_order_sql(conn, 'invoices', '?')
                         invoices = conn.execute(
