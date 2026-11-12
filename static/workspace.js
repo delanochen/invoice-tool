@@ -19,7 +19,8 @@
     tab.button.title = tab.title + (tab.dirty ? T('（有未保存内容）') : '');
     tab.close.setAttribute('aria-label', T('关闭 ') + tab.title);
   }
-  function activate(tab) {
+  function activate(tab, { refresh = false } = {}) {
+    const switched = active !== tab;
     active = tab;
     tabs.forEach(item => {
       item.frame.hidden = item !== tab || item.failed;
@@ -29,7 +30,7 @@
       item.button.setAttribute('aria-selected', String(item === tab));
       item.button.tabIndex = item === tab ? 0 : -1;
     });
-    notice.hidden = !tab.stale;
+    notice.hidden = !tab.stale || tab.isLoading;
     history.replaceState(null, '', '/workspace#' + encodeURIComponent(tab.url));
     document.title = tab.title + ' - ' + T('工作区');
     tab.node.scrollIntoView({block: 'nearest', inline: 'nearest'});
@@ -38,6 +39,15 @@
       link.classList.toggle('active', match);
       if (match) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     });
+    if (tab.isLoading || tab.submitted) return;
+    if (refresh) {
+      if (allowDiscard(tab)) {
+        tab.dirty = false;
+        retryLoad(tab);
+      }
+    } else if (switched && tab.stale && !tab.dirty && !tab.failed) {
+      reload(tab);
+    }
   }
   const allowDiscard = tab => !tab.dirty || window.uiConfirm('"' + tab.title + T('"有未保存的修改或已选文件，是否放弃这些内容？'));
   function close(tab) {
@@ -50,7 +60,7 @@
   }
   function changed(source) {
     tabs.forEach(tab => { if (tab !== source) tab.stale = true; });
-    if (active) notice.hidden = !active.stale;
+    if (active) notice.hidden = !active.stale || active.isLoading;
   }
   function showLoadFailure(tab, final = false, message = '') {
     tab.isLoading = false;
@@ -109,6 +119,7 @@
     let win, doc;
     try { win = tab.frame.contentWindow; doc = win.document; } catch { pageLoadFailed(tab); return; }
     if (!doc || win.location.href === 'about:blank') return;
+    if (tab.attachedDocument === doc) return;
     if (win.location.pathname === '/login') { location.href = '/login'; return; }
     // Workspace URLs are application documents and must contain .main. Browser/network
     // error documents and proxy error pages do not, so replace them with our retry UI.
@@ -118,8 +129,6 @@
     tab.retryTimer = null; tab.loadTimer = null; tab.loadFailures = 0; tab.failed = false;
     tab.isLoading = false;
     tab.frame.setAttribute('aria-busy', 'false');
-    if (active === tab) activate(tab);
-    if (tab.attachedDocument === doc) return;
     tab.attachedDocument = doc;
     // 让页面内的脚本也能请求「在工作区里新开一个标签页」（而不是自己 location.href 跳走，
     // 那会把当前标签的页面整个换掉）。工作区内所有站内跳转都应走这里，见
@@ -178,8 +187,7 @@
     if (!url) return;
     const existing = tabs.find(tab => key(tab.url) === key(url));
     if (existing) {
-      activate(existing);
-      if (refresh) retryLoad(existing);
+      activate(existing, { refresh });
       return;
     }
     const node = document.createElement('div'), button = document.createElement('button'), closeButton = document.createElement('button'), frame = document.createElement('iframe'), failure = document.createElement('section'), loading = document.createElement('section');
@@ -222,14 +230,17 @@
     if (/^\/field\/?$/.test(new URL(link.href).pathname)) return;
     event.preventDefault(); open(link.href, link.textContent.trim());
   }));
+  function reload(tab) {
+    showLoading(tab);
+    if (tab.loadTimer) clearTimeout(tab.loadTimer);
+    tab.loadTimer = setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT);
+    tab.frame.contentWindow.location.reload();
+  }
   const refresh = () => {
-    if (active && allowDiscard(active)) {
+    if (active && !active.isLoading && !active.submitted && allowDiscard(active)) {
       active.dirty = false;
-      showLoading(active);
-      if (active.loadTimer) clearTimeout(active.loadTimer);
-      const tab = active;
-      tab.loadTimer = setTimeout(() => pageLoadFailed(tab), LOAD_TIMEOUT);
-      tab.frame.contentWindow.location.reload();
+      if (active.failed) retryLoad(active);
+      else reload(active);
     }
   };
   document.getElementById('workspaceRefresh').addEventListener('click', refresh);

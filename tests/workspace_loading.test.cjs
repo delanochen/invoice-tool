@@ -141,3 +141,48 @@ function setup() {
   assert.equal(s.frames.length, 2, 'reopening reuses the merge tab');
 }
 console.log('Workspace loading: 11 regressions passed; no network or database');
+
+function openSecondTab(s) {
+  const url = new URL('/invoices', s.location.origin);
+  s.frame.contentWindow.workspaceOpen(url.href, '发票');
+  const second = s.frames[1];
+  second.contentWindow.location.href = url.href;
+  second.contentWindow.location.pathname = url.pathname;
+  second.contentWindow.document.hasMain = true;
+  second.handlers.load[0]();
+  return second;
+}
+
+{
+  const s = setup();
+  s.ready(); s.message();
+  const second = openSecondTab(s);
+  const firstButton = s.elements.workspaceTabs.children[0].children[0];
+  firstButton.handlers.click[0]();
+  assert.equal(s.frame.reloads, undefined, 'fresh tabs do not reload');
+  second.contentWindow.document.handlers['workspace:saved'][0]();
+  assert.equal(s.frame.reloads, undefined, 'a save does not interrupt the active page');
+  s.elements.workspaceTabs.children[1].children[0].handlers.click[0]();
+  firstButton.handlers.click[0]();
+  assert.equal(s.frame.reloads, 1, 'a stale tab reloads on reactivation');
+  assert.equal(s.elements.workspaceNotice.hidden, true);
+  s.load();
+  assert.equal(s.loading().hidden, false, 'a delayed event from the old document cannot finish the reload');
+  firstButton.handlers.click[0]();
+  assert.equal(s.frame.reloads, 1, 'a pending refresh is not restarted');
+  const nextDocument = Object.assign({}, s.doc, {handlers: {}});
+  s.frame.contentWindow.document = nextDocument;
+  s.load();
+  assert.equal(s.loading().hidden, true, 'the refreshed document finishes loading');
+}
+
+{
+  const s = setup();
+  s.ready(); s.message();
+  s.doc.handlers.change[0]({target: {closest: () => ({method: 'post'})}});
+  const second = openSecondTab(s);
+  second.contentWindow.document.handlers['workspace:saved'][0]();
+  s.elements.workspaceTabs.children[0].children[0].handlers.click[0]();
+  assert.equal(s.frame.reloads, undefined, 'unsaved input or files block automatic refresh');
+  assert.equal(s.elements.workspaceNotice.hidden, false, 'dirty tabs keep their refresh notice');
+}
