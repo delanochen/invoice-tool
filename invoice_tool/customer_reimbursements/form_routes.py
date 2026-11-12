@@ -1,5 +1,6 @@
 """Business routes with explicit current-app resolvers; no reverse import."""
 
+from .expense_report import build_expense_report, export_context
 from .workspace_sources import save_workspace_sources, restore_workspace_sources
 from .source_display import enrich_expense_source_details
 
@@ -9,7 +10,7 @@ def register_settlement_form_routes(app, *,
     _cb_resolve_settlement_versions,
     _cb_resolve_abort,
     _cb_resolve_build_customer_reimbursement_pdf,
-    _cb_resolve_build_simple_xlsx,
+    _cb_resolve_get_company_profile,
     _cb_resolve_can_create_invoice,
     _cb_resolve_can_manage_customer_reimbursement,
     _cb_resolve_can_view_customer_reimbursement,
@@ -56,7 +57,6 @@ def register_settlement_form_routes(app, *,
     _cb_resolve_save_customer_reimbursement_uploads,
     _cb_resolve_send_file,
     _cb_resolve_service_order_active_invoice,
-    _cb_resolve_to_float,
     _cb_resolve_update_customer_reimbursement_totals,
     _cb_resolve_url_for,
 ):
@@ -410,6 +410,11 @@ def register_settlement_form_routes(app, *,
     @_cb_resolve_login_required()
     def download_customer_reimbursement(reimbursement_id):
         reimbursement, order = _cb_resolve_require_customer_reimbursement()(reimbursement_id)
+        try:
+            export_context(_cb_resolve_db()(), order["id"], reimbursement_id)
+        except ValueError as error:
+            _cb_resolve_flash()(str(error), "error")
+            return _cb_resolve_redirect()(_cb_resolve_url_for()("customer_reimbursement_form", order_id=order["id"]))
         reimbursement, path = _cb_resolve_ensure_customer_reimbursement_pdf_file()(reimbursement, order)
         _cb_resolve_db()().commit()
         return _cb_resolve_send_file()(path, as_attachment=True, download_name=reimbursement["file_name"])
@@ -418,42 +423,16 @@ def register_settlement_form_routes(app, *,
     @_cb_resolve_login_required()
     def download_customer_reimbursement_excel(reimbursement_id):
         reimbursement, order = _cb_resolve_require_customer_reimbursement()(reimbursement_id)
-        items = _cb_resolve_customer_reimbursement_items()(reimbursement_id)
-        headers = ["序号", "姓名", "项目日期", "标准工时", "交通工时", "公共交通工时", "加班工时", "假期工时", "人工费", "住宿费", "机票费", "行李费", "租车费", "燃油费", "停车费", "出租车费", "里程费", "其他", "合计"]
-        rows = []
-        for index, item in enumerate(items, 1):
-            item = dict(item)
-            expenses = [_cb_resolve_customer_reimbursement_item_expense_amount()(item, key)
-                        for key in ("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")]
-            rows.append([index, item["worker_name"], item["project_date"], item["standard_hours"],
-                         item["transport_hours"], item["public_transport_hours"], item["overtime_hours"], item["holiday_hours"],
-                         item["labor_total"], *expenses, item["mileage_total"],
-                         _cb_resolve_customer_reimbursement_item_expense_amount()(item, "other"), item["total"]])
-        # rental_fuel_total 是此前独立于人员明细的租车加油快照。导出时不能只藏在总额里；
-        # 用专门的明细行放到「燃油费」列，既不虚构人员/日期，又能让各列与总额核对。
-        rental_fuel_total = float(_cb_resolve_money_decimal()(reimbursement["rental_fuel_total"] or 0))
-        if rental_fuel_total:
-            rows.append([len(rows) + 1, "租车油费", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, rental_fuel_total, 0, 0, 0, 0, rental_fuel_total])
-        # 合计行：逐列求和；末列仍以结算快照 total_amount 为权威值。
-        total_row = ["合计", "", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        for item in items:
-            total_row[3] += _cb_resolve_to_float()(item["standard_hours"])
-            total_row[4] += _cb_resolve_to_float()(item["transport_hours"])
-            total_row[5] += _cb_resolve_to_float()(item["public_transport_hours"])
-            total_row[6] += _cb_resolve_to_float()(item["overtime_hours"])
-            total_row[7] += _cb_resolve_to_float()(item["holiday_hours"])
-            total_row[8] += float(_cb_resolve_money_decimal()(item["labor_total"]))
-            for offset, key in enumerate(("lodging", "airfare", "baggage", "rental_car", "fuel", "parking", "taxi")):
-                total_row[9 + offset] += float(_cb_resolve_money_decimal()(_cb_resolve_customer_reimbursement_item_expense_amount()(item, key)))
-            total_row[16] += float(_cb_resolve_money_decimal()(item["mileage_total"]))
-            total_row[17] += float(_cb_resolve_money_decimal()(_cb_resolve_customer_reimbursement_item_expense_amount()(item, "other")))
-        total_row[13] += rental_fuel_total
-        total_row[18] = float(_cb_resolve_money_decimal()(reimbursement["total_amount"]))
-        rows.append(total_row)
-        rows.append([
-            "说明：租车油费已在「燃油费」列单独展示；MRO 耗材已计入「其他」列；合计为工单结算快照总额。",
-        ] + [""] * 18)
-        workbook = _cb_resolve_build_simple_xlsx()(headers, rows, sheet_name="工单结算")
+        try:
+            context = export_context(_cb_resolve_db()(), order["id"], reimbursement_id)
+        except ValueError as error:
+            _cb_resolve_flash()(str(error), "error")
+            return _cb_resolve_redirect()(_cb_resolve_url_for()("customer_reimbursement_form", order_id=order["id"]))
+        workbook = build_expense_report(
+            context, _cb_resolve_customer_reimbursement_items()(reimbursement_id),
+            expense_amount=_cb_resolve_customer_reimbursement_item_expense_amount(),
+            company=_cb_resolve_get_company_profile()(),
+        )
         return _cb_resolve_send_file()(workbook, as_attachment=True, download_name="_".join(_cb_resolve_re().sub(r'[<>:"/\\|?*\x00-\x1f]', "-", str(value)).strip(" .") for value in (order["order_number"], order["client_order_number"], "工单结算.xlsx") if value), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 

@@ -44,10 +44,11 @@ def resolve_expense_owner_names(rows, connection):
         identities = {owners[s["expense_id"]] for s in sources}
         if len(identities) != 1:
             continue
-        _, name = identities.pop()
+        employee_id, name = identities.pop()
         if not name:
             continue
         row["worker_name"] = name
+        row["expense_worker_user_id"] = employee_id
         for source in sources:
             source["worker_name"] = name
         # Preserve the stored JSON/dict representation for existing consumers.

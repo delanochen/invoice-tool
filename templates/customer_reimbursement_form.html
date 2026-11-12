@@ -126,7 +126,7 @@
           <button type="button" class="erp-btn" onclick="const d=document.querySelector('#createRevisionDialog'); document.body.appendChild(d); d.showModal()">创建修订版</button>
         {% endif %}
         {% if pending_revision and pending_revision.status == "approved" and can_manage_customer_reimbursement() and (reimbursement.is_current or reimbursement.id == pending_revision.id) %}
-          <form method="post" action="{{ url_for('promote_customer_reimbursement_revision_route', reimbursement_id=pending_revision.id) }}" onsubmit="return uiConfirm('修订版将替代当前版本成为有效结算，原版本只读留档。已处理完发票与应收差额才能继续，确定替代吗？');">
+          <form method="post" action="{{ url_for('promote_customer_reimbursement_revision_route', reimbursement_id=pending_revision.id) }}" onsubmit="return uiConfirm('修订版将替代当前版本成为有效结算，原版本只读留档。关联发票金额将按通过审核的结算同步，确定替代吗？');">
             <button class="primary" type="submit">确认替代为有效版本</button>
           </form>
         {% endif %}
@@ -166,7 +166,7 @@
     <div class="settlement-status-item translatable-text {{ 'settlement-status-error' if workspace.report_change_count or workspace.expense_change_count else 'settlement-status-ok' }}">
       <strong>来源：</strong>{% if workspace.report_change_count or workspace.expense_change_count %}日报 {{ workspace.report_change_count }} 项、报销 {{ workspace.expense_change_count }} 项变化{% else %}日报和报销均为最新{% endif %}
     </div>
-    {% if linked_invoice %}<div class="settlement-status-item settlement-status-error translatable-text"><strong>发票：</strong>{{ linked_invoice.invoice_number }}；重新编辑前须先删除对应发票</div>{% else %}<div class="settlement-status-item settlement-status-ok translatable-text"><strong>发票：</strong>尚未生成</div>{% endif %}
+    {% if linked_invoice %}<div class="settlement-status-item settlement-status-error translatable-text"><strong>发票：</strong>{{ linked_invoice.invoice_number }}；如需调整金额，请创建工单结算修订版</div>{% else %}<div class="settlement-status-item settlement-status-ok translatable-text"><strong>发票：</strong>尚未生成</div>{% endif %}
     {% if reviewer %}<div class="settlement-status-item translatable-text"><strong>审核：</strong>{{ reviewer.name }}{% if reimbursement.reviewed_at %} · {{ reimbursement.reviewed_at|local_datetime }}{% endif %}</div>{% endif %}
 {% if not is_external_user() %}
     <div class="settlement-status-item settlement-status-ok translatable-text"><strong>住宿：</strong>{{ lodging_range.minimum }}–{{ lodging_range.maximum }} 人晚 · {{ totals.lodging_total|money }}</div>

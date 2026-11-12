@@ -3453,7 +3453,7 @@ _views_settlement_form = _split_settlement_form.register_settlement_form_routes(
     _cb_resolve_settlement_versions=lambda: settlement_versions,
     _cb_resolve_abort=lambda: abort,
     _cb_resolve_build_customer_reimbursement_pdf=lambda: build_customer_reimbursement_pdf,
-    _cb_resolve_build_simple_xlsx=lambda: build_simple_xlsx,
+    _cb_resolve_get_company_profile=lambda: get_company_profile,
     _cb_resolve_can_create_invoice=lambda: can_create_invoice,
     _cb_resolve_can_manage_customer_reimbursement=lambda: can_manage_customer_reimbursement,
     _cb_resolve_can_view_customer_reimbursement=lambda: can_view_customer_reimbursement,
@@ -3500,7 +3500,6 @@ _views_settlement_form = _split_settlement_form.register_settlement_form_routes(
     _cb_resolve_save_customer_reimbursement_uploads=lambda: save_customer_reimbursement_uploads,
     _cb_resolve_send_file=lambda: send_file,
     _cb_resolve_service_order_active_invoice=lambda: service_order_active_invoice,
-    _cb_resolve_to_float=lambda: to_float,
     _cb_resolve_update_customer_reimbursement_totals=lambda: update_customer_reimbursement_totals,
     _cb_resolve_url_for=lambda: url_for,
 )
@@ -4182,6 +4181,7 @@ _batch_export_views = register_batch_export_routes(
     report_attachment_path=lambda *args, **kwargs: report_attachment_path(*args, **kwargs),
     is_external_manager=lambda *args, **kwargs: is_external_manager(*args, **kwargs),
     is_external_employee=lambda *args, **kwargs: is_external_employee(*args, **kwargs),
+    get_company_profile=get_company_profile,
 )
 create_batch_export = _batch_export_views["create_batch_export"]
 batch_export_jobs = _batch_export_views["batch_export_jobs"]

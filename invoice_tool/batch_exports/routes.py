@@ -8,6 +8,8 @@ import uuid
 
 from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 
+from invoice_tool.customer_reimbursements.expense_report import batch_contexts
+
 from .service import EXPORT_LABELS, ensure_export_job_schema, run_export_job, utcnow_text
 
 
@@ -15,7 +17,7 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
                                  build_service_report_docx, build_simple_xlsx,
                                  customer_reimbursement_items, expense_amount,
                                  render_invoice_pdf, report_attachment_path,
-                                 is_external_manager, is_external_employee):
+                                 is_external_manager, is_external_employee, get_company_profile=None):
     def visible_order_ids(user, requested):
         requested = sorted({int(v) for v in requested if str(v).isdigit()})
         if not requested:
@@ -42,6 +44,12 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
         if len(order_ids) > 200:
             flash("单次最多选择 200 个工单。", "error")
             return redirect(url_for("service_orders"))
+        if export_type == "settlements":
+            try:
+                batch_contexts(db(), order_ids)
+            except ValueError as error:
+                flash(str(error), "error")
+                return redirect(url_for("service_orders"))
         job_id = str(uuid.uuid4())
         db().execute(
             "insert into batch_export_jobs(id,user_id,export_type,order_ids,status,progress,created_at) values(?,?,?,?,?,?,?)",
@@ -58,6 +66,7 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
                 expense_amount=expense_amount,
                 render_invoice_pdf=render_invoice_pdf,
                 report_attachment_path=report_attachment_path,
+                get_company_profile=get_company_profile,
             ),
             daemon=True,
             name=f"batch-export-{job_id[:8]}",

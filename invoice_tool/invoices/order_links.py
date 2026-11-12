@@ -255,3 +255,21 @@ def primary_order_id(invoice, *, db):
         return invoice['service_order_id'] or None
     except Exception:
         return None
+
+
+def work_order_label(order):
+    external = order["client_order_number"]
+    internal = order["order_number"]
+    return f"{external}（{internal}）" if external and internal else external or internal or ""
+
+
+def current_invoice_clause(connection, alias="invoices"):
+    """Exclude void invoices and invoices whose work-order links were all released."""
+    clause = f"{alias}.status = 'completed'"
+    if supports_invoice_orders(connection):
+        clause += (
+            f" and (not exists (select 1 from invoice_orders historical where historical.invoice_id = {alias}.id)"
+            f" or exists (select 1 from invoice_orders current_link where current_link.invoice_id = {alias}.id"
+            " and current_link.released_at is null))"
+        )
+    return clause

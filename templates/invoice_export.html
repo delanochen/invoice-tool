@@ -40,11 +40,6 @@
         </section>
         <section class="meta-list">
           <p><span>Invoice No.</span><strong>{{ invoice.invoice_number }}</strong></p>
-          {% if (linked_orders|default([]))|length > 1 %}
-            <p><span>Service Orders</span><strong>{% for o in linked_orders %}{{ o.client_order_number or o.order_number }}{% if not loop.last %}, {% endif %}{% endfor %}</strong></p>
-          {% elif service_order and service_order.client_order_number %}
-            <p><span>Service Order</span><strong>{{ service_order.client_order_number }}</strong></p>
-          {% endif %}
           <p><span>Issue Date</span><strong>{{ invoice.issue_date }}</strong></p>
           <p><span>Due Date</span><strong>{{ invoice.due_date }}</strong></p>
           <p><span>Currency</span><strong>{{ invoice.currency }}</strong></p>
@@ -66,6 +61,15 @@
       </table>
       <div class="invoice-bottom">
         <section>
+          {% set orders = linked_orders or ([service_order] if service_order else []) %}
+          {% if orders %}
+            <h3>Work Orders</h3>
+            <div style="overflow-wrap: anywhere">
+              {% for order in orders %}
+                <div>{% if order.client_order_number and order.order_number %}{{ order.client_order_number }}（{{ order.order_number }}）{% else %}{{ order.client_order_number or order.order_number }}{% endif %}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
           <h3>Notes</h3>
           <p>{{ invoice.notes }}</p>
           <h3>Terms</h3>

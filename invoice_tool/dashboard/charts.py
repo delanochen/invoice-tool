@@ -1,9 +1,13 @@
 """Legacy-compatible dashboard_monthly helpers; explicit runtime dependencies."""
 
+from invoice_tool.invoices.order_links import current_invoice_clause
+
+
 def monthly_chart(*, client_filter_clause, db, invoice_totals):
     access_clause, access_params = client_filter_clause("invoices")
+    current = current_invoice_clause(db())
     rows = db().execute(
-        f"select id, issue_date from invoices where status = 'completed' and {access_clause} order by issue_date asc",
+        f"select id, issue_date from invoices where {current} and {access_clause} order by issue_date asc",
         access_params,
     ).fetchall()
     buckets = {}
@@ -18,7 +22,8 @@ def monthly_chart(*, client_filter_clause, db, invoice_totals):
 
 def monthly_project_chart(selected_project_ids, *, client_filter_clause, db, project_color):
     access_clause, access_params = client_filter_clause("invoices")
-    clauses = ["invoices.status = 'completed'", access_clause]
+    current = current_invoice_clause(db())
+    clauses = [current, access_clause]
     params = list(access_params)
     if selected_project_ids:
         placeholders = ",".join("?" for _ in selected_project_ids)
@@ -61,8 +66,9 @@ def monthly_project_chart(selected_project_ids, *, client_filter_clause, db, pro
 
 def monthly_paid_chart(*, client_filter_clause, db, invoice_totals):
     access_clause, access_params = client_filter_clause("invoices")
+    current = current_invoice_clause(db())
     rows = db().execute(
-        f"select id, paid_at, payment_amount from invoices where status = 'completed' and paid_at is not null and {access_clause} order by paid_at asc",
+        f"select id, paid_at, payment_amount from invoices where {current} and paid_at is not null and {access_clause} order by paid_at asc",
         access_params,
     ).fetchall()
     buckets = {}

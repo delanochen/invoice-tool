@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
+from invoice_tool.customer_reimbursements.expense_report import (
+    batch_contexts, build_batch_summary, build_expense_report,
+)
 from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
 from invoice_tool.invoices import order_links as _invoice_order_links
 
@@ -183,7 +186,7 @@ def build_master_ledger(settlement_payloads, *, expense_amount):
 
 
 def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, build_simple_xlsx,
-                   customer_reimbursement_items, expense_amount, render_invoice_pdf, report_attachment_path):
+                   customer_reimbursement_items, expense_amount, render_invoice_pdf, report_attachment_path, get_company_profile=None):
     with app.app_context():
         ensure_export_job_schema(db)
         conn = db()
@@ -199,6 +202,8 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
             stored = root / f"{job_id}.zip"
             missing = []
             settlement_payloads = []
+            contexts = batch_contexts(conn, order_ids) if export_type == "settlements" else {}
+            company = get_company_profile() if contexts and get_company_profile else None
             with zipfile.ZipFile(stored, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 total = max(1, len(order_ids))
                 for pos, order_id in enumerate(order_ids, 1):
@@ -250,43 +255,41 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                                 )
                                 archive.write(source_path, f"批导里程/{order_no}/{report_date}/{filename}")
                     elif export_type == "settlements":
-                        reimbursement = conn.execute("select * from customer_reimbursements where service_order_id=? and is_current=true order by id desc limit 1", (order_id,)).fetchone()
-                        if not reimbursement:
-                            missing.append(f"{order_no}: 无工单结算")
-                        else:
-                            items = customer_reimbursement_items(reimbursement["id"])
-                            settlement_payloads.append((reimbursement, order, items))
-                            xlsx = build_settlement_xlsx(reimbursement, order, items, expense_amount=expense_amount, build_simple_xlsx=build_simple_xlsx)
-                            data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
-                            archive.writestr(f"工单结算/{order_no}_工单结算.xlsx", data)
-                            attachment_root = Path(data_dir) / "customer-reimbursements" / str(reimbursement["id"]) / "attachments"
-                            attachment_names = set()
-                            attachment_sources = set()
-                            for attachment in exportable_settlement_attachments(conn, reimbursement["id"]):
-                                source_path = attachment_root / attachment["stored_filename"]
-                                source_path = source_path.resolve()
-                                if not source_path.is_relative_to(attachment_root.resolve()):
-                                    raise ValueError("Invalid settlement attachment path")
-                                if source_path in attachment_sources:
-                                    continue
-                                attachment_sources.add(source_path)
-                                if not source_path.is_file():
-                                    missing.append(
-                                        f"{order_no}: 结算附件文件缺失 - {attachment['original_filename'] or attachment['id']}"
-                                    )
-                                    continue
-                                filename = safe_name(
-                                    attachment["original_filename"] or attachment["stored_filename"],
-                                    f"attachment-{attachment['id']}",
+                        context = contexts[order_id]
+                        reimbursement = context[1]
+                        items = customer_reimbursement_items(reimbursement["id"])
+                        settlement_payloads.append((context, items))
+                        xlsx = build_expense_report(context, items, expense_amount=expense_amount, company=company)
+                        data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
+                        archive.writestr(f"工单结算/{order_no}_工单结算.xlsx", data)
+                        attachment_root = Path(data_dir) / "customer-reimbursements" / str(reimbursement["id"]) / "attachments"
+                        attachment_names = set()
+                        attachment_sources = set()
+                        for attachment in exportable_settlement_attachments(conn, reimbursement["id"]):
+                            source_path = attachment_root / attachment["stored_filename"]
+                            source_path = source_path.resolve()
+                            if not source_path.is_relative_to(attachment_root.resolve()):
+                                raise ValueError("Invalid settlement attachment path")
+                            if source_path in attachment_sources:
+                                continue
+                            attachment_sources.add(source_path)
+                            if not source_path.is_file():
+                                missing.append(
+                                    f"{order_no}: 结算附件文件缺失 - {attachment['original_filename'] or attachment['id']}"
                                 )
-                                stem, suffix = os.path.splitext(filename)
-                                candidate, index = filename, 2
-                                while candidate.casefold() in attachment_names:
-                                    candidate = f"{stem}-{index}{suffix}"
-                                    index += 1
-                                attachment_names.add(candidate.casefold())
-                                filename = candidate
-                                archive.write(source_path, f"工单结算/{order_no}_附件/{filename}")
+                                continue
+                            filename = safe_name(
+                                attachment["original_filename"] or attachment["stored_filename"],
+                                f"attachment-{attachment['id']}",
+                            )
+                            stem, suffix = os.path.splitext(filename)
+                            candidate, index = filename, 2
+                            while candidate.casefold() in attachment_names:
+                                candidate = f"{stem}-{index}{suffix}"
+                                index += 1
+                            attachment_names.add(candidate.casefold())
+                            filename = candidate
+                            archive.write(source_path, f"工单结算/{order_no}_附件/{filename}")
                     elif export_type == "invoices":
                         invoice_cond = _invoice_order_links.invoice_order_sql(conn, 'invoices', '?')
                         invoices = conn.execute(
@@ -303,7 +306,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                             archive.writestr(f"发票/{safe_name(invoice['invoice_number'], str(invoice['id']))}.pdf", pdf_bytes)
                     conn.execute("update batch_export_jobs set progress=? where id=?", (int(pos * 90 / total), job_id)); conn.commit()
                 if export_type == "settlements" and settlement_payloads:
-                    ledger = build_master_ledger(settlement_payloads, expense_amount=expense_amount)
+                    ledger = build_batch_summary(settlement_payloads, expense_amount=expense_amount)
                     archive.writestr("工单结算/工单结算总账单.xlsx", ledger.getvalue())
                 if missing:
                     archive.writestr("缺失说明.txt", ("\n".join(missing) + "\n").encode("utf-8"))

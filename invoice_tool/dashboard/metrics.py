@@ -1,9 +1,13 @@
 """Legacy-compatible dashboard_metrics helpers; explicit runtime dependencies."""
 
+from invoice_tool.invoices.order_links import current_invoice_clause
+
+
 def get_metrics(*, client_filter_clause, db, has_action_permission, invoice_totals, is_external_user):
     access_clause, access_params = client_filter_clause("invoices")
+    current = current_invoice_clause(db())
     rows = db().execute(
-        f"select id, currency, paid_at, payment_amount from invoices where status = 'completed' and {access_clause}",
+        f"select id, currency, paid_at, payment_amount from invoices where {current} and {access_clause}",
         access_params,
     ).fetchall()
     completed = paid = unpaid = invoice_count = 0

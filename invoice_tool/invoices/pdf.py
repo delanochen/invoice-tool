@@ -1,6 +1,9 @@
 """Legacy-compatible invoice helpers with explicit runtime dependencies."""
 
 
+from .order_links import work_order_label
+
+
 def invoice_order_metadata(linked_orders, service_order):
     """PDF 元数据里的工单行：多工单并列，单工单沿用客户 PO 号。返回 (label, value) 或 None。"""
     if len(linked_orders or []) > 1:
@@ -94,9 +97,6 @@ def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, c
     page.setFont("STSong-Light", 10)
     meta_y = top - 40
     metadata = [("Invoice No.", invoice["invoice_number"])]
-    order_meta = invoice_order_metadata(linked_orders, service_order)
-    if order_meta:
-        metadata.append(order_meta)
     metadata.extend(
         (
             ("Issue Date", invoice["issue_date"]),
@@ -150,6 +150,9 @@ def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, c
         y -= line
 
     y -= 10
+    orders = linked_orders or ([service_order] if service_order else [])
+    for index, order in enumerate(orders):
+        draw_section("Work Orders" if index == 0 else "", work_order_label(order))
     draw_section("Notes", invoice["notes"])
     draw_section("Terms", terms)
     draw_section(

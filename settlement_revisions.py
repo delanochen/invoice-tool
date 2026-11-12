@@ -14,6 +14,9 @@
 
 from __future__ import annotations
 
+from invoice_tool.invoices.settlement_sync import sync_revised_settlement_invoice
+from invoice_tool.invoices.order_links import supports_invoice_orders
+
 import os
 import secrets
 import shutil
@@ -114,13 +117,6 @@ def create_customer_reimbursement_revision(api, reimbursement_id, reason):
         raise ValueError("只能从当前有效版本创建修订版。")
     if reimbursement["status"] != "approved":
         raise ValueError("只有审核通过的工单结算可以创建修订版；草稿请直接编辑。")
-    # 已开票的版本必须先处理发票与应收差额，否则替代后结算 / 发票 / 利润表三方对不上。
-    active_invoice = api["customer_reimbursement_linked_invoice"](reimbursement, reimbursement["service_order_id"])
-    if active_invoice:
-        raise ValueError(
-            "该版本已生成发票，请先作废 / 冲销对应发票并处理应收差额，再创建修订版。"
-        )
-
     version_row = api["db"]().execute(
         "select coalesce(max(version_no), 0) + 1 as next_version "
         "from customer_reimbursements where series_id = ?",
@@ -203,17 +199,17 @@ def promote_customer_reimbursement_revision(api, reimbursement_id):
     if not revision["supersedes_id"]:
         raise ValueError("该版本没有来源版本，无法替代。")
 
-    current = api["db"]().execute(
-        "select * from customer_reimbursements where series_id = ? and is_current",
+    connection = api["db"]()
+    lock = " for update" if supports_invoice_orders(connection) else ""
+    current = connection.execute(
+        "select * from customer_reimbursements where series_id = ? and is_current" + lock,
         (revision["series_id"],),
     ).fetchone()
     if not current:
         raise ValueError("找不到该系列的当前有效版本。")
-    active_invoice = api["customer_reimbursement_linked_invoice"](current, current["service_order_id"])
-    if active_invoice:
-        raise ValueError(
-            "当前有效版本已生成发票，请先作废 / 冲销并处理应收差额，再确认替代。"
-        )
+    invoice = api["service_order_active_invoice"](current["service_order_id"])
+    if invoice:
+        sync_revised_settlement_invoice(api, invoice, current, revision)
 
     api["db"]().execute(
         "update customer_reimbursements set is_current = false, superseded_at = ?, "
@@ -221,9 +217,9 @@ def promote_customer_reimbursement_revision(api, reimbursement_id):
         (api["now"](), SUPERSEDED_STATUS, current["id"]),
     )
     api["db"]().execute(
-        "update customer_reimbursements set is_current = true, superseded_at = null "
+        "update customer_reimbursements set is_current = true, superseded_at = null, invoice_id = ? "
         "where id = ?",
-        (reimbursement_id,),
+        (invoice["id"] if invoice else None, reimbursement_id),
     )
     api["log_action"](
         "update",
