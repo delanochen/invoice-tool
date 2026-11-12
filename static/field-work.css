@@ -156,3 +156,21 @@ body[data-panel="camera"] .wm-adjust{display:flex;align-items:center;gap:8px}bod
 body[data-panel="camera"] .wm-heading strong{font-size:15px}
 
 .recognition-mode .ocr-guide { top: 8%; bottom: 8%; height: auto; transform: none; }
+
+body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; background:#f5f8f6; }
+#deviceSession { background:#f7faf8; }
+.repair-tabs,.repair-device-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.repair-tabs { border:1px solid #c5d4cd; border-radius:12px; padding:3px; background:#edf3ef; }
+.repair-tabs button { margin:0; border-radius:8px; font-weight:700; }
+.repair-card { display:grid; gap:9px; margin-top:10px; border:1px solid #c5d4cd; border-radius:12px; padding:12px; background:#fff; }
+#repairEquipment,.repair-original { background:#eaf4ee; }
+.repair-card-heading,.repair-device-actions,.repair-watermark { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.repair-position input { font-weight:750; color:#10553d; }
+.repair-original { border-radius:8px; padding:10px; }
+.repair-original p { margin:4px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.repair-card .repair-outline { border-color:#17634a; color:#17634a; background:#fff; font-weight:650; }
+.repair-card .repair-link,.repair-watermark .repair-link { border:0; background:transparent; color:#17634a; padding-inline:8px; }
+.repair-wide { width:100%; }
+.repair-photo-strip { display:flex; gap:8px; overflow-x:auto; }
+.repair-photo-strip img { width:76px; height:58px; object-fit:cover; border-radius:6px; }
+body[data-panel="camera"] #timeSettings.repair-watermark { margin:4px 0; padding:2px 8px; border:0; border-radius:6px; background:#eef4ef; }

@@ -9,6 +9,7 @@
   let farSamples = 0;
   let initialOrder = new URLSearchParams(location.search).get('order_id');
   let cameraSelection = null, bootstrapGeneration = 0;
+  let repairStage = 'before', faultPhotos = [];
   let activeRepair = null, pendingRepairRows = [], repairStartId = null;
   let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, useSystemTime = true, draftSelection = null;
@@ -224,6 +225,7 @@
     if (ocrBusy) return;
     ocrBusy = true;
     const button = $(faultMode ? 'readRepairFault' : 'recognizeDevice'); button.disabled = true;
+    const captureStream = stream;
     try {
       const video = $('viewfinder');
       const scale = Math.min(1, 2400 / Math.max(video.videoWidth, video.videoHeight));
@@ -233,7 +235,6 @@
       canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('无法读取相机画面')),'image/jpeg',.86));
       const data = new FormData(); data.append('photo',blob,'nameplate.jpg');
-      const captureStream = stream;
       if (faultMode) data.append('mode', 'controller_fault');
       if (!automatic) notice(faultMode ? '正在识别手操器屏幕…' : '正在识别设备编号和型号…');
       const response = await requestAPI('/api/field/recognize-equipment',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
@@ -241,6 +242,16 @@
       if (stream !== captureStream) return;
       if (!response.ok) throw new Error(result.error || (faultMode ? '故障识别失败' : '铭牌识别失败'));
       if (faultMode) {
+        if (repairStage !== 'before' || activeRepair || !confirmDevice()) return;
+        const context = await makeContext('camera');
+        if (!context || stream !== captureStream) return;
+        const preview = URL.createObjectURL(blob);
+        faultPhotos.push({canvas, context, preview});
+        const thumbnail = new Image();
+        thumbnail.src = preview;
+        thumbnail.alt = '手操器故障照片';
+        $('repairFaultPhotos').append(thumbnail);
+        $('repairFaultPhotos').hidden = false;
         if (!result.fault_text) throw new Error('没有读到屏幕文字，请靠近、避开反光后重试。');
         const field = $('repairFault');
         const current = field.value.trim();
@@ -413,7 +424,7 @@
     $('ledgerOrder').value = ledgerValue;
   }
   function chooseOrder(id) {
-    if (cameraSelection || taking) { $('orderSelect').value = String(currentOrder?.id || ''); return; }
+    if (cameraSelection || taking || (faultPhotos.length && String(id) !== String(currentOrder?.id || ''))) { $('orderSelect').value = String(currentOrder?.id || ''); return; }
     const previous = currentOrder?.id;
     currentOrder = profile?.orders.find(order => String(order.id) === String(id)) || null;
     $('orderSelect').value = currentOrder ? String(currentOrder.id) : '';
@@ -422,7 +433,9 @@
     setFieldText('orderContext', currentOrder ? [currentOrder.customer_name,currentOrder.site_address].filter(Boolean).join(' · ') : '请先选择照片所属工单。');
     if (profile) localStorage.setItem(orderStorageKey(), String(currentOrder?.id || ''));
     if (previous !== currentOrder?.id) {
-      showRepair(null);
+      selectRepairStage('before');
+      clearFaultPhotos();
+      $('repairFault').value = '';
       resetDevice();
       refreshPendingRepairs().catch(() => {});
       setCaptureMode('camera');
@@ -522,6 +535,10 @@
     if (!batch?.type) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
     if (batch.type === 'general') { notice('请先选择进场、离场或自检照片。',true); return; }
     if (!useSystemTime && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
+    if (batch.type === 'equipment' && !recognitionOnly && !activeRepair) {
+      notice(repairStage === 'after' ? '请先按位置号选择维修记录。' : '请先保存维修前状态。', true);
+      return;
+    }
     if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;
     const selected = chosenOrder();
     if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
@@ -938,6 +955,7 @@
     // receives a direct trusted user gesture instead of a scripted input click.
     if (!UPLOAD_TYPES.includes(batch?.type)) { reject('请先选择照片类型：进场、离场、自检或设备。'); return; }
     if (wmBusy) { reject('正在上传，请稍候。'); return; }
+    if (batch.type === 'equipment' && !activeRepair) { reject(repairStage === 'after' ? '请先选择维修记录。' : '请先保存维修前状态。'); return; }
     if (batch.type === 'equipment' && !deviceSession && !confirmDevice()) { event.preventDefault(); captureContext = null; return; }
     if (uploadWatermark && !timeAuthorized) { reject('请先验证水印时间调整密码。'); return; }
     captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:uploadWatermark ? 'system' : 'original'};
@@ -1278,7 +1296,8 @@
     activeRepair = repair ? {...repair, repair_phase:phase} : null;
     repairStartId = null;
     deviceSession = null;
-    $('repairResultFields').hidden = !repair;
+    $('repairResultFields').hidden = repairStage !== 'after' || !repair;
+    $('repairOriginalFault').textContent = repair?.fault || '无已记录故障';
     $('startRepair').disabled = Boolean(repair);
     $('scanRepairFault').disabled = Boolean(repair);
     for (const id of ['equipmentNumber','equipmentModel','positionNumber','containerNumber','repairFault']) {
@@ -1287,11 +1306,10 @@
     $('noEquipmentNumber').disabled = Boolean(repair);
     $('recognizeDevice').disabled = Boolean(repair);
     $('repairStage').textContent = phase === 'before' ? '当前拍摄：维修前' : '当前拍摄：维修后';
-    $('switchRepairStage').textContent = phase === 'before' ? '切换到维修后' : '补拍维修前';
     $('completeRepair').disabled = phase === 'before';
     $('repairWork').value = '';
     $('repairResult').value = '';
-    $('repairFault').value = repair?.fault || '';
+    if (repair && phase === 'before') $('repairFault').value = repair.fault || '';
     if (repair) {
       $('equipmentNumber').closest('fieldset').classList.remove('locked');
       $('equipmentNumber').value = repair.equipment_number;
@@ -1302,6 +1320,34 @@
       $('equipmentNumber').disabled = false;
     }
   }
+  function clearFaultPhotos() {
+    for (const photo of faultPhotos) URL.revokeObjectURL(photo.preview);
+    faultPhotos = [];
+    $('repairFaultPhotos').replaceChildren();
+    $('repairFaultPhotos').hidden = true;
+  }
+  function selectRepairStage(stage) {
+    if (taking || processingFiles || captureContext || syncing || ocrBusy) return false;
+    if (stage !== repairStage && faultPhotos.length) {
+      notice('请先保存已拍摄的维修前照片，或点清除后再切换。', true);
+      return false;
+    }
+    stopCamera();
+    repairStage = stage;
+    showRepair(null);
+    $('pendingRepairs').value = '';
+    for (const [id, current] of [['repairBefore','before'], ['repairAfter','after']]) {
+      $(id).classList.toggle('primary', stage === current);
+      $(id).setAttribute('aria-pressed', String(stage === current));
+    }
+    $('repairControls').hidden = stage !== 'before';
+    $('repairPending').hidden = stage !== 'after';
+    if (stage === 'after') refreshPendingRepairs().catch(error=>notice(error.message,true));
+    return true;
+  }
+  $('repairBefore').addEventListener('click', () => { if (repairStage !== 'before' && selectRepairStage('before')) resetDevice(); });
+  $('repairAfter').addEventListener('click', () => { if (repairStage !== 'after') selectRepairStage('after'); });
+  $('repairAfterPhoto').addEventListener('click', () => { setCaptureMode('camera'); openCamera(); });
   async function repairRequest(order, body) {
     const options = body ? {method:'POST', headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf},
       body:JSON.stringify(body)} : {};
@@ -1312,6 +1358,7 @@
   }
   async function refreshPendingRepairs() {
     const order = chosenOrder();
+    const selected = activeRepair?.repair_phase === 'after' ? activeRepair.id : '';
     pendingRepairRows = [];
     $('pendingRepairs').replaceChildren(new Option('选择维修记录',''));
     if (!order || !profile) return;
@@ -1321,12 +1368,16 @@
     for (const row of pendingRepairRows) {
       $('pendingRepairs').add(new Option([row.position_number,row.equipment_number,row.container_number].filter(Boolean).join(' · ') || row.id.slice(0,8),row.id));
     }
+    if (selected && pendingRepairRows.some(row => row.id === selected)) $('pendingRepairs').value = selected;
+    else if (selected && activeRepair?.id === selected) { showRepair(null); resetDevice(); }
   }
   $('loadPendingRepairs').addEventListener('click', () => refreshPendingRepairs().catch(error=>notice(error.message,true)));
   $('pendingRepairs').addEventListener('change', () => {
     if (taking || processingFiles || captureContext || syncing) return;
     const repair = pendingRepairRows.find(row=>row.id === $('pendingRepairs').value);
-    if (repair) { stopCamera(); showRepair({...repair,order_id:chosenOrder().id}, 'after'); }
+    stopCamera();
+    showRepair(repair ? {...repair,order_id:chosenOrder().id} : null, 'after');
+    if (!repair) resetDevice();
   });
   $('startRepair').addEventListener('click', async () => {
     const order = chosenOrder();
@@ -1335,21 +1386,25 @@
       equipment_number:$('equipmentNumber').value.trim(), equipment_model:$('equipmentModel').value.trim(),
       position_number:$('positionNumber').value.trim(), container_number:$('containerNumber').value.trim(),
       fault:$('repairFault').value.trim(), no_equipment_number:$('noEquipmentNumber').checked};
+    if (!repair.fault) { notice('请先记录故障现象。',true); return; }
     const button = $('startRepair'); button.disabled = true;
     try {
       await repairRequest(order, repair);
       if (chosenOrder()?.id !== order.id) return;
-      stopCamera(); showRepair(repair);
-      notice('已保存维修前状态。请拍摄铭牌和手操器照片。');
+      stopCamera();
+      for (const photo of faultPhotos) {
+        await keepCapture(photo.canvas, {...photo.context, equipment_session:repair.id,
+          equipment_number:repair.equipment_number, no_equipment_number:repair.no_equipment_number,
+          position_number:repair.position_number, container_number:repair.container_number,
+          repair_phase:'before', watermark_source:'system'});
+      }
+      clearFaultPhotos();
+      showRepair(repair);
+      await syncQueue();
+      notice('已保存维修前状态。可继续拍摄维修前照片。');
       await refreshPendingRepairs();
     } catch(error) { notice(error.message,true); }
     finally { button.disabled = Boolean(activeRepair); }
-  });
-  $('switchRepairStage').addEventListener('click', () => {
-    if (!activeRepair || taking || processingFiles || captureContext || syncing) return;
-    const work = $('repairWork').value, result = $('repairResult').value;
-    stopCamera(); showRepair(activeRepair, activeRepair.repair_phase === 'before' ? 'after' : 'before');
-    $('repairWork').value = work; $('repairResult').value = result;
   });
   $('completeRepair').addEventListener('click', async () => {
     const order = chosenOrder(), repair = activeRepair;
@@ -1361,7 +1416,7 @@
       await syncQueue();
       await repairRequest(order, {id:repair.id, action:'complete', work_content:work, result});
       if (activeRepair?.id !== repair.id) return;
-      stopCamera(); showRepair(null); resetDevice();
+      stopCamera(); showRepair(null); resetDevice(); $('repairFault').value='';
       notice('已保存维修结果。');
       await refreshPendingRepairs();
     } catch(error) { notice(error.message,true); }
@@ -1422,7 +1477,7 @@
     } catch (error) { notice(error.message || '删除失败，请稍后重试。', true); }
     finally { button.disabled = false; }
   });
-  $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再清除设备信息。',true);return;} if(taking || processingFiles || captureContext || syncing) return; stopCamera(); showRepair(null); resetDevice(); $('photoNote').value=''; $('photoNote').style.height=''; $('equipmentNumber').focus(); });
+  $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再清除设备信息。',true);return;} if(taking || processingFiles || captureContext || syncing) return; if(faultPhotos.length && !window.confirm('清除尚未保存的维修前照片？')) return; stopCamera(); showRepair(null); clearFaultPhotos(); $('repairFault').value=''; resetDevice(); $('photoNote').value=''; $('photoNote').style.height=''; $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; $('equipmentNumber').required = !$('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
   $('photoNote').addEventListener('input', () => { $('photoNote').style.height='auto'; $('photoNote').style.height=Math.max(44,$('photoNote').scrollHeight)+'px'; });
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请点击“打开相机”确认。'); });

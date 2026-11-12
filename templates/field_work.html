@@ -33,31 +33,47 @@
         <div id="captureDetails">
         <label>Technician（施工员）<select id="technicianSelect"></select></label>
         <fieldset id="captureKind" class="capture-kind photo-type-block"><legend>本组照片类型 <span class="required-mark">*</span></legend><div id="photoTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button id="arrivalKind" type="button" data-kind="arrival" aria-pressed="false">进场</button><button id="departureKind" type="button" data-kind="departure" aria-pressed="false">离场</button><button id="safetyKind" type="button" data-kind="safety" aria-pressed="false">自检</button><button id="equipmentKind" type="button" data-kind="equipment" aria-pressed="false">设备</button></div><p id="kindStatus" class="muted upload-type-hint warn">请选择照片类型。</p></fieldset>
-        <fieldset id="timeSettings" hidden><legend>水印时间</legend>
-          <div class="time-actions" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;"><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" type="button">调整</button></div>
-        </fieldset>
-        <fieldset id="deviceSession" class="device-session" hidden><legend>当前设备</legend><div class="device-heading-actions"><button id="nextDevice" type="button">清除</button></div>
-          <div class="equipment-label-row"><label for="equipmentNumber">铭牌号（Machine Number）</label><label class="check-label no-number-option"><input id="noEquipmentNumber" type="checkbox">无编号</label></div><label class="equipment-input-label"><span class="machine-number-row"><input id="equipmentNumber" required maxlength="200" autocomplete="off" placeholder="识别或输入一次"><button id="recognizeDevice" class="ocr-button" type="button" title="识别铭牌" aria-label="识别铭牌">T</button></span></label>
-          <label>设备型号（Machine Type）<input id="equipmentModel" maxlength="200" autocomplete="off"></label>
-          <label>位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如：B6-1（可留空）"></label>
-          <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off" placeholder="可留空"></label>
-          <div id="repairControls">
-            <label>维修前故障或手操器错误码<textarea id="repairFault" rows="2" maxlength="1000"></textarea></label>
-            <button id="scanRepairFault" type="button">拍手操器识别故障</button>
-            <button id="startRepair" type="button">保存维修前状态</button>
-            <label>待补维修结果<select id="pendingRepairs"><option value="">选择维修记录</option></select></label>
-            <button id="loadPendingRepairs" type="button">刷新待补记录</button>
-            <div id="repairResultFields" hidden>
-              <p id="repairStage" role="status"></p>
-              <button id="switchRepairStage" type="button">拍摄维修后照片</button>
-              <label>工作内容<textarea id="repairWork" rows="2" maxlength="2000"></textarea></label>
-              <label>维修结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
-              <button id="completeRepair" type="button">保存维修结果</button>
+        <fieldset id="deviceSession" class="device-session" hidden><legend>设备维修</legend>
+          <div class="repair-tabs" role="group" aria-label="维修阶段">
+            <button id="repairBefore" class="primary" type="button" aria-pressed="true">维修前</button>
+            <button id="repairAfter" type="button" aria-pressed="false">维修后</button>
+          </div>
+          <div id="repairPending" class="repair-card" hidden>
+            <label>待完成维修（按位置号选择）<select id="pendingRepairs"><option value="">选择维修记录</option></select></label>
+            <button id="loadPendingRepairs" class="repair-link" type="button">刷新列表</button>
+          </div>
+          <div class="repair-card" id="repairEquipment">
+            <div class="repair-card-heading"><strong>设备信息</strong><button id="nextDevice" class="repair-link" type="button">清除</button></div>
+            <div class="repair-device-grid">
+              <label class="repair-position">位置号<input id="positionNumber" maxlength="200" autocomplete="off" placeholder="例如 B6-1"></label>
+              <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off"></label>
+              <label>设备编号<input id="equipmentNumber" required maxlength="200" autocomplete="off"></label>
+              <label>设备型号<input id="equipmentModel" maxlength="200" autocomplete="off"></label>
             </div>
+            <div class="repair-device-actions">
+              <label class="check-label"><input id="noEquipmentNumber" type="checkbox">无编号</label>
+              <button id="recognizeDevice" class="repair-outline" type="button">扫描铭牌</button>
+            </div>
+          </div>
+          <div id="repairControls" class="repair-card">
+            <strong>故障信息</strong>
+            <button id="scanRepairFault" class="repair-outline repair-wide" type="button">拍手操器识别故障</button>
+            <div id="repairFaultPhotos" class="repair-photo-strip" hidden></div>
+            <label><textarea id="repairFault" rows="3" maxlength="1000" aria-label="故障信息" placeholder="可手工输入故障现象"></textarea></label>
+            <button id="startRepair" class="primary repair-wide" type="button">保存维修前状态</button>
+          </div>
+          <div id="repairResultFields" class="repair-card" hidden>
+            <p id="repairStage" class="muted" role="status"></p>
+            <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
+            <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片</button>
+            <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000"></textarea></label>
+            <label>复测结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
+            <button id="completeRepair" class="primary repair-wide" type="button">保存维修结果</button>
           </div>
           <div id="deviceNoteSlot"><label id="captureNote">工作备注<textarea id="photoNote" rows="1" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
           <p id="deviceStatus" class="muted" hidden>填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
+        <div id="timeSettings" class="repair-watermark" hidden><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" class="repair-link" type="button">调整</button></div>
         <div id="generalNoteSlot"></div>
         <div class="location-row" hidden><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
         </div>

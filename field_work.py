@@ -526,6 +526,8 @@ def register_field_routes(app, api):
                 'select 1 from customer_reimbursements where service_order_id = ? limit 1', (order_id,),
             ).fetchone():
                 return jsonify(error='工单已关闭或已开始结算。'), 409
+            if not value('fault', 1000):
+                return jsonify(error='请先记录故障现象。'), 422
             number = value('equipment_number', 200)
             if not number and data.get('no_equipment_number') is not True:
                 return jsonify(error='请输入设备编号或确认无编号。'), 422
