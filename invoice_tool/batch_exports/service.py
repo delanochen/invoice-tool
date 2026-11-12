@@ -186,6 +186,29 @@ def build_master_ledger(settlement_payloads, *, expense_amount):
     return buffer
 
 
+def write_daily_reports(archive, conn, order, order_no, folder, missing, *,
+                        build_service_report_docx, report_attachment_path):
+    reports = conn.execute("select * from service_reports where service_order_id=? order by report_date,id", (order["id"],)).fetchall()
+    if not reports:
+        missing.append(f"{order_no}: 无日报")
+    used_names = set()
+    for report in reports:
+        data = build_service_report_docx(report, order)
+        name = safe_name(f"{order['client_order_number'] or order_no}-{report['report_date']}-report.docx", "service-report.docx")
+        if name.casefold() in used_names:
+            name = f"{os.path.splitext(name)[0]}-{report['id']}.docx"
+        used_names.add(name.casefold())
+        archive.writestr(f"{folder}/{name}", data)
+        attachments = conn.execute(
+            "select * from service_report_attachments where report_id=? and category='mileage_proof' order by id",
+            (report["id"],),
+        ).fetchall()
+        for missing_name in write_mileage_documents(
+            archive, f"{folder}/{os.path.splitext(name)[0]}_里程佐证", attachments, report_attachment_path,
+        ):
+            missing.append(f"{order_no} / {report['report_date']}: 里程佐证文件缺失 - {missing_name}")
+
+
 def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, build_simple_xlsx,
                    customer_reimbursement_items, expense_amount, render_invoice_pdf, report_attachment_path, get_company_profile=None):
     with app.app_context():
@@ -228,26 +251,11 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         continue
                     order_no = safe_name(order["order_number"], str(order_id))
                     if export_type == "daily_reports":
-                        reports = conn.execute("select * from service_reports where service_order_id=? order by report_date,id", (order_id,)).fetchall()
-                        if not reports:
-                            missing.append(f"{order_no}: 无日报")
-                        used_names = set()
-                        for report in reports:
-                            data = build_service_report_docx(report, order)
-                            name = safe_name(f"{order.get('client_order_number') if hasattr(order,'get') else order['client_order_number'] or order_no}-{report['report_date']}-report.docx", "service-report.docx")
-                            if name.casefold() in used_names:
-                                name = f"{os.path.splitext(name)[0]}-{report['id']}.docx"
-                            used_names.add(name.casefold())
-                            folder = f"日报/{order_no}"
-                            archive.writestr(f"{folder}/{name}", data)
-                            attachments = conn.execute(
-                                "select * from service_report_attachments where report_id=? and category='mileage_proof' order by id",
-                                (report["id"],),
-                            ).fetchall()
-                            for missing_name in write_mileage_documents(
-                                archive, f"{folder}/{os.path.splitext(name)[0]}_里程佐证", attachments, report_attachment_path,
-                            ):
-                                missing.append(f"{order_no} / {report['report_date']}: 里程佐证文件缺失 - {missing_name}")
+                        write_daily_reports(
+                            archive, conn, order, order_no, f"日报/{order_no}", missing,
+                            build_service_report_docx=build_service_report_docx,
+                            report_attachment_path=report_attachment_path,
+                        )
                     elif export_type == "mileage_proofs":
                         reports = conn.execute(
                             "select id, report_date from service_reports where service_order_id=? order by report_date,id",
@@ -293,6 +301,11 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                             zip_name = f"{attachment_folder}.zip"
                         archive.writestr(filename, data)
                         archive.mkdir(attachment_folder)
+                        write_daily_reports(
+                            archive, conn, order, order_no, f"{attachment_folder}/日报", missing,
+                            build_service_report_docx=build_service_report_docx,
+                            report_attachment_path=report_attachment_path,
+                        )
                         attachment_root = Path(data_dir) / "customer-reimbursements" / str(reimbursement["id"]) / "attachments"
                         attachment_names = set()
                         attachment_sources = set()

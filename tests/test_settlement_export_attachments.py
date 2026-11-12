@@ -130,8 +130,12 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
         self.conn.executescript("""
             create table batch_export_jobs(id text,order_ids text,export_type text,status text,progress integer,started_at text,file_name text,stored_path text,completed_at text,error text);
             insert into batch_export_jobs(id,order_ids,export_type) values('test','[1]','settlements');
-            create table service_orders(id integer,order_number text,buyer_id integer);
-            insert into service_orders values(1,'SO-TEST',null);
+            create table service_orders(id integer,order_number text,buyer_id integer,client_order_number text);
+            insert into service_orders values(1,'SO-TEST',null,null);
+            create table service_reports (id integer, service_order_id integer, report_date text);
+            insert into service_reports values(1,1,'2026-11-12'),(2,1,'2026-11-12');
+            create table service_report_attachments (id integer,report_id integer,category text,stored_filename text,original_filename text);
+            insert into service_report_attachments values(1,1,'mileage_proof','proof.pdf','route.pdf');
             create table buyers(id integer,owner text,owner_id integer);
             create table owners(id integer,name text);
             create table customer_reimbursements(id integer,service_order_id integer,is_current boolean);
@@ -148,6 +152,8 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             root.mkdir(parents=True)
             for name in ('zero.pdf','positive.pdf','manual.pdf','proof.png'):
                 (root/name).write_bytes(name.encode())
+            proof = Path(directory) / 'proof.pdf'
+            proof.write_bytes(b'route')
             context = ({"order_number": "SO-TEST"}, {"id": 10}, "INV-1", None, None)
             with (
                 patch('invoice_tool.batch_exports.service.batch_contexts', return_value={1: context}),
@@ -155,9 +161,9 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                 patch('invoice_tool.batch_exports.service.build_batch_summary', return_value=BytesIO(b'ledger')),
             ):
                 run_export_job('test',app=Flask(__name__),db=lambda:self.conn,
-                    data_dir=directory,build_service_report_docx=None,build_simple_xlsx=None,
+                    data_dir=directory,build_service_report_docx=lambda report, order: b'word',build_simple_xlsx=None,
                     customer_reimbursement_items=lambda _:[],expense_amount=None,
-                    render_invoice_pdf=None,report_attachment_path=None)
+                    render_invoice_pdf=None,report_attachment_path=lambda attachment: proof)
             job=self.conn.execute("select * from batch_export_jobs").fetchone()
             self.assertEqual(job['status'],'completed',job['error'])
             self.assertEqual(job["file_name"], "工单_SO-TEST.zip")
@@ -166,6 +172,13 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                 self.assertIn("工单_SO-TEST.xlsx", names)
                 self.assertIn("工单结算总账单.xlsx", names)
                 self.assertIn("工单_SO-TEST/", names)
+                self.assertIn("工单_SO-TEST/日报/SO-TEST-2026-11-12-report.docx", names)
+                self.assertIn("工单_SO-TEST/日报/SO-TEST-2026-11-12-report-2.docx", names)
+                self.assertEqual(
+                    archive.read("工单_SO-TEST/日报/SO-TEST-2026-11-12-report_里程佐证/1-route.pdf"), b"route",
+                )
+                self.assertEqual([name for name in names if name.endswith("工单结算总账单.xlsx")],
+                                 ["工单结算总账单.xlsx"])
                 self.assertFalse(any(name.startswith("工单结算/") for name in names))
                 bodies = [archive.read(name) for name in names if name.startswith("工单_SO-TEST/")]
                 self.assertNotIn(b'zero.pdf',bodies)
