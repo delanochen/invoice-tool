@@ -66,19 +66,19 @@ def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, c
             lines.append(current)
         return [line for line in lines if line]
 
-    def draw_section(title, body):
+    def draw_section(title, body, *, split_across_pages=False):
         nonlocal y
         if not pdf_text(body).strip():
             return
         body_lines = wrapped_lines(body, width - left * 2, font_size=8)
-        ensure_space(16 + len(body_lines) * 11)
+        ensure_space(16 + (1 if split_across_pages else len(body_lines)) * 11)
         page.setFont("STSong-Light", 9)
         page.drawString(left, y, title)
         y -= 12
-        page.setFont("STSong-Light", 8)
-        page.setFillColor(colors.HexColor("#344054"))
         for line_text in body_lines:
             ensure_space(11)
+            page.setFont("STSong-Light", 8)
+            page.setFillColor(colors.HexColor("#344054"))
             page.drawString(left, y, line_text)
             y -= 11
         page.setFillColor(colors.black)
@@ -151,8 +151,7 @@ def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, c
 
     y -= 10
     orders = linked_orders or ([service_order] if service_order else [])
-    for index, order in enumerate(orders):
-        draw_section("Work Orders" if index == 0 else "", work_order_label(order))
+    draw_section("Work Orders", "\n".join(work_order_label(order) for order in orders), split_across_pages=True)
     draw_section("Notes", invoice["notes"])
     draw_section("Terms", terms)
     draw_section(
