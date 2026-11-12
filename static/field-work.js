@@ -213,12 +213,17 @@
       if (value) { $('equipmentNumber').value = value.slice(0,200); setFieldText('deviceStatus', '自动识别到：'+value+'。请核对后点击“打开相机”。'); }
     } catch (_) {}
   }
-  async function recognizeDevice(automatic = false) {
+  async function recognizeDevice(automatic = false, faultMode = false) {
     if (automatic && (batch?.type !== 'equipment' || deviceSession || !document.body.classList.contains('recognition-mode'))) return;
-    if (!stream || !$('viewfinder').videoWidth) { await openCamera(true); if (stream) notice('请拍全铭牌，系统会识别设备编号和型号。'); return; }
+    if (!stream || !$('viewfinder').videoWidth) {
+      if (faultMode) { notice('相机尚未准备好，请稍后再试。', true); return; }
+      await openCamera(true);
+      if (stream) notice('请拍全铭牌，系统会识别设备编号和型号。');
+      return;
+    }
     if (ocrBusy) return;
     ocrBusy = true;
-    const button = $('recognizeDevice'); button.disabled = true;
+    const button = $(faultMode ? 'readRepairFault' : 'recognizeDevice'); button.disabled = true;
     try {
       const video = $('viewfinder');
       const scale = Math.min(1, 2400 / Math.max(video.videoWidth, video.videoHeight));
@@ -228,10 +233,25 @@
       canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('无法读取相机画面')),'image/jpeg',.86));
       const data = new FormData(); data.append('photo',blob,'nameplate.jpg');
-      if (!automatic) notice('正在识别设备编号和型号…');
+      const captureStream = stream;
+      if (faultMode) data.append('mode', 'controller_fault');
+      if (!automatic) notice(faultMode ? '正在识别手操器屏幕…' : '正在识别设备编号和型号…');
       const response = await requestAPI('/api/field/recognize-equipment',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
       const result = await response.json().catch(()=>({}));
-      if (!response.ok) throw new Error(result.error || '铭牌识别失败');
+      if (stream !== captureStream) return;
+      if (!response.ok) throw new Error(result.error || (faultMode ? '故障识别失败' : '铭牌识别失败'));
+      if (faultMode) {
+        if (!result.fault_text) throw new Error('没有读到屏幕文字，请靠近、避开反光后重试。');
+        const field = $('repairFault');
+        const current = field.value.trim();
+        const combined = current && !current.includes(result.fault_text) ? current + '\n' + result.fault_text : current || result.fault_text;
+        if (combined.length > field.maxLength) throw new Error('故障栏空间不足，请精简已有内容后重试。');
+        field.value = combined;
+        stopCamera();
+        field.focus();
+        notice('识别结果已填入，请核对报码和提示文字。');
+        return;
+      }
       if (!result.candidates?.length && !result.equipment_model) {
         if (automatic) { notice('自动识别中，请保持整张铭牌清晰。'); return; }
         throw new Error('未识别到设备编号或型号，请重试或手工输入。');
@@ -489,13 +509,14 @@
     document.body.classList.remove('camera-active');
     document.body.classList.remove('recognition-mode');
     $('ocrGuide').hidden = true;
+    $('readRepairFault').hidden = true;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
     $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
     $('cameraStage').hidden = true;
     $('cameraView').hidden = captureMode !== 'camera';
   }
-  async function openCamera(recognitionOnly = false) {
+  async function openCamera(recognitionOnly = false, faultMode = false) {
     if (!identityReady || !profile?.can_capture) return;
     if (!recognitionOnly && captureMode !== 'camera') return;
     if (!batch?.type) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
@@ -518,10 +539,12 @@
       document.body.classList.toggle('recognition-mode', recognitionOnly);
       window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
       $('ocrGuide').hidden = !recognitionOnly;
+      $('ocrGuide').querySelector('span').textContent = faultMode ? '将手操器屏幕放入框内' : '将整张铭牌放入框内';
+      $('readRepairFault').hidden = !faultMode;
       $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       await renderQueue();
-      scanDevice(); scanTimer = setInterval(scanDevice, 800);
-      if (recognitionOnly) { ocrStartTimer = setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
+      if (!faultMode) { scanDevice(); scanTimer = setInterval(scanDevice, 800); }
+      if (recognitionOnly && !faultMode) { ocrStartTimer = setTimeout(() => recognizeDevice(true), 500); ocrTimer = setInterval(() => recognizeDevice(true), 2200); }
     } catch (error) { notice('无法打开相机，请检查相机权限，或切换到“上传”选择照片。',true); stopCamera(); }
   }
   // ---- 0.1.467 上传方式（不生成水印 / 生成水印）与 EXIF 时间批量调整 ----
@@ -1257,6 +1280,7 @@
     deviceSession = null;
     $('repairResultFields').hidden = !repair;
     $('startRepair').disabled = Boolean(repair);
+    $('scanRepairFault').disabled = Boolean(repair);
     for (const id of ['equipmentNumber','equipmentModel','positionNumber','containerNumber','repairFault']) {
       $(id).readOnly = Boolean(repair);
     }
@@ -1295,7 +1319,7 @@
     if (chosenOrder()?.id !== order.id) return;
     pendingRepairRows = result.rows;
     for (const row of pendingRepairRows) {
-      $('pendingRepairs').add(new Option([row.equipment_number,row.position_number,row.container_number].filter(Boolean).join(' · ') || row.id.slice(0,8),row.id));
+      $('pendingRepairs').add(new Option([row.position_number,row.equipment_number,row.container_number].filter(Boolean).join(' · ') || row.id.slice(0,8),row.id));
     }
   }
   $('loadPendingRepairs').addEventListener('click', () => refreshPendingRepairs().catch(error=>notice(error.message,true)));
@@ -1343,6 +1367,8 @@
     } catch(error) { notice(error.message,true); }
     finally { button.disabled = activeRepair?.repair_phase !== 'after'; }
   });
+  $('scanRepairFault').addEventListener('click', () => openCamera(true, true));
+  $('readRepairFault').addEventListener('click', () => recognizeDevice(false, true));
   $('recognizeDevice').addEventListener('click',() => recognizeDevice(false));
   $('confirmRecognizedNumber').addEventListener('click', () => {
     const value = $('recognizedNumber').textContent.trim();

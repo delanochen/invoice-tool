@@ -14,6 +14,20 @@ def nameplate_model(text):
     return match.group(1)
 
 
+def controller_fault_text(text):
+    lines = list(dict.fromkeys(line.strip() for line in text.splitlines()
+                              if line.strip() and any(ch.isalnum() for ch in line)))
+    keywords = re.compile(r"\b(?:alarms?|faults?|errors?|warnings?|trips?|codes?)\b|报警|故障|告警", re.I)
+    codes = re.compile(r"\b(?:[A-Z]{1,3}[- ]?\d{1,5}|\d[A-Z]\d{1,4})\b", re.I)
+    selected = []
+    for index, line in enumerate(lines):
+        if keywords.search(line) or codes.fullmatch(line):
+            selected.append(line)
+            if keywords.search(line) and index + 1 < len(lines) and codes.search(lines[index + 1]):
+                selected.append(lines[index + 1])
+    return "\n".join(dict.fromkeys(selected or lines))[:1000]
+
+
 def build_field_repair_workbook(connection, order):
     sheet_book = Workbook()
     sheet = sheet_book.active

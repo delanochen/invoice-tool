@@ -43,6 +43,7 @@
           <label>集装箱号<input id="containerNumber" maxlength="200" autocomplete="off" placeholder="可留空"></label>
           <div id="repairControls">
             <label>维修前故障或手操器错误码<textarea id="repairFault" rows="2" maxlength="1000"></textarea></label>
+            <button id="scanRepairFault" type="button">拍手操器识别故障</button>
             <button id="startRepair" type="button">保存维修前状态</button>
             <label>待补维修结果<select id="pendingRepairs"><option value="">选择维修记录</option></select></label>
             <button id="loadPendingRepairs" type="button">刷新待补记录</button>
@@ -63,7 +64,7 @@
         <div id="cameraView" class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将整张铭牌放入框内</span></div></div>
-        <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
+        <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="readRepairFault" class="primary" type="button" hidden>拍照识别故障</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
         <div id="recentCaptures" class="recent-captures" aria-label="本次拍摄的照片" hidden></div>
         </div>
         <div id="uploadControls" hidden>

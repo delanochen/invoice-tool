@@ -19,7 +19,7 @@ from werkzeug.utils import secure_filename
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
-from invoice_tool.service_reports.field_repairs import nameplate_model
+from invoice_tool.service_reports.field_repairs import controller_fault_text, nameplate_model
 
 PHOTO_TYPE_LABELS = {
     'equipment': '设备',
@@ -435,10 +435,12 @@ def register_field_routes(app, api):
     @access
     def recognize_equipment():
         check_write()
+        fault_mode = request.form.get('mode') == 'controller_fault'
+        subject = '手操器屏幕' if fault_mode else '铭牌'
         photo = request.files.get('photo')
         content = photo.read(10 * 1024 * 1024 + 1) if photo else b''
         if not content or len(content) > 10 * 1024 * 1024:
-            return jsonify(error='铭牌照片为空或超过 10MB。'), 422
+            return jsonify(error=f'{subject}照片为空或超过 10MB。'), 422
         try:
             with Image.open(BytesIO(content)) as image:
                 if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
@@ -457,12 +459,14 @@ def register_field_routes(app, api):
                 for psm, payload in [('11', content), ('6', processed.getvalue())]
             ]
         except (OSError, ValueError, Image.DecompressionBombError):
-            return jsonify(error='无法读取铭牌照片。'), 422
+            return jsonify(error=f'无法读取{subject}照片。'), 422
         except subprocess.TimeoutExpired:
-            return jsonify(error='铭牌识别超时，请重试或手工输入。'), 504
+            return jsonify(error=f'{subject}识别超时，请重试或手工输入。'), 504
         if not any(result.returncode == 0 for result in results):
-            return jsonify(error='服务器暂时无法识别铭牌，请手工输入。'), 503
+            return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。'), 503
         text = '\n'.join(result.stdout.decode('utf-8', errors='ignore') for result in results if result.returncode == 0)
+        if fault_mode:
+            return jsonify(ok=True, fault_text=controller_fault_text(text))
         text = re.sub(r'(?<=\d)[ \t](?=\d)', '', text)
         labels = r'(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)'
         candidates = []
