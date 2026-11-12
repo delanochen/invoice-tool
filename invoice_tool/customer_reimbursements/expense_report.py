@@ -5,7 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from invoice_tool.invoices.order_links import (
@@ -150,13 +150,20 @@ def people(items):
     return groups
 
 
-def add_row(sheet, columns, values, *, fill=None, bold=False, white=False):
+WHITE_EDGE = Side(style='thin', color='FFFFFFFF')
+TABLE_BORDER = Border(left=WHITE_EDGE, right=WHITE_EDGE, top=WHITE_EDGE, bottom=WHITE_EDGE)
+WORK_ORDER_UNDERLINE = Border(bottom=Side(style='thin', color='FF243229'))
+
+
+def add_row(sheet, columns, values, *, fill=None, bold=False, white=False, grid=False):
     sheet.append([values.get(column) for column in columns])
     for cell, column in zip(sheet[sheet.max_row], columns):
         if isinstance(cell.value, str):
             cell.data_type = 's'
         if fill:
             cell.fill = PatternFill('solid', fgColor=fill)
+        if grid:
+            cell.border = TABLE_BORDER
         cell.font = Font(name='Calibri', bold=bold, color='FFFFFF' if white else '243229')
         cell.alignment = Alignment(vertical='center', wrap_text=True)
         if column not in ('Date', 'Name', 'Service Period', 'Work Order', 'Invoice Number'):
@@ -165,16 +172,23 @@ def add_row(sheet, columns, values, *, fill=None, bold=False, white=False):
 
 def heading(sheet, columns, color):
     groups = {'Labor Cost': LABOR, 'Travel Cost': [label for label, _ in EXPENSES[1:-1]]}
-    group_row = sheet.max_row + 1
-    for label, members in groups.items():
-        start, end = columns.index(members[0]) + 1, columns.index(members[-1]) + 1
-        sheet.merge_cells(start_row=group_row, start_column=start, end_row=group_row, end_column=end)
-        cell = sheet.cell(group_row, start, label)
-        cell.fill = PatternFill('solid', fgColor=color)
-        cell.font = Font(name='Calibri', bold=True, color='FFFFFF')
-        cell.alignment = Alignment(horizontal='center')
-    add_row(sheet, columns, dict(zip(columns, columns)), fill=color, bold=True, white=True)
-    sheet.row_dimensions[sheet.max_row].height = 34
+    grouped = {member for members in groups.values() for member in members}
+    upper = {label: label for label in columns if label not in grouped}
+    upper.update({members[0]: title for title, members in groups.items()})
+    lower = {label: label for label in columns if label in grouped}
+    for values in (upper, lower):
+        add_row(sheet, columns, values, fill=color, bold=True, white=True, grid=True)
+        for cell in sheet[sheet.max_row]:
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    top, bottom = sheet.max_row - 1, sheet.max_row
+    for members in groups.values():
+        sheet.merge_cells(start_row=top, end_row=top, start_column=columns.index(members[0]) + 1,
+                          end_column=columns.index(members[-1]) + 1)
+    for column, label in enumerate(columns, 1):
+        if label not in grouped:
+            sheet.merge_cells(start_row=top, end_row=bottom, start_column=column, end_column=column)
+    sheet.row_dimensions[bottom].height = 34
+
 
 
 def band(sheet, text, width, color):
@@ -219,15 +233,15 @@ def write_summary(sheet, columns, groups, settlement, expense_amount, metadata):
         service_period = period(dates[0], dates[-1]) if dates else ''
         add_row(sheet, columns, dict(amounts(rows, expense_amount), **metadata,
                                      Name=name, **{'Service Period': service_period}),
-                fill='BCE4F2' if index % 2 else '86CDE5')
+                fill='BCE4F2' if index % 2 else '86CDE5', grid=True)
     rows = [row for group in groups.values() for row in group]
     totals = amounts(rows, expense_amount)
     delta = (cents(settlement['total_amount']) - cents(totals['Total'])) / Decimal(100)
     if delta:
-        add_row(sheet, columns, dict(metadata, Name='Settlement Adjustment', Total=delta), fill='D9ECF4')
+        add_row(sheet, columns, dict(metadata, Name='Settlement Adjustment', Total=delta), fill='D9ECF4', grid=True)
     totals.update({key: None for key in RATE_FIELDS})
     totals.update(metadata, Name='Work Order Total', Total=number(settlement['total_amount']))
-    add_row(sheet, columns, totals, fill='D9ECF4', bold=True)
+    add_row(sheet, columns, totals, fill='D9ECF4', bold=True, grid=True)
 
 
 def build_expense_report(context, items, *, expense_amount, company=None):
@@ -243,8 +257,14 @@ def build_expense_report(context, items, *, expense_amount, company=None):
         {1: 'Invoice Number', 3: invoice_number, 17: 'To', 18: last},
     ]:
         add_row(sheet, list(range(1, len(DAILY) + 1)), row, fill='E2E5D4')
+        if row[1] == 'Work Order':
+            work_order_row = sheet.max_row
+            sheet.cell(work_order_row, 3).border = WORK_ORDER_UNDERLINE
+            sheet.merge_cells(start_row=work_order_row, end_row=work_order_row, start_column=3, end_column=5)
     groups = people(items)
-    for (worker_id, name), rows in groups.items():
+    for index, ((worker_id, name), rows) in enumerate(groups.items()):
+        if index:
+            sheet.append([None])
         band(sheet, 'Worker Information', len(DAILY), '7C854B')
         add_row(sheet, ['Label', 'Value', 'ID Label', 'ID'],
                 {'Label': 'Name', 'Value': name, 'ID Label': 'Employee ID',
@@ -254,7 +274,8 @@ def build_expense_report(context, items, *, expense_amount, company=None):
         for row in rows:
             by_day[str(row.get('project_date') or '')].append(row)
         for day, daily_rows in sorted(by_day.items()):
-            add_row(sheet, DAILY, dict(amounts(daily_rows, expense_amount), Date=day, Name=name), fill='E2E5D4')
+            add_row(sheet, DAILY, dict(amounts(daily_rows, expense_amount), Date=day, Name=name), fill='E2E5D4', grid=True)
+    sheet.append([None])
     band(sheet, 'Expense Summary', len(SUMMARY), '12465B')
     heading(sheet, SUMMARY, '12465B')
     write_summary(sheet, SUMMARY, groups, settlement, expense_amount, {})
@@ -271,5 +292,5 @@ def build_batch_summary(payloads, *, expense_amount):
         write_summary(sheet, columns, people(items), settlement, expense_amount,
                       {'Work Order': work_order_label(order), 'Invoice Number': invoice_number})
     total = sum(number(context[1]['total_amount']) for context, _ in payloads)
-    add_row(sheet, columns, {'Name': 'Grand Total', 'Total': total}, fill='D9ECF4', bold=True)
+    add_row(sheet, columns, {'Name': 'Grand Total', 'Total': total}, fill='D9ECF4', bold=True, grid=True)
     return save(workbook)
