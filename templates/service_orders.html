@@ -59,7 +59,7 @@
       {% if not is_external_manager() and not is_external_employee() %}
         <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='daily_reports') }}" data-batch-export>导出日报</button>
         <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='mileage_proofs') }}" data-batch-export>批导里程</button>
-        <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='settlements') }}" data-batch-export data-open-export-jobs>导出工单结算</button>
+        <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='settlements') }}" data-batch-export>导出工单结算</button>
         <button type="submit" class="erp-btn" form="batchExportForm" formaction="{{ url_for('create_batch_export', export_type='invoices') }}" data-batch-export>导出发票</button>
         <button type="button" class="erp-btn" onclick="if (typeof window.workspaceOpen === 'function') { window.workspaceOpen('{{ url_for('batch_export_jobs') }}', '导出任务'); } else { window.location.href='{{ url_for('batch_export_jobs') }}'; }">导出任务</button>
       {% endif %}
@@ -246,7 +246,7 @@
       return;
     }
     const button = event.submitter;
-    if (!button?.hasAttribute('data-open-export-jobs') || typeof window.workspaceOpen !== 'function') return;
+    if (!button?.hasAttribute('data-batch-export') || typeof window.workspaceOpen !== 'function') return;
     event.preventDefault();
     if (submitting) return;
 
