@@ -105,33 +105,3 @@ def copy_file_to_customer_reimbursement_attachment(
             pass
         raise
     return True
-
-
-def copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, service_order_id, *, copy_file_to_customer_reimbursement_attachment, db, report_attachment_path):
-    rows = db().execute(
-        """
-        select service_report_attachments.*, service_reports.report_date
-        from service_report_attachments
-        join service_reports on service_reports.id = service_report_attachments.report_id
-        where service_reports.service_order_id = ?
-          and service_report_attachments.category = 'mileage_proof'
-        order by service_reports.report_date asc, service_report_attachments.uploaded_at asc,
-                 service_report_attachments.id asc
-        """,
-        (service_order_id,),
-    ).fetchall()
-    copied = 0
-    for row in rows:
-        original_name = row["original_filename"] or "mileage-proof"
-        report_date = (row["report_date"] or "").strip()
-        if report_date:
-            original_name = f"里程佐证-{report_date}-{original_name}"
-        if copy_file_to_customer_reimbursement_attachment(
-            reimbursement_id,
-            report_attachment_path(row),
-            original_name,
-            row["content_type"],
-            row["uploaded_by"],
-        ):
-            copied += 1
-    return copied

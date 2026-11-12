@@ -60,6 +60,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                 (2, 10, "zero.pdf", "z.pdf", 11),
                 (3, 10, "partial.pdf", "p.pdf", 12),
                 (4, 10, "full.pdf", "f.pdf", 13),
+                (5, 10, "里程佐证-2026-11-12-map.png", "proof.png", None),
             ],
         )
         self.assertEqual(self.names(), ["manual.pdf", "partial.pdf", "full.pdf"])
@@ -127,14 +128,19 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             insert into customer_reimbursement_expense_links values(10,1,50,0),(10,2,60,25);
             insert into customer_reimbursement_attachments values
             (1,10,'receipt.pdf','zero.pdf',11),(2,10,'receipt.pdf','positive.pdf',12),
-            (3,10,'receipt.pdf','manual.pdf',null);
+            (3,10,'receipt.pdf','manual.pdf',null),(4,10,'里程佐证-2026-11-12-map.png','proof.png',null);
         """)
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'customer-reimbursements'/'10'/'attachments'
             root.mkdir(parents=True)
-            for name in ('zero.pdf','positive.pdf','manual.pdf'):
+            for name in ('zero.pdf','positive.pdf','manual.pdf','proof.png'):
                 (root/name).write_bytes(name.encode())
-            with patch('invoice_tool.batch_exports.service.build_settlement_xlsx',return_value=BytesIO(b'xlsx')), patch('invoice_tool.batch_exports.service.build_master_ledger',return_value=BytesIO(b'ledger')):
+            context = (None, {"id": 10}, "INV-1", None, None)
+            with (
+                patch('invoice_tool.batch_exports.service.batch_contexts', return_value={1: context}),
+                patch('invoice_tool.batch_exports.service.build_expense_report', return_value=BytesIO(b'xlsx')),
+                patch('invoice_tool.batch_exports.service.build_batch_summary', return_value=BytesIO(b'ledger')),
+            ):
                 run_export_job('test',app=Flask(__name__),db=lambda:self.conn,
                     data_dir=directory,build_service_report_docx=None,build_simple_xlsx=None,
                     customer_reimbursement_items=lambda _:[],expense_amount=None,
@@ -144,6 +150,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             with ZipFile(job['stored_path']) as archive:
                 bodies=[archive.read(name) for name in archive.namelist()]
                 self.assertNotIn(b'zero.pdf',bodies)
+                self.assertNotIn(b'proof.png',bodies)
                 self.assertIn(b'positive.pdf',bodies)
                 self.assertIn(b'manual.pdf',bodies)
                 self.assertEqual(len(archive.namelist()),len(set(archive.namelist())))

@@ -1,6 +1,6 @@
 """Legacy-compatible updates helpers; explicit runtime dependencies."""
 
-def create_customer_reimbursement(order, expense_selection_mode="legacy", *, assert_contract_rates_covered, copy_mileage_proofs_to_customer_reimbursement, customer_reimbursement_seed_rows, db, g, now, save_customer_reimbursement_items, secrets, update_customer_reimbursement_totals):
+def create_customer_reimbursement(order, expense_selection_mode="legacy", *, assert_contract_rates_covered, customer_reimbursement_seed_rows, db, g, now, save_customer_reimbursement_items, secrets, update_customer_reimbursement_totals):
     file_name = f"费用报销单{order['client_order_number']}.pdf"
     quotation_revision = None
     if order["settlement_basis"] == "quotation":
@@ -49,7 +49,6 @@ def create_customer_reimbursement(order, expense_selection_mode="legacy", *, ass
         # 守门：合同路径用到的客户费率必须来自合同费率版本，缺失则阻止生成
         assert_contract_rates_covered(order["id"], rows)
     save_customer_reimbursement_items(reimbursement_id, rows)
-    copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, order["id"])
     update_customer_reimbursement_totals(reimbursement_id, rows)
     return db().execute("select * from customer_reimbursements where id = ?", (reimbursement_id,)).fetchone()
 

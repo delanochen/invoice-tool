@@ -1,5 +1,8 @@
 """Service-report DOCX rendering, naming and Word attachment packaging."""
 
+from .mileage_export import mileage_proof_is_image
+
+
 def build_service_report_docx(report, order, *, BytesIO, Document, Image, ImageOps, Inches, OxmlElement, Pt, RGBColor, WD_ALIGN_PARAGRAPH, WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT, get_company_profile, get_report_attachments, hours, os, qn, report_attachment_path, report_parts, service_report_workers):
     document = Document()
     section = document.sections[0]
@@ -203,12 +206,20 @@ def build_service_report_docx(report, order, *, BytesIO, Document, Image, ImageO
         "departure": "离开现场时间照片",
         "self_check": "自检照片",
         "site": "现场服务照片",
+        "mileage_proof": "里程佐证",
     }
     for category, section_title in photo_labels.items():
         photos = attachment_groups.get(category, [])
         if not photos:
             continue
         add_section_title(section_title)
+        if category == "mileage_proof":
+            for attachment in photos:
+                if not mileage_proof_is_image(attachment):
+                    document.add_paragraph(attachment["original_filename"] or "里程佐证文件")
+            photos = [attachment for attachment in photos if mileage_proof_is_image(attachment)]
+            if not photos:
+                continue
         photo_table = document.add_table(rows=(len(photos) + 1) // 2, cols=2)
         photo_table.alignment = WD_TABLE_ALIGNMENT.CENTER
         photo_table.autofit = False
@@ -216,6 +227,8 @@ def build_service_report_docx(report, order, *, BytesIO, Document, Image, ImageO
             cell = photo_table.rows[index // 2].cells[index % 2]
             path = report_attachment_path(attachment)
             if not os.path.exists(path):
+                if category == "mileage_proof":
+                    set_cell_text(cell, "里程佐证图片文件缺失")
                 continue
             paragraph = cell.paragraphs[0]
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER

@@ -13,6 +13,7 @@ from invoice_tool.customer_reimbursements.expense_report import (
 )
 from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
 from invoice_tool.invoices import order_links as _invoice_order_links
+from invoice_tool.service_reports.mileage_export import write_mileage_documents
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -224,10 +225,23 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         reports = conn.execute("select * from service_reports where service_order_id=? order by report_date,id", (order_id,)).fetchall()
                         if not reports:
                             missing.append(f"{order_no}: 无日报")
+                        used_names = set()
                         for report in reports:
                             data = build_service_report_docx(report, order)
                             name = safe_name(f"{order.get('client_order_number') if hasattr(order,'get') else order['client_order_number'] or order_no}-{report['report_date']}-report.docx", "service-report.docx")
-                            archive.writestr(f"日报/{order_no}/{name}", data)
+                            if name.casefold() in used_names:
+                                name = f"{os.path.splitext(name)[0]}-{report['id']}.docx"
+                            used_names.add(name.casefold())
+                            folder = f"日报/{order_no}"
+                            archive.writestr(f"{folder}/{name}", data)
+                            attachments = conn.execute(
+                                "select * from service_report_attachments where report_id=? and category='mileage_proof' order by id",
+                                (report["id"],),
+                            ).fetchall()
+                            for missing_name in write_mileage_documents(
+                                archive, f"{folder}/{os.path.splitext(name)[0]}_里程佐证", attachments, report_attachment_path,
+                            ):
+                                missing.append(f"{order_no} / {report['report_date']}: 里程佐证文件缺失 - {missing_name}")
                     elif export_type == "mileage_proofs":
                         reports = conn.execute(
                             "select id, report_date from service_reports where service_order_id=? order by report_date,id",

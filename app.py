@@ -1778,10 +1778,6 @@ def copy_file_to_customer_reimbursement_attachment(
     return _split_attachment_files.copy_file_to_customer_reimbursement_attachment(reimbursement_id, source_path, original_filename, content_type, uploaded_by, source_expense_attachment_id, DatabaseError=DatabaseError, IntegrityError=IntegrityError, app=app, customer_reimbursement_attachment_dir=customer_reimbursement_attachment_dir, db=db, g=g, now=now, os=os, secrets=secrets, shutil=shutil, unique_customer_reimbursement_attachment_filename=unique_customer_reimbursement_attachment_filename)
 
 
-def copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, service_order_id):
-    return _split_attachment_files.copy_mileage_proofs_to_customer_reimbursement(reimbursement_id, service_order_id, copy_file_to_customer_reimbursement_attachment=copy_file_to_customer_reimbursement_attachment, db=db, report_attachment_path=report_attachment_path)
-
-
 def customer_reimbursement_items_from_form(order_id=None, reimbursement=None):
     existing_items = customer_reimbursement_items(reimbursement["id"]) if reimbursement is not None else []
     settlement_basis = reimbursement["settlement_basis"] if reimbursement is not None else None
@@ -1813,7 +1809,7 @@ def customer_reimbursement_invoice_items(reimbursement):
 
 
 def create_customer_reimbursement(order, expense_selection_mode="legacy"):
-    return _split_updates.create_customer_reimbursement(order, expense_selection_mode, assert_contract_rates_covered=assert_contract_rates_covered, copy_mileage_proofs_to_customer_reimbursement=copy_mileage_proofs_to_customer_reimbursement, customer_reimbursement_seed_rows=customer_reimbursement_seed_rows, db=db, g=g, now=now, save_customer_reimbursement_items=save_customer_reimbursement_items, secrets=secrets, update_customer_reimbursement_totals=update_customer_reimbursement_totals)
+    return _split_updates.create_customer_reimbursement(order, expense_selection_mode, assert_contract_rates_covered=assert_contract_rates_covered, customer_reimbursement_seed_rows=customer_reimbursement_seed_rows, db=db, g=g, now=now, save_customer_reimbursement_items=save_customer_reimbursement_items, secrets=secrets, update_customer_reimbursement_totals=update_customer_reimbursement_totals)
 
 
 def sync_expense_attachments_to_settlement(order_id):

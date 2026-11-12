@@ -4,7 +4,8 @@
 def exportable_settlement_attachments(conn, reimbursement_id):
     """Return settlement attachments that belong in customer-facing exports.
 
-    Manual settlement uploads are always kept. Expense-source attachments are
+    Legacy mileage-proof copies are omitted. Other manual uploads are kept.
+    Expense-source attachments are
     exported only when at least one expense line represented by that attachment
     has a positive customer settlement amount in this settlement. A stored
     settled_amount of NULL means the historical/full amount, so amount_snapshot
@@ -15,6 +16,13 @@ def exportable_settlement_attachments(conn, reimbursement_id):
         select ca.*
         from customer_reimbursement_attachments ca
         where ca.customer_reimbursement_id = ?
+          and (
+            ca.source_expense_attachment_id is not null
+            or (
+                coalesce(ca.original_filename, '') not like '里程佐证-%'
+                and coalesce(ca.original_filename, '') <> 'mileage-proof'
+            )
+          )
           and (
             ca.source_expense_attachment_id is null
             or exists (

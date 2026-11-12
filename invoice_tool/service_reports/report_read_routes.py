@@ -2,6 +2,9 @@
 import os
 import re
 from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
+
+from .mileage_export import mileage_proof_is_image, write_mileage_documents
 from werkzeug.utils import secure_filename
 from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -81,6 +84,17 @@ def register_report_read_routes(app, *,
             flash("工作日报导出失败，请检查日报内容或照片后重试。", "error")
             return redirect(url_for("edit_service_report", report_id=report_id))
         filename = secure_filename(f"{order['client_order_number']}-{report['report_date']}-report.docx") or "service-report.docx"
+        attachments = get_report_attachments(report_id).get("mileage_proof", [])
+        if any(not mileage_proof_is_image(attachment) for attachment in attachments):
+            output = BytesIO()
+            with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+                archive.writestr(filename, document_bytes)
+                missing = write_mileage_documents(archive, "里程佐证", attachments, report_attachment_path)
+                if missing:
+                    archive.writestr("缺失说明.txt", "\n".join(missing))
+            output.seek(0)
+            return send_file(output, mimetype="application/zip", as_attachment=True,
+                             download_name=f"{os.path.splitext(filename)[0]}.zip")
         return send_file(
             BytesIO(document_bytes),
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
