@@ -160,9 +160,14 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                     render_invoice_pdf=None,report_attachment_path=None)
             job=self.conn.execute("select * from batch_export_jobs").fetchone()
             self.assertEqual(job['status'],'completed',job['error'])
-            with ZipFile(job['stored_path']) as archive:
-                self.assertIn("工单结算/工单_SO-TEST.xlsx", archive.namelist())
-                bodies=[archive.read(name) for name in archive.namelist()]
+            self.assertEqual(job["file_name"], "工单_SO-TEST.zip")
+            with ZipFile(job["stored_path"]) as archive:
+                names = archive.namelist()
+                self.assertIn("工单_SO-TEST.xlsx", names)
+                self.assertIn("工单结算总账单.xlsx", names)
+                self.assertIn("工单_SO-TEST/", names)
+                self.assertFalse(any(name.startswith("工单结算/") for name in names))
+                bodies = [archive.read(name) for name in names if name.startswith("工单_SO-TEST/")]
                 self.assertNotIn(b'zero.pdf',bodies)
                 self.assertNotIn(b'proof.png',bodies)
                 self.assertIn(b'positive.pdf',bodies)

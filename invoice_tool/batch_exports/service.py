@@ -205,6 +205,11 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
             settlement_payloads = []
             settlement_filenames = set()
             contexts = batch_contexts(conn, order_ids) if export_type == "settlements" else {}
+            if len(contexts) > 1:
+                starts = [str(context[3]) for context in contexts.values() if context[3]]
+                ends = [str(context[4]) for context in contexts.values() if context[4]]
+                dates = f"_{min(starts)}~{max(ends)}" if starts and ends else ""
+                zip_name = f"工单_批量_{len(contexts)}个{dates}.zip"
             company = get_company_profile() if contexts and get_company_profile else None
             with zipfile.ZipFile(stored, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 total = max(1, len(order_ids))
@@ -283,7 +288,11 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                             filename = f"{stem}_{order_no}_{duplicate}.xlsx"
                             duplicate += 1
                         settlement_filenames.add(filename.casefold())
-                        archive.writestr(f"工单结算/{filename}", data)
+                        attachment_folder = os.path.splitext(filename)[0]
+                        if len(contexts) == 1:
+                            zip_name = f"{attachment_folder}.zip"
+                        archive.writestr(filename, data)
+                        archive.mkdir(attachment_folder)
                         attachment_root = Path(data_dir) / "customer-reimbursements" / str(reimbursement["id"]) / "attachments"
                         attachment_names = set()
                         attachment_sources = set()
@@ -311,7 +320,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                                 index += 1
                             attachment_names.add(candidate.casefold())
                             filename = candidate
-                            archive.write(source_path, f"工单结算/{order_no}_附件/{filename}")
+                            archive.write(source_path, f"{attachment_folder}/{filename}")
                     elif export_type == "invoices":
                         invoice_cond = _invoice_order_links.invoice_order_sql(conn, 'invoices', '?')
                         invoices = conn.execute(
@@ -329,7 +338,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                     conn.execute("update batch_export_jobs set progress=? where id=?", (int(pos * 90 / total), job_id)); conn.commit()
                 if export_type == "settlements" and settlement_payloads:
                     ledger = build_batch_summary(settlement_payloads, expense_amount=expense_amount)
-                    archive.writestr("工单结算/工单结算总账单.xlsx", ledger.getvalue())
+                    archive.writestr("工单结算总账单.xlsx", ledger.getvalue())
                 if missing:
                     archive.writestr("缺失说明.txt", ("\n".join(missing) + "\n").encode("utf-8"))
             conn.execute("update batch_export_jobs set status='completed', progress=100, file_name=?, stored_path=?, completed_at=? where id=?", (zip_name, str(stored), utcnow_text(), job_id)); conn.commit()
