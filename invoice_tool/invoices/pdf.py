@@ -1,6 +1,8 @@
 """Legacy-compatible invoice helpers with explicit runtime dependencies."""
 
 
+from pathlib import Path
+
 from .order_links import work_order_label
 
 
@@ -84,43 +86,50 @@ def render_invoice_pdf(invoice, client, items, *, A4, BytesIO, UnicodeCIDFont, c
         page.setFillColor(colors.black)
         y -= 6
 
-    page.setFont("STSong-Light", 18)
-    page.drawString(left, top, pdf_text(company["name"]))
-    page.setFont("STSong-Light", 9)
-    y = top - 22
+    logo_path = Path(__file__).resolve().parents[2] / "static" / "invoice-logo.png"
+    logo_size = 42
+    page.drawImage(str(logo_path), left, top - logo_size, logo_size, logo_size, mask="auto")
+    page.setFillColor(colors.HexColor("#101828"))
+    page.setFont("Helvetica-Bold", 27)
+    page.drawRightString(width - left, top - 26, "INVOICE")
+
+    y = top - logo_size - 17
+    company_name = pdf_text(company["name"])
+    page.setFont("Helvetica-Bold" if company_name.isascii() else "STSong-Light", 11)
+    page.drawString(left, y, company_name)
+    y -= line
+    page.setFont("STSong-Light", 10)
     for part in pdf_text(company["address"]).splitlines():
         page.drawString(left, y, part)
         y -= line
 
-    page.setFont("STSong-Light", 26)
-    page.drawRightString(width - left, top, "INVOICE")
-    page.setFont("STSong-Light", 10)
-    meta_y = top - 40
-    metadata = [("Invoice No.", invoice["invoice_number"])]
-    metadata.extend(
-        (
-            ("Issue Date", invoice["issue_date"]),
-            ("Due Date", invoice["due_date"]),
-            ("Currency", invoice["currency"]),
-        )
+    y -= 14
+    meta_y = y
+    metadata = (
+        ("Invoice No.", invoice["invoice_number"]),
+        ("Issue Date", invoice["issue_date"]),
+        ("Due Date", invoice["due_date"]),
+        ("Currency", invoice["currency"]),
     )
+    page.setFont("STSong-Light", 10)
     for label, value in metadata:
-        page.drawRightString(width - left - 125, meta_y, label)
-        page.drawRightString(width - left, meta_y, pdf_text(value))
+        page.drawString(width - left - 165, meta_y, label)
+        value_text = pdf_text(value)
+        page.setFont("Helvetica-Bold" if label == "Invoice No." and value_text.isascii() else "STSong-Light", 10)
+        page.drawRightString(width - left, meta_y, value_text)
+        page.setFont("STSong-Light", 10)
         meta_y -= line
 
-    y -= 18
-    page.setFont("STSong-Light", 11)
+    page.setFont("Helvetica-Bold", 11)
     page.drawString(left, y, "Bill To")
     y -= line
     page.setFont("STSong-Light", 10)
     for value in (client["name"], client["address"], client["country"]):
-        for part in pdf_text(value).splitlines():
-            if part:
-                page.drawString(left, y, part)
-                y -= line
+        for part in wrapped_lines(value, width - 2 * left - 185, font_size=10):
+            page.drawString(left, y, part)
+            y -= line
 
-    y -= 10
+    y = min(y, meta_y) - 10
     page.setStrokeColor(colors.HexColor("#d9dee7"))
     page.line(left, y, width - left, y)
     y -= 18
