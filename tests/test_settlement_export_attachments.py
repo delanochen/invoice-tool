@@ -40,7 +40,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
     def names(self):
         return [row["original_filename"] for row in exportable_settlement_attachments(self.conn, 10)]
 
-    def test_export_filename_uses_customer_order_site_state_and_dates(self):
+    def test_export_filename_uses_customer_order_site_and_month_day(self):
         from invoice_tool.customer_reimbursements.expense_report import settlement_export_filename
 
         self.conn.execute("create table buyers (id integer, name text, state_code text)")
@@ -48,10 +48,11 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
         order = {"buyer_id": 1, "client_order_number": "SHPG2026102913515",
                  "order_number": "SO2610004", "site_address": "Wever, IA 52658"}
         context = (order, {}, "INV-1", "2026-11-02", "2026-11-06")
-        expected = "工单_SHPG2026102913515_Wever - East_IA_2026-11-02~2026-11-06.xlsx"
+        expected = "SHPG2026102913515_Wever - East_11-02~11-06.xlsx"
         self.assertEqual(settlement_export_filename(context, self.conn), expected)
-        self.conn.execute("update buyers set state_code = null")
-        self.assertEqual(settlement_export_filename(context, self.conn), expected)
+        cross_year = (order, {}, 'INV-1', '2026-12-30', '2027-01-02')
+        self.assertEqual(settlement_export_filename(cross_year, self.conn),
+                         'SHPG2026102913515_Wever - East_12-30~01-02.xlsx')
 
     def test_manual_kept_zero_customer_amount_excluded_positive_kept(self):
         self.conn.executemany(
@@ -170,28 +171,28 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                     render_invoice_pdf=None,report_attachment_path=lambda attachment: proof)
             job=self.conn.execute("select * from batch_export_jobs").fetchone()
             self.assertEqual(job['status'],'completed',job['error'])
-            self.assertEqual(job["file_name"], "工单_SHPG2026102913515.zip")
+            self.assertEqual(job["file_name"], "SHPG2026102913515.zip")
             with ZipFile(job["stored_path"]) as archive:
                 names = archive.namelist()
-                self.assertIn("工单_SO-TEST/工单结算表.xlsx", names)
-                report_path = "工单_SO-TEST/现场维修统计表.xlsx"
+                self.assertIn("SO-TEST/工单结算表.xlsx", names)
+                report_path = "SO-TEST/现场维修统计表.xlsx"
                 self.assertIn(report_path, names)
                 from openpyxl import load_workbook
                 report = load_workbook(BytesIO(archive.read(report_path))).active
                 self.assertEqual([cell.value for cell in report[3]][:5],
                                  ["2026-11-12", "Test Site", "LCI-400CR", "12345", "Fuse replacement"])
-                self.assertIn("工单_SO-TEST/附件/", names)
+                self.assertIn("SO-TEST/附件/", names)
                 self.assertIn("工单结算总账单.xlsx", names)
-                self.assertIn("工单_SO-TEST/", names)
-                self.assertIn("工单_SO-TEST/日报/SO-TEST-2026-11-12-report.docx", names)
-                self.assertIn("工单_SO-TEST/日报/SO-TEST-2026-11-12-report-2.docx", names)
+                self.assertIn("SO-TEST/", names)
+                self.assertIn("SO-TEST/日报/SO-TEST-2026-11-12-report.docx", names)
+                self.assertIn("SO-TEST/日报/SO-TEST-2026-11-12-report-2.docx", names)
                 self.assertEqual(
-                    archive.read("工单_SO-TEST/日报/SO-TEST-2026-11-12-report_里程佐证/1-route.pdf"), b"route",
+                    archive.read("SO-TEST/日报/SO-TEST-2026-11-12-report_里程佐证/1-route.pdf"), b"route",
                 )
                 self.assertEqual([name for name in names if name.endswith("工单结算总账单.xlsx")],
                                  ["工单结算总账单.xlsx"])
                 self.assertFalse(any(name.startswith("工单结算/") for name in names))
-                bodies = [archive.read(name) for name in names if name.startswith("工单_SO-TEST/")]
+                bodies = [archive.read(name) for name in names if name.startswith("SO-TEST/")]
                 self.assertNotIn(b'zero.pdf',bodies)
                 self.assertNotIn(b'proof.png',bodies)
                 self.assertIn(b'positive.pdf',bodies)

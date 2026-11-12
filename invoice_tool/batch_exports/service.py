@@ -9,7 +9,7 @@ from io import BytesIO
 from pathlib import Path
 
 from invoice_tool.customer_reimbursements.expense_report import (
-    batch_contexts, build_batch_summary, build_expense_report, settlement_export_filename,
+    batch_contexts, build_batch_summary, build_expense_report, settlement_export_filename, settlement_filename_dates,
 )
 from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
 from invoice_tool.invoices import order_links as _invoice_order_links
@@ -232,8 +232,8 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
             if len(contexts) > 1:
                 starts = [str(context[3]) for context in contexts.values() if context[3]]
                 ends = [str(context[4]) for context in contexts.values() if context[4]]
-                dates = f"_{min(starts)}~{max(ends)}" if starts and ends else ""
-                zip_name = f"工单_批量_{len(contexts)}个{dates}.zip"
+                dates = settlement_filename_dates(min(starts, default=None), max(ends, default=None))
+                zip_name = "_".join(filter(None, (f"批量_{len(contexts)}个", dates))) + ".zip"
             company = get_company_profile() if contexts and get_company_profile else None
             with zipfile.ZipFile(stored, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 total = max(1, len(order_ids))
@@ -292,7 +292,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
                         if len(contexts) == 1:
                             zip_name = os.path.splitext(settlement_export_filename(context, conn))[0] + ".zip"
-                        folder_base = f"工单_{order_no}"
+                        folder_base = order_no
                         attachment_folder = folder_base
                         duplicate = 2
                         while attachment_folder.casefold() in settlement_folders:
