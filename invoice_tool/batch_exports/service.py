@@ -33,6 +33,15 @@ def safe_name(value, fallback="file"):
     return text or fallback
 
 
+def invoice_pdf_bytes(conn, invoice, render_invoice_pdf):
+    client = conn.execute("select * from clients where id=?", (invoice["client_id"],)).fetchone()
+    items = conn.execute(
+        "select * from invoice_items where invoice_id=? order by id", (invoice["id"],),
+    ).fetchall()
+    pdf = render_invoice_pdf(invoice, client, items)
+    return pdf.getvalue() if hasattr(pdf, "getvalue") else bytes(pdf)
+
+
 def settlement_zip_excel_name(filename, folder, zip_name):
     # Reserve room for the user's download directory and the default extraction folder.
     def units(value):
@@ -241,7 +250,9 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
             missing = []
             settlement_payloads = []
             settlement_folders = set()
-            contexts = batch_contexts(conn, order_ids) if export_type == "settlements" else {}
+            contexts, settlement_invoices = {}, {}
+            if export_type == "settlements":
+                contexts, settlement_invoices = batch_contexts(conn, order_ids)
             if len(contexts) > 1:
                 starts = [str(context[3]) for context in contexts.values() if context[3]]
                 ends = [str(context[4]) for context in contexts.values() if context[4]]
@@ -360,15 +371,21 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         if not invoices:
                             missing.append(f"{order_no}: 无发票")
                         for invoice in invoices:
-                            client = conn.execute("select * from clients where id=?", (invoice["client_id"],)).fetchone()
-                            items = conn.execute("select * from invoice_items where invoice_id=? order by id", (invoice["id"],)).fetchall()
-                            pdf = render_invoice_pdf(invoice, client, items)
-                            pdf_bytes = pdf.getvalue() if hasattr(pdf, "getvalue") else bytes(pdf)
-                            archive.writestr(f"发票/{safe_name(invoice['invoice_number'], str(invoice['id']))}.pdf", pdf_bytes)
+                            name = safe_name(invoice["invoice_number"], str(invoice["id"]))
+                            archive.writestr(f"发票/{name}.pdf", invoice_pdf_bytes(conn, invoice, render_invoice_pdf))
                     conn.execute("update batch_export_jobs set progress=? where id=?", (int(pos * 90 / total), job_id)); conn.commit()
                 if export_type == "settlements" and settlement_payloads:
                     ledger = build_batch_summary(settlement_payloads, expense_amount=expense_amount)
                     archive.writestr("工单结算总账单.xlsx", ledger.getvalue())
+                    invoice_names = set()
+                    for invoice in settlement_invoices.values():
+                        stem = "发票_" + safe_name(invoice["invoice_number"], str(invoice["id"]))
+                        name, index = f"{stem}.pdf", 2
+                        while name.casefold() in invoice_names:
+                            name = f"{stem}_{index}.pdf"
+                            index += 1
+                        invoice_names.add(name.casefold())
+                        archive.writestr(name, invoice_pdf_bytes(conn, invoice, render_invoice_pdf))
                 if missing:
                     archive.writestr("缺失说明.txt", ("\n".join(missing) + "\n").encode("utf-8"))
             conn.execute("update batch_export_jobs set status='completed', progress=100, file_name=?, stored_path=?, completed_at=? where id=?", (zip_name, str(stored), utcnow_text(), job_id)); conn.commit()

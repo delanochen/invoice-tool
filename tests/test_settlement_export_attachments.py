@@ -156,6 +156,10 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             insert into service_report_attachments values(1,1,'mileage_proof','proof.pdf','route.pdf');
             create table buyers(id integer,owner text,owner_id integer);
             create table owners(id integer,name text);
+            create table clients(id integer);
+            create table invoice_items(id integer,invoice_id integer);
+            insert into clients values(3);
+            insert into invoice_items values(7,5);
             create table customer_reimbursements(id integer,service_order_id integer,is_current boolean);
             insert into customer_reimbursements values(10,1,true);
             insert into expense_items values(1,100,'a',50),(2,101,'b',60);
@@ -173,15 +177,23 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             proof = Path(directory) / 'proof.pdf'
             proof.write_bytes(b'route')
             context = ({"order_number": "SO-TEST", "client_order_number": "SHPG2026102913515"}, {"id": 10}, "INV-1", None, None)
+            invoice = {"id": 5, "invoice_number": "INV-1", "client_id": 3}
+            def render_invoice(row, client, items):
+                self.assertEqual(row["id"], 5)
+                self.assertEqual(client["id"], 3)
+                self.assertEqual([item["id"] for item in items], [7])
+                return BytesIO(b'%PDF-test')
+
             with (
-                patch('invoice_tool.batch_exports.service.batch_contexts', return_value={1: context}),
+                patch('invoice_tool.customer_reimbursements.expense_report._export_context_and_invoice',
+                      return_value=(context, invoice)),
                 patch('invoice_tool.batch_exports.service.build_expense_report', return_value=BytesIO(b'xlsx')),
                 patch('invoice_tool.batch_exports.service.build_batch_summary', return_value=BytesIO(b'ledger')),
             ):
                 run_export_job('test',app=Flask(__name__),db=lambda:self.conn,
                     data_dir=directory,build_service_report_docx=lambda report, order: b'word',build_simple_xlsx=None,
                     customer_reimbursement_items=lambda _:[],expense_amount=None,
-                    render_invoice_pdf=None,report_attachment_path=lambda attachment: proof)
+                    render_invoice_pdf=render_invoice,report_attachment_path=lambda attachment: proof)
             job=self.conn.execute("select * from batch_export_jobs").fetchone()
             self.assertEqual(job['status'],'completed',job['error'])
             self.assertEqual(job["file_name"], "SHPG2026102913515.zip")
@@ -196,6 +208,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                                  ["2026-11-12", "Test Site", "LCI-400CR", "12345", "Fuse replacement"])
                 self.assertIn("SHPG2026102913515/附件/", names)
                 self.assertIn("工单结算总账单.xlsx", names)
+                self.assertEqual(archive.read("发票_INV-1.pdf"), b'%PDF-test')
                 self.assertIn("SHPG2026102913515/", names)
                 self.assertIn("SHPG2026102913515/日报/SHPG2026102913515-2026-11-12-report.docx", names)
                 self.assertIn("SHPG2026102913515/日报/SHPG2026102913515-2026-11-12-report-2.docx", names)
@@ -212,6 +225,13 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                 self.assertIn(b'manual.pdf',bodies)
                 self.assertEqual(len(archive.namelist()),len(set(archive.namelist())))
                 self.assertIsNone(archive.testzip())
+
+        from invoice_tool.customer_reimbursements.expense_report import batch_contexts
+        with patch('invoice_tool.customer_reimbursements.expense_report._export_context_and_invoice',
+                   side_effect=[(context, invoice), (context, dict(invoice))]):
+            contexts, invoices = batch_contexts(self.conn, [1, 2])
+        self.assertEqual(list(contexts), [1, 2])
+        self.assertEqual(invoices, {5: invoice})
 
 
 if __name__ == "__main__":

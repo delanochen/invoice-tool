@@ -25,6 +25,11 @@ def cents(value):
 
 
 def export_context(connection, order_id, reimbursement_id=None):
+    context, _ = _export_context_and_invoice(connection, order_id, reimbursement_id)
+    return context
+
+
+def _export_context_and_invoice(connection, order_id, reimbursement_id=None):
     order = connection.execute('select * from service_orders where id = ?', (order_id,)).fetchone()
     if not order:
         raise ValueError(f'工单 {order_id} 不存在。')
@@ -43,12 +48,12 @@ def export_context(connection, order_id, reimbursement_id=None):
     if state['has_rows']:
         placeholders = ', '.join('?' for _ in invoice_ids)
         invoices = connection.execute(
-            f"select id, invoice_number from invoices where {active} and id in ({placeholders})",
+            f"select * from invoices where {active} and id in ({placeholders})",
             invoice_ids,
         ).fetchall() if invoice_ids else []
     else:
         invoices = connection.execute(
-            f"select id, invoice_number from invoices where {active} and service_order_id = ?",
+            f"select * from invoices where {active} and service_order_id = ?",
             (order_id,),
         ).fetchall()
     if len(invoices) != 1 or not str(invoices[0]['invoice_number'] or '').strip():
@@ -76,7 +81,8 @@ def export_context(connection, order_id, reimbursement_id=None):
     ).fetchone()
     if cents(settlement['rental_fuel_total']):
         raise ValueError(f'{label}：历史结算有单列租车油费，请通过结算修订归到垫付员工后再导出。')
-    return order, settlement, invoice['invoice_number'], dates['first_date'], dates['last_date']
+    context = order, settlement, invoice['invoice_number'], dates['first_date'], dates['last_date']
+    return context, invoice
 
 
 def settlement_filename_dates(first, last):
@@ -108,15 +114,17 @@ def settlement_export_filename(context, connection, *, include_state=True):
 
 
 def batch_contexts(connection, order_ids):
-    contexts, errors = {}, []
+    contexts, invoices, errors = {}, {}, []
     for order_id in order_ids:
         try:
-            contexts[order_id] = export_context(connection, order_id)
+            context, invoice = _export_context_and_invoice(connection, order_id)
+            contexts[order_id] = context
+            invoices[invoice['id']] = invoice
         except ValueError as error:
             errors.append(str(error))
     if errors:
         raise ValueError(' '.join(errors))
-    return contexts
+    return contexts, invoices
 
 
 HOURS = (
