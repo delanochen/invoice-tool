@@ -227,7 +227,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
             stored = root / f"{job_id}.zip"
             missing = []
             settlement_payloads = []
-            settlement_filenames = set()
+            settlement_folders = set()
             contexts = batch_contexts(conn, order_ids) if export_type == "settlements" else {}
             if len(contexts) > 1:
                 starts = [str(context[3]) for context in contexts.values() if context[3]]
@@ -290,18 +290,17 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         settlement_payloads.append((context, items))
                         xlsx = build_expense_report(context, items, expense_amount=expense_amount, company=company)
                         data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
-                        filename = settlement_export_filename(context, conn)
-                        stem = os.path.splitext(filename)[0]
-                        duplicate = 2
-                        while filename.casefold() in settlement_filenames:
-                            filename = f"{stem}_{order_no}_{duplicate}.xlsx"
-                            duplicate += 1
-                        settlement_filenames.add(filename.casefold())
-                        attachment_folder = os.path.splitext(filename)[0]
                         if len(contexts) == 1:
-                            zip_name = f"{attachment_folder}.zip"
+                            zip_name = os.path.splitext(settlement_export_filename(context, conn))[0] + ".zip"
+                        folder_base = f"工单_{order_no}"
+                        attachment_folder = folder_base
+                        duplicate = 2
+                        while attachment_folder.casefold() in settlement_folders:
+                            attachment_folder = f"{folder_base}_{duplicate}"
+                            duplicate += 1
+                        settlement_folders.add(attachment_folder.casefold())
                         archive.mkdir(attachment_folder)
-                        archive.writestr(f"{attachment_folder}/{filename}", data)
+                        archive.writestr(f"{attachment_folder}/工单结算表.xlsx", data)
                         archive.writestr(f"{attachment_folder}/现场维修统计表.xlsx", build_field_repair_workbook(conn, order))
                         archive.mkdir(f"{attachment_folder}/附件")
                         write_daily_reports(

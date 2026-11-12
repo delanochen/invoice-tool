@@ -158,7 +158,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                 (root/name).write_bytes(name.encode())
             proof = Path(directory) / 'proof.pdf'
             proof.write_bytes(b'route')
-            context = ({"order_number": "SO-TEST"}, {"id": 10}, "INV-1", None, None)
+            context = ({"order_number": "SO-TEST", "client_order_number": "SHPG2026102913515"}, {"id": 10}, "INV-1", None, None)
             with (
                 patch('invoice_tool.batch_exports.service.batch_contexts', return_value={1: context}),
                 patch('invoice_tool.batch_exports.service.build_expense_report', return_value=BytesIO(b'xlsx')),
@@ -170,10 +170,10 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
                     render_invoice_pdf=None,report_attachment_path=lambda attachment: proof)
             job=self.conn.execute("select * from batch_export_jobs").fetchone()
             self.assertEqual(job['status'],'completed',job['error'])
-            self.assertEqual(job["file_name"], "工单_SO-TEST.zip")
+            self.assertEqual(job["file_name"], "工单_SHPG2026102913515.zip")
             with ZipFile(job["stored_path"]) as archive:
                 names = archive.namelist()
-                self.assertIn("工单_SO-TEST/工单_SO-TEST.xlsx", names)
+                self.assertIn("工单_SO-TEST/工单结算表.xlsx", names)
                 report_path = "工单_SO-TEST/现场维修统计表.xlsx"
                 self.assertIn(report_path, names)
                 from openpyxl import load_workbook
