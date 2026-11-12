@@ -6,7 +6,7 @@ import stat
 import threading
 import uuid
 
-from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
+from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from invoice_tool.customer_reimbursements.expense_report import batch_contexts
 
@@ -36,20 +36,25 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
         if export_type not in EXPORT_LABELS:
             abort(404)
         ensure_export_job_schema(db)
+        wants_json = request.accept_mimetypes.best == "application/json"
+
+        def reject(message):
+            if wants_json:
+                return jsonify(error=message), 400
+            flash(message, "error")
+            return redirect(url_for("service_orders"))
+
         requested = request.form.getlist("order_ids")
         order_ids = visible_order_ids(g.user, requested)
         if not order_ids:
-            flash("请至少选择一个有权访问的工单。", "error")
-            return redirect(url_for("service_orders"))
+            return reject("请至少选择一个有权访问的工单。")
         if len(order_ids) > 200:
-            flash("单次最多选择 200 个工单。", "error")
-            return redirect(url_for("service_orders"))
+            return reject("单次最多选择 200 个工单。")
         if export_type == "settlements":
             try:
                 batch_contexts(db(), order_ids)
             except ValueError as error:
-                flash(str(error), "error")
-                return redirect(url_for("service_orders"))
+                return reject(str(error))
         job_id = str(uuid.uuid4())
         db().execute(
             "insert into batch_export_jobs(id,user_id,export_type,order_ids,status,progress,created_at) values(?,?,?,?,?,?,?)",
@@ -72,6 +77,8 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
             name=f"batch-export-{job_id[:8]}",
         )
         thread.start()
+        if wants_json:
+            return jsonify(url=url_for("batch_export_jobs")), 202
         flash(f"{EXPORT_LABELS[export_type]}批量导出任务已创建，请到「导出任务」查看进度并下载 ZIP。", "success")
         return redirect(url_for("batch_export_jobs"))
 

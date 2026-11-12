@@ -124,7 +124,7 @@
     // 让页面内的脚本也能请求「在工作区里新开一个标签页」（而不是自己 location.href 跳走，
     // 那会把当前标签的页面整个换掉）。工作区内所有站内跳转都应走这里，见
     // selectable-table-actions.js 的 detailUrl 按钮。
-    try { win.workspaceOpen = (url, title) => open(url, title); } catch { /* 跨源等异常忽略 */ }
+    try { win.workspaceOpen = (url, title, options) => open(url, title, options); } catch { /* 跨源等异常忽略 */ }
     if (tab.submitted) changed(tab);
     tab.submitted = false; tab.dirty = false; tab.stale = false;
     tab.url = localUrl(win.location.href) || tab.url;
@@ -173,11 +173,15 @@
       event.preventDefault(); open(url, link.textContent.trim());
     });
   }
-  function open(value, title = '加载中…') {
+  function open(value, title = '加载中…', { refresh = false } = {}) {
     const url = localUrl(value);
     if (!url) return;
     const existing = tabs.find(tab => key(tab.url) === key(url));
-    if (existing) { activate(existing); return; }
+    if (existing) {
+      activate(existing);
+      if (refresh) retryLoad(existing);
+      return;
+    }
     const node = document.createElement('div'), button = document.createElement('button'), closeButton = document.createElement('button'), frame = document.createElement('iframe'), failure = document.createElement('section'), loading = document.createElement('section');
     node.className = 'workspace-tab'; button.type = closeButton.type = 'button'; button.setAttribute('role', 'tab');
     frame.id = 'workspace-page-' + (++serial); frame.title = title; frame.setAttribute('role', 'tabpanel');
