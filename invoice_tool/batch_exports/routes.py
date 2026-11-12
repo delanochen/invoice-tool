@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import secrets
 import stat
 import threading
 import uuid
+from pathlib import Path
 
-from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, url_for
+from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, session, url_for
 
 from invoice_tool.customer_reimbursements.expense_report import batch_contexts
 
@@ -18,6 +21,11 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
                                  customer_reimbursement_items, expense_amount,
                                  render_invoice_pdf, report_attachment_path,
                                  is_external_manager, is_external_employee, get_company_profile=None):
+    def can_clean_export(job):
+        return job["status"] in {"completed", "failed"} and (
+            g.user["role"] == "admin" or int(job["user_id"]) == int(g.user["id"])
+        )
+
     def visible_order_ids(user, requested):
         requested = sorted({int(v) for v in requested if str(v).isdigit()})
         if not requested:
@@ -109,8 +117,56 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
                 else:
                     if stat.S_ISREG(file_stat.st_mode):
                         job["file_size"] = file_stat.st_size
+            job["can_cleanup"] = can_clean_export(job)
             jobs.append(job)
-        return render_template("batch_export_jobs.html", jobs=jobs, export_labels=EXPORT_LABELS)
+        if "batch_export_cleanup_token" not in session:
+            session["batch_export_cleanup_token"] = secrets.token_hex(32)
+        return render_template(
+            "batch_export_jobs.html", jobs=jobs, export_labels=EXPORT_LABELS,
+            cleanup_token=session["batch_export_cleanup_token"],
+        )
+
+    @login_required
+    def cleanup_batch_exports():
+        if is_external_manager() or is_external_employee():
+            abort(403)
+        token = session.get("batch_export_cleanup_token")
+        supplied = request.form.get("cleanup_token", "").encode("utf-8")
+        if not token or not secrets.compare_digest(token.encode("ascii"), supplied):
+            abort(403)
+        job_ids = list(dict.fromkeys(request.form.getlist("job_ids")))
+        if not job_ids or len(job_ids) > 200:
+            abort(400)
+
+        ensure_export_job_schema(db)
+        conn = db()
+        root = Path(data_dir) / "batch-exports"
+        removed = 0
+        for job_id in job_ids:
+            if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", job_id):
+                continue
+            job = conn.execute(
+                "select user_id, status from batch_export_jobs where id = ?", (job_id,),
+            ).fetchone()
+            if job is None or not can_clean_export(job):
+                continue
+            try:
+                (root / f"{job_id}.zip").unlink(missing_ok=True)
+            except OSError:
+                app.logger.exception("Could not clean batch export %s", job_id)
+                continue
+            deleted = conn.execute(
+                "delete from batch_export_jobs where id = ? and status in ('completed', 'failed')",
+                (job_id,),
+            )
+            removed += deleted.rowcount
+        conn.commit()
+        if removed:
+            flash(f"已清理 {removed} 条导出任务及对应的 ZIP。", "success")
+        skipped = len(job_ids) - removed
+        if skipped:
+            flash(f"{skipped} 条选中的任务未能清理，请刷新后查看。", "error")
+        return redirect(url_for("batch_export_jobs"))
 
     @login_required
     def download_batch_export(job_id):
@@ -129,5 +185,6 @@ def register_batch_export_routes(app, *, db, data_dir, login_required,
 
     app.add_url_rule("/service-orders/batch-export/<export_type>", endpoint="create_batch_export", view_func=create_batch_export, methods=["POST"])
     app.add_url_rule("/admin/export-jobs", endpoint="batch_export_jobs", view_func=batch_export_jobs, methods=["GET"])
+    app.add_url_rule("/admin/export-jobs/cleanup", endpoint="cleanup_batch_exports", view_func=cleanup_batch_exports, methods=["POST"])
     app.add_url_rule("/admin/export-jobs/<job_id>/download", endpoint="download_batch_export", view_func=download_batch_export, methods=["GET"])
     return {"create_batch_export": create_batch_export, "batch_export_jobs": batch_export_jobs, "download_batch_export": download_batch_export}
