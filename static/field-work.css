@@ -154,3 +154,5 @@ body[data-panel="camera"] .upload-mode-card span{white-space:nowrap;overflow:hid
 body[data-panel="camera"] #uploadControls small,body[data-panel="camera"] #photoProcessStatus{font-size:11px;line-height:1.4;display:block}
 body[data-panel="camera"] .wm-adjust{display:flex;align-items:center;gap:8px}body[data-panel="camera"] .wm-adjust input{flex:1;min-height:38px}
 body[data-panel="camera"] .wm-heading strong{font-size:15px}
+
+.recognition-mode .ocr-guide { top: 8%; bottom: 8%; height: auto; transform: none; }

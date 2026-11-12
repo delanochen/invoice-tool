@@ -130,8 +130,12 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
         self.conn.executescript("""
             create table batch_export_jobs(id text,order_ids text,export_type text,status text,progress integer,started_at text,file_name text,stored_path text,completed_at text,error text);
             insert into batch_export_jobs(id,order_ids,export_type) values('test','[1]','settlements');
-            create table service_orders(id integer,order_number text,buyer_id integer,client_order_number text);
-            insert into service_orders values(1,'SO-TEST',null,null);
+            create table service_orders(id integer,order_number text,buyer_id integer,client_order_number text,client_name text);
+            insert into service_orders values(1,'SO-TEST',null,null,'Test Site');
+            create table users (id integer, name text);
+            create table field_photos (order_id integer, user_id integer, photo_type text, repair_phase text, captured_at text, id integer);
+            create table field_repairs (id text,order_id integer,completed_date text,equipment_model text,equipment_number text,fault text,result text,work_content text);
+            insert into field_repairs values('repair',1,'2026-11-12','LCI-400CR','12345','Alarm','Clear','Fuse replacement');
             create table service_reports (id integer, service_order_id integer, report_date text);
             insert into service_reports values(1,1,'2026-11-12'),(2,1,'2026-11-12');
             create table service_report_attachments (id integer,report_id integer,category text,stored_filename text,original_filename text);
@@ -169,7 +173,14 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             self.assertEqual(job["file_name"], "工单_SO-TEST.zip")
             with ZipFile(job["stored_path"]) as archive:
                 names = archive.namelist()
-                self.assertIn("工单_SO-TEST.xlsx", names)
+                self.assertIn("工单_SO-TEST/工单_SO-TEST.xlsx", names)
+                report_path = "工单_SO-TEST/现场维修统计表.xlsx"
+                self.assertIn(report_path, names)
+                from openpyxl import load_workbook
+                report = load_workbook(BytesIO(archive.read(report_path))).active
+                self.assertEqual([cell.value for cell in report[3]][:5],
+                                 ["2026-11-12", "Test Site", "LCI-400CR", "12345", "Fuse replacement"])
+                self.assertIn("工单_SO-TEST/附件/", names)
                 self.assertIn("工单结算总账单.xlsx", names)
                 self.assertIn("工单_SO-TEST/", names)
                 self.assertIn("工单_SO-TEST/日报/SO-TEST-2026-11-12-report.docx", names)

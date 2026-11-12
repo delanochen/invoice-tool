@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
+from invoice_tool.service_reports.field_repairs import nameplate_model
 
 PHOTO_TYPE_LABELS = {
     'equipment': '设备',
@@ -41,11 +42,15 @@ def group_repair_photos(photos):
     """
     grouped = {}
     for photo in photos:
+        photo = dict(photo)
         technician = (photo['technician_name'] or photo['employee_name'] or '').strip()
         equipment_number = (photo['equipment_number'] or '').strip()
         position_number = (photo['position_number'] or '').strip()
         container_number = (photo['container_number'] or '').strip()
-        if equipment_number:
+        repair_phase = photo.get('repair_phase')
+        if repair_phase:
+            group_key = ('repair', photo['order_id'], photo['equipment_session'])
+        elif equipment_number:
             group_key = (
                 'device', photo['order_id'], photo['capture_date'], equipment_number.casefold(),
                 position_number.casefold(), container_number.casefold(), technician.casefold(),
@@ -54,9 +59,12 @@ def group_repair_photos(photos):
             group_key = ('session', photo['order_id'], photo['equipment_session'] or f"photo-{photo['id']}")
         entry = grouped.setdefault(group_key, dict(
             order_number=photo['order_number'], date=photo['capture_date'], position_number=position_number,
-            container_number=container_number, equipment_number=equipment_number, pump_fuses=[],
+            container_number=container_number, equipment_number=equipment_number,
+            equipment_model=photo.get('equipment_model') or '', work_content=photo.get('work_content') or '', pump_fuses=[],
             notes=[], technicians=[], photo_count=0, photo_ids=[], order_id=photo['order_id'],
         ))
+        if repair_phase and photo.get('completed_date'):
+            entry['date'] = str(photo['completed_date'])
         entry['photo_count'] += 1
         entry['photo_ids'].append(photo['id'])
         for fuse in re.split(r'[/,，;；\s]+', (photo['pump_fuse_numbers'] or '').strip()):
@@ -87,6 +95,8 @@ def repair_work_text(rows):
             parts.append('位置号 ' + row['position_number'])
         if row.get('equipment_number'):
             parts.append('铭牌号 ' + row['equipment_number'])
+        if row.get('work_content'):
+            parts.append(row['work_content'])
         if row.get('note'):
             parts.append('备注 ' + row['note'])
         if parts:
@@ -175,9 +185,10 @@ def register_field_routes(app, api):
                               or p.container_number like ? or p.pump_fuse_numbers like ? or p.note like ? or clients.name like ?)''')
             params.extend(['%' + q + '%'] * 10)
         return api['db']().execute('''
-            select p.*, service_orders.order_number, service_orders.client_name as site_name, service_orders.site_address,
+            select p.*, r.equipment_model, r.work_content, r.completed_date, service_orders.order_number, service_orders.client_name as site_name, service_orders.site_address,
                    users.name as employee_name, clients.name as customer_name
             from field_photos p join service_orders on service_orders.id = p.order_id
+            left join field_repairs r on r.id = p.equipment_session and r.order_id = p.order_id
             join users on users.id = p.user_id
             left join clients on clients.id = service_orders.client_id
             where ''' + (' and '.join(clauses) or '1=1') + ' order by p.captured_at desc, p.id desc limit 2001', params).fetchall()
@@ -306,7 +317,20 @@ def register_field_routes(app, api):
         container_number = request.form.get('container_number', '').strip().upper()[:200]
         pump_fuse_numbers = request.form.get('pump_fuse_numbers', '').strip()[:200]
         equipment_session = request.form.get('equipment_session', '').strip()[:64]
+        repair_phase = request.form.get('repair_phase', '').strip()
         photo_type = request.form.get('photo_type', 'legacy').strip()
+        if repair_phase:
+            if photo_type != 'equipment' or repair_phase not in {'before', 'after'}:
+                return jsonify(error='维修拍摄阶段无效。'), 422
+            repair = api['db']().execute(
+                'select * from field_repairs where id = ? and order_id = ? and user_id = ?',
+                (equipment_session, order_id, g.user['id']),
+            ).fetchone()
+            if not repair:
+                return jsonify(error='找不到对应维修记录。'), 404
+            equipment_number, position_number, container_number = (
+                repair['equipment_number'], repair['position_number'], repair['container_number'],
+            )
         watermark_at = watermark.isoformat()
         batch_id = request.form.get('batch_id', '').strip()[:64]
         if photo_type not in {'equipment', 'general', 'legacy', 'arrival', 'departure', 'safety'}:
@@ -394,12 +418,12 @@ def register_field_routes(app, api):
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
                  equipment_number, position_number, container_number, pump_fuse_numbers, equipment_session, photo_type, watermark_at,
-                 watermark_source, batch_id, technician_user_id, technician_name, location_verified, capture_date_source)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 watermark_source, batch_id, technician_user_id, technician_name, location_verified, capture_date_source, repair_phase)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
                  relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, container_number, pump_fuse_numbers,
-                 equipment_session, photo_type, watermark_at, watermark_source, batch_id, technician['id'], technician_name, int(location_verified), capture_date_source))
+                 equipment_session, photo_type, watermark_at, watermark_source, batch_id, technician['id'], technician_name, int(location_verified), capture_date_source, repair_phase))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
         except Exception:
@@ -448,7 +472,73 @@ def register_field_routes(app, api):
                 candidates.append(value)
         if not candidates:
             candidates.extend(dict.fromkeys(re.findall(r'(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])', text, re.I)))
-        return jsonify(ok=True, candidates=candidates[:5])
+        return jsonify(ok=True, candidates=candidates[:5], equipment_model=nameplate_model(text))
+
+    @app.route('/api/field/orders/<int:order_id>/repair-records', methods=['GET', 'POST'])
+    @access
+    def field_repair_records(order_id):
+        order = api['require_service_order'](order_id)
+        connection = api['db']()
+        user_id = g.user['id']
+        if request.method == 'GET':
+            rows = connection.execute(
+                'select * from field_repairs where order_id = ? and user_id = ? and completed_date is null order by created_at desc',
+                (order_id, user_id),
+            ).fetchall()
+            return jsonify(rows=[dict(row) for row in rows])
+
+        check_write()
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify(error='维修记录格式无效。'), 422
+        def value(key, limit):
+            return str(data.get(key) or '').strip()[:limit]
+
+        repair_id = value('id', 64)
+        if not re.fullmatch('[0-9a-f]{32}', repair_id):
+            return jsonify(error='维修记录编号无效。'), 422
+        if data.get('action') == 'complete':
+            work = value('work_content', 2000)
+            if not work:
+                return jsonify(error='请填写本次工作内容。'), 422
+            photos = connection.execute(
+                """select repair_phase, max(capture_date) as capture_date from field_photos
+                   where order_id = ? and equipment_session = ? and photo_type = 'equipment'
+                   group by repair_phase""",
+                (order_id, repair_id),
+            ).fetchall()
+            dates = {row['repair_phase']: row['capture_date'] for row in photos}
+            if not dates.get('before') or not dates.get('after'):
+                return jsonify(error='请先上传维修前和维修后照片，再保存结果。'), 422
+            row = connection.execute(
+                """update field_repairs set work_content = ?, result = ?, completed_date = ?
+                   where id = ? and order_id = ? and user_id = ? and completed_date is null returning id""",
+                (work, value('result', 1000), dates['after'], repair_id, order_id, user_id),
+            ).fetchone()
+            if not row:
+                return jsonify(error='维修记录不存在或已完成。'), 409
+        else:
+            if order['status'] == 'closed' or connection.execute(
+                'select 1 from customer_reimbursements where service_order_id = ? limit 1', (order_id,),
+            ).fetchone():
+                return jsonify(error='工单已关闭或已开始结算。'), 409
+            number = value('equipment_number', 200)
+            if not number and data.get('no_equipment_number') is not True:
+                return jsonify(error='请输入设备编号或确认无编号。'), 422
+            row = connection.execute(
+                """insert into field_repairs (id, order_id, user_id, equipment_number, equipment_model,
+                   position_number, container_number, fault, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   on conflict (id) do nothing returning id""",
+                (repair_id, order_id, user_id, number, value('equipment_model', 200), value('position_number', 200),
+                 value('container_number', 200), value('fault', 1000), api['now']()),
+            ).fetchone()
+            if not row and not connection.execute(
+                'select 1 from field_repairs where id = ? and order_id = ? and user_id = ? and completed_date is null',
+                (repair_id, order_id, user_id),
+            ).fetchone():
+                return jsonify(error='维修记录编号已使用。'), 409
+        connection.commit()
+        return jsonify(ok=True, id=repair_id)
 
     @app.get('/api/field/photos')
     @access
@@ -623,12 +713,13 @@ def register_field_routes(app, api):
         if report_date:
             if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', report_date):
                 return jsonify(error='日期格式应为 YYYY-MM-DD。'), 400
-            where_day = ' and p.capture_date = ?'
+            where_day = ' and coalesce(cast(r.completed_date as text), p.capture_date) = ?'
             day_params = [report_date]
         sql = '''
-            select p.*, service_orders.order_number, users.name as employee_name
+            select p.*, r.equipment_model, r.work_content, r.completed_date, service_orders.order_number, users.name as employee_name
             from field_photos p join service_orders on service_orders.id = p.order_id
             join users on users.id = p.user_id
+            left join field_repairs r on r.id = p.equipment_session and r.order_id = p.order_id
             where p.order_id = ? and p.photo_type = 'equipment'
         '''
         if where_day:
@@ -638,7 +729,7 @@ def register_field_routes(app, api):
         rows = group_repair_photos([dict(row) for row in photos])
         items = [dict(
             date=row['date'], position_number=row['position_number'], container_number=row['container_number'],
-            equipment_number=row['equipment_number'], pump_fuse_numbers=row['pump_fuse_numbers'],
+            equipment_number=row['equipment_number'], equipment_model=row['equipment_model'], work_content=row['work_content'], pump_fuse_numbers=row['pump_fuse_numbers'],
             note=row['note'], technician=row['technician'], photo_count=row['photo_count'],
         ) for row in rows]
         return jsonify(ok=True, order_id=order_id, order_number=order['order_number'],

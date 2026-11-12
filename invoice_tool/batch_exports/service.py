@@ -14,6 +14,7 @@ from invoice_tool.customer_reimbursements.expense_report import (
 from invoice_tool.customer_reimbursements.export_attachments import exportable_settlement_attachments
 from invoice_tool.invoices import order_links as _invoice_order_links
 from invoice_tool.service_reports.mileage_export import write_mileage_documents
+from invoice_tool.service_reports.field_repairs import build_field_repair_workbook
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -299,8 +300,10 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         attachment_folder = os.path.splitext(filename)[0]
                         if len(contexts) == 1:
                             zip_name = f"{attachment_folder}.zip"
-                        archive.writestr(filename, data)
                         archive.mkdir(attachment_folder)
+                        archive.writestr(f"{attachment_folder}/{filename}", data)
+                        archive.writestr(f"{attachment_folder}/现场维修统计表.xlsx", build_field_repair_workbook(conn, order))
+                        archive.mkdir(f"{attachment_folder}/附件")
                         write_daily_reports(
                             archive, conn, order, order_no, f"{attachment_folder}/日报", missing,
                             build_service_report_docx=build_service_report_docx,
@@ -333,7 +336,7 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                                 index += 1
                             attachment_names.add(candidate.casefold())
                             filename = candidate
-                            archive.write(source_path, f"{attachment_folder}/{filename}")
+                            archive.write(source_path, f"{attachment_folder}/附件/{filename}")
                     elif export_type == "invoices":
                         invoice_cond = _invoice_order_links.invoice_order_sql(conn, 'invoices', '?')
                         invoices = conn.execute(
