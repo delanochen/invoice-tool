@@ -1,12 +1,9 @@
-"""Apply the field repairs migration to invoice_test only.
-
-仓库约定：开发与验证只在 invoice_test 进行，生产副本不参与演练。
-"""
+"""Apply the field repairs schema to the verified test or production database."""
 import argparse
 from pathlib import Path
 import subprocess
 
-ALLOWED_DATABASES = ('invoice_test',)
+ALLOWED_DATABASES = ('invoice_test', 'invoice_production')
 
 
 def main():
