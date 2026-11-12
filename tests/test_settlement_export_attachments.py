@@ -48,11 +48,24 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
         order = {"buyer_id": 1, "client_order_number": "SHPG2026102913515",
                  "order_number": "SO2610004", "site_address": "Wever, IA 52658"}
         context = (order, {}, "INV-1", "2026-11-02", "2026-11-06")
-        expected = "SHPG2026102913515_Wever - East_11-02~11-06.xlsx"
+        expected = "SHPG2026102913515_Wever - East_IA_11-02~11-06.xlsx"
         self.assertEqual(settlement_export_filename(context, self.conn), expected)
         cross_year = (order, {}, 'INV-1', '2026-12-30', '2027-01-02')
         self.assertEqual(settlement_export_filename(cross_year, self.conn),
-                         'SHPG2026102913515_Wever - East_12-30~01-02.xlsx')
+                         'SHPG2026102913515_Wever - East_IA_12-30~01-02.xlsx')
+
+    def test_long_zip_excel_filename_trims_only_the_tail(self):
+        from invoice_tool.batch_exports.service import settlement_zip_excel_name
+
+        normal = "SHPG2026102913515_Faraday BESS_UT_10-20~10-22"
+        self.assertEqual(settlement_zip_excel_name(normal + ".xlsx", normal, normal + ".zip"),
+                         normal + ".xlsx")
+        long = "SHPG2026102913515_" + ("Faraday Site " * 4) + "_UT_10-20~10-22"
+        result = settlement_zip_excel_name(long + ".xlsx", long, long + ".zip")
+        self.assertTrue(result.startswith("SHPG2026102913515"))
+        self.assertTrue(result.endswith(".xlsx"))
+        self.assertLess(len(result), len(long + ".xlsx"))
+        self.assertLessEqual(64 + 2 + 2 * len(long) + len(result), 259)
 
     def test_manual_kept_zero_customer_amount_excluded_positive_kept(self):
         self.conn.executemany(
@@ -174,7 +187,7 @@ class SettlementExportAttachmentsTest(unittest.TestCase):
             self.assertEqual(job["file_name"], "SHPG2026102913515.zip")
             with ZipFile(job["stored_path"]) as archive:
                 names = archive.namelist()
-                self.assertIn("SHPG2026102913515/工单结算表.xlsx", names)
+                self.assertIn("SHPG2026102913515/SHPG2026102913515.xlsx", names)
                 report_path = "SHPG2026102913515/现场维修统计表.xlsx"
                 self.assertIn(report_path, names)
                 from openpyxl import load_workbook

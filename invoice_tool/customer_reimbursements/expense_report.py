@@ -9,6 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from invoice_tool.customers.services import US_STATE_CODES, state_code_from_address
 from invoice_tool.invoices.order_links import (
     current_invoice_clause, invoice_amount_cents, service_order_link_state,
     supports_invoice_orders, work_order_label,
@@ -85,17 +86,22 @@ def settlement_filename_dates(first, last):
     return '~'.join(filter(None, (month_day(first), month_day(last))))
 
 
-def settlement_export_filename(context, connection):
+def settlement_export_filename(context, connection, *, include_state=True):
     order, _, _, first, last = context
     order = dict(order)
     site = None
     if order.get('buyer_id'):
         site = connection.execute(
-            'select name from buyers where id = ?', (order['buyer_id'],),
+            'select name, state_code from buyers where id = ?', (order['buyer_id'],),
         ).fetchone()
+    state = None
+    if include_state:
+        state = str(site['state_code'] or '').strip().upper() if site else ''
+        if state not in US_STATE_CODES:
+            state = state_code_from_address(order.get('site_address'))
     parts = (
         order.get('client_order_number') or order.get('order_number'),
-        site['name'] if site else None, settlement_filename_dates(first, last),
+        site['name'] if site else None, state, settlement_filename_dates(first, last),
     )
     parts = [re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', str(part)).strip(' .') for part in parts if part]
     return '_'.join(part for part in parts if part) + '.xlsx'

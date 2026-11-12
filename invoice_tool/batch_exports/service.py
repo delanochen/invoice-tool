@@ -33,6 +33,19 @@ def safe_name(value, fallback="file"):
     return text or fallback
 
 
+def settlement_zip_excel_name(filename, folder, zip_name):
+    # Reserve room for the user's download directory and the default extraction folder.
+    def units(value):
+        return len(value.encode("utf-16-le")) // 2
+
+    stem, extension = os.path.splitext(filename)
+    outer_folder = os.path.splitext(zip_name)[0]
+    available = max(units(stem.split("_", 1)[0]), 259 - 64 - units(outer_folder) - units(folder) - units(extension) - 2)
+    while units(stem) > available:
+        stem = stem[:-1]
+    return (stem.rstrip(" ._~-") or "结算") + extension
+
+
 def utcnow_text():
     return datetime.now(timezone.utc).isoformat()
 
@@ -291,8 +304,9 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                         xlsx = build_expense_report(context, items, expense_amount=expense_amount, company=company)
                         data = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx.read()
                         if len(contexts) == 1:
-                            zip_name = os.path.splitext(settlement_export_filename(context, conn))[0] + ".zip"
-                        folder_base = safe_name(order["client_order_number"], order_no)
+                            zip_name = os.path.splitext(settlement_export_filename(context, conn, include_state=False))[0] + ".zip"
+                        filename = settlement_export_filename(context, conn)
+                        folder_base = os.path.splitext(filename)[0]
                         attachment_folder = folder_base
                         duplicate = 2
                         while attachment_folder.casefold() in settlement_folders:
@@ -300,7 +314,8 @@ def run_export_job(job_id, *, app, db, data_dir, build_service_report_docx, buil
                             duplicate += 1
                         settlement_folders.add(attachment_folder.casefold())
                         archive.mkdir(attachment_folder)
-                        archive.writestr(f"{attachment_folder}/工单结算表.xlsx", data)
+                        excel_name = settlement_zip_excel_name(filename, attachment_folder, zip_name)
+                        archive.writestr(f"{attachment_folder}/{excel_name}", data)
                         archive.writestr(f"{attachment_folder}/现场维修统计表.xlsx", build_field_repair_workbook(conn, order))
                         archive.mkdir(f"{attachment_folder}/附件")
                         write_daily_reports(
