@@ -131,9 +131,6 @@ body[data-panel="camera"]:not(.camera-active) #timeSettings legend{float:left;pa
 body[data-panel="camera"]:not(.camera-active) #timeSettings .time-actions{flex:1;justify-content:flex-end;gap:8px!important}
 body[data-panel="camera"]:not(.camera-active) #timeSettings #watermarkModeText{flex:1;font-size:13px}
 body[data-panel="camera"]:not(.camera-active) #adjustWatermarkTime{min-height:34px;padding:4px 12px}
-/* 设备信息：位置号 / 集装箱号两列 */
-body[data-panel="camera"]:not(.camera-active) .device-session label:has(#positionNumber),body[data-panel="camera"]:not(.camera-active) .device-session label:has(#containerNumber){float:left;width:calc(50% - 4px)}
-body[data-panel="camera"]:not(.camera-active) .device-session label:has(#positionNumber){margin-right:8px}
 body[data-panel="camera"]:not(.camera-active) #deviceNoteSlot,body[data-panel="camera"]:not(.camera-active) #deviceStatus{clear:both}
 body[data-panel="camera"]:not(.camera-active) .device-heading-actions{margin-top:-24px;margin-bottom:0}
 body[data-panel="camera"]:not(.camera-active) .device-heading-actions button{min-height:30px;padding:3px 10px}
@@ -174,3 +171,33 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 .repair-photo-strip { display:flex; gap:8px; overflow-x:auto; }
 .repair-photo-strip img { width:76px; height:58px; object-fit:cover; border-radius:6px; }
 body[data-panel="camera"] #timeSettings.repair-watermark { margin:4px 0; padding:2px 8px; border:0; border-radius:6px; background:#eef4ef; }
+
+@media (max-width:600px) {
+  body[data-panel=camera]:not(.camera-active) .capture-card { padding-inline:8px; }
+  body[data-panel="camera"] #deviceSession {
+    min-inline-size:0;
+    border:0;
+    padding:0;
+    background:transparent;
+  }
+  #deviceSession legend { padding:0; }
+  .repair-tabs { margin-top:6px; }
+  #deviceSession .repair-card {
+    border:0;
+    border-top:1px solid var(--line);
+    border-radius:0;
+    padding:10px 0 0;
+    background:transparent;
+  }
+  .repair-device-grid {
+    grid-template-columns:minmax(0,1fr);
+    gap:8px;
+  }
+  body[data-panel="camera"] .repair-device-grid label {
+    gap:4px;
+    min-width:0;
+    margin:0;
+  }
+  .repair-device-grid input { min-width:0; font-size:16px; }
+  body[data-panel="camera"] .repair-device-actions .check-label { margin:0; }
+}
