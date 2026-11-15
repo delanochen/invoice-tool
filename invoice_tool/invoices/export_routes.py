@@ -10,12 +10,12 @@ def register_invoice_export_routes(app, *,
     render_invoice_pdf,
     secure_filename,
 ):
-    def _pdf_response(invoice, client, items):
+    def _pdf_response(invoice, client, items, *, as_attachment=True):
         invoice_name = secure_filename(invoice["invoice_number"]) or f"invoice-{invoice['id']}"
         return send_file(
             BytesIO(render_invoice_pdf(invoice, client, items)),
             mimetype="application/pdf",
-            as_attachment=True,
+            as_attachment=as_attachment,
             download_name=f"{invoice_name}.pdf",
         )
 
@@ -34,6 +34,12 @@ def register_invoice_export_routes(app, *,
         return _pdf_response(invoice, client, items)
 
 
+    @login_required
+    def preview_invoice_pdf(invoice_id):
+        invoice, client, items = load_invoice(invoice_id)
+        return _pdf_response(invoice, client, items, as_attachment=False)
+
+    app.add_url_rule('/invoices/<int:invoice_id>/preview-pdf', endpoint='preview_invoice_pdf', view_func=preview_invoice_pdf, methods=['GET'])
     app.add_url_rule('/invoices/<int:invoice_id>/export', endpoint='export_invoice', view_func=export_invoice, methods=['GET', 'POST'])
     app.add_url_rule('/invoices/<int:invoice_id>/export-pdf', endpoint='export_invoice_pdf', view_func=export_invoice_pdf, methods=['GET'])
     return {'export_invoice': export_invoice, 'export_invoice_pdf': export_invoice_pdf}

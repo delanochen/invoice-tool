@@ -426,6 +426,7 @@ def required_action_for_request(*, g, request):
         "void_invoice": ("invoices", "edit"),
         "export_invoice": ("invoices", "export"),
         "export_invoice_pdf": ("invoices", "export"),
+        "preview_invoice_pdf": ("invoices", "export"),
         "delete_attachment": ("invoices", "edit"),
         "accounting_vouchers": ("accounting_vouchers", "view"),
         "accounting_voucher_detail": ("accounting_vouchers", "view"),
