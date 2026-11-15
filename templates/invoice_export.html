@@ -20,6 +20,7 @@
       .invoice-info, .invoice-table, .invoice-bottom { margin-top: 22px; }
       .invoice-totals { border-top: 2px solid #111827; padding-top: 12px; }
       .due { margin-top: 10px; padding-top: 10px; border-top: 1px solid #d9dee7; font-size: 18px; }
+      .invoice-work-orders { margin-top: 14px; line-height: 1.35; overflow-wrap: anywhere; }
       .tax-note { color: #667085; font-size: 12px; }
       @page { size: A4; margin: 0; }
     </style>
@@ -28,6 +29,7 @@
     <article class="invoice-paper">
       <div class="invoice-top">
         <div>
+          <img class="invoice-logo" src="{{ url_for('static', filename='logo.svg') }}" alt="Prasinos Power LLC logo">
           <h2>{{ company.name }}</h2>
           <p>{{ company.address|nl2br }}</p>
         </div>
@@ -61,15 +63,6 @@
       </table>
       <div class="invoice-bottom">
         <section>
-          {% set orders = linked_orders or ([service_order] if service_order else []) %}
-          {% if orders %}
-            <h3>Work Orders</h3>
-            <div style="overflow-wrap: anywhere">
-              {% for order in orders %}
-                <div>{% if order.client_order_number and order.order_number %}{{ order.client_order_number }}（{{ order.order_number }}）{% else %}{{ order.client_order_number or order.order_number }}{% endif %}</div>
-              {% endfor %}
-            </div>
-          {% endif %}
           <h3>Notes</h3>
           <p>{{ invoice.notes }}</p>
           <h3>Terms</h3>
@@ -84,6 +77,7 @@
           <p class="due"><span>Amount Due</span><strong>{{ totals.total|money(invoice.currency) }}</strong></p>
         </section>
       </div>
+      {% include 'invoice_work_orders.html' %}
     </article>
   </body>
 </html>

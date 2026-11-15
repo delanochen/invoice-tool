@@ -1,0 +1,14 @@
+{% set orders = linked_orders or ([service_order] if service_order else []) %}
+{% if orders %}
+<section class="invoice-work-orders">
+  <h3>Work Orders</h3>
+  {% for order in orders %}
+    {% set number = order.client_order_number or order.order_number %}
+    {% set internal = order.order_number if order.client_order_number else '' %}
+    {% if number %}
+      {% set label = number ~ ('（' ~ internal ~ '）' if internal else '') %}
+      <div>{% if link_work_orders %}<a href="{{ url_for('service_order_detail', order_id=order.service_order_id or order.id) }}">{{ label }}</a>{% else %}{{ label }}{% endif %}</div>
+    {% endif %}
+  {% endfor %}
+</section>
+{% endif %}

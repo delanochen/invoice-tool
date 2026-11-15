@@ -2025,6 +2025,8 @@ th { color: var(--muted); font-size: 13px; font-weight: 700; }
 .meta-list p, .invoice-totals p { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 7px; }
 .invoice-info, .invoice-table, .invoice-bottom { margin-top: 22px; }
 .invoice-totals { border-top: 2px solid #111827; padding-top: 12px; }
+.invoice-work-orders { margin-top: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.invoice-work-orders h3 { margin: 0 0 6px; }
 .invoice-totals .due { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 18px; }
 .tax-note { color: var(--muted); font-size: 12px; }
 
