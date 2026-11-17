@@ -450,18 +450,35 @@ def validate_fault_llm(payload):
     return '\n'.join(lines)[:FAULT_TEXT_LIMIT]
 
 
+def _first_vision_config(api):
+    """Any enabled vision-capable provider, used when a scene is not mapped yet."""
+    try:
+        row = api['db']().execute(
+            "select * from llm_configs where enabled = 1 and supports_vision = 1 "
+            "and coalesce(api_key, '') <> '' order by id limit 1"
+        ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    return {'model': row['model'], 'base_url': (row['base_url'] or '').rstrip('/'), 'api_key': row['api_key']}
+
+
 def _vision_settings_for_scene(api, scene):
-    """Vision provider mapped to a scene; None when the scene is not usable.
+    """Vision provider mapped to a scene; falls back to any enabled vision provider.
 
     Mapping this scene in System Settings is the admin's explicit opt-in, so the
     daily-report privacy switch is not required here; the nameplate fallback still
     respects it through _vision_settings_for_nameplate.
     """
+    cfg = None
     try:
         cfg = api['llm_config'].get_config(api['db'](), scene)
     except Exception:
-        return None
-    if not cfg or not cfg.get('supports_vision') or not cfg.get('api_key') or not cfg.get('model'):
+        cfg = None
+    if not (cfg and cfg.get('supports_vision') and cfg.get('api_key') and cfg.get('model')):
+        cfg = _first_vision_config(api)
+    if not (cfg and cfg.get('supports_vision') and cfg.get('api_key') and cfg.get('model')):
         return None
     return {'model': cfg['model'], 'base_url': cfg.get('base_url') or '', 'api_key': cfg['api_key']}
 
@@ -1808,6 +1825,44 @@ def register_field_routes(app, api):
         if request.path.startswith('/api/field/'):
             response.headers['Cache-Control'] = 'no-store, private'
         return response
+
+    def auto_map_field_fault_model():
+        """Point the controller-screen scene at an existing vision model.
+
+        Admins already map a vision model for nameplates or daily photos; reuse it
+        for the controller screen instead of leaving the scene unconfigured (which
+        silently fell back to the local OCR and produced garbled Chinese).
+        """
+        try:
+            if api['get_setting']('llm_scene_field_fault', '').strip():
+                return
+            db = api['db']()
+            chosen = None
+            for scene in ('daily_vision', 'attachment_interpret', 'wechat_vision'):
+                mapped = api['get_setting'](f'llm_scene_{scene}', '').strip()
+                if not mapped or not mapped.isdigit():
+                    continue
+                row = db.execute(
+                    'select id from llm_configs where id = ? and enabled = 1 and supports_vision = 1',
+                    (int(mapped),),
+                ).fetchone()
+                if row:
+                    chosen = row['id']
+                    break
+            if chosen is None:
+                row = db.execute(
+                    'select id from llm_configs where enabled = 1 and supports_vision = 1 order by id limit 1'
+                ).fetchone()
+                chosen = row['id'] if row else None
+            if chosen is None:
+                return
+            api['set_setting']('llm_scene_field_fault', str(chosen))
+            app.logger.info('field_fault scene mapped to vision config %s', chosen)
+        except Exception:
+            app.logger.exception('field_fault scene auto mapping failed')
+
+    with app.app_context():
+        auto_map_field_fault_model()
 
     def backfill_repair_container_numbers():
         """One-off repair for rows created before 0.1.519.
