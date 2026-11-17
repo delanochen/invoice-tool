@@ -211,7 +211,7 @@
     openWatermarkTimeDialog();
   }
   function openWatermarkDialog() {
-    if (!batch?.type) { notice('请先选择本组照片类型。',true); return; }
+    ensureSession();
     if (timeAuthorized) { openWatermarkTimeDialog(); return; }  // 本组已验证过密码：直接进入时间设定
     $('watermarkPassword').value = '';
     setFieldText('passwordStatus','请输入水印时间调整密码。');
@@ -446,6 +446,7 @@
   }
   async function saveAlbumLikeCamera(files) {
     if (!files.length || taking) return;
+    ensureSession();
     if (!UPLOAD_TYPES.includes(batch?.type)) { notice('请先选择照片类型：进场、离场、自检或设备。', true); return; }
     if (batch.type === 'equipment' && repairStage === 'after' && !activeRepair) { notice('请先选择维修记录。', true); return; }
     taking = true;
@@ -780,7 +781,6 @@
   }
   function stopCamera() {
     cameraStripSession = null;
-    clearRecentCaptures();
     clearInterval(scanTimer); scanTimer = null;
     clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
     clearTimeout(ocrStartTimer); ocrStartTimer = null;
@@ -798,8 +798,7 @@
   async function openCamera(recognitionOnly = false, faultMode = false) {
     if (!identityReady || !profile?.can_capture) return;
     if (!recognitionOnly && captureMode !== 'camera') return;
-    if (!batch?.type) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
-    if (batch.type === 'general') { notice('请先选择进场、离场或自检照片。',true); return; }
+    ensureSession();
     if (!useSystemTime && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
     if (batch.type === 'equipment' && repairStage === 'after' && !activeRepair && !recognitionOnly) {
       notice('请先按位置号选择维修记录。', true);
@@ -1134,7 +1133,8 @@
         ...(originalDevice ? {equipment_number:originalDevice.equipment_number,position_number:originalDevice.position_number,
         container_number:originalDevice.container_number,equipment_session:originalDevice.id,repair_phase:originalDevice.repair_phase || '',no_equipment_number:originalDevice.no_equipment_number} : {})};
     }
-    if (!batch) throw new Error('请先确认本组照片类型。');
+    if (!batch) batch = {id:key(), type:'equipment', actual_start:Date.now(), watermark_start:null, session_id:null};
+    if (!batch.session_id) batch.session_id = batch.id;
     if (batch.type === 'general') throw new Error('请先选择进场、离场或自检照片。');
     // Freeze the shutter-time metadata before asynchronous location checks.
     const photoType = batch.type, captureBatchId = batch.id;
@@ -1208,10 +1208,33 @@
     if (!batch.pending) batch.pending = {equipment_number:'', equipment_model:'', container_number:'', position_number:'', fault:'', sources:{}};
     return batch.pending;
   }
+  const ROLE_PHOTO_TYPE = {arrival:'arrival', departure:'departure', safety:'safety', nameplate:'equipment', container:'equipment', position:'equipment', controller:'equipment', other:'equipment', none:'equipment'};
+  const ROLE_LABEL = {arrival:'进场', departure:'离场', safety:'自检', nameplate:'铭牌', container:'集装箱号', position:'位置号', controller:'手操器', other:'其他设备', none:'其他设备'};
+  const RECOGNIZE_ROLES = new Set(['nameplate', 'container', 'position', 'controller']);
+  function ensureSession() {
+    if (!batch) batch = {id:key(), type:'equipment', actual_start:Date.now(), watermark_start:null};
+    if (!batch.session_id) batch.session_id = batch.id;
+    return batch;
+  }
+  function roleToPhotoType(role) { return ROLE_PHOTO_TYPE[role] || 'equipment'; }
+  function applyPhotoRole(photo, role) {
+    const session = ensureSession();
+    photo.photo_role = role === 'none' ? 'other' : role;
+    photo.photo_type = roleToPhotoType(photo.photo_role);
+    photo.capture_session = session.session_id;
+    photo.batch_id = session.session_id + ':' + photo.photo_type;
+    session.type = photo.photo_type;
+  }
+  function highlightLastRole() {
+    const last = localStorage.getItem('field-last-photo-role') || '';
+    document.querySelectorAll('#photoRoleDialog [data-role]').forEach(button => button.classList.toggle('role-default', button.dataset.role === last));
+  }
   function askPhotoRole() {
+    highlightLastRole();
     return new Promise(resolve => { photoRoleResolve = resolve; $('photoRoleDialog').showModal(); });
   }
   function finishPhotoRole(role) {
+    if (role) localStorage.setItem('field-last-photo-role', role);
     $('photoRoleDialog').close();
     const resolve = photoRoleResolve;
     photoRoleResolve = null;
@@ -1232,8 +1255,9 @@
     await renderQueue();
     notice('照片已保存。请选择这张照片是什么。');
     const role = await askPhotoRole();
-    photo.photo_role = role;
-    if (role === 'none') {
+    applyPhotoRole(photo, role);
+    await renderQueue();
+    if (!RECOGNIZE_ROLES.has(photo.photo_role)) {
       photo.recognition_status = 'skipped';
       await storePhoto(photo);
       return;
@@ -1470,15 +1494,16 @@
     $('recentCaptures').hidden = true;
   }
   function renderRecentCaptures(photos) {
-    if (!cameraStripSession) { clearRecentCaptures(); return; }
-    photos = photos.filter(photo => cameraStripSession.ids.has(photo.client_id) && photo.batch_id === cameraStripSession.batchId);
+    const session = batch?.session_id;
+    if (!session) { clearRecentCaptures(); return; }
+    photos = photos.filter(photo => photo.capture_session === session || photo.batch_id === session || String(photo.batch_id || '').startsWith(session + ':'));
     const pending = new Map(photos.map(photo => [photo.client_id, photo]));
     for (const [id, view] of recentCaptureViews) {
       if (view.photo.user_id !== profile?.user.id || (!pending.has(id) && !view.uploaded)) {
         URL.revokeObjectURL(view.url); recentCaptureViews.delete(id);
       }
     }
-    for (const photo of photos.filter(photo => photo.source === 'camera')) {
+    for (const photo of photos) {
       if (!recentCaptureViews.has(photo.client_id)) {
         recentCaptureViews.set(photo.client_id, {photo, url:URL.createObjectURL(photo.blob), uploaded:false});
       } else recentCaptureViews.get(photo.client_id).photo = photo;
@@ -1492,12 +1517,11 @@
       const button = document.createElement('button'); button.type = 'button';
       button.className = 'recent-capture'; button.dataset.photoId = id;
       const image = document.createElement('img'); image.src = view.url; image.alt = fieldText('照片预览');
-      const status = textNode('span', view.uploaded ? '已上传' : uploadingPhotoId === id ? '正在上传' : view.photo.error ? '上传失败' : '本机草稿');
-      status.textContent = fieldText(status.textContent);
-      button.title = fieldText(view.photo.error || status.textContent);
+      const status = textNode('span', ROLE_LABEL[view.photo.photo_role] || '未分类', 'role-badge');
+      button.title = fieldText('点按可更改这张照片的类型');
       button.append(image, status);
       image.onerror = () => { image.hidden = true; };
-      button.addEventListener('click', () => openDraft(view.photo, view.uploaded));
+      button.addEventListener('click', () => reclassifyPhoto(view.photo));
       strip.append(button);
     }
     strip.hidden = !strip.children.length;
@@ -1622,7 +1646,7 @@
           photo.blob = new Blob([uploadBytes], {type:photo.blob.type || photo.content_type || 'application/octet-stream'});
           photo.error = '';
           await storePhoto(photo);
-          if (photo.recognition_status === 'offline' && photo.photo_role && photo.photo_role !== 'none') {
+          if (photo.recognition_status === 'offline' && RECOGNIZE_ROLES.has(photo.photo_role)) {
             try {
               await runRoleRecognition(photo);
               const fields = batch?.pending || {equipment_number:photo.recognized_number || '', equipment_model:photo.recognized_model || '', container_number:photo.recognized_container || '', position_number:photo.recognized_position || '', fault:photo.recognized_fault || ''};
@@ -1665,27 +1689,28 @@
   }
   async function completeBatch() {
     if (!batch) return;
-    const id=batch.id;
-    let groupPhotos = await queued(id);
+    const session = batch.session_id || batch.id;
+    const inSession = photo => photo.capture_session === session || photo.batch_id === session || String(photo.batch_id || '').startsWith(session + ':');
+    let groupPhotos = (await queued()).filter(inSession);
     if (navigator.onLine) {
       for (const photo of groupPhotos) {
-        if (photo.recognition_status === 'offline' && photo.photo_role && photo.photo_role !== 'none') {
+        if (photo.recognition_status === 'offline' && RECOGNIZE_ROLES.has(photo.photo_role)) {
           try { await runRoleRecognition(photo); } catch (_) {}
         }
       }
-      groupPhotos = await queued(id);
+      groupPhotos = (await queued()).filter(inSession);
     }
     if (groupPhotos.length) {
       const accepted = await showGroupConfirm(groupPhotos);
       if (!accepted) return;
       await applyGroupWatermark(groupPhotos);
     }
-    await syncQueue(id);
-    if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
+    for (const batchId of [...new Set(groupPhotos.map(photo => photo.batch_id))]) await syncQueue(batchId);
+    if ((await queued()).filter(inSession).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
-    setKindChoiceActive(null); setFieldText('kindStatus','请选择下一组照片类型。'); $('photoNote').value=''; setUploadWatermark(false);
-    notice('本组照片已全部上传，请选择下一组照片类型。'); await renderQueue();
+    setKindChoiceActive(null); setFieldText('kindStatus','拍照后在照片上选择类型。'); $('photoNote').value=''; setUploadWatermark(false);
+    notice('本组照片已全部上传，可以继续拍照。'); await renderQueue();
   }
   async function loadLedger() {
     if (!identityReady) return;
@@ -1936,10 +1961,25 @@
   });
   $('retryRecognitionFile').addEventListener('change', () => { const [file] = chosenFiles($('retryRecognitionFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
   $('retrySamePhotoFile').addEventListener('change', () => { const [file] = chosenFiles($('retrySamePhotoFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
-  for (const [id, role] of [['roleNameplate','nameplate'],['roleContainer','container'],['rolePosition','position'],['roleController','controller'],['roleNone','none']]) {
+  async function reclassifyPhoto(photo) {
+    const role = await askPhotoRole();
+    if (!role) return;
+    applyPhotoRole(photo, role);
+    if (!RECOGNIZE_ROLES.has(photo.photo_role) || !navigator.onLine) {
+      photo.recognition_status = RECOGNIZE_ROLES.has(photo.photo_role) ? 'offline' : 'skipped';
+      await storePhoto(photo);
+      if (photo.recognition_status === 'offline') notice('已记下照片类型，联网后会自动识别。');
+      await renderQueue();
+      return;
+    }
+    await runRoleRecognition(photo);
+    await renderQueue();
+  }
+  $('shutterFile').addEventListener('change', () => { const [file] = chosenFiles($('shutterFile')); if (file) saveAlbumLikeCamera([file]); });
+  for (const [id, role] of [['roleArrival','arrival'],['roleDeparture','departure'],['roleSafety','safety'],['roleNameplate','nameplate'],['roleContainer','container'],['rolePosition','position'],['roleController','controller'],['roleOther','other']]) {
     $(id).addEventListener('click', () => finishPhotoRole(role));
   }
-  $('photoRoleDialog').addEventListener('cancel', event => { event.preventDefault(); finishPhotoRole('none'); });
+  $('photoRoleDialog').addEventListener('cancel', event => { event.preventDefault(); finishPhotoRole('other'); });
   $('cancelGroupConfirm').addEventListener('click', () => { $('groupConfirmDialog').close(); groupConfirmResolve?.(false); groupConfirmResolve = null; });
   $('confirmGroupSave').addEventListener('click', () => { $('groupConfirmDialog').close(); groupConfirmResolve?.(true); groupConfirmResolve = null; });
   $('groupConfirmDialog').addEventListener('cancel', event => { event.preventDefault(); $('cancelGroupConfirm').click(); });
