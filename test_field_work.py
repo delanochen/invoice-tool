@@ -226,6 +226,35 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(response.json['source'], 'ocr')
         self.assertIn('故障码175', response.json['fault_text'])
 
+    def test_repair_work_content_saves_without_completing(self):
+        repair_id = uuid.uuid4().hex
+        created = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={'id': repair_id, 'equipment_number': '1023240407536', 'equipment_model': 'LCI-400CR',
+                  'fault': '线束接头松动', 'no_equipment_number': False},
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        work = '检测保险丝，发现保险丝完好。重新插拔接头并用扎带紧固。'
+        saved = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={'id': repair_id, 'action': 'save_work', 'work_content': work},
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        with self.module.app.app_context():
+            row = self.module.db().execute(
+                'select work_content, completed_date from field_repairs where id = ?', (repair_id,)
+            ).fetchone()
+        self.assertEqual(row['work_content'], work)
+        self.assertIsNone(row['completed_date'])
+        empty = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={'id': repair_id, 'action': 'save_work', 'work_content': '   '},
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(empty.status_code, 422)
+
     def test_repair_fault_stores_long_simplified_chinese(self):
         fault = '水泵3干磨故障。' * 400
         self.assertGreater(len(fault), 1000)

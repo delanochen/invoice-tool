@@ -2155,6 +2155,18 @@
     } catch(error) { notice(error.message,true); }
     finally { button.disabled = activeRepair?.repair_phase !== 'after'; }
   });
+  $('saveWorkLog').addEventListener('click', async () => {
+    const order = chosenOrder(), work = $('repairWork').value.trim();
+    if (!order || !profile) return;
+    if (!work) { notice('请填写本次工作内容。', true); return; }
+    if (!activeRepair) { notice('请先保存维修前状态，工作内容会记在这条维修记录上。', true); return; }
+    const button = $('saveWorkLog'); button.disabled = true;
+    try {
+      await repairRequest(order, {id: activeRepair.id, action: 'save_work', work_content: work});
+      notice('工作内容已保存。');
+    } catch (error) { notice(error.message, true); }
+    finally { button.disabled = false; }
+  });
   $('scanRepairFault').addEventListener('click', () => openCamera(true, true));
   $('readRepairFault').addEventListener('click', () => recognizeDevice(false, true));
   $('nameplateCamera').addEventListener('change', () => { const [file] = chosenFiles($('nameplateCamera')); if (file) recognizeNameplateFile(file); });

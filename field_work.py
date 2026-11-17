@@ -1321,6 +1321,19 @@ def register_field_routes(app, api):
         repair_id = value('id', 64)
         if not re.fullmatch('[0-9a-f]{32}', repair_id):
             return jsonify(error='维修记录编号无效。'), 422
+        if data.get('action') == 'save_work':
+            work = value('work_content', 2000)
+            if not work:
+                return jsonify(error='请填写本次工作内容。'), 422
+            row = connection.execute(
+                """update field_repairs set work_content = ?
+                   where id = ? and order_id = ? and user_id = ? and completed_date is null returning id""",
+                (work, repair_id, order_id, user_id),
+            ).fetchone()
+            if not row:
+                return jsonify(error='维修记录不存在或已完成。'), 409
+            return json_utf8({'ok': True, 'id': repair_id})
+
         if data.get('action') == 'complete':
             work = value('work_content', 2000)
             if not work:
