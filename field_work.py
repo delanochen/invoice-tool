@@ -1,6 +1,7 @@
 """Field photo PWA endpoints; keeps the existing application permission model."""
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -22,6 +23,18 @@ from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
 from invoice_tool.service_reports.field_repairs import (
     FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model, nameplate_numbers,
+)
+
+logger = logging.getLogger("invoice.field_work")
+NAMEPLATE_LLM_TIMEOUT = 15
+NAMEPLATE_DEBUG_KEEP = 30
+NAMEPLATE_DEBUG_TTL_SECONDS = 48 * 60 * 60
+_NAMEPLATE_PROMPT = (
+    "You read a Tongfei / Sanhe Tongfei Refrigeration equipment nameplate. "
+    "Return only a JSON object with keys machine_number and equipment_model. "
+    "machine_number is the Machine Number / 机器编号, digits only. "
+    "equipment_model is the Machine Type / Model / 型号, for example LCI-400CR-01AZ-3487U. "
+    "Copy the engraved characters. Do not explain."
 )
 
 def json_utf8(payload, status=200):
@@ -54,36 +67,313 @@ def _chinese_language_missing(result):
     return 'chi_sim' in stderr or 'failed loading language' in stderr or 'error opening data file' in stderr
 
 
-def recognize_nameplate_photo(content):
-    """OCR a nameplate the same way /api/field/recognize-equipment does.
+def _jpeg_bytes(image, quality=90):
+    buffer = BytesIO()
+    image.convert('RGB').save(buffer, format='JPEG', quality=quality)
+    return buffer.getvalue()
 
-    Returns None when Tesseract cannot read the image. The model parser sees the
-    raw text; collapsing spaces between digits is left to the number reader.
+
+def _png_bytes(image):
+    buffer = BytesIO()
+    image.save(buffer, format='PNG')
+    return buffer.getvalue()
+
+
+def _upscale_nameplate(image, min_long=2400):
+    long_side = max(image.size)
+    if long_side >= min_long:
+        return image
+    scale = min(3.0, min_long / long_side)
+    return image.resize((max(1, round(image.width * scale)), max(1, round(image.height * scale))), Image.Resampling.LANCZOS)
+
+
+def _bright_plate_box(image):
+    """Bounding box of the bright metal plate, or None when it is not obvious."""
+    small = ImageOps.grayscale(image)
+    small.thumbnail((240, 240))
+    pixels = small.tobytes()
+    width, height = small.size
+    if width < 8 or height < 8:
+        return None
+    bright = sum(1 for value in pixels if value >= 170)
+    if bright < width * height * 0.12 or bright > width * height * 0.92:
+        return None
+    min_x, min_y, max_x, max_y = width, height, 0, 0
+    for y in range(height):
+        row = pixels[y * width:(y + 1) * width]
+        for x, value in enumerate(row):
+            if value < 170:
+                continue
+            min_x = min(min_x, x)
+            max_x = max(max_x, x)
+            min_y = min(min_y, y)
+            max_y = max(max_y, y)
+    if max_x <= min_x or max_y <= min_y:
+        return None
+    scale_x = image.width / width
+    scale_y = image.height / height
+    pad_x = int((max_x - min_x) * scale_x * 0.04) + 4
+    pad_y = int((max_y - min_y) * scale_y * 0.04) + 4
+    return (
+        max(0, int(min_x * scale_x) - pad_x),
+        max(0, int(min_y * scale_y) - pad_y),
+        min(image.width, int((max_x + 1) * scale_x) + pad_x),
+        min(image.height, int((max_y + 1) * scale_y) + pad_y),
+    )
+
+
+def _deskew_score(gray):
+    raw = gray.tobytes()
+    width, height = gray.size
+    score = 0
+    previous = None
+    for y in range(0, height, 2):
+        row = raw[y * width:(y + 1) * width:6]
+        mean = sum(row) / max(1, len(row))
+        if previous is not None:
+            score += abs(mean - previous)
+        previous = mean
+    return score
+
+
+def _deskew_plate(image):
+    probe = ImageOps.grayscale(image)
+    probe.thumbnail((420, 420))
+    best_angle, best_score = 0, _deskew_score(probe)
+    for angle in range(-6, 7, 2):
+        if angle == 0:
+            continue
+        score = _deskew_score(probe.rotate(angle, resample=Image.Resampling.BILINEAR, fillcolor=255))
+        if score > best_score:
+            best_angle, best_score = angle, score
+    if best_angle == 0:
+        return image
+    return image.rotate(best_angle, resample=Image.Resampling.BICUBIC, expand=True, fillcolor=(255, 255, 255))
+
+
+def _nameplate_views(image):
+    prepared = _deskew_plate(_upscale_nameplate(image))
+    views = [prepared]
+    box = _bright_plate_box(prepared)
+    if box:
+        cropped = prepared.crop(box)
+        if cropped.width >= 200 and cropped.height >= 200:
+            views.append(_upscale_nameplate(cropped))
+    return views
+
+
+def _vote(values):
+    counts = {}
+    for value in values:
+        if value:
+            counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return ""
+    return max(counts, key=lambda item: (counts[item], len(item)))
+
+
+def _passes_for(image):
+    gray = ImageEnhance.Contrast(ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)).enhance(1.25)
+    passes = [('11', _jpeg_bytes(image)), ('4', _png_bytes(gray))]
+    box = _bright_plate_box(image)
+    if box:
+        cropped = image.crop(box)
+        if 200 <= cropped.width < image.width - 8 and cropped.height >= 200:
+            passes.append(('6', _png_bytes(ImageOps.autocontrast(ImageOps.grayscale(cropped), cutoff=1))))
+    if max(image.size) < 2000:
+        passes.append(('11', _jpeg_bytes(_upscale_nameplate(image))))
+    return passes
+
+
+def recognize_nameplate_photo(content):
+    """OCR a nameplate. A small frame is also upscaled, and a bright plate is cropped.
+
+    Returns None when Tesseract cannot read the image. Shape-valid models outvote
+    a longer misread.
     """
     with Image.open(BytesIO(content)) as image:
         if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
             raise ValueError('bad nameplate image')
         image.load()
-        enhanced = ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)
-        long_side = max(enhanced.width, enhanced.height)
-        scale = min(3, max(1, math.ceil(2400 / long_side)))
-        if scale > 1:
-            enhanced = enhanced.resize((enhanced.width * scale, enhanced.height * scale), Image.Resampling.LANCZOS)
-        # Light contrast only. A second sharpen on the whole frame splits the
-        # model and was returning LCL-4000 for LCI-400CR-01AZ-3487U.
-        enhanced = ImageEnhance.Contrast(enhanced).enhance(1.2)
-        processed = BytesIO()
-        enhanced.save(processed, format='PNG')
-        passes = (('11', content), ('4', processed.getvalue()))
-    results = [_run_tesseract(payload, psm, 'eng') for psm, payload in passes]
-    if not any(result.returncode == 0 for result in results):
+        held = image.copy()
+        passes = _passes_for(held)
+    texts, models, numbers = [], [], []
+    for psm, payload in passes:
+        try:
+            result = _run_tesseract(payload, psm, 'eng')
+        except subprocess.TimeoutExpired:
+            continue
+        if result.returncode != 0:
+            continue
+        text = decode_ocr_output(result.stdout)
+        texts.append(text)
+        model = nameplate_model(text)
+        if model:
+            models.append(model)
+        numbers.extend(nameplate_numbers(text))
+    if not texts and not models:
+        deskewed = _deskew_plate(held)
+        try:
+            result = _run_tesseract(_jpeg_bytes(deskewed), '11', 'eng')
+        except subprocess.TimeoutExpired:
+            result = None
+        if result is not None and result.returncode == 0:
+            text = decode_ocr_output(result.stdout)
+            texts.append(text)
+            model = nameplate_model(text)
+            if model:
+                models.append(model)
+            numbers.extend(nameplate_numbers(text))
+    if not texts:
         return None
-    text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
+    digits = [value for value in numbers if value.isdigit()]
+    mixed = [value for value in numbers if not value.isdigit()]
+    ordered = []
+    for value in digits + mixed:
+        if value not in ordered:
+            ordered.append(value)
     return {
-        'text': text,
-        'candidates': nameplate_numbers(text),
-        'equipment_model': nameplate_model(text),
+        'text': '\n'.join(texts),
+        'candidates': ordered[:5],
+        'equipment_model': _vote(models),
     }
+
+
+def validate_nameplate_llm(payload):
+    """Accept a vision model's JSON only when both fields match the plate rules."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(payload, dict):
+        return None
+    number = re.sub(r"\D", "", str(payload.get("machine_number") or ""))
+    raw_model = str(payload.get("equipment_model") or "").strip()
+    model = nameplate_model("Machine Type " + raw_model) or nameplate_model(raw_model)
+    if not re.fullmatch(r"\d{13}", number):
+        return None
+    if not re.fullmatch(r"[A-Z]{3}-\d{3}[A-Z]{2}-\d{2}[A-Z]{2}-\d{4}[A-Z]", model or ""):
+        return None
+    return {'candidates': [number], 'equipment_model': model, 'source': 'llm', 'text': raw_model}
+
+
+def read_nameplate_llm(content, settings, urlopen, request_class, timeout=NAMEPLATE_LLM_TIMEOUT):
+    """Call the configured vision chat endpoint. Raises on timeout or a bad response."""
+    import base64
+    encoded = base64.b64encode(content).decode('ascii')
+    body = json.dumps({
+        'model': settings['model'],
+        'temperature': 0,
+        'max_tokens': 300,
+        'response_format': {'type': 'json_object'},
+        'messages': [{
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': _NAMEPLATE_PROMPT},
+                {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + encoded}},
+            ],
+        }],
+    }).encode('utf-8')
+    base = (settings.get('base_url') or 'https://api.deepseek.com').rstrip('/')
+    request = request_class(
+        base + '/chat/completions',
+        data=body,
+        headers={'Authorization': 'Bearer ' + settings['api_key'], 'Content-Type': 'application/json'},
+        method='POST',
+    )
+    with urlopen(request, timeout=timeout) as response:
+        result = json.loads(response.read().decode('utf-8'))
+    message = ((result.get('choices') or [{}])[0].get('message') or {}).get('content')
+    return validate_nameplate_llm(message)
+
+
+def _vision_settings_for_nameplate(api):
+    """Configured vision provider, or None when photos must stay on the OCR path."""
+    try:
+        settings = api['vision_settings']()
+    except Exception:
+        return None
+    if not settings.get('enabled') or not settings.get('api_key') or not settings.get('model'):
+        return None
+    try:
+        cfg = api['llm_config'].get_config(api['db'](), 'daily_vision')
+    except Exception:
+        cfg = None
+    if cfg is not None and not cfg.get('supports_vision'):
+        return None
+    if cfg:
+        settings = {
+            **settings,
+            'model': cfg.get('model') or settings.get('model'),
+            'base_url': cfg.get('base_url') or settings.get('base_url'),
+            'api_key': cfg.get('api_key') or settings.get('api_key'),
+        }
+    return settings
+
+
+def recognize_nameplate(api, content):
+    """Vision model first. Tesseract is used when vision is missing or unusable."""
+    settings = _vision_settings_for_nameplate(api) if api else None
+    if settings:
+        try:
+            from urllib.request import Request, urlopen
+            found = read_nameplate_llm(content, settings, urlopen, Request)
+            if found:
+                return found
+            logger.info('nameplate vision returned an unusable plate reading')
+        except Exception as error:
+            logger.info('nameplate vision fallback: %s', type(error).__name__)
+    found = recognize_nameplate_photo(content)
+    if not found:
+        return None
+    found['source'] = 'ocr'
+    return found
+
+
+def _store_nameplate_debug(api, content, found):
+    try:
+        directory = Path(api['DATA_DIR']) / 'nameplate-ocr-debug'
+    except Exception:
+        return
+    payload = {
+        'source': (found or {}).get('source') or '',
+        'equipment_model': (found or {}).get('equipment_model') or '',
+        'candidates': (found or {}).get('candidates') or [],
+        'text': ((found or {}).get('text') or '')[:20000],
+    }
+    try:
+        record_nameplate_debug(directory, content, payload)
+    except OSError:
+        logger.info('nameplate debug frame was not saved')
+
+
+def record_nameplate_debug(directory, content, payload, now=None):
+    """Keep the last 30 nameplate frames and their OCR/LLM result for 48 hours."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    moment = now or datetime.now(timezone.utc)
+    stamp = moment.strftime('%Y%m%dT%H%M%S%fZ')
+    (directory / f'{stamp}.jpg').write_bytes(content)
+    (directory / f'{stamp}.json').write_text(
+        json.dumps({'at': moment.isoformat(), **payload}, ensure_ascii=False),
+        encoding='utf-8',
+    )
+    cutoff = moment.timestamp() - NAMEPLATE_DEBUG_TTL_SECONDS
+    files = sorted(directory.glob('*.jpg'))
+    for path in files:
+        sidecar = path.with_suffix('.json')
+        try:
+            expired = path.stat().st_mtime < cutoff
+        except OSError:
+            expired = False
+        if expired:
+            path.unlink(missing_ok=True)
+            sidecar.unlink(missing_ok=True)
+    remaining = sorted(directory.glob('*.jpg'))
+    for path in remaining[:-NAMEPLATE_DEBUG_KEEP]:
+        path.unlink(missing_ok=True)
+        path.with_suffix('.json').unlink(missing_ok=True)
 
 
 PHOTO_TYPE_LABELS = {
@@ -508,10 +798,21 @@ def register_field_routes(app, api):
             return jsonify(error=f'{subject}照片为空或超过 10MB。'), 422
         try:
             if not fault_mode:
-                found = recognize_nameplate_photo(content)
+                found = recognize_nameplate(api, content)
+                _store_nameplate_debug(api, content, found)
                 if not found:
                     return jsonify(error='服务器暂时无法识别铭牌，请手工输入。'), 503
-                return json_utf8({'ok': True, 'candidates': found['candidates'], 'equipment_model': found['equipment_model']})
+                logger.info(
+                    'nameplate recognize source=%s model=%s candidates=%s bytes=%s',
+                    found.get('source'), found.get('equipment_model') or '',
+                    len(found.get('candidates') or []), len(content),
+                )
+                return json_utf8({
+                    'ok': True,
+                    'candidates': found['candidates'],
+                    'equipment_model': found['equipment_model'],
+                    'source': found.get('source') or 'ocr',
+                })
             with Image.open(BytesIO(content)) as image:
                 if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
                     raise ValueError

@@ -13,7 +13,7 @@ FAULT_TEXT_LIMIT = 4000
 
 _MODEL_LABEL = re.compile(
     r"(?i)(?:(?<![A-Za-z0-9])(?:"
-    r"mach[i1l]ne[ \t_-]*type|mach[i1l]ne[ \t_-]*model|product[ \t_-]*(?:model|type)"
+    r"[m]?ach[i1l]ne[ \t_-]*type|[m]?ach[i1l]ne[ \t_-]*model|product[ \t_-]*(?:model|type)"
     r"|model(?:[ \t_-]*(?:no\.?|number|type))?"
     r")(?![A-Za-z0-9])|设备[ \t]*型号|机器[ \t]*型号|型[ \t]*号)"
 )
@@ -77,6 +77,64 @@ def _is_model_line(line):
     return _is_model_code(_clean_model_piece(line))
 
 
+# LCI-400CR-01AZ-3487U: letters, digits+CR, two digits+two letters, four digits+letter.
+_TONGFEI_SHAPE = "LLL-DDDLL-DDLL-DDDDL"
+_DIGIT_FIX = str.maketrans({"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "A": "4", "S": "5", "B": "8", "G": "6", "Z": "2"})
+_LETTER_FIX = str.maketrans({"0": "O", "1": "I", "4": "A", "5": "S", "8": "B", "|": "I"})
+
+
+def _tongfei_groups(token):
+    """Return LLL, DDDLL, DDLL, DDDDL groups, padding a dropped leading L."""
+    parts = [part for part in re.sub(r"[^A-Za-z0-9\-]", "", token or "").upper().strip("-").split("-") if part]
+    if len(parts) != 4:
+        return None
+    prefix, block, mid, tail = parts
+    if len(prefix) == 2 and prefix[0] in "CI":
+        prefix = "L" + prefix
+    if len(tail) == 6 and tail[4] in "0O":
+        tail = tail[:4] + "U"
+    if (len(prefix), len(block), len(mid), len(tail)) != (3, 5, 4, 5):
+        return None
+    return prefix, block, mid, tail
+
+
+def _fit_tongfei_shape(token):
+    """Map OCR confusions by position: A/O become digits, 4 becomes A in a letter slot."""
+    grouped = _tongfei_groups(token)
+    if grouped:
+        compact = "".join(grouped)
+    else:
+        compact = re.sub(r"[^A-Za-z0-9]", "", token or "").upper()
+    body = _TONGFEI_SHAPE.replace("-", "")
+    if len(compact) != len(body):
+        return ""
+    groups = []
+    cursor = 0
+    for part in _TONGFEI_SHAPE.split("-"):
+        groups.append(compact[cursor:cursor + len(part)])
+        cursor += len(part)
+    fixed = []
+    for part, kind in zip(groups, _TONGFEI_SHAPE.split("-")):
+        table = _DIGIT_FIX if kind[0] == "D" else _LETTER_FIX
+        # Mixed groups (DDDLL, DDLL, DDDDL) use the kind string character by character.
+        if set(kind) == {"D"} or set(kind) == {"L"}:
+            fixed.append(part.translate(table))
+        else:
+            chars = []
+            for ch, slot in zip(part, kind):
+                chars.append(ch.translate(_DIGIT_FIX if slot == "D" else _LETTER_FIX))
+            fixed.append("".join(chars))
+    code = "-".join(fixed)
+    if re.match(r"(?i)^lc[1il]", code) and "CR" in code:
+        code = re.sub(r"(?i)^lc[1il]", "LCI", code)
+    # On this plate the last letter is U, which Tesseract often reads as 0.
+    if code.startswith("LCI-400CR-") and code[-1] in "0O":
+        code = code[:-1] + "U"
+    if re.fullmatch(r"[A-Z]{3}-\d{3}[A-Z]{2}-\d{2}[A-Z]{2}-\d{4}[A-Z]", code):
+        return code
+    return ""
+
+
 def _normalize_plate_model(token):
     """Correct the engraving confusions seen on the Tongfei liquid-cooling plate.
 
@@ -84,6 +142,9 @@ def _normalize_plate_model(token):
     correction only runs when the code still contains the CR / AZ groups, so a
     short misread such as LCL-4000 is not rewritten into a different model.
     """
+    shaped = _fit_tongfei_shape(token)
+    if shaped:
+        return shaped
     if re.search(r"(?i)CR", token) and re.match(r"(?i)^lc[1il]", token):
         token = re.sub(r"(?i)^lc[1il]", "LCI", token)
     token = re.sub(r"O(?=\d)", "0", token)
@@ -150,6 +211,13 @@ def nameplate_model(text):
     before a short prefix is accepted.
     """
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    shaped = []
+    for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-]{8,}", text or ""):
+        code = _fit_tongfei_shape(token)
+        if code:
+            shaped.append(code)
+    if shaped:
+        return max(set(shaped), key=lambda code: (shaped.count(code), len(code)))
     best = ""
     for index, line in enumerate(lines):
         match = _MODEL_LABEL.search(line)
@@ -161,18 +229,42 @@ def nameplate_model(text):
     return best
 
 
+_NUMBER_LABEL = re.compile(
+    r"(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号|机器编号)",
+    re.I,
+)
+
+
+def _remember_number(value, found):
+    value = re.sub(r"[^A-Za-z0-9]", "", value or "")
+    if len(value) == 13 and re.search(r"\d", value) and value not in found:
+        found.append(value)
+
+
 def nameplate_numbers(text):
-    """13-character machine numbers, including a value on the line after its label."""
+    """13-character machine numbers. A pure-letter word is never a candidate.
+
+    The value may sit on the line before Machine Number. All-digit values are
+    ranked ahead of mixed tokens such as a damaged serial.
+    """
     text = re.sub(r"(?<=\d)[ \t](?=\d)", "", text or "")
-    labels = r"(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)"
-    candidates = []
-    for match in re.finditer(labels + r"\s*[:：#=＝-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})", text, re.I):
-        value = match.group(1).strip("._/-")
-        if re.fullmatch(r"[A-Za-z0-9]{13}", value) and value not in candidates:
-            candidates.append(value)
-    if not candidates:
-        candidates.extend(dict.fromkeys(re.findall(r"(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])", text, re.I)))
-    return candidates[:5]
+    found = []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = _NUMBER_LABEL.search(line)
+        if not match:
+            continue
+        _remember_number(line[match.end():], found)
+        for neighbor in (index - 1, index + 1):
+            if 0 <= neighbor < len(lines):
+                for token in re.findall(r"[A-Za-z0-9]{13}", re.sub(r"[^A-Za-z0-9]", "", lines[neighbor])):
+                    _remember_number(token, found)
+    if not found:
+        for token in re.findall(r"(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])", text, re.I):
+            _remember_number(token, found)
+    digits = [value for value in found if value.isdigit()]
+    mixed = [value for value in found if not value.isdigit()]
+    return (digits + mixed)[:5]
 
 
 def _join_sparse_cjk(line):

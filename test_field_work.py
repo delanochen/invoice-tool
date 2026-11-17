@@ -142,7 +142,7 @@ class FieldWorkTest(unittest.TestCase):
                                       headers={'X-Field-Token':self.csrf})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json['candidates'], ['1023231239551'])
-        self.assertEqual(run.call_count, 2)
+        self.assertGreaterEqual(run.call_count, 2)
 
         invalid = type('Result', (), {'returncode':0, 'stdout':b'Machine Number INV-1023231239551\n123456789012\n'})()
         with patch.object(field_work.subprocess, 'run', return_value=invalid):
