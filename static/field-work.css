@@ -187,6 +187,10 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 #recognizeOverlayElapsed{margin:0;color:var(--muted)}
 .recognize-error{margin:0;color:#9f1239}
 .recognize-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.group-field{display:grid;grid-template-columns:88px 1fr;gap:6px 8px;align-items:center;margin:8px 0}
+.group-field img{grid-column:1;width:72px;height:72px;object-fit:cover;border-radius:8px}
+.group-field input,.group-field textarea{grid-column:2;min-height:40px}
+.invalid-field{border-color:#be123c!important;color:#9f1239}
 body[data-panel="camera"] #timeSettings.repair-watermark { margin:4px 0; padding:2px 8px; border:0; border-radius:6px; background:#eef4ef; }
 
 @media (max-width:600px) {

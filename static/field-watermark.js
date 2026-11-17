@@ -56,12 +56,12 @@
     const headerHeight = pad * 1.65 + title.length * headerFont * 1.08 + companyFont * 1.28;
     ctx.font = `600 ${font}px ${FONT}`;
     const rows = [
-      ...(context.photo_type === 'equipment' ? [
-        ['Machine No.', context.equipment_number || 'N/A', 2],
-        ...(String(context.position_number || '').trim() ? [['Location No.', String(context.position_number).trim(), 1]] : []),
-        ...(String(context.container_number || '').trim() ? [['Container No.', String(context.container_number).trim(), 1]] : []),
-        ...(context.pump_fuse_numbers ? [['Pump Fuse', context.pump_fuse_numbers, 1]] : [])
-      ] : []),
+      ...(String(context.equipment_number || '').trim() ? [['Machine No.', String(context.equipment_number).trim(), 2]] : []),
+      ...(String(context.equipment_model || '').trim() ? [['Model', String(context.equipment_model).trim(), 2]] : []),
+      ...(String(context.position_number || '').trim() ? [['Location No.', String(context.position_number).trim(), 1]] : []),
+      ...(String(context.container_number || '').trim() ? [['Container No.', String(context.container_number).trim(), 1]] : []),
+      ...(String(context.fault_note || '').trim() ? [['Fault', String(context.fault_note).trim(), 2]] : []),
+      ...(context.photo_type === 'equipment' && context.pump_fuse_numbers ? [['Pump Fuse', context.pump_fuse_numbers, 1]] : []),
       ['Technician', context.employee_name, 2],
       ['Time', localTime(context), 2],
       ['Address', context.site_address || context.site_name || '未填写地址', 3]
