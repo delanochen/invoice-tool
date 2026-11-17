@@ -22,8 +22,8 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
 from invoice_tool.service_reports.field_capture import (
-    fields_for_watermark, position_token, read_container_image, should_server_watermark,
-    stamp_group_watermark, validate_container_llm, validate_position_llm,
+    earliest_watermark, fields_for_watermark, position_token, read_container_image, shifted_watermark,
+    should_server_watermark, stamp_group_watermark, validate_container_llm, validate_position_llm,
 )
 from invoice_tool.service_reports.field_repairs import (
     FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, machine_number_token,
@@ -863,6 +863,11 @@ def register_field_routes(app, api):
         raw_key = request.form.get('client_id', '')[:500]
         source = request.form.get('source', '')
         watermark_source = request.form.get('watermark_source', 'system').strip()
+        watermark_opt_out = request.form.get('watermark_opt_out', '').strip().lower() == 'true'
+        if watermark_opt_out and source == 'camera':
+            return jsonify(error='现场拍摄的照片必须加水印。'), 422
+        if watermark_opt_out:
+            watermark_source = 'original'
         if source not in {'camera', 'file'} and watermark_source == 'original':
             source = 'file'
         if source not in {'camera', 'file'}:
@@ -871,7 +876,7 @@ def register_field_routes(app, api):
             return jsonify(error='照片来源无效。', code='upload_source_invalid'), 422
         if watermark_source not in {'system', 'original'} or (watermark_source == 'original' and source != 'file'):
             return jsonify(error='水印来源无效。'), 422
-        original_import = source == 'file' and watermark_source == 'original'
+        original_import = source == 'file' and watermark_source == 'original' and not watermark_opt_out
         location_verified = False if original_import else request.form.get('location_verified', 'true') == 'true'
         try:
             order_id = int(request.form.get('order_id', ''))
@@ -1018,6 +1023,7 @@ def register_field_routes(app, api):
                 original_digest,
                 request.form.get('client_watermarked'),
                 request.form.get('photo_role', ''),
+                'true' if watermark_opt_out else '',
             ):
                 try:
                     content = stamp_group_watermark(raw_original or content, {
@@ -1091,16 +1097,20 @@ def register_field_routes(app, api):
         ).fetchall()
         if not rows:
             return jsonify(error='找不到这组照片。'), 404
+        new_start = str(payload.get('watermark_start') or '').strip()
+        originals = [row['watermark_at'] or row['captured_at'] for row in rows]
+        earliest = earliest_watermark(originals) if new_start else ''
         root = api['shared_photos_root']()
         updated = 0
-        for row in rows:
+        for row, original_when in zip(rows, originals):
             row_fields = dict(row)
             row_fields['equipment_model'] = row_fields.get('photo_model') or ''
             fields = fields_for_watermark(row_fields, pending)
+            when = shifted_watermark(original_when, earliest, new_start) if new_start else original_when
             fields.update({
                 'order_number': row['order_number'],
                 'technician_name': row['technician_name'],
-                'when': row['watermark_at'] or row['captured_at'],
+                'when': when,
                 'photo_type': row['photo_type'],
                 'note': row['note'],
             })
@@ -1120,9 +1130,9 @@ def register_field_routes(app, api):
                 logger.info('group watermark thumbnail skipped for %s', row['id'])
             api['db']().execute(
                 '''update field_photos set equipment_number = ?, position_number = ?, container_number = ?,
-                   photo_model = ?, fault_note = ? where id = ? and user_id = ?''',
+                   photo_model = ?, fault_note = ?, watermark_at = ? where id = ? and user_id = ?''',
                 (fields['equipment_number'], fields['position_number'], fields['container_number'],
-                 fields['equipment_model'], fields['fault_note'], row['id'], g.user['id']),
+                 fields['equipment_model'], fields['fault_note'], when, row['id'], g.user['id']),
             )
             updated += 1
         api['db']().commit()

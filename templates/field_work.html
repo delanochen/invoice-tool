@@ -76,14 +76,16 @@
           </div>
           <p id="deviceStatus" class="muted" hidden>填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
-        <div id="timeSettings" class="repair-watermark" hidden><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" class="repair-link" type="button">调整</button></div>
+        <div id="timeSettings" class="repair-watermark"><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" class="repair-link" type="button">调整</button></div>
         <div id="generalNoteSlot"></div>
         <div class="location-row" hidden><span id="locationStatus">正在定位…</span><button id="refreshLocation" type="button">重新定位</button></div>
         </div>
         <div id="cameraView" class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将整张铭牌放入框内</span></div></div>
-        <div class="camera-actions shutter-row"><span class="album-launch shutter-launch"><button id="shutterButton" class="primary" type="button">拍照</button><input id="shutterFile" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" capture="environment"></span><span class="album-launch"><button id="cameraAlbumButton" type="button">从相册选择</button><input id="cameraAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><button id="openCamera" type="button" hidden>打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="readRepairFault" class="primary" type="button" hidden>拍照识别故障</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
+        <div class="capture-actions"><button id="shutterButton" class="primary capture-primary" type="button">拍照</button><span class="album-launch capture-secondary"><button id="cameraAlbumButton" type="button">从相册选择</button><input id="cameraAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><label class="album-watermark-toggle" for="albumWatermark"><input id="albumWatermark" type="checkbox" checked>添加水印</label></div>
+        <div id="cameraBar" class="camera-bar" hidden><button id="readRepairFault" class="camera-fault" type="button" hidden>拍照识别故障</button><div class="camera-bar-row"><span class="album-launch camera-side"><button id="cameraBarAlbumButton" type="button" aria-label="从相册选择"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M7 16l3.2-3.2 2.2 2.2L16 11l4 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><input id="cameraBarAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><button id="takePhoto" class="camera-shutter" type="button" aria-label="拍照" hidden></button><button id="closeCamera" class="camera-close" type="button" aria-label="关闭相机" hidden>✕</button></div></div>
+        <button id="openCamera" type="button" hidden>打开相机</button>
         <div id="nameplatePending" hidden><img id="nameplateThumb" alt="待识别的铭牌"><span id="nameplateStatus">识别中…</span></div>
         <div id="recentCaptures" class="recent-captures" aria-label="本次拍摄的照片" hidden></div>
         </div>

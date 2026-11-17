@@ -181,7 +181,7 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         image = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("tesseract-ocr-chi-sim", image)
         worker = (ROOT / "static" / "field-sw.js").read_text(encoding="utf-8")
-        self.assertIn("prasinos-field-69", worker)
+        self.assertIn("prasinos-field-70", worker)
         self.assertIn("正在识别铭牌，请稍候…", html)
         self.assertIn("ios-file-input", html)
         self.assertNotIn("$('faultAlbum').click()", script)

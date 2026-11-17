@@ -11,12 +11,12 @@
   let cameraSelection = null, bootstrapGeneration = 0;
   let repairStage = 'before', faultPhotos = [], nameplateBlob = null, faultBlob = null, nameplatePreview = null, nameplateDrawnUrl = '';
   let recognizeAbort = null, recognizeTimer = null, recognizeKind = 'nameplate', recognizeCancelled = false, captureLockSnapshot = null;
-  const captureControls = ['recognizeDevice','nameplateAlbumButton','nameplateCamera','nameplateAlbum','scanRepairFault','faultAlbumButton','faultAlbum','openCamera','cameraAlbumButton','cameraAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
+  const captureControls = ['recognizeDevice','nameplateAlbumButton','nameplateCamera','nameplateAlbum','scanRepairFault','faultAlbumButton','faultAlbum','openCamera','shutterButton','cameraAlbumButton','cameraAlbum','cameraBarAlbumButton','cameraBarAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
   let activeRepair = null, pendingRepairRows = [], repairStartId = null;
   let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, useSystemTime = true, draftSelection = null;
   let ledgerPhotos = [], ledgerPhotoIndex = 0, ledgerTouchStart = null;
-  let captureMode = 'camera', deviceStatusText = '';
+  let captureMode = 'camera', deviceStatusText = '', groupTimeResolve = null;
   let uploadWatermark = false, pendingUploadWatermark = false, wmItems = [], wmBusy = false;
   let deletingDrafts = false, deleteDraftSnapshot = null;
   let cameraStripSession = null;
@@ -76,7 +76,23 @@
     }
     finally { clearTimeout(timer); }
   }
-  const notice = (text, error = false) => { $('notice').textContent = fieldText(text); $('notice').classList.toggle('error', error); };
+  let noticeTimer = null;
+  function clearDistanceNotice() {
+    const el = $('notice');
+    if (!el.classList.contains('distance-banner')) return;
+    el.textContent = '';
+    el.classList.remove('distance-banner', 'error');
+  }
+  const notice = (text, error = false) => {
+    const el = $('notice');
+    el.textContent = fieldText(text);
+    el.classList.toggle('error', error);
+    const distance = /公里|定位精度|还没有坐标|距离所选工单/.test(String(text || ''));
+    el.classList.toggle('distance-banner', distance);
+    clearTimeout(noticeTimer);
+    if (distance) noticeTimer = setTimeout(clearDistanceNotice, 4500);
+  };
+  $('notice').addEventListener('click', clearDistanceNotice);
   const textNode = (tag, text, className = '') => { const el = document.createElement(tag); el.textContent = fieldText(text); el.className = className; return el; };
   const setFieldText = (id, text) => {
     if (id === 'deviceStatus') {
@@ -97,7 +113,7 @@
     $('uploadControls').hidden = mode !== 'upload';
     $('captureDetails').hidden = false;
     $('uploadHeader').hidden = mode !== 'upload';
-    $('timeSettings').hidden = mode !== 'camera' || !batch?.type;
+    $('timeSettings').hidden = mode !== 'camera';
     $('captureNote').hidden = mode !== 'camera';
     if (mode !== 'upload') setUploadWatermark(false);
     refreshUploadControls();
@@ -207,6 +223,7 @@
       return;
     }
     $('watermarkPasswordDialog').close();
+    if (groupTimeResolve) { const resolve = groupTimeResolve; groupTimeResolve = null; resolve(true); return; }
     if (pendingUploadWatermark) { pendingUploadWatermark = false; setUploadWatermark(true); return; }
     openWatermarkTimeDialog();
   }
@@ -242,7 +259,21 @@
     $('watermarkTimeDialog').close();
   }
   function cancelWatermarkTime() { $('watermarkTimeDialog').close(); }
-  function cancelWatermarkPassword() { pendingUploadWatermark = false; $('watermarkPasswordDialog').close(); }
+  function cancelWatermarkPassword() {
+    pendingUploadWatermark = false;
+    $('watermarkPasswordDialog').close();
+    if (groupTimeResolve) { const resolve = groupTimeResolve; groupTimeResolve = null; resolve(false); }
+  }
+  function requestTimePassword() {
+    if (timeAuthorized) return Promise.resolve(true);
+    return new Promise(resolve => {
+      groupTimeResolve = resolve;
+      $('watermarkPassword').value = '';
+      setFieldText('passwordStatus','修改水印时间需要验证密码。');
+      $('watermarkPasswordDialog').showModal();
+      $('watermarkPassword').focus();
+    });
+  }
   async function scanDevice() {
     if (!stream || deviceSession || !('BarcodeDetector' in window)) return;
     try {
@@ -659,6 +690,7 @@
     $('createOrder').hidden = !profile.create_order_url;
     if (profile.create_order_url) $('createOrder').href = profile.create_order_url;
     $('openCamera').disabled = !profile.can_capture;
+    $('shutterButton').disabled = !profile.can_capture;
     $('fileCapture').classList.toggle('disabled', !profile.can_capture);
     $('fileCapture').setAttribute('aria-disabled', profile.can_capture ? 'false' : 'true');
     renderSelect();
@@ -695,7 +727,7 @@
     const previous = currentOrder?.id;
     currentOrder = profile?.orders.find(order => String(order.id) === String(id)) || null;
     $('orderSelect').value = currentOrder ? String(currentOrder.id) : '';
-    $('captureSource').hidden = !currentOrder;
+    $('captureSource').hidden = true;
     $('cameraOrder').textContent = currentOrder ? currentOrder.order_number + ' · ' + currentOrder.client_name : '';
     setFieldText('orderContext', currentOrder ? [currentOrder.customer_name,currentOrder.site_address].filter(Boolean).join(' · ') : '请先选择照片所属工单。');
     if (profile) localStorage.setItem(orderStorageKey(), String(currentOrder?.id || ''));
@@ -791,7 +823,7 @@
     $('readRepairFault').hidden = true;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
     $('viewfinder').srcObject = null; $('viewfinder').hidden = true;
-    $('openCamera').hidden = false; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
+    $('openCamera').hidden = true; $('cameraBar').hidden = true; $('takePhoto').hidden = true; $('closeCamera').hidden = true;
     $('cameraStage').hidden = true;
     $('cameraView').hidden = captureMode !== 'camera';
   }
@@ -822,7 +854,7 @@
       $('ocrGuide').hidden = !recognitionOnly;
       $('ocrGuide').querySelector('span').textContent = faultMode ? '将手操器屏幕放入框内' : '将整张铭牌放入框内';
       $('readRepairFault').hidden = !faultMode;
-      $('openCamera').hidden = true; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
+      $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       await renderQueue();
       if (!faultMode) { scanDevice(); scanTimer = setInterval(scanDevice, 800); }
     } catch (error) { notice('无法打开相机，请检查相机权限，或切换到“上传”选择照片。',true); stopCamera(); }
@@ -1418,11 +1450,89 @@
       }
       root.append(row);
     }
+    const earliest = photos.reduce((min, photo) => {
+      const instant = new Date(photo.watermark_at || photo.captured_at);
+      return !Number.isNaN(instant.getTime()) && instant < min ? instant : min;
+    }, new Date(8640000000000000));
+    const timeRow = document.createElement('label');
+    timeRow.className = 'group-time';
+    const timeTitle = document.createElement('span');
+    timeTitle.textContent = '水印时间';
+    const timeInput = document.createElement('input');
+    timeInput.id = 'groupWatermarkTime';
+    timeInput.type = 'datetime-local';
+    timeInput.step = '60';
+    if (earliest.getTime() < 8640000000000000) {
+      const pad = n => String(n).padStart(2, '0');
+      timeInput.value = `${earliest.getFullYear()}-${pad(earliest.getMonth()+1)}-${pad(earliest.getDate())}T${pad(earliest.getHours())}:${pad(earliest.getMinutes())}`;
+    }
+    timeInput.dataset.baseline = timeInput.value;
+    const timeHint = document.createElement('small');
+    timeHint.className = 'muted';
+    timeHint.textContent = '默认是这组最早的拍摄或 EXIF 时间。改动后整组按同样的分钟差平移，并需要验证密码。';
+    timeRow.append(timeTitle, timeInput, timeHint);
+    root.append(timeRow);
+    if (photos.some(photo => photo.source === 'file')) {
+      const choice = document.createElement('label');
+      choice.className = 'album-watermark-toggle';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.id = 'groupAlbumWatermark';
+      box.checked = localStorage.getItem('field-album-watermark') !== '0';
+      box.addEventListener('change', () => rememberAlbumWatermark(box.checked));
+      const caption = document.createElement('span');
+      caption.textContent = '相册照片添加水印';
+      choice.append(box, caption);
+      root.append(choice);
+    }
     return new Promise(resolve => { groupConfirmResolve = resolve; $('groupConfirmDialog').showModal(); });
+  }
+  async function acceptGroupTime() {
+    const input = $('groupWatermarkTime');
+    if (!input || !batch?.pending) return true;
+    if (!input.value) { notice('请选择有效的水印时间。', true); return false; }
+    const chosen = new Date(input.value);
+    if (Number.isNaN(chosen.getTime())) { notice('请选择有效的水印时间。', true); return false; }
+    const albumChoice = $('groupAlbumWatermark');
+    batch.pending.album_watermark = albumChoice ? albumChoice.checked : true;
+    if (input.value === input.dataset.baseline) { batch.pending.watermark_start = ''; return true; }
+    const allowed = await requestTimePassword();
+    if (!allowed) return false;
+    batch.pending.watermark_start = chosen.toISOString();
+    return true;
   }
   async function applyGroupWatermark(photos, fields) {
     fields = fields || ensureGroupPending();
+    if (fields.watermark_start) {
+      const chosen = new Date(fields.watermark_start);
+      const times = photos.map(photo => new Date(photo.watermark_at || photo.captured_at).getTime()).filter(time => !Number.isNaN(time));
+      if (!Number.isNaN(chosen.getTime()) && times.length) {
+        const earliest = new Date(Math.min(...times));
+        const start = new Date(earliest); start.setSeconds(0, 0);
+        const target = new Date(chosen); target.setSeconds(0, 0);
+        const delta = target.getTime() - start.getTime();
+        for (const photo of photos) {
+          const base = new Date(photo.watermark_at || photo.captured_at).getTime();
+          if (!Number.isNaN(base)) photo.watermark_at = new Date(base + delta).toISOString();
+        }
+      }
+    }
     for (const photo of photos) {
+      const optOut = photo.source === 'file' && fields.album_watermark === false;
+      photo.equipment_number = fields.equipment_number;
+      photo.equipment_model = fields.equipment_model;
+      photo.container_number = fields.container_number;
+      photo.position_number = fields.position_number;
+      photo.fault_note = fields.fault;
+      if (optOut) {
+        photo.awaiting_watermark = false;
+        photo.watermark_source = 'original';
+        photo.watermark_opt_out = true;
+        photo.blob = photo.original_blob || photo.blob;
+        await storePhoto(photo);
+        continue;
+      }
+      photo.watermark_opt_out = false;
       const raw = photo.original_blob || photo.blob;
       let loaded;
       try {
@@ -1433,11 +1543,7 @@
         photo.blob = await processedPhoto(loaded.image, context);
         photo.original_blob = raw;
         photo.awaiting_watermark = false;
-        photo.equipment_number = fields.equipment_number;
-        photo.equipment_model = fields.equipment_model;
-        photo.container_number = fields.container_number;
-        photo.position_number = fields.position_number;
-        photo.fault_note = fields.fault;
+        photo.watermark_source = 'system';
         await storePhoto(photo);
       } catch (error) {
         photo.awaiting_watermark = true;
@@ -1672,10 +1778,12 @@
           }
           await storePhoto(photo);
           const data = new FormData();
-          const skip = new Set(['blob','error','original_blob','original_blob_type','sources','recognized_number','recognized_model','recognized_container','recognized_position','recognized_fault']);
+          const skip = new Set(['blob','error','original_blob','original_blob_type','sources','recognized_number','recognized_model','recognized_container','recognized_position','recognized_fault','watermark_opt_out']);
           Object.entries(photo).forEach(([k,v]) => { if (!skip.has(k) && v != null && typeof v !== 'object') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
-          data.append('client_watermarked', 'true');
+          const optOut = photo.source === 'file' && photo.watermark_opt_out === true;
+          data.append('client_watermarked', optOut ? 'false' : 'true');
+          data.append('watermark_opt_out', optOut ? 'true' : 'false');
           if (photo.original_blob instanceof Blob) data.append('original', photo.original_blob, photo.client_id+'.original.jpg');
           if (photo.source === 'file') notice('正在识别水印和 EXIF 拍摄日期…');
           let response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
@@ -1726,7 +1834,7 @@
     }
     for (const batchId of [...new Set(groupPhotos.map(photo => photo.batch_id))]) await syncQueue(batchId);
     if ((await queued()).filter(inSession).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
-    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=false; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
+    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=false; $('deviceSession').hidden=false; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
     setKindChoiceActive(null); setFieldText('kindStatus','拍照后在照片上选择类型。'); $('photoNote').value=''; setUploadWatermark(false);
     notice('本组照片已全部上传，可以继续拍照。'); await renderQueue();
@@ -1998,13 +2106,31 @@
     await runRoleRecognition(photo);
     await renderQueue();
   }
-  $('shutterFile').addEventListener('change', () => { const [file] = chosenFiles($('shutterFile')); if (file) saveAlbumLikeCamera([file]); });
+  function rememberAlbumWatermark(on) {
+    localStorage.setItem('field-album-watermark', on ? '1' : '0');
+    if ($('albumWatermark')) $('albumWatermark').checked = on;
+    if ($('groupAlbumWatermark')) $('groupAlbumWatermark').checked = on;
+  }
+  if (localStorage.getItem('field-album-watermark') === '0') $('albumWatermark').checked = false;
+  $('albumWatermark').addEventListener('change', () => rememberAlbumWatermark($('albumWatermark').checked));
+  $('shutterButton').addEventListener('click', () => openCamera(false));
+  $('cameraBarAlbum').addEventListener('change', () => saveAlbumLikeCamera(chosenFiles($('cameraBarAlbum'))));
   for (const [id, role] of [['roleArrival','arrival'],['roleDeparture','departure'],['roleSafety','safety'],['roleNameplate','nameplate'],['roleContainer','container'],['rolePosition','position'],['roleController','controller'],['roleOther','other']]) {
     $(id).addEventListener('click', () => finishPhotoRole(role));
   }
   $('photoRoleDialog').addEventListener('cancel', event => { event.preventDefault(); finishPhotoRole('other'); });
   $('cancelGroupConfirm').addEventListener('click', () => { $('groupConfirmDialog').close(); groupConfirmResolve?.(false); groupConfirmResolve = null; });
-  $('confirmGroupSave').addEventListener('click', () => { $('groupConfirmDialog').close(); groupConfirmResolve?.(true); groupConfirmResolve = null; });
+  $('confirmGroupSave').addEventListener('click', async () => {
+    if ($('confirmGroupSave').disabled) return;
+    $('confirmGroupSave').disabled = true;
+    try {
+      const accepted = await acceptGroupTime();
+      if (!accepted) return;
+      $('groupConfirmDialog').close();
+      groupConfirmResolve?.(true);
+      groupConfirmResolve = null;
+    } finally { $('confirmGroupSave').disabled = false; }
+  });
   $('groupConfirmDialog').addEventListener('cancel', event => { event.preventDefault(); $('cancelGroupConfirm').click(); });
   $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('equipmentNumber').focus(); });
   $('editGroupWatermark').addEventListener('click', async () => {
@@ -2018,7 +2144,7 @@
     const fields = {...batch.pending};
     batch = savedBatch;
     if (!accepted) return;
-    const response = await requestAPI('/api/field/photos/rewatermark', {method:'POST', headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf}, body:JSON.stringify({batch_id:photo.batch_id, equipment_number:fields.equipment_number, equipment_model:fields.equipment_model, container_number:fields.container_number, position_number:fields.position_number, fault:fields.fault})});
+    const response = await requestAPI('/api/field/photos/rewatermark', {method:'POST', headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf}, body:JSON.stringify({batch_id:photo.batch_id, equipment_number:fields.equipment_number, equipment_model:fields.equipment_model, container_number:fields.container_number, position_number:fields.position_number, fault:fields.fault, watermark_start:fields.watermark_start || ''})});
     const result = await response.json().catch(() => ({}));
     if (!response.ok) { notice(result.error || '水印没有更新。', true); return; }
     notice('已按确认的信息重做这组水印。');

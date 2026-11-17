@@ -26,7 +26,7 @@ test('album inputs are tappable on iOS and accept HEIC', () => {
   }
   assert.match(script, /input\.value = ''/);
   assert.match(script, /imageOrientation:\s*'from-image'/);
-  assert.match(worker, /prasinos-field-69/);
+  assert.match(worker, /prasinos-field-70/);
   assert.doesNotMatch(script, /\$\('nameplateCamera'\)\.click\(\)/);
   for (const id of ['retryRecognitionFile', 'retrySamePhotoFile']) {
     const retry = html.match(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`));
