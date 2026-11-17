@@ -712,6 +712,42 @@
 .erp-card-metric strong.pos { color: #027a48; }
 .erp-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
 .erp-empty { padding: 20px; text-align: center; color: var(--erp-muted); }
+
+/* 设备维修清单（手机卡片）：一行信息量少、行高被压扁，这里单独放大字号与间距 */
+.repair-ledger-card { padding: 12px 14px; }
+.repair-ledger-card .erp-card-head { gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--erp-line-soft); }
+.repair-ledger-card .erp-card-code { font-size: 15px; }
+.repair-ledger-card .erp-card-customer { font-size: 12.5px; }
+.repair-ledger-card .erp-card-sub {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 14px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--erp-muted);
+}
+.repair-ledger-card .erp-card-sub span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.repair-ledger-card .erp-card-sub b {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.repair-ledger-card .repair-line {
+  margin-top: 9px;
+  padding: 7px 9px;
+  border: 1px solid var(--erp-line-soft);
+  border-radius: 6px;
+  background: #fafbfd;
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.repair-ledger-card .erp-card-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; }
+.repair-ledger-card .erp-card-metric { padding: 6px 9px; text-align: left; }
+.repair-ledger-card .erp-card-metric span { font-size: 10.5px; }
+.repair-ledger-card .erp-card-metric strong { font-size: 14px; }
 @media (max-width: 1024px) {
   .erp-cards { display: flex; }
   /* 只在「有卡片承载数据」的页面隐藏桌面网格（数据由卡片呈现）。

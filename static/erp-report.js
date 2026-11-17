@@ -236,6 +236,13 @@
 
   /* --------------------------------------------------------- Toolbar */
   const form = app.querySelector('[data-erp-filter]');
+  // 手机上筛选区默认收起，把屏幕让给数据；点“筛选”再展开。
+  if (form && app.dataset.filterStart === 'collapsed'
+      && window.matchMedia('(max-width: 1024px)').matches) {
+    form.classList.add('collapsed');
+    const toggle = app.querySelector('[data-erp-action="toggle-filter"]');
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  }
   app.querySelectorAll('[data-erp-action]').forEach(button => {
     button.addEventListener('click', () => {
       switch (button.dataset.erpAction) {
@@ -258,10 +265,12 @@
           else window.alert('当前页面没有可导出的报表表格。');
           break;
         }
-        case 'toggle-filter':
-          form?.classList.toggle('collapsed');
-          button.setAttribute('aria-expanded', String(!form?.classList.contains('collapsed')));
+        case 'toggle-filter': {
+          const collapsed = form?.classList.toggle('collapsed');
+          button.setAttribute('aria-expanded', String(!collapsed));
+          button.textContent = collapsed ? '筛选' : '收起';
           break;
+        }
         default: break;
       }
     });

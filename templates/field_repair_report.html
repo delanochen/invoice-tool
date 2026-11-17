@@ -10,7 +10,7 @@
 {# 只读清单：数据来自 field_work.py field_repair_report()，
    删除按钮的 data-repair-delete / 对话框 ID 全部保持原样，repair-delete.js 不受影响。 #}
 {% set photo_total = rows|sum(attribute='photo_count') %}
-<div class="erp-app" data-active-panel="list">
+<div class="erp-app repair-ledger" data-active-panel="list" data-filter-start="collapsed">
 
   <!-- ───────────────────────────────── TopToolbar ───────────────────────── -->
   <header class="erp-toolbar no-print">
@@ -60,19 +60,22 @@
       <!-- 手机端：卡片替代表格 -->
       <div class="erp-cards">
         {% for row in rows %}
-          <article class="erp-card">
+          <article class="erp-card repair-ledger-card">
             <div class="erp-card-head">
               <span class="erp-card-code">{{ row.order_number }}</span>
               <span class="erp-card-customer">{{ row.date }}</span>
             </div>
             <div class="erp-card-sub">
-              <span class="translatable-text">铭牌 {{ row.equipment_number or '-' }}</span>
-              <span class="translatable-text">位置 {{ row.position_number or '-' }}</span>
-              <span class="translatable-text">箱号 {{ row.container_number or '-' }}</span>
+              <span>铭牌<b class="translatable-text">{{ row.equipment_number or '-' }}</b></span>
+              <span>型号<b class="translatable-text">{{ row.equipment_model or '-' }}</b></span>
+              <span>位置<b class="translatable-text">{{ row.position_number or '-' }}</b></span>
+              <span>箱号<b class="translatable-text">{{ row.container_number or '-' }}</b></span>
             </div>
-            <div class="erp-cert-file translatable-text">水泵保险 {{ row.pump_fuse_numbers or '-' }} · 维修 {{ row.technician or '-' }}</div>
+            <div class="repair-line translatable-text">水泵保险 {{ row.pump_fuse_numbers or '-' }} · 维修 {{ row.technician or '-' }}</div>
+            {% if row.note %}<div class="repair-line translatable-text">备注 {{ row.note }}</div>{% endif %}
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>照片</span><strong class="translatable-text">{{ row.photo_count }} 张</strong></div>
+              <div class="erp-card-metric"><span>记录</span><strong class="translatable-text">{{ row.sequence }}</strong></div>
             </div>
             {% if can_delete_repairs and row.can_delete %}
               <div class="erp-card-foot">
