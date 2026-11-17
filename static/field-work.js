@@ -1301,6 +1301,8 @@
       } else if (photo.photo_role === 'container') {
         pending.container_number = result.container_number || '';
         photo.recognized_container = pending.container_number;
+        photo.container_number = pending.container_number;
+        if (!pending.container_number) photo.position_number = photo.recognized_position || '';
         hideRecognizeProgress();
         notice(result.check_digit_ok ? '集装箱号已读出，保存前请再确认。' : '集装箱号校验位不一致，保存前请核对。', !result.check_digit_ok);
       } else if (photo.photo_role === 'position') {
@@ -1324,24 +1326,37 @@
       recognitionFailure(error);
     } finally { URL.revokeObjectURL(preview); ocrBusy = false; }
   }
-  function groupFieldsFrom(photos) {
-    const fields = ensureGroupPending();
-    for (const photo of photos) {
-      if (photo.photo_role === 'nameplate') {
-        if (photo.recognized_number) fields.equipment_number = photo.recognized_number;
-        if (photo.recognized_model) fields.equipment_model = photo.recognized_model;
-        fields.sources.nameplate = photo.client_id;
-      } else if (photo.photo_role === 'container' && photo.recognized_container) {
-        fields.container_number = photo.recognized_container;
-        fields.sources.container = photo.client_id;
-      } else if (photo.photo_role === 'position' && photo.recognized_position) {
-        fields.position_number = photo.recognized_position;
-        fields.sources.position = photo.client_id;
-      } else if (photo.photo_role === 'controller' && photo.recognized_fault) {
-        fields.fault = photo.recognized_fault;
-        fields.sources.controller = photo.client_id;
+  function unionGroupFields(photos) {
+    const fields = {equipment_number:'', equipment_model:'', container_number:'', position_number:'', fault:'', sources:{}};
+    for (const photo of photos || []) {
+      const role = photo.photo_role || '';
+      const number = photo.recognized_number || (role === 'nameplate' ? photo.equipment_number : '') || '';
+      const model = photo.recognized_model || (role === 'nameplate' ? (photo.photo_model || photo.equipment_model) : '') || '';
+      const container = photo.recognized_container || (role === 'container' ? photo.container_number : '') || '';
+      const position = photo.recognized_position || (role === 'position' ? photo.position_number : '') || '';
+      const fault = photo.recognized_fault || (role === 'controller' ? photo.fault_note : '') || '';
+      if (number) { fields.equipment_number = number; fields.sources.nameplate = photo.client_id || photo.id; }
+      if (model) fields.equipment_model = model;
+      if (container) { fields.container_number = container; fields.sources.container = photo.client_id || photo.id; }
+      if (position) { fields.position_number = position; fields.sources.position = photo.client_id || photo.id; }
+      if (fault) { fields.fault = fault; fields.sources.controller = photo.client_id || photo.id; }
+      // A container photo must not own the position. If 62-S1 was stored there, offer it as the position.
+      if (role === 'container' && !container && photo.position_number && !/^[A-Z]{4}\d{7}$/.test(String(photo.position_number).toUpperCase()) && !fields.position_number) {
+        fields.position_number = photo.position_number;
+      }
+      if (!role) {
+        if (!fields.equipment_number && photo.equipment_number) fields.equipment_number = photo.equipment_number;
+        if (!fields.equipment_model && (photo.photo_model || photo.equipment_model)) fields.equipment_model = photo.photo_model || photo.equipment_model;
+        if (!fields.container_number && photo.container_number) fields.container_number = photo.container_number;
+        if (!fields.position_number && photo.position_number) fields.position_number = photo.position_number;
+        if (!fields.fault && photo.fault_note) fields.fault = photo.fault_note;
       }
     }
+    return fields;
+  }
+  function groupFieldsFrom(photos) {
+    const fields = unionGroupFields(photos);
+    if (batch) batch.pending = fields;
     return fields;
   }
   function showGroupConfirm(photos) {
@@ -1651,21 +1666,16 @@
           photo.blob = new Blob([uploadBytes], {type:photo.blob.type || photo.content_type || 'application/octet-stream'});
           photo.error = '';
           if (photo.awaiting_watermark === true) {
-            const fields = batch?.pending || {equipment_number:photo.recognized_number || photo.equipment_number || '', equipment_model:photo.recognized_model || photo.equipment_model || '', container_number:photo.recognized_container || photo.container_number || '', position_number:photo.recognized_position || photo.position_number || '', fault:photo.recognized_fault || photo.fault_note || ''};
-            await applyGroupWatermark([photo], fields);
+            photo.error = '请先确认本组信息并生成水印，再上传。';
+            await storePhoto(photo);
+            continue;
           }
           await storePhoto(photo);
-          if (photo.recognition_status === 'offline' && RECOGNIZE_ROLES.has(photo.photo_role)) {
-            try {
-              await runRoleRecognition(photo);
-              const fields = batch?.pending || {equipment_number:photo.recognized_number || '', equipment_model:photo.recognized_model || '', container_number:photo.recognized_container || '', position_number:photo.recognized_position || '', fault:photo.recognized_fault || ''};
-              await applyGroupWatermark([photo], fields);
-            } catch (_) {}
-          }
           const data = new FormData();
           const skip = new Set(['blob','error','original_blob','original_blob_type','sources','recognized_number','recognized_model','recognized_container','recognized_position','recognized_fault']);
           Object.entries(photo).forEach(([k,v]) => { if (!skip.has(k) && v != null && typeof v !== 'object') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
+          data.append('client_watermarked', 'true');
           if (photo.original_blob instanceof Blob) data.append('original', photo.original_blob, photo.client_id+'.original.jpg');
           if (photo.source === 'file') notice('正在识别水印和 EXIF 拍摄日期…');
           let response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
@@ -1925,6 +1935,8 @@
       }
       clearFaultPhotos();
       showRepair(repair);
+      const rawDrafts = (await queued()).filter(item => item.awaiting_watermark === true);
+      if (rawDrafts.length) notice('有照片还没确认水印，已跳过上传。请先点“完成并上传本组照片”。', true);
       await syncQueue();
       notice('已保存维修前状态。可继续拍摄维修前照片。');
       await refreshPendingRepairs();
@@ -1938,6 +1950,8 @@
     if (!work) { notice('请填写本次工作内容。',true); return; }
     const button = $('completeRepair'); button.disabled = true;
     try {
+      const rawDrafts = (await queued()).filter(item => item.awaiting_watermark === true);
+      if (rawDrafts.length) notice('有照片还没确认水印，已跳过上传。请先点“完成并上传本组照片”。', true);
       await syncQueue();
       await repairRequest(order, {id:repair.id, action:'complete', work_content:work, result});
       if (activeRepair?.id !== repair.id) return;
@@ -1996,9 +2010,11 @@
   $('editGroupWatermark').addEventListener('click', async () => {
     const photo = ledgerPhotos[ledgerPhotoIndex];
     if (!photo?.batch_id) { notice('这张照片没有分组，不能整组重做水印。', true); return; }
+    const sessionKey = String(photo.batch_id).split(':')[0];
+    const group = ledgerPhotos.filter(item => item.batch_id && (item.batch_id === photo.batch_id || String(item.batch_id).split(':')[0] === sessionKey));
     const savedBatch = batch;
-    batch = {id:photo.batch_id, pending:{equipment_number:photo.equipment_number || '', equipment_model:photo.photo_model || photo.equipment_model || '', container_number:photo.container_number || '', position_number:photo.position_number || '', fault:photo.fault_note || '', sources:{}}};
-    const accepted = await showGroupConfirm([photo]);
+    batch = {id:photo.batch_id, session_id:sessionKey, type:photo.photo_type || 'equipment', pending:unionGroupFields(group.length ? group : [photo])};
+    const accepted = await showGroupConfirm(group.length ? group : [photo]);
     const fields = {...batch.pending};
     batch = savedBatch;
     if (!accepted) return;
@@ -2115,7 +2131,11 @@
     } catch(error) { notice('删除失败：'+error.message,true); $('confirmDeleteAllDrafts').disabled = false; }
     finally { deletingDrafts = false; await renderQueue(); }
   });
-  $('retryUpload').addEventListener('click',()=>syncQueue()); $('reloadOrders').addEventListener('click',bootstrap);
+  $('retryUpload').addEventListener('click', async () => {
+    const photos = await queued();
+    if (photos.some(item => item.awaiting_watermark === true)) { await completeBatch(); return; }
+    await syncQueue();
+  }); $('reloadOrders').addEventListener('click',bootstrap);
   $('equipmentKind').addEventListener('click',()=>chooseKind('equipment'));
   $('arrivalKind').addEventListener('click',()=>chooseKind('arrival')); $('departureKind').addEventListener('click',()=>chooseKind('departure')); $('safetyKind').addEventListener('click',()=>chooseKind('safety'));
   $('adjustWatermarkTime').addEventListener('click',openWatermarkDialog);

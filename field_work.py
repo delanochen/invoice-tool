@@ -1012,7 +1012,13 @@ def register_field_routes(app, api):
             if raw_original and len(raw_original) > 40 * 1024 * 1024:
                 raw_original = b''
             original_digest = hashlib.sha256(raw_original).hexdigest() if raw_original else ''
-            if should_server_watermark(request.form.get('awaiting_watermark'), digest, original_digest):
+            if should_server_watermark(
+                request.form.get('awaiting_watermark'),
+                digest,
+                original_digest,
+                request.form.get('client_watermarked'),
+                request.form.get('photo_role', ''),
+            ):
                 try:
                     content = stamp_group_watermark(raw_original or content, {
                         'order_number': order['order_number'],

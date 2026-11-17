@@ -128,9 +128,13 @@ _PHOTO_TYPE_LABEL = {
 }
 
 
-def should_server_watermark(awaiting, photo_digest="", original_digest=""):
-    """Stamp on the server when the phone uploaded the raw photo as the display file."""
+def should_server_watermark(awaiting, photo_digest="", original_digest="", client_watermarked="", photo_role=""):
+    """Stamp on the server unless the phone explicitly says it already drew the watermark."""
     if str(awaiting).lower() == "true":
+        return True
+    if str(client_watermarked).lower() == "false":
+        return True
+    if photo_role and str(client_watermarked).lower() != "true":
         return True
     return bool(photo_digest and original_digest and photo_digest == original_digest)
 

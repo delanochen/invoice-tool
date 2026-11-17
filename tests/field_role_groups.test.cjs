@@ -18,6 +18,14 @@ test('notes and work content stay on the capture screen and uploads can request 
   assert.match(script, /\$\('repairWork'\)\.value\.trim\(\)/);
   assert.match(script, /awaiting_watermark/);
   assert.match(script, /applyGroupWatermark/);
+  assert.match(script, /client_watermarked/);
+  assert.match(script, /photos\.some\(item => item\.awaiting_watermark === true\)/);
+  const upload = script.split('async function syncQueue')[1].split('async function completeBatch')[0];
+  const guard = upload.indexOf('awaiting_watermark === true');
+  const append = upload.indexOf("data.append('photo'");
+  assert.ok(guard >= 0 && append > guard);
+  assert.match(upload.slice(guard, append), /continue/);
+  assert.match(script, /unionGroupFields/);
 });
 
 test('the type selector is not shown before shooting', () => {
