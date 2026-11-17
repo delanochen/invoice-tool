@@ -300,19 +300,17 @@ def build_expense_report(context, items, *, expense_amount, company=None):
             sheet.cell(work_order_row, 3).border = WORK_ORDER_UNDERLINE
             sheet.merge_cells(start_row=work_order_row, end_row=work_order_row, start_column=3, end_column=5)
     groups = people(items)
-    for index, ((worker_id, name), rows) in enumerate(groups.items()):
-        if index:
-            sheet.append([None])
-        band(sheet, 'Worker Information', len(DAILY), '7C854B')
-        add_row(sheet, ['Label', 'Value', 'ID Label', 'ID'],
-                {'Label': 'Name', 'Value': name, 'ID Label': 'Employee ID',
-                 'ID': str(worker_id) if worker_id is not None else None})
-        heading(sheet, DAILY, '7C854B')
+    band(sheet, 'Worker Information', len(DAILY), '7C854B')
+    heading(sheet, DAILY, '7C854B')
+    daily_entries = []
+    for (_, name), rows in groups.items():
         by_day = defaultdict(list)
         for row in rows:
             by_day[str(row.get('project_date') or '')].append(row)
-        for day, daily_rows in sorted(by_day.items()):
-            add_row(sheet, DAILY, dict(amounts(daily_rows, expense_amount), Date=day, Name=name), fill='E2E5D4', grid=True)
+        daily_entries.extend((day, name, daily_rows) for day, daily_rows in by_day.items())
+    for day, name, daily_rows in sorted(daily_entries, key=lambda entry: (not entry[0], entry[0])):
+        add_row(sheet, DAILY, dict(amounts(daily_rows, expense_amount), Date=day, Name=name),
+                fill='E2E5D4', grid=True)
     sheet.append([None])
     band(sheet, 'Expense Summary', len(SUMMARY), '12465B')
     heading(sheet, SUMMARY, '12465B')
