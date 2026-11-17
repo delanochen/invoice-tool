@@ -4,6 +4,7 @@ Recognition reads a photo after the shutter. The confirmed values are copied ont
 every photo in the group only when the technician saves.
 """
 import re
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -128,8 +129,38 @@ _PHOTO_TYPE_LABEL = {
 }
 
 
-def should_server_watermark(awaiting, photo_digest="", original_digest="", client_watermarked="", photo_role=""):
-    """Stamp on the server unless the phone explicitly says it already drew the watermark."""
+def _as_utc(value):
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def earliest_watermark(values):
+    present = [value for value in values if value]
+    if not present:
+        return ""
+    return min(present, key=_as_utc)
+
+
+def shifted_watermark(original, earliest, new_start):
+    """Shift one photo by the same whole minutes as the group's earliest time."""
+    if not new_start:
+        return original or earliest
+    origin = _as_utc(original or earliest)
+    start = _as_utc(earliest).replace(second=0, microsecond=0)
+    chosen = _as_utc(new_start).replace(second=0, microsecond=0)
+    return (origin + (chosen - start)).isoformat()
+
+
+def should_server_watermark(awaiting, photo_digest="", original_digest="", client_watermarked="", photo_role="", watermark_opt_out=""):
+    """Stamp on the server unless the phone explicitly says it already drew the watermark.
+
+    watermark_opt_out is an album-only choice to keep a photo that was already
+    watermarked in another camera app. Every other upload still uses the safety net.
+    """
+    if str(watermark_opt_out).lower() == "true":
+        return False
     if str(awaiting).lower() == "true":
         return True
     if str(client_watermarked).lower() == "false":

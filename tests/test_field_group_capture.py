@@ -6,7 +6,7 @@ from PIL import Image
 
 from invoice_tool.service_reports.field_capture import (
     assess_container, container_candidates, fields_for_watermark, iso6346_check_digit,
-    read_container_image, should_server_watermark, stamp_group_watermark, validate_container_llm,
+    read_container_image, shifted_watermark, should_server_watermark, stamp_group_watermark, validate_container_llm,
     validate_position_llm, watermark_lines,
 )
 
@@ -77,6 +77,8 @@ class ContainerCheckDigitTest(unittest.TestCase):
         self.assertFalse(should_server_watermark("false", "watermarked", "raw", client_watermarked="true"))
         self.assertTrue(should_server_watermark("false", "raw", "different", client_watermarked="false", photo_role="container"))
         self.assertTrue(should_server_watermark("", "raw", "", client_watermarked="", photo_role="container"))
+        self.assertFalse(should_server_watermark("true", "same", "same", client_watermarked="false", photo_role="container", watermark_opt_out="true"))
+        self.assertTrue(should_server_watermark("true", "same", "same", watermark_opt_out="false"))
         raw = Image.new("RGB", (800, 600), "white")
         buffer = BytesIO()
         raw.save(buffer, format="JPEG")
@@ -88,6 +90,17 @@ class ContainerCheckDigitTest(unittest.TestCase):
         })
         self.assertTrue(stamped.startswith(b"\xff\xd8"))
         self.assertNotEqual(stamped, buffer.getvalue())
+        self.assertTrue(shifted_watermark(
+            "2026-11-17T18:00:37+00:00",
+            "2026-11-17T18:00:37+00:00",
+            "2026-11-17T17:00:00+00:00",
+        ).startswith("2026-11-17T17:00:37"))
+        later = shifted_watermark(
+            "2026-11-17T18:02:10+00:00",
+            "2026-11-17T18:00:37+00:00",
+            "2026-11-17T19:00:00+00:00",
+        )
+        self.assertTrue(later.startswith("2026-11-17T19:02:10"))
 
 
 if __name__ == "__main__":

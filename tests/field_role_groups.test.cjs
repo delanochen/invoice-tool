@@ -31,8 +31,22 @@ test('notes and work content stay on the capture screen and uploads can request 
 test('the type selector is not shown before shooting', () => {
   const fieldset = html.match(/<fieldset id="captureKind"[^>]*>/)[0];
   assert.match(fieldset, /\shidden(?:\s|>)/);
-  assert.match(html, /id="shutterFile"/);
   assert.match(html, /id="shutterButton"/);
+  assert.match(html, /id="cameraBar"/);
+  assert.doesNotMatch(html, /id="shutterFile"/);
+  assert.match(script, /\$\('shutterButton'\)\.addEventListener\('click', \(\) => openCamera\(false\)\)/);
+  assert.match(script, /groupWatermarkTime/);
+  assert.match(script, /requestTimePassword/);
+  assert.match(html, /id="albumWatermark"/);
+  assert.match(html, /添加水印/);
+  assert.match(script, /field-album-watermark/);
+  assert.match(script, /watermark_opt_out/);
+  const stamp = script.split('async function applyGroupWatermark')[1].split("$('takePhoto')")[0];
+  assert.match(stamp, /photo\.source === 'file' && fields\.album_watermark === false/);
+  assert.match(stamp, /watermark_opt_out = true/);
+  assert.match(stamp, /awaiting_watermark = false/);
+  const timeSettings = html.match(/<div id="timeSettings"[^>]*>/)[0];
+  assert.doesNotMatch(timeSettings, /\shidden(?:\s|>)/);
   assert.match(html, /class="capture-top"/);
 });
 
