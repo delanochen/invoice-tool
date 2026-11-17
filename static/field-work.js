@@ -1940,8 +1940,14 @@
       groupPhotos = (await queued()).filter(inSession);
     }
     if (groupPhotos.length) {
-      const accepted = await showGroupConfirm(groupPhotos);
-      if (!accepted) return;
+      // 进场 / 离场 / 自检 组没有设备字段可填，直接用水印时间归档，不再弹确认窗口。
+      const deviceGroup = groupPhotos.some(photo => (photo.photo_type || 'equipment') === 'equipment');
+      if (deviceGroup) {
+        const accepted = await showGroupConfirm(groupPhotos);
+        if (!accepted) return;
+      } else {
+        ensureGroupPending();
+      }
       await applyGroupWatermark(groupPhotos);
       await pushGroupFieldsToRepair(batch && batch.pending);
     }
