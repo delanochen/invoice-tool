@@ -1426,7 +1426,9 @@
         photo.recognized_fault = pending.fault;
         if ($('repairFault') && pending.fault) $('repairFault').value = pending.fault;
         hideRecognizeProgress();
-        notice(pending.fault ? '故障文字已读出，保存前请再确认。' : '没有读到屏幕文字，可以保存时手工填写。', !pending.fault);
+        if (!pending.fault) notice('没有读到屏幕文字，可以保存时手工填写。', true);
+        else if (result.source === 'ocr') notice('这次是本地 OCR 读的，屏幕文字可能不准。在“系统设置 → 大模型”里给“现场手操器故障识别”选一个支持视觉的模型后会自动改用它。', true);
+        else notice('故障文字已读出，保存前请再确认。');
       }
       photo.recognition_status = 'done';
       await storePhoto(photo);

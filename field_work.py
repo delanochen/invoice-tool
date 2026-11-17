@@ -402,13 +402,19 @@ _POSITION_PROMPT = (
     "Return only JSON with key position_number."
 )
 _FIELD_FAULT_PROMPT = (
-    "You read a field service controller screen: a HART communicator, controller HMI or drive panel, "
-    "often showing Simplified Chinese. Transcribe only text that is actually visible; never guess or explain. "
+    "You read a photo of a field service controller screen: a HART communicator, controller HMI or drive panel, "
+    "often in a bordered popup with a dimmed background, shot through glass glare with reflections of the phone, "
+    "the hand, clothing and nearby equipment. A nameplate sticker may sit beside the screen. "
+    "Read only the characters the panel itself displays. Ignore every reflection and object outside the panel, "
+    "ignore the sticker, hands, cables, metal, background text, the back arrow, home icon, close X and status bar. "
+    "If a bordered popup is open, its message is the alarm text. "
+    "Copy Simplified Chinese exactly as displayed and keep Latin tokens such as PWM, HART, VFD, MPa, Hz as shown. "
+    "Do not translate, do not reword, do not add commentary. One screen line per array item. "
     "Return only a JSON object with keys: "
-    "fault_codes (array of alarm/fault code strings exactly as shown, for example \"175\"), "
-    "fault_text (array of visible lines that describe alarms, faults, warnings or trips, copied verbatim), "
-    "display_text (array of other key visible lines, copied verbatim). "
-    "Drop UI chrome such as page numbers, menu bars, battery icons and timestamps without fault content."
+    "fault_codes (array of alarm/fault code strings exactly as shown, for example \"175\"; empty when none), "
+    "fault_text (array of the popup or alarm message lines, verbatim), "
+    "display_text (array of other readable screen headings or values, verbatim; empty when none). "
+    "Use empty arrays when nothing is legible."
 )
 _SCREEN_CHROME = re.compile(r'(?:page\s*)?\d+\s*/\s*\d+|第?\s*\d+\s*页|[<>«»←→]\s*\d+\s*/\s*\d+', re.I)
 
@@ -464,7 +470,12 @@ def recognize_controller_fault(api, content):
     """Vision model first for the controller screen; OCR only when that is unavailable."""
     image = load_upright_nameplate(content)
     preview = llm_nameplate_jpeg(image)
-    settings = _vision_settings_for_scene(api, 'field_fault') or _vision_settings_for_nameplate(api) if api else None
+    settings = None
+    reason = 'not_configured'
+    if api:
+        settings = _vision_settings_for_scene(api, 'field_fault') or _vision_settings_for_nameplate(api)
+        if settings:
+            reason = 'vision_failed'
     if settings:
         try:
             from urllib.request import Request, urlopen
@@ -476,7 +487,7 @@ def recognize_controller_fault(api, content):
             logger.info('controller fault vision returned no usable text')
         except Exception as error:
             logger.info('controller fault vision fallback: %s', type(error).__name__)
-    return {'fault_text': '', 'source': 'ocr', 'image': image}
+    return {'fault_text': '', 'source': 'ocr', 'reason': reason, 'image': image}
 
 
 def read_vision_json(content, settings, urlopen, request_class, prompt, timeout=NAMEPLATE_LLM_TIMEOUT,
@@ -1251,6 +1262,7 @@ def register_field_routes(app, api):
                 })
             if fault_mode:
                 found = recognize_controller_fault(api, content)
+                reason = found.get('reason') or 'vision_failed'
                 if found.get('source') == 'llm':
                     logger.info('controller fault recognize source=llm bytes=%s', len(content))
                     return json_utf8({'ok': True, 'fault_text': found['fault_text'], 'source': 'llm'})
@@ -1294,8 +1306,9 @@ def register_field_routes(app, api):
             return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。'), 503
         text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
         if fault_mode:
-            logger.info('controller fault recognize source=ocr bytes=%s', len(content))
-            return json_utf8({'ok': True, 'fault_text': controller_fault_text(text), 'source': 'ocr'})
+            logger.info('controller fault recognize source=ocr reason=%s bytes=%s', reason, len(content))
+            return json_utf8({'ok': True, 'fault_text': controller_fault_text(text), 'source': 'ocr',
+                              'reason': reason})
         return json_utf8({'ok': True, 'fault_text': controller_fault_text(text)})
 
     @app.route('/api/field/orders/<int:order_id>/repair-records', methods=['GET', 'POST'])
@@ -1795,3 +1808,35 @@ def register_field_routes(app, api):
         if request.path.startswith('/api/field/'):
             response.headers['Cache-Control'] = 'no-store, private'
         return response
+
+    def backfill_repair_container_numbers():
+        """One-off repair for rows created before 0.1.519.
+
+        The container number used to be written only while confirming a photo
+        batch, so repair rows created before that fix stayed blank. Fill those
+        rows from their own photos once, and only when the column is empty.
+        """
+        try:
+            if api['get_setting']('field_repair_container_backfill_v1', '') == '1':
+                return
+            db = api['db']()
+            updated = db.execute(
+                """update field_repairs
+                   set container_number = (
+                     select p.container_number from field_photos p
+                     where p.order_id = field_repairs.order_id
+                       and p.equipment_session = field_repairs.id
+                       and coalesce(p.container_number, '') <> ''
+                     order by p.captured_at
+                     limit 1)
+                   where coalesce(container_number, '') = ''"""
+            ).rowcount
+            db.commit()
+            api['set_setting']('field_repair_container_backfill_v1', '1')
+            if updated:
+                app.logger.info('field repair container backfill filled %s rows', updated)
+        except Exception:
+            app.logger.exception('field repair container backfill failed')
+
+    with app.app_context():
+        backfill_repair_container_numbers()
