@@ -205,7 +205,8 @@
     batch.type = type;
     if (typeChanged && !(deviceSession && type === 'equipment')) clearDeviceInputs();  // 换组：不残留上一组的设备信息
     $('deviceNoteSlot').append($('captureNote'));
-    $('deviceSession').hidden = false;
+    // 只有设备照片需要设备信息与维修字段；进场 / 离场 / 自检 不显示这一块。
+    $('deviceSession').hidden = type !== 'equipment';
     setKindChoiceActive(type);
     $('timeSettings').hidden = typeof captureMode !== 'undefined' && captureMode !== 'camera';
     const KIND_TEXT = {equipment:'设备照片：先拍，保存时再确认编号。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：请先选择进场、离场或自检照片。'};
@@ -1325,6 +1326,9 @@
     photo.capture_session = session.session_id;
     photo.batch_id = session.session_id + ':' + photo.photo_type;
     session.type = photo.photo_type;
+    // 拍完再选类型时，界面也跟着切换：非设备类型隐藏设备信息区。
+    $('deviceSession').hidden = session.type !== 'equipment';
+    setKindChoiceActive(session.type);
   }
   function highlightLastRole() {
     const last = localStorage.getItem('field-last-photo-role') || '';
