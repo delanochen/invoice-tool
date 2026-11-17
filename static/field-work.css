@@ -191,6 +191,8 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 .group-field img{grid-column:1;width:72px;height:72px;object-fit:cover;border-radius:8px}
 .group-field input,.group-field textarea{grid-column:2;min-height:40px}
 .invalid-field{border-color:#be123c!important;color:#9f1239}
+.capture-extra{margin:12px 0;border:1px solid var(--line);border-radius:12px;background:#fff;padding:8px 12px}
+.capture-extra summary{min-height:44px;display:flex;align-items:center;font-weight:700;cursor:pointer}
 .capture-top{display:grid;grid-template-columns:1.2fr .8fr;gap:8px;align-items:end}
 .capture-top label{margin:0}
 .shutter-row{display:flex;gap:10px;align-items:stretch}

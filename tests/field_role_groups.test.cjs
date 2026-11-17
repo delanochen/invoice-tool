@@ -7,6 +7,27 @@ const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'templates/field_work.html'), 'utf8');
 const script = fs.readFileSync(path.join(root, 'static/field-work.js'), 'utf8');
 
+test('notes and work content stay on the capture screen and uploads can request a watermark', () => {
+  const device = html.match(/<fieldset id="deviceSession"[^>]*>/)[0];
+  assert.doesNotMatch(device, /\shidden(?:\s|>)/);
+  assert.match(html, /id="photoNote"/);
+  assert.match(html, /id="repairWork"/);
+  assert.match(html, /id="repairFault"/);
+  assert.match(html, /备注 \/ 工作内容/);
+  assert.match(script, /\$\('photoNote'\)\.value\.trim\(\)/);
+  assert.match(script, /\$\('repairWork'\)\.value\.trim\(\)/);
+  assert.match(script, /awaiting_watermark/);
+  assert.match(script, /applyGroupWatermark/);
+  assert.match(script, /client_watermarked/);
+  assert.match(script, /photos\.some\(item => item\.awaiting_watermark === true\)/);
+  const upload = script.split('async function syncQueue')[1].split('async function completeBatch')[0];
+  const guard = upload.indexOf('awaiting_watermark === true');
+  const append = upload.indexOf("data.append('photo'");
+  assert.ok(guard >= 0 && append > guard);
+  assert.match(upload.slice(guard, append), /continue/);
+  assert.match(script, /unionGroupFields/);
+});
+
 test('the type selector is not shown before shooting', () => {
   const fieldset = html.match(/<fieldset id="captureKind"[^>]*>/)[0];
   assert.match(fieldset, /\shidden(?:\s|>)/);

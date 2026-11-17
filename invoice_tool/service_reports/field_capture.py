@@ -118,6 +118,52 @@ def read_container_image(image, read_text):
     return {**assessed, "candidates": found[:5], "text": "\n".join(texts)}
 
 
+_PHOTO_TYPE_LABEL = {
+    "arrival": "进场",
+    "departure": "离场",
+    "safety": "自检",
+    "equipment": "设备",
+    "general": "非设备",
+    "legacy": "历史",
+}
+
+
+def should_server_watermark(awaiting, photo_digest="", original_digest="", client_watermarked="", photo_role=""):
+    """Stamp on the server unless the phone explicitly says it already drew the watermark."""
+    if str(awaiting).lower() == "true":
+        return True
+    if str(client_watermarked).lower() == "false":
+        return True
+    if photo_role and str(client_watermarked).lower() != "true":
+        return True
+    return bool(photo_digest and original_digest and photo_digest == original_digest)
+
+
+def watermark_lines(fields):
+    """Lines burned into every saved photo. Device fields are omitted when empty."""
+    fields = fields or {}
+    photo_type = fields.get("photo_type") or ""
+    lines = [
+        f"工单 {fields.get('order_number') or '-'}",
+        f"施工员 {fields.get('technician_name') or fields.get('employee_name') or '-'}",
+        f"时间 {fields.get('when') or fields.get('watermark_at') or fields.get('captured_at') or '-'}",
+        f"类型 {_PHOTO_TYPE_LABEL.get(photo_type, photo_type or '-')}",
+    ]
+    if fields.get("equipment_number"):
+        lines.append(f"Machine No. {fields['equipment_number']}")
+    if fields.get("equipment_model"):
+        lines.append(f"Model {fields['equipment_model']}")
+    if fields.get("container_number"):
+        lines.append(f"Container {fields['container_number']}")
+    if fields.get("position_number"):
+        lines.append(f"Location {fields['position_number']}")
+    if fields.get("fault_note"):
+        lines.append(f"Fault {str(fields['fault_note'])[:80]}")
+    if fields.get("note"):
+        lines.append(f"备注 {str(fields['note'])[:80]}")
+    return lines
+
+
 def fields_for_watermark(photo, pending):
     """Confirmed group fields replace whatever was known when the photo was taken."""
     pending = pending or {}
@@ -137,13 +183,7 @@ def stamp_group_watermark(content, fields):
         image = ImageOps.exif_transpose(image).convert("RGB")
         draw = ImageDraw.Draw(image)
         font = ImageFont.load_default()
-        lines = [
-            f"Machine No. {fields.get('equipment_number') or '-'}",
-            f"Model {fields.get('equipment_model') or '-'}",
-            f"Container {fields.get('container_number') or '-'}",
-            f"Location {fields.get('position_number') or '-'}",
-            f"Fault {(fields.get('fault_note') or '-')[:80]}",
-        ]
+        lines = watermark_lines(fields)
         margin = 12
         line_height = 16
         height = line_height * len(lines) + 16

@@ -35,7 +35,7 @@
         </div>
         <div id="captureDetails">
         <fieldset id="captureKind" class="capture-kind photo-type-block" hidden><legend>本组照片类型</legend><div id="photoTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button id="arrivalKind" type="button" data-kind="arrival" aria-pressed="false">进场</button><button id="departureKind" type="button" data-kind="departure" aria-pressed="false">离场</button><button id="safetyKind" type="button" data-kind="safety" aria-pressed="false">自检</button><button id="equipmentKind" type="button" data-kind="equipment" aria-pressed="false">设备</button></div><p id="kindStatus" class="muted upload-type-hint">拍照后在照片上选择类型。</p></fieldset>
-        <fieldset id="deviceSession" class="device-session" hidden><legend>设备维修</legend>
+        <fieldset id="deviceSession" class="device-session"><legend>设备维修</legend>
           <div class="repair-tabs" role="group" aria-label="维修阶段">
             <button id="repairBefore" class="primary" type="button" aria-pressed="true">维修前</button>
             <button id="repairAfter" type="button" aria-pressed="false">维修后</button>
@@ -71,11 +71,9 @@
             <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
             <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片</button>
             <span class="album-launch album-launch-wide"><button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button><input id="repairAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span>
-            <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000"></textarea></label>
             <label>复测结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
             <button id="completeRepair" class="primary repair-wide" type="button">保存维修结果</button>
           </div>
-          <div id="deviceNoteSlot"><label id="captureNote">工作备注<textarea id="photoNote" rows="1" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
           <p id="deviceStatus" class="muted" hidden>填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
         <div id="timeSettings" class="repair-watermark" hidden><span id="watermarkModeText" class="muted">使用当前系统时间</span><button id="adjustWatermarkTime" class="repair-link" type="button">调整</button></div>
@@ -109,6 +107,11 @@
         </div>
       </div>
       <div id="draftCard" class="card" hidden><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><div class="draft-actions"><button id="retryUpload" type="button">重试上传</button><button id="deleteAllDrafts" type="button" class="danger">全部删除</button></div></div><div id="queueList"></div></div>
+      <details id="captureExtras" class="capture-extra" open>
+        <summary>备注 / 工作内容</summary>
+        <div id="deviceNoteSlot"><label id="captureNote">工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
+        <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000" placeholder="本次做了什么"></textarea></label>
+      </details>
       <button id="completeBatch" class="primary complete-batch" type="button" hidden disabled>请先拍照或选择照片</button>
     </section>
     <section data-panel="orders" hidden><div class="section-heading"><h1>我的工单</h1><button id="reloadOrders" type="button">刷新</button></div><p class="muted">按距当前位置的远近排列。同一站点可有多个工单，请确认编号。</p><input id="orderSearch" type="search" placeholder="搜索工单、站点或客户" aria-label="搜索工单"><div id="orderList"></div><div class="card"><h2>没有对应工单？</h2><a id="createOrder" class="primary button" href="/service-orders/new" hidden>新建工单</a><button id="requestOrder" type="button">申请新建工单</button><p class="muted">联网后新建或申请；确认工单后再拍照归档。</p></div></section>

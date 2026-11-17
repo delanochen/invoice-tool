@@ -6,7 +6,8 @@ from PIL import Image
 
 from invoice_tool.service_reports.field_capture import (
     assess_container, container_candidates, fields_for_watermark, iso6346_check_digit,
-    read_container_image, stamp_group_watermark, validate_container_llm, validate_position_llm,
+    read_container_image, should_server_watermark, stamp_group_watermark, validate_container_llm,
+    validate_position_llm, watermark_lines,
 )
 
 
@@ -60,6 +61,33 @@ class ContainerCheckDigitTest(unittest.TestCase):
         rendered = stamp_group_watermark(buffer.getvalue(), stamped)
         self.assertTrue(rendered.startswith(b"\xff\xd8"))
         self.assertGreater(len(rendered), 500)
+
+    def test_saved_photo_is_watermarked_even_without_device_fields(self):
+        lines = watermark_lines({
+            "order_number": "SO-1",
+            "technician_name": "张三",
+            "when": "2026-11-17 18:00:00",
+            "photo_type": "arrival",
+        })
+        self.assertIn("工单 SO-1", lines)
+        self.assertIn("施工员 张三", lines)
+        self.assertIn("类型 进场", lines)
+        self.assertTrue(should_server_watermark("true", "abc", "abc"))
+        self.assertTrue(should_server_watermark("false", "same", "same"))
+        self.assertFalse(should_server_watermark("false", "watermarked", "raw", client_watermarked="true"))
+        self.assertTrue(should_server_watermark("false", "raw", "different", client_watermarked="false", photo_role="container"))
+        self.assertTrue(should_server_watermark("", "raw", "", client_watermarked="", photo_role="container"))
+        raw = Image.new("RGB", (800, 600), "white")
+        buffer = BytesIO()
+        raw.save(buffer, format="JPEG")
+        stamped = stamp_group_watermark(buffer.getvalue(), {
+            "order_number": "SO-1",
+            "technician_name": "张三",
+            "when": "2026-11-17 18:00:00",
+            "photo_type": "arrival",
+        })
+        self.assertTrue(stamped.startswith(b"\xff\xd8"))
+        self.assertNotEqual(stamped, buffer.getvalue())
 
 
 if __name__ == "__main__":
