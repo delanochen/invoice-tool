@@ -57,7 +57,7 @@ test('single-row type control shows device fields only for equipment',async()=>{
   for(const type of ['equipment','departure','arrival','safety']) {
     const {context:c,$}=setup(type);
     assert.equal(c.batch.type,type);
-    assert.equal($('deviceSession').hidden,type!=='equipment');
+    assert.equal($('deviceSession').hidden,false);
     for(const kind of ['equipment','departure','arrival','safety']) assert.equal($(kind+'Kind').getAttribute('aria-pressed'),String(kind===type));
   }
 });

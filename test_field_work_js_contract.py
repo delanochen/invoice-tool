@@ -28,14 +28,13 @@ class FieldWorkJsContractTest(unittest.TestCase):
 
     # 1-5. deviceSession visibility
     def test_01_equipment_shows_device_session(self):
-        self.assertIn("$('deviceSession').hidden = type !== 'equipment'", self.code)
+        self.assertIn("$('deviceSession').hidden = false", self.code)
         self.assertIn("function confirmDevice()", self.code)  # equipment flow intact
 
     def test_02_non_equipment_hides_device_session(self):
-        # The single rule above covers arrival/departure/safety; assert the hidden
-        # toggle is the only visibility rule and non-equipment always hides.
-        self.assertEqual(self.code.count("$('deviceSession').hidden"), 2)  # accepted startKind + completeBatch
-        self.assertIn("$('deviceSession').hidden = type !== 'equipment'", self.code)
+        # Notes and repair fields stay on the capture screen for every photo role.
+        self.assertNotIn("$('deviceSession').hidden = type !== 'equipment'", self.code)
+        self.assertIn("$('deviceSession').hidden = false", self.code)
 
     # 6-9. state cleanup on kind switch
     def test_03_kind_switch_clears_device_inputs(self):

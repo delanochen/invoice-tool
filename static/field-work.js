@@ -188,8 +188,8 @@
     const typeChanged = previousType && previousType !== type;
     batch.type = type;
     if (typeChanged) clearDeviceInputs();  // 换组：不残留上一组的设备信息
-    $(type === 'equipment' ? 'deviceNoteSlot' : 'generalNoteSlot').append($('captureNote'));
-    $('deviceSession').hidden = type !== 'equipment';  // 非设备照片（进场/离场/自检）不填写设备信息，隐藏设备区域
+    $('deviceNoteSlot').append($('captureNote'));
+    $('deviceSession').hidden = false;
     setKindChoiceActive(type);
     $('timeSettings').hidden = typeof captureMode !== 'undefined' && captureMode !== 'camera';
     const KIND_TEXT = {equipment:'设备照片：先拍，保存时再确认编号。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：请先选择进场、离场或自检照片。'};
@@ -1409,10 +1409,12 @@
     fields = fields || ensureGroupPending();
     for (const photo of photos) {
       const raw = photo.original_blob || photo.blob;
-      const loaded = await blobImage(raw);
+      let loaded;
       try {
+        loaded = await blobImage(raw);
         const context = {...photo, equipment_number:fields.equipment_number, equipment_model:fields.equipment_model,
-          container_number:fields.container_number, position_number:fields.position_number, fault_note:fields.fault, watermark_source:'system'};
+          container_number:fields.container_number, position_number:fields.position_number, fault_note:fields.fault,
+          photo_type_label:photoTypeLabel(photo.photo_type), watermark_source:'system'};
         photo.blob = await processedPhoto(loaded.image, context);
         photo.original_blob = raw;
         photo.awaiting_watermark = false;
@@ -1422,7 +1424,10 @@
         photo.position_number = fields.position_number;
         photo.fault_note = fields.fault;
         await storePhoto(photo);
-      } finally { URL.revokeObjectURL(loaded.url); }
+      } catch (error) {
+        photo.awaiting_watermark = true;
+        await storePhoto(photo);
+      } finally { if (loaded) URL.revokeObjectURL(loaded.url); }
     }
   }
   $('takePhoto').addEventListener('click', async () => {
@@ -1645,6 +1650,10 @@
           }
           photo.blob = new Blob([uploadBytes], {type:photo.blob.type || photo.content_type || 'application/octet-stream'});
           photo.error = '';
+          if (photo.awaiting_watermark === true) {
+            const fields = batch?.pending || {equipment_number:photo.recognized_number || photo.equipment_number || '', equipment_model:photo.recognized_model || photo.equipment_model || '', container_number:photo.recognized_container || photo.container_number || '', position_number:photo.recognized_position || photo.position_number || '', fault:photo.recognized_fault || photo.fault_note || ''};
+            await applyGroupWatermark([photo], fields);
+          }
           await storePhoto(photo);
           if (photo.recognition_status === 'offline' && RECOGNIZE_ROLES.has(photo.photo_role)) {
             try {
@@ -1707,7 +1716,7 @@
     }
     for (const batchId of [...new Set(groupPhotos.map(photo => photo.batch_id))]) await syncQueue(batchId);
     if ((await queued()).filter(inSession).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
-    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
+    stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=false; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
     setKindChoiceActive(null); setFieldText('kindStatus','拍照后在照片上选择类型。'); $('photoNote').value=''; setUploadWatermark(false);
     notice('本组照片已全部上传，可以继续拍照。'); await renderQueue();

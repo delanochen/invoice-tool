@@ -7,6 +7,19 @@ const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'templates/field_work.html'), 'utf8');
 const script = fs.readFileSync(path.join(root, 'static/field-work.js'), 'utf8');
 
+test('notes and work content stay on the capture screen and uploads can request a watermark', () => {
+  const device = html.match(/<fieldset id="deviceSession"[^>]*>/)[0];
+  assert.doesNotMatch(device, /\shidden(?:\s|>)/);
+  assert.match(html, /id="photoNote"/);
+  assert.match(html, /id="repairWork"/);
+  assert.match(html, /id="repairFault"/);
+  assert.match(html, /备注 \/ 工作内容/);
+  assert.match(script, /\$\('photoNote'\)\.value\.trim\(\)/);
+  assert.match(script, /\$\('repairWork'\)\.value\.trim\(\)/);
+  assert.match(script, /awaiting_watermark/);
+  assert.match(script, /applyGroupWatermark/);
+});
+
 test('the type selector is not shown before shooting', () => {
   const fieldset = html.match(/<fieldset id="captureKind"[^>]*>/)[0];
   assert.match(fieldset, /\shidden(?:\s|>)/);

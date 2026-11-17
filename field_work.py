@@ -22,8 +22,8 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
 from invoice_tool.service_reports.field_capture import (
-    fields_for_watermark, position_token, read_container_image, stamp_group_watermark,
-    validate_container_llm, validate_position_llm,
+    fields_for_watermark, position_token, read_container_image, should_server_watermark,
+    stamp_group_watermark, validate_container_llm, validate_position_llm,
 )
 from invoice_tool.service_reports.field_repairs import (
     FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, machine_number_token,
@@ -1006,20 +1006,39 @@ def register_field_routes(app, api):
             thumb = (root / order_folder / 'thumbnails' / local.date().isoformat() / filename).resolve()
             if not target.is_relative_to(root) or not thumb.is_relative_to(root):
                 abort(403)
-            compress_image(BytesIO(content), target, max_size=1800, quality=78)
-            create_thumbnail(target, thumb)
             original_relative = ''
             original_upload = request.files.get('original')
-            if original_upload:
-                raw_original = original_upload.read(40 * 1024 * 1024 + 1)
-                if raw_original and len(raw_original) <= 40 * 1024 * 1024:
-                    original_name = filename.replace('.jpg', '.original.jpg')
-                    original_rel = Path(order_folder, 'pictures', local.date().isoformat(), original_name)
-                    original_target = (root / original_rel).resolve()
-                    if original_target.is_relative_to(root):
-                        original_target.parent.mkdir(parents=True, exist_ok=True)
-                        original_target.write_bytes(raw_original)
-                        original_relative = original_rel.as_posix()
+            raw_original = original_upload.read(40 * 1024 * 1024 + 1) if original_upload else b''
+            if raw_original and len(raw_original) > 40 * 1024 * 1024:
+                raw_original = b''
+            original_digest = hashlib.sha256(raw_original).hexdigest() if raw_original else ''
+            if should_server_watermark(request.form.get('awaiting_watermark'), digest, original_digest):
+                try:
+                    content = stamp_group_watermark(raw_original or content, {
+                        'order_number': order['order_number'],
+                        'technician_name': technician_name,
+                        'when': watermark_at,
+                        'photo_type': photo_type,
+                        'equipment_number': equipment_number,
+                        'equipment_model': request.form.get('equipment_model', '').strip()[:200],
+                        'container_number': container_number,
+                        'position_number': position_number,
+                        'fault_note': request.form.get('fault_note', '').strip()[:4000],
+                        'note': note,
+                    })
+                    digest = hashlib.sha256(content).hexdigest()
+                except (OSError, ValueError, Image.DecompressionBombError):
+                    app.logger.exception('field watermark stamp failed')
+            compress_image(BytesIO(content), target, max_size=1800, quality=78)
+            create_thumbnail(target, thumb)
+            if raw_original and len(raw_original) <= 40 * 1024 * 1024:
+                original_name = filename.replace('.jpg', '.original.jpg')
+                original_rel = Path(order_folder, 'pictures', local.date().isoformat(), original_name)
+                original_target = (root / original_rel).resolve()
+                if original_target.is_relative_to(root):
+                    original_target.parent.mkdir(parents=True, exist_ok=True)
+                    original_target.write_bytes(raw_original)
+                    original_relative = original_rel.as_posix()
             photo_role = request.form.get('photo_role', '').strip()[:32]
             photo_model = request.form.get('equipment_model', '').strip()[:200]
             fault_note = request.form.get('fault_note', '').strip()[:4000]
@@ -1059,7 +1078,9 @@ def register_field_routes(app, api):
             'fault': str(payload.get('fault') or '').strip()[:4000],
         }
         rows = api['db']().execute(
-            'select * from field_photos where user_id = ? and batch_id = ? order by captured_at, id',
+            '''select p.*, service_orders.order_number, service_orders.client_name as site_name
+               from field_photos p join service_orders on service_orders.id = p.order_id
+               where p.user_id = ? and p.batch_id = ? order by p.captured_at, p.id''',
             (g.user['id'], batch_id),
         ).fetchall()
         if not rows:
@@ -1070,6 +1091,13 @@ def register_field_routes(app, api):
             row_fields = dict(row)
             row_fields['equipment_model'] = row_fields.get('photo_model') or ''
             fields = fields_for_watermark(row_fields, pending)
+            fields.update({
+                'order_number': row['order_number'],
+                'technician_name': row['technician_name'],
+                'when': row['watermark_at'] or row['captured_at'],
+                'photo_type': row['photo_type'],
+                'note': row['note'],
+            })
             original_rel = row['original_relative_path'] or row['relative_path']
             source_path = (root / original_rel).resolve()
             target = (root / row['relative_path']).resolve()

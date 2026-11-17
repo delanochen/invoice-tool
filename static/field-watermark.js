@@ -62,6 +62,7 @@
       ...(String(context.container_number || '').trim() ? [['Container No.', String(context.container_number).trim(), 1]] : []),
       ...(String(context.fault_note || '').trim() ? [['Fault', String(context.fault_note).trim(), 2]] : []),
       ...(context.photo_type === 'equipment' && context.pump_fuse_numbers ? [['Pump Fuse', context.pump_fuse_numbers, 1]] : []),
+      ['Type', context.photo_type_label || context.photo_type || '—', 1],
       ['Technician', context.employee_name, 2],
       ['Time', localTime(context), 2],
       ['Address', context.site_address || context.site_name || '未填写地址', 3]
