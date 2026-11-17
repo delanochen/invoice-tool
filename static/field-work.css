@@ -194,6 +194,8 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 .repair-photo-strip img { width:76px; height:58px; object-fit:cover; border-radius:6px; }
 #repairFault { min-height:8.5rem; line-height:1.5; font-size:16px; }
 #nameplatePending{display:flex;gap:8px;align-items:center;margin:8px 0}
+#nameplatePending #nameplateStatus{flex:1 1 auto;min-width:0}
+#nameplatePendingConfirm{flex:0 0 auto;height:44px;min-height:44px;padding-block:0}
 #nameplateThumb{width:72px;height:72px;object-fit:cover;border-radius:8px;background:#e7eeea}
 .album-launch{position:relative;display:inline-flex;max-width:100%}
 .album-launch-wide{display:flex;width:100%}

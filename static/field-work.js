@@ -489,10 +489,12 @@
       $('recognizedNumber').textContent = result.candidates?.[0] || '';
       $('recognizedModel').textContent = result.equipment_model || '';
       $('nameplateStatus').textContent = '识别完成，请确认。';
+      $('nameplatePendingConfirm').hidden = false;
       hideRecognizeProgress();
       if (!$('recognitionDialog').open) $('recognitionDialog').showModal();
     } catch (error) {
       $('nameplateStatus').textContent = error.message || '铭牌识别失败';
+      $('nameplatePendingConfirm').hidden = true;
       recognitionFailure(error);
     } finally { ocrBusy = false; }
   }
@@ -1396,6 +1398,9 @@
         photo.recognized_model = pending.equipment_model;
         $('recognizedNumber').textContent = pending.equipment_number;
         $('recognizedModel').textContent = pending.equipment_model;
+        $('nameplateStatus').textContent = '识别完成，请确认。';
+        $('nameplatePending').hidden = false;
+        $('nameplatePendingConfirm').hidden = false;
         hideRecognizeProgress();
         if (!$('recognitionDialog').open) $('recognitionDialog').showModal();
       } else if (photo.photo_role === 'container') {
@@ -2169,7 +2174,13 @@
     const model = $('recognizedModel').textContent.trim();
     if (model) $('equipmentModel').value = model;
     deviceSession = null; $('recognitionDialog').close();
+    $('nameplatePending').hidden = true; $('nameplatePendingConfirm').hidden = true;
     notice(value && model ? '已填入设备编号和型号，请核对。' : '已填入识别结果，请补充另一项。');
+  });
+  $('nameplatePendingConfirm').addEventListener('click', () => {
+    if ($('recognitionDialog').open) return;
+    if (!$('recognizedNumber').textContent.trim() && nameplateBlob) { recognizeNameplateFile(nameplateBlob); return; }
+    $('recognitionDialog').showModal();
   });
   $('retryRecognitionFile').addEventListener('change', () => { const [file] = chosenFiles($('retryRecognitionFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
   $('retrySamePhoto').addEventListener('click', () => {
@@ -2217,7 +2228,7 @@
     } finally { $('confirmGroupSave').disabled = false; }
   });
   $('groupConfirmDialog').addEventListener('cancel', event => { event.preventDefault(); $('cancelGroupConfirm').click(); });
-  $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('equipmentNumber').focus(); });
+  $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('nameplatePending').hidden = true; $('nameplatePendingConfirm').hidden = true; $('equipmentNumber').focus(); });
   $('editGroupWatermark').addEventListener('click', async () => {
     const photo = ledgerPhotos[ledgerPhotoIndex];
     if (!photo?.batch_id) { notice('这张照片没有分组，不能整组重做水印。', true); return; }
