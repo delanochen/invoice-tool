@@ -64,15 +64,16 @@ class FieldWorkJsContractTest(unittest.TestCase):
     # 12. non-equipment payload has NO device keys
     def test_08_non_equipment_payload_excludes_device_keys(self):
         # Equipment-only device fields are spread conditionally:
-        self.assertIn("...(photoType === 'equipment' ? {equipment_number:captureDevice.equipment_number,", self.pack)
-        self.assertIn("equipment_session:captureDevice.id,no_equipment_number:captureDevice.no_equipment_number} : {})", self.pack)
+        self.assertIn("...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || '',", self.pack)
+        self.assertIn("equipment_session:captureDevice?.id || captureBatchId", self.pack)
         # No other place adds device fields to payloads.
         self.assertNotIn("equipment_number:captureDevice.equipment_number,position_number", self.pack.replace("...(photoType === 'equipment' ? {", ""))
 
     # 13. equipment flow still requires session
-    def test_09_equipment_requires_device_session(self):
-        self.assertIn("if (photoType === 'equipment' && !captureDevice) throw new Error('请先确认本组照片类型和设备信息。');", self.code)
-        self.assertIn("if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;", self.code)
+    def test_09_equipment_does_not_block_the_shutter(self):
+        self.assertNotIn("if (photoType === 'equipment' && !captureDevice) throw new Error('请先确认本组照片类型和设备信息。');", self.code)
+        self.assertNotIn("if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;", self.code)
+        self.assertIn("先拍，保存时再确认编号。", self.code)
         self.assertIn("noNumber = $('noEquipmentNumber').checked;", self.code)
 
     # 14. photo_type stays one of the four final types

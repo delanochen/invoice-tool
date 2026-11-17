@@ -25,6 +25,25 @@
   let processingFiles = false, processingTotal = 0, processingDone = 0;
   const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
   const FAULT_TEXT_LIMIT = Number($('repairFault').dataset.maxChars) || 4000;
+  function iso6346Ok(value) {
+    const token = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!/^[A-Z]{4}\d{7}$/.test(token)) return false;
+    const values = {};
+    let next = 10;
+    for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+      values[letter] = next;
+      next += 1;
+      if (next % 11 === 0) next += 1;
+    }
+    let total = 0;
+    for (let index = 0; index < 10; index += 1) {
+      const character = token[index];
+      total += (values[character] ?? Number(character)) * (1 << index);
+    }
+    const remainder = total % 11;
+    return token[10] === (remainder === 10 ? '0' : String(remainder));
+  }
+  let photoRoleResolve = null, groupConfirmResolve = null;
   function limitFaultField() {
     const field = $('repairFault');
     // Rewriting value while an IME is composing cancels the Chinese character.
@@ -173,7 +192,7 @@
     $('deviceSession').hidden = type !== 'equipment';  // 非设备照片（进场/离场/自检）不填写设备信息，隐藏设备区域
     setKindChoiceActive(type);
     $('timeSettings').hidden = typeof captureMode !== 'undefined' && captureMode !== 'camera';
-    const KIND_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：请先选择进场、离场或自检照片。'};
+    const KIND_TEXT = {equipment:'设备照片：先拍，保存时再确认编号。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。',general:'非设备照片：请先选择进场、离场或自检照片。'};
     setFieldText('kindStatus', KIND_TEXT[type] || KIND_TEXT.general);
     if (type !== 'equipment') deviceSession = null;  // 非设备照片不建立设备 session
     else if (previousType !== 'equipment') resetDevice();
@@ -302,7 +321,8 @@
     recognizeKind = kind;
     recognizeCancelled = false;
     $('recognizeOverlayThumb').src = previewUrl || '';
-    $('recognizeOverlayText').textContent = kind === 'fault' ? '正在识别故障屏幕，请稍候…' : '正在识别铭牌，请稍候…';
+    const progressText = {fault:'正在识别故障屏幕，请稍候…', container:'正在识别集装箱号，请稍候…', position:'正在识别位置号，请稍候…'};
+    $('recognizeOverlayText').textContent = progressText[kind] || '正在识别铭牌，请稍候…';
     $('recognizeOverlayError').hidden = true;
     $('recognizeSpinner').hidden = false;
     $('recognizeOverlayElapsed').hidden = false;
@@ -427,8 +447,7 @@
   async function saveAlbumLikeCamera(files) {
     if (!files.length || taking) return;
     if (!UPLOAD_TYPES.includes(batch?.type)) { notice('请先选择照片类型：进场、离场、自检或设备。', true); return; }
-    if (batch.type === 'equipment' && !activeRepair) { notice(repairStage === 'after' ? '请先选择维修记录。' : '请先保存维修前状态。', true); return; }
-    if (batch.type === 'equipment' && !deviceSession && !confirmDevice()) return;
+    if (batch.type === 'equipment' && repairStage === 'after' && !activeRepair) { notice('请先选择维修记录。', true); return; }
     taking = true;
     try {
       const base = await makeContext('file', {order:{...chosenOrder()}, userId:profile.user.id, watermarkSource:'system'});
@@ -442,7 +461,7 @@
           if (useSystemTime) context.watermark_at = exif.toISOString();
         }
         const drawn = await uprightDrawable(file);
-        try { await keepCapture(drawn.image, context); }
+        try { await captureRawAndClassify(drawn.image, context); }
         finally { URL.revokeObjectURL(drawn.url); }
       }
     } catch (error) { notice('照片未保存：'+error.message, true); }
@@ -527,7 +546,13 @@
     // On failure keep the original draft intact, including its error message.
     let saved = photo;
     if (!remove && photo.blob instanceof Blob) {
-      try { saved = {...photo, blob:await photo.blob.arrayBuffer(), blob_type:photo.blob.type}; }
+      try {
+        saved = {...photo, blob:await photo.blob.arrayBuffer(), blob_type:photo.blob.type};
+        if (photo.original_blob instanceof Blob) {
+          saved.original_blob = await photo.original_blob.arrayBuffer();
+          saved.original_blob_type = photo.original_blob.type;
+        }
+      }
       catch (error) { if (!photo.error) throw error; }
     }
     const db = await openDB();
@@ -545,7 +570,11 @@
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const request = db.transaction('photos').objectStore('photos').getAll();
-      request.onsuccess = () => resolve(request.result.filter(item => item.user_id === profile.user.id && (!batchId || item.batch_id === batchId)).sort((a,b) => a.captured_at.localeCompare(b.captured_at)).map(item => item.blob instanceof ArrayBuffer ? {...item, blob:new Blob([item.blob], {type:item.blob_type || item.content_type || 'image/jpeg'})} : item));
+      request.onsuccess = () => resolve(request.result.filter(item => item.user_id === profile.user.id && (!batchId || item.batch_id === batchId)).sort((a,b) => a.captured_at.localeCompare(b.captured_at)).map(item => {
+        const photo = item.blob instanceof ArrayBuffer ? {...item, blob:new Blob([item.blob], {type:item.blob_type || item.content_type || 'image/jpeg'})} : {...item};
+        if (photo.original_blob instanceof ArrayBuffer) photo.original_blob = new Blob([photo.original_blob], {type:photo.original_blob_type || 'image/jpeg'});
+        return photo;
+      }));
       request.onerror = () => reject(request.error);
     });
   }
@@ -772,11 +801,10 @@
     if (!batch?.type) { notice('请先选择“设备照片”或“非设备照片”。',true); return; }
     if (batch.type === 'general') { notice('请先选择进场、离场或自检照片。',true); return; }
     if (!useSystemTime && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
-    if (batch.type === 'equipment' && !recognitionOnly && !activeRepair) {
-      notice(repairStage === 'after' ? '请先按位置号选择维修记录。' : '请先保存维修前状态。', true);
+    if (batch.type === 'equipment' && repairStage === 'after' && !activeRepair && !recognitionOnly) {
+      notice('请先按位置号选择维修记录。', true);
       return;
     }
-    if (batch.type === 'equipment' && !deviceSession && !recognitionOnly && !confirmDevice()) return;
     const selected = chosenOrder();
     if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
     try {
@@ -802,7 +830,7 @@
   }
   // ---- 0.1.467 上传方式（不生成水印 / 生成水印）与 EXIF 时间批量调整 ----
   const UPLOAD_TYPES = ['arrival','departure','safety','equipment'];
-  const UPLOAD_TYPE_TEXT = {equipment:'设备照片：需确认 Machine Number。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。'};
+  const UPLOAD_TYPE_TEXT = {equipment:'设备照片：先拍，保存时再确认编号。',arrival:'进场照片：记录到达现场时间。',departure:'离场照片：记录离开现场时间。',safety:'自检照片：安全自检记录。'};
   const pad2 = n => String(n).padStart(2,'0');
   const localInput = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   const localText = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -1111,7 +1139,7 @@
     // Freeze the shutter-time metadata before asynchronous location checks.
     const photoType = batch.type, captureBatchId = batch.id;
     const captureDevice = deviceSession ? {...deviceSession} : null;
-    if (photoType === 'equipment' && !captureDevice) throw new Error('请先确认本组照片类型和设备信息。');
+    const group = batch?.pending || {};
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
     // Current phone location does not prove where an imported photo was taken:
@@ -1142,9 +1170,11 @@
       captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,timezone_name:timezoneName,
       latitude:skipsLocation ? 0 : position.latitude,longitude:skipsLocation ? 0 : position.longitude,accuracy:skipsLocation ? 100000 : position.accuracy,
       location_verified:!skipsLocation,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
-      ...(photoType === 'equipment' ? {equipment_number:captureDevice.equipment_number,
-      position_number:captureDevice.position_number,container_number:captureDevice.container_number,
-      equipment_session:captureDevice.id,repair_phase:captureDevice.repair_phase || '',no_equipment_number:captureDevice.no_equipment_number} : {})};
+      ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || '',
+      equipment_model:group.equipment_model || '', position_number:captureDevice?.position_number || group.position_number || '',
+      container_number:captureDevice?.container_number || group.container_number || '', fault_note:group.fault || '',
+      equipment_session:captureDevice?.id || captureBatchId, repair_phase:captureDevice?.repair_phase || '',
+      no_equipment_number:captureDevice ? !!captureDevice.no_equipment_number : !group.equipment_number} : {})};
   }
   async function processedPhoto(source, context) {
     const width = source.videoWidth || source.naturalWidth || source.width;
@@ -1174,9 +1204,206 @@
     await storePhoto(photo);
     await renderQueue();
   }
+  function ensureGroupPending() {
+    if (!batch.pending) batch.pending = {equipment_number:'', equipment_model:'', container_number:'', position_number:'', fault:'', sources:{}};
+    return batch.pending;
+  }
+  function askPhotoRole() {
+    return new Promise(resolve => { photoRoleResolve = resolve; $('photoRoleDialog').showModal(); });
+  }
+  function finishPhotoRole(role) {
+    $('photoRoleDialog').close();
+    const resolve = photoRoleResolve;
+    photoRoleResolve = null;
+    resolve?.(role);
+  }
+  async function blobImage(blob) {
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    return {image, url};
+  }
+  async function captureRawAndClassify(source, context) {
+    const raw = await processedPhoto(source, {...context, watermark_source:'original'});
+    const photo = {...context, blob:raw, original_blob:raw, awaiting_watermark:true, watermark_source:'system', photo_role:'', recognition_status:''};
+    await storePhoto(photo);
+    if (cameraStripSession && photo.source === 'camera' && photo.batch_id === cameraStripSession.batchId) cameraStripSession.ids.add(photo.client_id);
+    await renderQueue();
+    notice('照片已保存。请选择这张照片是什么。');
+    const role = await askPhotoRole();
+    photo.photo_role = role;
+    if (role === 'none') {
+      photo.recognition_status = 'skipped';
+      await storePhoto(photo);
+      return;
+    }
+    if (!navigator.onLine) {
+      photo.recognition_status = 'offline';
+      await storePhoto(photo);
+      notice('已记下照片类型，联网后会自动识别。');
+      return;
+    }
+    await runRoleRecognition(photo);
+  }
+  async function runRoleRecognition(photo) {
+    const raw = photo.original_blob || photo.blob;
+    const preview = URL.createObjectURL(raw);
+    const kind = photo.photo_role === 'controller' ? 'fault' : photo.photo_role;
+    showRecognizeProgress(kind, preview);
+    recognizeAbort = new AbortController();
+    ocrBusy = true;
+    try {
+      const drawn = await uprightDrawable(raw);
+      const data = new FormData();
+      data.append('photo', drawn.blob, 'photo.jpg');
+      const mode = {container:'container', position:'position', controller:'controller_fault'}[photo.photo_role] || '';
+      if (mode) data.append('mode', mode);
+      const response = await requestAPI('/api/field/recognize-equipment', {method:'POST', headers:{'X-Field-Token':profile.csrf}, body:data, signal:recognizeAbort.signal});
+      const result = await response.json().catch(() => ({}));
+      if (recognizeCancelled) return;
+      if (!response.ok) throw new Error(result.error || '识别失败');
+      const pending = ensureGroupPending();
+      pending.sources[photo.photo_role] = photo.client_id;
+      if (photo.photo_role === 'nameplate') {
+        pending.equipment_number = result.candidates?.[0] || pending.equipment_number;
+        pending.equipment_model = result.equipment_model || pending.equipment_model;
+        photo.recognized_number = pending.equipment_number;
+        photo.recognized_model = pending.equipment_model;
+        $('recognizedNumber').textContent = pending.equipment_number;
+        $('recognizedModel').textContent = pending.equipment_model;
+        hideRecognizeProgress();
+        if (!$('recognitionDialog').open) $('recognitionDialog').showModal();
+      } else if (photo.photo_role === 'container') {
+        pending.container_number = result.container_number || '';
+        photo.recognized_container = pending.container_number;
+        hideRecognizeProgress();
+        notice(result.check_digit_ok ? '集装箱号已读出，保存前请再确认。' : '集装箱号校验位不一致，保存前请核对。', !result.check_digit_ok);
+      } else if (photo.photo_role === 'position') {
+        pending.position_number = result.position_number || '';
+        photo.recognized_position = pending.position_number;
+        hideRecognizeProgress();
+        notice(pending.position_number ? '位置号已读出，保存前请再确认。' : '没有读到位置号，可以保存时手工填写。', !pending.position_number);
+      } else if (photo.photo_role === 'controller') {
+        pending.fault = result.fault_text || pending.fault;
+        photo.recognized_fault = pending.fault;
+        if ($('repairFault') && pending.fault) $('repairFault').value = pending.fault;
+        hideRecognizeProgress();
+        notice(pending.fault ? '故障文字已读出，保存前请再确认。' : '没有读到屏幕文字，可以保存时手工填写。', !pending.fault);
+      }
+      photo.recognition_status = 'done';
+      await storePhoto(photo);
+      URL.revokeObjectURL(drawn.url);
+    } catch (error) {
+      photo.recognition_status = navigator.onLine ? 'failed' : 'offline';
+      await storePhoto(photo);
+      recognitionFailure(error);
+    } finally { URL.revokeObjectURL(preview); ocrBusy = false; }
+  }
+  function groupFieldsFrom(photos) {
+    const fields = ensureGroupPending();
+    for (const photo of photos) {
+      if (photo.photo_role === 'nameplate') {
+        if (photo.recognized_number) fields.equipment_number = photo.recognized_number;
+        if (photo.recognized_model) fields.equipment_model = photo.recognized_model;
+        fields.sources.nameplate = photo.client_id;
+      } else if (photo.photo_role === 'container' && photo.recognized_container) {
+        fields.container_number = photo.recognized_container;
+        fields.sources.container = photo.client_id;
+      } else if (photo.photo_role === 'position' && photo.recognized_position) {
+        fields.position_number = photo.recognized_position;
+        fields.sources.position = photo.client_id;
+      } else if (photo.photo_role === 'controller' && photo.recognized_fault) {
+        fields.fault = photo.recognized_fault;
+        fields.sources.controller = photo.client_id;
+      }
+    }
+    return fields;
+  }
+  function showGroupConfirm(photos) {
+    const fields = groupFieldsFrom(photos);
+    const specs = [
+      ['equipment_number', '设备编号', 'nameplate'],
+      ['equipment_model', '设备型号', 'nameplate'],
+      ['container_number', '集装箱号', 'container'],
+      ['position_number', '位置号', 'position'],
+      ['fault', '故障信息', 'controller']
+    ];
+    const root = $('groupConfirmFields');
+    root.replaceChildren();
+    for (const [key, label, role] of specs) {
+      const source = photos.find(photo => photo.client_id === fields.sources[role]) || photos.find(photo => photo.photo_role === role);
+      const row = document.createElement('label');
+      row.className = 'group-field';
+      const title = document.createElement('span');
+      title.textContent = label;
+      const input = document.createElement(key === 'fault' ? 'textarea' : 'input');
+      input.value = fields[key] || '';
+      input.addEventListener('input', () => {
+        fields[key] = input.value;
+        const bad = (key === 'equipment_number' && input.value && !/^[A-Za-z0-9]{13}$/.test(input.value)) || (key === 'container_number' && input.value && !iso6346Ok(input.value));
+        input.classList.toggle('invalid-field', bad);
+      });
+      input.dispatchEvent(new Event('input'));
+      row.append(title, input);
+      if (source) {
+        const thumb = document.createElement('img');
+        thumb.alt = label;
+        thumb.src = URL.createObjectURL(source.original_blob || source.blob);
+        row.append(thumb);
+        const again = document.createElement('button');
+        again.type = 'button';
+        again.textContent = '用这张再识别';
+        again.addEventListener('click', () => runRoleRecognition({...source, photo_role: role}));
+        const launch = document.createElement('span');
+        launch.className = 'album-launch';
+        const fresh = document.createElement('button');
+        fresh.type = 'button';
+        fresh.textContent = '换一张';
+        const file = document.createElement('input');
+        file.type = 'file';
+        file.className = 'ios-file-input';
+        file.accept = 'image/*,.heic,.heif,.avif';
+        file.capture = 'environment';
+        file.addEventListener('change', async () => {
+          const [picked] = chosenFiles(file);
+          if (!picked) return;
+          source.original_blob = picked;
+          source.photo_role = role;
+          await runRoleRecognition(source);
+          input.value = fields[key] || '';
+          input.dispatchEvent(new Event('input'));
+        });
+        launch.append(fresh, file);
+        row.append(again, launch);
+      }
+      root.append(row);
+    }
+    return new Promise(resolve => { groupConfirmResolve = resolve; $('groupConfirmDialog').showModal(); });
+  }
+  async function applyGroupWatermark(photos, fields) {
+    fields = fields || ensureGroupPending();
+    for (const photo of photos) {
+      const raw = photo.original_blob || photo.blob;
+      const loaded = await blobImage(raw);
+      try {
+        const context = {...photo, equipment_number:fields.equipment_number, equipment_model:fields.equipment_model,
+          container_number:fields.container_number, position_number:fields.position_number, fault_note:fields.fault, watermark_source:'system'};
+        photo.blob = await processedPhoto(loaded.image, context);
+        photo.original_blob = raw;
+        photo.awaiting_watermark = false;
+        photo.equipment_number = fields.equipment_number;
+        photo.equipment_model = fields.equipment_model;
+        photo.container_number = fields.container_number;
+        photo.position_number = fields.position_number;
+        photo.fault_note = fields.fault;
+        await storePhoto(photo);
+      } finally { URL.revokeObjectURL(loaded.url); }
+    }
+  }
   $('takePhoto').addEventListener('click', async () => {
     if (taking) return; taking = true; $('takePhoto').disabled = true;
-    try { const context = await makeContext('camera'); if (context) { context.watermark_source = 'system'; await keepCapture($('viewfinder'),context); } }
+    try { const context = await makeContext('camera'); if (context) await captureRawAndClassify($('viewfinder'), context); }
     catch (error) { notice('照片未保存：'+error.message,true); }
     finally { taking = false; $('takePhoto').disabled = false; }
   });
@@ -1191,8 +1418,7 @@
     // receives a direct trusted user gesture instead of a scripted input click.
     if (!UPLOAD_TYPES.includes(batch?.type)) { reject('请先选择照片类型：进场、离场、自检或设备。'); return; }
     if (wmBusy) { reject('正在上传，请稍候。'); return; }
-    if (batch.type === 'equipment' && !activeRepair) { reject(repairStage === 'after' ? '请先选择维修记录。' : '请先保存维修前状态。'); return; }
-    if (batch.type === 'equipment' && !deviceSession && !confirmDevice()) { event.preventDefault(); captureContext = null; return; }
+    if (batch.type === 'equipment' && repairStage === 'after' && !activeRepair) { reject('请先选择维修记录。'); return; }
     if (uploadWatermark && !timeAuthorized) { reject('请先验证水印时间调整密码。'); return; }
     captureContext = {order:{...selected}, userId:profile.user.id, watermarkSource:uploadWatermark ? 'system' : 'original'};
   });
@@ -1396,9 +1622,18 @@
           photo.blob = new Blob([uploadBytes], {type:photo.blob.type || photo.content_type || 'application/octet-stream'});
           photo.error = '';
           await storePhoto(photo);
+          if (photo.recognition_status === 'offline' && photo.photo_role && photo.photo_role !== 'none') {
+            try {
+              await runRoleRecognition(photo);
+              const fields = batch?.pending || {equipment_number:photo.recognized_number || '', equipment_model:photo.recognized_model || '', container_number:photo.recognized_container || '', position_number:photo.recognized_position || '', fault:photo.recognized_fault || ''};
+              await applyGroupWatermark([photo], fields);
+            } catch (_) {}
+          }
           const data = new FormData();
-          Object.entries(photo).forEach(([k,v]) => { if (k !== 'blob' && k !== 'error') data.append(k,String(v)); });
+          const skip = new Set(['blob','error','original_blob','original_blob_type','sources','recognized_number','recognized_model','recognized_container','recognized_position','recognized_fault']);
+          Object.entries(photo).forEach(([k,v]) => { if (!skip.has(k) && v != null && typeof v !== 'object') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
+          if (photo.original_blob instanceof Blob) data.append('original', photo.original_blob, photo.client_id+'.original.jpg');
           if (photo.source === 'file') notice('正在识别水印和 EXIF 拍摄日期…');
           let response = await requestAPI('/api/field/photos',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data});
           if (response.status === 401) { lock('登录已过期，照片仍留在本机。请重新登录后补传。'); break; }
@@ -1430,7 +1665,22 @@
   }
   async function completeBatch() {
     if (!batch) return;
-    const id=batch.id; await syncQueue(id);
+    const id=batch.id;
+    let groupPhotos = await queued(id);
+    if (navigator.onLine) {
+      for (const photo of groupPhotos) {
+        if (photo.recognition_status === 'offline' && photo.photo_role && photo.photo_role !== 'none') {
+          try { await runRoleRecognition(photo); } catch (_) {}
+        }
+      }
+      groupPhotos = await queued(id);
+    }
+    if (groupPhotos.length) {
+      const accepted = await showGroupConfirm(groupPhotos);
+      if (!accepted) return;
+      await applyGroupWatermark(groupPhotos);
+    }
+    await syncQueue(id);
     if ((await queued(id)).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=true; $('deviceSession').hidden=true; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
@@ -1684,9 +1934,31 @@
     deviceSession = null; $('recognitionDialog').close();
     notice(value && model ? '已填入设备编号和型号，请核对。' : '已填入识别结果，请补充另一项。');
   });
-  $('retryRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('nameplateCamera').click(); });
-  $('retrySamePhoto').addEventListener('click', () => { $('recognitionDialog').close(); if (nameplateBlob) recognizeNameplateFile(nameplateBlob); else $('nameplateCamera').click(); });
+  $('retryRecognitionFile').addEventListener('change', () => { const [file] = chosenFiles($('retryRecognitionFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
+  $('retrySamePhotoFile').addEventListener('change', () => { const [file] = chosenFiles($('retrySamePhotoFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
+  for (const [id, role] of [['roleNameplate','nameplate'],['roleContainer','container'],['rolePosition','position'],['roleController','controller'],['roleNone','none']]) {
+    $(id).addEventListener('click', () => finishPhotoRole(role));
+  }
+  $('photoRoleDialog').addEventListener('cancel', event => { event.preventDefault(); finishPhotoRole('none'); });
+  $('cancelGroupConfirm').addEventListener('click', () => { $('groupConfirmDialog').close(); groupConfirmResolve?.(false); groupConfirmResolve = null; });
+  $('confirmGroupSave').addEventListener('click', () => { $('groupConfirmDialog').close(); groupConfirmResolve?.(true); groupConfirmResolve = null; });
+  $('groupConfirmDialog').addEventListener('cancel', event => { event.preventDefault(); $('cancelGroupConfirm').click(); });
   $('manualRecognition').addEventListener('click', () => { $('recognitionDialog').close(); $('equipmentNumber').focus(); });
+  $('editGroupWatermark').addEventListener('click', async () => {
+    const photo = ledgerPhotos[ledgerPhotoIndex];
+    if (!photo?.batch_id) { notice('这张照片没有分组，不能整组重做水印。', true); return; }
+    const savedBatch = batch;
+    batch = {id:photo.batch_id, pending:{equipment_number:photo.equipment_number || '', equipment_model:photo.photo_model || photo.equipment_model || '', container_number:photo.container_number || '', position_number:photo.position_number || '', fault:photo.fault_note || '', sources:{}}};
+    const accepted = await showGroupConfirm([photo]);
+    const fields = {...batch.pending};
+    batch = savedBatch;
+    if (!accepted) return;
+    const response = await requestAPI('/api/field/photos/rewatermark', {method:'POST', headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf}, body:JSON.stringify({batch_id:photo.batch_id, equipment_number:fields.equipment_number, equipment_model:fields.equipment_model, container_number:fields.container_number, position_number:fields.position_number, fault:fields.fault})});
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { notice(result.error || '水印没有更新。', true); return; }
+    notice('已按确认的信息重做这组水印。');
+    await loadLedger();
+  });
   $('saveLedgerPhotoType').addEventListener('click', async () => {
     const photo = ledgerPhotos[ledgerPhotoIndex];
     const select = $('ledgerPhotoTypeSelect');

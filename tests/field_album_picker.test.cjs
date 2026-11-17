@@ -26,7 +26,15 @@ test('album inputs are tappable on iOS and accept HEIC', () => {
   }
   assert.match(script, /input\.value = ''/);
   assert.match(script, /imageOrientation:\s*'from-image'/);
-  assert.match(worker, /prasinos-field-66/);
+  assert.match(worker, /prasinos-field-67/);
+  assert.doesNotMatch(script, /\$\('nameplateCamera'\)\.click\(\)/);
+  for (const id of ['retryRecognitionFile', 'retrySamePhotoFile']) {
+    const retry = html.match(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`));
+    assert.ok(retry, id);
+    assert.match(retry[0], /class="ios-file-input"/);
+    assert.match(retry[0], /capture="environment"/);
+    assert.doesNotMatch(retry[0], /\shidden(?:\s|=|>)/);
+  }
 });
 
 test('recognition shows a cancelable wait state for the nameplate and the fault screen', () => {

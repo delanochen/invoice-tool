@@ -21,6 +21,10 @@ from werkzeug.utils import secure_filename
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
+from invoice_tool.service_reports.field_capture import (
+    fields_for_watermark, position_token, read_container_image, stamp_group_watermark,
+    validate_container_llm, validate_position_llm,
+)
 from invoice_tool.service_reports.field_repairs import (
     FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, machine_number_token,
     nameplate_model, nameplate_number_groups, nameplate_numbers,
@@ -388,6 +392,50 @@ def _ocr_model_line(image):
     return line_text, '\n'.join(kept)
 
 
+_CONTAINER_PROMPT = (
+    "The container number is printed vertically on the container door. "
+    "Rotate it in your reading if needed. Return only JSON with key container_number, "
+    "exactly 4 letters, 6 digits and 1 check digit, such as CSQU3054383."
+)
+_POSITION_PROMPT = (
+    "Read the site position or unit number, a short code such as 62-3 or 1A2. "
+    "Return only JSON with key position_number."
+)
+
+
+def read_vision_json(content, settings, urlopen, request_class, prompt, timeout=NAMEPLATE_LLM_TIMEOUT):
+    """Ask the configured vision model for a JSON object. Raises on timeout."""
+    import base64
+    encoded = base64.b64encode(content).decode('ascii')
+    body = json.dumps({
+        'model': settings['model'],
+        'temperature': 0,
+        'max_tokens': 300,
+        'response_format': {'type': 'json_object'},
+        'messages': [{
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': prompt},
+                {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + encoded}},
+            ],
+        }],
+    }).encode('utf-8')
+    base = (settings.get('base_url') or 'https://api.deepseek.com').rstrip('/')
+    request = request_class(
+        base + '/chat/completions',
+        data=body,
+        headers={'Authorization': 'Bearer ' + settings['api_key'], 'Content-Type': 'application/json'},
+        method='POST',
+    )
+    with urlopen(request, timeout=timeout) as response:
+        result = json.loads(response.read().decode('utf-8'))
+    message = ((result.get('choices') or [{}])[0].get('message') or {}).get('content')
+    try:
+        return json.loads(message) if isinstance(message, str) else message
+    except (TypeError, ValueError):
+        return None
+
+
 def read_nameplate_llm(content, settings, urlopen, request_class, timeout=NAMEPLATE_LLM_TIMEOUT):
     """Call the configured vision chat endpoint. Raises on timeout or a bad response."""
     import base64
@@ -440,6 +488,58 @@ def _vision_settings_for_nameplate(api):
             'api_key': cfg.get('api_key') or settings.get('api_key'),
         }
     return settings
+
+
+def _ocr_image_text(image):
+    try:
+        result = _run_tesseract(_jpeg_bytes(image, quality=85), '6', 'eng')
+    except subprocess.TimeoutExpired:
+        return ''
+    if result.returncode != 0:
+        return ''
+    return decode_ocr_output(result.stdout)
+
+
+def recognize_container(api, content):
+    """Vision model first. OCR tries the upright photo and both quarter turns."""
+    image = load_upright_nameplate(content)
+    preview = llm_nameplate_jpeg(image)
+    settings = _vision_settings_for_nameplate(api) if api else None
+    if settings:
+        try:
+            from urllib.request import Request, urlopen
+            payload = read_vision_json(preview, settings, urlopen, Request, _CONTAINER_PROMPT)
+            found = validate_container_llm(payload)
+            if found:
+                found['source'] = 'llm'
+                return found
+        except Exception as error:
+            logger.info('container vision fallback: %s', type(error).__name__)
+    found = read_container_image(image, _ocr_image_text)
+    found['source'] = 'ocr'
+    return found
+
+
+def recognize_position(api, content):
+    image = load_upright_nameplate(content)
+    preview = llm_nameplate_jpeg(image)
+    settings = _vision_settings_for_nameplate(api) if api else None
+    if settings:
+        try:
+            from urllib.request import Request, urlopen
+            payload = read_vision_json(preview, settings, urlopen, Request, _POSITION_PROMPT)
+            found = validate_position_llm(payload)
+            if found:
+                found['source'] = 'llm'
+                return found
+        except Exception as error:
+            logger.info('position vision fallback: %s', type(error).__name__)
+    text = _ocr_image_text(image)
+    for raw in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-]{0,12}", text or ''):
+        token = position_token(raw)
+        if token:
+            return {'position_number': token, 'source': 'ocr', 'text': text}
+    return {'position_number': '', 'source': 'ocr', 'text': text}
 
 
 def recognize_nameplate(api, content):
@@ -828,8 +928,10 @@ def register_field_routes(app, api):
         if photo_type not in {'equipment', 'general', 'legacy', 'arrival', 'departure', 'safety'}:
             return jsonify(error='照片类型无效。'), 422
         no_equipment_number = request.form.get('no_equipment_number') == 'true'
-        if has_device_metadata and ((not equipment_number and not no_equipment_number) or not equipment_session):
-            return jsonify(error='请确认设备编号，或明确选择“此设备无编号”。'), 422
+        if has_device_metadata and not equipment_session:
+            equipment_session = batch_id or 'group-pending'
+        if has_device_metadata and not equipment_number and not no_equipment_number:
+            no_equipment_number = True
         if not has_device_metadata:
             equipment_session = 'legacy-pending-photo'
         technician_user_id = request.form.get('technician_user_id', str(g.user['id'])).strip()
@@ -906,16 +1008,33 @@ def register_field_routes(app, api):
                 abort(403)
             compress_image(BytesIO(content), target, max_size=1800, quality=78)
             create_thumbnail(target, thumb)
+            original_relative = ''
+            original_upload = request.files.get('original')
+            if original_upload:
+                raw_original = original_upload.read(40 * 1024 * 1024 + 1)
+                if raw_original and len(raw_original) <= 40 * 1024 * 1024:
+                    original_name = filename.replace('.jpg', '.original.jpg')
+                    original_rel = Path(order_folder, 'pictures', local.date().isoformat(), original_name)
+                    original_target = (root / original_rel).resolve()
+                    if original_target.is_relative_to(root):
+                        original_target.parent.mkdir(parents=True, exist_ok=True)
+                        original_target.write_bytes(raw_original)
+                        original_relative = original_rel.as_posix()
+            photo_role = request.form.get('photo_role', '').strip()[:32]
+            photo_model = request.form.get('equipment_model', '').strip()[:200]
+            fault_note = request.form.get('fault_note', '').strip()[:4000]
             cursor = db.execute('''insert into field_photos
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,
                  equipment_number, position_number, container_number, pump_fuse_numbers, equipment_session, photo_type, watermark_at,
-                 watermark_source, batch_id, technician_user_id, technician_name, location_verified, capture_date_source, repair_phase)
-                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                 watermark_source, batch_id, technician_user_id, technician_name, location_verified, capture_date_source, repair_phase,
+                 original_relative_path, photo_role, photo_model, fault_note)
+                values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (key, order_id, g.user['id'], captured.astimezone(timezone.utc).isoformat(), api['now'](),
                  local.date().isoformat(), tz_name, lat, lng, accuracy, location_note, note, source,
                  relative.as_posix(), digest, target.stat().st_size, equipment_number, position_number, container_number, pump_fuse_numbers,
-                 equipment_session, photo_type, watermark_at, watermark_source, batch_id, technician['id'], technician_name, int(location_verified), capture_date_source, repair_phase))
+                 equipment_session, photo_type, watermark_at, watermark_source, batch_id, technician['id'], technician_name, int(location_verified), capture_date_source, repair_phase,
+                 original_relative, photo_role, photo_model, fault_note))
             api['log_action']('create', 'field_photo', cursor.lastrowid, order['order_number'], 'PWA 工单照片上传')
             db.commit()
         except Exception:
@@ -923,17 +1042,76 @@ def register_field_routes(app, api):
             raise
         return jsonify(ok=True, id=cursor.lastrowid, capture_date=local.date().isoformat(), capture_date_source=capture_date_source)
 
+    @app.post('/api/field/photos/rewatermark')
+    @access
+    def rewatermark_group():
+        """Redraw every original in a batch with the confirmed group info."""
+        check_write()
+        payload = request.get_json(silent=True) or {}
+        batch_id = str(payload.get('batch_id') or '').strip()[:64]
+        if not batch_id:
+            return jsonify(error='缺少照片组。'), 422
+        pending = {
+            'equipment_number': str(payload.get('equipment_number') or '').strip()[:200],
+            'equipment_model': str(payload.get('equipment_model') or '').strip()[:200],
+            'container_number': str(payload.get('container_number') or '').strip().upper()[:200],
+            'position_number': str(payload.get('position_number') or '').strip().upper()[:200],
+            'fault': str(payload.get('fault') or '').strip()[:4000],
+        }
+        rows = api['db']().execute(
+            'select * from field_photos where user_id = ? and batch_id = ? order by captured_at, id',
+            (g.user['id'], batch_id),
+        ).fetchall()
+        if not rows:
+            return jsonify(error='找不到这组照片。'), 404
+        root = api['shared_photos_root']()
+        updated = 0
+        for row in rows:
+            row_fields = dict(row)
+            row_fields['equipment_model'] = row_fields.get('photo_model') or ''
+            fields = fields_for_watermark(row_fields, pending)
+            original_rel = row['original_relative_path'] or row['relative_path']
+            source_path = (root / original_rel).resolve()
+            target = (root / row['relative_path']).resolve()
+            if not source_path.is_relative_to(root) or not target.is_relative_to(root) or not source_path.is_file():
+                continue
+            stamped = stamp_group_watermark(source_path.read_bytes(), fields)
+            target.write_bytes(stamped)
+            try:
+                relative = Path(row['relative_path'])
+                thumb = (root / relative.parts[0] / 'thumbnails' / Path(*relative.parts[2:])).resolve()
+                if len(relative.parts) >= 3 and thumb.is_relative_to(root):
+                    create_thumbnail(target, thumb)
+            except Exception:
+                logger.info('group watermark thumbnail skipped for %s', row['id'])
+            api['db']().execute(
+                '''update field_photos set equipment_number = ?, position_number = ?, container_number = ?,
+                   photo_model = ?, fault_note = ? where id = ? and user_id = ?''',
+                (fields['equipment_number'], fields['position_number'], fields['container_number'],
+                 fields['equipment_model'], fields['fault_note'], row['id'], g.user['id']),
+            )
+            updated += 1
+        api['db']().commit()
+        return jsonify(ok=True, updated=updated)
+
     @app.post('/api/field/recognize-equipment')
     @access
     def recognize_equipment():
         check_write()
-        fault_mode = request.form.get('mode') == 'controller_fault'
-        subject = '手操器屏幕' if fault_mode else '铭牌'
+        mode = request.form.get('mode') or ''
+        fault_mode = mode == 'controller_fault'
+        subject = {'controller_fault': '手操器屏幕', 'container': '集装箱号', 'position': '位置号'}.get(mode, '铭牌')
         photo = request.files.get('photo')
         content = photo.read(10 * 1024 * 1024 + 1) if photo else b''
         if not content or len(content) > 10 * 1024 * 1024:
             return jsonify(error=f'{subject}照片为空或超过 10MB。'), 422
         try:
+            if mode == 'container':
+                found = recognize_container(api, content)
+                return json_utf8({'ok': True, **{key: found.get(key) for key in ('container_number', 'check_digit_ok', 'candidates', 'source')}})
+            if mode == 'position':
+                found = recognize_position(api, content)
+                return json_utf8({'ok': True, 'position_number': found.get('position_number') or '', 'source': found.get('source') or 'ocr'})
             if not fault_mode:
                 found = recognize_nameplate(api, content)
                 _store_nameplate_debug(api, found.pop('upright', content), found)
