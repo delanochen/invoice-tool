@@ -1,5 +1,6 @@
 """Field photo PWA endpoints; keeps the existing application permission model."""
 import hashlib
+import json
 import math
 import os
 import re
@@ -12,14 +13,46 @@ from io import BytesIO
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import abort, g, jsonify, render_template, request, send_file, session, url_for
+from flask import Response, abort, g, jsonify, render_template, request, send_file, session, url_for
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from werkzeug.exceptions import NotFound
 from werkzeug.utils import secure_filename
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
-from invoice_tool.service_reports.field_repairs import controller_fault_text, nameplate_model
+from invoice_tool.service_reports.field_repairs import (
+    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model,
+)
+
+def json_utf8(payload, status=200):
+    """JSON body with real UTF-8 characters so Simplified Chinese is not escaped."""
+    return Response(
+        json.dumps(payload, ensure_ascii=False, default=str).encode('utf-8'),
+        status=status,
+        content_type='application/json; charset=utf-8',
+    )
+
+
+def _run_tesseract(payload, psm, language, *, chinese=False):
+    command = ['tesseract', 'stdin', 'stdout']
+    if chinese:
+        # LSTM only. The Debian chi_sim package does not ship a legacy model.
+        command.extend(['--oem', '1'])
+    command.extend(['--psm', psm, '-l', language])
+    if chinese:
+        command.extend(['-c', 'preserve_interword_spaces=1'])
+    return subprocess.run(
+        command, input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=25 if chinese else 20, check=False,
+    )
+
+
+def _chinese_language_missing(result):
+    if result.returncode == 0:
+        return False
+    stderr = (result.stderr or b'').decode('utf-8', errors='replace').casefold()
+    return 'chi_sim' in stderr or 'failed loading language' in stderr or 'error opening data file' in stderr
+
 
 PHOTO_TYPE_LABELS = {
     'equipment': '设备',
@@ -446,37 +479,51 @@ def register_field_routes(app, api):
                 if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
                     raise ValueError
                 image.load()
+                if fault_mode:
+                    image = ImageOps.exif_transpose(image)
                 enhanced = ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)
                 scale = min(3, max(1, math.ceil(2400 / max(enhanced.width, enhanced.height))))
                 if scale > 1:
                     enhanced = enhanced.resize((enhanced.width * scale, enhanced.height * scale), Image.Resampling.LANCZOS)
-                enhanced = ImageEnhance.Contrast(enhanced).enhance(1.5).filter(ImageFilter.SHARPEN).filter(ImageFilter.SHARPEN)
+                # A second sharpen pass breaks thin Simplified Chinese strokes on a glare LCD.
+                enhanced = ImageEnhance.Contrast(enhanced).enhance(1.35 if fault_mode else 1.5).filter(ImageFilter.SHARPEN)
+                if not fault_mode:
+                    enhanced = enhanced.filter(ImageFilter.SHARPEN)
                 processed = BytesIO()
                 enhanced.save(processed, format='PNG')
+                if fault_mode:
+                    plain = BytesIO()
+                    ImageOps.grayscale(image).save(plain, format='PNG')
+                    passes = (('6', plain.getvalue()), ('4', processed.getvalue()))
+                    language = 'chi_sim+eng'
+                else:
+                    passes = (('11', content), ('6', processed.getvalue()))
+                    language = 'eng'
             results = [
-                subprocess.run(['tesseract', 'stdin', 'stdout', '--psm', psm, '-l', 'eng'], input=payload,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=False)
-                for psm, payload in [('11', content), ('6', processed.getvalue())]
+                _run_tesseract(payload, psm, language, chinese=fault_mode)
+                for psm, payload in passes
             ]
         except (OSError, ValueError, Image.DecompressionBombError):
             return jsonify(error=f'无法读取{subject}照片。'), 422
         except subprocess.TimeoutExpired:
             return jsonify(error=f'{subject}识别超时，请重试或手工输入。'), 504
         if not any(result.returncode == 0 for result in results):
+            if fault_mode and any(_chinese_language_missing(result) for result in results):
+                return jsonify(error='服务器未安装简体中文识别语言包，暂时无法识别手操器中文。'), 503
             return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。'), 503
-        text = '\n'.join(result.stdout.decode('utf-8', errors='ignore') for result in results if result.returncode == 0)
+        text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
         if fault_mode:
-            return jsonify(ok=True, fault_text=controller_fault_text(text))
+            return json_utf8({'ok': True, 'fault_text': controller_fault_text(text)})
         text = re.sub(r'(?<=\d)[ \t](?=\d)', '', text)
         labels = r'(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)'
         candidates = []
-        for match in re.finditer(labels + r'\s*[:：#-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})', text, re.I):
+        for match in re.finditer(labels + r'\s*[:：#=＝-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})', text, re.I):
             value = match.group(1).strip('._/-')
             if re.fullmatch(r'[A-Za-z0-9]{13}', value) and value not in candidates:
                 candidates.append(value)
         if not candidates:
             candidates.extend(dict.fromkeys(re.findall(r'(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])', text, re.I)))
-        return jsonify(ok=True, candidates=candidates[:5], equipment_model=nameplate_model(text))
+        return json_utf8({'ok': True, 'candidates': candidates[:5], 'equipment_model': nameplate_model(text)})
 
     @app.route('/api/field/orders/<int:order_id>/repair-records', methods=['GET', 'POST'])
     @access
@@ -489,7 +536,7 @@ def register_field_routes(app, api):
                 'select * from field_repairs where order_id = ? and user_id = ? and completed_date is null order by created_at desc',
                 (order_id, user_id),
             ).fetchall()
-            return jsonify(rows=[dict(row) for row in rows])
+            return json_utf8({'rows': [dict(row) for row in rows]})
 
         check_write()
         data = request.get_json(silent=True) or {}
@@ -526,7 +573,7 @@ def register_field_routes(app, api):
                 'select 1 from customer_reimbursements where service_order_id = ? limit 1', (order_id,),
             ).fetchone():
                 return jsonify(error='工单已关闭或已开始结算。'), 409
-            if not value('fault', 1000):
+            if not value('fault', FAULT_TEXT_LIMIT):
                 return jsonify(error='请先记录故障现象。'), 422
             number = value('equipment_number', 200)
             if not number and data.get('no_equipment_number') is not True:
@@ -536,7 +583,7 @@ def register_field_routes(app, api):
                    position_number, container_number, fault, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                    on conflict (id) do nothing returning id""",
                 (repair_id, order_id, user_id, number, value('equipment_model', 200), value('position_number', 200),
-                 value('container_number', 200), value('fault', 1000), api['now']()),
+                 value('container_number', 200), value('fault', FAULT_TEXT_LIMIT), api['now']()),
             ).fetchone()
             if not row and not connection.execute(
                 'select 1 from field_repairs where id = ? and order_id = ? and user_id = ? and completed_date is null',

@@ -54,7 +54,9 @@
     "水印":"Watermark",
     "现场位置":"Site location",
     "备注":"Notes",
-    "来源":"Source"
+    "来源":"Source",
+    "维修前故障信息":"Fault information before repair",
+    "识别结果较长，已保留前 4000 字，请核对。":"The reading is long; the first 4000 characters were kept. Please check them."
   };
   const es = {
     '第一步：请先验证水印时间调整密码，验证通过后进入时间设定。':'Paso 1: verifique la contraseña de ajuste de hora; después podrá fijar la hora.',
@@ -109,7 +111,9 @@
     "水印":"Marca de agua",
     "现场位置":"Ubicación en el sitio",
     "备注":"Notas",
-    "来源":"Fuente"
+    "来源":"Fuente",
+    "维修前故障信息":"Información de la avería antes de la reparación",
+    "识别结果较长，已保留前 4000 字，请核对。":"El texto reconocido es largo; se conservaron los primeros 4000 caracteres. Revíselo."
   };
   const language = document.documentElement.lang;
   const supplement = globalThis.uiI18nSupplement || {};

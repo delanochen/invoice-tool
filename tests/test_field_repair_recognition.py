@@ -1,0 +1,117 @@
+"""Handheld-controller and nameplate text extracted for field repairs."""
+import unittest
+from pathlib import Path
+
+from invoice_tool.service_reports.field_repairs import (
+    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+
+CONTROLLER_SCREEN = """当前故障
+2026/11/17 23:00:10 2级故障 故障码175
+P3 水泵3干磨故障
+2026/11/17 23:00:10 2级故障 故障码168
+P2 水泵2干磨故障
+page 1/2
+"""
+
+TONGFEI_PLATE = """Inverter Liquid Cooling Unit
+Machine Type LCI-400CR-01AZ-3487U Refrigerant R134a
+Machine Number 1023240407536 Manufacture Year 2024
+"""
+
+
+class FieldRepairRecognitionTest(unittest.TestCase):
+    def test_controller_screen_keeps_simplified_chinese_fault_lines(self):
+        text = controller_fault_text(CONTROLLER_SCREEN)
+        self.assertEqual(text, "\n".join([
+            "当前故障",
+            "2026/11/17 23:00:10 2级故障 故障码175",
+            "P3 水泵3干磨故障",
+            "2026/11/17 23:00:10 2级故障 故障码168",
+            "P2 水泵2干磨故障",
+        ]))
+        self.assertNotIn("page", text.casefold())
+        self.assertLess(len(text), FAULT_TEXT_LIMIT)
+
+    def test_spaced_chinese_ocr_is_joined_without_eating_the_pump_code(self):
+        text = controller_fault_text("当 前 故 障\nP3 水 泵 3 干 磨 故 障\n")
+        self.assertIn("当前故障", text)
+        self.assertIn("P3 水泵3干磨故障", text)
+
+    def test_fault_text_keeps_several_thousand_characters(self):
+        long_text = "\n".join(
+            f"2026/11/17 23:00:10 2级故障 故障码{index} 水泵{index}干磨故障" for index in range(200)
+        )
+        self.assertGreater(len(long_text), FAULT_TEXT_LIMIT)
+        kept = controller_fault_text(long_text)
+        self.assertEqual(len(kept), FAULT_TEXT_LIMIT)
+        self.assertGreater(len(kept), 1000)
+        self.assertTrue(kept.startswith("2026/11/17 23:00:10 2级故障 故障码0"))
+        self.assertEqual(FAULT_TEXT_LIMIT, 4000)
+
+    def test_utf8_chinese_is_not_decoded_as_latin1(self):
+        raw = "水泵3干磨故障".encode("utf-8")
+        self.assertEqual(decode_ocr_output(raw), "水泵3干磨故障")
+        self.assertNotEqual(decode_ocr_output(raw), raw.decode("latin-1"))
+        self.assertEqual(decode_ocr_output(b"\xef\xbb\xbf" + "故障".encode("utf-8")), "故障")
+
+    def test_gb18030_fallback_when_bytes_are_not_utf8(self):
+        raw = "水泵".encode("gb18030")
+        self.assertEqual(decode_ocr_output(raw), "水泵")
+
+    def test_tongfei_nameplate_reads_machine_type_and_ignores_the_next_label(self):
+        # The previous pattern required the model to be the last token on the line,
+        # so a two-column plate ("Machine Type … Refrigerant …") returned nothing.
+        old = __import__("re").search(
+            r"(?im)^\s*mach[i1l]ne[ \t]+type[ \t]*[:：]?[ \t]*(?:\r?\n[ \t]*)?([A-Z0-9][A-Z0-9._/\-]*)[ \t]*$",
+            TONGFEI_PLATE,
+        )
+        self.assertIsNone(old)
+        self.assertEqual(nameplate_model(TONGFEI_PLATE), "LCI-400CR-01AZ-3487U")
+
+    def test_model_label_synonyms_and_separators(self):
+        model = "LCI-400CR-01AZ-3487U"
+        samples = [
+            "Machine Type LCI-400CR-01AZ-3487U\nManufacture Year 2024\nMachine Number 1023231239085\n",
+            "Machine Type = LCI-400CR-01AZ-3487U\n",
+            "Machine Type\nLCI-400CR-01AZ-3487U\n",
+            "Model: LCI-400CR-01AZ-3487U\n",
+            "Model No. LCI-400CR-01AZ-3487U\n",
+            "型号：LCI-400CR-01AZ-3487U\n",
+            "设备型号\nLCI-400CR-01AZ-3487U\n",
+            "Machlne Type LCI - 400CR - 01AZ - 3487U\n",
+        ]
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertEqual(nameplate_model(sample), model)
+        self.assertEqual(nameplate_model("Machine Type Cooling\nManufacture Year 2024\n"), "")
+        self.assertEqual(nameplate_model("Machine Number 1023240407536\n"), "")
+
+    def test_field_page_accepts_chinese_and_raises_the_fault_limit(self):
+        html = (ROOT / "templates" / "field_work.html").read_text(encoding="utf-8")
+        tag = html.split('id="repairFault"', 1)[1].split(">", 1)[0]
+        self.assertNotIn("maxlength", tag)
+        self.assertIn('data-max-chars="4000"', tag)
+        self.assertIn('lang="zh-CN"', tag)
+        self.assertIn("维修前故障信息", html)
+        script = (ROOT / "static" / "field-work.js").read_text(encoding="utf-8")
+        self.assertIn("compositionstart", script)
+        self.assertIn("dataset.composing", script)
+        self.assertNotIn("field.maxLength", script)
+        self.assertIn("data-max-chars", html)
+        backend = (ROOT / "field_work.py").read_text(encoding="utf-8")
+        self.assertIn("chi_sim+eng", backend)
+        self.assertIn("ensure_ascii=False", backend)
+        self.assertIn("decode_ocr_output", backend)
+        self.assertIn("value('fault', FAULT_TEXT_LIMIT)", backend)
+        self.assertNotIn("value('fault', 1000)", backend)
+        image = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("tesseract-ocr-chi-sim", image)
+        worker = (ROOT / "static" / "field-sw.js").read_text(encoding="utf-8")
+        self.assertIn("prasinos-field-63", worker)
+
+
+if __name__ == "__main__":
+    unittest.main()

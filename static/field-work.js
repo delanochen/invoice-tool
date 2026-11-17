@@ -22,6 +22,15 @@
   let queueRenderGeneration = 0, uploadingPhotoId = null, uploadIndex = 0, uploadTotal = 0;
   let processingFiles = false, processingTotal = 0, processingDone = 0;
   const fieldText = value => window.fieldTranslate ? window.fieldTranslate(value) : value;
+  const FAULT_TEXT_LIMIT = Number($('repairFault').dataset.maxChars) || 4000;
+  function limitFaultField() {
+    const field = $('repairFault');
+    // Rewriting value while an IME is composing cancels the Chinese character.
+    if (field.dataset.composing === '1') return;
+    if (field.value.length > FAULT_TEXT_LIMIT) field.value = field.value.slice(0, FAULT_TEXT_LIMIT);
+    field.style.height = 'auto';
+    field.style.height = Math.min(Math.max(field.scrollHeight, 136), 360) + 'px';
+  }
   async function requestAPI(url, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.method === 'POST' ? 60000 : 15000);
@@ -256,11 +265,12 @@
         const field = $('repairFault');
         const current = field.value.trim();
         const combined = current && !current.includes(result.fault_text) ? current + '\n' + result.fault_text : current || result.fault_text;
-        if (combined.length > field.maxLength) throw new Error('故障栏空间不足，请精简已有内容后重试。');
+        const truncated = combined.length > FAULT_TEXT_LIMIT;
         field.value = combined;
+        limitFaultField();
         stopCamera();
         field.focus();
-        notice('识别结果已填入，请核对报码和提示文字。');
+        notice(truncated ? '识别结果较长，已保留前 4000 字，请核对。' : '识别结果已填入，请核对报码和提示文字。');
         return;
       }
       if (!result.candidates?.length && !result.equipment_model) {
@@ -1480,6 +1490,10 @@
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再清除设备信息。',true);return;} if(taking || processingFiles || captureContext || syncing) return; if(faultPhotos.length && !window.confirm('清除尚未保存的维修前照片？')) return; stopCamera(); showRepair(null); clearFaultPhotos(); $('repairFault').value=''; resetDevice(); $('photoNote').value=''; $('photoNote').style.height=''; $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; $('equipmentNumber').required = !$('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
   $('photoNote').addEventListener('input', () => { $('photoNote').style.height='auto'; $('photoNote').style.height=Math.max(44,$('photoNote').scrollHeight)+'px'; });
+  $('repairFault').addEventListener('compositionstart', () => { $('repairFault').dataset.composing = '1'; });
+  $('repairFault').addEventListener('compositionend', () => { delete $('repairFault').dataset.composing; limitFaultField(); });
+  $('repairFault').addEventListener('input', limitFaultField);
+  $('repairFault').addEventListener('blur', limitFaultField);
   $('equipmentNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','编号已修改，请点击“打开相机”确认。'); });
   $('positionNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','位置号已修改，请点击“打开相机”确认。'); });
   $('containerNumber').addEventListener('input', () => { deviceSession=null; setFieldText('deviceStatus','集装箱号已修改，请点击“打开相机”确认。'); });
