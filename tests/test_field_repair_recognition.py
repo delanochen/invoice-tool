@@ -96,6 +96,21 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         self.assertEqual(nameplate_numbers("member2924040\neetONE5040936\n1023240407536"), ["1023240407536"])
         self.assertEqual(nameplate_numbers("1023240407536\nMachine Number\nSanhe Tongfei Refrigeration Co., Ltd."), ["1023240407536"])
 
+    def test_mixed_number_beside_the_label_beats_letter_run_junk(self):
+        self.assertEqual(
+            nameplate_numbers("Machine Number 10232A0407536\nmember2924040\neetONE5040936"),
+            ["10232A0407536"],
+        )
+        self.assertEqual(nameplate_numbers("机器编号\n10232A0407536"), ["10232A0407536"])
+        self.assertEqual(
+            nameplate_numbers("Machine Number 10232A0407536\n\n1023240407536"),
+            ["10232A0407536", "1023240407536"],
+        )
+        self.assertEqual(
+            nameplate_numbers("10232A0407536\n1023240407536"),
+            ["1023240407536", "10232A0407536"],
+        )
+
     def test_camera_frame_misreads_fit_the_tongfei_shape(self):
         self.assertEqual(nameplate_model("Machine Type\nLCI-400CR-014Z-3487U"), "LCI-400CR-01AZ-3487U")
         self.assertEqual(nameplate_model("LCI-AOOCR-01AZ-3487U\nMachine Type"), "LCI-400CR-01AZ-3487U")
@@ -103,6 +118,11 @@ class FieldRepairRecognitionTest(unittest.TestCase):
     def test_invalid_vision_json_is_rejected_and_a_shaped_model_is_accepted(self):
         self.assertIsNone(field_work.validate_nameplate_llm("not json"))
         self.assertIsNone(field_work.validate_nameplate_llm({"machine_number": "Refrigeration", "equipment_model": "LCI-400CR-01AZ-3487U"}))
+        self.assertIsNone(field_work.validate_nameplate_llm({"machine_number": "member2924040", "equipment_model": "LCI-400CR-01AZ-3487U"}))
+        self.assertIsNone(field_work.validate_nameplate_llm({"machine_number": "102324040753", "equipment_model": "LCI-400CR-01AZ-3487U"}))
+        mixed = field_work.validate_nameplate_llm({"machine_number": "10232A0407536", "equipment_model": "LCI-400CR-01AZ-3487U"})
+        self.assertEqual(mixed["candidates"], ["10232A0407536"])
+        self.assertEqual(mixed["equipment_model"], "LCI-400CR-01AZ-3487U")
         self.assertIsNone(field_work._vision_settings_for_nameplate({"vision_settings": lambda: {"enabled": False, "api_key": "", "model": ""}}))
         accepted = field_work.validate_nameplate_llm({"machine_number": "1023240407536", "equipment_model": "LCI-400CR-014Z-3487U"})
         self.assertEqual(accepted["source"], "llm")
