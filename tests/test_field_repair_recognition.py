@@ -93,6 +93,7 @@ class FieldRepairRecognitionTest(unittest.TestCase):
 
     def test_refrigeration_is_not_a_machine_number(self):
         self.assertEqual(nameplate_numbers("Refrigeration\n1023240407536"), ["1023240407536"])
+        self.assertEqual(nameplate_numbers("member2924040\neetONE5040936\n1023240407536"), ["1023240407536"])
         self.assertEqual(nameplate_numbers("1023240407536\nMachine Number\nSanhe Tongfei Refrigeration Co., Ltd."), ["1023240407536"])
 
     def test_camera_frame_misreads_fit_the_tongfei_shape(self):
@@ -160,7 +161,18 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         image = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("tesseract-ocr-chi-sim", image)
         worker = (ROOT / "static" / "field-sw.js").read_text(encoding="utf-8")
-        self.assertIn("prasinos-field-64", worker)
+        self.assertIn("prasinos-field-65", worker)
+        self.assertIn("从相册选择", html)
+        self.assertIn('id="nameplateCamera"', html)
+        self.assertIn('id="cameraAlbum"', html)
+        self.assertIn('id="faultAlbum"', html)
+        self.assertIn('id="repairAlbum"', html)
+        self.assertNotIn("ocrTimer = setInterval", script)
+        settings = (ROOT / "templates" / "company_settings.html").read_text(encoding="utf-8")
+        self.assertIn("启用外部识图 API（铭牌/日报照片识图）", settings)
+        self.assertIn("照片会发送到已配置的视觉模型服务商", settings)
+        routes = (ROOT / "invoice_tool" / "app_settings" / "admin_routes.py").read_text(encoding="utf-8")
+        self.assertIn('vision_external_api_enabled', routes)
 
     def test_real_tongfei_photo_returns_full_model_and_number(self):
         if shutil.which("tesseract") is None:
@@ -189,6 +201,26 @@ class FieldRepairRecognitionTest(unittest.TestCase):
             frame.save(buffer, format="JPEG", quality=86)
             result = field_work.recognize_nameplate_photo(buffer.getvalue())
             with self.subTest(width=width):
+                self.assertEqual(result["equipment_model"], "LCI-400CR-01AZ-3487U")
+                self.assertEqual(result["candidates"][0], "1023240407536")
+
+    def test_iphone_frames_keep_orientation_and_read_the_plate(self):
+        if shutil.which("tesseract") is None:
+            self.skipTest("tesseract is not installed")
+        from PIL import Image
+        names = [
+            "nameplate-exif6-c311.jpg",
+            "nameplate-exif6-7470.jpg",
+            "nameplate-exif6-9c73.jpg",
+            "nameplate-exif6-5dcb.jpg",
+            "nameplate-exif6-0428.jpg",
+        ]
+        for name in names:
+            photo = ROOT / "tests" / "fixtures" / name
+            with self.subTest(name=name):
+                with Image.open(photo) as opened:
+                    self.assertEqual(opened.getexif().get(274), 6)
+                result = field_work.recognize_nameplate_photo(photo.read_bytes())
                 self.assertEqual(result["equipment_model"], "LCI-400CR-01AZ-3487U")
                 self.assertEqual(result["candidates"][0], "1023240407536")
 

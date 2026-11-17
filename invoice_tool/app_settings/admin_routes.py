@@ -104,6 +104,10 @@ def register_system_settings_routes(app, *,
                 _cb_resolve_flash()("智能审核执行时间格式应为 HH:MM（例如 03:00）。", "error")
                 return _cb_resolve_redirect()(_cb_resolve_url_for()("system_settings"))
             _cb_resolve_set_setting()("ai_review_time", ai_review_time)
+            _cb_resolve_set_setting()(
+                "vision_external_api_enabled",
+                "true" if _cb_resolve_request().form.get("vision_external_api_enabled") == "true" else "false",
+            )
             # 场景映射（大模型配置表的行）
             for _key, _label in _cb_resolve_llm_config().SCENES:
                 _cb_resolve_set_setting()("llm_scene_" + _key, _cb_resolve_request().form.get("llm_scene_" + _key, "").strip())
@@ -165,6 +169,7 @@ def register_system_settings_routes(app, *,
             google_geocoding_api_key=_cb_resolve_get_google_geocoding_api_key()(),
             google_places_api_key=_cb_resolve_get_setting()("google_places_api_key", _cb_resolve_GOOGLE_PLACES_API_KEY_ENV()).strip(),
             ai_review_enabled=_cb_resolve_get_setting()("ai_review_enabled", "true") == "true",
+            vision_external_api_enabled=_cb_resolve_get_setting()("vision_external_api_enabled", "false") == "true",
             ai_review_time=_cb_resolve_get_setting()("ai_review_time", "03:00"),
             llm_configs=_cb_resolve_llm_config().list_configs(_cb_resolve_db()()),
             llm_scenes=_cb_resolve_llm_config().SCENES,

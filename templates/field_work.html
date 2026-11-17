@@ -52,12 +52,17 @@
             </div>
             <div class="repair-device-actions">
               <label class="check-label"><input id="noEquipmentNumber" type="checkbox">无编号</label>
-              <button id="recognizeDevice" class="repair-outline" type="button">扫描铭牌</button>
+              <button id="recognizeDevice" class="repair-outline" type="button">拍摄铭牌</button>
+              <button id="nameplateAlbumButton" class="repair-outline" type="button">从相册选择</button>
+              <input id="nameplateCamera" type="file" accept="image/*" capture="environment" hidden>
+              <input id="nameplateAlbum" type="file" accept="image/*" hidden>
             </div>
           </div>
           <div id="repairControls" class="repair-card">
             <strong>维修前故障信息</strong>
             <button id="scanRepairFault" class="repair-outline repair-wide" type="button">拍手操器识别故障</button>
+            <button id="faultAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button>
+            <input id="faultAlbum" type="file" accept="image/*" hidden>
             <div id="repairFaultPhotos" class="repair-photo-strip" hidden></div>
             <label><textarea id="repairFault" rows="8" lang="zh-CN" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-max-chars="4000" aria-label="维修前故障信息" placeholder="可手工输入故障现象"></textarea></label>
             <button id="startRepair" class="primary repair-wide" type="button">保存维修前状态</button>
@@ -66,6 +71,8 @@
             <p id="repairStage" class="muted" role="status"></p>
             <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
             <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片</button>
+            <button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button>
+            <input id="repairAlbum" type="file" accept="image/*" multiple hidden>
             <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000"></textarea></label>
             <label>复测结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
             <button id="completeRepair" class="primary repair-wide" type="button">保存维修结果</button>
@@ -80,7 +87,8 @@
         <div id="cameraView" class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将整张铭牌放入框内</span></div></div>
-        <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="readRepairFault" class="primary" type="button" hidden>拍照识别故障</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
+        <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="cameraAlbumButton" type="button">从相册选择</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="readRepairFault" class="primary" type="button" hidden>拍照识别故障</button><button id="closeCamera" type="button" hidden>关闭相机</button><input id="cameraAlbum" type="file" accept="image/*" multiple hidden></div>
+        <div id="nameplatePending" hidden><img id="nameplateThumb" alt="待识别的铭牌"><span id="nameplateStatus">识别中…</span></div>
         <div id="recentCaptures" class="recent-captures" aria-label="本次拍摄的照片" hidden></div>
         </div>
         <div id="uploadControls" hidden>
@@ -131,7 +139,7 @@
 <dialog id="deleteAllDraftsDialog"><h2>确认删除全部待上传照片？</h2><p><span id="deleteAllDraftsCount"></span> <span>张照片将从当前账号的本机草稿中删除。</span></p><p>此操作无法撤销。不会删除手机相册或已上传到服务器的照片。</p><div class="dialog-actions"><button id="cancelDeleteAllDrafts" type="button">取消</button><button id="confirmDeleteAllDrafts" class="danger" type="button">确认全部删除</button></div></dialog>
 <dialog id="draftDialog"><h2>照片预览</h2><img id="draftLarge" alt="草稿照片"><p id="draftDetail"></p><div class="dialog-actions"><button id="deleteDraft" type="button">删除这张</button><button id="closeDraft" class="primary" type="button">关闭</button></div></dialog>
 <dialog aria-labelledby="ledgerPhotoTitle" id="ledgerPhotoDialog" class="ledger-photo-dialog"><div class="ledger-photo-head"><div><strong id="ledgerPhotoTitle"></strong><span id="ledgerPhotoCounter"></span></div><div class="ledger-preview-tools"><button type="button" data-image-preview-fit>自适应</button><button type="button" data-image-preview-out>缩小</button><button type="button" data-image-preview-original>原图</button><button type="button" data-image-preview-in>放大</button></div><button id="closeLedgerPhoto" type="button" aria-label="关闭">关闭</button></div><div id="ledgerPhotoStage" class="ledger-photo-stage"><button id="previousLedgerPhoto" class="ledger-photo-arrow previous" type="button" aria-label="上一张">‹</button><img id="ledgerPhotoImage" alt="工单照片"><button id="nextLedgerPhoto" class="ledger-photo-arrow next" type="button" aria-label="下一张">›</button></div><p id="ledgerPhotoDetail" class="ledger-photo-detail"></p><div class="ledger-photo-type-edit" id="ledgerPhotoTypeEdit" hidden><label for="ledgerPhotoTypeSelect">照片类型</label><select id="ledgerPhotoTypeSelect"></select><button type="button" id="saveLedgerPhotoType" class="primary">保存类型</button><button type="button" id="deleteLedgerPhoto" class="danger" hidden>删除照片</button></div></dialog>
-<dialog id="recognitionDialog" class="recognition-dialog"><h2>请确认设备铭牌</h2><p>设备编号：<span id="recognizedNumber"></span></p><p>设备型号：<span id="recognizedModel"></span></p><p class="muted">请与设备铭牌逐位核对，确认后才会用于后续照片。</p><div class="dialog-actions"><button id="confirmRecognizedNumber" class="primary" type="button">确认使用</button><button id="retryRecognition" type="button">重新识别</button><button id="manualRecognition" type="button">手工输入</button></div></dialog>
+<dialog id="recognitionDialog" class="recognition-dialog"><h2>请确认设备铭牌</h2><p>设备编号：<span id="recognizedNumber"></span></p><p>设备型号：<span id="recognizedModel"></span></p><p class="muted">请与设备铭牌逐位核对，确认后才会用于后续照片。</p><div class="dialog-actions"><button id="confirmRecognizedNumber" class="primary" type="button">确认使用</button><button id="retrySamePhoto" type="button">用这张再识别</button><button id="retryRecognition" type="button">重新拍照</button><button id="manualRecognition" type="button">手工输入</button></div></dialog>
 <script src="/static/ui-i18n-supplement.js?v={{ app_version }}" defer></script>
 <script src="/static/field-i18n.js?v={{ app_version }}" defer></script>
 <script src="/static/field-watermark.js?v={{ app_version }}" defer></script>

@@ -108,6 +108,8 @@
     <section class="form-stack full-span">
       <h2>大模型配置</h2>
       <p class="muted-line">每个功能可独立选择使用哪个大模型。API Key 明文存储在数据库。</p>
+      <label class="inline-check"><input type="checkbox" name="vision_external_api_enabled" value="true" {% if vision_external_api_enabled %}checked{% endif %}>启用外部识图 API（铭牌/日报照片识图）</label>
+      <small>开启后，铭牌和日报照片会发送到已配置的视觉模型服务商。</small>
       <input type="hidden" name="llm_action" id="llmAction" value="">
       <input type="hidden" name="llm_target_id" id="llmTargetId" value="">
       <div class="table-toolbar">
