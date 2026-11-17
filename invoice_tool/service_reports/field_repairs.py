@@ -236,16 +236,15 @@ _NUMBER_LABEL = re.compile(
 
 
 def _remember_number(value, found):
-    value = re.sub(r"[^A-Za-z0-9]", "", value or "")
-    if len(value) == 13 and re.search(r"\d", value) and value not in found:
+    value = re.sub(r"\D", "", value or "")
+    if len(value) == 13 and value not in found:
         found.append(value)
 
 
 def nameplate_numbers(text):
-    """13-character machine numbers. A pure-letter word is never a candidate.
+    """13-digit machine numbers. Letters such as Refrigeration are never candidates.
 
-    The value may sit on the line before Machine Number. All-digit values are
-    ranked ahead of mixed tokens such as a damaged serial.
+    The value may sit on the line before Machine Number.
     """
     text = re.sub(r"(?<=\d)[ \t](?=\d)", "", text or "")
     found = []

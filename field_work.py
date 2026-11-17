@@ -46,7 +46,7 @@ def json_utf8(payload, status=200):
     )
 
 
-def _run_tesseract(payload, psm, language, *, chinese=False):
+def _run_tesseract(payload, psm, language, *, chinese=False, extra=None):
     command = ['tesseract', 'stdin', 'stdout']
     if chinese:
         # LSTM only. The Debian chi_sim package does not ship a legacy model.
@@ -54,6 +54,8 @@ def _run_tesseract(payload, psm, language, *, chinese=False):
     command.extend(['--psm', psm, '-l', language])
     if chinese:
         command.extend(['-c', 'preserve_interword_spaces=1'])
+    if extra:
+        command.extend(extra)
     return subprocess.run(
         command, input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         timeout=25 if chinese else 20, check=False,
@@ -186,56 +188,48 @@ def _passes_for(image):
 
 
 def recognize_nameplate_photo(content):
-    """OCR a nameplate. A small frame is also upscaled, and a bright plate is cropped.
+    """OCR an upright nameplate. EXIF is applied before any pass.
 
-    Returns None when Tesseract cannot read the image. Shape-valid models outvote
-    a longer misread.
+    The model line is cropped from the plate, enlarged, and read with a
+    character whitelist. Returns None when Tesseract cannot read the image.
     """
-    with Image.open(BytesIO(content)) as image:
-        if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
-            raise ValueError('bad nameplate image')
-        image.load()
-        held = image.copy()
-        passes = _passes_for(held)
-    texts, models, numbers = [], [], []
-    for psm, payload in passes:
-        try:
-            result = _run_tesseract(payload, psm, 'eng')
-        except subprocess.TimeoutExpired:
-            continue
-        if result.returncode != 0:
-            continue
-        text = decode_ocr_output(result.stdout)
-        texts.append(text)
-        model = nameplate_model(text)
-        if model:
-            models.append(model)
-        numbers.extend(nameplate_numbers(text))
-    if not texts and not models:
-        deskewed = _deskew_plate(held)
-        try:
-            result = _run_tesseract(_jpeg_bytes(deskewed), '11', 'eng')
-        except subprocess.TimeoutExpired:
-            result = None
-        if result is not None and result.returncode == 0:
+    image = load_upright_nameplate(content)
+    line_text, word_text = _ocr_model_line(image)
+    texts = [part for part in (line_text, word_text) if part]
+    models = []
+    shaped = nameplate_model(line_text) or nameplate_model('Machine Type ' + line_text)
+    if shaped:
+        models.append(shaped)
+    numbers = nameplate_numbers(line_text + '\n' + word_text)
+    if not models or not numbers:
+        for psm, payload in _passes_for(image):
+            try:
+                result = _run_tesseract(payload, psm, 'eng')
+            except subprocess.TimeoutExpired:
+                continue
+            if result.returncode != 0:
+                continue
             text = decode_ocr_output(result.stdout)
             texts.append(text)
             model = nameplate_model(text)
             if model:
                 models.append(model)
             numbers.extend(nameplate_numbers(text))
+            if models and numbers:
+                break
     if not texts:
         return None
-    digits = [value for value in numbers if value.isdigit()]
-    mixed = [value for value in numbers if not value.isdigit()]
     ordered = []
-    for value in digits + mixed:
-        if value not in ordered:
+    for value in numbers:
+        if value.isdigit() and len(value) == 13 and value not in ordered:
             ordered.append(value)
     return {
         'text': '\n'.join(texts),
         'candidates': ordered[:5],
-        'equipment_model': _vote(models),
+        'equipment_model': _vote([
+            model for model in models
+            if re.fullmatch(r'[A-Z]{3}-\d{3}[A-Z]{2}-\d{2}[A-Z]{2}-\d{4}[A-Z]', model or '')
+        ] or models),
     }
 
 
@@ -256,6 +250,127 @@ def validate_nameplate_llm(payload):
     if not re.fullmatch(r"[A-Z]{3}-\d{3}[A-Z]{2}-\d{2}[A-Z]{2}-\d{4}[A-Z]", model or ""):
         return None
     return {'candidates': [number], 'equipment_model': model, 'source': 'llm', 'text': raw_model}
+
+
+def load_upright_nameplate(content):
+    """Rotate using EXIF before any recognition or debug save. iPhone frames are Orientation=6."""
+    with Image.open(BytesIO(content)) as image:
+        if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
+            raise ValueError('bad nameplate image')
+        image.load()
+        image = ImageOps.exif_transpose(image)
+        upright = image.copy()
+    return upright
+
+
+def llm_nameplate_jpeg(image):
+    """Small JPEG for the vision model. The upright original stays available for OCR."""
+    preview = image.copy()
+    preview.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+    return _jpeg_bytes(preview, quality=85)
+
+
+def _tsv_words(image):
+    result = _run_tesseract(_jpeg_bytes(image, quality=90), '6', 'eng', extra=['tsv'])
+    if result.returncode != 0:
+        return []
+    words = []
+    for line in decode_ocr_output(result.stdout).splitlines()[1:]:
+        parts = line.split('\t')
+        if len(parts) < 12 or not parts[11].strip():
+            continue
+        text = parts[11].strip()
+        try:
+            box = (int(parts[6]), int(parts[7]), int(parts[8]), int(parts[9]))
+        except ValueError:
+            continue
+        try:
+            conf = float(parts[10])
+        except ValueError:
+            conf = 0.0
+        words.append((text, conf, *box))
+    return words
+
+
+def _model_word_score(text):
+    """Prefer a Machine Type token over the hotline printed lower on the plate."""
+    if re.search(r'hot\s*line', text or '', re.I):
+        return 0
+    norm = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2212]', '-', text or '')
+    letters = len(re.findall(r'[A-Za-z]', norm))
+    figures = len(re.findall(r'\d', norm))
+    if '-' not in norm or letters < 3 or figures < 3:
+        return 0
+    score = letters * 10 + figures
+    if nameplate_model(norm):
+        score += 500
+    return score
+
+
+def _ocr_model_line(image):
+    """Read the light model line near the top, then the rest of the plate for the number.
+
+    A small thumbnail misses this engraving. The top band is enlarged before Tesseract.
+    """
+    line_text = ''
+    band = image.crop((0, 0, image.width, max(1, int(image.height * 0.28))))
+    band = band.resize((band.width * 2, band.height * 2), Image.Resampling.LANCZOS)
+    try:
+        band_words = _tsv_words(band)
+    except subprocess.TimeoutExpired:
+        band_words = []
+    best = 0
+    for text, *_box in band_words:
+        score = _model_word_score(text)
+        if score > best:
+            best = score
+            norm = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2212]', '-', text)
+            line_text = nameplate_model(norm) or norm
+    probe = image.copy()
+    probe.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+    try:
+        words = _tsv_words(probe)
+    except subprocess.TimeoutExpired:
+        words = []
+    if not nameplate_model(line_text):
+        scale_x = image.width / probe.width
+        scale_y = image.height / probe.height
+        target = None
+        ranked = 0
+        for text, _conf, left, top, width, height in words:
+            score = _model_word_score(text)
+            if score > ranked:
+                ranked = score
+                target = (left, top, width, height)
+        if target:
+            left, top, width, height = target
+            x0 = max(0, int((left - 24) * scale_x))
+            y0 = max(0, int((top - 18) * scale_y))
+            x1 = min(image.width, int((left + width + 160) * scale_x))
+            y1 = min(image.height, int((top + height + 18) * scale_y))
+            if x1 - x0 > 40 and y1 - y0 > 16:
+                strip = ImageOps.autocontrast(ImageOps.grayscale(image.crop((x0, y0, x1, y1))))
+                strip = strip.resize((strip.width * 3, strip.height * 3), Image.Resampling.LANCZOS)
+                strip = ImageEnhance.Contrast(strip).enhance(1.5).filter(ImageFilter.SHARPEN)
+                try:
+                    line = _run_tesseract(
+                        _png_bytes(strip), '7', 'eng',
+                        extra=['-c', 'tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'],
+                    )
+                except subprocess.TimeoutExpired:
+                    line = None
+                if line is not None and line.returncode == 0:
+                    line_text = decode_ocr_output(line.stdout)
+    kept = []
+    for text, conf, *_box in words:
+        digits = re.sub(r'\D', '', text)
+        punctuation = re.sub(r'[\d\s"\'“”‘’]', '', text)
+        if len(digits) == 13 and not punctuation:
+            if conf >= 90:
+                kept.append(digits)
+            continue
+        kept.append(text)
+    return line_text, '\n'.join(kept)
 
 
 def read_nameplate_llm(content, settings, urlopen, request_class, timeout=NAMEPLATE_LLM_TIMEOUT):
@@ -313,21 +428,28 @@ def _vision_settings_for_nameplate(api):
 
 
 def recognize_nameplate(api, content):
-    """Vision model first. Tesseract is used when vision is missing or unusable."""
+    """Vision model first, on a small upright JPEG. OCR runs only if that fails.
+
+    Returns (result, upright_jpeg). The upright bytes are what should be stored.
+    """
+    image = load_upright_nameplate(content)
+    upright = _jpeg_bytes(image, quality=92)
     settings = _vision_settings_for_nameplate(api) if api else None
     if settings:
         try:
             from urllib.request import Request, urlopen
-            found = read_nameplate_llm(content, settings, urlopen, Request)
+            found = read_nameplate_llm(llm_nameplate_jpeg(image), settings, urlopen, Request)
             if found:
+                found['upright'] = upright
                 return found
             logger.info('nameplate vision returned an unusable plate reading')
         except Exception as error:
             logger.info('nameplate vision fallback: %s', type(error).__name__)
-    found = recognize_nameplate_photo(content)
+    found = recognize_nameplate_photo(upright)
     if not found:
-        return None
+        return {'candidates': [], 'equipment_model': '', 'source': 'ocr', 'text': '', 'upright': upright}
     found['source'] = 'ocr'
+    found['upright'] = upright
     return found
 
 
@@ -799,7 +921,7 @@ def register_field_routes(app, api):
         try:
             if not fault_mode:
                 found = recognize_nameplate(api, content)
-                _store_nameplate_debug(api, content, found)
+                _store_nameplate_debug(api, found.pop('upright', content), found)
                 if not found:
                     return jsonify(error='服务器暂时无法识别铭牌，请手工输入。'), 503
                 logger.info(
