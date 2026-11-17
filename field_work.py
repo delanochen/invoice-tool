@@ -401,16 +401,93 @@ _POSITION_PROMPT = (
     "Read the site position or unit number, a short code such as 62-3 or 1A2. "
     "Return only JSON with key position_number."
 )
+_FIELD_FAULT_PROMPT = (
+    "You read a field service controller screen: a HART communicator, controller HMI or drive panel, "
+    "often showing Simplified Chinese. Transcribe only text that is actually visible; never guess or explain. "
+    "Return only a JSON object with keys: "
+    "fault_codes (array of alarm/fault code strings exactly as shown, for example \"175\"), "
+    "fault_text (array of visible lines that describe alarms, faults, warnings or trips, copied verbatim), "
+    "display_text (array of other key visible lines, copied verbatim). "
+    "Drop UI chrome such as page numbers, menu bars, battery icons and timestamps without fault content."
+)
+_SCREEN_CHROME = re.compile(r'(?:page\s*)?\d+\s*/\s*\d+|第?\s*\d+\s*页|[<>«»←→]\s*\d+\s*/\s*\d+', re.I)
 
 
-def read_vision_json(content, settings, urlopen, request_class, prompt, timeout=NAMEPLATE_LLM_TIMEOUT):
+def validate_fault_llm(payload):
+    """Normalize the vision model's controller-screen reading into display text."""
+    if not isinstance(payload, dict):
+        return ''
+    def lines_of(key):
+        raw = payload.get(key) or []
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, list):
+            return []
+        found = []
+        for item in raw:
+            text = str(item or '').strip()
+            if text and any(ch.isalnum() for ch in text) and not _SCREEN_CHROME.fullmatch(text):
+                found.append(text)
+        return found
+    fault_lines = lines_of('fault_text')
+    other_lines = [line for line in lines_of('display_text') if line not in fault_lines]
+    # Screen headings (display_text) read best first, then the alarm lines.
+    lines = list(dict.fromkeys(other_lines + fault_lines))
+    codes = payload.get('fault_codes') or []
+    if isinstance(codes, str):
+        codes = [codes]
+    codes = [str(code).strip() for code in codes if str(code).strip()] if isinstance(codes, list) else []
+    joined = '\n'.join(lines)
+    missing = [code for code in dict.fromkeys(codes) if code not in joined]
+    if missing:
+        lines.append('故障码 ' + '、'.join(missing))
+    return '\n'.join(lines)[:FAULT_TEXT_LIMIT]
+
+
+def _vision_settings_for_scene(api, scene):
+    """Vision provider mapped to a scene; None when the scene is not usable.
+
+    Mapping this scene in System Settings is the admin's explicit opt-in, so the
+    daily-report privacy switch is not required here; the nameplate fallback still
+    respects it through _vision_settings_for_nameplate.
+    """
+    try:
+        cfg = api['llm_config'].get_config(api['db'](), scene)
+    except Exception:
+        return None
+    if not cfg or not cfg.get('supports_vision') or not cfg.get('api_key') or not cfg.get('model'):
+        return None
+    return {'model': cfg['model'], 'base_url': cfg.get('base_url') or '', 'api_key': cfg['api_key']}
+
+
+def recognize_controller_fault(api, content):
+    """Vision model first for the controller screen; OCR only when that is unavailable."""
+    image = load_upright_nameplate(content)
+    preview = llm_nameplate_jpeg(image)
+    settings = _vision_settings_for_scene(api, 'field_fault') or _vision_settings_for_nameplate(api) if api else None
+    if settings:
+        try:
+            from urllib.request import Request, urlopen
+            payload = read_vision_json(preview, settings, urlopen, Request, _FIELD_FAULT_PROMPT,
+                                       timeout=20, max_tokens=900)
+            text = validate_fault_llm(payload)
+            if text:
+                return {'fault_text': text, 'source': 'llm'}
+            logger.info('controller fault vision returned no usable text')
+        except Exception as error:
+            logger.info('controller fault vision fallback: %s', type(error).__name__)
+    return {'fault_text': '', 'source': 'ocr', 'image': image}
+
+
+def read_vision_json(content, settings, urlopen, request_class, prompt, timeout=NAMEPLATE_LLM_TIMEOUT,
+                     max_tokens=300):
     """Ask the configured vision model for a JSON object. Raises on timeout."""
     import base64
     encoded = base64.b64encode(content).decode('ascii')
     body = json.dumps({
         'model': settings['model'],
         'temperature': 0,
-        'max_tokens': 300,
+        'max_tokens': max_tokens,
         'response_format': {'type': 'json_object'},
         'messages': [{
             'role': 'user',
@@ -1172,11 +1249,14 @@ def register_field_routes(app, api):
                     'equipment_model': found['equipment_model'],
                     'source': found.get('source') or 'ocr',
                 })
-            with Image.open(BytesIO(content)) as image:
-                if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC', 'AVIF'} or image.width * image.height > 40_000_000:
-                    raise ValueError
-                image.load()
-                image = ImageOps.exif_transpose(image)
+            if fault_mode:
+                found = recognize_controller_fault(api, content)
+                if found.get('source') == 'llm':
+                    logger.info('controller fault recognize source=llm bytes=%s', len(content))
+                    return json_utf8({'ok': True, 'fault_text': found['fault_text'], 'source': 'llm'})
+                image = found.get('image')
+                if image is None:
+                    raise ValueError('bad controller screen image')
                 enhanced = ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)
                 scale = min(3, max(1, math.ceil(2400 / max(enhanced.width, enhanced.height))))
                 if scale > 1:
@@ -1187,6 +1267,22 @@ def register_field_routes(app, api):
                 plain = BytesIO()
                 ImageOps.grayscale(image).save(plain, format='PNG')
                 passes = (('6', plain.getvalue()), ('4', processed.getvalue()))
+            else:
+                with Image.open(BytesIO(content)) as image:
+                    if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC', 'AVIF'} or image.width * image.height > 40_000_000:
+                        raise ValueError
+                    image.load()
+                    image = ImageOps.exif_transpose(image)
+                    enhanced = ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)
+                    scale = min(3, max(1, math.ceil(2400 / max(enhanced.width, enhanced.height))))
+                    if scale > 1:
+                        enhanced = enhanced.resize((enhanced.width * scale, enhanced.height * scale), Image.Resampling.LANCZOS)
+                    enhanced = ImageEnhance.Contrast(enhanced).enhance(1.35).filter(ImageFilter.SHARPEN)
+                    processed = BytesIO()
+                    enhanced.save(processed, format='PNG')
+                    plain = BytesIO()
+                    ImageOps.grayscale(image).save(plain, format='PNG')
+                    passes = (('6', plain.getvalue()), ('4', processed.getvalue()))
             results = [_run_tesseract(payload, psm, 'chi_sim+eng', chinese=True) for psm, payload in passes]
         except (OSError, ValueError, Image.DecompressionBombError):
             return jsonify(error=f'无法读取{subject}照片。'), 422
@@ -1197,6 +1293,9 @@ def register_field_routes(app, api):
                 return jsonify(error='服务器未安装简体中文识别语言包，暂时无法识别手操器中文。'), 503
             return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。'), 503
         text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
+        if fault_mode:
+            logger.info('controller fault recognize source=ocr bytes=%s', len(content))
+            return json_utf8({'ok': True, 'fault_text': controller_fault_text(text), 'source': 'ocr'})
         return json_utf8({'ok': True, 'fault_text': controller_fault_text(text)})
 
     @app.route('/api/field/orders/<int:order_id>/repair-records', methods=['GET', 'POST'])

@@ -168,6 +168,22 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 .repair-card .repair-outline { border-color:#17634a; color:#17634a; background:#fff; font-weight:650; }
 .repair-card .repair-link,.repair-watermark .repair-link { border:0; background:transparent; color:#17634a; padding-inline:8px; }
 .repair-wide { width:100%; }
+.repair-button-row { display:flex; gap:8px; align-items:stretch; }
+.repair-button-row > button, .repair-button-row > .album-launch { flex:1 1 0; min-width:0; }
+.repair-button-row > button, .repair-button-row .album-launch > button { width:100%; white-space:nowrap; }
+/* One height for every repair action button, so adjacent buttons line up exactly. */
+.repair-card > button.repair-outline,
+.repair-card > button.primary,
+.repair-card .album-launch > button.repair-outline,
+.repair-card .repair-button-row > button.repair-outline,
+.repair-device-actions button.repair-outline {
+  box-sizing:border-box;
+  height:44px;
+  min-height:44px;
+  padding-block:0;
+  line-height:1.2;
+}
+.repair-button-row > .album-launch { display:flex; }
 .repair-photo-strip { display:flex; gap:8px; overflow-x:auto; }
 .repair-photo-strip img { width:76px; height:58px; object-fit:cover; border-radius:6px; }
 #repairFault { min-height:8.5rem; line-height:1.5; font-size:16px; }
@@ -187,6 +203,14 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 #recognizeOverlayElapsed{margin:0;color:var(--muted)}
 .recognize-error{margin:0;color:#9f1239}
 .recognize-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.recognize-dialog-bar{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:10px;margin:12px -6px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#eef7f3;box-shadow:0 -6px 16px #00000014}
+.recognize-dialog-bar[data-state="error"]{background:#fff0ec;border-color:#f3c4b6}
+.recognize-dialog-bar .recognize-spinner{width:24px;height:24px;border-width:2px;flex-shrink:0}
+.recognize-dialog-body{display:grid;gap:2px;min-width:0;flex:1}
+.recognize-dialog-text{font-size:14px;line-height:1.35}
+.recognize-dialog-elapsed{font-size:12px;color:var(--muted)}
+.recognize-dialog-action{flex-shrink:0;min-height:36px;padding:6px 12px;font-size:13px}
+.recognize-dialog-bar[data-state="error"] .recognize-dialog-text{color:#9f1239}
 .group-field{display:grid;grid-template-columns:88px 1fr;gap:6px 8px;align-items:center;margin:8px 0}
 .group-field img{grid-column:1;width:72px;height:72px;object-fit:cover;border-radius:8px}
 .group-field input,.group-field textarea{grid-column:2;min-height:40px}

@@ -348,12 +348,74 @@
     for (const [id, was] of captureLockSnapshot) { const el = $(id); if (el) el.disabled = was; }
     captureLockSnapshot = null;
   }
+  function openDialogHost() {
+    const dialogs = Array.from(document.querySelectorAll('dialog[open]'));
+    return dialogs.length ? dialogs[dialogs.length - 1] : null;
+  }
+  function dialogRecognizeBar() { return $('recognizeDialogBar'); }
+  function buildDialogRecognizeBar(host) {
+    let bar = dialogRecognizeBar();
+    if (bar && bar.parentElement === host) return bar;
+    bar?.remove();
+    bar = document.createElement('div');
+    bar.id = 'recognizeDialogBar';
+    bar.className = 'recognize-dialog-bar';
+    bar.setAttribute('role', 'status');
+    bar.setAttribute('aria-live', 'polite');
+    const spinner = document.createElement('span');
+    spinner.className = 'recognize-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    const body = document.createElement('div');
+    body.className = 'recognize-dialog-body';
+    const text = document.createElement('strong');
+    text.className = 'recognize-dialog-text';
+    const elapsed = document.createElement('span');
+    elapsed.className = 'recognize-dialog-elapsed';
+    body.append(text, elapsed);
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'recognize-dialog-action';
+    action.textContent = '取消';
+    action.addEventListener('click', () => {
+      if (bar.dataset.state === 'busy') { recognizeCancelled = true; recognizeAbort?.abort(); hideRecognizeProgress(); }
+      else { bar.remove(); }
+    });
+    bar.append(spinner, body, action);
+    host.append(bar);
+    return bar;
+  }
+  function removeDialogRecognizeBar() { dialogRecognizeBar()?.remove(); }
   function showRecognizeProgress(kind, previewUrl) {
     recognizeKind = kind;
     recognizeCancelled = false;
+    const progressText = {fault:'正在识别手操器屏幕，请稍候…', container:'正在识别集装箱号，请稍候…', position:'正在识别位置号，请稍候…'};
+    const message = progressText[kind] || '正在识别铭牌，请稍候…';
+    const started = Date.now();
+    const tick = () => {
+      const elapsedText = '已等待 ' + Math.floor((Date.now() - started) / 1000) + ' 秒';
+      if (!$('recognizeOverlay').hidden) $('recognizeOverlayElapsed').textContent = elapsedText;
+      const bar = dialogRecognizeBar();
+      if (bar) bar.querySelector('.recognize-dialog-elapsed').textContent = elapsedText;
+    };
+    lockCapture(true);
+    clearInterval(recognizeTimer);
+    recognizeTimer = setInterval(tick, 250);
+    const host = openDialogHost();
+    if (host) {
+      // A native modal dialog sits in the top layer, so the page overlay would be hidden behind it.
+      $('recognizeOverlay').hidden = true;
+      const bar = buildDialogRecognizeBar(host);
+      bar.dataset.state = 'busy';
+      bar.querySelector('.recognize-spinner').hidden = false;
+      bar.querySelector('.recognize-dialog-text').textContent = message;
+      bar.querySelector('.recognize-dialog-elapsed').hidden = false;
+      bar.querySelector('.recognize-dialog-action').textContent = '取消';
+      bar.hidden = false;
+      tick();
+      return;
+    }
     $('recognizeOverlayThumb').src = previewUrl || '';
-    const progressText = {fault:'正在识别故障屏幕，请稍候…', container:'正在识别集装箱号，请稍候…', position:'正在识别位置号，请稍候…'};
-    $('recognizeOverlayText').textContent = progressText[kind] || '正在识别铭牌，请稍候…';
+    $('recognizeOverlayText').textContent = message;
     $('recognizeOverlayError').hidden = true;
     $('recognizeSpinner').hidden = false;
     $('recognizeOverlayElapsed').hidden = false;
@@ -362,16 +424,21 @@
     $('cancelRecognize').hidden = false;
     $('cancelRecognize').textContent = '取消';
     $('recognizeOverlayElapsed').textContent = '已等待 0 秒';
-    const started = Date.now();
-    clearInterval(recognizeTimer);
-    recognizeTimer = setInterval(() => {
-      $('recognizeOverlayElapsed').textContent = '已等待 ' + Math.floor((Date.now() - started) / 1000) + ' 秒';
-    }, 250);
     $('recognizeOverlay').hidden = false;
-    lockCapture(true);
   }
   function showRecognizeFailure(message) {
     clearInterval(recognizeTimer); recognizeTimer = null;
+    lockCapture(false);
+    const bar = dialogRecognizeBar();
+    if (bar && bar.closest('dialog')?.open) {
+      bar.dataset.state = 'error';
+      bar.querySelector('.recognize-spinner').hidden = true;
+      bar.querySelector('.recognize-dialog-elapsed').hidden = true;
+      bar.querySelector('.recognize-dialog-text').textContent = (recognizeKind === 'fault' ? '手操器屏幕没有识别出来：' : '铭牌没有识别出来：') + message;
+      bar.querySelector('.recognize-dialog-action').textContent = '关闭';
+      bar.hidden = false;
+      return;
+    }
     $('recognizeSpinner').hidden = true;
     $('recognizeOverlayElapsed').hidden = true;
     $('recognizeOverlayText').textContent = recognizeKind === 'fault' ? '故障屏幕没有识别出来' : '铭牌没有识别出来';
@@ -381,12 +448,12 @@
     $('overlayManual').hidden = false;
     $('cancelRecognize').textContent = '关闭';
     $('recognizeOverlay').hidden = false;
-    lockCapture(false);
   }
   function hideRecognizeProgress() {
     clearInterval(recognizeTimer); recognizeTimer = null;
     recognizeAbort = null;
     $('recognizeOverlay').hidden = true;
+    removeDialogRecognizeBar();
     lockCapture(false);
   }
   function recognitionFailure(error) {
@@ -1303,6 +1370,7 @@
     await runRoleRecognition(photo);
   }
   async function runRoleRecognition(photo) {
+    if (ocrBusy) return;
     const raw = photo.original_blob || photo.blob;
     const preview = URL.createObjectURL(raw);
     const kind = photo.photo_role === 'controller' ? 'fault' : photo.photo_role;
@@ -1386,13 +1454,26 @@
     }
     return fields;
   }
-  function groupFieldsFrom(photos) {
+  function groupFieldsFrom(photos, inheritTyped = true) {
     const fields = unionGroupFields(photos);
+    // Values already entered on the capture screen must not come back blank.
+    const pending = (batch && batch.pending) || {};
+    const typed = inheritTyped ? {
+      equipment_number: ($('noEquipmentNumber')?.checked ? '' : ($('equipmentNumber')?.value || '')).trim(),
+      equipment_model: ($('equipmentModel')?.value || '').trim(),
+      container_number: ($('containerNumber')?.value || '').trim(),
+      position_number: ($('positionNumber')?.value || '').trim(),
+      fault: ($('repairFault')?.value || '').trim(),
+    } : {};
+    for (const key of Object.keys(typed)) {
+      if (fields[key]) continue;
+      fields[key] = pending[key] || typed[key];
+    }
     if (batch) batch.pending = fields;
     return fields;
   }
-  function showGroupConfirm(photos) {
-    const fields = groupFieldsFrom(photos);
+  function showGroupConfirm(photos, {inheritTyped = true} = {}) {
+    const fields = groupFieldsFrom(photos, inheritTyped);
     const specs = [
       ['equipment_number', '设备编号', 'nameplate'],
       ['equipment_model', '设备型号', 'nameplate'],
@@ -1435,7 +1516,7 @@
         file.type = 'file';
         file.className = 'ios-file-input';
         file.accept = 'image/*,.heic,.heif,.avif';
-        file.capture = 'environment';
+        // No capture attribute: iPhone then offers 拍照 / 照片图库 instead of camera only.
         file.addEventListener('change', async () => {
           const [picked] = chosenFiles(file);
           if (!picked) return;
@@ -2091,7 +2172,11 @@
     notice(value && model ? '已填入设备编号和型号，请核对。' : '已填入识别结果，请补充另一项。');
   });
   $('retryRecognitionFile').addEventListener('change', () => { const [file] = chosenFiles($('retryRecognitionFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
-  $('retrySamePhotoFile').addEventListener('change', () => { const [file] = chosenFiles($('retrySamePhotoFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
+  $('retrySamePhoto').addEventListener('click', () => {
+    $('recognitionDialog').close();
+    if (nameplateBlob) recognizeNameplateFile(nameplateBlob);
+  });
+  $('retryAlbumFile').addEventListener('change', () => { const [file] = chosenFiles($('retryAlbumFile')); $('recognitionDialog').close(); if (file) recognizeNameplateFile(file); });
   async function reclassifyPhoto(photo) {
     const role = await askPhotoRole();
     if (!role) return;
@@ -2140,7 +2225,7 @@
     const group = ledgerPhotos.filter(item => item.batch_id && (item.batch_id === photo.batch_id || String(item.batch_id).split(':')[0] === sessionKey));
     const savedBatch = batch;
     batch = {id:photo.batch_id, session_id:sessionKey, type:photo.photo_type || 'equipment', pending:unionGroupFields(group.length ? group : [photo])};
-    const accepted = await showGroupConfirm(group.length ? group : [photo]);
+    const accepted = await showGroupConfirm(group.length ? group : [photo], {inheritTyped: false});
     const fields = {...batch.pending};
     batch = savedBatch;
     if (!accepted) return;

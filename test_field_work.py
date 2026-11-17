@@ -196,6 +196,36 @@ class FieldWorkTest(unittest.TestCase):
         self.assertIn('--oem', command)
         self.assertEqual(run.call_count, 2)
 
+    def test_controller_fault_prefers_vision_model_over_ocr(self):
+        payload = {
+            'fault_codes': ['175'],
+            'fault_text': ['2026/11/17 23:00:10 2级故障 故障码175', 'P3 水泵3干磨故障', 'page 1/2'],
+            'display_text': ['当前故障'],
+        }
+        with patch.object(field_work, '_vision_settings_for_scene',
+                          return_value={'model':'vision-model','base_url':'http://vision.test','api_key':'k'}), \
+             patch.object(field_work, 'read_vision_json', return_value=payload), \
+             patch.object(field_work.subprocess, 'run', side_effect=AssertionError('OCR must not run when vision answers')):
+            response = self.http.post('/api/field/recognize-equipment',
+                                      data={'photo': (BytesIO(self.photo), 'screen.jpg'), 'mode': 'controller_fault'},
+                                      headers={'X-Field-Token': self.csrf})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json['source'], 'llm')
+        self.assertIn('P3 水泵3干磨故障', response.json['fault_text'])
+        self.assertNotIn('page', response.json['fault_text'].casefold())
+
+    def test_controller_fault_falls_back_to_ocr_when_vision_is_unavailable(self):
+        completed = type('Result', (), {'returncode': 0, 'stdout': '当前故障\n2级故障 故障码175\n'.encode('utf-8'), 'stderr': b''})()
+        with patch.object(field_work, '_vision_settings_for_scene', return_value=None), \
+             patch.object(field_work, '_vision_settings_for_nameplate', return_value=None), \
+             patch.object(field_work, '_run_tesseract', return_value=completed):
+            response = self.http.post('/api/field/recognize-equipment',
+                                      data={'photo': (BytesIO(self.photo), 'screen.jpg'), 'mode': 'controller_fault'},
+                                      headers={'X-Field-Token': self.csrf})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json['source'], 'ocr')
+        self.assertIn('故障码175', response.json['fault_text'])
+
     def test_repair_fault_stores_long_simplified_chinese(self):
         fault = '水泵3干磨故障。' * 400
         self.assertGreater(len(fault), 1000)

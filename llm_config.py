@@ -12,6 +12,7 @@ SCENES = (
     ("attachment_interpret", "报销附件智能解读（需视觉）"),
     ("expense_review", "报销 AI 审核（文本）"),
     ("daily_vision", "日报照片识图（需视觉）"),
+    ("field_fault", "现场手操器故障识别（需视觉）"),
     ("daily_intent", "日报意图 / AI 助手（文本）"),
     ("wechat_project_analysis", "微信项目事件分析（文本）"),
     ("wechat_vision", "微信现场图片分析（需视觉）"),
