@@ -52,17 +52,14 @@
             </div>
             <div class="repair-device-actions">
               <label class="check-label"><input id="noEquipmentNumber" type="checkbox">无编号</label>
-              <button id="recognizeDevice" class="repair-outline" type="button">拍摄铭牌</button>
-              <button id="nameplateAlbumButton" class="repair-outline" type="button">从相册选择</button>
-              <input id="nameplateCamera" type="file" accept="image/*" capture="environment" hidden>
-              <input id="nameplateAlbum" type="file" accept="image/*" hidden>
+              <span class="album-launch"><button id="recognizeDevice" class="repair-outline" type="button">拍摄铭牌</button><input id="nameplateCamera" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" capture="environment"></span>
+              <span class="album-launch"><button id="nameplateAlbumButton" class="repair-outline" type="button">从相册选择</button><input id="nameplateAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif"></span>
             </div>
           </div>
           <div id="repairControls" class="repair-card">
             <strong>维修前故障信息</strong>
             <button id="scanRepairFault" class="repair-outline repair-wide" type="button">拍手操器识别故障</button>
-            <button id="faultAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button>
-            <input id="faultAlbum" type="file" accept="image/*" hidden>
+            <span class="album-launch album-launch-wide"><button id="faultAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button><input id="faultAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif"></span>
             <div id="repairFaultPhotos" class="repair-photo-strip" hidden></div>
             <label><textarea id="repairFault" rows="8" lang="zh-CN" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-max-chars="4000" aria-label="维修前故障信息" placeholder="可手工输入故障现象"></textarea></label>
             <button id="startRepair" class="primary repair-wide" type="button">保存维修前状态</button>
@@ -71,8 +68,7 @@
             <p id="repairStage" class="muted" role="status"></p>
             <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
             <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片</button>
-            <button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button>
-            <input id="repairAlbum" type="file" accept="image/*" multiple hidden>
+            <span class="album-launch album-launch-wide"><button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button><input id="repairAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span>
             <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000"></textarea></label>
             <label>复测结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
             <button id="completeRepair" class="primary repair-wide" type="button">保存维修结果</button>
@@ -87,7 +83,7 @@
         <div id="cameraView" class="camera-view">
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将整张铭牌放入框内</span></div></div>
-        <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><button id="cameraAlbumButton" type="button">从相册选择</button><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="readRepairFault" class="primary" type="button" hidden>拍照识别故障</button><button id="closeCamera" type="button" hidden>关闭相机</button><input id="cameraAlbum" type="file" accept="image/*" multiple hidden></div>
+        <div class="camera-actions"><button id="openCamera" class="primary" type="button">打开相机</button><span class="album-launch"><button id="cameraAlbumButton" type="button">从相册选择</button><input id="cameraAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><button id="takePhoto" class="primary" type="button" hidden>拍照并保存</button><button id="readRepairFault" class="primary" type="button" hidden>拍照识别故障</button><button id="closeCamera" type="button" hidden>关闭相机</button></div>
         <div id="nameplatePending" hidden><img id="nameplateThumb" alt="待识别的铭牌"><span id="nameplateStatus">识别中…</span></div>
         <div id="recentCaptures" class="recent-captures" aria-label="本次拍摄的照片" hidden></div>
         </div>
@@ -142,6 +138,20 @@
 <dialog id="recognitionDialog" class="recognition-dialog"><h2>请确认设备铭牌</h2><p>设备编号：<span id="recognizedNumber"></span></p><p>设备型号：<span id="recognizedModel"></span></p><p class="muted">请与设备铭牌逐位核对，确认后才会用于后续照片。</p><div class="dialog-actions"><button id="confirmRecognizedNumber" class="primary" type="button">确认使用</button><button id="retrySamePhoto" type="button">用这张再识别</button><button id="retryRecognition" type="button">重新拍照</button><button id="manualRecognition" type="button">手工输入</button></div></dialog>
 <script src="/static/ui-i18n-supplement.js?v={{ app_version }}" defer></script>
 <script src="/static/field-i18n.js?v={{ app_version }}" defer></script>
+<div id="recognizeOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="recognizeOverlayText">
+  <div class="recognize-card">
+    <img id="recognizeOverlayThumb" alt="正在识别的照片">
+    <div id="recognizeSpinner" class="recognize-spinner" aria-hidden="true"></div>
+    <p id="recognizeOverlayText">正在识别铭牌，请稍候…</p>
+    <p id="recognizeOverlayElapsed">已等待 0 秒</p>
+    <p id="recognizeOverlayError" class="recognize-error" hidden></p>
+    <div class="recognize-actions">
+      <button id="cancelRecognize" type="button">取消</button>
+      <button id="overlayRetry" type="button" hidden>重新识别</button>
+      <button id="overlayManual" type="button" hidden>手工输入</button>
+    </div>
+  </div>
+</div>
 <script src="/static/field-watermark.js?v={{ app_version }}" defer></script>
 <script src="/static/photo-time.js?v={{ app_version }}" defer></script>
 <link rel="stylesheet" href="/static/attachment-preview.css?v={{ app_version }}">
