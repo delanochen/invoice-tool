@@ -223,6 +223,29 @@
       if (value) { $('equipmentNumber').value = value.slice(0,200); setFieldText('deviceStatus', '自动识别到：'+value+'。请核对后点击“打开相机”。'); }
     } catch (_) {}
   }
+  function canvasStill(video) {
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    return new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('无法读取相机画面')), 'image/jpeg', 0.92));
+  }
+  async function captureStill(video) {
+    const track = stream?.getVideoTracks?.()[0];
+    if (track && typeof ImageCapture === 'function') {
+      try {
+        const photo = await new ImageCapture(track).takePhoto();
+        if (photo && photo.size && photo.size <= 10 * 1024 * 1024) return photo;
+        if (photo && photo.size) {
+          const bitmap = await createImageBitmap(photo);
+          const still = await canvasStill(bitmap);
+          bitmap.close?.();
+          return still;
+        }
+      } catch (_) {}
+    }
+    return canvasStill(video);
+  }
   async function recognizeDevice(automatic = false, faultMode = false) {
     if (automatic && (batch?.type !== 'equipment' || deviceSession || !document.body.classList.contains('recognition-mode'))) return;
     if (!stream || !$('viewfinder').videoWidth) {
@@ -237,12 +260,7 @@
     const captureStream = stream;
     try {
       const video = $('viewfinder');
-      const scale = Math.min(1, 2400 / Math.max(video.videoWidth, video.videoHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(video.videoWidth * scale);
-      canvas.height = Math.round(video.videoHeight * scale);
-      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('无法读取相机画面')),'image/jpeg',.86));
+      const blob = await captureStill(video);
       const data = new FormData(); data.append('photo',blob,'nameplate.jpg');
       if (faultMode) data.append('mode', 'controller_fault');
       if (!automatic) notice(faultMode ? '正在识别手操器屏幕…' : '正在识别设备编号和型号…');
@@ -556,7 +574,7 @@
       currentOrder = selected;
       cameraSelection = {order:{...selected}, userId:profile.user.id};
       stream?.getTracks().forEach(track => track.stop());
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}},audio:false});
       $('cameraView').hidden = false;
       $('cameraStage').hidden = false;
       $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();

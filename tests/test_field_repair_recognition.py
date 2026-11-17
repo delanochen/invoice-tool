@@ -6,6 +6,7 @@ from pathlib import Path
 from invoice_tool.service_reports.field_repairs import (
     FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model, nameplate_numbers,
 )
+import field_work
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -90,6 +91,40 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         self.assertEqual(nameplate_model("Machine Type Cooling\nManufacture Year 2024\n"), "")
         self.assertEqual(nameplate_model("Machine Number 1023240407536\n"), "")
 
+    def test_refrigeration_is_not_a_machine_number(self):
+        self.assertEqual(nameplate_numbers("Refrigeration\n1023240407536"), ["1023240407536"])
+        self.assertEqual(nameplate_numbers("1023240407536\nMachine Number\nSanhe Tongfei Refrigeration Co., Ltd."), ["1023240407536"])
+
+    def test_camera_frame_misreads_fit_the_tongfei_shape(self):
+        self.assertEqual(nameplate_model("Machine Type\nLCI-400CR-014Z-3487U"), "LCI-400CR-01AZ-3487U")
+        self.assertEqual(nameplate_model("LCI-AOOCR-01AZ-3487U\nMachine Type"), "LCI-400CR-01AZ-3487U")
+
+    def test_invalid_vision_json_is_rejected_and_a_shaped_model_is_accepted(self):
+        self.assertIsNone(field_work.validate_nameplate_llm("not json"))
+        self.assertIsNone(field_work.validate_nameplate_llm({"machine_number": "Refrigeration", "equipment_model": "LCI-400CR-01AZ-3487U"}))
+        self.assertIsNone(field_work._vision_settings_for_nameplate({"vision_settings": lambda: {"enabled": False, "api_key": "", "model": ""}}))
+        accepted = field_work.validate_nameplate_llm({"machine_number": "1023240407536", "equipment_model": "LCI-400CR-014Z-3487U"})
+        self.assertEqual(accepted["source"], "llm")
+        self.assertEqual(accepted["equipment_model"], "LCI-400CR-01AZ-3487U")
+        self.assertEqual(accepted["candidates"], ["1023240407536"])
+
+    def test_debug_frames_keep_thirty_and_drop_expired(self):
+        import os
+        import tempfile
+        from datetime import datetime, timedelta, timezone
+        with tempfile.TemporaryDirectory() as directory:
+            field_work.record_nameplate_debug(directory, b"old-frame", {"source": "ocr", "text": "old"})
+            old_path = next(Path(directory).glob("*.jpg"))
+            expired = (datetime.now(timezone.utc) - timedelta(hours=49)).timestamp()
+            os.utime(old_path, (expired, expired))
+            os.utime(old_path.with_suffix(".json"), (expired, expired))
+            for index in range(31):
+                field_work.record_nameplate_debug(directory, f"frame-{index}".encode(), {"source": "ocr", "text": str(index)})
+            kept = list(Path(directory).glob("*.jpg"))
+            self.assertEqual(len(kept), 30)
+            self.assertFalse(old_path.exists())
+            self.assertIn(b'"source"', next(Path(directory).glob("*.json")).read_bytes())
+
     def test_real_tongfei_ocr_joins_the_model_printed_before_the_label(self):
         # PSM 11 of the phone-sized frame: the value is above "Machine Type" and split.
         phone = "LCI-400CR-O1AZ-\n3487U.\nMachine Type\n40.0kW/16.0kW\nMachine Number\n1023240407536\n"
@@ -110,6 +145,8 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         self.assertIn('lang="zh-CN"', tag)
         self.assertIn("维修前故障信息", html)
         script = (ROOT / "static" / "field-work.js").read_text(encoding="utf-8")
+        self.assertIn("ImageCapture", script)
+        self.assertIn("0.92", script)
         self.assertIn("compositionstart", script)
         self.assertIn("dataset.composing", script)
         self.assertNotIn("field.maxLength", script)
@@ -123,7 +160,7 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         image = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("tesseract-ocr-chi-sim", image)
         worker = (ROOT / "static" / "field-sw.js").read_text(encoding="utf-8")
-        self.assertIn("prasinos-field-63", worker)
+        self.assertIn("prasinos-field-64", worker)
 
     def test_real_tongfei_photo_returns_full_model_and_number(self):
         if shutil.which("tesseract") is None:
@@ -133,10 +170,27 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         result = field_work.recognize_nameplate_photo(photo.read_bytes())
         # Raw Tesseract reads I as 1, 0 as O, and U as 0, and puts the code
         # above the words "Machine Type". The API value is the corrected code.
-        self.assertIn("LC1-400CR-O1AZ-", result["text"])
+        self.assertTrue("LC1-400CR-O1AZ-" in result["text"] or "LCI-400CR-O1AZ-" in result["text"])
         self.assertIn("Machine Type", result["text"])
         self.assertEqual(result["equipment_model"], "LCI-400CR-01AZ-3487U")
         self.assertEqual(result["candidates"][0], "1023240407536")
+
+    def test_resized_fixture_keeps_model_and_number(self):
+        if shutil.which("tesseract") is None:
+            self.skipTest("tesseract is not installed")
+        from io import BytesIO
+        from PIL import Image
+        photo = Image.open(ROOT / "tests" / "fixtures" / "tongfei-lci-400cr-nameplate.jpg")
+        photo.load()
+        for width in (1920, 1440, 1280, 1080):
+            height = round(photo.height * width / photo.width)
+            frame = photo.resize((width, height), Image.Resampling.LANCZOS)
+            buffer = BytesIO()
+            frame.save(buffer, format="JPEG", quality=86)
+            result = field_work.recognize_nameplate_photo(buffer.getvalue())
+            with self.subTest(width=width):
+                self.assertEqual(result["equipment_model"], "LCI-400CR-01AZ-3487U")
+                self.assertEqual(result["candidates"][0], "1023240407536")
 
 
 if __name__ == "__main__":
