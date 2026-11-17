@@ -22,7 +22,8 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
 from invoice_tool.service_reports.field_repairs import (
-    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model, nameplate_numbers,
+    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, machine_number_token,
+    nameplate_model, nameplate_number_groups, nameplate_numbers,
 )
 
 logger = logging.getLogger("invoice.field_work")
@@ -32,7 +33,7 @@ NAMEPLATE_DEBUG_TTL_SECONDS = 48 * 60 * 60
 _NAMEPLATE_PROMPT = (
     "You read a Tongfei / Sanhe Tongfei Refrigeration equipment nameplate. "
     "Return only a JSON object with keys machine_number and equipment_model. "
-    "machine_number is the Machine Number / 机器编号, digits only. "
+    "machine_number is the Machine Number / 机器编号: exactly 13 letters or digits, copied from that field. Letters may appear among the digits. "
     "equipment_model is the Machine Type / Model / 型号, for example LCI-400CR-01AZ-3487U. "
     "Copy the engraved characters. Do not explain."
 )
@@ -187,6 +188,17 @@ def _passes_for(image):
     return passes
 
 
+def _number_ready(labeled, others):
+    """A label hit, or a value with at most one letter, is enough to stop.
+
+    Dimension and refrigerant lines can be 13 characters with several letters.
+    Those stay in the list but do not hide the Machine Number.
+    """
+    if labeled:
+        return True
+    return any(sum(character.isdigit() for character in token) >= 12 for token in others)
+
+
 def recognize_nameplate_photo(content):
     """OCR an upright nameplate. EXIF is applied before any pass.
 
@@ -200,8 +212,8 @@ def recognize_nameplate_photo(content):
     shaped = nameplate_model(line_text) or nameplate_model('Machine Type ' + line_text)
     if shaped:
         models.append(shaped)
-    numbers = nameplate_numbers(line_text + '\n' + word_text)
-    if not models or not numbers:
+    labeled, others = nameplate_number_groups(line_text + '\n' + word_text)
+    if not models or not _number_ready(labeled, others):
         for psm, payload in _passes_for(image):
             try:
                 result = _run_tesseract(payload, psm, 'eng')
@@ -214,14 +226,17 @@ def recognize_nameplate_photo(content):
             model = nameplate_model(text)
             if model:
                 models.append(model)
-            numbers.extend(nameplate_numbers(text))
-            if models and numbers:
+            more_labeled, more_others = nameplate_number_groups(text)
+            labeled.extend(token for token in more_labeled if token not in labeled)
+            others.extend(token for token in more_others if token not in labeled and token not in others)
+            if models and _number_ready(labeled, others):
                 break
     if not texts:
         return None
+    others.sort(key=lambda token: -sum(character.isdigit() for character in token))
     ordered = []
-    for value in numbers:
-        if value.isdigit() and len(value) == 13 and value not in ordered:
+    for value in labeled + others:
+        if value and value not in ordered:
             ordered.append(value)
     return {
         'text': '\n'.join(texts),
@@ -242,10 +257,10 @@ def validate_nameplate_llm(payload):
             return None
     if not isinstance(payload, dict):
         return None
-    number = re.sub(r"\D", "", str(payload.get("machine_number") or ""))
+    number = machine_number_token(str(payload.get("machine_number") or ""))
     raw_model = str(payload.get("equipment_model") or "").strip()
     model = nameplate_model("Machine Type " + raw_model) or nameplate_model(raw_model)
-    if not re.fullmatch(r"\d{13}", number):
+    if not number:
         return None
     if not re.fullmatch(r"[A-Z]{3}-\d{3}[A-Z]{2}-\d{2}[A-Z]{2}-\d{4}[A-Z]", model or ""):
         return None

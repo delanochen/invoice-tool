@@ -235,35 +235,79 @@ _NUMBER_LABEL = re.compile(
 )
 
 
-def _remember_number(value, found):
-    value = re.sub(r"\D", "", value or "")
-    if len(value) == 13 and value not in found:
-        found.append(value)
+_LETTER_RUN = re.compile(r"[A-Za-z]{4,}")
 
 
-def nameplate_numbers(text):
-    """13-digit machine numbers. Letters such as Refrigeration are never candidates.
+def machine_number_token(value):
+    """A machine number is exactly 13 letters or digits and contains a digit.
 
-    The value may sit on the line before Machine Number.
+    A run of four or more letters is dictionary noise such as member2924040
+    or Refrigeration, not a serial engraved among the digits.
     """
-    text = re.sub(r"(?<=\d)[ \t](?=\d)", "", text or "")
+    token = re.sub(r"[^A-Za-z0-9]", "", value or "")
+    if len(token) != 13 or not re.search(r"\d", token) or _LETTER_RUN.search(token):
+        return ""
+    return token
+
+
+def _line_number_tokens(line):
     found = []
-    lines = text.splitlines()
+    for match in re.finditer(r"[A-Za-z0-9]{13}", line or ""):
+        before = line[match.start() - 1:match.start()]
+        after = line[match.end():match.end() + 1]
+        if (before and before.isalnum()) or (after and after.isalnum()):
+            continue
+        token = machine_number_token(match.group())
+        if token and token not in found:
+            found.append(token)
+    compact = machine_number_token(line)
+    if compact and compact not in found:
+        found.append(compact)
+    return found
+
+
+def _remember_number(value, found):
+    for token in _line_number_tokens(value):
+        if token not in found:
+            found.append(token)
+
+
+def nameplate_number_groups(text):
+    """Split vetted 13-character numbers into label-adjacent and other values."""
+    text = re.sub(r"(?<=\d)[ \t](?=\d)", "", text or "")
+    labeled = []
+    used_lines = set()
+    lines = text.splitlines() or [text]
     for index, line in enumerate(lines):
         match = _NUMBER_LABEL.search(line)
         if not match:
             continue
-        _remember_number(line[match.end():], found)
+        used_lines.add(index)
+        _remember_number(line[match.end():], labeled)
         for neighbor in (index - 1, index + 1):
             if 0 <= neighbor < len(lines):
-                for token in re.findall(r"[A-Za-z0-9]{13}", re.sub(r"[^A-Za-z0-9]", "", lines[neighbor])):
-                    _remember_number(token, found)
-    if not found:
-        for token in re.findall(r"(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])", text, re.I):
-            _remember_number(token, found)
-    digits = [value for value in found if value.isdigit()]
-    mixed = [value for value in found if not value.isdigit()]
-    return (digits + mixed)[:5]
+                used_lines.add(neighbor)
+                _remember_number(lines[neighbor], labeled)
+    others = []
+    for index, line in enumerate(lines):
+        if index in used_lines:
+            continue
+        _remember_number(line, others)
+    if not labeled and not others:
+        _remember_number(text, others)
+    return labeled, [token for token in others if token not in labeled]
+
+
+def nameplate_numbers(text):
+    """13-character machine numbers. A letter may sit among the digits.
+
+    The value on the Machine Number line, or on the line before or after it,
+    comes first. Other candidates are ranked by how many digits they contain.
+    Refrigeration and letter-run junk such as member2924040 are never candidates.
+    """
+    labeled, others = nameplate_number_groups(text)
+    others.sort(key=lambda token: -sum(character.isdigit() for character in token))
+    return (labeled + others)[:5]
 
 
 def _join_sparse_cjk(line):
