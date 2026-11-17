@@ -52,33 +52,127 @@ def decode_ocr_output(raw):
         return raw.decode("gb18030", errors="replace")
 
 
-def _model_value(raw):
-    raw = (raw or "").strip().lstrip(":：=#＝ ")
-    raw = _TRAILING_LABEL.split(raw, maxsplit=1)[0].strip(" \t:：=#＝")
+def _clean_model_piece(raw):
+    raw = _TRAILING_LABEL.split(raw or "", maxsplit=1)[0]
     raw = re.sub(r"[ \t]*-[ \t]*", "-", raw)
-    for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9._/\-]*", raw):
-        if re.search(r"[A-Za-z]", token) and re.search(r"\d", token) and 4 <= len(token) <= 80:
-            return token
-    return ""
+    raw = raw.strip(" \t:：=#＝.,;·|_—–")
+    return re.sub(r"[\s_]+", "", raw)
+
+
+def _is_model_code(piece):
+    if not piece or len(piece) < 4 or len(piece) > 80:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\-]*", piece):
+        return False
+    if not re.search(r"[A-Za-z]", piece) or not re.search(r"\d", piece):
+        return False
+    return re.search(r"(?i)kw|hz|mm$|kg|mpa|heating|supply", piece) is None
+
+
+def _is_model_line(line):
+    if _STOP_LINE.search(line) or _MODEL_LABEL.search(line):
+        return False
+    if re.search(r"(?i)kw|hz|mm|kg|mpa|heating|supply|power|weight|year|current", line):
+        return False
+    return _is_model_code(_clean_model_piece(line))
+
+
+def _normalize_plate_model(token):
+    """Correct the engraving confusions seen on the Tongfei liquid-cooling plate.
+
+    I is read as 1 or L, 0 is read as O, and a final U is read as 0. The suffix
+    correction only runs when the code still contains the CR / AZ groups, so a
+    short misread such as LCL-4000 is not rewritten into a different model.
+    """
+    if re.search(r"(?i)CR", token) and re.match(r"(?i)^lc[1il]", token):
+        token = re.sub(r"(?i)^lc[1il]", "LCI", token)
+    token = re.sub(r"O(?=\d)", "0", token)
+    if re.search(r"(?i)AZ-\d{4}[0O]$", token):
+        token = token[:-1] + "U"
+    return token
+
+
+def _assemble_model(chunks):
+    pieces = []
+    for chunk in chunks:
+        piece = _clean_model_piece(chunk)
+        if _is_model_code(piece):
+            pieces.append(piece)
+    if not pieces:
+        return ""
+    assembled = pieces[0]
+    for piece in pieces[1:]:
+        if assembled.endswith("-"):
+            assembled += piece
+        elif re.fullmatch(r"[A-Za-z]{2,4}-\d{3}0", assembled) and re.match(r"[A-Za-z]{2,4}-", piece):
+            # "LCL-400 0" plus the real "CR-..." suffix: the extra 0 is not part of the code.
+            assembled = assembled[:-1] + piece
+        elif "-" in piece and "-" not in assembled:
+            assembled = piece
+        else:
+            break
+    if "-" not in assembled or len(assembled) < 8:
+        return ""
+    return _normalize_plate_model(assembled)
+
+
+def _model_window(lines, index, remainder):
+    before = []
+    blanks = 0
+    for prev in range(index - 1, max(-1, index - 6), -1):
+        if not lines[prev].strip():
+            blanks += 1
+            if blanks > 1:
+                break
+            continue
+        if not _is_model_line(lines[prev]):
+            break
+        before.append(lines[prev])
+        blanks = 0
+    before.reverse()
+    after = []
+    for nxt in range(index + 1, min(len(lines), index + 5)):
+        if not lines[nxt].strip():
+            continue
+        if not _is_model_line(lines[nxt]):
+            break
+        after.append(lines[nxt])
+        if not _clean_model_piece(lines[nxt]).endswith("-"):
+            break
+    return before + [remainder] + after
 
 
 def nameplate_model(text):
-    """Read Machine Type / Model / 型号 even when the next label shares the line."""
+    """Read Machine Type / Model / 型号, including a value printed before the label.
+
+    Sparse OCR of a two-column plate often emits the model on the lines above
+    "Machine Type", and splits it at a hyphen. The whole code is assembled
+    before a short prefix is accepted.
+    """
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    best = ""
     for index, line in enumerate(lines):
         match = _MODEL_LABEL.search(line)
         if not match:
             continue
-        candidate = _model_value(line[match.end():])
-        if candidate:
-            return candidate
-        if index + 1 < len(lines):
-            nxt = lines[index + 1]
-            if nxt and not _MODEL_LABEL.search(nxt) and not _STOP_LINE.search(nxt):
-                candidate = _model_value(nxt)
-                if candidate:
-                    return candidate
-    return ""
+        candidate = _assemble_model(_model_window(lines, index, line[match.end():]))
+        if len(candidate) > len(best):
+            best = candidate
+    return best
+
+
+def nameplate_numbers(text):
+    """13-character machine numbers, including a value on the line after its label."""
+    text = re.sub(r"(?<=\d)[ \t](?=\d)", "", text or "")
+    labels = r"(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)"
+    candidates = []
+    for match in re.finditer(labels + r"\s*[:：#=＝-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})", text, re.I):
+        value = match.group(1).strip("._/-")
+        if re.fullmatch(r"[A-Za-z0-9]{13}", value) and value not in candidates:
+            candidates.append(value)
+    if not candidates:
+        candidates.extend(dict.fromkeys(re.findall(r"(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])", text, re.I)))
+    return candidates[:5]
 
 
 def _join_sparse_cjk(line):

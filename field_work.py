@@ -21,7 +21,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from image_processing import compress_image, create_thumbnail
 from photo_capture_date import resolve_capture_date
 from invoice_tool.service_reports.field_repairs import (
-    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model,
+    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model, nameplate_numbers,
 )
 
 def json_utf8(payload, status=200):
@@ -52,6 +52,38 @@ def _chinese_language_missing(result):
         return False
     stderr = (result.stderr or b'').decode('utf-8', errors='replace').casefold()
     return 'chi_sim' in stderr or 'failed loading language' in stderr or 'error opening data file' in stderr
+
+
+def recognize_nameplate_photo(content):
+    """OCR a nameplate the same way /api/field/recognize-equipment does.
+
+    Returns None when Tesseract cannot read the image. The model parser sees the
+    raw text; collapsing spaces between digits is left to the number reader.
+    """
+    with Image.open(BytesIO(content)) as image:
+        if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
+            raise ValueError('bad nameplate image')
+        image.load()
+        enhanced = ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)
+        long_side = max(enhanced.width, enhanced.height)
+        scale = min(3, max(1, math.ceil(2400 / long_side)))
+        if scale > 1:
+            enhanced = enhanced.resize((enhanced.width * scale, enhanced.height * scale), Image.Resampling.LANCZOS)
+        # Light contrast only. A second sharpen on the whole frame splits the
+        # model and was returning LCL-4000 for LCI-400CR-01AZ-3487U.
+        enhanced = ImageEnhance.Contrast(enhanced).enhance(1.2)
+        processed = BytesIO()
+        enhanced.save(processed, format='PNG')
+        passes = (('11', content), ('4', processed.getvalue()))
+    results = [_run_tesseract(payload, psm, 'eng') for psm, payload in passes]
+    if not any(result.returncode == 0 for result in results):
+        return None
+    text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
+    return {
+        'text': text,
+        'candidates': nameplate_numbers(text),
+        'equipment_model': nameplate_model(text),
+    }
 
 
 PHOTO_TYPE_LABELS = {
@@ -475,55 +507,37 @@ def register_field_routes(app, api):
         if not content or len(content) > 10 * 1024 * 1024:
             return jsonify(error=f'{subject}照片为空或超过 10MB。'), 422
         try:
+            if not fault_mode:
+                found = recognize_nameplate_photo(content)
+                if not found:
+                    return jsonify(error='服务器暂时无法识别铭牌，请手工输入。'), 503
+                return json_utf8({'ok': True, 'candidates': found['candidates'], 'equipment_model': found['equipment_model']})
             with Image.open(BytesIO(content)) as image:
                 if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
                     raise ValueError
                 image.load()
-                if fault_mode:
-                    image = ImageOps.exif_transpose(image)
+                image = ImageOps.exif_transpose(image)
                 enhanced = ImageOps.autocontrast(ImageOps.grayscale(image), cutoff=1)
                 scale = min(3, max(1, math.ceil(2400 / max(enhanced.width, enhanced.height))))
                 if scale > 1:
                     enhanced = enhanced.resize((enhanced.width * scale, enhanced.height * scale), Image.Resampling.LANCZOS)
-                # A second sharpen pass breaks thin Simplified Chinese strokes on a glare LCD.
-                enhanced = ImageEnhance.Contrast(enhanced).enhance(1.35 if fault_mode else 1.5).filter(ImageFilter.SHARPEN)
-                if not fault_mode:
-                    enhanced = enhanced.filter(ImageFilter.SHARPEN)
+                enhanced = ImageEnhance.Contrast(enhanced).enhance(1.35).filter(ImageFilter.SHARPEN)
                 processed = BytesIO()
                 enhanced.save(processed, format='PNG')
-                if fault_mode:
-                    plain = BytesIO()
-                    ImageOps.grayscale(image).save(plain, format='PNG')
-                    passes = (('6', plain.getvalue()), ('4', processed.getvalue()))
-                    language = 'chi_sim+eng'
-                else:
-                    passes = (('11', content), ('6', processed.getvalue()))
-                    language = 'eng'
-            results = [
-                _run_tesseract(payload, psm, language, chinese=fault_mode)
-                for psm, payload in passes
-            ]
+                plain = BytesIO()
+                ImageOps.grayscale(image).save(plain, format='PNG')
+                passes = (('6', plain.getvalue()), ('4', processed.getvalue()))
+            results = [_run_tesseract(payload, psm, 'chi_sim+eng', chinese=True) for psm, payload in passes]
         except (OSError, ValueError, Image.DecompressionBombError):
             return jsonify(error=f'无法读取{subject}照片。'), 422
         except subprocess.TimeoutExpired:
             return jsonify(error=f'{subject}识别超时，请重试或手工输入。'), 504
         if not any(result.returncode == 0 for result in results):
-            if fault_mode and any(_chinese_language_missing(result) for result in results):
+            if any(_chinese_language_missing(result) for result in results):
                 return jsonify(error='服务器未安装简体中文识别语言包，暂时无法识别手操器中文。'), 503
             return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。'), 503
         text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
-        if fault_mode:
-            return json_utf8({'ok': True, 'fault_text': controller_fault_text(text)})
-        text = re.sub(r'(?<=\d)[ \t](?=\d)', '', text)
-        labels = r'(?:mach[i1l]ne\s*n(?:umber|urnber|o\.?|#)|serial\s*(?:number|no\.?|#)|s\s*/?\s*n|生产编号|设备编号)'
-        candidates = []
-        for match in re.finditer(labels + r'\s*[:：#=＝-]?\s*([A-Z0-9][A-Z0-9._/-]{3,})', text, re.I):
-            value = match.group(1).strip('._/-')
-            if re.fullmatch(r'[A-Za-z0-9]{13}', value) and value not in candidates:
-                candidates.append(value)
-        if not candidates:
-            candidates.extend(dict.fromkeys(re.findall(r'(?<![A-Z0-9_-])[A-Z0-9]{13}(?![A-Z0-9_-])', text, re.I)))
-        return json_utf8({'ok': True, 'candidates': candidates[:5], 'equipment_model': nameplate_model(text)})
+        return json_utf8({'ok': True, 'fault_text': controller_fault_text(text)})
 
     @app.route('/api/field/orders/<int:order_id>/repair-records', methods=['GET', 'POST'])
     @access

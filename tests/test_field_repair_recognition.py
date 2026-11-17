@@ -1,9 +1,10 @@
 """Handheld-controller and nameplate text extracted for field repairs."""
+import shutil
 import unittest
 from pathlib import Path
 
 from invoice_tool.service_reports.field_repairs import (
-    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model,
+    FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, nameplate_model, nameplate_numbers,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +90,18 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         self.assertEqual(nameplate_model("Machine Type Cooling\nManufacture Year 2024\n"), "")
         self.assertEqual(nameplate_model("Machine Number 1023240407536\n"), "")
 
+    def test_real_tongfei_ocr_joins_the_model_printed_before_the_label(self):
+        # PSM 11 of the phone-sized frame: the value is above "Machine Type" and split.
+        phone = "LCI-400CR-O1AZ-\n3487U.\nMachine Type\n40.0kW/16.0kW\nMachine Number\n1023240407536\n"
+        self.assertEqual(nameplate_model(phone), "LCI-400CR-01AZ-3487U")
+        # Full-resolution frame: I->1, O->O, trailing U->0, and a space inside the code.
+        full = "LC1-400CR-O1AZ- 34870.\n\nMachine Type\nCooling/Heating\n"
+        self.assertEqual(nameplate_model(full), "LCI-400CR-01AZ-3487U")
+        # The deployed 0.1.503 result was the short token "LCL-4000" when the suffix
+        # was still present on the next line. The extra 0 is not kept.
+        truncated = "Machine Type LCL-4000\nCR-01AZ-3487U\nCooling/Heating 40.0kW\n"
+        self.assertEqual(nameplate_model(truncated), "LCI-400CR-01AZ-3487U")
+
     def test_field_page_accepts_chinese_and_raises_the_fault_limit(self):
         html = (ROOT / "templates" / "field_work.html").read_text(encoding="utf-8")
         tag = html.split('id="repairFault"', 1)[1].split(">", 1)[0]
@@ -111,6 +124,19 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         self.assertIn("tesseract-ocr-chi-sim", image)
         worker = (ROOT / "static" / "field-sw.js").read_text(encoding="utf-8")
         self.assertIn("prasinos-field-63", worker)
+
+    def test_real_tongfei_photo_returns_full_model_and_number(self):
+        if shutil.which("tesseract") is None:
+            self.skipTest("tesseract is not installed")
+        import field_work
+        photo = ROOT / "tests" / "fixtures" / "tongfei-lci-400cr-nameplate.jpg"
+        result = field_work.recognize_nameplate_photo(photo.read_bytes())
+        # Raw Tesseract reads I as 1, 0 as O, and U as 0, and puts the code
+        # above the words "Machine Type". The API value is the corrected code.
+        self.assertIn("LC1-400CR-O1AZ-", result["text"])
+        self.assertIn("Machine Type", result["text"])
+        self.assertEqual(result["equipment_model"], "LCI-400CR-01AZ-3487U")
+        self.assertEqual(result["candidates"][0], "1023240407536")
 
 
 if __name__ == "__main__":
