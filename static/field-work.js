@@ -203,7 +203,7 @@
     batch ||= {id:key(), type, actual_start:Date.now(), watermark_start:null};
     const typeChanged = previousType && previousType !== type;
     batch.type = type;
-    if (typeChanged) clearDeviceInputs();  // 换组：不残留上一组的设备信息
+    if (typeChanged && !(deviceSession && type === 'equipment')) clearDeviceInputs();  // 换组：不残留上一组的设备信息
     $('deviceNoteSlot').append($('captureNote'));
     $('deviceSession').hidden = false;
     setKindChoiceActive(type);
@@ -1504,7 +1504,8 @@
       input.value = fields[key] || '';
       input.addEventListener('input', () => {
         fields[key] = input.value;
-        const bad = (key === 'equipment_number' && input.value && !/^[A-Za-z0-9]{13}$/.test(input.value)) || (key === 'container_number' && input.value && !iso6346Ok(input.value));
+        const bad = (key === 'equipment_number' && input.value && !/^[A-Za-z0-9]{13}$/.test(input.value))
+          || (key === 'container_number' && input.value && !/^[A-Z]{4}\d{7}$/.test(input.value.toUpperCase().replace(/[^A-Z0-9]/g, '')));
         input.classList.toggle('invalid-field', bad);
       });
       input.dispatchEvent(new Event('input'));
@@ -1906,6 +1907,23 @@
     } catch(error) { notice('暂时无法上传：'+error.message+' 照片仍保留在本机。',true); }
     finally { syncing = false; uploadingPhotoId = null; await renderQueue(); }
   }
+  async function pushGroupFieldsToRepair(fields) {
+    // The repair ledger row is created before the shots, so corrections made in the
+    // group confirm sheet have to be written back or the ledger keeps showing blanks.
+    if (!activeRepair || !fields) return;
+    const order = chosenOrder();
+    if (!order || activeRepair.order_id !== order.id || activeRepair.completed_date) return;
+    try {
+      await repairRequest(order, {id: activeRepair.id, action: 'update_device',
+        equipment_number: fields.equipment_number || '', equipment_model: fields.equipment_model || '',
+        position_number: fields.position_number || '', container_number: fields.container_number || '',
+        fault: fields.fault || ''});
+      Object.assign(activeRepair, {
+        equipment_number: fields.equipment_number || '', equipment_model: fields.equipment_model || '',
+        position_number: fields.position_number || '', container_number: fields.container_number || '',
+        fault: fields.fault || activeRepair.fault});
+    } catch (_) {}
+  }
   async function completeBatch() {
     if (!batch) return;
     const session = batch.session_id || batch.id;
@@ -1923,6 +1941,7 @@
       const accepted = await showGroupConfirm(groupPhotos);
       if (!accepted) return;
       await applyGroupWatermark(groupPhotos);
+      await pushGroupFieldsToRepair(batch && batch.pending);
     }
     for (const batchId of [...new Set(groupPhotos.map(photo => photo.batch_id))]) await syncQueue(batchId);
     if ((await queued()).filter(inSession).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }

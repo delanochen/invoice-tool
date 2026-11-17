@@ -1321,6 +1321,21 @@ def register_field_routes(app, api):
         repair_id = value('id', 64)
         if not re.fullmatch('[0-9a-f]{32}', repair_id):
             return jsonify(error='维修记录编号无效。'), 422
+        if data.get('action') == 'update_device':
+            # The group confirm sheet can correct the device details after the repair row
+            # was created, so the repair ledger row must follow the corrected values.
+            row = connection.execute(
+                """update field_repairs set equipment_number = ?, equipment_model = ?, position_number = ?,
+                   container_number = ?, fault = case when ? = '' then fault else ? end
+                   where id = ? and order_id = ? and user_id = ? and completed_date is null returning id""",
+                (value('equipment_number', 200), value('equipment_model', 200), value('position_number', 200),
+                 value('container_number', 200).upper(), value('fault', FAULT_TEXT_LIMIT), value('fault', FAULT_TEXT_LIMIT),
+                 repair_id, order_id, user_id),
+            ).fetchone()
+            if not row:
+                return jsonify(error='维修记录不存在或已完成。'), 409
+            return json_utf8({'ok': True, 'id': repair_id})
+
         if data.get('action') == 'save_work':
             work = value('work_content', 2000)
             if not work:
@@ -1369,7 +1384,7 @@ def register_field_routes(app, api):
                    position_number, container_number, fault, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                    on conflict (id) do nothing returning id""",
                 (repair_id, order_id, user_id, number, value('equipment_model', 200), value('position_number', 200),
-                 value('container_number', 200), value('fault', FAULT_TEXT_LIMIT), api['now']()),
+                 value('container_number', 200).upper(), value('fault', FAULT_TEXT_LIMIT), api['now']()),
             ).fetchone()
             if not row and not connection.execute(
                 'select 1 from field_repairs where id = ? and order_id = ? and user_id = ? and completed_date is null',

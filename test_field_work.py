@@ -226,6 +226,32 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(response.json['source'], 'ocr')
         self.assertIn('故障码175', response.json['fault_text'])
 
+    def test_repair_device_fields_follow_group_confirmation(self):
+        repair_id = uuid.uuid4().hex
+        created = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={'id': repair_id, 'fault': '线束接头松动', 'no_equipment_number': True},
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        updated = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={'id': repair_id, 'action': 'update_device', 'equipment_number': '1023240407536',
+                  'equipment_model': 'LCI-400CR', 'position_number': '62-S1',
+                  'container_number': 'lygu0217133', 'fault': ''},
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        with self.module.app.app_context():
+            row = self.module.db().execute(
+                'select equipment_number, position_number, container_number, fault from field_repairs where id = ?',
+                (repair_id,),
+            ).fetchone()
+        self.assertEqual(row['container_number'], 'LYGU0217133')
+        self.assertEqual(row['position_number'], '62-S1')
+        self.assertEqual(row['equipment_number'], '1023240407536')
+        self.assertEqual(row['fault'], '线束接头松动')
+
     def test_repair_work_content_saves_without_completing(self):
         repair_id = uuid.uuid4().hex
         created = self.http.post(
