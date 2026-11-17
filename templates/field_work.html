@@ -56,10 +56,10 @@
             </div>
           </div>
           <div id="repairControls" class="repair-card">
-            <strong>故障信息</strong>
+            <strong>维修前故障信息</strong>
             <button id="scanRepairFault" class="repair-outline repair-wide" type="button">拍手操器识别故障</button>
             <div id="repairFaultPhotos" class="repair-photo-strip" hidden></div>
-            <label><textarea id="repairFault" rows="3" maxlength="1000" aria-label="故障信息" placeholder="可手工输入故障现象"></textarea></label>
+            <label><textarea id="repairFault" rows="8" lang="zh-CN" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-max-chars="4000" aria-label="维修前故障信息" placeholder="可手工输入故障现象"></textarea></label>
             <button id="startRepair" class="primary repair-wide" type="button">保存维修前状态</button>
           </div>
           <div id="repairResultFields" class="repair-card" hidden>

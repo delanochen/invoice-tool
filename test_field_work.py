@@ -132,6 +132,7 @@ class FieldWorkTest(unittest.TestCase):
                                       headers={'X-Field-Token':self.csrf})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json['candidates'], ['1023231239085'])
+        self.assertEqual(response.json['equipment_model'], 'LCI-400CR-01AZ-3487U')
 
     def test_nameplate_recognition_tolerates_ocr_label_damage_and_unlabeled_long_number(self):
         damaged = type('Result', (), {'returncode':0, 'stdout':b'Machlne Nurnber\n1023231239551\n'})()
@@ -149,6 +150,84 @@ class FieldWorkTest(unittest.TestCase):
                                       data={'photo':(BytesIO(self.photo),'plate.jpg')},
                                       headers={'X-Field-Token':self.csrf})
         self.assertEqual(response.json['candidates'], [])
+
+    def test_tongfei_nameplate_returns_machine_type_and_machine_number(self):
+        plate = (
+            'Inverter Liquid Cooling Unit\n'
+            'Machine Type = LCI-400CR-01AZ-3487U Refrigerant R134a\n'
+            'Machine Number = 1023240407536 Manufacture Year 2024\n'
+        )
+        completed = type('Result', (), {'returncode': 0, 'stdout': plate.encode('utf-8'), 'stderr': b''})()
+        with patch.object(field_work.subprocess, 'run', return_value=completed) as run:
+            response = self.http.post('/api/field/recognize-equipment',
+                                      data={'photo': (BytesIO(self.photo), 'plate.jpg')},
+                                      headers={'X-Field-Token': self.csrf})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json['candidates'], ['1023240407536'])
+        self.assertEqual(response.json['equipment_model'], 'LCI-400CR-01AZ-3487U')
+        self.assertIn('utf-8', response.content_type.lower())
+        command = run.call_args_list[0].args[0]
+        self.assertIn('eng', command)
+        self.assertNotIn('chi_sim+eng', command)
+
+    def test_controller_fault_ocr_returns_simplified_chinese(self):
+        screen = (
+            '当前故障\n'
+            '2026/11/17 23:00:10 2级故障 故障码175\n'
+            'P3 水泵3干磨故障\n'
+            '2026/11/17 23:00:10 2级故障 故障码168\n'
+            'P2 水泵2干磨故障\n'
+            'page 1/2\n'
+        )
+        completed = type('Result', (), {'returncode': 0, 'stdout': screen.encode('utf-8'), 'stderr': b''})()
+        with patch.object(field_work.subprocess, 'run', return_value=completed) as run:
+            response = self.http.post('/api/field/recognize-equipment',
+                                      data={'photo': (BytesIO(self.photo), 'screen.jpg'), 'mode': 'controller_fault'},
+                                      headers={'X-Field-Token': self.csrf})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.get_data()
+        self.assertIn('水泵3干磨故障'.encode('utf-8'), body)
+        self.assertNotIn('\\u6c34'.encode('ascii'), body)
+        self.assertIn('故障码175', response.json['fault_text'])
+        self.assertIn('P2 水泵2干磨故障', response.json['fault_text'])
+        self.assertNotIn('page', response.json['fault_text'].casefold())
+        command = run.call_args_list[0].args[0]
+        self.assertIn('chi_sim+eng', command)
+        self.assertIn('--oem', command)
+        self.assertEqual(run.call_count, 2)
+
+    def test_repair_fault_stores_long_simplified_chinese(self):
+        fault = '水泵3干磨故障。' * 400
+        self.assertGreater(len(fault), 1000)
+        self.assertLessEqual(len(fault), 4000)
+        response = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={
+                'id': uuid.uuid4().hex,
+                'equipment_number': '1023240407536',
+                'equipment_model': 'LCI-400CR-01AZ-3487U',
+                'position_number': 'B6-1',
+                'container_number': 'LYGU0217133',
+                'fault': fault,
+                'no_equipment_number': False,
+            },
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        with self.module.app.app_context():
+            row = self.module.db().execute(
+                'select fault, equipment_model, equipment_number from field_repairs'
+            ).fetchone()
+        self.assertEqual(row['fault'], fault)
+        self.assertEqual(row['equipment_model'], 'LCI-400CR-01AZ-3487U')
+        self.assertEqual(row['equipment_number'], '1023240407536')
+        listed = self.http.get(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertIn('水泵3干磨故障'.encode('utf-8'), listed.get_data())
+        self.assertEqual(listed.json['rows'][0]['fault'], fault)
 
     def test_ledger_json_delete_token_and_photo_delete(self):
         upload = self.upload()
