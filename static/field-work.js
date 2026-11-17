@@ -1350,7 +1350,13 @@
   }
   async function captureRawAndClassify(source, context) {
     const raw = await processedPhoto(source, {...context, watermark_source:'original'});
-    const photo = {...context, blob:raw, original_blob:raw, awaiting_watermark:true, watermark_source:'system', photo_role:'', recognition_status:''};
+    // Stamp a preview immediately so a freshly shot photo already shows its watermark.
+    // The raw original is kept and redrawn on group confirmation, once the batch fields
+    // and watermark time are final.
+    let stamped;
+    try { stamped = await processedPhoto(source, {...context, watermark_source:'system'}); }
+    catch (_) { stamped = raw; }
+    const photo = {...context, blob:stamped, original_blob:raw, awaiting_watermark:true, watermark_source:'system', photo_role:'', recognition_status:''};
     await storePhoto(photo);
     if (cameraStripSession && photo.source === 'camera' && photo.batch_id === cameraStripSession.batchId) cameraStripSession.ids.add(photo.client_id);
     await renderQueue();
