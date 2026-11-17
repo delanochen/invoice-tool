@@ -173,6 +173,20 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 #repairFault { min-height:8.5rem; line-height:1.5; font-size:16px; }
 #nameplatePending{display:flex;gap:8px;align-items:center;margin:8px 0}
 #nameplateThumb{width:72px;height:72px;object-fit:cover;border-radius:8px;background:#e7eeea}
+.album-launch{position:relative;display:inline-flex;max-width:100%}
+.album-launch-wide{display:flex;width:100%}
+.album-launch>button{pointer-events:none}
+.album-launch-wide>button{width:100%}
+.ios-file-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;font-size:16px;cursor:pointer;z-index:2}
+#recognizeOverlay{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:24px;background:#081411b8}
+.recognize-card{width:min(420px,100%);display:grid;justify-items:center;gap:10px;padding:18px;border-radius:16px;background:#fff;text-align:center}
+#recognizeOverlayThumb{width:132px;height:132px;object-fit:cover;border-radius:12px;background:#e7eeea}
+.recognize-spinner{width:36px;height:36px;border:3px solid #dce6e2;border-top-color:#0f766e;border-radius:50%;animation:recognize-spin .8s linear infinite}
+@keyframes recognize-spin{to{transform:rotate(360deg)}}
+#recognizeOverlayText{margin:0;font-size:18px;font-weight:700}
+#recognizeOverlayElapsed{margin:0;color:var(--muted)}
+.recognize-error{margin:0;color:#9f1239}
+.recognize-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
 body[data-panel="camera"] #timeSettings.repair-watermark { margin:4px 0; padding:2px 8px; border:0; border-radius:6px; background:#eef4ef; }
 
 @media (max-width:600px) {

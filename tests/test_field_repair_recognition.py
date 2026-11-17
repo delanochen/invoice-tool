@@ -181,7 +181,17 @@ class FieldRepairRecognitionTest(unittest.TestCase):
         image = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("tesseract-ocr-chi-sim", image)
         worker = (ROOT / "static" / "field-sw.js").read_text(encoding="utf-8")
-        self.assertIn("prasinos-field-65", worker)
+        self.assertIn("prasinos-field-66", worker)
+        self.assertIn("正在识别铭牌，请稍候…", html)
+        self.assertIn("ios-file-input", html)
+        self.assertNotIn("$('faultAlbum').click()", script)
+        self.assertNotIn("$('cameraAlbum').click()", script)
+        self.assertNotIn("$('repairAlbum').click()", script)
+        self.assertNotIn("$('nameplateAlbum').click()", script)
+        for picker in ("faultAlbum", "nameplateAlbum", "cameraAlbum", "repairAlbum", "nameplateCamera"):
+            tag = html.split(f'id="{picker}"', 1)[1].split(">", 1)[0]
+            self.assertNotIn("hidden", tag)
+            self.assertIn(".heic", tag)
         self.assertIn("从相册选择", html)
         self.assertIn('id="nameplateCamera"', html)
         self.assertIn('id="cameraAlbum"', html)

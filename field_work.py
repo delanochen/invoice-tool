@@ -270,7 +270,7 @@ def validate_nameplate_llm(payload):
 def load_upright_nameplate(content):
     """Rotate using EXIF before any recognition or debug save. iPhone frames are Orientation=6."""
     with Image.open(BytesIO(content)) as image:
-        if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
+        if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC', 'AVIF'} or image.width * image.height > 40_000_000:
             raise ValueError('bad nameplate image')
         image.load()
         image = ImageOps.exif_transpose(image)
@@ -951,7 +951,7 @@ def register_field_routes(app, api):
                     'source': found.get('source') or 'ocr',
                 })
             with Image.open(BytesIO(content)) as image:
-                if image.format not in {'JPEG', 'PNG', 'WEBP'} or image.width * image.height > 40_000_000:
+                if image.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF', 'HEIC', 'AVIF'} or image.width * image.height > 40_000_000:
                     raise ValueError
                 image.load()
                 image = ImageOps.exif_transpose(image)
