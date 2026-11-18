@@ -814,7 +814,7 @@ def group_repair_photos(photos):
         repair_phase = photo.get('repair_phase')
         session = (photo['equipment_session'] or '').strip()
         if session:
-            group_key = ('session', photo['order_id'], session)
+            group_key = ('session', photo['order_id'], session, photo['capture_date'])
         elif equipment_number:
             group_key = (
                 'device', photo['order_id'], photo['capture_date'], equipment_number.casefold(),
