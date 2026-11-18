@@ -730,12 +730,79 @@ EDITABLE_PHOTO_TYPES = ('equipment', 'arrival', 'departure', 'safety')
 
 
 
+def _repair_merge_key(entry):
+    """同工单、同日期、同位置号才有合并资格；没有位置号的行保持原样。"""
+    position = (entry['position_number'] or '').strip()
+    if not position:
+        return None
+    return (entry['order_id'], entry['date'], position.casefold())
+
+
+def _repair_rows_conflict(left, right):
+    """铭牌号或柜号一边为空、一边有值时不算冲突；两边都有且不同说明不是同一台设备。"""
+    for field in ('equipment_number', 'container_number'):
+        value = (left.get(field) or '').strip().casefold()
+        other = (right.get(field) or '').strip().casefold()
+        if value and other and value != other:
+            return True
+    return False
+
+
+def _merge_repair_entry(target, source):
+    """把 source 会话并进 target：计数相加、编号去重，空缺栏位用 source 的值补齐。"""
+    target['photo_count'] += source['photo_count']
+    target['photo_ids'].extend(source['photo_ids'])
+    for fuse in source['pump_fuses']:
+        if fuse.casefold() not in {item.casefold() for item in target['pump_fuses']}:
+            target['pump_fuses'].append(fuse)
+    for note in source['notes']:
+        if note not in target['notes']:
+            target['notes'].append(note)
+    for technician in source['technicians']:
+        if technician not in target['technicians']:
+            target['technicians'].append(technician)
+    for field in ('equipment_number', 'container_number'):
+        if not (target[field] or '').strip() and (source[field] or '').strip():
+            target[field] = source[field].strip()
+    for field in ('equipment_model', 'work_content'):
+        values = []
+        for value in (target.get(field) or '', source.get(field) or ''):
+            value = value.strip()
+            if value and value.casefold() not in {item.casefold() for item in values}:
+                values.append(value)
+        target[field] = ' / '.join(values)
+
+
+def merge_repair_rows_by_position(entries):
+    """同工单、同日期、同位置号的维修会话合成一行；铭牌号/柜号冲突的保持分开。"""
+    rows = []
+    slots = {}
+    for entry in entries:
+        key = _repair_merge_key(entry)
+        bucket = slots.setdefault(key, []) if key else None
+        if bucket is None:
+            rows.append(entry)
+            continue
+        for existing in bucket:
+            if not _repair_rows_conflict(existing, entry):
+                _merge_repair_entry(existing, entry)
+                break
+        else:
+            bucket.append(entry)
+            rows.append(entry)
+    return rows
+
+
 def group_repair_photos(photos):
     """把设备类现场照片归并成「设备维修清单」行（与 /reports/field-repairs 同口径）。
 
-    同一工单、日期、铭牌号、位置号、柜号与维修人员的照片汇总为一行：
-    照片数量相加，水泵保险编号合并去重，备注用 ' / ' 连接。
-    没有铭牌号的照片按一次拍摄会话（equipment_session）归为一行。
+    每台设备的一次拍摄会话（equipment_session）先归为一行：照片数量相加，
+    水泵保险编号合并去重，备注用 ' / ' 连接；同一会话里先拍的铭牌照片没填
+    位置号/柜号时，用同会话后面补拍的照片补齐。
+    再按「同工单 + 同日期 + 同位置号」合并一次：同一位置号下的多个维修会话
+    （维修前 / 维修后、重新拍铭牌、补拍柜号等）合成一行，空缺栏位用同位置的
+    其它行补齐；铭牌号或柜号互相冲突时说明不是同一台设备，保持分开。
+    没有会话号的老照片按铭牌号 + 位置号 + 柜号 + 维修人员归行。
     """
     grouped = {}
     for photo in photos:
@@ -745,21 +812,29 @@ def group_repair_photos(photos):
         position_number = (photo['position_number'] or '').strip()
         container_number = (photo['container_number'] or '').strip()
         repair_phase = photo.get('repair_phase')
-        if repair_phase:
-            group_key = ('repair', photo['order_id'], photo['equipment_session'])
+        session = (photo['equipment_session'] or '').strip()
+        if session:
+            group_key = ('session', photo['order_id'], session)
         elif equipment_number:
             group_key = (
                 'device', photo['order_id'], photo['capture_date'], equipment_number.casefold(),
                 position_number.casefold(), container_number.casefold(), technician.casefold(),
             )
         else:
-            group_key = ('session', photo['order_id'], photo['equipment_session'] or f"photo-{photo['id']}")
+            group_key = ('photo', photo['order_id'], photo['id'])
         entry = grouped.setdefault(group_key, dict(
             order_number=photo['order_number'], date=photo['capture_date'], position_number=position_number,
             container_number=container_number, equipment_number=equipment_number,
             equipment_model=photo.get('equipment_model') or '', work_content=photo.get('work_content') or '', pump_fuses=[],
             notes=[], technicians=[], photo_count=0, photo_ids=[], order_id=photo['order_id'],
         ))
+        # 同一会话内先拍铭牌、后补位置号/柜号/型号时，用后面的值补齐空栏位。
+        for field, value in (('position_number', position_number), ('container_number', container_number),
+                             ('equipment_number', equipment_number),
+                             ('equipment_model', photo.get('equipment_model') or ''),
+                             ('work_content', photo.get('work_content') or '')):
+            if not (entry.get(field) or '').strip() and value.strip():
+                entry[field] = value.strip()
         if repair_phase and photo.get('completed_date'):
             entry['date'] = str(photo['completed_date'])
         entry['photo_count'] += 1
@@ -772,7 +847,7 @@ def group_repair_photos(photos):
         if technician and technician not in entry['technicians']:
             entry['technicians'].append(technician)
     rows = []
-    for index, entry in enumerate(sorted(grouped.values(), key=lambda item: (item['date'], item['order_number'], item['position_number'])), 1):
+    for index, entry in enumerate(sorted(merge_repair_rows_by_position(grouped.values()), key=lambda item: (item['date'], item['order_number'], item['position_number'])), 1):
         entry['sequence'] = index
         pump_fuses = entry.pop('pump_fuses')
         pump_fuses.sort(key=lambda value: (0, int(value)) if value.isdigit() else (1, value.casefold()))
@@ -1802,9 +1877,9 @@ def register_field_routes(app, api):
     @access
     def field_repair_export():
         rows = repair_table_rows()
-        headers = ['序号', '日期', '地标号', '集装箱号', '同飞铭牌', '已更换水泵保险编号', '备注', '维修人员', '工单', '照片数量']
-        keys = ['sequence', 'date', 'position_number', 'container_number', 'equipment_number', 'pump_fuse_numbers',
-                'note', 'technician', 'order_number', 'photo_count']
+        headers = ['序号', '日期', '地标号', '集装箱号', '同飞铭牌', '设备型号', '工作内容', '已更换水泵保险编号', '备注', '维修人员', '工单', '照片数量']
+        keys = ['sequence', 'date', 'position_number', 'container_number', 'equipment_number', 'equipment_model', 'work_content',
+                'pump_fuse_numbers', 'note', 'technician', 'order_number', 'photo_count']
         buffer = api['build_simple_xlsx'](headers, [[str(row[key] or '') for key in keys] for row in rows], sheet_name='设备维修清单')
         return send_file(buffer, as_attachment=True, download_name='field-repairs.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 

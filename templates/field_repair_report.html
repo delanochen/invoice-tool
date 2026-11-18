@@ -16,7 +16,7 @@
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
       设备维修清单
-      <small>同一工单 / 日期 / 铭牌号 / 位置号 / 集装箱号 / 维修人汇总为一行</small>
+      <small>同一工单 / 日期 / 位置号汇总为一行，空栏位用同位置的其它记录补齐</small>
     </div>
     <span class="erp-badge">{{ rows|length }} 条</span>
     <span class="erp-badge">{{ photo_total }} 张照片</span>
@@ -51,9 +51,9 @@
 
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
-        <table class="list-table erp-grid" data-grid-height="100%"><thead><tr><th>序号</th><th>日期</th><th>地标号</th><th>集装箱号</th><th>同飞铭牌</th><th>设备型号</th><th>已更换水泵保险编号</th><th>备注</th><th>维修人员</th><th>工单</th><th>照片</th>{% if can_delete_repairs %}<th>操作</th>{% endif %}</tr></thead><tbody>
-{% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{{ row.position_number or '-' }}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.equipment_model or '-' }}</td><td>{{ row.pump_fuse_numbers or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.technician or '-' }}</td><td>{{ row.order_number }}</td><td class="translatable-text">{{ row.photo_count }} 张</td>{% if can_delete_repairs %}<td>{% if row.can_delete %}<button type="button" class="danger small" data-repair-delete="{{ row.delete_token }}" data-photo-count="{{ row.photo_count }}" data-device-label="{{ row.order_number }} · {{ row.date }} · {{ row.equipment_number or '无铭牌号' }} · {{ row.position_number or '-' }} · {{ row.container_number or '-' }}">删除</button>{% endif %}</td>{% endif %}</tr>
-{% else %}<tr><td colspan="{{ 12 if can_delete_repairs else 11 }}" class="empty">没有符合条件的设备照片。</td></tr>{% endfor %}
+        <table class="list-table erp-grid" data-grid-height="100%"><thead><tr><th>序号</th><th>日期</th><th>地标号</th><th>集装箱号</th><th>同飞铭牌</th><th>设备型号</th><th>工作内容</th><th>已更换水泵保险编号</th><th>备注</th><th>维修人员</th><th>工单</th><th>照片</th>{% if can_delete_repairs %}<th>操作</th>{% endif %}</tr></thead><tbody>
+{% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{{ row.position_number or '-' }}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.equipment_model or '-' }}</td><td class="translatable-text">{{ row.work_content or '-' }}</td><td>{{ row.pump_fuse_numbers or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.technician or '-' }}</td><td>{{ row.order_number }}</td><td class="translatable-text">{{ row.photo_count }} 张</td>{% if can_delete_repairs %}<td>{% if row.can_delete %}<button type="button" class="danger small" data-repair-delete="{{ row.delete_token }}" data-photo-count="{{ row.photo_count }}" data-device-label="{{ row.order_number }} · {{ row.date }} · {{ row.equipment_number or '无铭牌号' }} · {{ row.position_number or '-' }} · {{ row.container_number or '-' }}">删除</button>{% endif %}</td>{% endif %}</tr>
+{% else %}<tr><td colspan="{{ 13 if can_delete_repairs else 12 }}" class="empty">没有符合条件的设备照片。</td></tr>{% endfor %}
 </tbody></table>
       </div>
 
@@ -72,6 +72,7 @@
               <span>箱号<b class="translatable-text">{{ row.container_number or '-' }}</b></span>
             </div>
             <div class="repair-line translatable-text">水泵保险 {{ row.pump_fuse_numbers or '-' }} · 维修 {{ row.technician or '-' }}</div>
+            {% if row.work_content %}<div class="repair-line translatable-text">工作内容 {{ row.work_content }}</div>{% endif %}
             {% if row.note %}<div class="repair-line translatable-text">备注 {{ row.note }}</div>{% endif %}
             <div class="erp-card-metrics">
               <div class="erp-card-metric"><span>照片</span><strong class="translatable-text">{{ row.photo_count }} 张</strong></div>

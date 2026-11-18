@@ -487,10 +487,77 @@ class FieldWorkTest(unittest.TestCase):
         body = page.get_data(as_text=True)
         for value in ('10232502W0738', '4A1-4', 'LYGU0217133', '1/2/3/4/5/6', '3 张'):
             self.assertIn(value, body)
+        for header in ('<th>设备型号</th>', '<th>工作内容</th>'):
+            self.assertIn(header, body)
         self.assertEqual(body.count('<td>10232502W0738</td>'), 1)
         export = self.http.get('/api/field/repairs.xlsx')
         self.assertEqual(export.status_code, 200)
         self.assertIn('spreadsheetml', export.content_type)
+
+    def test_repair_register_merges_sessions_by_position_and_fills_blank_fields(self):
+        # 2026-11-17：同一位置号先拍铭牌（没填位置号），再补拍集装箱号；
+        # 另一条重复拍摄同位置时，台账按位置号合成一行，空栏位用同位置的记录补齐。
+        def photo(**fields):
+            row = dict(id=0, order_id=1, order_number='SO-MERGE', capture_date='2026-11-17',
+                       position_number='', container_number='', equipment_number='1023240407536',
+                       equipment_model='', work_content='', pump_fuse_numbers='', note='',
+                       technician_name='Tech', employee_name='Tech', repair_phase='',
+                       equipment_session='', completed_date='')
+            row.update(fields)
+            return row
+
+        photos = [
+            photo(id=1, equipment_session='nameplate-session'),
+            photo(id=2, equipment_session='nameplate-session', position_number='62-S1'),
+            photo(id=3, equipment_session='container-session', position_number='62-S1',
+                  container_number='708772-9', equipment_model='LCI-400CR-01AZ-3487U',
+                  work_content='检测保险丝，用扎带紧固接头。'),
+        ]
+        rows = field_work.group_repair_photos(photos)
+        self.assertEqual(len(rows), 1)
+        merged = rows[0]
+        self.assertEqual(merged['position_number'], '62-S1')
+        self.assertEqual(merged['container_number'], '708772-9')
+        self.assertEqual(merged['equipment_model'], 'LCI-400CR-01AZ-3487U')
+        self.assertEqual(merged['work_content'], '检测保险丝，用扎带紧固接头。')
+        self.assertEqual(merged['photo_count'], 3)
+        self.assertEqual(merged['photo_ids'], [1, 2, 3])
+
+    def test_repair_register_keeps_conflicting_nameplates_apart(self):
+        # 同一位置号下铭牌号互相冲突，说明不是同一台设备，不能合并成一行。
+        def photo(**fields):
+            row = dict(id=0, order_id=1, order_number='SO-CONFLICT', capture_date='2026-11-17',
+                       position_number='62-S1', container_number='708772-9', equipment_number='',
+                       equipment_model='', work_content='', pump_fuse_numbers='', note='',
+                       technician_name='Tech', employee_name='Tech', repair_phase='',
+                       equipment_session='', completed_date='')
+            row.update(fields)
+            return row
+
+        rows = field_work.group_repair_photos([
+            photo(id=1, equipment_session='a', equipment_number='1023240407536'),
+            photo(id=2, equipment_session='b', equipment_number='1023240407999'),
+        ])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([row['equipment_number'] for row in rows], ['1023240407536', '1023240407999'])
+
+    def test_repair_register_merges_distinct_work_content(self):
+        # 两条记录各有不同的工作内容时保留两条并合到同一行，用 ' / ' 连接。
+        def photo(**fields):
+            row = dict(id=0, order_id=1, order_number='SO-WORK', capture_date='2026-11-17',
+                       position_number='63-S1', container_number='708767-3', equipment_number='1023240407536',
+                       equipment_model='', work_content='', pump_fuse_numbers='', note='',
+                       technician_name='Tech', employee_name='Tech', repair_phase='',
+                       equipment_session='', completed_date='')
+            row.update(fields)
+            return row
+
+        rows = field_work.group_repair_photos([
+            photo(id=1, equipment_session='a', work_content='更换保险'),
+            photo(id=2, equipment_session='b', work_content='紧固接头'),
+        ])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['work_content'], '更换保险 / 紧固接头')
 
     def test_public_shell_has_no_employee_data_and_manifest_exists(self):
         with self.http.session_transaction() as session:

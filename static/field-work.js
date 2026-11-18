@@ -2054,6 +2054,9 @@
   });
   $('cancelRequest').addEventListener('click', () => $('requestDialog').close());
   function showRepair(repair, phase = 'before') {
+    const previousRepairId = activeRepair?.id;
+    const typedWork = $('repairWork').value.trim();
+    const typedResult = $('repairResult').value.trim();
     activeRepair = repair ? {...repair, repair_phase:phase} : null;
     repairStartId = null;
     deviceSession = null;
@@ -2073,8 +2076,10 @@
     $('faultAlbum').disabled = Boolean(repair);
     $('repairStage').textContent = phase === 'before' ? '当前拍摄：维修前' : '当前拍摄：维修后';
     $('completeRepair').disabled = phase === 'before';
-    $('repairWork').value = '';
-    $('repairResult').value = '';
+    // 重新拍摄同一台设备的照片时不能清空已输入的工作内容；换记录时显示这条记录已保存的内容。
+    const sameRepair = Boolean(repair && previousRepairId && repair.id === previousRepairId);
+    $('repairWork').value = sameRepair && typedWork ? typedWork : (repair?.work_content || '');
+    $('repairResult').value = sameRepair && typedResult ? typedResult : (repair?.result || '');
     if (repair && phase === 'before') $('repairFault').value = repair.fault || '';
     if (repair) {
       $('equipmentNumber').closest('fieldset').classList.remove('locked');
