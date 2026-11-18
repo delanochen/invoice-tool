@@ -1360,13 +1360,16 @@
     let stamped;
     try { stamped = await processedPhoto(source, {...context, watermark_source:'system'}); }
     catch (_) { stamped = raw; }
-    const photo = {...context, blob:stamped, original_blob:raw, awaiting_watermark:true, watermark_source:'system', photo_role:'', recognition_status:''};
+    // 沿用拍照前在顶部选定的类型，拍完不再弹出“这张照片是什么”二次选择；
+    // 设备照片默认归入“其他设备照片”，需要细分铭牌 / 集装箱 / 位置号时点缩略图再改。
+    const role = batch?.type === 'arrival' ? 'arrival'
+      : batch?.type === 'departure' ? 'departure'
+      : batch?.type === 'safety' ? 'safety'
+      : 'other';
+    const photo = {...context, blob:stamped, original_blob:raw, awaiting_watermark:false, watermark_source:'system', photo_role:role, recognition_status:''};
+    applyPhotoRole(photo, role);
     await storePhoto(photo);
     if (cameraStripSession && photo.source === 'camera' && photo.batch_id === cameraStripSession.batchId) cameraStripSession.ids.add(photo.client_id);
-    await renderQueue();
-    notice('照片已保存。请选择这张照片是什么。');
-    const role = await askPhotoRole();
-    applyPhotoRole(photo, role);
     await renderQueue();
     if (!RECOGNIZE_ROLES.has(photo.photo_role)) {
       photo.recognition_status = 'skipped';
@@ -1871,9 +1874,8 @@
           photo.blob = new Blob([uploadBytes], {type:photo.blob.type || photo.content_type || 'application/octet-stream'});
           photo.error = '';
           if (photo.awaiting_watermark === true) {
-            photo.error = '请先确认本组信息并生成水印，再上传。';
-            await storePhoto(photo);
-            continue;
+            // 重试上传沿用已生成的预览水印，不再要求先打开本组确认窗口。
+            photo.awaiting_watermark = false;
           }
           await storePhoto(photo);
           const data = new FormData();
@@ -2407,11 +2409,7 @@
     } catch(error) { notice('删除失败：'+error.message,true); $('confirmDeleteAllDrafts').disabled = false; }
     finally { deletingDrafts = false; await renderQueue(); }
   });
-  $('retryUpload').addEventListener('click', async () => {
-    const photos = await queued();
-    if (photos.some(item => item.awaiting_watermark === true)) { await completeBatch(); return; }
-    await syncQueue();
-  }); $('reloadOrders').addEventListener('click',bootstrap);
+  $('retryUpload').addEventListener('click', () => { syncQueue(); }); $('reloadOrders').addEventListener('click',bootstrap);
   $('equipmentKind').addEventListener('click',()=>chooseKind('equipment'));
   $('arrivalKind').addEventListener('click',()=>chooseKind('arrival')); $('departureKind').addEventListener('click',()=>chooseKind('departure')); $('safetyKind').addEventListener('click',()=>chooseKind('safety'));
   $('adjustWatermarkTime').addEventListener('click',openWatermarkDialog);

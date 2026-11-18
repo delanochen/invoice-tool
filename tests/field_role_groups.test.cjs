@@ -19,12 +19,15 @@ test('notes and work content stay on the capture screen and uploads can request 
   assert.match(script, /awaiting_watermark/);
   assert.match(script, /applyGroupWatermark/);
   assert.match(script, /client_watermarked/);
-  assert.match(script, /photos\.some\(item => item\.awaiting_watermark === true\)/);
+  // 重试上传直接进入上传队列，不再先弹本组确认窗口。
+  assert.match(script, /\$\('retryUpload'\)\.addEventListener\('click', \(\) => \{ syncQueue\(\); \}\)/);
   const upload = script.split('async function syncQueue')[1].split('async function completeBatch')[0];
   const guard = upload.indexOf('awaiting_watermark === true');
   const append = upload.indexOf("data.append('photo'");
   assert.ok(guard >= 0 && append > guard);
-  assert.match(upload.slice(guard, append), /continue/);
+  // 待水印草稿在重试时沿用已生成的预览水印，清除标记后继续上传，不再 continue 阻塞。
+  assert.match(upload.slice(guard, append), /photo\.awaiting_watermark = false/);
+  assert.doesNotMatch(upload.slice(guard, append), /continue/);
   assert.match(script, /unionGroupFields/);
 });
 
