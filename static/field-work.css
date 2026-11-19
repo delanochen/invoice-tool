@@ -343,6 +343,7 @@ body.camera-active .capture-actions{display:none!important}
 #repairEquipment .repair-device-grid > label:last-child { grid-column:1 / -1; }
 #repairEquipment .repair-device-grid > label:last-child { grid-template-rows:auto auto; }
 #repairEquipment .repair-device-grid input { min-width:0; }
+.nameplate-camera .ocr-guide { inset-inline:3%; }
 .nameplate-camera .ocr-guide .camera-clock {
   position:absolute;
   top:6px;
@@ -359,8 +360,8 @@ body.camera-active .capture-actions{display:none!important}
 }
 .nameplate-camera .ocr-guide .camera-clock-adjusted { color:#ffe5a3; }
 @media(max-width:600px) {
-  body[data-panel="camera"]:not(.camera-active) main { padding-inline:8px; }
-  body[data-panel="camera"]:not(.camera-active) .capture-card { border:0; padding-inline:4px; }
+  body[data-panel="camera"]:not(.camera-active) main { padding-inline:max(6px,env(safe-area-inset-left)) max(6px,env(safe-area-inset-right)); }
+  body[data-panel="camera"]:not(.camera-active) .capture-card { border:0; padding-inline:0; background:transparent; }
   body[data-panel="camera"]:not(.camera-active) #captureKind,
   body[data-panel="camera"]:not(.camera-active) #deviceSession { min-inline-size:0; border:0; padding-inline:0; }
   body[data-panel="camera"]:not(.camera-active) #deviceSession .repair-card {
