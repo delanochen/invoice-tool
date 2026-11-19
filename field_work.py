@@ -1284,13 +1284,23 @@ def register_field_routes(app, api):
                     content = stamp_group_watermark(raw_original or content, {
                         'order_number': order['order_number'],
                         'technician_name': technician_name,
+                        'employee_name': technician_name,
                         'when': watermark_at,
                         'photo_type': photo_type,
+                        'photo_type_label': PHOTO_TYPE_LABELS.get(photo_type, photo_type),
                         'repair_phase': repair_phase,
+                        'site_name': order['client_name'] or '',
+                        'site_address': order['site_address'] or '',
+                        'timezone_name': tz_name,
+                        'source': source,
+                        'latitude': lat,
+                        'longitude': lng,
+                        'accuracy': accuracy,
                         'equipment_number': equipment_number,
                         'equipment_model': request.form.get('equipment_model', '').strip()[:200],
                         'container_number': container_number,
                         'position_number': position_number,
+                        'pump_fuse_numbers': pump_fuse_numbers,
                         'fault_note': request.form.get('fault_note', '').strip()[:4000],
                         'note': note,
                     })
@@ -1347,7 +1357,8 @@ def register_field_routes(app, api):
             'fault': str(payload.get('fault') or '').strip()[:4000],
         }
         rows = api['db']().execute(
-            '''select p.*, service_orders.order_number, service_orders.client_name as site_name
+            '''select p.*, service_orders.order_number, service_orders.client_name as site_name,
+                      service_orders.site_address as site_address
                from field_photos p join service_orders on service_orders.id = p.order_id
                where p.user_id = ? and p.batch_id = ? order by p.captured_at, p.id''',
             (g.user['id'], batch_id),
@@ -1367,9 +1378,19 @@ def register_field_routes(app, api):
             fields.update({
                 'order_number': row['order_number'],
                 'technician_name': row['technician_name'],
+                'employee_name': row['technician_name'],
                 'when': when,
                 'photo_type': row['photo_type'],
+                'photo_type_label': PHOTO_TYPE_LABELS.get(row['photo_type'], row['photo_type']),
                 'repair_phase': row['repair_phase'],
+                'site_name': row['site_name'] or '',
+                'site_address': row['site_address'] or '',
+                'timezone_name': row['timezone_name'] or '',
+                'source': row['source'] or '',
+                'latitude': row['latitude'],
+                'longitude': row['longitude'],
+                'accuracy': row['accuracy'],
+                'pump_fuse_numbers': row['pump_fuse_numbers'] or '',
                 'note': row['note'],
             })
             original_rel = row['original_relative_path'] or row['relative_path']
