@@ -328,8 +328,13 @@ def _watermark_rows(fields):
     return rows
 
 
-def stamp_group_watermark(content, fields):
-    """Draw the confirmed group info onto a copy of the original photo."""
+def stamp_group_watermark(content, fields, opaque=False):
+    """Draw the confirmed group info onto a copy of the original photo.
+
+    When ``opaque`` is true the card background is fully opaque; used when
+    restamping a photo that already carries an old watermark that must be
+    hidden underneath.
+    """
     fields = fields or {}
     with Image.open(BytesIO(content)) as opened:
         image = ImageOps.exif_transpose(opened).convert("RGB")
@@ -381,14 +386,16 @@ def stamp_group_watermark(content, fields):
 
     card_height = header_height + pad * 1.5 + body_height + footer_font * 2.75
     after_repair = fields.get("photo_type") == "equipment" and fields.get("repair_phase") == "after"
-    header_color = (27, 61, 110, 230) if after_repair else (9, 83, 73, 225)
+    head_alpha = 255 if opaque else 230
+    header_color = (27, 61, 110, head_alpha) if after_repair else (9, 83, 73, head_alpha)
 
     # Draw the whole card in logical coordinates on its own layer, then scale it
     # once — matches the phone-side translate/scale and keeps text in proportion.
     card = Image.new("RGBA", (max(1, int(card_width + 0.5)), max(1, int(card_height + 0.5))), (0, 0, 0, 0))
     draw = ImageDraw.Draw(card)
     radius = font_size * 0.4
-    draw.rounded_rectangle((0, 0, card_width, card_height), radius=radius, fill=(255, 255, 255, 214))
+    draw.rounded_rectangle((0, 0, card_width, card_height), radius=radius,
+                           fill=(255, 255, 255, 255 if opaque else 214))
     draw.rectangle((0, 0, card_width, header_height), fill=header_color)
     draw.rectangle((0, header_height - font_size * 0.13, card_width, header_height),
                    fill=(141, 198, 63, 230))
