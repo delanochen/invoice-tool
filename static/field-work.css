@@ -328,3 +328,13 @@ body.camera-active .capture-actions{display:none!important}
 .nameplate-album-label { display:none; }
 .recognition-mode .nameplate-album-label { display:block; font-size:13px; font-weight:700; }
 .recognition-mode #cameraBarAlbumButton svg { display:none; }
+
+.camera-clock { display:flex; flex-shrink:0; justify-content:space-between; align-items:center; gap:8px; min-width:0; padding:6px 16px; background:#16332d; color:#fff; font-size:13px; }
+.camera-clock time { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.camera-clock-adjusted { background:#624517; }
+.camera-active.controller-camera .camera-clock { width:min(100%,640px,calc((100dvh - 156px)*16/9)); }
+.camera-active.controller-camera .camera-order,
+.camera-active.controller-camera .camera-stage,
+.camera-active.controller-camera .camera-bar { width:min(100%,640px,calc((100dvh - 156px)*16/9)); }
+.camera-active #notice.distance-banner:not(:empty),
+.camera-active #notice:not(.distance-banner):not(:empty) { top:calc(82px + env(safe-area-inset-top)); }

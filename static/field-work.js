@@ -968,7 +968,47 @@
     if (previewURL) URL.revokeObjectURL(previewURL);
     previewURL = null;
   }
+  let cameraClockTimer = null;
+  function captureWatermarkTime(actual, commit = false) {
+    if (useSystemTime) return actual;
+    const firstShot = batch.first_adjusted_shot_at ?? actual.getTime();
+    if (commit) batch.first_adjusted_shot_at = firstShot;
+    const anchor = batch.watermark_anchor_ms ?? new Date($('watermarkStart').value).getTime();
+    return new Date(anchor + actual.getTime() - firstShot);
+  }
+  function showCameraClock() {
+    let displayTime;
+    try {
+      displayTime = new Intl.DateTimeFormat('zh-CN', {
+        timeZone:$('timezoneName').value.trim() || 'UTC',
+        year:'numeric',month:'2-digit',day:'2-digit',
+        hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'
+      });
+    } catch (_) {
+      displayTime = new Intl.DateTimeFormat('zh-CN', {dateStyle:'short',timeStyle:'medium'});
+    }
+    const clock = $('cameraWatermarkClock'), time = $('cameraClockTime');
+    clock.hidden = false;
+    clock.classList.toggle('camera-clock-adjusted', !useSystemTime);
+    setFieldText('cameraClockMode', useSystemTime ? '水印 · 系统时间' : '水印 · 已调整');
+    const tick = () => {
+      const shown = captureWatermarkTime(new Date());
+      if (Number.isNaN(shown.getTime())) {
+        time.removeAttribute('datetime');
+        setFieldText('cameraClockTime','请检查水印时间');
+        return;
+      }
+      time.dateTime = shown.toISOString();
+      time.textContent = displayTime.format(shown);
+    };
+    clearInterval(cameraClockTimer);
+    tick();
+    cameraClockTimer = setInterval(tick, 250);
+  }
   function stopCamera() {
+    clearInterval(cameraClockTimer);
+    cameraClockTimer = null;
+    $('cameraWatermarkClock').hidden = true;
     cameraStripSession = null;
     clearInterval(scanTimer); scanTimer = null;
     clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
@@ -1075,6 +1115,7 @@
       $('ocrGuide').hidden = !recognitionOnly;
       $('ocrGuide').querySelector('span').textContent = faultMode ? '对齐屏幕四角' : '将整张铭牌放入框内';
       $('readRepairFault').hidden = !faultMode;
+      showCameraClock();
       $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = faultMode; $('cameraBarAlbum').multiple = !recognitionOnly; $('closeCamera').hidden = false;
       await renderQueue();
       if (cameraSelection === selection && !faultMode) { scanDevice(); scanTimer = setInterval(scanDevice, 800); }
@@ -1436,14 +1477,7 @@
     const timezoneName = $('timezoneName').value.trim() || 'UTC';
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);
-    let watermark;
-    if (useSystemTime) {
-      watermark = actual;
-    } else {
-      if (batch.first_adjusted_shot_at == null) batch.first_adjusted_shot_at = actual.getTime();
-      const anchorMs = batch.watermark_anchor_ms ?? new Date($('watermarkStart').value).getTime();
-      watermark = new Date(anchorMs + (actual.getTime() - batch.first_adjusted_shot_at));
-    }
+    const watermark = captureWatermarkTime(actual, true);
     if (Number.isNaN(watermark.getTime())) throw new Error('请选择有效的水印开始时间。');
     const technician = profile.technicians.find(person => String(person.id) === $('technicianSelect').value);
     if (!technician) throw new Error('请选择施工员。');
