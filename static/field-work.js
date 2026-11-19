@@ -289,11 +289,16 @@
       if (value) { $('equipmentNumber').value = value.slice(0,200); setFieldText('deviceStatus', '自动识别到：'+value+'。请核对后点击“打开相机”。'); }
     } catch (_) {}
   }
-  function canvasStill(video) {
+  function canvasStill(video, aspectRatio = null) {
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const width = video.videoWidth || video.width;
+    const height = video.videoHeight || video.height;
+    const cropWidth = aspectRatio ? Math.round(Math.min(width, height * aspectRatio)) : width;
+    const cropHeight = aspectRatio ? Math.round(Math.min(height, width / aspectRatio)) : height;
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+    canvas.getContext('2d').drawImage(video, (width - cropWidth) / 2, (height - cropHeight) / 2,
+      cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
     return new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('无法读取相机画面')), 'image/jpeg', 0.92));
   }
   async function captureStill(video) {
@@ -633,7 +638,7 @@
     try {
       const video = $('viewfinder');
       const takenAt = new Date();
-      const blob = await captureStill(video);
+      const blob = faultMode ? await canvasStill(video, 16 / 9) : await captureStill(video);
       if (faultMode) faultBlob = blob; else nameplateBlob = blob;
       preview = URL.createObjectURL(blob);
       if (!automatic) showRecognizeProgress(faultMode ? 'fault' : 'nameplate', preview);
@@ -940,7 +945,7 @@
     $('flipSafetyCamera').hidden = true;
     $('flipSafetyCamera').disabled = false;
     document.body.classList.remove('camera-active');
-    document.body.classList.remove('recognition-mode');
+    document.body.classList.remove('recognition-mode', 'controller-camera');
     $('ocrGuide').hidden = true;
     $('readRepairFault').hidden = true;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
@@ -1033,9 +1038,10 @@
       cameraStripSession = recognitionOnly ? null : {batchId:batch.id, ids:new Set()};
       document.body.classList.add('camera-active');
       document.body.classList.toggle('recognition-mode', recognitionOnly);
+      document.body.classList.toggle('controller-camera', faultMode);
       window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
       $('ocrGuide').hidden = !recognitionOnly;
-      $('ocrGuide').querySelector('span').textContent = faultMode ? '将手操器屏幕放入框内' : '将整张铭牌放入框内';
+      $('ocrGuide').querySelector('span').textContent = faultMode ? '对齐屏幕四角' : '将整张铭牌放入框内';
       $('readRepairFault').hidden = !faultMode;
       $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       await renderQueue();

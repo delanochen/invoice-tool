@@ -288,3 +288,17 @@ body.camera-active .capture-actions{display:none!important}
 .camera-active #notice.distance-banner:not(:empty){cursor:pointer}
 .group-time{display:grid;gap:6px;margin:12px 0}
 .group-time input{min-height:44px}
+
+/* The controller preview and its shutter share one compact landscape frame. */
+.camera-active.controller-camera .camera-view{align-items:center;justify-content:center}
+.camera-active.controller-camera .camera-order,
+.camera-active.controller-camera .camera-stage,
+.camera-active.controller-camera .camera-bar{width:min(100%,640px,calc((100vh - 125px)*16/9));width:min(100%,640px,calc((100dvh - 125px)*16/9))}
+.camera-active.controller-camera .camera-stage{flex:none;aspect-ratio:16/9;border-radius:12px}
+.camera-active.controller-camera .camera-stage video{object-fit:cover}
+.controller-camera .ocr-guide{inset:6%;border-radius:8px;box-shadow:none}
+.controller-camera .ocr-guide span{bottom:5px}
+.controller-camera .camera-bar{position:static;display:grid;grid-template-columns:1fr auto;padding:8px;gap:8px}
+.controller-camera .camera-bar-row{display:contents}
+.controller-camera .camera-side{display:none}
+.controller-camera .camera-fault{white-space:normal;min-height:48px}
