@@ -12,7 +12,7 @@
   let cameraFacing = 'environment', switchingCamera = false;
   let repairStage = 'before', faultPhotos = [], nameplateBlob = null, faultBlob = null, nameplatePreview = null, nameplateDrawnUrl = '';
   let recognizeAbort = null, recognizeTimer = null, recognizeKind = 'nameplate', recognizeCancelled = false, captureLockSnapshot = null;
-  const captureControls = ['recognizeDevice','scanRepairFault','openCamera','shutterButton','cameraAlbumButton','cameraAlbum','cameraBarAlbumButton','cameraBarAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
+  const captureControls = ['recognizeDevice','scanRepairFault','openCamera','shutterButton','cameraAlbumButton','cameraBarAlbumButton','albumFileWithWatermark','albumFileWithoutWatermark','repairAfterPhoto','repairAlbumButton','takePhoto','readRepairFault'];
   let activeRepair = null, pendingRepairRows = [], repairStartId = null;
   let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, useSystemTime = true, draftSelection = null;
@@ -475,10 +475,12 @@
   const nameplateDrafts = new WeakSet();
   async function keepNameplateDraft(file, source, context) {
     if (!context || nameplateDrafts.has(file)) return;
-    await keepCapture(source, {...context, photo_role:'nameplate', pending_device:true});
+    const draft = {...context, photo_role:'nameplate', pending_device:true};
+    if (draft.watermark_opt_out) await keepOriginalFile(file, draft);
+    else await keepCapture(source, draft);
     nameplateDrafts.add(file);
   }
-  async function recognizeNameplateFile(file) {
+  async function recognizeNameplateFile(file, addWatermark = true) {
     if (ocrBusy) return;
     ocrBusy = true;
     nameplateBlob = file;
@@ -504,6 +506,7 @@
         context.filename_time = photoFilenameTime(exif);
         if (useSystemTime) context.watermark_at = context.captured_at;
       }
+      if (context && !addWatermark) Object.assign(context, originalAlbumContext());
       await keepNameplateDraft(file, drawn.image, context);
       const data = new FormData(); data.append('photo', drawn.blob, 'nameplate.jpg');
       const response = await requestAPI('/api/field/recognize-equipment', {method:'POST', headers:{'X-Field-Token':profile.csrf}, body:data, signal:recognizeAbort.signal});
@@ -602,7 +605,7 @@
   $('controllerVisionIssue').addEventListener('close', () => {
     if (!$('controllerVisionIssue').open) clearTimeout(visionIssueTimer);
   });
-  async function recognizeFaultFile(file) {
+  async function recognizeFaultFile(file, addWatermark = true) {
     if (ocrBusy) { showFaultAlbumStatus('正在识别另一张照片，请稍候。'); return; }
     if (repairStage !== 'before' || activeRepair) { showFaultAlbumStatus('请在保存维修前记录之前选择故障照片。'); return; }
     if (!readyForController()) return;
@@ -626,7 +629,7 @@
         context.filename_time = photoFilenameTime(exif);
         if (useSystemTime) context.watermark_at = context.captured_at;
       }
-      context.watermark_source = 'system';
+      if (!existing) Object.assign(context, addWatermark ? {watermark_source:'system'} : originalAlbumContext());
       const photo = existing || addFaultPhoto(drawn, context, file);
       const data = new FormData(); data.append('photo', drawn.blob, 'fault.jpg'); data.append('mode', 'controller_fault');
       const response = await requestAPI('/api/field/recognize-equipment', {method:'POST', headers:{'X-Field-Token':profile.csrf}, body:data, signal:recognizeAbort.signal});
@@ -651,7 +654,10 @@
     }
     finally { URL.revokeObjectURL(preview); ocrBusy = false; }
   }
-  async function saveAlbumLikeCamera(files) {
+  function originalAlbumContext() {
+    return {watermark_source:'original', watermark_opt_out:true};
+  }
+  async function saveAlbumLikeCamera(files, addWatermark = true) {
     if (!files.length || taking) return;
     ensureSession();
     if (!UPLOAD_TYPES.includes(batch?.type)) { notice('请先选择照片类型：进场、离场、自检或设备。', true); return; }
@@ -668,6 +674,12 @@
           context.captured_at = exif.toISOString();
           context.filename_time = photoFilenameTime(exif);
           if (useSystemTime) context.watermark_at = exif.toISOString();
+        }
+        if (!addWatermark) {
+          Object.assign(context, originalAlbumContext());
+          applyPhotoRole(context, batch.type === 'equipment' ? 'other' : batch.type);
+          await keepOriginalFile(file, context);
+          continue;
         }
         const drawn = await uprightDrawable(file);
         try { await captureRawAndClassify(drawn.image, context); }
@@ -1143,7 +1155,7 @@
       $('ocrGuide').querySelector('span').textContent = faultMode ? '对齐屏幕四角' : '将整张铭牌放入框内';
       $('readRepairFault').hidden = !faultMode;
       showCameraClock();
-      $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = faultMode; $('cameraBarAlbum').multiple = !recognitionOnly; $('closeCamera').hidden = false;
+      $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = faultMode; $('closeCamera').hidden = false;
       await renderQueue();
       if (cameraSelection === selection && !faultMode) { scanDevice(); scanTimer = setInterval(scanDevice, 800); }
     } catch (error) {
@@ -1818,19 +1830,6 @@
     timeHint.textContent = '默认是这组最早的拍摄或 EXIF 时间。改动后整组按同样的分钟差平移，并需要验证密码。';
     timeRow.append(timeTitle, timeInput, timeHint);
     root.append(timeRow);
-    if (photos.some(photo => photo.source === 'file')) {
-      const choice = document.createElement('label');
-      choice.className = 'album-watermark-toggle';
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.id = 'groupAlbumWatermark';
-      box.checked = localStorage.getItem('field-album-watermark') !== '0';
-      box.addEventListener('change', () => rememberAlbumWatermark(box.checked));
-      const caption = document.createElement('span');
-      caption.textContent = '相册照片添加水印';
-      choice.append(box, caption);
-      root.append(choice);
-    }
     return new Promise(resolve => { groupConfirmResolve = resolve; $('groupConfirmDialog').showModal(); });
   }
   async function acceptGroupTime() {
@@ -1839,8 +1838,6 @@
     if (!input.value) { notice('请选择有效的水印时间。', true); return false; }
     const chosen = new Date(input.value);
     if (Number.isNaN(chosen.getTime())) { notice('请选择有效的水印时间。', true); return false; }
-    const albumChoice = $('groupAlbumWatermark');
-    batch.pending.album_watermark = albumChoice ? albumChoice.checked : true;
     if (input.value === input.dataset.baseline) { batch.pending.watermark_start = ''; return true; }
     const allowed = await requestTimePassword();
     if (!allowed) return false;
@@ -1864,7 +1861,7 @@
       }
     }
     for (const photo of photos) {
-      const optOut = photo.source === 'file' && fields.album_watermark === false;
+      const optOut = photo.source === 'file' && photo.watermark_opt_out === true;
       photo.equipment_number = fields.equipment_number;
       photo.equipment_model = fields.equipment_model;
       photo.container_number = fields.container_number;
@@ -2435,10 +2432,11 @@
           position_number:repair.position_number, container_number:repair.container_number});
       }
       for (const photo of faultPhotos) {
-        await keepCapture(photo.canvas, {...photo.context, equipment_session:repair.id,
+        const context = {...photo.context, equipment_session:repair.id,
           equipment_number:repair.equipment_number, equipment_model:repair.equipment_model, photo_role:'controller',
-          position_number:repair.position_number, container_number:repair.container_number,
-          repair_phase:'before', watermark_source:'system'});
+          position_number:repair.position_number, container_number:repair.container_number, repair_phase:'before'};
+        if (context.watermark_opt_out) await keepOriginalFile(photo.file, context);
+        else await keepCapture(photo.canvas, {...context, watermark_source:'system'});
       }
       clearFaultPhotos();
       showRepair(repair);
@@ -2480,11 +2478,6 @@
   $('scanRepairFault').addEventListener('click', () => { if (readyForController()) openCamera(true, true); });
   $('readRepairFault').addEventListener('click', () => recognizeDevice(false, true));
 
-  $('cameraAlbum').addEventListener('change', () => saveAlbumLikeCamera(chosenFiles($('cameraAlbum'))));
-  $('repairAlbum').addEventListener('change', () => {
-    const files = chosenFiles($('repairAlbum'));
-    if (files.length && prepareAfterPhoto()) saveAlbumLikeCamera(files);
-  });
   $('cancelRecognize').addEventListener('click', () => { recognizeCancelled = true; recognizeAbort?.abort(); hideRecognizeProgress(); });
   $('overlayRetry').addEventListener('click', () => { const file = recognizeKind === 'fault' ? faultBlob : nameplateBlob; if (file) (recognizeKind === 'fault' ? recognizeFaultFile : recognizeNameplateFile)(file); });
   $('overlayManual').addEventListener('click', () => { hideRecognizeProgress(); if (recognizeKind === 'fault') $('repairFault').focus(); else { $('equipmentNumber').disabled = false; $('equipmentNumber').focus(); } });
@@ -2525,21 +2518,33 @@
     await runRoleRecognition(photo);
     await renderQueue();
   }
-  function rememberAlbumWatermark(on) {
-    localStorage.setItem('field-album-watermark', on ? '1' : '0');
-    if ($('albumWatermark')) $('albumWatermark').checked = on;
-    if ($('groupAlbumWatermark')) $('groupAlbumWatermark').checked = on;
+  let albumDestination = '';
+  function chooseAlbumWatermark(destination) {
+    if (taking || ocrBusy || syncing || !identityReady || !profile?.can_capture) return;
+    albumDestination = destination;
+    for (const id of ['albumFileWithWatermark','albumFileWithoutWatermark']) {
+      $(id).multiple = destination === 'general' || destination === 'repair';
+    }
+    $('albumWatermarkChoice').showModal();
   }
-  if (localStorage.getItem('field-album-watermark') === '0') $('albumWatermark').checked = false;
-  $('albumWatermark').addEventListener('change', () => rememberAlbumWatermark($('albumWatermark').checked));
   $('shutterButton').addEventListener('click', () => openCamera(false));
-  $('cameraBarAlbum').addEventListener('change', () => {
-    const files = chosenFiles($('cameraBarAlbum'));
-    if (!files.length) return;
-    if (document.body.classList.contains('controller-camera')) recognizeFaultFile(files[0]);
-    else if (document.body.classList.contains('recognition-mode')) recognizeNameplateFile(files[0]);
-    else saveAlbumLikeCamera(files);
+  $('cameraAlbumButton').addEventListener('click', () => chooseAlbumWatermark('general'));
+  $('repairAlbumButton').addEventListener('click', () => chooseAlbumWatermark('repair'));
+  $('cameraBarAlbumButton').addEventListener('click', () => {
+    if (document.body.classList.contains('controller-camera')) chooseAlbumWatermark('fault');
+    else if (document.body.classList.contains('recognition-mode')) chooseAlbumWatermark('nameplate');
+    else chooseAlbumWatermark('general');
   });
+  for (const [id, addWatermark] of [['albumFileWithWatermark',true],['albumFileWithoutWatermark',false]]) {
+    $(id).addEventListener('change', () => {
+      const files = chosenFiles($(id)), destination = albumDestination;
+      if (!files.length || !$('albumWatermarkChoice').open) return;
+      $('albumWatermarkChoice').close();
+      if (destination === 'fault') recognizeFaultFile(files[0], addWatermark);
+      else if (destination === 'nameplate') recognizeNameplateFile(files[0], addWatermark);
+      else if (destination === 'general' || (destination === 'repair' && prepareAfterPhoto())) saveAlbumLikeCamera(files, addWatermark);
+    });
+  }
   for (const [id, role] of [['roleArrival','arrival'],['roleDeparture','departure'],['roleSafety','safety'],['roleNameplate','nameplate'],['roleContainer','container'],['rolePosition','position'],['roleController','controller'],['roleOther','other']]) {
     $(id).addEventListener('click', () => finishPhotoRole(role));
   }

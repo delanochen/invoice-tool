@@ -12,13 +12,12 @@
   <script src="/static/grid-bootstrap.js?v={{ app_version }}"></script>
 </head>
 <body>
-<header class="fw-header"><img src="/static/logo.svg" alt=""><div><strong>Prasinos Power</strong><small>现场工作</small></div><span id="networkStatus">正在连接</span></header>
+<header class="fw-header"><img src="/static/logo.svg" alt=""><div><strong>Prasinos Power</strong><small>现场工作</small></div><span id="operatorName"></span><span id="networkStatus">正在连接</span></header>
 <main>
   <div id="notice" role="status" aria-live="polite"></div>
   <section id="loginPanel" class="card" hidden><h1>使用员工账号登录</h1><p>照片自动归入现有系统的工单文件夹。</p><a class="primary button" href="/login?next=/field/">登录系统</a></section>
   <div id="workspace" hidden>
     <section data-panel="camera">
-      <div class="section-heading"><div><small>现场相机</small><h1>记录现场</h1></div><span id="operatorName"></span></div>
       <div class="card capture-card">
         <div class="capture-top">
           <label>当前工单<select id="orderSelect"><option value="">请选择工单</option></select></label>
@@ -64,7 +63,7 @@
             <p id="repairStage" class="muted" role="status"></p>
             <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
             <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片（可选）</button>
-            <span class="album-launch album-launch-wide"><button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button><input id="repairAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span>
+            <span class="album-launch album-launch-wide"><button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button></span>
             <label>复测结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
             <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000" placeholder="本次做了什么"></textarea></label>
             <button id="completeRepair" class="primary repair-wide" type="button">完成本台维修</button>
@@ -80,8 +79,8 @@
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraWatermarkClock" class="camera-clock" aria-label="水印时间" hidden><span id="cameraClockMode"></span><time id="cameraClockTime"></time></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将整张铭牌放入框内</span></div></div>
-        <div class="capture-actions"><button id="shutterButton" class="primary capture-primary" type="button">拍照</button><span class="album-launch capture-secondary"><button id="cameraAlbumButton" type="button">从相册选择</button><input id="cameraAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><label class="album-watermark-toggle" for="albumWatermark"><input id="albumWatermark" type="checkbox" checked>添加水印</label></div>
-        <div id="cameraBar" class="camera-bar" hidden><button id="readRepairFault" class="camera-fault" type="button" hidden>拍照识别故障</button><div class="camera-bar-row"><span class="album-launch camera-side"><button id="cameraBarAlbumButton" type="button" aria-label="从相册选择"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M7 16l3.2-3.2 2.2 2.2L16 11l4 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span class="nameplate-album-label">相册</span></button><input id="cameraBarAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><button id="takePhoto" class="camera-shutter" type="button" aria-label="拍照" hidden></button><button id="flipSafetyCamera" class="camera-flip" type="button" aria-label="切换到前置摄像头" hidden>前置</button><button id="closeCamera" class="camera-close" type="button" aria-label="关闭相机" hidden>✕</button></div></div>
+        <div class="capture-actions"><button id="shutterButton" class="primary capture-primary" type="button">拍照</button><span class="album-launch capture-secondary"><button id="cameraAlbumButton" type="button">从相册选择</button></span></div>
+        <div id="cameraBar" class="camera-bar" hidden><button id="readRepairFault" class="camera-fault" type="button" hidden>拍照识别故障</button><div class="camera-bar-row"><span class="album-launch camera-side"><button id="cameraBarAlbumButton" type="button" aria-label="从相册选择"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M7 16l3.2-3.2 2.2 2.2L16 11l4 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span class="nameplate-album-label">相册</span></button></span><button id="takePhoto" class="camera-shutter" type="button" aria-label="拍照" hidden></button><button id="flipSafetyCamera" class="camera-flip" type="button" aria-label="切换到前置摄像头" hidden>前置</button><button id="closeCamera" class="camera-close" type="button" aria-label="关闭相机" hidden>✕</button></div></div>
         <button id="openCamera" type="button" hidden>打开相机</button>
         <div id="nameplatePending" hidden><img id="nameplateThumb" alt="待识别的铭牌"><span id="nameplateStatus">识别中…</span><button id="nameplatePendingConfirm" class="repair-outline" type="button" hidden>确认</button></div>
         <div id="recentCaptures" class="recent-captures" aria-label="本次拍摄的照片" hidden></div>
@@ -136,6 +135,14 @@
 <dialog id="watermarkPasswordDialog"><form id="watermarkPasswordForm"><h2>调整水印时间</h2><p class="muted">第一步：请先验证水印时间调整密码，验证通过后进入时间设定。</p><label>验证密码<input id="watermarkPassword" type="password" autocomplete="off"></label><p id="passwordStatus" class="muted"></p><div class="dialog-actions"><button id="cancelWatermarkPassword" type="button">取消</button><button id="verifyTimePassword" class="primary" type="button">验证并继续</button></div></form></dialog>
 <dialog id="watermarkTimeDialog"><form id="watermarkTimeForm"><h2>设定水印时间</h2><p class="muted">第二步：设置后本组照片的水印将使用您设置的时间（精确到分钟，系统会自动附加随机的秒数；上传完成后恢复系统时间）。</p><label>水印开始时间<input id="watermarkStart" type="datetime-local" step="60"></label><p id="timeStatus" class="muted"></p><div class="dialog-actions"><button id="cancelWatermarkTime" type="button">取消</button><button id="confirmWatermarkTime" class="primary" type="button">确认使用此时间</button></div></form></dialog>
 <dialog id="deleteAllDraftsDialog"><h2>确认删除全部待上传照片？</h2><p><span id="deleteAllDraftsCount"></span> <span>张照片将从当前账号的本机草稿中删除。</span></p><p>此操作无法撤销。不会删除手机相册或已上传到服务器的照片。</p><div class="dialog-actions"><button id="cancelDeleteAllDrafts" type="button">取消</button><button id="confirmDeleteAllDrafts" class="danger" type="button">确认全部删除</button></div></dialog>
+<dialog id="albumWatermarkChoice" aria-labelledby="albumWatermarkTitle">
+  <h2 id="albumWatermarkTitle">相册照片是否添加水印？</h2>
+  <div class="dialog-actions album-watermark-options">
+    <label class="album-launch button primary"><span>添加水印</span><input id="albumFileWithWatermark" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" aria-label="添加水印并打开相册"></label>
+    <label class="album-launch button"><span>保留原图</span><input id="albumFileWithoutWatermark" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" aria-label="保留原图并打开相册"></label>
+  </div>
+  <form method="dialog"><button type="submit">取消</button></form>
+</dialog>
 <dialog id="controllerVisionIssue" aria-labelledby="controllerVisionMessage">
   <h2 id="controllerVisionMessage"></h2><p id="controllerVisionFallback"></p>
   <form method="dialog"><button class="primary" type="submit" autofocus>知道了</button></form>
