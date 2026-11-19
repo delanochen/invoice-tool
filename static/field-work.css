@@ -5,7 +5,7 @@
 .camera-active #deviceSession{display:none!important}
 .machine-number-row{display:grid;grid-template-columns:minmax(0,1fr) 46px;gap:8px}.machine-number-row .ocr-button{width:46px;min-height:44px;padding:0;border:2px solid var(--green);font-size:20px;font-weight:800;color:var(--green)}
 .recognition-dialog{text-align:center}.recognized-number{margin:20px 0;padding:18px 10px;border:3px solid var(--green);border-radius:14px;background:#eefaf5;color:#092f2a;font-size:clamp(28px,8vw,48px);font-weight:800;letter-spacing:.04em;overflow-wrap:anywhere}.recognition-dialog .dialog-actions{justify-content:center}
-.ocr-guide{position:absolute;z-index:2;left:9%;right:9%;top:36%;height:28%;border:3px solid #7cffbd;border-radius:12px;box-shadow:0 0 0 9999px #0007;pointer-events:none}.ocr-guide span{position:absolute;left:50%;bottom:-38px;transform:translateX(-50%);width:max-content;max-width:90vw;padding:5px 10px;border-radius:16px;background:#071d18cc;color:white;font-size:14px;font-weight:700}
+.ocr-guide{position:absolute;z-index:2;left:9%;right:9%;top:36%;height:28%;border:3px solid #7cffbd;border-radius:12px;box-shadow:0 0 0 9999px #0007;pointer-events:none}.ocr-guide > span{position:absolute;left:50%;bottom:-38px;transform:translateX(-50%);width:max-content;max-width:90vw;padding:5px 10px;border-radius:16px;background:#071d18cc;color:white;font-size:14px;font-weight:700}
 .recognition-mode .camera-actions{position:fixed;z-index:44;right:12px;bottom:calc(88px + env(safe-area-inset-bottom));padding:8px;border-radius:16px;background:#071d18e6;box-shadow:0 8px 30px #0008}.recognition-mode #notice:not(:empty){bottom:calc(158px + env(safe-area-inset-bottom))}
 .native-photo-picker{position:relative;display:flex;margin:0 0 8px;color:var(--green);font-weight:600;overflow:hidden}.native-photo-picker input[type=file]{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;opacity:0;cursor:pointer;font-size:0;color:transparent}.native-photo-picker input[type=file]::-webkit-file-upload-button{display:none}.native-photo-picker.disabled{opacity:.45;pointer-events:none}
 .original-photo-placeholder{grid-row:1/5;width:72px;height:72px;border-radius:10px;background:#e5f4ed;color:var(--green);display:grid;place-items:center;font-weight:700;cursor:pointer}
@@ -302,7 +302,7 @@ body.camera-active .capture-actions{display:none!important}
 .camera-active.controller-camera .camera-stage{flex:none;aspect-ratio:16/9;border-radius:12px}
 .camera-active.controller-camera .camera-stage video{object-fit:cover}
 .controller-camera .ocr-guide{inset:6%;border-radius:8px;box-shadow:none}
-.controller-camera .ocr-guide span{bottom:5px}
+.controller-camera .ocr-guide > span{bottom:5px}
 .controller-camera .camera-bar{position:static;display:grid;grid-template-columns:auto minmax(0,1fr) auto;padding:8px;gap:8px}
 .controller-camera .camera-bar-row{display:contents}
 .controller-camera .camera-side{grid-column:1;grid-row:1}
@@ -338,3 +338,35 @@ body.camera-active .capture-actions{display:none!important}
 .camera-active.controller-camera .camera-bar { width:min(100%,640px,calc((100dvh - 156px)*16/9)); }
 .camera-active #notice.distance-banner:not(:empty),
 .camera-active #notice:not(.distance-banner):not(:empty) { top:calc(82px + env(safe-area-inset-top)); }
+
+#repairEquipment .repair-number-field,
+#repairEquipment .repair-device-grid > label:last-child { grid-column:1 / -1; }
+#repairEquipment .repair-device-grid > label:last-child { grid-template-rows:auto auto; }
+#repairEquipment .repair-device-grid input { min-width:0; }
+.nameplate-camera .ocr-guide .camera-clock {
+  position:absolute;
+  top:6px;
+  left:6px;
+  right:6px;
+  padding:0;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  column-gap:8px;
+  row-gap:2px;
+  background:transparent;
+  text-shadow:0 1px 3px #000, 0 0 5px #000;
+  pointer-events:none;
+}
+.nameplate-camera .ocr-guide .camera-clock-adjusted { color:#ffe5a3; }
+@media(max-width:600px) {
+  body[data-panel="camera"]:not(.camera-active) main { padding-inline:8px; }
+  body[data-panel="camera"]:not(.camera-active) .capture-card { border:0; padding-inline:4px; }
+  body[data-panel="camera"]:not(.camera-active) #captureKind,
+  body[data-panel="camera"]:not(.camera-active) #deviceSession { min-inline-size:0; border:0; padding-inline:0; }
+  body[data-panel="camera"]:not(.camera-active) #deviceSession .repair-card {
+    border-inline:0;
+    border-bottom:0;
+    border-radius:0;
+    padding-inline:0;
+  }
+}

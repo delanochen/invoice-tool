@@ -988,6 +988,9 @@
       displayTime = new Intl.DateTimeFormat('zh-CN', {dateStyle:'short',timeStyle:'medium'});
     }
     const clock = $('cameraWatermarkClock'), time = $('cameraClockTime');
+    const stage = $('cameraStage');
+    if (document.body.classList.contains('nameplate-camera')) $('ocrGuide').append(clock);
+    else stage.before(clock);
     clock.hidden = false;
     clock.classList.toggle('camera-clock-adjusted', !useSystemTime);
     setFieldText('cameraClockMode', useSystemTime ? '水印 · 系统时间' : '水印 · 已调整');
@@ -1017,7 +1020,7 @@
     $('flipSafetyCamera').hidden = true;
     $('flipSafetyCamera').disabled = false;
     document.body.classList.remove('camera-active');
-    document.body.classList.remove('recognition-mode', 'controller-camera');
+    document.body.classList.remove('recognition-mode', 'controller-camera', 'nameplate-camera');
     $('ocrGuide').hidden = true;
     $('readRepairFault').hidden = true;
     stream?.getTracks().forEach(track => track.stop()); stream = null;
@@ -1111,6 +1114,9 @@
       document.body.classList.add('camera-active');
       document.body.classList.toggle('recognition-mode', recognitionOnly);
       document.body.classList.toggle('controller-camera', faultMode);
+      const nameplate = recognitionOnly && !faultMode;
+      document.body.classList.toggle('nameplate-camera', nameplate);
+      if (nameplate && !$('notice').matches('.error, .distance-banner')) notice('');
       window.scrollTo({left:0, top:window.scrollY, behavior:'instant'});
       $('ocrGuide').hidden = !recognitionOnly;
       $('ocrGuide').querySelector('span').textContent = faultMode ? '对齐屏幕四角' : '将整张铭牌放入框内';
