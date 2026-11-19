@@ -12,7 +12,7 @@
   let cameraFacing = 'environment', switchingCamera = false;
   let repairStage = 'before', faultPhotos = [], nameplateBlob = null, faultBlob = null, nameplatePreview = null, nameplateDrawnUrl = '';
   let recognizeAbort = null, recognizeTimer = null, recognizeKind = 'nameplate', recognizeCancelled = false, captureLockSnapshot = null;
-  const captureControls = ['recognizeDevice','nameplateAlbumButton','nameplateCamera','nameplateAlbum','scanRepairFault','faultAlbumButton','faultAlbum','openCamera','shutterButton','cameraAlbumButton','cameraAlbum','cameraBarAlbumButton','cameraBarAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
+  const captureControls = ['recognizeDevice','scanRepairFault','faultAlbumButton','faultAlbum','openCamera','shutterButton','cameraAlbumButton','cameraAlbum','cameraBarAlbumButton','cameraBarAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
   let activeRepair = null, pendingRepairRows = [], repairStartId = null;
   let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, useSystemTime = true, draftSelection = null;
@@ -1065,7 +1065,7 @@
       $('ocrGuide').hidden = !recognitionOnly;
       $('ocrGuide').querySelector('span').textContent = faultMode ? '对齐屏幕四角' : '将整张铭牌放入框内';
       $('readRepairFault').hidden = !faultMode;
-      $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
+      $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = faultMode; $('cameraBarAlbum').multiple = !recognitionOnly; $('closeCamera').hidden = false;
       await renderQueue();
       if (cameraSelection === selection && !faultMode) { scanDevice(); scanTimer = setInterval(scanDevice, 800); }
     } catch (error) {
@@ -1825,7 +1825,12 @@
       } finally { if (loaded) URL.revokeObjectURL(loaded.url); }
     }
   }
+  $('recognizeDevice').addEventListener('click', () => openCamera(true));
   $('takePhoto').addEventListener('click', async () => {
+    if (document.body.classList.contains('recognition-mode')) {
+      if (!document.body.classList.contains('controller-camera')) await recognizeDevice();
+      return;
+    }
     if (taking || switchingCamera || !stream) return; taking = true; $('takePhoto').disabled = true;
     try { const context = await makeContext('camera'); if (context) await captureRawAndClassify($('viewfinder'), context); }
     catch (error) { notice('照片未保存：'+error.message,true); }
@@ -2250,9 +2255,7 @@
     }
     $('noEquipmentNumber').disabled = Boolean(repair);
     $('recognizeDevice').disabled = Boolean(repair);
-    $('nameplateCamera').disabled = Boolean(repair);
-    $('nameplateAlbumButton').disabled = Boolean(repair);
-    $('nameplateAlbum').disabled = Boolean(repair);
+
     $('faultAlbumButton').disabled = Boolean(repair);
     $('faultAlbum').disabled = Boolean(repair);
     $('repairStage').textContent = phase === 'before' ? '当前拍摄：维修前' : '当前拍摄：维修后';
@@ -2405,8 +2408,7 @@
   });
   $('scanRepairFault').addEventListener('click', () => { if (readyForController()) openCamera(true, true); });
   $('readRepairFault').addEventListener('click', () => recognizeDevice(false, true));
-  $('nameplateCamera').addEventListener('change', () => { const [file] = chosenFiles($('nameplateCamera')); if (file) recognizeNameplateFile(file); });
-  $('nameplateAlbum').addEventListener('change', () => { const [file] = chosenFiles($('nameplateAlbum')); if (file) recognizeNameplateFile(file); });
+
   $('faultAlbum').addEventListener('change', () => { const [file] = chosenFiles($('faultAlbum')); if (file) recognizeFaultFile(file); });
   $('cameraAlbum').addEventListener('change', () => saveAlbumLikeCamera(chosenFiles($('cameraAlbum'))));
   $('repairAlbum').addEventListener('change', () => {
@@ -2461,7 +2463,12 @@
   if (localStorage.getItem('field-album-watermark') === '0') $('albumWatermark').checked = false;
   $('albumWatermark').addEventListener('change', () => rememberAlbumWatermark($('albumWatermark').checked));
   $('shutterButton').addEventListener('click', () => openCamera(false));
-  $('cameraBarAlbum').addEventListener('change', () => saveAlbumLikeCamera(chosenFiles($('cameraBarAlbum'))));
+  $('cameraBarAlbum').addEventListener('change', () => {
+    const files = chosenFiles($('cameraBarAlbum'));
+    if (!files.length) return;
+    if (document.body.classList.contains('recognition-mode')) recognizeNameplateFile(files[0]);
+    else saveAlbumLikeCamera(files);
+  });
   for (const [id, role] of [['roleArrival','arrival'],['roleDeparture','departure'],['roleSafety','safety'],['roleNameplate','nameplate'],['roleContainer','container'],['rolePosition','position'],['roleController','controller'],['roleOther','other']]) {
     $(id).addEventListener('click', () => finishPhotoRole(role));
   }

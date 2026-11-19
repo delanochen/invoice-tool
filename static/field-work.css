@@ -312,3 +312,15 @@ body.camera-active .capture-actions{display:none!important}
 .fault-thumbnail img { display:block; }
 #draftDialog.controller-photo-preview { width:min(960px,calc(100% - 16px)); padding:12px; }
 .controller-photo-preview #draftLarge { width:100%; max-height:72dvh; object-fit:contain; }
+
+.repair-heading-actions,.repair-number-heading { display:flex; align-items:center; gap:8px; }
+#repairEquipment .repair-heading-actions .check-label,
+#repairEquipment .repair-number-heading label { display:inline-flex; align-items:center; margin:0; white-space:nowrap; }
+#repairEquipment .repair-heading-actions .check-label input { width:18px; height:18px; min-height:18px; margin:0; padding:0; }
+.repair-number-field { display:grid; min-width:0; gap:3px; }
+#repairEquipment .repair-scan { width:36px; min-height:32px; padding:0; border-radius:6px; color:var(--green); font-weight:750; }
+
+.repair-device-grid > label:last-child { grid-template-rows:minmax(32px,auto) auto; align-items:center; }
+.nameplate-album-label { display:none; }
+.recognition-mode:not(.controller-camera) .nameplate-album-label { display:block; font-size:13px; font-weight:700; }
+.recognition-mode:not(.controller-camera) #cameraBarAlbumButton svg { display:none; }
