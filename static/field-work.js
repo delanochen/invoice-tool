@@ -583,6 +583,25 @@
     limitFaultField();
     $('repairFault').focus();
   });
+  let visionIssueTimer = null;
+  function showControllerVisionIssue(result) {
+    const message = {
+      vision_timeout: '视觉模型调用超时',
+      vision_call_error: '视觉模型调用报错'
+    }[result.reason];
+    if (!message) return;
+    const dialog = $('controllerVisionIssue');
+    setFieldText('controllerVisionMessage', message);
+    setFieldText('controllerVisionFallback', result.fault_text
+      ? '已使用备用文字识别，请核对结果。'
+      : '备用文字识别未读出可靠结果，请重拍或手工填写。');
+    if (!dialog.open) dialog.showModal();
+    clearTimeout(visionIssueTimer);
+    visionIssueTimer = setTimeout(() => { if (dialog.open) dialog.close(); }, 3000);
+  }
+  $('controllerVisionIssue').addEventListener('close', () => {
+    if (!$('controllerVisionIssue').open) clearTimeout(visionIssueTimer);
+  });
   async function recognizeFaultFile(file) {
     if (ocrBusy) { showFaultAlbumStatus('正在识别另一张照片，请稍候。'); return; }
     if (repairStage !== 'before' || activeRepair) { showFaultAlbumStatus('请在保存维修前记录之前选择故障照片。'); return; }
@@ -616,6 +635,7 @@
         showFaultAlbumStatus('已取消识别，照片已保留，可手工填写故障信息。');
         return;
       }
+      showControllerVisionIssue(result);
       if (!response.ok) throw new Error(result.error || '故障识别失败');
       if (!result.fault_text) throw new Error('没有读到屏幕文字，请换一张更清晰的照片，或手工输入。');
       const field = $('repairFault');
@@ -691,6 +711,7 @@
         if (stream !== captureStream) { URL.revokeObjectURL(drawn.url); hideRecognizeProgress(); return; }
         const photo = addFaultPhoto(drawn, context, blob);
         showFaultAlbumStatus('');
+        showControllerVisionIssue(result);
         if (!response.ok) throw new Error(result.error || '故障识别失败，请核对照片并手工填写。');
         if (!result.fault_text) throw new Error('没有读到屏幕文字，请换一张更清晰的照片，或手工输入。');
         const field = $('repairFault');
@@ -1625,6 +1646,7 @@
       const response = await requestAPI('/api/field/recognize-equipment', {method:'POST', headers:{'X-Field-Token':profile.csrf}, body:data, signal:recognizeAbort.signal});
       const result = await response.json().catch(() => ({}));
       if (recognizeCancelled) return;
+      if (photo.photo_role === 'controller') showControllerVisionIssue(result);
       if (!response.ok) throw new Error(result.error || '识别失败');
       const pending = ensureGroupPending();
       pending.sources[photo.photo_role] = photo.client_id;

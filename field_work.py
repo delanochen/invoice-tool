@@ -524,7 +524,7 @@ def recognize_controller_fault(api, content):
     if api:
         settings = _vision_settings_for_scene(api, 'field_fault') or _vision_settings_for_nameplate(api)
         if settings:
-            reason = 'vision_failed'
+            reason = 'vision_no_result'
     if settings:
         try:
             from urllib.request import Request, urlopen
@@ -535,7 +535,10 @@ def recognize_controller_fault(api, content):
                 return {'fault_text': text, 'source': 'llm'}
             logger.info('controller fault vision returned no usable text')
         except Exception as error:
-            logger.info('controller fault vision fallback: %s', type(error).__name__)
+            timed_out = (isinstance(error, TimeoutError) or isinstance(getattr(error, 'reason', None), TimeoutError)
+                         or getattr(error, 'code', None) in (408, 504))
+            reason = 'vision_timeout' if timed_out else 'vision_call_error'
+            logger.info('controller fault vision fallback: reason=%s error=%s', reason, type(error).__name__)
     return {'fault_text': '', 'source': 'ocr', 'reason': reason, 'image': image}
 
 
@@ -1404,6 +1407,7 @@ def register_field_routes(app, api):
         content = photo.read(10 * 1024 * 1024 + 1) if photo else b''
         if not content or len(content) > 10 * 1024 * 1024:
             return jsonify(error=f'{subject}照片为空或超过 10MB。'), 422
+        reason = None
         try:
             if mode == 'container':
                 found = recognize_container(api, content)
@@ -1429,7 +1433,7 @@ def register_field_routes(app, api):
                 })
             if fault_mode:
                 found = recognize_controller_fault(api, content)
-                reason = found.get('reason') or 'vision_failed'
+                reason = found.get('reason')
                 if found.get('source') == 'llm':
                     logger.info('controller fault recognize source=llm bytes=%s', len(content))
                     return json_utf8({'ok': True, 'fault_text': found['fault_text'], 'source': 'llm'})
@@ -1464,13 +1468,13 @@ def register_field_routes(app, api):
                     passes = (('6', plain.getvalue()), ('4', processed.getvalue()))
             results = [_run_tesseract(payload, psm, 'chi_sim+eng', chinese=True) for psm, payload in passes]
         except (OSError, ValueError, Image.DecompressionBombError):
-            return jsonify(error=f'无法读取{subject}照片。'), 422
+            return jsonify(error=f'无法读取{subject}照片。', **({'reason': reason} if reason else {})), 422
         except subprocess.TimeoutExpired:
-            return jsonify(error=f'{subject}识别超时，请重试或手工输入。'), 504
+            return jsonify(error=f'{subject}识别超时，请重试或手工输入。', **({'reason': reason} if reason else {})), 504
         if not any(result.returncode == 0 for result in results):
             if any(_chinese_language_missing(result) for result in results):
-                return jsonify(error='服务器未安装简体中文识别语言包，暂时无法识别手操器中文。'), 503
-            return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。'), 503
+                return jsonify(error='服务器未安装简体中文识别语言包，暂时无法识别手操器中文。', **({'reason': reason} if reason else {})), 503
+            return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。', **({'reason': reason} if reason else {})), 503
         if fault_mode:
             candidates = [controller_ocr_candidate(decode_ocr_output(result.stdout))
                           for result in results if result.returncode == 0]
@@ -1478,7 +1482,7 @@ def register_field_routes(app, api):
             logger.info('controller fault recognize source=ocr reason=%s usable=%s bytes=%s',
                         reason, bool(text), len(content))
             if not text:
-                return jsonify(error='未能可靠识别故障码和故障说明。照片已保留，请换个角度重拍或手工填写。'), 422
+                return jsonify(error='未能可靠识别故障码和故障说明。照片已保留，请换个角度重拍或手工填写。', **({'reason': reason} if reason else {})), 422
             return json_utf8({'ok': True, 'fault_text': text, 'source': 'ocr', 'reason': reason})
         text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
         return json_utf8({'ok': True, 'fault_text': controller_fault_text(text)})
