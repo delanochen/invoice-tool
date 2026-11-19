@@ -12,7 +12,7 @@
   let cameraFacing = 'environment', switchingCamera = false;
   let repairStage = 'before', faultPhotos = [], nameplateBlob = null, faultBlob = null, nameplatePreview = null, nameplateDrawnUrl = '';
   let recognizeAbort = null, recognizeTimer = null, recognizeKind = 'nameplate', recognizeCancelled = false, captureLockSnapshot = null;
-  const captureControls = ['recognizeDevice','scanRepairFault','faultAlbumButton','faultAlbum','openCamera','shutterButton','cameraAlbumButton','cameraAlbum','cameraBarAlbumButton','cameraBarAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
+  const captureControls = ['recognizeDevice','scanRepairFault','openCamera','shutterButton','cameraAlbumButton','cameraAlbum','cameraBarAlbumButton','cameraBarAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
   let activeRepair = null, pendingRepairRows = [], repairStartId = null;
   let deviceSession = null, scanTimer = null, ocrTimer = null, ocrStartTimer = null, ocrBusy = false, detector = null;
   let batch = null, timeAuthorized = false, useSystemTime = true, draftSelection = null;
@@ -550,7 +550,7 @@
     thumbnail.src = drawn.url;
     thumbnail.alt = fieldText('手操器故障照片');
     button.append(thumbnail);
-    button.addEventListener('click', () => openDraft({...context, blob:photo.blob, stagedFault:true}, true));
+    button.addEventListener('click', () => openDraft({...context, blob:photo.blob, stagedFault:photo}, true));
     $('repairFaultPhotos').append(button);
     $('repairFaultPhotos').hidden = false;
     return photo;
@@ -560,7 +560,17 @@
     const current = field.value.trimEnd();
     const result = String(text || '').trim();
     if (!result || (photo.recognizedFault === result && current.includes(result))) return;
-    field.value = [current, result].filter(Boolean).join('\n\n');
+    const offset = photo.faultOffset;
+    if (Number.isInteger(offset) && current.slice(offset, offset + photo.recognizedFault.length) === photo.recognizedFault) {
+      field.value = current.slice(0, offset) + result + current.slice(offset + photo.recognizedFault.length);
+      const shift = result.length - photo.recognizedFault.length;
+      for (const other of faultPhotos) {
+        if (other.faultOffset > offset) other.faultOffset += shift;
+      }
+    } else {
+      photo.faultOffset = current ? current.length + 2 : 0;
+      field.value = [current, result].filter(Boolean).join('\n\n');
+    }
     photo.recognizedFault = result;
     limitFaultField();
     if (batch?.pending) batch.pending.fault = field.value;
@@ -2001,6 +2011,7 @@
   }
   function openDraft(photo, uploaded = false) {
     $('draftDialog').classList.toggle('controller-photo-preview', Boolean(photo.stagedFault));
+    $('retryFaultDraft').hidden = !photo.stagedFault || Boolean(activeRepair);
     $('deleteDraft').hidden = uploaded;
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
     $('draftLarge').src=previewURL; setFieldText('draftDetail',(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印')); $('draftDialog').showModal();
@@ -2256,8 +2267,6 @@
     $('noEquipmentNumber').disabled = Boolean(repair);
     $('recognizeDevice').disabled = Boolean(repair);
 
-    $('faultAlbumButton').disabled = Boolean(repair);
-    $('faultAlbum').disabled = Boolean(repair);
     $('repairStage').textContent = phase === 'before' ? '当前拍摄：维修前' : '当前拍摄：维修后';
     $('completeRepair').disabled = !repair;
     // 重新拍摄同一台设备的照片时不能清空已输入的工作内容；换记录时显示这条记录已保存的内容。
@@ -2409,7 +2418,6 @@
   $('scanRepairFault').addEventListener('click', () => { if (readyForController()) openCamera(true, true); });
   $('readRepairFault').addEventListener('click', () => recognizeDevice(false, true));
 
-  $('faultAlbum').addEventListener('change', () => { const [file] = chosenFiles($('faultAlbum')); if (file) recognizeFaultFile(file); });
   $('cameraAlbum').addEventListener('change', () => saveAlbumLikeCamera(chosenFiles($('cameraAlbum'))));
   $('repairAlbum').addEventListener('change', () => {
     const files = chosenFiles($('repairAlbum'));
@@ -2466,7 +2474,8 @@
   $('cameraBarAlbum').addEventListener('change', () => {
     const files = chosenFiles($('cameraBarAlbum'));
     if (!files.length) return;
-    if (document.body.classList.contains('recognition-mode')) recognizeNameplateFile(files[0]);
+    if (document.body.classList.contains('controller-camera')) recognizeFaultFile(files[0]);
+    else if (document.body.classList.contains('recognition-mode')) recognizeNameplateFile(files[0]);
     else saveAlbumLikeCamera(files);
   });
   for (const [id, role] of [['roleArrival','arrival'],['roleDeparture','departure'],['roleSafety','safety'],['roleNameplate','nameplate'],['roleContainer','container'],['rolePosition','position'],['roleController','controller'],['roleOther','other']]) {
@@ -2625,6 +2634,12 @@
   $('cancelWatermarkTime').addEventListener('click',cancelWatermarkTime);
   $('watermarkTimeDialog').addEventListener('cancel',event=>{event.preventDefault();cancelWatermarkTime();});
   $('completeBatch').addEventListener('click',completeBatch);
+  $('retryFaultDraft').addEventListener('click', () => {
+    const file = draftSelection?.stagedFault?.file;
+    if (!file || activeRepair || ocrBusy) return;
+    $('draftDialog').close();
+    recognizeFaultFile(file);
+  });
   $('closeDraft').addEventListener('click',()=>$('draftDialog').close());
   $('deleteDraft').addEventListener('click',async()=>{if(!draftSelection || $('deleteDraft').hidden)return;await storePhoto(draftSelection,true);draftSelection=null;$('draftDialog').close();await renderQueue();notice('已删除本机草稿照片。');});
   $('closeLedgerPhoto').addEventListener('click',()=>$('ledgerPhotoDialog').close());

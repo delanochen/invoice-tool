@@ -303,9 +303,11 @@ body.camera-active .capture-actions{display:none!important}
 .camera-active.controller-camera .camera-stage video{object-fit:cover}
 .controller-camera .ocr-guide{inset:6%;border-radius:8px;box-shadow:none}
 .controller-camera .ocr-guide span{bottom:5px}
-.controller-camera .camera-bar{position:static;display:grid;grid-template-columns:1fr auto;padding:8px;gap:8px}
+.controller-camera .camera-bar{position:static;display:grid;grid-template-columns:auto minmax(0,1fr) auto;padding:8px;gap:8px}
 .controller-camera .camera-bar-row{display:contents}
-.controller-camera .camera-side{display:none}
+.controller-camera .camera-side{grid-column:1;grid-row:1}
+.controller-camera .camera-fault{grid-column:2;grid-row:1}
+.controller-camera #closeCamera{grid-column:3;grid-row:1}
 .controller-camera .camera-fault{white-space:normal;min-height:48px}
 
 .repair-photo-strip .fault-thumbnail { flex:0 0 auto; border:0; padding:0; background:transparent; }
@@ -318,9 +320,11 @@ body.camera-active .capture-actions{display:none!important}
 #repairEquipment .repair-number-heading label { display:inline-flex; align-items:center; margin:0; white-space:nowrap; }
 #repairEquipment .repair-heading-actions .check-label input { width:18px; height:18px; min-height:18px; margin:0; padding:0; }
 .repair-number-field { display:grid; min-width:0; gap:3px; }
-#repairEquipment .repair-scan { width:36px; min-height:32px; padding:0; border-radius:6px; color:var(--green); font-weight:750; }
+#deviceSession .repair-scan { width:36px; min-height:32px; padding:0; border-radius:6px; color:var(--green); font-weight:750; }
 
-.repair-device-grid > label:last-child { grid-template-rows:minmax(32px,auto) auto; align-items:center; }
+#repairEquipment .repair-device-grid { align-items:start; }
+#repairEquipment .repair-device-grid > label { gap:3px; margin:0; }
+#repairEquipment .repair-device-grid > label:last-child { grid-template-rows:32px auto; align-items:center; }
 .nameplate-album-label { display:none; }
-.recognition-mode:not(.controller-camera) .nameplate-album-label { display:block; font-size:13px; font-weight:700; }
-.recognition-mode:not(.controller-camera) #cameraBarAlbumButton svg { display:none; }
+.recognition-mode .nameplate-album-label { display:block; font-size:13px; font-weight:700; }
+.recognition-mode #cameraBarAlbumButton svg { display:none; }
