@@ -407,13 +407,17 @@ _FIELD_FAULT_PROMPT = (
     "the hand, clothing and nearby equipment. A nameplate sticker may sit beside the screen. "
     "Read only the characters the panel itself displays. Ignore every reflection and object outside the panel, "
     "ignore the sticker, hands, cables, metal, background text, the back arrow, home icon, close X and status bar. "
+    "The screen may show a list of active alarms. Each alarm may start with timestamp, severity and a code on one line, "
+    "then a pump or component identifier and alarm description on the next. Keep those lines together in a single alarm entry. "
+    "Do not merge adjacent entries, even if they have the same timestamp. The fraction at the bottom is page navigation. "
     "If a bordered popup is open, its message is the alarm text. "
     "Copy Simplified Chinese exactly as displayed and keep Latin tokens such as PWM, HART, VFD, MPa, Hz as shown. "
     "Copy leading zeros, letters and punctuation in codes exactly. Never infer a missing character from the equipment model or alarm wording. "
     "If a code is partly obscured, omit it from fault_codes. Preserve readable message lines. "
     "Do not translate, do not reword, do not add commentary. One screen line per array item. "
     "Return only a JSON object with keys: "
-    "fault_codes (array of alarm/fault code strings exactly as shown, for example \"175\"; empty when none), "
+    "alarm_entries (array of arrays of verbatim screen lines, one inner array per alarm, in display order; empty when no alarm list), "
+    "fault_codes (array of alarm/fault code strings exactly as shown; empty when none), "
     "fault_text (array of the popup or alarm message lines, verbatim), "
     "display_text (array of other readable screen headings or values, verbatim; empty when none). "
     "Use empty arrays when nothing is legible."
@@ -437,6 +441,18 @@ def validate_fault_llm(payload):
             if text and any(ch.isalnum() for ch in text) and not _SCREEN_CHROME.fullmatch(text):
                 found.append(text)
         return found
+    entries = payload.get('alarm_entries')
+    if isinstance(entries, list):
+        groups = []
+        for entry in entries:
+            if not isinstance(entry, list):
+                continue
+            group = [line.strip() for line in entry if isinstance(line, str) and any(ch.isalnum() for ch in line)
+                     and not _SCREEN_CHROME.fullmatch(line.strip())]
+            if group:
+                groups.append('\n'.join(group))
+        if groups:
+            return '\n\n'.join(groups)[:FAULT_TEXT_LIMIT]
     fault_lines = lines_of('fault_text')
     other_lines = [line for line in lines_of('display_text') if line not in fault_lines]
     # Screen headings (display_text) read best first, then the alarm lines.
