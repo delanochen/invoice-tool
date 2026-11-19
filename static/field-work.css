@@ -384,3 +384,29 @@ body.camera-active .capture-actions{display:none!important}
   body[data-panel="camera"]:not(.camera-active) .capture-card { margin-inline:0; }
   .fw-header { padding-inline:max(8px,env(safe-area-inset-left)) max(8px,env(safe-area-inset-right)); }
 }
+
+.recognition-shutter-label { display:none; }
+.nameplate-camera .camera-bar { position:static; flex-shrink:0; }
+.nameplate-camera .camera-bar-row,
+.controller-camera .camera-bar { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.recognition-mode .camera-side { width:100%; }
+.recognition-mode #cameraBarAlbumButton,
+.recognition-mode #takePhoto,
+.recognition-mode #readRepairFault,
+.recognition-mode #closeCamera {
+  width:100%;
+  height:48px;
+  min-height:48px;
+  padding:0;
+  border:0;
+  border-radius:10px;
+  box-shadow:none;
+  font-size:15px;
+  font-weight:700;
+}
+.recognition-mode #takePhoto,
+.recognition-mode #readRepairFault { background:#fff; color:#17332f; }
+.recognition-mode .recognition-shutter-label { display:inline; }
+.recognition-mode #closeCamera { background:rgba(255,255,255,.16); }
+.recognition-mode .camera-close-icon { display:none; }
+.nameplate-camera .ocr-guide > span { bottom:6px; }
