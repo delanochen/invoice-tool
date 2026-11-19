@@ -1964,9 +1964,9 @@ def register_field_routes(app, api):
     @access
     def field_repair_export():
         rows = repair_table_rows()
-        headers = ['序号', '日期', '地标号', '集装箱号', '同飞铭牌', '设备型号', '工作内容', '已更换水泵保险编号', '备注', '维修人员', '工单', '照片数量']
+        headers = ['序号', '日期', '地标号', '集装箱号', '同飞铭牌', '设备型号', '工作内容', '备注', '工单', '照片数量']
         keys = ['sequence', 'date', 'position_number', 'container_number', 'equipment_number', 'equipment_model', 'work_content',
-                'pump_fuse_numbers', 'note', 'technician', 'order_number', 'photo_count']
+                'note', 'order_number', 'photo_count']
         buffer = api['build_simple_xlsx'](headers, [[str(row[key] or '') for key in keys] for row in rows], sheet_name='设备维修清单')
         return send_file(buffer, as_attachment=True, download_name='field-repairs.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 

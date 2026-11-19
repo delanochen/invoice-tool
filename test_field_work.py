@@ -485,7 +485,7 @@ class FieldWorkTest(unittest.TestCase):
         page = self.http.get('/reports/field-repairs')
         self.assertEqual(page.status_code, 200)
         body = page.get_data(as_text=True)
-        for value in ('10232502W0738', '4A1-4', 'LYGU0217133', '1/2/3/4/5/6', '3 张'):
+        for value in ('10232502W0738', '4A1-4', 'LYGU0217133', '3 张'):
             self.assertIn(value, body)
         for header in ('<th>设备型号</th>', '<th>工作内容</th>'):
             self.assertIn(header, body)
