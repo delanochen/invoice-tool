@@ -539,14 +539,40 @@
     }
     return confirmDevice();
   }
-  function addFaultPhoto(drawn, context) {
-    faultPhotos.push({canvas:drawn.image, context, preview:drawn.url});
+  function addFaultPhoto(drawn, context, file) {
+    const photo = {file, canvas:drawn.image, context, preview:drawn.url, blob:drawn.blob};
+    faultPhotos.push(photo);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'fault-thumbnail';
+    button.setAttribute('aria-label', fieldText('放大屏幕照片'));
     const thumbnail = new Image();
     thumbnail.src = drawn.url;
-    thumbnail.alt = '手操器故障照片';
-    $('repairFaultPhotos').append(thumbnail);
+    thumbnail.alt = fieldText('手操器故障照片');
+    button.append(thumbnail);
+    button.addEventListener('click', () => openDraft({...context, blob:photo.blob, stagedFault:true}, true));
+    $('repairFaultPhotos').append(button);
     $('repairFaultPhotos').hidden = false;
+    return photo;
   }
+  function appendFaultRecognition(photo, text) {
+    const field = $('repairFault');
+    const current = field.value.trimEnd();
+    const result = String(text || '').trim();
+    if (!result || (photo.recognizedFault === result && current.includes(result))) return;
+    field.value = [current, result].filter(Boolean).join('\n\n');
+    photo.recognizedFault = result;
+    limitFaultField();
+    if (batch?.pending) batch.pending.fault = field.value;
+  }
+  $('clearRepairFault').addEventListener('click', () => {
+    if (activeRepair || ocrBusy) return;
+    $('repairFault').value = '';
+    if (batch?.pending) batch.pending.fault = '';
+    showFaultAlbumStatus('');
+    limitFaultField();
+    $('repairFault').focus();
+  });
   async function recognizeFaultFile(file) {
     if (ocrBusy) { showFaultAlbumStatus('正在识别另一张照片，请稍候。'); return; }
     if (repairStage !== 'before' || activeRepair) { showFaultAlbumStatus('请在保存维修前记录之前选择故障照片。'); return; }
@@ -561,9 +587,10 @@
     recognizeAbort = new AbortController();
     try {
       const exif = await readPhotoExifDate(file);
-      const drawn = await uprightDrawable(file);
+      const existing = faultPhotos.find(photo => photo.file === file);
+      const drawn = existing ? {blob:existing.blob, image:existing.canvas, url:existing.preview} : await uprightDrawable(file);
       $('recognizeOverlayThumb').src = drawn.url;
-      const context = await makeContext('file', {order:{...chosenOrder()}, userId:profile.user.id, watermarkSource:'system'});
+      const context = existing?.context || await makeContext('file', {order:{...chosenOrder()}, userId:profile.user.id, watermarkSource:'system'});
       if (!context) throw new Error('照片还不能入队，请先选择工单和施工员。');
       if (exif) {
         context.captured_at = exif.toISOString();
@@ -571,7 +598,7 @@
         if (useSystemTime) context.watermark_at = context.captured_at;
       }
       context.watermark_source = 'system';
-      addFaultPhoto(drawn, context);
+      const photo = existing || addFaultPhoto(drawn, context, file);
       const data = new FormData(); data.append('photo', drawn.blob, 'fault.jpg'); data.append('mode', 'controller_fault');
       const response = await requestAPI('/api/field/recognize-equipment', {method:'POST', headers:{'X-Field-Token':profile.csrf}, body:data, signal:recognizeAbort.signal});
       const result = await response.json().catch(()=>({}));
@@ -582,11 +609,8 @@
       if (!response.ok) throw new Error(result.error || '故障识别失败');
       if (!result.fault_text) throw new Error('没有读到屏幕文字，请换一张更清晰的照片，或手工输入。');
       const field = $('repairFault');
-      const current = field.value.trim();
-      const combined = current && !current.includes(result.fault_text) ? current + '\n' + result.fault_text : current || result.fault_text;
-      const truncated = combined.length > FAULT_TEXT_LIMIT;
-      field.value = combined;
-      limitFaultField();
+      const truncated = field.value.length + result.fault_text.length + 2 > FAULT_TEXT_LIMIT;
+      appendFaultRecognition(photo, result.fault_text);
       hideRecognizeProgress();
       field.focus();
       showFaultAlbumStatus('已识别，请对照缩略图核对故障代码和告警内容。');
@@ -655,15 +679,13 @@
         if (!context || stream !== captureStream) { hideRecognizeProgress(); return; }
         const drawn = await uprightDrawable(blob);
         if (stream !== captureStream) { URL.revokeObjectURL(drawn.url); hideRecognizeProgress(); return; }
-        addFaultPhoto(drawn, context);
+        const photo = addFaultPhoto(drawn, context, blob);
+        showFaultAlbumStatus('');
         if (!response.ok) throw new Error(result.error || '故障识别失败，请核对照片并手工填写。');
         if (!result.fault_text) throw new Error('没有读到屏幕文字，请换一张更清晰的照片，或手工输入。');
         const field = $('repairFault');
-        const current = field.value.trim();
-        const combined = current && !current.includes(result.fault_text) ? current + '\n' + result.fault_text : current || result.fault_text;
-        const truncated = combined.length > FAULT_TEXT_LIMIT;
-        field.value = combined;
-        limitFaultField();
+        const truncated = field.value.length + result.fault_text.length + 2 > FAULT_TEXT_LIMIT;
+        appendFaultRecognition(photo, result.fault_text);
         hideRecognizeProgress();
         stopCamera();
         field.focus();
@@ -1581,9 +1603,7 @@
         hideRecognizeProgress();
         notice(pending.position_number ? '位置号已读出，保存前请再确认。' : '没有读到位置号，可以保存时手工填写。', !pending.position_number);
       } else if (photo.photo_role === 'controller') {
-        pending.fault = result.fault_text || pending.fault;
-        photo.recognized_fault = pending.fault;
-        if ($('repairFault') && pending.fault) $('repairFault').value = pending.fault;
+        appendFaultRecognition(photo, result.fault_text);
         hideRecognizeProgress();
         if (!pending.fault) notice('没有读到屏幕文字，可以保存时手工填写。', true);
         else if (result.source === 'ocr') notice('这次是本地 OCR 读的，屏幕文字可能不准。在“系统设置 → 大模型”里给“现场手操器故障识别”选一个支持视觉的模型后会自动改用它。', true);
@@ -1975,6 +1995,7 @@
     } catch(error) { if (error.name !== 'AbortError') notice('无法打开手机保存菜单：'+error.message,true); }
   }
   function openDraft(photo, uploaded = false) {
+    $('draftDialog').classList.toggle('controller-photo-preview', Boolean(photo.stagedFault));
     $('deleteDraft').hidden = uploaded;
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
     $('draftLarge').src=previewURL; setFieldText('draftDetail',(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印')); $('draftDialog').showModal();
@@ -2223,6 +2244,7 @@
     $('repairOriginalFault').textContent = repair?.fault || '无已记录故障';
     $('startRepair').disabled = Boolean(repair);
     $('scanRepairFault').disabled = Boolean(repair);
+    $('clearRepairFault').disabled = Boolean(repair);
     for (const id of ['equipmentNumber','equipmentModel','positionNumber','containerNumber','repairFault']) {
       $(id).readOnly = Boolean(repair);
     }

@@ -425,10 +425,32 @@ _FIELD_FAULT_PROMPT = (
 _SCREEN_CHROME = re.compile(r'(?:page\s*)?\d+\s*/\s*\d+|第?\s*\d+\s*页|[<>«»←→]\s*\d+\s*/\s*\d+', re.I)
 
 
+_CONTROLLER_CODE = re.compile(r'(?:故障码|报码|alarm\s+code|fault\s+code)\s*[:：]?\s*[A-Z]*\d[A-Z0-9]*(?:[-.]\d+[A-Z0-9]*)*(?![A-Z0-9])', re.I)
+_CONTROLLER_DESCRIPTION = re.compile(r'(?:水泵|风机|干磨|过温|过压|欠压|通信|故障|告警|报警|\bpump\b|\bfault\b|\balarm\b)', re.I)
+
+
+def controller_ocr_candidate(text):
+    """Keep complete code/description pairs from an individual OCR pass."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    pairs = []
+    for header, description in zip(lines, lines[1:]):
+        if not _CONTROLLER_CODE.search(header) or _CONTROLLER_CODE.search(description):
+            continue
+        if _SCREEN_CHROME.fullmatch(description.strip()) or not _CONTROLLER_DESCRIPTION.search(description):
+            continue
+        pairs.append((header, description))
+    return '\n\n'.join('\n'.join(pair) for pair in dict.fromkeys(pairs))[:FAULT_TEXT_LIMIT]
+
+
 def validate_fault_llm(payload):
     """Normalize the vision model's controller-screen reading into display text."""
     if not isinstance(payload, dict):
         return ''
+    entries = payload.get('alarm_entries')
+    if isinstance(entries, list) and entries:
+        candidates = [controller_ocr_candidate('\n'.join(line for line in entry if isinstance(line, str)))
+                      for entry in entries if isinstance(entry, list)]
+        return '\n\n'.join(dict.fromkeys(candidate for candidate in candidates if candidate))[:FAULT_TEXT_LIMIT]
     def lines_of(key):
         raw = payload.get(key) or []
         if isinstance(raw, str):
@@ -441,18 +463,6 @@ def validate_fault_llm(payload):
             if text and any(ch.isalnum() for ch in text) and not _SCREEN_CHROME.fullmatch(text):
                 found.append(text)
         return found
-    entries = payload.get('alarm_entries')
-    if isinstance(entries, list):
-        groups = []
-        for entry in entries:
-            if not isinstance(entry, list):
-                continue
-            group = [line.strip() for line in entry if isinstance(line, str) and any(ch.isalnum() for ch in line)
-                     and not _SCREEN_CHROME.fullmatch(line.strip())]
-            if group:
-                groups.append('\n'.join(group))
-        if groups:
-            return '\n\n'.join(groups)[:FAULT_TEXT_LIMIT]
     fault_lines = lines_of('fault_text')
     other_lines = [line for line in lines_of('display_text') if line not in fault_lines]
     # Screen headings (display_text) read best first, then the alarm lines.
@@ -465,6 +475,10 @@ def validate_fault_llm(payload):
     missing = [code for code in dict.fromkeys(codes) if code not in joined]
     if missing:
         lines.append('故障码 ' + '、'.join(missing))
+    if not any(_CONTROLLER_DESCRIPTION.search(line) and
+               not re.fullmatch(r'(?:当前故障|故障列表|故障记录|current faults?|alarms?)', line, re.I)
+               for line in fault_lines):
+        return ''
     return '\n'.join(lines)[:FAULT_TEXT_LIMIT]
 
 
@@ -1457,11 +1471,16 @@ def register_field_routes(app, api):
             if any(_chinese_language_missing(result) for result in results):
                 return jsonify(error='服务器未安装简体中文识别语言包，暂时无法识别手操器中文。'), 503
             return jsonify(error=f'服务器暂时无法识别{subject}，请手工输入。'), 503
-        text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
         if fault_mode:
-            logger.info('controller fault recognize source=ocr reason=%s bytes=%s', reason, len(content))
-            return json_utf8({'ok': True, 'fault_text': controller_fault_text(text), 'source': 'ocr',
-                              'reason': reason})
+            candidates = [controller_ocr_candidate(decode_ocr_output(result.stdout))
+                          for result in results if result.returncode == 0]
+            text = max(candidates, key=lambda candidate: len(_CONTROLLER_CODE.findall(candidate)), default='')
+            logger.info('controller fault recognize source=ocr reason=%s usable=%s bytes=%s',
+                        reason, bool(text), len(content))
+            if not text:
+                return jsonify(error='未能可靠识别故障码和故障说明。照片已保留，请换个角度重拍或手工填写。'), 422
+            return json_utf8({'ok': True, 'fault_text': text, 'source': 'ocr', 'reason': reason})
+        text = '\n'.join(decode_ocr_output(result.stdout) for result in results if result.returncode == 0)
         return json_utf8({'ok': True, 'fault_text': controller_fault_text(text)})
 
     @app.route('/api/field/orders/<int:order_id>/repair-records', methods=['GET', 'POST'])

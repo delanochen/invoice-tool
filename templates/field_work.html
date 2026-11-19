@@ -34,7 +34,7 @@
           </div>
         </div>
         <div id="captureDetails">
-        <fieldset id="captureKind" class="capture-kind photo-type-block"><legend>本组照片类型</legend><div id="photoTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button id="arrivalKind" type="button" data-kind="arrival" aria-pressed="false">进场拍照</button><button id="safetyKind" type="button" data-kind="safety" aria-pressed="false">自检拍照</button><button id="equipmentKind" type="button" data-kind="equipment" aria-pressed="false">设备维修</button><button id="departureKind" type="button" data-kind="departure" aria-pressed="false">离场拍照</button></div><p id="kindStatus" class="muted upload-type-hint">先选类型再拍，也可以拍完在照片上选。</p></fieldset>
+        <fieldset id="captureKind" class="capture-kind photo-type-block"><legend>本组照片类型</legend><div id="photoTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button id="arrivalKind" type="button" data-kind="arrival" aria-pressed="false">进场</button><button id="safetyKind" type="button" data-kind="safety" aria-pressed="false">自检</button><button id="equipmentKind" type="button" data-kind="equipment" aria-pressed="false">设备</button><button id="departureKind" type="button" data-kind="departure" aria-pressed="false">离场</button></div><p id="kindStatus" class="muted upload-type-hint">先选类型再拍，也可以拍完在照片上选。</p></fieldset>
         <fieldset id="deviceSession" class="device-session"><legend>设备维修</legend>
           <div class="repair-tabs" role="group" aria-label="维修阶段">
             <button id="repairBefore" class="primary" type="button" aria-pressed="true">维修前</button>
@@ -59,7 +59,7 @@
             </div>
           </div>
           <div id="repairControls" class="repair-card">
-            <strong>维修前故障信息</strong>
+            <div class="repair-card-heading"><strong>维修前故障信息</strong><button id="clearRepairFault" class="repair-link" type="button">清除内容</button></div>
             <div class="repair-button-row">
               <button id="scanRepairFault" class="repair-outline" type="button">拍手操器屏幕</button>
               <span class="album-launch"><button id="faultAlbumButton" class="repair-outline" type="button">从相册</button><input id="faultAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif"></span>

@@ -251,12 +251,13 @@ body[data-panel="camera"] #timeSettings.repair-watermark { margin:4px 0; padding
     border:0;
     border-top:1px solid var(--line);
     border-radius:0;
-    padding:10px 0 0;
+    margin-top:8px;
+    padding:8px 0 0;
     background:transparent;
   }
   .repair-device-grid {
-    grid-template-columns:minmax(0,1fr);
-    gap:8px;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px 8px;
   }
   body[data-panel="camera"] .repair-device-grid label {
     gap:4px;
@@ -264,6 +265,10 @@ body[data-panel="camera"] #timeSettings.repair-watermark { margin:4px 0; padding
     margin:0;
   }
   .repair-device-grid input { min-width:0; font-size:16px; }
+  body[data-panel="camera"] #repairEquipment .repair-card-heading .repair-link { min-height:32px; padding-block:4px; }
+  #repairEquipment .repair-device-actions > .album-launch,
+  #repairEquipment .repair-device-actions button,
+  #repairEquipment .repair-device-actions > .check-label { height:44px; min-height:44px; }
   #repairFault { font-size:16px; }
   body[data-panel="camera"] .repair-device-actions .check-label { margin:0; }
 }
@@ -302,3 +307,8 @@ body.camera-active .capture-actions{display:none!important}
 .controller-camera .camera-bar-row{display:contents}
 .controller-camera .camera-side{display:none}
 .controller-camera .camera-fault{white-space:normal;min-height:48px}
+
+.repair-photo-strip .fault-thumbnail { flex:0 0 auto; border:0; padding:0; background:transparent; }
+.fault-thumbnail img { display:block; }
+#draftDialog.controller-photo-preview { width:min(960px,calc(100% - 16px)); padding:12px; }
+.controller-photo-preview #draftLarge { width:100%; max-height:72dvh; object-fit:contain; }
