@@ -85,7 +85,9 @@
     ctx.shadowColor = 'transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
     ctx.save(); rounded(ctx,0,0,cardWidth,cardHeight,font*.4); ctx.clip();
     const gradient=ctx.createLinearGradient(0,0,cardWidth,headerHeight);
-    gradient.addColorStop(0,'rgba(9,83,73,.88)'); gradient.addColorStop(1,'rgba(15,118,110,.85)');
+    const afterRepair = context.photo_type === 'equipment' && context.repair_phase === 'after';
+    gradient.addColorStop(0, afterRepair ? 'rgba(27,61,110,.92)' : 'rgba(9,83,73,.88)');
+    gradient.addColorStop(1, afterRepair ? 'rgba(36,89,148,.90)' : 'rgba(15,118,110,.85)');
     ctx.fillStyle=gradient; ctx.fillRect(0,0,cardWidth,headerHeight);
     ctx.fillStyle='#8dc63f'; ctx.fillRect(0,headerHeight-font*.13,cardWidth,font*.13);
     ctx.restore();

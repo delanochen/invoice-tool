@@ -220,8 +220,12 @@ def stamp_group_watermark(content, fields):
         height = line_height * len(lines) + 16
         top = max(0, image.height - height - margin)
         draw.rectangle((margin, top, min(image.width - margin, margin + 520), top + height), fill=(255, 255, 255))
+        after_repair = fields.get("photo_type") == "equipment" and fields.get("repair_phase") == "after"
+        header_color = (27, 61, 110) if after_repair else (9, 83, 73)
+        draw.rectangle((margin, top, min(image.width - margin, margin + 520), top + 24), fill=header_color)
         for index, line in enumerate(lines):
-            draw.text((margin + 8, top + 8 + index * line_height), line, fill=(20, 46, 40), font=font)
+            color = (255, 255, 255) if index == 0 else (20, 46, 40)
+            draw.text((margin + 8, top + 8 + index * line_height), line, fill=color, font=font)
         buffer = BytesIO()
         image.save(buffer, format="JPEG", quality=85)
         return buffer.getvalue()

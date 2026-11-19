@@ -34,7 +34,7 @@
           </div>
         </div>
         <div id="captureDetails">
-        <fieldset id="captureKind" class="capture-kind photo-type-block"><legend>本组照片类型</legend><div id="photoTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button id="arrivalKind" type="button" data-kind="arrival" aria-pressed="false">进场</button><button id="departureKind" type="button" data-kind="departure" aria-pressed="false">离场</button><button id="safetyKind" type="button" data-kind="safety" aria-pressed="false">自检</button><button id="equipmentKind" type="button" data-kind="equipment" aria-pressed="false">设备</button></div><p id="kindStatus" class="muted upload-type-hint">先选类型再拍，也可以拍完在照片上选。</p></fieldset>
+        <fieldset id="captureKind" class="capture-kind photo-type-block"><legend>本组照片类型</legend><div id="photoTypeSeg" class="upload-type-seg" role="group" aria-label="照片类型"><button id="arrivalKind" type="button" data-kind="arrival" aria-pressed="false">进场拍照</button><button id="safetyKind" type="button" data-kind="safety" aria-pressed="false">自检拍照</button><button id="equipmentKind" type="button" data-kind="equipment" aria-pressed="false">设备维修</button><button id="departureKind" type="button" data-kind="departure" aria-pressed="false">离场拍照</button></div><p id="kindStatus" class="muted upload-type-hint">先选类型再拍，也可以拍完在照片上选。</p></fieldset>
         <fieldset id="deviceSession" class="device-session"><legend>设备维修</legend>
           <div class="repair-tabs" role="group" aria-label="维修阶段">
             <button id="repairBefore" class="primary" type="button" aria-pressed="true">维修前</button>
@@ -61,9 +61,10 @@
           <div id="repairControls" class="repair-card">
             <strong>维修前故障信息</strong>
             <div class="repair-button-row">
-              <button id="scanRepairFault" class="repair-outline" type="button">识别屏幕</button>
+              <button id="scanRepairFault" class="repair-outline" type="button">拍手操器屏幕</button>
               <span class="album-launch"><button id="faultAlbumButton" class="repair-outline" type="button">从相册</button><input id="faultAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif"></span>
             </div>
+            <p id="faultAlbumStatus" class="muted" role="status" hidden></p>
             <div id="repairFaultPhotos" class="repair-photo-strip" hidden></div>
             <label><textarea id="repairFault" rows="8" lang="zh-CN" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-max-chars="4000" aria-label="维修前故障信息" placeholder="可手工输入故障现象"></textarea></label>
             <button id="startRepair" class="primary repair-wide" type="button">保存维修前状态</button>
@@ -71,10 +72,12 @@
           <div id="repairResultFields" class="repair-card" hidden>
             <p id="repairStage" class="muted" role="status"></p>
             <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
-            <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片</button>
+            <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片（可选）</button>
             <span class="album-launch album-launch-wide"><button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button><input id="repairAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span>
             <label>复测结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
-            <button id="completeRepair" class="primary repair-wide" type="button">保存维修结果</button>
+            <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000" placeholder="本次做了什么"></textarea></label>
+            <button id="completeRepair" class="primary repair-wide" type="button">完成本台维修</button>
+            <button id="saveWorkLog" class="repair-outline repair-wide" type="button">暂存工作内容</button>
           </div>
           <p id="deviceStatus" class="muted" hidden>填写或识别设备信息后，点击“打开相机”即确认本组信息。</p>
         </fieldset>
@@ -86,7 +89,7 @@
         <div id="cameraOrder" class="camera-order"></div>
         <div id="cameraStage" class="camera-stage" hidden><video id="viewfinder" autoplay playsinline muted hidden></video><div id="ocrGuide" class="ocr-guide" hidden><span>将整张铭牌放入框内</span></div></div>
         <div class="capture-actions"><button id="shutterButton" class="primary capture-primary" type="button">拍照</button><span class="album-launch capture-secondary"><button id="cameraAlbumButton" type="button">从相册选择</button><input id="cameraAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><label class="album-watermark-toggle" for="albumWatermark"><input id="albumWatermark" type="checkbox" checked>添加水印</label></div>
-        <div id="cameraBar" class="camera-bar" hidden><button id="readRepairFault" class="camera-fault" type="button" hidden>拍照识别故障</button><div class="camera-bar-row"><span class="album-launch camera-side"><button id="cameraBarAlbumButton" type="button" aria-label="从相册选择"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M7 16l3.2-3.2 2.2 2.2L16 11l4 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><input id="cameraBarAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><button id="takePhoto" class="camera-shutter" type="button" aria-label="拍照" hidden></button><button id="closeCamera" class="camera-close" type="button" aria-label="关闭相机" hidden>✕</button></div></div>
+        <div id="cameraBar" class="camera-bar" hidden><button id="readRepairFault" class="camera-fault" type="button" hidden>拍照识别故障</button><div class="camera-bar-row"><span class="album-launch camera-side"><button id="cameraBarAlbumButton" type="button" aria-label="从相册选择"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M7 16l3.2-3.2 2.2 2.2L16 11l4 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><input id="cameraBarAlbum" class="ios-file-input" type="file" accept="image/*,.heic,.heif,.avif" multiple></span><button id="takePhoto" class="camera-shutter" type="button" aria-label="拍照" hidden></button><button id="flipSafetyCamera" class="camera-flip" type="button" aria-label="切换到前置摄像头" hidden>前置</button><button id="closeCamera" class="camera-close" type="button" aria-label="关闭相机" hidden>✕</button></div></div>
         <button id="openCamera" type="button" hidden>打开相机</button>
         <div id="nameplatePending" hidden><img id="nameplateThumb" alt="待识别的铭牌"><span id="nameplateStatus">识别中…</span><button id="nameplatePendingConfirm" class="repair-outline" type="button" hidden>确认</button></div>
         <div id="recentCaptures" class="recent-captures" aria-label="本次拍摄的照片" hidden></div>
@@ -114,8 +117,6 @@
       <details id="captureExtras" class="capture-extra" open>
         <summary>备注 / 工作内容</summary>
         <div id="deviceNoteSlot"><label id="captureNote">工作备注<textarea id="photoNote" rows="2" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
-        <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000" placeholder="本次做了什么"></textarea></label>
-        <button id="saveWorkLog" class="repair-outline repair-wide" type="button">保存工作内容</button>
       </details>
       <button id="completeBatch" class="primary complete-batch" type="button" hidden disabled>请先拍照或选择照片</button>
     </section>

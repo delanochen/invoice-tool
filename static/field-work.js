@@ -9,6 +9,7 @@
   let farSamples = 0;
   let initialOrder = new URLSearchParams(location.search).get('order_id');
   let cameraSelection = null, bootstrapGeneration = 0;
+  let cameraFacing = 'environment', switchingCamera = false;
   let repairStage = 'before', faultPhotos = [], nameplateBlob = null, faultBlob = null, nameplatePreview = null, nameplateDrawnUrl = '';
   let recognizeAbort = null, recognizeTimer = null, recognizeKind = 'nameplate', recognizeCancelled = false, captureLockSnapshot = null;
   const captureControls = ['recognizeDevice','nameplateAlbumButton','nameplateCamera','nameplateAlbum','scanRepairFault','faultAlbumButton','faultAlbum','openCamera','shutterButton','cameraAlbumButton','cameraAlbum','cameraBarAlbumButton','cameraBarAlbum','repairAfterPhoto','repairAlbumButton','repairAlbum','takePhoto','readRepairFault'];
@@ -134,6 +135,9 @@
     $('equipmentNumber').required = true;
     setFieldText('deviceStatus', '新设备：请扫描或输入编号，然后点击“打开相机”。');
   }
+  function completeDeviceFields(device) {
+    return Boolean(device?.equipment_number && device.equipment_model && device.position_number && device.container_number);
+  }
   function confirmDevice() {
     if (activeRepair && activeRepair.order_id === chosenOrder()?.id) {
       deviceSession = {...activeRepair, no_equipment_number:!activeRepair.equipment_number};
@@ -203,6 +207,7 @@
     batch ||= {id:key(), type, actual_start:Date.now(), watermark_start:null};
     const typeChanged = previousType && previousType !== type;
     batch.type = type;
+    if (typeChanged && stream) stopCamera();
     if (typeChanged && !(deviceSession && type === 'equipment')) clearDeviceInputs();  // 换组：不残留上一组的设备信息
     $('deviceNoteSlot').append($('captureNote'));
     // 只有设备照片需要设备信息与维修字段；进场 / 离场 / 自检 不显示这一块。
@@ -462,6 +467,12 @@
     const timedOut = error?.name === 'AbortError';
     showRecognizeFailure(timedOut ? '识别超时，请换一张更清晰的照片，或手工输入。' : (error?.message || '识别失败'));
   }
+  const nameplateDrafts = new WeakSet();
+  async function keepNameplateDraft(file, source, context) {
+    if (!context || nameplateDrafts.has(file)) return;
+    await keepCapture(source, {...context, photo_role:'nameplate', pending_device:true});
+    nameplateDrafts.add(file);
+  }
   async function recognizeNameplateFile(file) {
     if (ocrBusy) return;
     ocrBusy = true;
@@ -481,6 +492,14 @@
       nameplateDrawnUrl = drawn.url;
       $('recognizeOverlayThumb').src = drawn.url;
       $('nameplateThumb').src = drawn.url;
+      const context = await makeContext('file', {order:{...chosenOrder()}, userId:profile.user.id, watermarkSource:'system'});
+      const exif = await readPhotoExifDate(file);
+      if (context && exif) {
+        context.captured_at = exif.toISOString();
+        context.filename_time = photoFilenameTime(exif);
+        if (useSystemTime) context.watermark_at = context.captured_at;
+      }
+      await keepNameplateDraft(file, drawn.image, context);
       const data = new FormData(); data.append('photo', drawn.blob, 'nameplate.jpg');
       const response = await requestAPI('/api/field/recognize-equipment', {method:'POST', headers:{'X-Field-Token':profile.csrf}, body:data, signal:recognizeAbort.signal});
       const result = await response.json().catch(()=>({}));
@@ -499,10 +518,35 @@
       recognitionFailure(error);
     } finally { ocrBusy = false; }
   }
+  function showFaultAlbumStatus(message) {
+    const status = $('faultAlbumStatus');
+    status.textContent = message;
+    status.hidden = !message;
+  }
+  function readyForController() {
+    const missing = ['equipmentNumber','equipmentModel','positionNumber','containerNumber'].find(id => !$(id).value.trim());
+    if (missing) {
+      const message = '请先填齐设备编号、型号、位置号和集装箱号。';
+      showFaultAlbumStatus(message);
+      notice(message,true);
+      $(missing).focus();
+      return false;
+    }
+    return confirmDevice();
+  }
+  function addFaultPhoto(drawn, context) {
+    faultPhotos.push({canvas:drawn.image, context, preview:drawn.url});
+    const thumbnail = new Image();
+    thumbnail.src = drawn.url;
+    thumbnail.alt = '手操器故障照片';
+    $('repairFaultPhotos').append(thumbnail);
+    $('repairFaultPhotos').hidden = false;
+  }
   async function recognizeFaultFile(file) {
-    if (ocrBusy) return;
-    if (repairStage !== 'before' || activeRepair) { notice('请在保存维修前状态之前识别故障。', true); return; }
-    if (!confirmDevice()) return;
+    if (ocrBusy) { showFaultAlbumStatus('正在识别另一张照片，请稍候。'); return; }
+    if (repairStage !== 'before' || activeRepair) { showFaultAlbumStatus('请在保存维修前记录之前选择故障照片。'); return; }
+    if (!readyForController()) return;
+    showFaultAlbumStatus('已选照片，正在识别手操器屏幕…');
     ocrBusy = true;
     faultBlob = file;
     const preview = URL.createObjectURL(file);
@@ -514,10 +558,22 @@
       const exif = await readPhotoExifDate(file);
       const drawn = await uprightDrawable(file);
       $('recognizeOverlayThumb').src = drawn.url;
+      const context = await makeContext('file', {order:{...chosenOrder()}, userId:profile.user.id, watermarkSource:'system'});
+      if (!context) throw new Error('照片还不能入队，请先选择工单和施工员。');
+      if (exif) {
+        context.captured_at = exif.toISOString();
+        context.filename_time = photoFilenameTime(exif);
+        if (useSystemTime) context.watermark_at = context.captured_at;
+      }
+      context.watermark_source = 'system';
+      addFaultPhoto(drawn, context);
       const data = new FormData(); data.append('photo', drawn.blob, 'fault.jpg'); data.append('mode', 'controller_fault');
       const response = await requestAPI('/api/field/recognize-equipment', {method:'POST', headers:{'X-Field-Token':profile.csrf}, body:data, signal:recognizeAbort.signal});
       const result = await response.json().catch(()=>({}));
-      if (recognizeCancelled) { URL.revokeObjectURL(drawn.url); return; }
+      if (recognizeCancelled) {
+        showFaultAlbumStatus('已取消识别，照片已保留，可手工填写故障信息。');
+        return;
+      }
       if (!response.ok) throw new Error(result.error || '故障识别失败');
       if (!result.fault_text) throw new Error('没有读到屏幕文字，请换一张更清晰的照片，或手工输入。');
       const field = $('repairFault');
@@ -526,23 +582,14 @@
       const truncated = combined.length > FAULT_TEXT_LIMIT;
       field.value = combined;
       limitFaultField();
-      const context = await makeContext('file', {order:{...chosenOrder()}, userId:profile.user.id, watermarkSource:'system'});
-      if (!context) throw new Error('照片还不能入队，请先选择工单和施工员。');
-      context.watermark_source = 'system';
-      if (exif) {
-        context.captured_at = exif.toISOString();
-        if (useSystemTime) context.watermark_at = exif.toISOString();
-      }
-      faultPhotos.push({canvas: drawn.image, context, preview: drawn.url});
-      const thumbnail = new Image();
-      thumbnail.src = drawn.url;
-      thumbnail.alt = '手操器故障照片';
-      $('repairFaultPhotos').append(thumbnail);
-      $('repairFaultPhotos').hidden = false;
       hideRecognizeProgress();
       field.focus();
+      showFaultAlbumStatus('已识别，请对照缩略图核对故障代码和告警内容。');
       notice(truncated ? '识别结果较长，已保留前 4000 字，请核对。' : '识别结果已填入，请核对报码和提示文字。');
-    } catch (error) { recognitionFailure(error); }
+    } catch (error) {
+      showFaultAlbumStatus(error.message || '无法识别照片，请重选或手工填写。');
+      recognitionFailure(error);
+    }
     finally { URL.revokeObjectURL(preview); ocrBusy = false; }
   }
   async function saveAlbumLikeCamera(files) {
@@ -560,6 +607,7 @@
         const context = {...base, client_id:key()};
         if (exif) {
           context.captured_at = exif.toISOString();
+          context.filename_time = photoFilenameTime(exif);
           if (useSystemTime) context.watermark_at = exif.toISOString();
         }
         const drawn = await uprightDrawable(file);
@@ -584,6 +632,7 @@
     let preview = '';
     try {
       const video = $('viewfinder');
+      const takenAt = new Date();
       const blob = await captureStill(video);
       if (faultMode) faultBlob = blob; else nameplateBlob = blob;
       preview = URL.createObjectURL(blob);
@@ -594,19 +643,15 @@
       const response = await requestAPI('/api/field/recognize-equipment',{method:'POST',headers:{'X-Field-Token':profile.csrf},body:data,signal:recognizeAbort.signal});
       const result = await response.json().catch(()=>({}));
       if (recognizeCancelled || stream !== captureStream) { hideRecognizeProgress(); return; }
-      if (!response.ok) throw new Error(result.error || (faultMode ? '故障识别失败' : '铭牌识别失败'));
+      if (!response.ok && !faultMode) throw new Error(result.error || '铭牌识别失败');
       if (faultMode) {
-        if (repairStage !== 'before' || activeRepair || !confirmDevice()) { hideRecognizeProgress(); return; }
-        const context = await makeContext('camera');
+        if (repairStage !== 'before' || activeRepair || !readyForController()) { hideRecognizeProgress(); return; }
+        const context = await makeContext('camera', null, takenAt);
         if (!context || stream !== captureStream) { hideRecognizeProgress(); return; }
         const drawn = await uprightDrawable(blob);
         if (stream !== captureStream) { URL.revokeObjectURL(drawn.url); hideRecognizeProgress(); return; }
-        faultPhotos.push({canvas: drawn.image, context, preview: drawn.url});
-        const thumbnail = new Image();
-        thumbnail.src = drawn.url;
-        thumbnail.alt = '手操器故障照片';
-        $('repairFaultPhotos').append(thumbnail);
-        $('repairFaultPhotos').hidden = false;
+        addFaultPhoto(drawn, context);
+        if (!response.ok) throw new Error(result.error || '故障识别失败，请核对照片并手工填写。');
         if (!result.fault_text) throw new Error('没有读到屏幕文字，请换一张更清晰的照片，或手工输入。');
         const field = $('repairFault');
         const current = field.value.trim();
@@ -624,6 +669,11 @@
         if (automatic) { hideRecognizeProgress(); notice('自动识别中，请保持整张铭牌清晰。'); return; }
         throw new Error('未识别到设备编号或型号，请重试或手工输入。');
       }
+      const context = await makeContext('camera', null, takenAt);
+      if (!context || stream !== captureStream) { hideRecognizeProgress(); return; }
+      const drawn = await uprightDrawable(blob);
+      try { await keepNameplateDraft(blob, drawn.image, context); }
+      finally { URL.revokeObjectURL(drawn.url); }
       hideRecognizeProgress();
       stopCamera();
       $('recognizedNumber').textContent = result.candidates?.[0] || '';
@@ -887,6 +937,8 @@
     clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
     clearTimeout(ocrStartTimer); ocrStartTimer = null;
     cameraSelection = null;
+    $('flipSafetyCamera').hidden = true;
+    $('flipSafetyCamera').disabled = false;
     document.body.classList.remove('camera-active');
     document.body.classList.remove('recognition-mode');
     $('ocrGuide').hidden = true;
@@ -897,8 +949,55 @@
     $('cameraStage').hidden = true;
     $('cameraView').hidden = captureMode !== 'camera';
   }
+  async function attachCamera(selection, facingMode) {
+    const next = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode,width:{ideal:3840},height:{ideal:2160}},audio:false
+    });
+    if (cameraSelection !== selection) {
+      next.getTracks().forEach(track => track.stop());
+      return false;
+    }
+    stream = next;
+    $('viewfinder').srcObject = next;
+    await $('viewfinder').play();
+    return cameraSelection === selection;
+  }
+  async function flipSafetyCamera() {
+    const button = $('flipSafetyCamera'), selection = cameraSelection;
+    if (button.hidden || !selection || !stream || switchingCamera || taking || ocrBusy || syncing || processingFiles) return;
+    const shutter = $('takePhoto');
+    const previous = cameraFacing;
+    const next = previous === 'environment' ? 'user' : 'environment';
+    switchingCamera = true;
+    button.disabled = shutter.disabled = true;
+    try {
+      // iOS may only allow access to one camera at a time.
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      if (await attachCamera(selection, {exact:next})) {
+        cameraFacing = next;
+        button.textContent = next === 'user' ? '后置' : '前置';
+        button.setAttribute('aria-label', next === 'user' ? '切换到后置摄像头' : '切换到前置摄像头');
+      }
+    } catch (error) {
+      if (cameraSelection !== selection) return;
+      stream?.getTracks().forEach(track => track.stop());
+      stream = null;
+      try {
+        if (await attachCamera(selection, {ideal:previous})) notice('无法切换摄像头，已恢复原摄像头。',true);
+      } catch (restoreError) {
+        if (cameraSelection === selection) {
+          stopCamera();
+          notice('无法切换摄像头，请重新打开相机。',true);
+        }
+      }
+    } finally {
+      switchingCamera = false;
+      button.disabled = shutter.disabled = false;
+    }
+  }
   async function openCamera(recognitionOnly = false, faultMode = false) {
-    if (!identityReady || !profile?.can_capture) return;
+    if (!identityReady || !profile?.can_capture || taking || ocrBusy || syncing || switchingCamera) return;
     if (!recognitionOnly && captureMode !== 'camera') return;
     ensureSession();
     if (!useSystemTime && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
@@ -908,14 +1007,28 @@
     }
     const selected = chosenOrder();
     if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
+    const selection = {order:{...selected}, userId:profile.user.id};
     try {
       currentOrder = selected;
-      cameraSelection = {order:{...selected}, userId:profile.user.id};
+      cameraSelection = selection;
       stream?.getTracks().forEach(track => track.stop());
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}},audio:false});
+      stream = null;
       $('cameraView').hidden = false;
       $('cameraStage').hidden = false;
-      $('viewfinder').srcObject = stream; $('viewfinder').hidden = false; await $('viewfinder').play();
+      $('viewfinder').hidden = false;
+      if (!(await attachCamera(selection, {ideal:'environment'}))) return;
+      cameraFacing = stream.getVideoTracks()[0]?.getSettings?.().facingMode || 'environment';
+      const locationNumber = activeRepair?.position_number || $('positionNumber').value.trim();
+      if (batch.type === 'equipment' && locationNumber) {
+        const phase = activeRepair?.repair_phase === 'after' ? '维修后' : '维修前';
+        $('cameraOrder').textContent = `${locationNumber} · ${phase} · ${selected.order_number}`;
+      } else {
+        $('cameraOrder').textContent = selected.order_number + ' · ' + selected.client_name;
+      }
+      const flip = $('flipSafetyCamera');
+      flip.hidden = recognitionOnly || batch.type !== 'safety';
+      flip.textContent = cameraFacing === 'user' ? '后置' : '前置';
+      flip.setAttribute('aria-label', cameraFacing === 'user' ? '切换到后置摄像头' : '切换到前置摄像头');
       clearRecentCaptures();
       cameraStripSession = recognitionOnly ? null : {batchId:batch.id, ids:new Set()};
       document.body.classList.add('camera-active');
@@ -926,8 +1039,13 @@
       $('readRepairFault').hidden = !faultMode;
       $('openCamera').hidden = true; $('cameraBar').hidden = false; $('takePhoto').hidden = recognitionOnly; $('closeCamera').hidden = false;
       await renderQueue();
-      if (!faultMode) { scanDevice(); scanTimer = setInterval(scanDevice, 800); }
-    } catch (error) { notice('无法打开相机，请检查相机权限，或切换到“上传”选择照片。',true); stopCamera(); }
+      if (cameraSelection === selection && !faultMode) { scanDevice(); scanTimer = setInterval(scanDevice, 800); }
+    } catch (error) {
+      if (cameraSelection === selection) {
+        notice('无法打开相机，请检查相机权限，或切换到“上传”选择照片。',true);
+        stopCamera();
+      }
+    }
   }
   // ---- 0.1.467 上传方式（不生成水印 / 生成水印）与 EXIF 时间批量调整 ----
   const UPLOAD_TYPES = ['arrival','departure','safety','equipment'];
@@ -951,9 +1069,32 @@
     if (!uploadWatermark) clearWatermarkItems();
     refreshUploadControls();
   }
+  function photoFilenameTime(date) {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString();
+    return local.slice(0, 19).replace(/[-:]/g, '').replace('T', '_');
+  }
   function readExifDate(buffer) {
     try {
       const v = new DataView(buffer);
+      if (v.byteLength >= 12 && v.getUint32(0) === 0x89504E47 && v.getUint32(4) === 0x0D0A1A0A) {
+        for (let o = 8; o + 12 <= v.byteLength;) {
+          const length = v.getUint32(o);
+          if (o + 12 + length > v.byteLength) return null;
+          if (v.getUint32(o + 4) === 0x65584966) return exifTiffDate(v, o + 8);
+          o += 12 + length;
+        }
+      }
+      if (v.byteLength >= 12 && v.getUint32(0) === 0x52494646 && v.getUint32(8) === 0x57454250) {
+        for (let o = 12; o + 8 <= v.byteLength;) {
+          const length = v.getUint32(o + 4, true);
+          if (o + 8 + length > v.byteLength) return null;
+          if (v.getUint32(o) === 0x45584946 && length >= 8) {
+            const start = o + 8;
+            return exifTiffDate(v, start + (v.getUint32(start) === 0x45786966 ? 6 : 0));
+          }
+          o += 8 + length + (length % 2);
+        }
+      }
       if (v.byteLength < 4 || v.getUint16(0) !== 0xFFD8) return null;
       let o = 2;
       while (o + 4 <= v.byteLength) {
@@ -981,7 +1122,7 @@
       const m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
       if (!m) return null;
       const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-      return Number.isNaN(d.getTime()) || d.getFullYear() < 2000 ? null : d;
+      return d.getFullYear() >= 2000 && photoFilenameTime(d) === m.slice(1, 4).join('') + '_' + m.slice(4).join('') ? d : null;
     };
     const ifd0 = entries(t + u32(t + 4));
     let exif = {};
@@ -1184,6 +1325,7 @@
           const shot = manual ? new Date() : item.exif;
           const watermark = manual ? new Date(adjusted.getTime() + Math.floor(Math.random() * 60) * 1000) : new Date(item.exif.getTime() + offset);
           const context = {...baseContext, client_id:key(), captured_at:shot.toISOString(), watermark_at:watermark.toISOString(),
+            filename_time:item.exif ? photoFilenameTime(item.exif) : '',
             watermark_offset_minutes:Math.round(offset / 60000)};
           const image = new Image(); image.src = item.url; await image.decode();
           await keepCapture(image, context);
@@ -1214,7 +1356,7 @@
       refreshUploadControls(); renderWatermarkPanel(); await renderQueue();
     }
   }
-  async function makeContext(source, lockedSelection = null) {
+  async function makeContext(source, lockedSelection = null, actual = new Date()) {
     const resolved = chosenOrder();
     if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
     const selected = lockedSelection?.order || cameraSelection?.order || {...resolved};
@@ -1240,7 +1382,8 @@
     if (batch.type === 'general') throw new Error('请先选择进场、离场或自检照片。');
     // Freeze the shutter-time metadata before asynchronous location checks.
     const photoType = batch.type, captureBatchId = batch.id;
-    const captureDevice = deviceSession ? {...deviceSession} : null;
+    const device = activeRepair?.order_id === selected.id ? activeRepair : deviceSession;
+    const captureDevice = device ? {...device} : null;
     const group = batch?.pending || {};
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
@@ -1255,7 +1398,6 @@
     const timezoneName = $('timezoneName').value.trim() || 'UTC';
     new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
     localStorage.setItem('field-timezone-' + profile.user.id, timezoneName);
-    const actual = new Date();
     let watermark;
     if (useSystemTime) {
       watermark = actual;
@@ -1269,6 +1411,7 @@
     if (!technician) throw new Error('请选择施工员。');
     return {client_id:key(),user_id:profile.user.id,employee_name:technician.name,technician_user_id:technician.id,
       order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
+      filename_time:source === 'camera' ? photoFilenameTime(actual) : '',
       captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,timezone_name:timezoneName,
       latitude:skipsLocation ? 0 : position.latitude,longitude:skipsLocation ? 0 : position.longitude,accuracy:skipsLocation ? 100000 : position.accuracy,
       location_verified:!skipsLocation,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
@@ -1292,6 +1435,9 @@
     if (!context || context.user_id !== profile?.user.id || !identityReady) throw new Error('账号已改变，请重新拍照。');
     const stripSession = cameraStripSession;
     const photo = {...context,blob:await processedPhoto(source,context)};
+    if (context.watermark_source !== 'original') {
+      photo.original_blob = await processedPhoto(source,{...context,watermark_source:'original'});
+    }
     // Do not report success or clear the capture until the IDB transaction commits.
     await storePhoto(photo);
     if (stripSession && stripSession === cameraStripSession && photo.source === 'camera' && photo.batch_id === stripSession.batchId) stripSession.ids.add(photo.client_id);
@@ -1366,7 +1512,7 @@
       : batch?.type === 'departure' ? 'departure'
       : batch?.type === 'safety' ? 'safety'
       : 'other';
-    const photo = {...context, blob:stamped, original_blob:raw, awaiting_watermark:false, watermark_source:'system', photo_role:role, recognition_status:''};
+    const photo = {...context, blob:stamped, original_blob:raw, awaiting_watermark:stamped === raw, watermark_source:'system', photo_role:role, recognition_status:''};
     applyPhotoRole(photo, role);
     await storePhoto(photo);
     if (cameraStripSession && photo.source === 'camera' && photo.batch_id === cameraStripSession.batchId) cameraStripSession.ids.add(photo.client_id);
@@ -1654,7 +1800,7 @@
     }
   }
   $('takePhoto').addEventListener('click', async () => {
-    if (taking) return; taking = true; $('takePhoto').disabled = true;
+    if (taking || switchingCamera || !stream) return; taking = true; $('takePhoto').disabled = true;
     try { const context = await makeContext('camera'); if (context) await captureRawAndClassify($('viewfinder'), context); }
     catch (error) { notice('照片未保存：'+error.message,true); }
     finally { taking = false; $('takePhoto').disabled = false; }
@@ -1804,7 +1950,12 @@
     } catch(error) { notice('无法读取本机照片存储：'+error.message,true); }
   }
   async function savePhotoToAlbum(photo) {
-    const name = photo.order_number+'-'+photo.client_id+'.jpg';
+    const position = photo.photo_type === 'equipment'
+      ? (photo.position_number || '').replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 100) : '';
+    const stamp = photo.filename_time;
+    const stem = stamp ? [position, stamp].filter(Boolean).join('_') : photo.order_number+'-'+photo.client_id;
+    const extension = /\.[A-Za-z0-9]{1,8}$/.exec(photo.original_filename || '')?.[0] || '.jpg';
+    const name = stem + extension;
     const file = new File([photo.blob], name, {type:photo.blob.type || 'image/jpeg'});
     try {
       if (navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))) {
@@ -1854,7 +2005,7 @@
       if (live.user.id !== profile.user.id) { lock('账号已改变，已暂停原账号的照片上传。'); return; }
       profile.csrf = live.csrf;
       setFieldText('networkStatus', '在线');
-      const pending = await queued(batchId); uploadTotal = pending.length;
+      const pending = (await queued(batchId)).filter(photo => !photo.pending_device); uploadTotal = pending.length;
       for (const photo of pending) {
         if (!identityReady || photo.user_id !== profile?.user.id) break;
         uploadingPhotoId = photo.client_id; uploadIndex++;
@@ -1873,17 +2024,13 @@
           }
           photo.blob = new Blob([uploadBytes], {type:photo.blob.type || photo.content_type || 'application/octet-stream'});
           photo.error = '';
-          if (photo.awaiting_watermark === true) {
-            // 重试上传沿用已生成的预览水印，不再要求先打开本组确认窗口。
-            photo.awaiting_watermark = false;
-          }
           await storePhoto(photo);
           const data = new FormData();
           const skip = new Set(['blob','error','original_blob','original_blob_type','sources','recognized_number','recognized_model','recognized_container','recognized_position','recognized_fault','watermark_opt_out']);
           Object.entries(photo).forEach(([k,v]) => { if (!skip.has(k) && v != null && typeof v !== 'object') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
           const optOut = photo.source === 'file' && photo.watermark_opt_out === true;
-          data.append('client_watermarked', optOut ? 'false' : 'true');
+          data.append('client_watermarked', String(!optOut && photo.awaiting_watermark !== true));
           data.append('watermark_opt_out', optOut ? 'true' : 'false');
           if (photo.original_blob instanceof Blob) data.append('original', photo.original_blob, photo.client_id+'.original.jpg');
           if (photo.source === 'file') notice('正在识别水印和 EXIF 拍摄日期…');
@@ -1937,6 +2084,10 @@
     const session = batch.session_id || batch.id;
     const inSession = photo => photo.capture_session === session || photo.batch_id === session || String(photo.batch_id || '').startsWith(session + ':');
     let groupPhotos = (await queued()).filter(inSession);
+    if (groupPhotos.some(photo => photo.pending_device)) {
+      notice('请先填齐设备资料并保存维修前记录，铭牌照片才能入账。',true);
+      return;
+    }
     if (navigator.onLine) {
       for (const photo of groupPhotos) {
         if (photo.recognition_status === 'offline' && RECOGNIZE_ROLES.has(photo.photo_role)) {
@@ -2062,7 +2213,7 @@
     activeRepair = repair ? {...repair, repair_phase:phase} : null;
     repairStartId = null;
     deviceSession = null;
-    $('repairResultFields').hidden = repairStage !== 'after' || !repair;
+    $('repairResultFields').hidden = !repair;
     $('repairOriginalFault').textContent = repair?.fault || '无已记录故障';
     $('startRepair').disabled = Boolean(repair);
     $('scanRepairFault').disabled = Boolean(repair);
@@ -2077,7 +2228,7 @@
     $('faultAlbumButton').disabled = Boolean(repair);
     $('faultAlbum').disabled = Boolean(repair);
     $('repairStage').textContent = phase === 'before' ? '当前拍摄：维修前' : '当前拍摄：维修后';
-    $('completeRepair').disabled = phase === 'before';
+    $('completeRepair').disabled = !repair;
     // 重新拍摄同一台设备的照片时不能清空已输入的工作内容；换记录时显示这条记录已保存的内容。
     const sameRepair = Boolean(repair && previousRepairId && repair.id === previousRepairId);
     $('repairWork').value = sameRepair && typedWork ? typedWork : (repair?.work_content || '');
@@ -2096,6 +2247,7 @@
   function clearFaultPhotos() {
     for (const photo of faultPhotos) URL.revokeObjectURL(photo.preview);
     faultPhotos = [];
+    showFaultAlbumStatus('');
     $('repairFaultPhotos').replaceChildren();
     $('repairFaultPhotos').hidden = true;
   }
@@ -2120,7 +2272,16 @@
   }
   $('repairBefore').addEventListener('click', () => { if (repairStage !== 'before' && selectRepairStage('before')) resetDevice(); });
   $('repairAfter').addEventListener('click', () => { if (repairStage !== 'after') selectRepairStage('after'); });
-  $('repairAfterPhoto').addEventListener('click', () => { setCaptureMode('camera'); openCamera(); });
+  function prepareAfterPhoto() {
+    if (!activeRepair || taking || processingFiles || captureContext || syncing || ocrBusy) return false;
+    activeRepair.repair_phase = 'after';
+    if (deviceSession) deviceSession.repair_phase = 'after';
+    $('repairStage').textContent = '当前拍摄：维修后';
+    return true;
+  }
+  $('repairAfterPhoto').addEventListener('click', () => {
+    if (prepareAfterPhoto()) { setCaptureMode('camera'); openCamera(); }
+  });
   async function repairRequest(order, body) {
     const options = body ? {method:'POST', headers:{'Content-Type':'application/json','X-Field-Token':profile.csrf},
       body:JSON.stringify(body)} : {};
@@ -2159,22 +2320,26 @@
       equipment_number:$('equipmentNumber').value.trim(), equipment_model:$('equipmentModel').value.trim(),
       position_number:$('positionNumber').value.trim(), container_number:$('containerNumber').value.trim(),
       fault:$('repairFault').value.trim(), no_equipment_number:$('noEquipmentNumber').checked};
+    if (!completeDeviceFields(repair)) { notice('请先填齐设备编号、型号、位置号和集装箱号。',true); return; }
     if (!repair.fault) { notice('请先记录故障现象。',true); return; }
     const button = $('startRepair'); button.disabled = true;
     try {
       await repairRequest(order, repair);
       if (chosenOrder()?.id !== order.id) return;
       stopCamera();
+      for (const photo of (await queued()).filter(item => item.pending_device && item.order_id === order.id && item.batch_id === batch?.id)) {
+        await storePhoto({...photo, pending_device:false, equipment_session:repair.id, repair_phase:'before', awaiting_watermark:true,
+          equipment_number:repair.equipment_number, equipment_model:repair.equipment_model,
+          position_number:repair.position_number, container_number:repair.container_number});
+      }
       for (const photo of faultPhotos) {
         await keepCapture(photo.canvas, {...photo.context, equipment_session:repair.id,
-          equipment_number:repair.equipment_number, no_equipment_number:repair.no_equipment_number,
+          equipment_number:repair.equipment_number, equipment_model:repair.equipment_model, photo_role:'controller',
           position_number:repair.position_number, container_number:repair.container_number,
           repair_phase:'before', watermark_source:'system'});
       }
       clearFaultPhotos();
       showRepair(repair);
-      const rawDrafts = (await queued()).filter(item => item.awaiting_watermark === true);
-      if (rawDrafts.length) notice('有照片还没确认水印，已跳过上传。请先点“完成并上传本组照片”。', true);
       await syncQueue();
       notice('已保存维修前状态。可继续拍摄维修前照片。');
       await refreshPendingRepairs();
@@ -2188,16 +2353,15 @@
     if (!work) { notice('请填写本次工作内容。',true); return; }
     const button = $('completeRepair'); button.disabled = true;
     try {
-      const rawDrafts = (await queued()).filter(item => item.awaiting_watermark === true);
-      if (rawDrafts.length) notice('有照片还没确认水印，已跳过上传。请先点“完成并上传本组照片”。', true);
       await syncQueue();
       await repairRequest(order, {id:repair.id, action:'complete', work_content:work, result});
       if (activeRepair?.id !== repair.id) return;
       stopCamera(); showRepair(null); resetDevice(); $('repairFault').value='';
-      notice('已保存维修结果。');
+      const pending = (await queued()).filter(photo => photo.equipment_session === repair.id).length;
+      notice(pending ? `本台维修已完成，${pending} 张照片待上传。` : '本台维修已完成。');
       await refreshPendingRepairs();
     } catch(error) { notice(error.message,true); }
-    finally { button.disabled = activeRepair?.repair_phase !== 'after'; }
+    finally { button.disabled = !activeRepair; }
   });
   $('saveWorkLog').addEventListener('click', async () => {
     const order = chosenOrder(), work = $('repairWork').value.trim();
@@ -2211,13 +2375,16 @@
     } catch (error) { notice(error.message, true); }
     finally { button.disabled = false; }
   });
-  $('scanRepairFault').addEventListener('click', () => openCamera(true, true));
+  $('scanRepairFault').addEventListener('click', () => { if (readyForController()) openCamera(true, true); });
   $('readRepairFault').addEventListener('click', () => recognizeDevice(false, true));
   $('nameplateCamera').addEventListener('change', () => { const [file] = chosenFiles($('nameplateCamera')); if (file) recognizeNameplateFile(file); });
   $('nameplateAlbum').addEventListener('change', () => { const [file] = chosenFiles($('nameplateAlbum')); if (file) recognizeNameplateFile(file); });
   $('faultAlbum').addEventListener('change', () => { const [file] = chosenFiles($('faultAlbum')); if (file) recognizeFaultFile(file); });
   $('cameraAlbum').addEventListener('change', () => saveAlbumLikeCamera(chosenFiles($('cameraAlbum'))));
-  $('repairAlbum').addEventListener('change', () => saveAlbumLikeCamera(chosenFiles($('repairAlbum'))));
+  $('repairAlbum').addEventListener('change', () => {
+    const files = chosenFiles($('repairAlbum'));
+    if (files.length && prepareAfterPhoto()) saveAlbumLikeCamera(files);
+  });
   $('cancelRecognize').addEventListener('click', () => { recognizeCancelled = true; recognizeAbort?.abort(); hideRecognizeProgress(); });
   $('overlayRetry').addEventListener('click', () => { const file = recognizeKind === 'fault' ? faultBlob : nameplateBlob; if (file) (recognizeKind === 'fault' ? recognizeFaultFile : recognizeNameplateFile)(file); });
   $('overlayManual').addEventListener('click', () => { hideRecognizeProgress(); if (recognizeKind === 'fault') $('repairFault').focus(); else { $('equipmentNumber').disabled = false; $('equipmentNumber').focus(); } });
@@ -2371,6 +2538,7 @@
   $('wmClear').addEventListener('click', () => { if (!wmBusy) clearWatermarkItems(); });
   $('wmUpload').addEventListener('click', uploadWatermarkItems);
   $('openCamera').addEventListener('click',()=>openCamera(false)); $('closeCamera').addEventListener('click',stopCamera);
+  $('flipSafetyCamera').addEventListener('click',flipSafetyCamera);
   $('deleteAllDrafts').addEventListener('click', async () => {
     if (syncing || taking || processingFiles || deletingDrafts || !identityReady) return;
     const userId = profile.user.id;

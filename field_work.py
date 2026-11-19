@@ -409,6 +409,8 @@ _FIELD_FAULT_PROMPT = (
     "ignore the sticker, hands, cables, metal, background text, the back arrow, home icon, close X and status bar. "
     "If a bordered popup is open, its message is the alarm text. "
     "Copy Simplified Chinese exactly as displayed and keep Latin tokens such as PWM, HART, VFD, MPa, Hz as shown. "
+    "Copy leading zeros, letters and punctuation in codes exactly. Never infer a missing character from the equipment model or alarm wording. "
+    "If a code is partly obscured, omit it from fault_codes. Preserve readable message lines. "
     "Do not translate, do not reword, do not add commentary. One screen line per array item. "
     "Return only a JSON object with keys: "
     "fault_codes (array of alarm/fault code strings exactly as shown, for example \"175\"; empty when none), "
@@ -876,6 +878,39 @@ def repair_work_text(rows):
     return '\n'.join(lines)
 
 
+def field_photo_filename(folder, position, stamp, fallback):
+    try:
+        if not re.fullmatch(r'[0-9]{8}_[0-9]{6}', stamp):
+            return fallback
+        datetime.strptime(stamp, '%Y%m%d_%H%M%S')
+    except ValueError:
+        return fallback
+    position = re.sub(r'[^A-Za-z0-9_-]+', '_', position).strip('_')[:100]
+    stem = f'{position}_{stamp}' if position else stamp
+    filename = f'{stem}.jpg'
+    suffix = 2
+    while (folder / filename).exists():
+        filename = f'{stem}_{suffix}.jpg'
+        suffix += 1
+    return filename
+
+
+def photo_exif_filename_time(content):
+    try:
+        with Image.open(BytesIO(content)) as image:
+            metadata = image.getexif()
+            exif = metadata.get_ifd(0x8769)
+            for value in (exif.get(0x9003), exif.get(0x9004), metadata.get(0x0132)):
+                if isinstance(value, str):
+                    try:
+                        return datetime.strptime(value.strip('\x00 '), '%Y:%m:%d %H:%M:%S').strftime('%Y%m%d_%H%M%S')
+                    except ValueError:
+                        continue
+    except (OSError, ValueError, TypeError, SyntaxError, Image.DecompressionBombError):
+        pass
+    return ''
+
+
 def register_field_routes(app, api):
     @app.after_request
     def field_response_version(response):
@@ -1150,7 +1185,9 @@ def register_field_routes(app, api):
             return jsonify(error='无法读取照片，请重新拍摄。'), 422
         db = api['db']()
         capture_date_source = 'camera'
+        filename_time = request.form.get('filename_time', '').strip()
         if source == 'camera':
+            filename_time = filename_time or local.strftime('%Y%m%d_%H%M%S')
             local = watermark.astimezone(ZoneInfo(tz_name))
             if watermark != captured:
                 capture_date_source = 'watermark'
@@ -1160,6 +1197,8 @@ def register_field_routes(app, api):
                 if previous['content_hash'] != digest or previous['order_id'] != order_id:
                     return jsonify(error='照片编号已用于不同的内容。'), 409
                 return jsonify(ok=True, id=previous['id'], duplicate=True, capture_date=previous['capture_date'])
+        if source == 'file':
+            filename_time = photo_exif_filename_time(content) or filename_time
         if original_import:
             try:
                 local, capture_date_source, candidates = resolve_capture_date(content, tz_name, request.form.get('manual_capture_date', ''))
@@ -1185,8 +1224,11 @@ def register_field_routes(app, api):
                 return jsonify(ok=True, id=previous['id'], duplicate=True)
             root = api['shared_photos_root']()
             order_folder = secure_filename(order['order_number'])
-            filename = f"{local:%Y%m%d_%H%M%S}-u{g.user['id']}-{key}.jpg"
-            relative = Path(order_folder, 'pictures', local.date().isoformat(), filename)
+            fallback = f"{local:%Y%m%d_%H%M%S}-u{g.user['id']}-{key}.jpg"
+            folder = Path(order_folder, 'pictures', local.date().isoformat())
+            position = position_number if photo_type in {'equipment', 'legacy'} else ''
+            filename = field_photo_filename(root / folder, position, filename_time, fallback)
+            relative = folder / filename
             target = (root / relative).resolve()
             thumb = (root / order_folder / 'thumbnails' / local.date().isoformat() / filename).resolve()
             if not target.is_relative_to(root) or not thumb.is_relative_to(root):
@@ -1211,6 +1253,7 @@ def register_field_routes(app, api):
                         'technician_name': technician_name,
                         'when': watermark_at,
                         'photo_type': photo_type,
+                        'repair_phase': repair_phase,
                         'equipment_number': equipment_number,
                         'equipment_model': request.form.get('equipment_model', '').strip()[:200],
                         'container_number': container_number,
@@ -1218,9 +1261,10 @@ def register_field_routes(app, api):
                         'fault_note': request.form.get('fault_note', '').strip()[:4000],
                         'note': note,
                     })
-                    digest = hashlib.sha256(content).hexdigest()
                 except (OSError, ValueError, Image.DecompressionBombError):
+                    db.rollback()
                     app.logger.exception('field watermark stamp failed')
+                    return jsonify(error='服务器暂时无法添加照片水印，草稿已保留，请重试。'), 503
             compress_image(BytesIO(content), target, max_size=1800, quality=78)
             create_thumbnail(target, thumb)
             if raw_original and len(raw_original) <= 40 * 1024 * 1024:
@@ -1292,6 +1336,7 @@ def register_field_routes(app, api):
                 'technician_name': row['technician_name'],
                 'when': when,
                 'photo_type': row['photo_type'],
+                'repair_phase': row['repair_phase'],
                 'note': row['note'],
             })
             original_rel = row['original_relative_path'] or row['relative_path']
@@ -1465,12 +1510,12 @@ def register_field_routes(app, api):
                 (order_id, repair_id),
             ).fetchall()
             dates = {row['repair_phase']: row['capture_date'] for row in photos}
-            if not dates.get('before') or not dates.get('after'):
-                return jsonify(error='请先上传维修前和维修后照片，再保存结果。'), 422
+            if not dates.get('before'):
+                return jsonify(error='请先上传维修前照片，再完成本台维修。'), 422
             row = connection.execute(
                 """update field_repairs set work_content = ?, result = ?, completed_date = ?
                    where id = ? and order_id = ? and user_id = ? and completed_date is null returning id""",
-                (work, value('result', 1000), dates['after'], repair_id, order_id, user_id),
+                (work, value('result', 1000), dates.get('after') or dates['before'], repair_id, order_id, user_id),
             ).fetchone()
             if not row:
                 return jsonify(error='维修记录不存在或已完成。'), 409
@@ -1619,7 +1664,10 @@ def register_field_routes(app, api):
             with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
                 for row, path in paths:
                     order = secure_filename(row['order_number']) or str(row['order_id'])
-                    archive.write(path, f"{order}/{row['capture_date']}/{row['id']}-{Path(path).name}")
+                    name = path.name
+                    if re.fullmatch(r'\d{8}_\d{6}-u\d+-[0-9a-f]{32}\.jpg', name):
+                        name = f"{row['id']}-{name}"
+                    archive.write(path, f"{order}/{row['capture_date']}/{name}")
             buffer.seek(0)
             response = send_file(buffer, as_attachment=True, download_name='field-photos.zip', mimetype='application/zip')
             response.headers['Cache-Control'] = 'no-store, private'
