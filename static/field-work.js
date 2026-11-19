@@ -2155,7 +2155,7 @@
     if ((await queued()).filter(inSession).length) { notice('部分照片尚未上传，请检查网络后重试。',true); return; }
     stopCamera(); batch=null; deviceSession=null; timeAuthorized=false; useSystemTime=true; $('timeSettings').hidden=false; $('deviceSession').hidden=false; $('watermarkModeText').textContent='使用当前系统时间'; $('watermarkStart').value=''; $('watermarkPassword').value=''; setFieldText('passwordStatus',''); if ($('watermarkTimeDialog').open) $('watermarkTimeDialog').close(); if ($('watermarkPasswordDialog').open) $('watermarkPasswordDialog').close();
     clearDeviceInputs();  // 本组结束：清空设备输入框，下一组不得残留本组设备信息
-    setKindChoiceActive(null); setFieldText('kindStatus','拍照后在照片上选择类型。'); $('photoNote').value=''; setUploadWatermark(false);
+    setKindChoiceActive(null); setFieldText('kindStatus','拍照后在照片上选择类型。'); $('photoNote').value=''; resizePhotoNote(); setUploadWatermark(false);
     notice('本组照片已全部上传，可以继续拍照。'); await renderQueue();
   }
   async function loadLedger() {
@@ -2554,7 +2554,16 @@
   });
   $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再清除设备信息。',true);return;} if(taking || processingFiles || captureContext || syncing) return; if(faultPhotos.length && !window.confirm('清除尚未保存的维修前照片？')) return; stopCamera(); showRepair(null); clearFaultPhotos(); $('repairFault').value=''; resetDevice(); $('photoNote').value=''; $('photoNote').style.height=''; $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; $('equipmentNumber').required = !$('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
-  $('photoNote').addEventListener('input', () => { $('photoNote').style.height='auto'; $('photoNote').style.height=Math.max(44,$('photoNote').scrollHeight)+'px'; });
+  function resizePhotoNote() {
+    const note = $('photoNote');
+    if (!note.getClientRects().length) return;
+    note.style.height = 'auto';
+    const border = note.offsetHeight - note.clientHeight;
+    note.style.height = note.scrollHeight + border + 'px';
+  }
+  $('photoNote').addEventListener('input', resizePhotoNote);
+  $('captureExtras').addEventListener('toggle', resizePhotoNote);
+  window.addEventListener('resize', resizePhotoNote);
   $('repairFault').addEventListener('compositionstart', () => { $('repairFault').dataset.composing = '1'; });
   $('repairFault').addEventListener('compositionend', () => { delete $('repairFault').dataset.composing; limitFaultField(); });
   $('repairFault').addEventListener('input', limitFaultField);
