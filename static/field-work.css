@@ -410,3 +410,5 @@ body.camera-active .capture-actions{display:none!important}
 .recognition-mode #closeCamera { background:rgba(255,255,255,.16); }
 .recognition-mode .camera-close-icon { display:none; }
 .nameplate-camera .ocr-guide > span { bottom:6px; }
+
+#cameraAlbumButton,#cameraBarAlbumButton,#repairAlbumButton { pointer-events:auto; }
