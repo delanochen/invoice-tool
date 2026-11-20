@@ -178,6 +178,7 @@ from invoice_tool.employee_expenses import duplicates as _expense_duplicates
 from invoice_tool.employee_expenses import access as _expense_access
 from invoice_tool.service_reports import documents as _report_documents
 from invoice_tool.service_reports import report_write_services as _report_write_services
+from invoice_tool.service_reports import mileage_waivers as _report_mileage_waivers
 from invoice_tool.service_reports.report_write_routes import register_report_write_routes
 from invoice_tool.service_reports.assist_routes import register_report_assist_routes
 from invoice_tool.photos import services as _photo_capture_services
@@ -206,6 +207,7 @@ from flask import (
     abort,
     flash,
     g,
+    has_app_context,
     jsonify,
     redirect,
     render_template,
@@ -1550,8 +1552,81 @@ def report_worker_ids_from_form():
 REPORT_TRAVEL_MODES = {"self_drive", "flight", "following", "rental_drive"}
 
 
+def _report_worker_travel_autofiller(rows, *, request):
+    """保存日报前：用 Google 路线（辅助填写同口径）回填留空的里程 / 交通时长。
+
+    同一次请求里 report_worker_rows_from_form 会被多处调用，用 g 上的缓存
+    保证只请求一次 Google，避免重复计费。
+    """
+    from invoice_tool.service_reports.mileage_autofill import auto_fill_missing_worker_travel
+
+    has_ctx = has_app_context()
+    cache = {}
+    if has_ctx:
+        cache = getattr(g, "_report_worker_travel_cache", None)
+        if cache is None:
+            cache = {}
+            g._report_worker_travel_cache = cache
+
+    def _is_blank(row, key):
+        return not str(row.get(key) or "").strip()
+
+    for row in rows:
+        key = str(row.get("worker_user_id") or "")
+        if key in cache:
+            if _is_blank(row, "worker_driving_miles"):
+                row["worker_driving_miles"] = str(cache[key][0])
+            if _is_blank(row, "worker_travel_hours"):
+                row["worker_travel_hours"] = str(cache[key][1])
+
+    remaining = [
+        row for row in rows
+        if _is_blank(row, "worker_driving_miles") or _is_blank(row, "worker_travel_hours")
+    ]
+    if not remaining:
+        return
+
+    api_key = get_google_routes_api_key()
+    user = getattr(g, "user", None) if has_ctx else None
+    emp = EmployeeResolutionService(db(), user["id"], user["name"]) if user is not None else None
+    assist = ServiceReportAssistService(
+        photo_discovery=None,
+        photo_metadata=None,
+        routes_service=GoogleRoutesService(api_key, timeout=8, max_retries=1, prefer_fuel_efficient=True) if api_key else None,
+        employee_address_lookup=(lambda uid: emp.get_employee_default_address(uid)) if emp is not None else None,
+    )
+    summary = auto_fill_missing_worker_travel(
+        remaining,
+        destination=(request.form.get("site_address") or "").strip(),
+        fallback_origin=(request.form.get("departure_address") or "").strip(),
+        assist=assist,
+    )
+    for row in remaining:
+        cache[str(row.get("worker_user_id") or "")] = (
+            row.get("worker_driving_miles") or "0",
+            row.get("worker_travel_hours") or "0",
+        )
+
+    if has_ctx and not getattr(g, "_report_autofill_flashed", False):
+        filled_count = len(summary["filled"])
+        failed_count = len(summary["failed"])
+        if filled_count:
+            message = f"已按 Google 路线自动回填 {filled_count} 名员工的里程与交通时长。"
+            if failed_count:
+                names = "、".join(str(item.get("name") or item.get("user_id")) for item in summary["failed"])
+                message += f"{names} 未能自动计算，已按 0 保存，请在生成工资前补齐里程佐证。"
+            flash(message)
+        g._report_autofill_flashed = True
+
+
 def report_worker_rows_from_form():
-    return _report_forms.report_worker_rows_from_form(REPORT_TRAVEL_MODES=REPORT_TRAVEL_MODES, normalize_trip_type=normalize_trip_type, request=request, to_float=to_float)
+    return _report_forms.report_worker_rows_from_form(
+        REPORT_TRAVEL_MODES=REPORT_TRAVEL_MODES,
+        normalize_trip_type=normalize_trip_type,
+        request=request,
+        to_float=to_float,
+        travel_autofiller=_report_worker_travel_autofiller,
+    )
 
 
 def report_billing_mileage(worker_rows, method):
@@ -1949,7 +2024,27 @@ def expense_duplicate_checks(expense_id):
 
 
 def service_report_workers(report_id):
-    return _report_write_services.service_report_workers(report_id, db=db)
+    return _report_write_services.service_report_workers(
+        report_id, db=db, mileage_waiver_reader=mileage_zero_waiver_user_ids
+    )
+
+
+def mileage_zero_waivers_available():
+    return _report_mileage_waivers.available(db)
+
+
+def mileage_zero_waiver_user_ids(report_id):
+    if not mileage_zero_waivers_available():
+        return set()
+    return _report_mileage_waivers.user_ids_for_report(db, report_id)
+
+
+def save_mileage_zero_waivers(report_id, worker_rows):
+    if not mileage_zero_waivers_available():
+        return
+    _report_mileage_waivers.replace_for_report(
+        db, report_id, worker_rows, user_id=g.user["id"], now_text=now()
+    )
 
 
 def service_report_worker_options(order, report_id=None):
@@ -1981,7 +2076,11 @@ def report_form_defaults(report=None, order=None):
 
 
 def save_report_detail_rows(report_id):
-    return _report_write_services.save_report_detail_rows(report_id, db=db, parse_part_rows=parse_part_rows, report_worker_rows_from_form=report_worker_rows_from_form)
+    return _report_write_services.save_report_detail_rows(
+        report_id, db=db, parse_part_rows=parse_part_rows,
+        report_worker_rows_from_form=report_worker_rows_from_form,
+        mileage_waiver_writer=save_mileage_zero_waivers,
+    )
 
 
 def load_invoice(invoice_id):

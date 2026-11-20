@@ -146,6 +146,47 @@ class AssistPhotoClassificationTest(unittest.TestCase):
         self.assertIn("arrival_time_unknown", plan["warnings"])
         self.assertIn("departure_time_unknown", plan["warnings"])
 
+    def test_adjusted_watermark_time_overrides_filename_time(self):
+        """回归 longbow：离场照文件名 13:50:57，但调整后水印是 15:03:28 GMT-6。"""
+        arrival = make_photo("a.jpg", "arrival", "2026-11-19T08:25:03")
+        departure = make_photo("d.jpg", "departure", "2026-11-19T13:50:57")
+        ledger = {
+            "a.jpg": {"watermark_at": "2026-11-19T14:01:09+00:00", "timezone_name": "America/Chicago"},
+            "d.jpg": {"watermark_at": "2026-11-19T21:03:28+00:00", "timezone_name": "America/Chicago"},
+        }
+        plan = build_assist(
+            photos=[arrival, departure],
+            photo_time_lookup=lambda p: ledger.get(p),
+        ).build_photo_plan("SO-2611005", "2026-11-19")
+        self.assertEqual(plan["arrival_time"], "08:01", "进场时间应取调整后水印 08:01:09 GMT-6")
+        self.assertEqual(plan["departure_time"], "15:03", "离场时间应取调整后水印 15:03:28 GMT-6")
+        self.assertEqual(plan["departure_time_source"], "watermark")
+        self.assertEqual(plan["photos"]["departure"][0]["capture_time_source"], "watermark")
+        self.assertEqual(plan["photos"]["departure"][0]["capture_time"], "2026-11-19T15:03:28")
+        self.assertEqual(plan["photos"]["departure"][0]["raw_capture_time"], "2026-11-19T13:50:57")
+
+    def test_missing_or_invalid_watermark_falls_back_to_capture_time(self):
+        photos = [make_photo("d.jpg", "departure", "2026-09-14T16:40:00")]
+        ledger = {
+            "d.jpg": {"watermark_at": "", "timezone_name": "America/Chicago"},
+            "other.jpg": {"watermark_at": "not-a-date", "timezone_name": "UTC"},
+        }
+        plan = build_assist(
+            photos=photos, photo_time_lookup=lambda p: ledger.get(p)
+        ).build_photo_plan("SO-1", "2026-09-14")
+        self.assertEqual(plan["departure_time"], "16:40")
+        self.assertEqual(plan["departure_time_source"], "capture_time")
+
+    def test_naive_watermark_value_used_as_wall_clock(self):
+        """历史台账 watermark_at 不带偏移时，按墙上时间原样使用。"""
+        photos = [make_photo("d.jpg", "departure", "2026-09-14T16:40:00")]
+        ledger = {"d.jpg": {"watermark_at": "2026-09-14T18:15:00", "timezone_name": ""}}
+        plan = build_assist(
+            photos=photos, photo_time_lookup=lambda p: ledger.get(p)
+        ).build_photo_plan("SO-1", "2026-09-14")
+        self.assertEqual(plan["departure_time"], "18:15")
+        self.assertEqual(plan["departure_time_source"], "watermark")
+
     def test_photo_urls_are_built_when_builder_given(self):
         assist = build_assist(
             photos=[make_photo("e1.jpg", "equipment", "2026-09-14T10:00:00")],

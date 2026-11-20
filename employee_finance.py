@@ -34,6 +34,7 @@ from invoice_tool.payroll.tax import (
     EXPENSE_CLASSIFICATION_LEGACY_BACKFILL,
 )
 from invoice_tool.accounting import EventKey, PostingError, PostingService
+from invoice_tool.service_reports import mileage_waivers as _mileage_waivers
 
 
 PAYMENT_STATUS_LABELS = {
@@ -382,6 +383,54 @@ def _reject_overlapping_payroll(api, period_start, period_end, employee_ids):
             f"员工 {name} 的 {'、'.join(ranges)} 已生成工资，与所选期间重叠，未生成"
             for name, ranges in conflicts.items()
         ))
+
+
+def _reject_unsubstantiated_mileage(api, period_start, period_end, employee_ids, *,
+                                    waivers_available=False):
+    """生成工资前校验：自驾 / 租车员工的日报里程仍为 0 且没有成功里程佐证时拒绝生成。
+
+    背景：日报保存时留空的里程会先按 Google 路线自动回填；回填失败才按 0 落库。
+    这些 0 里程若不补齐佐证就生成工资，会按 0 英里计发交通补贴。这里拦截该批次
+    涉及的员工，提示先补里程佐证（与 _reject_overlapping_payroll 同风格、同回滚路径）。
+    已在日报里显式勾选「确认 0 英里」的行视为人工豁免，不再拦截；计薪仍按 0。
+    """
+    if not employee_ids:
+        return
+    placeholders = ",".join("?" for _ in employee_ids)
+    rows = api["db"]().execute(
+        f"""
+        select srw.user_id as worker_id, u.name as worker_name,
+               sr.id as report_id, sr.report_date,
+               coalesce(sr.actual_work_date, sr.report_date) as work_date
+        from service_report_workers srw
+        join service_reports sr on sr.id = srw.report_id
+        join users u on u.id = srw.user_id
+        {_mileage_waivers.join_clause(waivers_available)}left join service_report_mileage_evidence ev
+               on ev.report_id = sr.id and ev.worker_user_id = srw.user_id
+               and ev.status = 'success'
+        where srw.travel_mode in ('self_drive', 'rental_drive')
+          and coalesce(srw.driving_miles, 0) = 0
+          {_mileage_waivers.not_waived_clause(waivers_available)}and ev.worker_user_id is null
+          and date(coalesce(sr.actual_work_date, sr.report_date)) >= ?
+          and date(coalesce(sr.actual_work_date, sr.report_date)) <= ?
+          and srw.user_id in ({placeholders})
+        order by srw.user_id, work_date
+        """,
+        [period_start.isoformat(), period_end.isoformat(), *employee_ids],
+    ).fetchall()
+    if not rows:
+        return
+    blocked = {}
+    for row in rows:
+        name = row["worker_name"] or f"#{row['worker_id']}"
+        dates = blocked.setdefault(name, [])
+        label = str(row["work_date"] or row["report_date"] or "")
+        if label and label not in dates:
+            dates.append(label)
+    raise ValueError("；".join(
+        f"员工 {name} 在 {', '.join(dates)} 的日报里程为 0 且无里程佐证，未生成工资；请先补齐里程佐证"
+        for name, dates in blocked.items()
+    ))
 
 
 def _insert_payment(api, *, employee_id, payment_type, gross_amount, source_type,
@@ -1540,9 +1589,16 @@ def register_employee_finance_routes(app, api):
                 (batch["period_end"].isoformat(), period_start.isoformat()),
             ).fetchall()
             replacements = {row["employee_id"]: row for row in agreements if row["replaces_system_payroll"]}
+            payroll_employee_ids = (
+                {row["worker_id"] for row in batch["rows"]}
+                | {row["employee_id"] for row in agreements}
+            )
             _reject_overlapping_payroll(
-                api, period_start, batch["period_end"],
-                {row["worker_id"] for row in batch["rows"]} | {row["employee_id"] for row in agreements},
+                api, period_start, batch["period_end"], payroll_employee_ids,
+            )
+            _reject_unsubstantiated_mileage(
+                api, period_start, batch["period_end"], payroll_employee_ids,
+                waivers_available=_mileage_waivers.available(api["db"]),
             )
             created = 0
 

@@ -1625,13 +1625,39 @@ def register_field_routes(app, api):
             result.append(entry)
         return jsonify(rows=result, truncated=len(rows) > 2000)
 
+    def thumbnail_file(row):
+        """缩略图缺失时现场生成（不落盘），避免台账出现破图。
+
+        服务端导入的旧照片或从别处搬来的工单可能只有原图、没有 thumbnails 副本；
+        原路径推导逻辑不变，只有取不到缩略图文件时才回退。
+        """
+        try:
+            return photo_file(row, thumb=True), None
+        except NotFound:
+            source = photo_file(row)
+            try:
+                with Image.open(source) as opened:
+                    image = ImageOps.exif_transpose(opened)
+                    image.thumbnail((240, 240))
+                    if image.mode not in {'RGB', 'L'}:
+                        image = image.convert('RGB')
+                    buffer = BytesIO()
+                    image.save(buffer, format='JPEG', quality=82)
+                buffer.seek(0)
+                return None, buffer
+            except Exception:
+                # 原图本身打不开时仍交给原路径处理，保持既有 404 行为。
+                return source, None
+
     @app.get('/field/photos/<int:photo_id>')
     @access
     def field_photo_preview(photo_id):
         row = api['db']().execute('select * from field_photos where id = ?', (photo_id,)).fetchone()
         if not row:
             abort(404)
-        response = send_file(photo_file(row, request.args.get('thumb') == '1'), mimetype='image/jpeg',
+        use_thumb = request.args.get('thumb') == '1'
+        path, buffer = thumbnail_file(row) if use_thumb else (photo_file(row), None)
+        response = send_file(buffer or path, mimetype='image/jpeg',
                              as_attachment=request.args.get('download') == '1')
         response.headers['Cache-Control'] = 'no-store, private'
         return response
@@ -1738,8 +1764,21 @@ def register_field_routes(app, api):
             raise
 
     def repair_table_rows():
+        # 维修清单只统计设备照片；进场/离场/自检不进入清单，也不进入跳转后的台账筛选。
         photos = [row for row in photo_rows() if row['photo_type'] == 'equipment']
         return group_repair_photos(photos)
+
+    def repair_ledger_params(row):
+        keys = ('order_id', 'technician', 'position_number', 'container_number',
+                'equipment_number', 'date_from', 'date_to')
+        params = {
+            key: request.args.get(key, '').strip()
+            for key in keys if request.args.get(key, '').strip()
+        }
+        params['photo_type'] = 'equipment'
+        if row.get('position_number'):
+            params['position_number'] = row['position_number']
+        return params
 
     @app.get('/reports/field-repairs')
     @access
@@ -1754,6 +1793,7 @@ def register_field_routes(app, api):
         signer = URLSafeTimedSerializer(app.secret_key, salt='delete-repair-photos')
         for row in rows:
             row['can_delete'] = can_delete and row['order_id'] in allowed_orders
+            row['ledger_url'] = url_for('field_photo_query', **repair_ledger_params(row))
             if row['can_delete']:
                 row['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': row['photo_ids']})
         return render_template('field_repair_report.html', rows=rows, photo_orders=photo_order_rows(),

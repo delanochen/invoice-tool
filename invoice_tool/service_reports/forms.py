@@ -19,11 +19,12 @@ def report_worker_ids_from_form(*, request):
     return list(dict.fromkeys(value for value in request.form.getlist("worker_user_id") if value))
 
 
-def report_worker_rows_from_form(*, REPORT_TRAVEL_MODES, normalize_trip_type, request, to_float):
+def report_worker_rows_from_form(*, REPORT_TRAVEL_MODES, normalize_trip_type, request, to_float,
+                                 travel_autofiller=None):
     field_names = (
         "worker_user_id", "worker_travel_mode", "worker_driving_miles",
         "worker_travel_hours", "worker_public_transport_hours", "worker_work_description",
-        "worker_origin", "worker_trip_type",
+        "worker_origin", "worker_trip_type", "worker_zero_mileage_confirmed",
     )
     values = {name: request.form.getlist(name) for name in field_names}
     rows = []
@@ -39,19 +40,21 @@ def report_worker_rows_from_form(*, REPORT_TRAVEL_MODES, normalize_trip_type, re
         mode = row["worker_travel_mode"]
         if mode not in REPORT_TRAVEL_MODES:
             raise ValueError("请选择有效的服务人员出行方式。")
+        # 保存前用 Google 路线（与辅助填写同口径）回填留空的里程 / 时长。
+        # 只填空值；没有 API key / 路线失败时由调用方按 0 落库并提示。
+        if travel_autofiller is not None:
+            travel_autofiller([row], request=request)
         miles = to_float(row["worker_driving_miles"])
         travel_hours = to_float(row["worker_travel_hours"])
         public_hours = to_float(row["worker_public_transport_hours"])
-        # 0 英里 / 0 小时是合法值（随行、短途、顺路等）；只有留空或负数才非法。
+        # 0 英里 / 0 小时是合法值（随行、短途、顺路等）；负数非法。
+        # 留空不再直接拒绝——保存链路会先尝试按 Google 路线自动计算回填，
+        # 回填失败才按 0 落库，并由工资生成前的拦截提示用户补佐证。
         if mode in {"self_drive", "following", "rental_drive"}:
-            if not row["worker_driving_miles"]:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
             if miles < 0:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写里程。")
-            if not row["worker_travel_hours"]:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
+                raise ValueError("自驾、随行和租车驾驶人员的里程不能为负数。")
             if travel_hours < 0:
-                raise ValueError("自驾、随行和租车驾驶人员必须填写交通时长。")
+                raise ValueError("自驾、随行和租车驾驶人员的交通时长不能为负数。")
         if mode == "flight":
             if not row["worker_public_transport_hours"]:
                 raise ValueError("飞机出行必须填写公共交通时长。")
@@ -64,6 +67,12 @@ def report_worker_rows_from_form(*, REPORT_TRAVEL_MODES, normalize_trip_type, re
             origin_address=row["worker_origin"].strip(),
             # 空值 / 未知值一律归一为默认往返（唯一口径见 trip_policy）
             trip_type=normalize_trip_type(row["worker_trip_type"]),
+            # 人工确认的 0 英里豁免；只有自驾/租车且里程确为 0 时有效。
+            # 自动回填算出真实里程后此标记自动失效（is_applicable 会再校验）。
+            worker_zero_mileage_confirmed=(
+                str(row["worker_zero_mileage_confirmed"] or "").strip().lower()
+                in {"1", "true", "yes", "on"}
+            ),
         )
         rows.append(row)
     if not rows:

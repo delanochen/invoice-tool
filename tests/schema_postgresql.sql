@@ -3444,6 +3444,18 @@ ALTER TABLE public.service_report_mileage_evidence ALTER COLUMN id ADD GENERATED
 
 
 --
+-- Name: service_report_mileage_zero_waivers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.service_report_mileage_zero_waivers (
+    report_id bigint NOT NULL,
+    worker_user_id bigint NOT NULL,
+    confirmed_by bigint,
+    confirmed_at text NOT NULL
+);
+
+
+--
 -- Name: service_report_replaced_parts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5569,6 +5581,13 @@ CREATE INDEX idx_service_orders_quotation_id ON public.service_orders USING btre
 
 CREATE INDEX idx_sr_mileage_evidence_report ON public.service_report_mileage_evidence USING btree (report_id);
 
+--
+
+-- Name: idx_sr_mileage_zero_waivers_worker; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sr_mileage_zero_waivers_worker ON public.service_report_mileage_zero_waivers USING btree (worker_user_id);
+
 
 --
 -- Name: idx_worker_tax_status_employee; Type: INDEX; Schema: public; Owner: -
@@ -7467,6 +7486,14 @@ ALTER TABLE ONLY public.service_report_attachments
 
 ALTER TABLE ONLY public.service_report_mileage_evidence
     ADD CONSTRAINT service_report_mileage_evidence_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.service_reports(id) ON DELETE CASCADE;
+
+--
+
+-- Name: service_report_mileage_zero_waivers service_report_mileage_zero_waivers_report_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.service_report_mileage_zero_waivers
+    ADD CONSTRAINT service_report_mileage_zero_waivers_report_id_fkey FOREIGN KEY (report_id) REFERENCES public.service_reports(id) ON DELETE CASCADE;
 
 
 --

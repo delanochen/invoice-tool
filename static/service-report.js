@@ -88,8 +88,10 @@ function updateWorkerTravelFields(row) {
   const travel = row.querySelector("[name='worker_travel_hours']");
   const publicHours = row.querySelector("[name='worker_public_transport_hours']");
   const isFlight = mode === "flight";
-  if (miles) { miles.readOnly = isFlight; miles.required = !isFlight; if (isFlight) miles.value = ""; }
-  if (travel) { travel.readOnly = isFlight; travel.required = !isFlight; if (isFlight) travel.value = ""; }
+  // 里程 / 交通时长留空时，保存会按 Google 路线自动回填（与辅助填写/里程佐证同口径），
+  // 因此不再强制必填；飞机出行仍需手填公共交通时长。
+  if (miles) { miles.readOnly = isFlight; miles.required = false; if (isFlight) miles.value = ""; }
+  if (travel) { travel.readOnly = isFlight; travel.required = false; if (isFlight) travel.value = ""; }
   if (publicHours) { publicHours.readOnly = !isFlight; publicHours.required = isFlight; if (!isFlight) publicHours.value = ""; }
 }
 

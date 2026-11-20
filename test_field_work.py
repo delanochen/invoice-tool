@@ -424,6 +424,19 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(self.http.get('/api/field/session').status_code,401)
         self.assertEqual(self.upload().status_code,401)
 
+    def test_thumbnail_preview_falls_back_when_thumbnail_missing(self):
+        photo_id = self.upload().json['id']
+        with self.module.app.app_context():
+            row = self.module.db().execute(
+                'select relative_path from field_photos where id = ?', (photo_id,)
+            ).fetchone()
+        relative = Path(row['relative_path'])
+        thumb_path = self.root / relative.parts[0] / 'thumbnails' / relative.parts[2] / relative.parts[3]
+        thumb_path.unlink(missing_ok=True)
+        with self.http.get(f'/field/photos/{photo_id}?thumb=1') as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('image/jpeg', response.headers['Content-Type'])
+
     def test_photo_register_is_shared_between_authenticated_field_accounts(self):
         photo_id = self.upload().json['id']
         self.fixture.login('Beneficiary')
@@ -468,6 +481,9 @@ class FieldWorkTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         for name in ('name="site"', 'name="photo_type"', 'name="technician"'):
             self.assertIn(name, page.text)
+        field_page = self.http.get('/field/')
+        self.assertEqual(field_page.status_code, 200)
+        self.assertIn('name="photo_type"', field_page.text, '手机端台账也要能按照片类型筛选')
 
     def test_repair_register_groups_device_photos_and_exports_manual_fields(self):
         session_id = uuid.uuid4().hex
@@ -481,6 +497,10 @@ class FieldWorkTest(unittest.TestCase):
                                equipment_session=uuid.uuid4().hex, batch_id='batch-two',
                                photo_type='equipment', note='Fuse replaced')
         self.assertEqual(response.status_code, 200, response.text)
+        # 进场 / 离场 / 自检即使带着设备字段，也不得混入设备维修清单。
+        for kind in ('arrival', 'departure', 'safety'):
+            self.assertEqual(self.upload(equipment_number='10232502W0738', position_number='4A1-4',
+                                         photo_type=kind).status_code, 200)
         self.fixture.login('Manager')
         page = self.http.get('/reports/field-repairs')
         self.assertEqual(page.status_code, 200)
@@ -489,6 +509,9 @@ class FieldWorkTest(unittest.TestCase):
             self.assertIn(value, body)
         for header in ('<th>设备型号</th>', '<th>工作内容</th>'):
             self.assertIn(header, body)
+        self.assertNotIn('6 张', body)
+        self.assertIn('photo_type=equipment', body)
+        self.assertIn('position_number=4A1-4', body)
         self.assertEqual(body.count('<td>10232502W0738</td>'), 1)
         export = self.http.get('/api/field/repairs.xlsx')
         self.assertEqual(export.status_code, 200)

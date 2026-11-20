@@ -51,7 +51,7 @@
     <section class="erp-panel active" data-erp-panel="list">
       <div class="erp-grid-wrap">
         <table class="list-table erp-grid" data-grid-height="100%"><thead><tr><th>序号</th><th>日期</th><th>地标号</th><th>集装箱号</th><th>同飞铭牌</th><th>设备型号</th><th>工作内容</th><th>备注</th><th>工单</th><th>照片</th>{% if can_delete_repairs %}<th>操作</th>{% endif %}</tr></thead><tbody>
-{% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{{ row.position_number or '-' }}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.equipment_model or '-' }}</td><td class="translatable-text">{{ row.work_content or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.order_number }}</td><td class="translatable-text">{{ row.photo_count }} 张</td>{% if can_delete_repairs %}<td>{% if row.can_delete %}<button type="button" class="danger small" data-repair-delete="{{ row.delete_token }}" data-photo-count="{{ row.photo_count }}" data-device-label="{{ row.order_number }} · {{ row.date }} · {{ row.equipment_number or '无铭牌号' }} · {{ row.position_number or '-' }} · {{ row.container_number or '-' }}">删除</button>{% endif %}</td>{% endif %}</tr>
+{% for row in rows %}<tr><td>{{ row.sequence }}</td><td>{{ row.date }}</td><td>{% if row.position_number %}<a href="{{ row.ledger_url }}" title="带筛选条件打开照片台账">{{ row.position_number }}</a>{% else %}-{% endif %}</td><td>{{ row.container_number or '-' }}</td><td>{{ row.equipment_number or '-' }}</td><td>{{ row.equipment_model or '-' }}</td><td class="translatable-text">{{ row.work_content or '-' }}</td><td>{{ row.note or '' }}</td><td>{{ row.order_number }}</td><td class="translatable-text">{{ row.photo_count }} 张</td>{% if can_delete_repairs %}<td>{% if row.can_delete %}<button type="button" class="danger small" data-repair-delete="{{ row.delete_token }}" data-photo-count="{{ row.photo_count }}" data-device-label="{{ row.order_number }} · {{ row.date }} · {{ row.equipment_number or '无铭牌号' }} · {{ row.position_number or '-' }} · {{ row.container_number or '-' }}">删除</button>{% endif %}</td>{% endif %}</tr>
 {% else %}<tr><td colspan="{{ 11 if can_delete_repairs else 10 }}" class="empty">没有符合条件的设备照片。</td></tr>{% endfor %}
 </tbody></table>
       </div>
@@ -67,7 +67,7 @@
             <div class="erp-card-sub">
               <span>铭牌<b class="translatable-text">{{ row.equipment_number or '-' }}</b></span>
               <span>型号<b class="translatable-text">{{ row.equipment_model or '-' }}</b></span>
-              <span>位置<b class="translatable-text">{{ row.position_number or '-' }}</b></span>
+              <span>位置<b class="translatable-text">{% if row.position_number %}<a href="{{ row.ledger_url }}">{{ row.position_number }}</a>{% else %}-{% endif %}</b></span>
               <span>箱号<b class="translatable-text">{{ row.container_number or '-' }}</b></span>
             </div>
             {% if row.work_content %}<div class="repair-line translatable-text">工作内容 {{ row.work_content }}</div>{% endif %}

@@ -196,12 +196,26 @@ def register_report_assist_routes(app, *,
         fallback_origin = (payload.get("departure_address") or "").strip()
 
         # field_photos.photo_type 是权威分类（arrival / departure / safety / equipment…）
+        # watermark_at 是用户「调整水印时间」后印在照片上的时间，是进出场时间的权威来源。
         fp_map = {}
+        fp_time_map = {}
         try:
-            fp_rows = db().execute("select relative_path, photo_type from field_photos").fetchall()
-            fp_map = {row["relative_path"]: row["photo_type"] for row in fp_rows}
+            fp_rows = db().execute(
+                "select relative_path, photo_type, watermark_at, timezone_name from field_photos"
+            ).fetchall()
+            for row in fp_rows:
+                fp_map[row["relative_path"]] = row["photo_type"]
+                fp_time_map[row["relative_path"]] = {
+                    "watermark_at": row["watermark_at"],
+                    "timezone_name": row["timezone_name"],
+                }
         except Exception:
-            fp_map = {}
+            # 旧库缺列时退回原来的分类读取；时间继续由 PhotoMetadataService 解析。
+            try:
+                fp_rows = db().execute("select relative_path, photo_type from field_photos").fetchall()
+                fp_map = {row["relative_path"]: row["photo_type"] for row in fp_rows}
+            except Exception:
+                fp_map = {}
 
         photo_discovery = PhotoDiscoveryService(
             shared_photos_root=resolve_SHARED_PHOTOS_DIR(),
@@ -219,6 +233,8 @@ def register_report_assist_routes(app, *,
             # （AI 日报草稿、出行工具等）保持默认 TRAFFIC_UNAWARE 行为不变。
             routes_service=GoogleRoutesService(routes_api_key, prefer_fuel_efficient=True) if routes_api_key else None,
             employee_address_lookup=lambda uid: emp_resolver.get_employee_default_address(uid),
+            # 进出场时间优先取台账里调整后的水印时间（见 service_report_assist 的口径说明）
+            photo_time_lookup=lambda relative_path: fp_time_map.get(relative_path) or None,
             photo_url_builder=lambda relative_path: {
                 "thumbnail": url_for("shared_photo_thumbnail", path=relative_path),
                 "preview": url_for("shared_photo_preview", path=relative_path),

@@ -10,6 +10,14 @@
 表单能吃的 JSON、以及在调用 Route API 前做必要的前置判断（随行/飞机不算驾车、
 地址缺失、缺少目的地）。
 
+进出场时间口径（勿在本模块里重新推导）：
+- 权威来源是现场照片台账 `field_photos.watermark_at`——即用户「调整水印时间」
+  后实际印在照片上的时间。相机时间、文件名时间、服务器 mtime 都只是回退值。
+- 由调用方注入 `photo_time_lookup(relative_path) -> {watermark_at, timezone_name}`；
+  取到后按 timezone_name 还原为本地墙上时间再取 HH:MM。
+- 台账没有水印时间（旧数据 / 保留原图且识别失败）才回退到 PhotoMetadataService
+  的 capture_time；两者都没有则留空并警告，绝不猜。
+
 新增页没有 report_id，所以这里永远**只读**：产出的是「建议值」，由前端填入表单，
 用户点保存才落库。
 """
@@ -17,8 +25,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from trip_policy import DEFAULT_TRIP_TYPE, normalize_trip_type, trip_multiplier
 
@@ -76,11 +85,15 @@ class ServiceReportAssistService:
         routes_service: Any = None,
         employee_address_lookup: Optional[Callable[[int], Optional[str]]] = None,
         photo_url_builder: Optional[Callable[[str], Dict[str, str]]] = None,
+        photo_time_lookup: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None,
     ):
         self.photo_discovery = photo_discovery
         self.photo_metadata = photo_metadata
         self.routes_service = routes_service
         self.employee_address_lookup = employee_address_lookup
+        # relative_path -> {"watermark_at": ..., "timezone_name": ...}；
+        # 现场台账里用户调整后的水印时间是进出场时间的权威来源。
+        self.photo_time_lookup = photo_time_lookup
         # 由调用方注入：relative_path -> {"thumbnail":..., "preview":...}，
         # 让结果能直接喂给现有的 NAS 照片渲染通道（避免前端二次请求）。
         self.photo_url_builder: Optional[Callable[[str], Dict[str, str]]] = photo_url_builder
@@ -101,9 +114,59 @@ class ServiceReportAssistService:
         except ValueError:
             return None
 
-    def _photo_sort_key(self, photo: Any) -> Tuple[int, datetime, str]:
-        """按拍摄时间升序；取不到时间的排最后（同组内仍按路径稳定排序）。"""
+    @staticmethod
+    def parse_watermark_time(raw: Any, timezone_name: str = "") -> Optional[datetime]:
+        """解析台账 watermark_at（ISO8601），还原为「本地墙上时间」的无时区 datetime。
+
+        watermark_at 存的是带偏移的 UTC/当地时间（例 2026-11-19T21:03:28+00:00），
+        照片水印显示的是按 timezone_name 换算后的本地时间（15:03:28 GMT-6）。
+        这里按同一时区还原，保证辅助填写拿到的 HH:MM 与照片上印的一致。
+        无偏移的历史值视为墙上时间，原样返回。
+        """
+        if not raw:
+            return None
+        if isinstance(raw, datetime):
+            value = raw
+        else:
+            text = str(raw).strip().replace("Z", "+00:00")
+            if not text:
+                return None
+            try:
+                value = datetime.fromisoformat(text)
+            except ValueError:
+                return None
+        if value.tzinfo is not None:
+            if timezone_name:
+                try:
+                    value = value.astimezone(ZoneInfo(timezone_name))
+                except (ZoneInfoNotFoundError, ValueError, TypeError):
+                    pass
+            value = value.replace(tzinfo=None)
+        return value
+
+    def resolve_photo_time(self, photo: Any) -> Tuple[Optional[datetime], Optional[str]]:
+        """单张照片的有效拍摄时间：台账调整后水印时间优先，回退 capture_time。
+
+        返回 (datetime, source)，source 为 'watermark' / 'capture_time' / None。
+        """
+        relative_path = getattr(photo, "relative_path", "") or ""
+        if self.photo_time_lookup is not None and relative_path:
+            try:
+                ledger = self.photo_time_lookup(relative_path) or {}
+            except Exception:
+                logger.exception("assist: photo time lookup failed for %s", relative_path)
+                ledger = {}
+            watermark = self.parse_watermark_time(
+                ledger.get("watermark_at"), ledger.get("timezone_name") or ""
+            )
+            if watermark is not None:
+                return watermark, "watermark"
         captured = self.parse_capture_time(photo)
+        return captured, ("capture_time" if captured is not None else None)
+
+    def _photo_sort_key(self, photo: Any) -> Tuple[int, datetime, str]:
+        """按调整后水印时间（回退拍摄时间）升序；取不到时间的排最后。"""
+        captured, _ = self.resolve_photo_time(photo)
         if captured is None:
             return (1, datetime.max, getattr(photo, "relative_path", "") or "")
         return (0, captured, getattr(photo, "relative_path", "") or "")
@@ -123,12 +186,15 @@ class ServiceReportAssistService:
 
     def _photo_payload(self, photo: Any) -> Dict[str, Any]:
         relative_path = getattr(photo, "relative_path", "") or ""
+        effective_time, time_source = self.resolve_photo_time(photo)
         payload: Dict[str, Any] = {
             "photo_id": getattr(photo, "photo_id", "") or "",
             "relative_path": relative_path,
             "file_name": relative_path.rpartition("/")[2],
-            "capture_time": getattr(photo, "capture_time", None),
-            "capture_time_source": getattr(photo, "capture_time_source", None),
+            # 预览里显示的时间 = 台账调整后水印时间优先，供用户核对。
+            "capture_time": effective_time.isoformat() if effective_time else None,
+            "capture_time_source": time_source,
+            "raw_capture_time": getattr(photo, "capture_time", None),
         }
         if self.photo_url_builder is not None:
             try:
@@ -183,7 +249,7 @@ class ServiceReportAssistService:
         for name in ("arrival", "departure", "self_check"):
             plan["photos"][name] = [self._photo_payload(p) for p in buckets[name]]
             plan["unknown_time_counts"][name] = sum(
-                1 for p in buckets[name] if self.parse_capture_time(p) is None
+                1 for p in buckets[name] if self.resolve_photo_time(p)[0] is None
             )
 
         site_photos = buckets["site"]
@@ -193,13 +259,18 @@ class ServiceReportAssistService:
         plan["site_truncated"] = len(site_photos) > len(selected)
         plan["photos"]["site"] = [self._photo_payload(p) for p in selected]
         plan["unknown_time_counts"]["site"] = sum(
-            1 for p in selected if self.parse_capture_time(p) is None
+            1 for p in selected if self.resolve_photo_time(p)[0] is None
         )
 
         arrival = self._earliest_with_time(buckets["arrival"])
         departure = self._latest_with_time(buckets["departure"])
         plan["arrival_time"] = self._hhmm(arrival)
         plan["departure_time"] = self._hhmm(departure)
+        # 时间来源随建议一起返回，便于前端提示"取的是调整后水印时间"
+        arrival_src = self._bucket_time_source(buckets["arrival"])
+        departure_src = self._bucket_time_source(buckets["departure"])
+        plan["arrival_time_source"] = arrival_src
+        plan["departure_time_source"] = departure_src
         if buckets["arrival"] and arrival is None:
             plan["warnings"].append("arrival_time_unknown")
         if buckets["departure"] and departure is None:
@@ -208,15 +279,28 @@ class ServiceReportAssistService:
         plan["status"] = "discovered"
         return plan
 
+    def _times_with_sources(self, photos: List[Any]) -> List[Tuple[datetime, str]]:
+        result = []
+        for photo in photos:
+            moment, source = self.resolve_photo_time(photo)
+            if moment is not None:
+                result.append((moment, source or "capture_time"))
+        return result
+
     def _earliest_with_time(self, photos: List[Any]) -> Optional[datetime]:
-        times = [self.parse_capture_time(p) for p in photos]
-        times = [t for t in times if t is not None]
-        return min(times) if times else None
+        entries = self._times_with_sources(photos)
+        return min((moment for moment, _ in entries)) if entries else None
 
     def _latest_with_time(self, photos: List[Any]) -> Optional[datetime]:
-        times = [self.parse_capture_time(p) for p in photos]
-        times = [t for t in times if t is not None]
-        return max(times) if times else None
+        entries = self._times_with_sources(photos)
+        return max((moment for moment, _ in entries)) if entries else None
+
+    def _bucket_time_source(self, photos: List[Any]) -> Optional[str]:
+        """该分组进出场时间实际采用的来源：水印优先，其次拍摄时间。"""
+        entries = self._times_with_sources(photos)
+        if not entries:
+            return None
+        return "watermark" if any(src == "watermark" for _, src in entries) else "capture_time"
 
     @staticmethod
     def _hhmm(value: Optional[datetime]) -> Optional[str]:

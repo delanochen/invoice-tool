@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """Service report worker rows: 0 miles / 0 hours are legal for self_drive and
-following (随行) modes. Empty or negative values remain invalid."""
+following (随行) modes. Negative values remain invalid.
+
+留空里程 / 交通时长现在会先尝试按 Google 路线自动回填；测试环境没有 Routes
+API key，回填失败按 0 落库，因此空值也能保存成功（并在工资生成前被拦截）。
+"""
 import importlib.util
 import shutil
 import tempfile
@@ -109,15 +113,15 @@ class ServiceReportZeroMileageTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(self._report_count(), 1)
 
-    def test_empty_miles_still_rejected(self):
+    def test_empty_miles_are_auto_filled_or_saved_as_zero(self):
         resp = self._submit("self_drive", "", 1)
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(self._report_count(), 0, "empty miles must stay invalid")
+        self.assertEqual(self._report_count(), 1, "空里程应自动回填，无路线时按 0 保存")
 
-    def test_empty_hours_still_rejected(self):
+    def test_empty_hours_are_auto_filled_or_saved_as_zero(self):
         resp = self._submit("self_drive", 10, "")
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(self._report_count(), 0, "empty hours must stay invalid")
+        self.assertEqual(self._report_count(), 1, "空时长应自动回填，无路线时按 0 保存")
 
     def test_negative_miles_still_rejected(self):
         resp = self._submit("self_drive", -5, 1)

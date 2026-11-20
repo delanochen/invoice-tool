@@ -21,8 +21,8 @@ def finish_report_save_token(token, report_id, *, db):
     )
 
 
-def service_report_workers(report_id, *, db):
-    return db().execute(
+def service_report_workers(report_id, *, db, mileage_waiver_reader=None):
+    rows = db().execute(
         """
         select users.id, users.name, users.email, service_report_workers.driving_miles,
                service_report_workers.travel_mode, service_report_workers.travel_hours,
@@ -35,6 +35,13 @@ def service_report_workers(report_id, *, db):
         """,
         (report_id,),
     ).fetchall()
+    if mileage_waiver_reader is None:
+        return rows
+    waived_ids = mileage_waiver_reader(report_id)
+    return [
+        dict(row, zero_mileage_confirmed=(int(row["id"]) in waived_ids))
+        for row in rows
+    ]
 
 
 def service_report_worker_options(order, report_id=None, *, db, g, is_external_employee):
@@ -148,7 +155,8 @@ def report_form_defaults(report=None, order=None, *, date):
     }
 
 
-def save_report_detail_rows(report_id, *, db, parse_part_rows, report_worker_rows_from_form):
+def save_report_detail_rows(report_id, *, db, parse_part_rows, report_worker_rows_from_form,
+                            mileage_waiver_writer=None):
     worker_rows = report_worker_rows_from_form()
     worker_ids = [row["worker_user_id"] for row in worker_rows]
     placeholders = ",".join("?" for _ in worker_ids)
@@ -198,6 +206,9 @@ def save_report_detail_rows(report_id, *, db, parse_part_rows, report_worker_row
                 worker["origin_address"], worker["trip_type"],
             ),
         )
+
+    if mileage_waiver_writer is not None:
+        mileage_waiver_writer(report_id, worker_rows)
 
     db().execute("delete from service_report_saved_parts where report_id = ?", (report_id,))
     for index, row in enumerate(parse_part_rows("saved", ["part_number", "part_name", "quantity", "status"])):
