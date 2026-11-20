@@ -287,9 +287,9 @@
     if (statusBarEl) {
       document.documentElement.style.setProperty('--erp-status-h', `${statusBarEl.offsetHeight}px`);
     }
-    const mobileOrderList = window.matchMedia('(max-width: 1024px)').matches
-      && app.querySelector('.service-orders-table');
-    if (app.classList.contains('erp-app--flow') || mobileOrderList) {
+    const mobileFlowPage = window.matchMedia('(max-width: 1024px)').matches
+      && (app.querySelector('.service-orders-table') || app.querySelector('.photo-query-table'));
+    if (app.classList.contains('erp-app--flow') || mobileFlowPage) {
       app.style.height = '';
       return;
     }

@@ -792,6 +792,35 @@
   }
 }
 
+/* 照片台账（手机端）：筛选字段多达 9 个、表格 17 列，固定外壳会把表格区压成一条，
+   外壳与面板又都是 overflow:hidden，内外都滚不动，照片行被挤出可视区看不到。
+   与工单清单一样回到文档流整页上下滚动，汇总栏/状态栏自然排在表格后面；
+   桌面端仍保持固定外壳 + 数据区内部滚动，不受此块影响。 */
+@media screen and (max-width: 1024px) {
+  .erp-app.photo-ledger-page {
+    display: block;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .erp-app.photo-ledger-page .erp-body,
+  .erp-app.photo-ledger-page .erp-body > .erp-panel.active {
+    overflow: visible;
+  }
+  .erp-app.photo-ledger-page > .erp-toolbar,
+  .erp-app.photo-ledger-page > .erp-summary,
+  .erp-app.photo-ledger-page > .erp-status {
+    position: static;
+  }
+  .erp-app.photo-ledger-page .erp-grid-wrap,
+  .erp-app.photo-ledger-page .system-grid {
+    flex: 0 0 auto;
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+  }
+}
+
 /* ---------------------------------------------------- WorkOrderDetailPanel */
 .erp-detail-backdrop {
   position: fixed;
