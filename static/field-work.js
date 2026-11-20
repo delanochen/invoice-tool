@@ -1524,7 +1524,7 @@
       filename_time:source === 'camera' ? photoFilenameTime(actual) : '',
       captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,timezone_name:timezoneName,
       latitude:skipsLocation ? 0 : position.latitude,longitude:skipsLocation ? 0 : position.longitude,accuracy:skipsLocation ? 100000 : position.accuracy,
-      location_verified:!skipsLocation,note:$('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
+      location_verified:!skipsLocation,note:afterWork ? '' : $('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
       ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || '',
       equipment_model:group.equipment_model || '', position_number:captureDevice?.position_number || group.position_number || '',
       container_number:captureDevice?.container_number || group.container_number || '', fault_note:group.fault || '',
@@ -2316,6 +2316,10 @@
     repairStartId = null;
     deviceSession = null;
     $('repairResultFields').hidden = !repair;
+    $('repairSummaryPosition').textContent = repair?.position_number || '—';
+    $('repairSummaryContainer').textContent = repair?.container_number || '—';
+    $('repairSummaryNumber').textContent = repair?.equipment_number || '—';
+    $('repairSummaryModel').textContent = repair?.equipment_model || '—';
     $('repairOriginalFault').textContent = repair?.fault || '无已记录故障';
     $('startRepair').disabled = Boolean(repair);
     $('scanRepairFault').disabled = Boolean(repair);

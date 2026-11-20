@@ -61,6 +61,12 @@
           </div>
           <div id="repairResultFields" class="repair-card" hidden>
             <p id="repairStage" class="muted" role="status"></p>
+            <dl id="repairDeviceSummary" class="repair-device-summary">
+              <div><dt>位置号</dt><dd id="repairSummaryPosition"></dd></div>
+              <div><dt>集装箱号</dt><dd id="repairSummaryContainer"></dd></div>
+              <div><dt>机组编号</dt><dd id="repairSummaryNumber"></dd></div>
+              <div><dt>设备型号</dt><dd id="repairSummaryModel"></dd></div>
+            </dl>
             <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
             <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000" aria-describedby="repairWorkHint" placeholder="本次做了什么"></textarea></label>
             <p id="repairWorkHint" class="muted">先填写工作内容，再拍摄或选择维修后照片。</p>
@@ -107,7 +113,7 @@
       </div>
       <div id="draftCard" class="card" hidden><div class="section-heading"><h2>待上传照片 <span id="queueCount">0</span></h2><div class="draft-actions"><button id="retryUpload" type="button">重试上传</button><button id="deleteAllDrafts" type="button" class="danger">全部删除</button></div></div><div id="queueList"></div></div>
       <details id="captureExtras" class="capture-extra">
-        <summary>备注 / 工作内容</summary>
+        <summary>照片备注</summary>
         <div id="deviceNoteSlot"><label id="captureNote"><textarea id="photoNote" aria-label="备注" rows="4" maxlength="1000" placeholder="例如：设备铭牌、维修前、维修后"></textarea></label></div>
       </details>
       <button id="completeBatch" class="primary complete-batch" type="button" hidden disabled>请先拍照或选择照片</button>
