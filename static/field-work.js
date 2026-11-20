@@ -2346,6 +2346,11 @@
       $('containerNumber').value = repair.container_number;
       $('noEquipmentNumber').checked = !repair.equipment_number;
       $('equipmentNumber').disabled = false;
+      // 接手别人未完成的维修时，施工员（维修人）默认用当前登录的新维修人；
+      // 用户如果已经主动选了其他施工员，则保留用户的选择。
+      if (repair.is_mine === false && (!$('technicianSelect').value || $('technicianSelect').value === String(repair.user_id))) {
+        $('technicianSelect').value = String(profile.user.id);
+      }
     }
   }
   function clearFaultPhotos() {
@@ -2418,7 +2423,9 @@
     if (chosenOrder()?.id !== order.id) return;
     pendingRepairRows = result.rows;
     for (const row of pendingRepairRows) {
-      $('pendingRepairs').add(new Option([row.position_number,row.equipment_number,row.container_number].filter(Boolean).join(' · ') || row.id.slice(0,8),row.id));
+      const label = [row.position_number,row.equipment_number,row.container_number].filter(Boolean).join(' · ') || row.id.slice(0,8);
+      const owner = row.is_mine === false && row.owner_name ? ` · ${fieldText('维修人员')} ${row.owner_name}` : '';
+      $('pendingRepairs').add(new Option(label + owner,row.id));
     }
     if (selected && pendingRepairRows.some(row => row.id === selected)) $('pendingRepairs').value = selected;
     else if (selected && activeRepair?.id === selected) { showRepair(null); resetDevice(); }

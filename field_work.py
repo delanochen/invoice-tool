@@ -1166,9 +1166,10 @@ def register_field_routes(app, api):
         if repair_phase:
             if photo_type != 'equipment' or repair_phase not in {'before', 'after'}:
                 return jsonify(error='维修拍摄阶段无效。'), 422
+            # 维修记录属于工单而不是某个账号：中途换人后，新维修人继续拍维修后照片。
             repair = api['db']().execute(
-                'select * from field_repairs where id = ? and order_id = ? and user_id = ?',
-                (equipment_session, order_id, g.user['id']),
+                'select * from field_repairs where id = ? and order_id = ?',
+                (equipment_session, order_id),
             ).fetchone()
             if not repair:
                 return jsonify(error='找不到对应维修记录。'), 404
@@ -1515,11 +1516,16 @@ def register_field_routes(app, api):
         connection = api['db']()
         user_id = g.user['id']
         if request.method == 'GET':
+            # 维修中途换人时，新维修人必须能看到该工单下所有未完成的维修记录，
+            # 所以这里只按工单过滤，不再按当前登录账号过滤。
             rows = connection.execute(
-                'select * from field_repairs where order_id = ? and user_id = ? and completed_date is null order by created_at desc',
-                (order_id, user_id),
+                """select field_repairs.*, users.name as owner_name
+                   from field_repairs join users on users.id = field_repairs.user_id
+                   where field_repairs.order_id = ? and field_repairs.completed_date is null
+                   order by field_repairs.created_at desc""",
+                (order_id,),
             ).fetchall()
-            return json_utf8({'rows': [dict(row) for row in rows]})
+            return json_utf8({'rows': [dict(row) | {'is_mine': row['user_id'] == user_id} for row in rows]})
 
         check_write()
         data = request.get_json(silent=True) or {}
@@ -1537,10 +1543,10 @@ def register_field_routes(app, api):
             row = connection.execute(
                 """update field_repairs set equipment_number = ?, equipment_model = ?, position_number = ?,
                    container_number = ?, fault = case when ? = '' then fault else ? end
-                   where id = ? and order_id = ? and user_id = ? and completed_date is null returning id""",
+                   where id = ? and order_id = ? and completed_date is null returning id""",
                 (value('equipment_number', 200), value('equipment_model', 200), value('position_number', 200),
                  value('container_number', 200).upper(), value('fault', FAULT_TEXT_LIMIT), value('fault', FAULT_TEXT_LIMIT),
-                 repair_id, order_id, user_id),
+                 repair_id, order_id),
             ).fetchone()
             if not row:
                 return jsonify(error='维修记录不存在或已完成。'), 409
@@ -1552,8 +1558,8 @@ def register_field_routes(app, api):
                 return jsonify(error='请填写本次工作内容。'), 422
             row = connection.execute(
                 """update field_repairs set work_content = ?
-                   where id = ? and order_id = ? and user_id = ? and completed_date is null returning id""",
-                (work, repair_id, order_id, user_id),
+                   where id = ? and order_id = ? and completed_date is null returning id""",
+                (work, repair_id, order_id),
             ).fetchone()
             if not row:
                 return jsonify(error='维修记录不存在或已完成。'), 409
@@ -1574,8 +1580,8 @@ def register_field_routes(app, api):
                 return jsonify(error='请先上传维修前照片，再完成本台维修。'), 422
             row = connection.execute(
                 """update field_repairs set work_content = ?, result = ?, completed_date = ?
-                   where id = ? and order_id = ? and user_id = ? and completed_date is null returning id""",
-                (work, value('result', 1000), dates.get('after') or dates['before'], repair_id, order_id, user_id),
+                   where id = ? and order_id = ? and completed_date is null returning id""",
+                (work, value('result', 1000), dates.get('after') or dates['before'], repair_id, order_id),
             ).fetchone()
             if not row:
                 return jsonify(error='维修记录不存在或已完成。'), 409
@@ -1597,8 +1603,8 @@ def register_field_routes(app, api):
                  value('container_number', 200).upper(), value('fault', FAULT_TEXT_LIMIT), api['now']()),
             ).fetchone()
             if not row and not connection.execute(
-                'select 1 from field_repairs where id = ? and order_id = ? and user_id = ? and completed_date is null',
-                (repair_id, order_id, user_id),
+                'select 1 from field_repairs where id = ? and order_id = ? and completed_date is null',
+                (repair_id, order_id),
             ).fetchone():
                 return jsonify(error='维修记录编号已使用。'), 409
         connection.commit()
