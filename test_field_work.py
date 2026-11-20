@@ -685,7 +685,7 @@ class FieldWorkTest(unittest.TestCase):
         same_day = self.http.get(f'/api/field/repairs/order/{self.fixture.order}',
                                  query_string={'date': day}).json
         self.assertEqual(same_day['count'], 1)
-        self.assertIn('位置号 POS-A', same_day['text'])
+        self.assertIn('①位置号： POS-A', same_day['text'])
         self.assertNotIn('POS-B', same_day['text'])
         bad_format = self.http.get(f'/api/field/repairs/order/{self.fixture.order}',
                                    query_string={'date': '09/11/2026'})

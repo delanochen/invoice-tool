@@ -799,7 +799,7 @@ def _merge_repair_entry(target, source):
     for field in ('equipment_number', 'container_number'):
         if not (target[field] or '').strip() and (source[field] or '').strip():
             target[field] = source[field].strip()
-    for field in ('equipment_model', 'work_content'):
+    for field in ('equipment_model', 'fault', 'work_content'):
         values = []
         for value in (target.get(field) or '', source.get(field) or ''):
             value = value.strip()
@@ -867,6 +867,7 @@ def group_repair_photos(photos):
         for field, value in (('position_number', position_number), ('container_number', container_number),
                              ('equipment_number', equipment_number),
                              ('equipment_model', photo.get('equipment_model') or ''),
+                             ('fault', photo.get('fault') or ''),
                              ('work_content', photo.get('work_content') or '')):
             if not (entry.get(field) or '').strip() and value.strip():
                 entry[field] = value.strip()
@@ -894,21 +895,19 @@ def group_repair_photos(photos):
 
 
 def repair_work_text(rows):
-    """把设备维修清单行拼成日报工作内容文本：一台设备一行，位置号 + 铭牌号 + 备注。"""
-    lines = []
-    for row in rows:
-        parts = []
-        if row.get('position_number'):
-            parts.append('位置号 ' + row['position_number'])
-        if row.get('equipment_number'):
-            parts.append('铭牌号 ' + row['equipment_number'])
-        if row.get('work_content'):
-            parts.append(row['work_content'])
-        if row.get('note'):
-            parts.append('备注 ' + row['note'])
-        if parts:
-            lines.append('，'.join(parts))
-    return '\n'.join(lines)
+    blocks = []
+    for index, row in enumerate(rows, 1):
+        position = ' '.join((row.get('position_number') or '').split())
+        equipment = ' '.join((row.get('equipment_number') or '').split())
+        details = [' '.join((row.get(key) or '').split()) for key in ('fault', 'work_content')]
+        description = '；'.join(filter(None, details))
+        number = chr(0x245F + index) if index <= 20 else f'{index}. '
+        blocks.append(
+            f'{number}位置号： {position}\n'
+            f'机组编号：{equipment}\n'
+            f'故障现象及处理：{description}'
+        )
+    return '\n\n'.join(blocks)
 
 
 def field_photo_filename(folder, position, stamp, fallback):
@@ -1823,7 +1822,7 @@ def register_field_routes(app, api):
             where_day = ' and coalesce(cast(r.completed_date as text), p.capture_date) = ?'
             day_params = [report_date]
         sql = '''
-            select p.*, r.equipment_model, r.work_content, r.completed_date, service_orders.order_number, users.name as employee_name
+            select p.*, r.equipment_model, r.fault, r.work_content, r.completed_date, service_orders.order_number, users.name as employee_name
             from field_photos p join service_orders on service_orders.id = p.order_id
             join users on users.id = p.user_id
             left join field_repairs r on r.id = p.equipment_session and r.order_id = p.order_id

@@ -246,7 +246,7 @@
 
     <label class="full">现场服务描述
       <button type="button" class="small read-repair-btn" data-read-repair data-order-id="{{ order.id }}"
-              title="自动读取该工单当天的设备维修清单：位置号 + 铭牌号 + 备注，多个设备换行追加到现场服务描述，已有内容不会被覆盖">自动读取工作日志</button>
+              title="自动读取该工单当天的设备维修清单：按设备追加位置号、机组编号、维修前故障和工作内容到现场服务描述，已有内容不会被覆盖">自动读取工作日志</button>
       <textarea name="service_description" rows="6" data-work-desc>{{ report.service_description or '' }}</textarea>
     </label>
 
