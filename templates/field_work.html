@@ -62,10 +62,11 @@
           <div id="repairResultFields" class="repair-card" hidden>
             <p id="repairStage" class="muted" role="status"></p>
             <div class="repair-original"><strong>原故障</strong><p id="repairOriginalFault"></p></div>
+            <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000" aria-describedby="repairWorkHint" placeholder="本次做了什么"></textarea></label>
+            <p id="repairWorkHint" class="muted">先填写工作内容，再拍摄或选择维修后照片。</p>
             <button id="repairAfterPhoto" class="repair-outline repair-wide" type="button">拍维修后照片（可选）</button>
             <span class="album-launch album-launch-wide"><button id="repairAlbumButton" class="repair-outline repair-wide" type="button">从相册选择</button></span>
             <label>复测结果或待处理事项<textarea id="repairResult" rows="2" maxlength="1000"></textarea></label>
-            <label>工作内容<textarea id="repairWork" rows="3" maxlength="2000" placeholder="本次做了什么"></textarea></label>
             <button id="completeRepair" class="primary repair-wide" type="button">完成本台维修</button>
             <button id="saveWorkLog" class="repair-outline repair-wide" type="button">暂存工作内容</button>
           </div>

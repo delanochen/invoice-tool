@@ -314,11 +314,19 @@ def _watermark_rows(fields):
         rows.append(("Location No.", str(fields["position_number"]).strip(), 1))
     if str(fields.get("container_number") or "").strip():
         rows.append(("Container No.", str(fields["container_number"]).strip(), 1))
-    if str(fields.get("fault_note") or "").strip():
-        rows.append(("Fault", str(fields["fault_note"]).strip(), 2))
     if photo_type == "equipment" and str(fields.get("pump_fuse_numbers") or "").strip():
         rows.append(("Pump Fuse", str(fields["pump_fuse_numbers"]).strip(), 1))
-    rows.append(("Type", type_label, 1))
+    phase = fields.get("repair_phase") if photo_type == "equipment" else ""
+    after_repair = phase == "after"
+    phase_label = {"before": "维修前", "after": "维修后"}.get(phase)
+    rows.append(("Type", phase_label or type_label, 1))
+    summary_key = "work_content" if after_repair else "fault_note"
+    summary = " ".join(str(fields.get(summary_key) or "").split())
+    if summary:
+        if phase_label and len(summary) > 20:
+            summary = summary[:20] + "…"
+        label = "工作内容" if after_repair else "故障" if phase_label else "Fault"
+        rows.append((label, summary, 2))
     rows.append(("Technician", technician, 2))
     rows.append(("Time", _local_time(fields.get("when") or fields.get("watermark_at") or fields.get("captured_at"),
                                      fields.get("timezone_name") or ""), 2))

@@ -1301,6 +1301,7 @@ def register_field_routes(app, api):
                         'position_number': position_number,
                         'pump_fuse_numbers': pump_fuse_numbers,
                         'fault_note': request.form.get('fault_note', '').strip()[:4000],
+                        'work_content': request.form.get('work_content', '').strip()[:2000],
                         'note': note,
                     })
                 except (OSError, ValueError, Image.DecompressionBombError):

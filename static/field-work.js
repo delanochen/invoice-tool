@@ -1114,10 +1114,7 @@
     if (!recognitionOnly && captureMode !== 'camera') return;
     ensureSession();
     if (!useSystemTime && !timeAuthorized) { notice('请先验证水印时间调整密码。',true); return; }
-    if (batch.type === 'equipment' && repairStage === 'after' && !activeRepair && !recognitionOnly) {
-      notice('请先按位置号选择维修记录。', true);
-      return;
-    }
+    if (batch.type === 'equipment' && repairStage === 'after' && !recognitionOnly && !requireAfterWork()) return;
     const selected = chosenOrder();
     if (!selected) { notice('请先在上方选择工单。',true); $('orderSelect').focus(); return; }
     const selection = {order:{...selected}, userId:profile.user.id};
@@ -1478,6 +1475,8 @@
     const resolved = chosenOrder();
     if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
     const selected = lockedSelection?.order || cameraSelection?.order || {...resolved};
+    const afterWork = batch?.type === 'equipment' && repairStage === 'after' ? requireAfterWork() : '';
+    if (afterWork === null) throw new Error('请先填写工作内容，再拍摄或选择维修后照片。');
     if (source === 'file' && lockedSelection?.watermarkSource === 'original') {
       if (!batch || lockedSelection.userId !== profile.user.id) throw new Error('照片功能尚未准备好，请稍后重试。');
       if (!UPLOAD_TYPES.includes(batch.type)) throw new Error('请先选择照片类型。');
@@ -1530,6 +1529,7 @@
       equipment_model:group.equipment_model || '', position_number:captureDevice?.position_number || group.position_number || '',
       container_number:captureDevice?.container_number || group.container_number || '', fault_note:group.fault || '',
       equipment_session:captureDevice?.id || captureBatchId, repair_phase:captureDevice?.repair_phase || '',
+      work_content:afterWork,
       no_equipment_number:captureDevice ? !!captureDevice.no_equipment_number : !group.equipment_number} : {})};
   }
   async function processedPhoto(source, context) {
@@ -2371,8 +2371,22 @@
   }
   $('repairBefore').addEventListener('click', () => { if (repairStage !== 'before' && selectRepairStage('before')) resetDevice(); });
   $('repairAfter').addEventListener('click', () => { if (repairStage !== 'after') selectRepairStage('after'); });
+  function requireAfterWork() {
+    if (!activeRepair) {
+      notice('请先按位置号选择维修记录。', true);
+      $('pendingRepairs').focus();
+      return null;
+    }
+    const input = $('repairWork');
+    const work = input.value.trim();
+    if (work) return work;
+    notice('请先填写工作内容，再拍摄或选择维修后照片。', true);
+    input.focus();
+    return null;
+  }
   function prepareAfterPhoto() {
     if (!activeRepair || taking || processingFiles || captureContext || syncing || ocrBusy) return false;
+    if (!requireAfterWork()) return false;
     activeRepair.repair_phase = 'after';
     if (deviceSession) deviceSession.repair_phase = 'after';
     $('repairStage').textContent = '当前拍摄：维修后';
@@ -2521,6 +2535,9 @@
   let albumDestination = '';
   function chooseAlbumWatermark(destination) {
     if (taking || ocrBusy || syncing || !identityReady || !profile?.can_capture) return;
+    if ((destination === 'repair' ||
+        (destination === 'general' && batch?.type === 'equipment' && repairStage === 'after')) &&
+        !requireAfterWork()) return;
     albumDestination = destination;
     for (const id of ['albumFileWithWatermark','albumFileWithoutWatermark']) {
       $(id).multiple = destination === 'general' || destination === 'repair';

@@ -55,14 +55,20 @@
     const title = wrap(ctx, context.site_name || 'Prasinos Power', innerWidth - logoSize - logoGap, 2);
     const headerHeight = pad * 1.65 + title.length * headerFont * 1.08 + companyFont * 1.28;
     ctx.font = `600 ${font}px ${FONT}`;
+    const phase = context.photo_type === 'equipment' ? context.repair_phase : '';
+    const repairAfter = phase === 'after';
+    const summary = String((repairAfter ? context.work_content : context.fault_note) || '').trim();
+    const chars = Array.from(summary.replace(/\s+/g, ' '));
+    const summaryText = phase && chars.length > 20 ? chars.slice(0, 20).join('') + '…' : chars.join('');
+    const type = repairAfter ? '维修后' : phase === 'before' ? '维修前' : context.photo_type_label || context.photo_type || '—';
     const rows = [
       ...(String(context.equipment_number || '').trim() ? [['Machine No.', String(context.equipment_number).trim(), 2]] : []),
       ...(String(context.equipment_model || '').trim() ? [['Model', String(context.equipment_model).trim(), 2]] : []),
       ...(String(context.position_number || '').trim() ? [['Location No.', String(context.position_number).trim(), 1]] : []),
       ...(String(context.container_number || '').trim() ? [['Container No.', String(context.container_number).trim(), 1]] : []),
-      ...(String(context.fault_note || '').trim() ? [['Fault', String(context.fault_note).trim(), 2]] : []),
       ...(context.photo_type === 'equipment' && context.pump_fuse_numbers ? [['Pump Fuse', context.pump_fuse_numbers, 1]] : []),
-      ['Type', context.photo_type_label || context.photo_type || '—', 1],
+      ['Type', type, 1],
+      ...(summaryText ? [[repairAfter ? '工作内容' : phase === 'before' ? '故障' : 'Fault', summaryText, 2]] : []),
       ['Technician', context.employee_name, 2],
       ['Time', localTime(context), 2],
       ['Address', context.site_address || context.site_name || '未填写地址', 3]
