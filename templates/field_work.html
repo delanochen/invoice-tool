@@ -12,7 +12,7 @@
   <script src="/static/grid-bootstrap.js?v={{ app_version }}"></script>
 </head>
 <body>
-<header class="fw-header"><img src="/static/logo.svg" alt=""><div><strong>Prasinos Power</strong><small>现场工作</small></div><span id="operatorName"></span><span id="networkStatus">正在连接</span></header>
+<header class="fw-header"><img src="/static/logo.svg" alt=""><div><strong>Prasinos Power</strong><small>现场工作</small></div><div class="fw-header-aside"><div class="fw-header-top"><span id="operatorName"></span><span id="networkStatus">正在连接</span></div><span id="headerVersion" class="fw-header-version"></span></div></header>
 <main>
   <div id="notice" role="status" aria-live="polite"></div>
   <section id="loginPanel" class="card" hidden><h1>使用员工账号登录</h1><p>照片自动归入现有系统的工单文件夹。</p><a class="primary button" href="/login?next=/field/">登录系统</a></section>

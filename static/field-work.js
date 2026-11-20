@@ -870,6 +870,7 @@
     $('workspace').hidden = false;
     $('operatorName').textContent = profile.user.name;
     $('profileName').textContent = profile.user.name;
+    $('headerVersion').textContent = profile.version ? 'V' + profile.version : '';
     const technicians = profile.technicians?.length ? profile.technicians : [profile.user];
     profile.technicians = technicians;
     const technicianId = $('technicianSelect').value || String(profile.user.id);

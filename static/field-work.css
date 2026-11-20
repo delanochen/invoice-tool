@@ -380,8 +380,12 @@ body.camera-active .capture-actions{display:none!important}
 }
 
 .fw-header { gap:8px; }
-.fw-header #operatorName { margin-left:auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:650; }
+.fw-header-aside { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:3px; min-width:0; }
+.fw-header-top { display:flex; align-items:center; gap:8px; min-width:0; }
+.fw-header #operatorName { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:650; }
 .fw-header #networkStatus { margin-left:0; flex-shrink:0; }
+.fw-header-version { font-size:11px; color:var(--muted); line-height:1; white-space:nowrap; }
+.fw-header-version:empty { display:none; }
 #albumWatermarkChoice .album-watermark-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
 #albumWatermarkChoice .album-watermark-options .button { margin:0; }
 #albumWatermarkChoice form { margin-top:10px; }
