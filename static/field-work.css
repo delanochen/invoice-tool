@@ -168,6 +168,8 @@ body[data-panel="camera"] { --green:#17634a; --ink:#15372b; --line:#c8d9d0; back
 .repair-card .repair-outline { border-color:#17634a; color:#17634a; background:#fff; font-weight:650; }
 .repair-card .repair-link,.repair-watermark .repair-link { border:0; background:transparent; color:#17634a; padding-inline:8px; }
 .repair-wide { width:100%; }
+.repair-after-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.repair-after-actions > .album-launch { min-width:0; }
 .repair-button-row { display:flex; gap:8px; align-items:stretch; }
 .repair-button-row > button, .repair-button-row > .album-launch { flex:1 1 0; min-width:0; }
 .repair-button-row > button, .repair-button-row .album-launch > button { width:100%; white-space:nowrap; }
