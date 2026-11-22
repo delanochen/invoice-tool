@@ -783,6 +783,25 @@ def _repair_rows_conflict(left, right):
     return False
 
 
+def _merge_text_sources(target, source):
+    """合并文字来源，保留每一条维修记录和每一张照片，供清单上分别编辑。"""
+    repairs = target.setdefault('repair_sources', {})
+    for repair_id, incoming in (source.get('repair_sources') or {}).items():
+        current = repairs.get(repair_id)
+        if current is None:
+            repairs[repair_id] = incoming
+            continue
+        for field in ('fault', 'work_content', 'result', 'equipment_number', 'position_number', 'container_number'):
+            if not (current.get(field) or '').strip() and (incoming.get(field) or '').strip():
+                current[field] = incoming[field]
+    notes = target.setdefault('note_sources', [])
+    seen = {item['photo_id'] for item in notes}
+    for item in source.get('note_sources') or []:
+        if item['photo_id'] not in seen:
+            notes.append(item)
+            seen.add(item['photo_id'])
+
+
 def _merge_repair_entry(target, source):
     """把 source 会话并进 target：计数相加、编号去重，空缺栏位用 source 的值补齐。"""
     target['photo_count'] += source['photo_count']
@@ -806,6 +825,7 @@ def _merge_repair_entry(target, source):
             if value and value.casefold() not in {item.casefold() for item in values}:
                 values.append(value)
         target[field] = ' / '.join(values)
+    _merge_text_sources(target, source)
 
 
 def merge_repair_rows_by_position(entries):
@@ -838,6 +858,8 @@ def group_repair_photos(photos):
     （维修前 / 维修后、重新拍铭牌、补拍柜号等）合成一行，空缺栏位用同位置的
     其它行补齐；铭牌号或柜号互相冲突时说明不是同一台设备，保持分开。
     没有会话号的老照片按铭牌号 + 位置号 + 柜号 + 维修人员归行。
+    每行同时记下文字来源：field_repairs 提供故障、工作内容和处理结果，
+    field_photos 提供备注和照片上的故障说明。
     """
     grouped = {}
     for photo in photos:
@@ -848,6 +870,9 @@ def group_repair_photos(photos):
         container_number = (photo['container_number'] or '').strip()
         repair_phase = photo.get('repair_phase')
         session = (photo['equipment_session'] or '').strip()
+        fault_value = (photo.get('fault') or photo.get('repair_fault') or '').strip()
+        work_value = (photo.get('work_content') or '').strip()
+        result_value = (photo.get('result') or photo.get('repair_result') or '').strip()
         if session:
             group_key = ('session', photo['order_id'], session, photo['capture_date'])
         elif equipment_number:
@@ -860,17 +885,41 @@ def group_repair_photos(photos):
         entry = grouped.setdefault(group_key, dict(
             order_number=photo['order_number'], date=photo['capture_date'], position_number=position_number,
             container_number=container_number, equipment_number=equipment_number,
-            equipment_model=photo.get('equipment_model') or '', work_content=photo.get('work_content') or '', pump_fuses=[],
+            equipment_model=photo.get('equipment_model') or '', work_content=work_value, pump_fuses=[],
             notes=[], technicians=[], photo_count=0, photo_ids=[], order_id=photo['order_id'],
+            repair_sources={}, note_sources=[],
         ))
         # 同一会话内先拍铭牌、后补位置号/柜号/型号时，用后面的值补齐空栏位。
         for field, value in (('position_number', position_number), ('container_number', container_number),
                              ('equipment_number', equipment_number),
                              ('equipment_model', photo.get('equipment_model') or ''),
-                             ('fault', photo.get('fault') or ''),
-                             ('work_content', photo.get('work_content') or '')):
+                             ('fault', fault_value),
+                             ('work_content', work_value)):
             if not (entry.get(field) or '').strip() and value.strip():
                 entry[field] = value.strip()
+        repair_id = str(photo.get('repair_id') or '').strip()
+        if repair_id:
+            source = entry['repair_sources'].get(repair_id)
+            incoming = {
+                'id': repair_id, 'order_id': photo['order_id'], 'fault': fault_value,
+                'work_content': work_value, 'result': result_value, 'equipment_number': equipment_number,
+                'position_number': position_number, 'container_number': container_number,
+            }
+            if source is None:
+                entry['repair_sources'][repair_id] = incoming
+            else:
+                for field, value in incoming.items():
+                    if field in {'id', 'order_id'}:
+                        continue
+                    if not (source.get(field) or '').strip() and (value or '').strip():
+                        source[field] = value
+        note_text = (photo.get('note') or '').strip()
+        fault_note = (photo.get('fault_note') or '').strip()
+        if note_text or fault_note:
+            entry['note_sources'].append({
+                'photo_id': photo['id'], 'note': note_text, 'fault_note': fault_note,
+                'repair_phase': (repair_phase or '').strip(),
+            })
         if repair_phase and photo.get('completed_date'):
             entry['date'] = str(photo['completed_date'])
         entry['photo_count'] += 1
@@ -890,8 +939,76 @@ def group_repair_photos(photos):
         entry['pump_fuse_numbers'] = '/'.join(pump_fuses)
         entry['note'] = ' / '.join(entry.pop('notes'))
         entry['technician'] = ' / '.join(entry.pop('technicians'))
+        sources = entry.get('repair_sources') or {}
+        entry['repair_sources'] = [sources[key] for key in sorted(sources)]
         rows.append(entry)
     return rows
+
+
+_REPAIR_PHASE_LABELS = {'before': '维修前', 'after': '维修后'}
+REPAIR_WORK_TEXT_LIMIT = 2000
+REPAIR_RESULT_TEXT_LIMIT = 1000
+PHOTO_NOTE_TEXT_LIMIT = 1000
+
+
+def _repair_phase_label(phase):
+    return _REPAIR_PHASE_LABELS.get((phase or '').strip(), '照片')
+
+
+def repair_text_form(row):
+    """把清单行拆成可分别保存的文字来源。
+
+    故障现象、工作内容、处理结果来自对应的 field_repairs。备注和照片故障说明
+    来自 field_photos。内容相同的照片合成一项，并写明会一起更新哪些照片。
+    """
+    repairs = []
+    for source in row.get('repair_sources') or []:
+        bits = [f"维修记录 {str(source.get('id') or '')[:8]}"]
+        if (source.get('position_number') or '').strip():
+            bits.append('位置 ' + source['position_number'].strip())
+        if (source.get('equipment_number') or '').strip():
+            bits.append('铭牌 ' + source['equipment_number'].strip())
+        repairs.append({
+            'id': source.get('id') or '',
+            'label': ' · '.join(bits),
+            'fault': source.get('fault') or '',
+            'work_content': source.get('work_content') or '',
+            'result': source.get('result') or '',
+        })
+
+    def grouped(field, title):
+        groups = []
+        index = {}
+        for source in row.get('note_sources') or []:
+            text = (source.get(field) or '').strip()
+            if not text:
+                continue
+            bucket = index.get(text)
+            if bucket is None:
+                bucket = {'photo_ids': [], 'labels': []}
+                bucket[field] = text
+                index[text] = bucket
+                groups.append(bucket)
+            if source['photo_id'] not in bucket['photo_ids']:
+                bucket['photo_ids'].append(source['photo_id'])
+                bucket['labels'].append(
+                    f"#{source['photo_id']}（{_repair_phase_label(source.get('repair_phase'))}）"
+                )
+        for bucket in groups:
+            bucket['label'] = f"{title} · 将同时更新照片 " + '、'.join(bucket['labels'])
+        return groups
+
+    title = ' · '.join(part for part in (
+        str(row.get('order_number') or '').strip(),
+        str(row.get('date') or '').strip(),
+        str(row.get('position_number') or '').strip(),
+    ) if part)
+    return {
+        'title': title,
+        'repairs': repairs,
+        'notes': grouped('note', '备注'),
+        'fault_notes': grouped('fault_note', '照片故障说明'),
+    }
 
 
 def repair_work_text(rows):
@@ -1024,7 +1141,9 @@ def register_field_routes(app, api):
                               or p.container_number like ? or p.pump_fuse_numbers like ? or p.note like ? or clients.name like ?)''')
             params.extend(['%' + q + '%'] * 10)
         return api['db']().execute('''
-            select p.*, r.equipment_model, r.work_content, r.completed_date, service_orders.order_number, service_orders.client_name as site_name, service_orders.site_address,
+            select p.*, r.id as repair_id, r.equipment_model, r.fault as repair_fault, r.work_content,
+                   r.result as repair_result, r.completed_date, service_orders.order_number,
+                   service_orders.client_name as site_name, service_orders.site_address,
                    users.name as employee_name, clients.name as customer_name
             from field_photos p join service_orders on service_orders.id = p.order_id
             left join field_repairs r on r.id = p.equipment_session and r.order_id = p.order_id
@@ -1786,24 +1905,195 @@ def register_field_routes(app, api):
             params['position_number'] = row['position_number']
         return params
 
+    def accessible_order_ids():
+        clauses, params = api['service_order_access_filters']()
+        return {row['id'] for row in api['db']().execute(
+            'select service_orders.id from service_orders where ' + (' and '.join(clauses) or '1=1'), params)}
+
     @app.get('/reports/field-repairs')
     @access
     def field_repair_report():
         rows = repair_table_rows()
         can_delete = api['has_action_permission']('service_reports', 'delete')
-        allowed_orders = set()
-        if can_delete:
-            clauses, params = api['service_order_access_filters']()
-            allowed_orders = {row['id'] for row in api['db']().execute(
-                'select service_orders.id from service_orders where ' + (' and '.join(clauses) or '1=1'), params)}
+        can_edit = api['has_action_permission']('service_reports', 'edit')
+        allowed_orders = accessible_order_ids() if can_delete or can_edit else set()
         signer = URLSafeTimedSerializer(app.secret_key, salt='delete-repair-photos')
+        editors = {}
         for row in rows:
             row['can_delete'] = can_delete and row['order_id'] in allowed_orders
+            form = repair_text_form(row)
+            editable = can_edit and row['order_id'] in allowed_orders and bool(
+                form['repairs'] or form['notes'] or form['fault_notes'])
+            row['edit_key'] = str(row['sequence']) if editable else ''
+            if editable:
+                editors[row['edit_key']] = form
             row['ledger_url'] = url_for('field_photo_query', **repair_ledger_params(row))
             if row['can_delete']:
                 row['delete_token'] = signer.dumps({'user': g.user['id'], 'ids': row['photo_ids']})
         return render_template('field_repair_report.html', rows=rows, photo_orders=photo_order_rows(),
-                               field_csrf=token(), can_delete_repairs=can_delete)
+                               field_csrf=token(), can_delete_repairs=can_delete, can_edit_repairs=can_edit,
+                               repair_editors=editors)
+
+    def _clean_repair_text(value, limit, label):
+        if not isinstance(value, str):
+            return None, f'{label}格式无效。'
+        text = value.strip()
+        if len(text) > limit:
+            return None, f'{label}不能超过 {limit} 个字。'
+        return text, None
+
+    def _audit_clip(value):
+        text = ' '.join(str(value or '').split()) or '（空）'
+        return text if len(text) <= 80 else text[:80] + '…'
+
+    @app.post('/api/field/repairs/text')
+    @access
+    def update_field_repair_text():
+        """修正设备维修清单上的故障、工作内容、处理结果和备注。
+
+        只改这些文字列。不改照片文件、水印、拍摄时间、位置号或集装箱号，也不删除记录。
+        权限与编辑工作日报相同（service_reports / edit），并沿用工单访问范围。
+        """
+        check_write()
+        if not api['has_action_permission']('service_reports', 'edit'):
+            abort(403)
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify(error='提交格式无效。'), 422
+        repairs = data.get('repairs') or []
+        notes = data.get('notes') or []
+        fault_notes = data.get('fault_notes') or []
+        if not isinstance(repairs, list) or not isinstance(notes, list) or not isinstance(fault_notes, list):
+            return jsonify(error='提交格式无效。'), 422
+        if not repairs and not notes and not fault_notes:
+            return jsonify(error='没有要保存的文字。'), 422
+        if len(repairs) > 50 or len(notes) + len(fault_notes) > 200:
+            return jsonify(error='一次修改的记录过多。'), 422
+        parsed_repairs = []
+        seen_repairs = set()
+        for item in repairs:
+            if not isinstance(item, dict):
+                return jsonify(error='维修记录格式无效。'), 422
+            repair_id = str(item.get('id') or '').strip()
+            if not re.fullmatch(r'[0-9a-f]{32}', repair_id):
+                return jsonify(error='维修记录编号无效。'), 422
+            if repair_id in seen_repairs:
+                return jsonify(error='同一条维修记录不能在一次提交里修改两次。'), 422
+            seen_repairs.add(repair_id)
+            fields = {}
+            for key, limit, label in (
+                ('fault', FAULT_TEXT_LIMIT, '故障现象'),
+                ('work_content', REPAIR_WORK_TEXT_LIMIT, '工作内容'),
+                ('result', REPAIR_RESULT_TEXT_LIMIT, '处理结果'),
+            ):
+                if key not in item:
+                    return jsonify(error='维修记录字段不完整。'), 422
+                text, error = _clean_repair_text(item.get(key), limit, label)
+                if error:
+                    return jsonify(error=error), 422
+                fields[key] = text
+            parsed_repairs.append((repair_id, fields))
+        photo_changes = {}
+
+        def take_photo_group(groups, column, limit, label):
+            for item in groups:
+                if not isinstance(item, dict) or column not in item or not isinstance(item.get('photo_ids'), list):
+                    return f'{label}格式无效。'
+                text, error = _clean_repair_text(item.get(column), limit, label)
+                if error:
+                    return error
+                if not item['photo_ids']:
+                    return f'{label}没有对应照片。'
+                for photo_id in item['photo_ids']:
+                    if type(photo_id) is not int or photo_id <= 0:
+                        return '照片编号无效。'
+                    change = photo_changes.setdefault(photo_id, {})
+                    if column in change:
+                        return '同一张照片不能在一次提交里修改两次。'
+                    change[column] = text
+            return None
+
+        error = take_photo_group(notes, 'note', PHOTO_NOTE_TEXT_LIMIT, '备注')
+        if error:
+            return jsonify(error=error), 422
+        error = take_photo_group(fault_notes, 'fault_note', FAULT_TEXT_LIMIT, '照片故障说明')
+        if error:
+            return jsonify(error=error), 422
+        db = api['db']()
+        loaded_repairs = []
+        for repair_id, fields in parsed_repairs:
+            row = db.execute(
+                '''select r.id, r.order_id, r.fault, r.work_content, r.result, r.position_number,
+                          r.container_number, r.equipment_number, r.completed_date, service_orders.order_number
+                   from field_repairs r join service_orders on service_orders.id = r.order_id
+                   where r.id = ?''',
+                (repair_id,),
+            ).fetchone()
+            if not row:
+                return jsonify(error='找不到维修记录，请刷新清单后重试。'), 404
+            loaded_repairs.append((row, fields))
+        loaded_photos = []
+        for photo_id, fields in photo_changes.items():
+            row = db.execute(
+                '''select p.id, p.order_id, p.note, p.fault_note, p.photo_type, p.position_number,
+                          p.container_number, p.captured_at, p.watermark_at, p.relative_path, p.content_hash,
+                          p.equipment_number, service_orders.order_number
+                   from field_photos p join service_orders on service_orders.id = p.order_id
+                   where p.id = ?''',
+                (photo_id,),
+            ).fetchone()
+            if not row:
+                return jsonify(error='找不到照片，请刷新清单后重试。'), 404
+            if row['photo_type'] != 'equipment':
+                return jsonify(error='只能修改设备照片上的文字。'), 422
+            loaded_photos.append((row, fields))
+        for order_id in {row['order_id'] for row, _fields in loaded_repairs + loaded_photos}:
+            api['require_service_order'](order_id)
+        changed = 0
+        try:
+            for row, fields in loaded_repairs:
+                previous = (row['fault'] or '', row['work_content'] or '', row['result'] or '')
+                updated = (fields['fault'], fields['work_content'], fields['result'])
+                if previous == updated:
+                    continue
+                db.execute(
+                    'update field_repairs set fault = ?, work_content = ?, result = ? where id = ?',
+                    (*updated, row['id']),
+                )
+                parts = []
+                for label, old, new in zip(('故障现象', '工作内容', '处理结果'), previous, updated):
+                    if old != new:
+                        parts.append(f'{label}：「{_audit_clip(old)}」改为「{_audit_clip(new)}」')
+                api['log_action']('update', 'field_repair', row['id'], row['order_number'], '；'.join(parts))
+                changed += 1
+            for row, fields in loaded_photos:
+                assignments = []
+                params = []
+                parts = []
+                for column, label in (('note', '备注'), ('fault_note', '照片故障说明')):
+                    if column not in fields:
+                        continue
+                    old = row[column] or ''
+                    new = fields[column]
+                    if old == new:
+                        continue
+                    assignments.append(f'{column} = ?')
+                    params.append(new)
+                    parts.append(f'{label}：「{_audit_clip(old)}」改为「{_audit_clip(new)}」')
+                if not assignments:
+                    continue
+                params.append(row['id'])
+                db.execute(
+                    f"update field_photos set {', '.join(assignments)} where id = ?",
+                    params,
+                )
+                api['log_action']('update', 'field_photo', row['id'], row['order_number'], '；'.join(parts))
+                changed += 1
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        return jsonify(ok=True, changed=changed)
 
     @app.get('/api/field/repairs/order/<int:order_id>')
     @access
