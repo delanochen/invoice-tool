@@ -41,13 +41,20 @@
 
   <div class="erp-body">
     <nav class="erp-tabs no-print">
-      {{ tab_button('info', '报价信息', true) }}
-      {{ tab_button('pricing', '定价汇总', false) }}
-      {{ tab_button('assumptions', '费率与假设', false) }}
-      {{ tab_button('payment', '付款与开票', false) }}
+      {% if layout == 'project' %}
+        {{ tab_button('info', '报价信息', true) }}
+        {{ tab_button('lines', '安装清单', false) }}
+        {{ tab_button('terms', '条款与合计', false) }}
+      {% else %}
+        {{ tab_button('info', '报价信息', true) }}
+        {{ tab_button('pricing', '定价汇总', false) }}
+        {{ tab_button('assumptions', '费率与假设', false) }}
+        {{ tab_button('payment', '付款与开票', false) }}
+      {% endif %}
     </nav>
 
     <form method="post" class="quotation-form" id="quotationForm" data-erp-form>
+      <input type="hidden" name="layout" value="{{ layout }}">
       <!-- Panel 1：报价信息 -->
       <section class="erp-panel active" data-erp-panel="info">
         <div class="erp-detail-scroll">
@@ -85,13 +92,76 @@
                 {% endfor %}
               </select>
             </label>
+            {% if layout == 'project' %}
+              <label class="erp-field">文档标题 <input name="document_title" value="{{ defaults.document_title or '报价单' }}" placeholder="报价单"></label>
+              <label class="erp-field">甲方 Party A <input name="party_a" value="{{ defaults.party_a or '' }}" placeholder="关联客户后可自动带出，可再修改"></label>
+              <label class="erp-field">乙方 Party B <input name="party_b" value="{{ defaults.party_b or 'Prasinos Power' }}"></label>
+            {% endif %}
           </div>
+          {% if layout == 'project' %}
+            <p class="unit">版式：按项目/安装清单。创建后不能改成按工时报价。</p>
+          {% else %}
+            <p class="unit">版式：按工时报价（Time &amp; Expense）。</p>
+          {% endif %}
           <label class="erp-field" style="margin-top:6px">备注
             <textarea name="notes" rows="3">{{ defaults.notes or '' }}</textarea>
           </label>
         </div>
       </section>
 
+      {% if layout == 'project' %}
+      <section class="erp-panel" data-erp-panel="lines">
+        <div class="erp-detail-scroll">
+          <h4 class="panel-title">安装清单</h4>
+          <p class="unit">数量和单价都填写时，金额按数量 × 单价自动计算；否则该行是总价包干，直接填写金额。两种行可以出现在同一张报价单里。</p>
+          <div class="system-grid">
+            <table class="pricing project-lines" id="projectLines">
+              <thead>
+                <tr>
+                  <th>序号</th><th>项目名称</th><th>工作范围</th><th>数量</th><th>单位</th><th>单价</th><th>金额</th><th>备注</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for line in project_lines %}
+                  {% include "quotation_project_line_row.html" %}
+                {% endfor %}
+                {% if not project_lines %}
+                  {% set line = {"section_name": "", "scope_of_work": "", "qty": "", "unit": "", "unit_custom": "", "unit_price": "", "line_total": "", "notes": ""} %}
+                  {% include "quotation_project_line_row.html" %}
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <template id="projectLineTemplate">
+            {% set line = {"section_name": "", "scope_of_work": "", "qty": "", "unit": "", "unit_custom": "", "unit_price": "", "line_total": "", "notes": ""} %}
+            {% include "quotation_project_line_row.html" %}
+          </template>
+          <p>
+            <button type="button" class="erp-btn" id="addProjectLine">添加一行</button>
+          </p>
+        </div>
+      </section>
+      <section class="erp-panel" data-erp-panel="terms">
+        <div class="erp-detail-scroll">
+          <h4 class="panel-title">页脚说明</h4>
+          <label class="erp-field">条款 / 免责声明
+            <textarea name="project_terms" rows="6" placeholder="此段文字会替换按工时模板里的 30 条标准条款。">{{ defaults.project_terms or '' }}</textarea>
+          </label>
+          <label class="check-row"><input type="checkbox" name="include_standard_clauses" value="1" {% if defaults.include_standard_clauses|string in ["1", "True", "true"] %}checked{% endif %}> 附上标准条款（30 条）</label>
+          <input type="hidden" name="pricing_type" value="estimated">
+          <input type="hidden" name="payment_terms" value="{{ defaults.payment_terms or 'net_30' }}">
+          <input type="hidden" name="invoice_frequency" value="{{ defaults.invoice_frequency or 'upon_completion' }}">
+          <div class="totals">
+            <span>行合计 <b id="subtotalText">$0.00</b></span>
+            <span>税 <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}"></span>
+            <span>折扣前总额 <b id="grossText">$0.00</b></span>
+            <span>折扣金额 <input type="number" step="0.01" min="0" name="discount_amount" id="discountInput" value="{{ defaults.discount_amount if defaults.discount_amount is not none else '' }}"></span>
+            <span>最终报价金额 <b id="finalText">$0.00</b></span>
+          </div>
+          <small>税和折扣沿用现有报价规则：最终金额 = 各行金额合计 + 税 − 折扣。</small>
+        </div>
+      </section>
+      {% else %}
       <!-- Panel 2：工作范围与定价汇总 -->
       <section class="erp-panel" data-erp-panel="pricing">
         <div class="erp-detail-scroll">
@@ -238,6 +308,7 @@
           </div>
         </div>
       </section>
+      {% endif %}
     </form>
   </div>
 
@@ -253,6 +324,7 @@
 <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 <script>
   (() => {
+    if (!document.getElementById("pricingType")) return;
     const money = (v) => "$" + (Number(v) || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const rows = Array.from(document.querySelectorAll("#pricingTable tbody tr"));
     const taxInput = document.getElementById("taxInput");
@@ -374,6 +446,107 @@
     const refreshTerms = () => { otherField.hidden = terms.value !== "other"; };
     terms.addEventListener("change", refreshTerms);
     refreshTerms();
+  })();
+  (() => {
+    const table = document.getElementById("projectLines");
+    if (!table) return;
+    const money = (v) => "$" + (Number(v) || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const body = table.querySelector("tbody");
+    const template = document.getElementById("projectLineTemplate");
+    const clientSelect = document.querySelector('select[name="client_id"]');
+    const partyA = document.querySelector('input[name="party_a"]');
+    const customer = document.querySelector('input[name="customer"]');
+    const clientNames = {
+      {% for client in clients %}
+      "{{ client.id }}": {{ client.name|tojson }},
+      {% endfor %}
+    };
+
+    const renumber = () => {
+      body.querySelectorAll("tr").forEach((row, index) => {
+        const cell = row.querySelector(".line-no");
+        if (cell) cell.textContent = String(index + 1);
+      });
+    };
+    const rowItemized = (row) => {
+      const qty = row.querySelector(".qty").value.trim();
+      const price = row.querySelector(".price").value.trim();
+      return qty !== "" && price !== "";
+    };
+    const recalc = () => {
+      let subtotal = 0;
+      body.querySelectorAll("tr").forEach((row) => {
+        const total = row.querySelector(".line-total");
+        const custom = row.querySelector(".unit-custom");
+        const unit = row.querySelector(".unit-select");
+        if (unit && custom) custom.hidden = unit.value !== "{{ custom_unit }}";
+        if (rowItemized(row)) {
+          const amount = (Number(row.querySelector(".qty").value) || 0) * (Number(row.querySelector(".price").value) || 0);
+          total.value = amount.toFixed(2);
+          total.readOnly = true;
+        } else {
+          total.readOnly = false;
+        }
+        subtotal += Number(total.value) || 0;
+      });
+      document.getElementById("subtotalText").textContent = money(subtotal);
+      const tax = Number(document.getElementById("taxInput").value) || 0;
+      const gross = subtotal + tax;
+      document.getElementById("grossText").textContent = money(gross);
+      const discountInput = document.getElementById("discountInput");
+      const discount = Number(discountInput.value) || 0;
+      document.getElementById("finalText").textContent = money(Math.max(0, gross - discount));
+      discountInput.setCustomValidity(discount > gross ? "折扣不能超过折扣前总额" : "");
+      renumber();
+    };
+    const bindRow = (row) => {
+      row.querySelectorAll("input, select, textarea").forEach((el) => {
+        el.addEventListener("input", recalc);
+        el.addEventListener("change", recalc);
+      });
+      row.querySelector(".remove-line").addEventListener("click", () => {
+        if (body.querySelectorAll("tr").length === 1) {
+          row.querySelectorAll("input, textarea").forEach((el) => { el.value = ""; });
+          const unit = row.querySelector(".unit-select");
+          if (unit) unit.value = "";
+        } else {
+          row.remove();
+        }
+        recalc();
+      });
+      row.querySelector(".move-up").addEventListener("click", () => {
+        const prev = row.previousElementSibling;
+        if (prev) body.insertBefore(row, prev);
+        recalc();
+      });
+      row.querySelector(".move-down").addEventListener("click", () => {
+        const next = row.nextElementSibling;
+        if (next) body.insertBefore(next, row);
+        recalc();
+      });
+    };
+    body.querySelectorAll("tr").forEach(bindRow);
+    document.getElementById("addProjectLine").addEventListener("click", () => {
+      const holder = document.createElement("tbody");
+      holder.innerHTML = template.innerHTML.trim();
+      const row = holder.querySelector("tr");
+      body.appendChild(row);
+      bindRow(row);
+      recalc();
+    });
+    document.getElementById("taxInput").addEventListener("input", recalc);
+    document.getElementById("discountInput").addEventListener("input", recalc);
+    if (clientSelect && partyA) {
+      const fillParty = () => {
+        const name = clientNames[clientSelect.value] || "";
+        if (name && !partyA.dataset.touched) partyA.value = name;
+        if (name && customer && !customer.value) customer.value = name;
+      };
+      partyA.addEventListener("input", () => { partyA.dataset.touched = "1"; });
+      clientSelect.addEventListener("change", fillParty);
+      if (!partyA.value) fillParty();
+    }
+    recalc();
   })();
 </script>
 {% endblock %}

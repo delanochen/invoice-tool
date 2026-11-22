@@ -682,8 +682,18 @@ def _draw_header_footer(canvas, doc):
     canvas.restoreState()
 
 
-def build_quotation_pdf(quote, path):
-    """Render a quotation row (dict) to a PDF file at ``path``."""
+def build_quotation_pdf(quote, path, language=None):
+    """Render a quotation row (dict) to a PDF file at ``path``.
+
+    ``language`` is only used by the project / installation-checklist layout.
+    Hourly quotes ignore it and keep the Time & Expense template.
+    """
+    layout = "hourly"
+    if hasattr(quote, "get"):
+        layout = str(quote.get("layout") or "hourly")
+    if layout == "project":
+        from invoice_tool.quotations.project_layout import build_project_quotation_pdf
+        return build_project_quotation_pdf(quote, path, language=language)
     styles = _styles()
 
     def parse_pricing_lines():

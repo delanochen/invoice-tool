@@ -58,6 +58,34 @@
 }
 .quotation-form .totals b { color: #163e36; }
 
+.layout-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  padding: 16px;
+}
+.layout-choices article {
+  border: 1px solid var(--erp-line, #b8ccc2);
+  background: #fff;
+  padding: 16px;
+}
+.layout-choices h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: #163e36;
+}
+.layout-choices p {
+  margin: 0 0 12px;
+  color: #3d4a46;
+  line-height: 1.45;
+}
+.project-lines td { vertical-align: top; }
+.project-lines input,
+.project-lines textarea,
+.project-lines select { width: 100%; box-sizing: border-box; }
+.project-line-actions { white-space: nowrap; }
+.project-lines .unit-custom { margin-top: 4px; }
+
 /* ── 报价单表单：与查看页一致的 4 个 Tab 面板 ──────────────────────────
    报价信息 / 定价汇总 / 费率与假设 / 付款与开票；面板内字段两列子网格。 */
 .erp-app .quotation-form {

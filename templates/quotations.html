@@ -60,7 +60,9 @@
           <tbody>
             {% for quotation in quotations %}
               <tr>
-                <td><a href="{{ url_for('quotation_detail', quotation_id=quotation.id) }}">{{ quotation.quotation_number }}</a></td>
+                <td><a href="{{ url_for('quotation_detail', quotation_id=quotation.id) }}">{{ quotation.quotation_number }}</a>
+                  <span class="erp-badge">{% if (quotation.layout or 'hourly') == 'project' %}按项目{% else %}按工时{% endif %}</span>
+                </td>
                 <td>{{ quotation.customer or quotation.client_name or "-" }}</td>
                 <td>{{ quotation.project_name or "-" }}</td>
                 <td>{{ quotation.quotation_date or "-" }}</td>
@@ -90,6 +92,7 @@
           <article class="erp-card">
             <div class="erp-card-head">
               <span class="erp-card-code">{{ quotation.quotation_number }}</span>
+              <span class="erp-badge">{% if (quotation.layout or 'hourly') == 'project' %}按项目{% else %}按工时{% endif %}</span>
               <span class="erp-card-customer">{{ quotation.customer or quotation.client_name or "-" }}</span>
             </div>
             <div class="erp-card-sub">

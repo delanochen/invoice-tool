@@ -1,0 +1,9 @@
+wqy-microhei.ttc is WenQuanYi Micro Hei (文泉驿微米黑), copyright 2007-2010
+WenQuanYi Project contributors and the upstream projects it incorporates.
+It is licensed under the Apache License 2.0, or alternatively under the
+GNU GPL v3 with the font embedding exception.
+
+The project-layout PDF prefers Noto Sans CJK when that font is installed,
+then this bundled face, so Chinese and English can be embedded together.
+Droid Sans Fallback is not bundled: with ReportLab its Latin letters are
+not encoded for extraction or reliable display.
