@@ -6,8 +6,8 @@ globals(), so this module never imports app.py.
 
 Endpoints:
     GET  /quotations                    list (q + status filters)
-    GET  /quotations/new                new form
-    POST /quotations/new                create
+    GET  /quotations/new                layout selector, then the form
+    POST /quotations/new                create (layout defaults to hourly)
     GET  /quotations/<id>               detail
     GET  /quotations/<id>/edit          edit form
     POST /quotations/<id>/edit          update
@@ -34,6 +34,20 @@ from .documents import (
     TRAVEL_EXPENSE_METHODS,
     build_quotation_pdf,
 )
+from .project_layout import (
+    CUSTOM_UNIT,
+    DEFAULT_DOCUMENT_TITLE,
+    DEFAULT_PARTY_B,
+    LAYOUT_PROJECT,
+    PROJECT_UNITS,
+    format_quantity,
+    line_form_state,
+    normalize_language,
+    normalize_layout,
+    parse_project_lines,
+    project_form_values,
+    quotation_layout_value,
+)
 from invoice_tool.commercial_billing import (
     CANONICAL_TO_LEGACY_QUOTATION_RATE_KEYS,
     COMMERCIAL_RATE_LABELS,
@@ -59,7 +73,8 @@ _QUOTATION_COLUMNS = (
     "rate_schedule, crew_size, workdays, hours_per_day, expected_start_date, "
     "expected_completion, normal_working_hours, customer_provides, assumptions_other, "
     "payment_terms, payment_terms_other, quotation_validity, invoice_frequency, "
-    "pricing_type, tax_note, notes, travel_expenses"
+    "pricing_type, tax_note, notes, travel_expenses, layout, document_title, "
+    "party_a, party_b, project_terms, include_standard_clauses"
 )
 # created_by / created_at / updated_at 由后端补充，不属于表单。
 _FORM_COLUMNS = _QUOTATION_COLUMNS
@@ -217,6 +232,13 @@ def quotation_form_values(api, quotation=None):
     def field(name, default=""):
         return str(form.get(name, default)).strip()
 
+    if quotation is not None:
+        layout = quotation_layout_value(quotation)
+    else:
+        layout = normalize_layout(field("layout", "hourly"))
+    if layout == LAYOUT_PROJECT:
+        return project_form_values(form)
+
     pricing_type = field("pricing_type", "estimated") or "estimated"
     if pricing_type == "fixed":
         # 总价合同（Fixed Price）：不逐行填报，直接给合同总价；
@@ -343,10 +365,33 @@ def quotation_form_values(api, quotation=None):
         "tax_note": field("tax_note", "Excluded unless stated") or "Excluded unless stated",
         "notes": field("notes"),
         "travel_expenses": json.dumps(travel_expenses, ensure_ascii=False),
+        "layout": "hourly",
+        "document_title": "",
+        "party_a": "",
+        "party_b": "",
+        "project_terms": "",
+        "include_standard_clauses": 0,
     }
 
 
-def quotation_has_business_changes(quotation, values):
+def _line_signature(lines):
+    payload = []
+    for line in lines or []:
+        qty = line.get("qty")
+        price = line.get("unit_price")
+        payload.append({
+            "section_name": line.get("section_name") or "",
+            "scope_of_work": line.get("scope_of_work") or "",
+            "qty": "" if qty in (None, "") else format_quantity(qty),
+            "unit": line.get("unit") or "",
+            "unit_price": "" if price in (None, "") else format_quantity(price),
+            "line_total": f"{Decimal(str(line.get('line_total') or 0)):.2f}",
+            "notes": line.get("notes") or "",
+        })
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def quotation_has_business_changes(quotation, values, project_lines=None, stored_lines=None):
     """Return True only when persisted quotation business data actually changes."""
     for column in (item.strip() for item in _FORM_COLUMNS.split(",")):
         old = quotation[column] if column in quotation.keys() else None
@@ -360,10 +405,13 @@ def quotation_has_business_changes(quotation, values):
                 pass
         if (old if old is not None else "") != (new if new is not None else ""):
             return True
+    if project_lines is not None or stored_lines is not None:
+        if _line_signature(project_lines) != _line_signature(stored_lines):
+            return True
     return False
 
 
-def create_quotation_revision(api, quotation_id, values):
+def create_quotation_revision(api, quotation_id, values, project_lines=None):
     """Append an immutable commercial snapshot after each create/edit.
 
     Work orders reference the quotation itself and therefore see its current
@@ -380,6 +428,8 @@ def create_quotation_revision(api, quotation_id, values):
     for column in (item.strip() for item in _QUOTATION_COLUMNS.split(",")):
         value = values.get(column)
         snapshot[column] = str(value) if isinstance(value, Decimal) else value
+    if project_lines is not None:
+        snapshot["project_lines"] = json.loads(_line_signature(project_lines))
     cursor = connection.execute(
         """
         insert into quotation_revisions (
@@ -459,7 +509,49 @@ def _quotation_or_404(api, quotation_id):
     return quotation
 
 
-def _render_form(api, quotation, clients, form_title, defaults=None, errors=None):
+def load_project_lines(api, quotation_id):
+    rows = api["db"]().execute(
+        """
+        select section_name, scope_of_work, qty, unit, unit_price, line_total, notes
+        from quotation_project_lines
+        where quotation_id = ?
+        order by sort_order, id
+        """,
+        (quotation_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def replace_project_lines(api, quotation_id, lines):
+    api["db"]().execute(
+        "delete from quotation_project_lines where quotation_id = ?",
+        (quotation_id,),
+    )
+    for index, line in enumerate(lines or [], start=1):
+        qty = line.get("qty")
+        price = line.get("unit_price")
+        api["db"]().execute(
+            """
+            insert into quotation_project_lines (
+                quotation_id, sort_order, section_name, scope_of_work,
+                qty, unit, unit_price, line_total, notes
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                quotation_id,
+                index,
+                line.get("section_name") or "",
+                line.get("scope_of_work") or "",
+                None if qty in (None, "") else Decimal(str(qty)),
+                line.get("unit") or "",
+                None if price in (None, "") else Decimal(str(price)),
+                Decimal(str(line.get("line_total") or 0)).quantize(Decimal("0.01")),
+                line.get("notes") or "",
+            ),
+        )
+
+
+def _render_form(api, quotation, clients, form_title, defaults=None, errors=None, project_lines=None):
     if defaults is None:
         defaults = dict(quotation) if quotation else {}
     pricing = {}
@@ -514,6 +606,10 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         settlement_mode_labels=SETTLEMENT_MODE_LABELS,
         form_title=form_title,
         errors=errors or [],
+        layout=normalize_layout((defaults or {}).get("layout") or quotation_layout_value(quotation)),
+        project_lines=project_lines or [],
+        project_units=PROJECT_UNITS,
+        custom_unit=CUSTOM_UNIT,
     )
 
 
@@ -532,9 +628,11 @@ def register_quotation_routes(app, api):
         if q:
             clauses.append(
                 "(quotations.quotation_number like ? or quotations.customer like ? "
-                "or quotations.project_name like ? or quotations.contact like ?)"
+                "or quotations.project_name like ? or quotations.contact like ? "
+                "or quotations.party_a like ? or quotations.party_b like ? "
+                "or quotations.document_title like ?)"
             )
-            params.extend([f"%{q}%"] * 4)
+            params.extend([f"%{q}%"] * 7)
         if status in QUOTATION_STATUS_LABELS:
             clauses.append("quotations.status = ?")
             params.append(status)
@@ -589,16 +687,22 @@ def register_quotation_routes(app, api):
     def new_quotation():
         if not api["has_action_permission"]("quotations", "create"):
             abort(403)
+        if request.method == "GET" and normalize_layout(request.args.get("layout"), default="") == "":
+            return render_template("quotation_layout_select.html")
         clients = api["db"]().execute(
             "select * from clients order by client_number, name"
         ).fetchall()
         if request.method == "POST":
             values = quotation_form_values(api)
+            project_lines = values.pop("_project_lines", None)
             if not values["quotation_number"]:
                 values["quotation_number"] = next_quotation_number(api)
             if not values["quotation_date"]:
                 flash("请填写报价日期。", "error")
-                return _render_form(api, None, clients, "新建报价单", defaults=request.form, errors=["报价日期必填"])
+                return _render_form(
+                    api, None, clients, "新建报价单", defaults=request.form,
+                    errors=["报价日期必填"], project_lines=[line_form_state(line) for line in (project_lines or [])],
+                )
             columns = [column.strip() for column in _FORM_COLUMNS.split(",")]
             values.update({
                 "created_by": api["g"].user["id"],
@@ -615,7 +719,12 @@ def register_quotation_routes(app, api):
                 + (values["created_by"], values["created_at"], values["updated_at"]),
             )
             quotation_id = cursor.lastrowid
-            create_quotation_revision(api, quotation_id, values)
+            if values["layout"] == LAYOUT_PROJECT:
+                replace_project_lines(api, quotation_id, project_lines or [])
+            create_quotation_revision(
+                api, quotation_id, values,
+                project_lines if values["layout"] == LAYOUT_PROJECT else None,
+            )
             # 商务单据父行：报价单统一绑定到父表（工单用 commercial_document_id 关联）
             ensure_commercial_document(
                 api["db"](), "quotation", quotation_id,
@@ -637,7 +746,8 @@ def register_quotation_routes(app, api):
             api["db"]().commit()
             flash("报价单已创建。", "success")
             return redirect(api["url_for"]("quotation_detail", quotation_id=quotation_id))
-        defaults = dict(request.form) if request.method == "POST" else {
+        layout = normalize_layout(request.args.get("layout"))
+        defaults = {
             "quotation_number": next_quotation_number(api),
             "quotation_date": str(date.today()),
             "valid_until": str(date.today() + timedelta(days=30)),
@@ -646,7 +756,11 @@ def register_quotation_routes(app, api):
             "payment_terms": "net_30",
             "invoice_frequency": "upon_completion",
             "pricing_type": "estimated",
+            "layout": layout,
         }
+        if layout == LAYOUT_PROJECT:
+            defaults["document_title"] = DEFAULT_DOCUMENT_TITLE
+            defaults["party_b"] = DEFAULT_PARTY_B
         return _render_form(api, None, clients, "新建报价单", defaults=defaults)
 
     @app.get("/quotations/<int:quotation_id>")
@@ -662,6 +776,11 @@ def register_quotation_routes(app, api):
                 view[target] = json.loads(raw) if isinstance(raw, str) and raw.strip() else (raw or [])
             except (ValueError, TypeError):
                 view[target] = []
+        view["layout"] = quotation_layout_value(quotation)
+        view["project_lines"] = (
+            [line_form_state(line) for line in load_project_lines(api, quotation_id)]
+            if view["layout"] == LAYOUT_PROJECT else []
+        )
         return render_template(
             "quotation_detail.html",
             quotation=view,
@@ -684,11 +803,18 @@ def register_quotation_routes(app, api):
         ).fetchall()
         if request.method == "POST":
             values = quotation_form_values(api, quotation)
+            project_lines = values.pop("_project_lines", None)
             if not values["quotation_number"] or not values["quotation_date"]:
                 flash("请填写报价单编号和报价日期。", "error")
-                return _render_form(api, quotation, clients, "编辑报价单", defaults=request.form, errors=["编号与日期必填"])
+                return _render_form(
+                    api, quotation, clients, "编辑报价单", defaults=request.form,
+                    errors=["编号与日期必填"],
+                    project_lines=[line_form_state(line) for line in (project_lines or [])],
+                )
             columns = [column.strip() for column in _FORM_COLUMNS.split(",")]
-            if not quotation_has_business_changes(quotation, values):
+            stored_lines = load_project_lines(api, quotation_id) if values["layout"] == LAYOUT_PROJECT else None
+            compared_lines = project_lines if values["layout"] == LAYOUT_PROJECT else None
+            if not quotation_has_business_changes(quotation, values, compared_lines, stored_lines):
                 flash("No quotation changes detected; revision unchanged.", "success")
                 return redirect(api["url_for"]("quotation_detail", quotation_id=quotation_id))
             api["db"]().execute(
@@ -697,7 +823,12 @@ def register_quotation_routes(app, api):
                 """,
                 (tuple(values[column] for column in columns) + (api["now"](), quotation_id)),
             )
-            revision_id = create_quotation_revision(api, quotation_id, values)
+            if values["layout"] == LAYOUT_PROJECT:
+                replace_project_lines(api, quotation_id, project_lines or [])
+            revision_id = create_quotation_revision(
+                api, quotation_id, values,
+                project_lines if values["layout"] == LAYOUT_PROJECT else None,
+            )
             # 同步父行自驾/结算方式（编辑后工单结算按最新配置取价）
             update_document_config(
                 api["db"](), "quotation", quotation_id,
@@ -731,7 +862,10 @@ def register_quotation_routes(app, api):
             flash("报价单已更新。", "success")
             return redirect(api["url_for"]("quotation_detail", quotation_id=quotation_id))
         defaults = dict(quotation)
-        return _render_form(api, quotation, clients, "编辑报价单", defaults=defaults)
+        stored_lines = []
+        if quotation_layout_value(quotation) == LAYOUT_PROJECT:
+            stored_lines = [line_form_state(line) for line in load_project_lines(api, quotation_id)]
+        return _render_form(api, quotation, clients, "编辑报价单", defaults=defaults, project_lines=stored_lines)
 
     @app.post("/quotations/<int:quotation_id>/delete")
     @login_required
@@ -779,9 +913,18 @@ def register_quotation_routes(app, api):
         values["status"] = "draft"
         # 价格/费率复制自原单；折扣沿用原单（三金额后台统一重算一次）
         values["pricing_lines"] = source_dict.get("pricing_lines") or "[]"
-        values["rate_schedule"] = _canonical_rate_schedule_json(
-            source_dict.get("rate_schedule") or "[]"
-        )
+        values["layout"] = normalize_layout(source_dict.get("layout"))
+        try:
+            values["include_standard_clauses"] = 1 if int(source_dict.get("include_standard_clauses") or 0) else 0
+        except (TypeError, ValueError):
+            values["include_standard_clauses"] = 0
+        if values["layout"] == LAYOUT_PROJECT:
+            values["rate_schedule"] = source_dict.get("rate_schedule") or "[]"
+            values["pricing_type"] = "estimated"
+        else:
+            values["rate_schedule"] = _canonical_rate_schedule_json(
+                source_dict.get("rate_schedule") or "[]"
+            )
         values["subtotal"] = source_dict.get("subtotal") or 0
         values["tax"] = source_dict.get("tax") or 0
         values["total"] = source_dict.get("total") or 0
@@ -808,7 +951,11 @@ def register_quotation_routes(app, api):
             + (values["created_by"], values["created_at"], values["updated_at"]),
         )
         new_id = cursor.lastrowid
-        create_quotation_revision(api, new_id, values)
+        copied_lines = None
+        if values["layout"] == LAYOUT_PROJECT:
+            copied_lines = load_project_lines(api, quotation_id)
+            replace_project_lines(api, new_id, copied_lines)
+        create_quotation_revision(api, new_id, values, copied_lines)
         ensure_commercial_document(
             api["db"](), "quotation", new_id,
             client_id=values["client_id"],
@@ -838,8 +985,13 @@ def register_quotation_routes(app, api):
         quotation = _quotation_or_404(api, quotation_id)
         from io import BytesIO
 
+        quote = dict(quotation)
+        language = None
+        if quotation_layout_value(quotation) == LAYOUT_PROJECT:
+            quote["project_lines"] = load_project_lines(api, quotation_id)
+            language = normalize_language(request.args.get("lang"))
         buffer = BytesIO()
-        build_quotation_pdf(dict(quotation), buffer)
+        build_quotation_pdf(quote, buffer, language=language)
         buffer.seek(0)
         response = send_file(
             buffer,

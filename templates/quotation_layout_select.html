@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}新建报价单 - 发票工具{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='quotations.css', v=app_version) }}">
+{% endblock %}
+{% block content %}
+<div class="erp-app">
+  <header class="erp-toolbar no-print">
+    <div class="erp-toolbar-title">
+      新建报价单
+      <small>先选择版式。已有的按工时报价不会改变。</small>
+    </div>
+    <span class="erp-toolbar-spacer"></span>
+    <div class="erp-toolbar-group">
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('quotations') }}'">返回列表</button>
+    </div>
+  </header>
+  <div class="erp-body">
+    <section class="erp-panel active">
+      <div class="layout-choices">
+        <article>
+          <h2>按工时报价</h2>
+          <p>现有的 Time &amp; Expense Quote Template v2。固定费率类别，金额 = 数量 × 费率，并附 30 条标准条款。</p>
+          <a class="erp-btn primary" href="{{ url_for('new_quotation', layout='hourly') }}">使用按工时报价</a>
+        </article>
+        <article>
+          <h2>按项目/安装清单</h2>
+          <p>自由添加、删除和调整行。数量 × 单价与总价包干可以写在同一张报价单上。标题、甲方、乙方和页脚说明都可以改。</p>
+          <a class="erp-btn primary" href="{{ url_for('new_quotation', layout='project') }}">使用按项目/安装清单</a>
+        </article>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

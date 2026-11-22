@@ -18,13 +18,22 @@
       <small>{{ quotation.customer or quotation.client_name or "-" }} · {{ quotation.project_name or "-" }}</small>
     </div>
     <span class="status {{ quotation.status }}">{{ status_labels[quotation.status] }}</span>
+    <span class="erp-badge">{% if (quotation.layout or 'hourly') == 'project' %}按项目/安装清单{% else %}按工时报价{% endif %}</span>
     <span class="erp-badge">修订 v{{ quotation.current_revision_no or 0 }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('quotations') }}'">返回列表</button>
-      <button type="button" class="erp-btn primary" onclick="window.open('{{ url_for('quotation_pdf', quotation_id=quotation.id) }}', '_blank')">导出 PDF</button>
+      {% if (quotation.layout or 'hourly') == 'project' %}
+        <a class="erp-btn primary" href="{{ url_for('quotation_pdf', quotation_id=quotation.id, lang='zh') }}" target="_blank">中文 PDF</a>
+        <a class="erp-btn" href="{{ url_for('quotation_pdf', quotation_id=quotation.id, lang='en') }}" target="_blank">English PDF</a>
+      {% else %}
+        <button type="button" class="erp-btn primary" onclick="window.open('{{ url_for('quotation_pdf', quotation_id=quotation.id) }}', '_blank')">导出 PDF</button>
+      {% endif %}
       {% if can_manage_quotations() %}
         <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('edit_quotation', quotation_id=quotation.id) }}'">编辑报价单</button>
+        <form method="post" action="{{ url_for('copy_quotation', quotation_id=quotation.id) }}" style="display:inline;">
+          <button class="erp-btn" type="submit">复制为草稿</button>
+        </form>
         <form method="post" action="{{ url_for('delete_quotation', quotation_id=quotation.id) }}" style="display:inline;"
               onsubmit="return confirm(window.uiTranslate('确定删除这份报价单吗？已被工单引用的报价单不能删除。'));">
           <button class="erp-btn danger" type="submit">删除报价单</button>
@@ -36,11 +45,75 @@
   <!-- ──────────────────────────────── TabWorkspace ──────────────────────── -->
   <div class="erp-body">
     <nav class="erp-tabs no-print">
-      {{ tab_button('info', '报价信息', true) }}
-      {{ tab_button('pricing', '定价汇总', false) }}
-      {{ tab_button('assumptions', '费率与假设', false) }}
-      {{ tab_button('payment', '付款与开票', false) }}
+      {% if (quotation.layout or 'hourly') == 'project' %}
+        {{ tab_button('info', '报价信息', true) }}
+        {{ tab_button('lines', '安装清单', false) }}
+        {{ tab_button('terms', '条款', false) }}
+      {% else %}
+        {{ tab_button('info', '报价信息', true) }}
+        {{ tab_button('pricing', '定价汇总', false) }}
+        {{ tab_button('assumptions', '费率与假设', false) }}
+        {{ tab_button('payment', '付款与开票', false) }}
+      {% endif %}
     </nav>
+    {% if (quotation.layout or 'hourly') == 'project' %}
+    <section class="erp-panel active" data-erp-panel="info">
+      <div class="erp-detail-scroll">
+        <div class="detail-grid">
+          <p><strong>文档标题</strong><span>{{ quotation.document_title or '报价单' }}</span></p>
+          <p><strong>甲方</strong><span>{{ quotation.party_a or quotation.customer or '-' }}</span></p>
+          <p><strong>乙方</strong><span>{{ quotation.party_b or 'Prasinos Power' }}</span></p>
+          <p><strong>报价日期</strong><span>{{ quotation.quotation_date or '-' }}</span></p>
+          <p><strong>有效期至</strong><span>{{ quotation.valid_until or '-' }}</span></p>
+          <p><strong>货币</strong><span>{{ quotation.currency or 'USD' }}</span></p>
+          <p><strong>客户</strong><span>{{ quotation.customer or quotation.client_name or '-' }}</span></p>
+          <p><strong>项目名称</strong><span>{{ quotation.project_name or '-' }}</span></p>
+          <p><strong>最终报价</strong><span>{{ quotation.final_amount|money(quotation.currency) }}</span></p>
+        </div>
+      </div>
+    </section>
+    <section class="erp-panel" data-erp-panel="lines">
+      <div class="erp-detail-scroll">
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid" data-grid-height="auto">
+            <thead>
+              <tr><th>序号</th><th>项目名称</th><th>工作范围</th><th>数量</th><th>单位</th><th>单价</th><th>金额</th><th>备注</th></tr>
+            </thead>
+            <tbody>
+              {% for line in quotation.project_lines %}
+                <tr>
+                  <td>{{ loop.index }}</td>
+                  <td>{{ line.section_name or '-' }}</td>
+                  <td class="pre-line">{{ line.scope_of_work or '-' }}</td>
+                  <td>{{ line.qty or '—' }}</td>
+                  <td>{{ line.display_unit or '—' }}</td>
+                  <td>{% if line.lump_sum %}总价包干{% elif line.unit_price %}{{ line.unit_price }}{% else %}—{% endif %}</td>
+                  <td class="num">{{ line.line_total|money(quotation.currency) }}</td>
+                  <td class="pre-line">{{ line.notes or '' }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="8" class="empty">还没有清单行。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="detail-grid">
+          <p><strong>行合计</strong><span>{{ quotation.subtotal|money(quotation.currency) }}</span></p>
+          <p><strong>税</strong><span>{{ quotation.tax|money(quotation.currency) }}</span></p>
+          <p><strong>折扣</strong><span>{{ quotation.discount_amount|money(quotation.currency) }}</span></p>
+          <p><strong>最终报价</strong><span>{{ quotation.final_amount|money(quotation.currency) }}</span></p>
+        </div>
+      </div>
+    </section>
+    <section class="erp-panel" data-erp-panel="terms">
+      <div class="erp-detail-scroll">
+        <div class="detail-grid">
+          <p class="full-span"><strong>页脚说明</strong><span class="pre-line">{{ quotation.project_terms or '（未填写，PDF 不附 30 条标准条款）' }}</span></p>
+          <p><strong>标准条款</strong><span>{% if quotation.include_standard_clauses|string in ['1', 'True', 'true'] %}附在页脚说明之后{% else %}不附带{% endif %}</span></p>
+        </div>
+      </div>
+    </section>
+    {% else %}
 
     <!-- Panel 1：报价信息 -->
     <section class="erp-panel active" data-erp-panel="info">
@@ -171,6 +244,7 @@
         </div>
       </div>
     </section>
+    {% endif %}
   </div>
 
   <!-- ───────────────────────────────── SummaryBar ───────────────────────── -->

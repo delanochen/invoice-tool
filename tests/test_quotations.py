@@ -12,6 +12,7 @@ Covers:
 import json
 import unittest
 from io import BytesIO
+from pathlib import Path
 
 import tests_pg
 
@@ -34,6 +35,21 @@ def _login(client, email, password):
     )
 
 
+def _apply_sql_script(conn, text):
+    """Run a migration file of semicolon-terminated statements. Idempotent."""
+    statement = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("--"):
+            continue
+        statement.append(line)
+        if stripped.endswith(";"):
+            conn.execute("\n".join(statement))
+            statement.clear()
+    if statement:
+        conn.execute("\n".join(statement))
+
+
 def _quotation_form(client_a_id):
     return {
         "quotation_number": "",
@@ -53,7 +69,7 @@ def _quotation_form(client_a_id):
         "scope_1": "Inverter diagnostics and firmware updates",
         "scope_2": "Replacement of failed cooling fans (12 units)",
         "scope_3": "",
-        "pricing_qty_regular_labor": "40",
+        "pricing_qty_regular_hours": "40",
         "pricing_rate_regular_labor": "120",
         "pricing_amount_regular_labor": "",
         "pricing_qty_mileage": "650",
@@ -93,6 +109,12 @@ class TestQuotations(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        conn = tests_pg.connection()
+        try:
+            migration = Path(__file__).resolve().parents[1] / "migrations" / "postgresql" / "0323-quotation-project-layout.sql"
+            _apply_sql_script(conn, migration.read_text(encoding="utf-8"))
+        finally:
+            conn.close()
         conn = tests_pg.connection()
         try:
             admin_id = conn.execute(
@@ -199,12 +221,13 @@ class TestQuotations(unittest.TestCase):
         self._login_admin()
         row = self._create_quotation()
         self.assertTrue(row["quotation_number"].startswith("QT"))
+        self.assertEqual(row["layout"], "hourly")
         # 40 * 120 = 4800；650 * 0.67 = 435.50 → subtotal 5235.50
         self.assertEqual(float(row["subtotal"]), 5235.50)
         self.assertEqual(float(row["total"]), 5235.50)
         lines = json.loads(row["pricing_lines"])
         by_key = {line["key"]: line for line in lines}
-        self.assertEqual(by_key["regular_labor"]["amount"], "4800.00")
+        self.assertEqual(by_key["regular_hours"]["amount"], "4800.00")
         self.assertEqual(by_key["mileage"]["amount"], "435.50")
         rate_schedule = json.loads(row["rate_schedule"])
         rate_by_key = {line["key"]: line for line in rate_schedule}
@@ -254,8 +277,8 @@ class TestQuotations(unittest.TestCase):
         data = _quotation_form(self.client_a_id)
         data["quotation_number"] = row["quotation_number"]
         data["customer"] = "Sunfield Solar LLC (updated)"
-        data["pricing_qty_overtime_labor"] = "8"
-        data["pricing_rate_overtime_labor"] = "180"
+        data["pricing_qty_overtime_hours"] = "8"
+        data["rate_overtime_labor"] = "180"
         response = self.client.post(f"/quotations/{row['id']}/edit", data=data)
         self.assertEqual(response.status_code, 302)
         with _db() as db:
@@ -451,6 +474,91 @@ class TestQuotations(unittest.TestCase):
                 (row["id"],),
             ).fetchone()["count"]
         self.assertEqual(alive, 1)
+
+    def test_new_quotation_asks_which_layout(self):
+        self._login_admin()
+        response = self.client.get("/quotations/new")
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("按工时报价", html)
+        self.assertIn("按项目/安装清单", html)
+        self.assertNotIn("pricing_qty_regular_labor", html)
+        hourly = self.client.get("/quotations/new?layout=hourly")
+        self.assertIn("pricing_qty_regular_labor", hourly.get_data(as_text=True))
+        project = self.client.get("/quotations/new?layout=project")
+        project_html = project.get_data(as_text=True)
+        self.assertIn("安装清单", project_html)
+        self.assertIn("甲方", project_html)
+        self.assertNotIn("pricing_qty_regular_labor", project_html)
+
+    def test_project_layout_example_pdf_and_copy(self):
+        self._login_admin()
+        long_note = "系统调试与冷却液加注，含泄漏检查及24小时观察。"
+        response = self.client.post("/quotations/new", data={
+            "layout": "project",
+            "quotation_date": "2026-11-22",
+            "valid_until": "2026-12-22",
+            "customer": "bitdeer",
+            "party_a": "bitdeer",
+            "party_b": "WAN MEP LLC",
+            "document_title": "Appendix I: Installation Checklist",
+            "currency": "USD",
+            "project_terms": "Footer disclaimer 页脚说明",
+            "project_section": [
+                "Machine deployment, machine cooling pipe installation",
+                "Cardboard box recycling",
+                "System commissioning, coolant injection",
+            ],
+            "project_scope": ["pipes", "boxes", "commissioning"],
+            "project_qty": ["2000", "2000", ""],
+            "project_unit": ["台", "项", ""],
+            "project_unit_custom": ["", "", ""],
+            "project_unit_price": ["14", "3", ""],
+            "project_line_total": ["1", "1", "16000"],
+            "project_notes": ["Completed in one week", "", long_note],
+            "tax": "0",
+            "discount_amount": "0",
+        })
+        self.assertEqual(response.status_code, 302)
+        with _db() as db:
+            row = db.execute("select * from quotations order by id desc limit 1").fetchone()
+            lines = db.execute(
+                "select * from quotation_project_lines where quotation_id = ? order by sort_order",
+                (row["id"],),
+            ).fetchall()
+        self.assertEqual(row["layout"], "project")
+        self.assertEqual(row["party_b"], "WAN MEP LLC")
+        self.assertEqual(float(row["subtotal"]), 50000.0)
+        self.assertEqual(float(row["final_amount"]), 50000.0)
+        self.assertEqual(float(lines[0]["line_total"]), 28000.0)
+        self.assertEqual(float(lines[1]["line_total"]), 6000.0)
+        self.assertEqual(float(lines[2]["line_total"]), 16000.0)
+        self.assertIsNone(lines[2]["qty"])
+        detail = self.client.get(f"/quotations/{row['id']}")
+        detail_html = detail.get_data(as_text=True)
+        self.assertIn("中文 PDF", detail_html)
+        self.assertIn("English PDF", detail_html)
+        self.assertIn("按项目/安装清单", detail_html)
+        for language in ("zh", "en"):
+            pdf = self.client.get(f"/quotations/{row['id']}/pdf?lang={language}")
+            self.assertEqual(pdf.status_code, 200)
+            self.assertTrue(pdf.get_data().startswith(b"%PDF"))
+        listing = self.client.get("/quotations")
+        self.assertIn("按项目", listing.get_data(as_text=True))
+        copied = self.client.post(f"/quotations/{row['id']}/copy")
+        self.assertEqual(copied.status_code, 302)
+        with _db() as db:
+            copy = db.execute("select * from quotations order by id desc limit 1").fetchone()
+            copy_count = db.execute(
+                "select count(*) from quotation_project_lines where quotation_id = ?",
+                (copy["id"],),
+            ).fetchone()[0]
+        self.assertEqual(copy["layout"], "project")
+        self.assertNotEqual(copy["id"], row["id"])
+        self.assertEqual(copy["party_a"], "bitdeer")
+        self.assertEqual(copy_count, 3)
+        self.assertEqual(float(copy["final_amount"]), 50000.0)
+        self.assertEqual(row["layout"], "project")
 
 
 if __name__ == "__main__":
