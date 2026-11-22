@@ -1,4 +1,6 @@
 import hashlib
+import json
+import re
 import tempfile
 import unittest
 import uuid
@@ -581,6 +583,238 @@ class FieldWorkTest(unittest.TestCase):
         ])
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['work_content'], '更换保险 / 紧固接头')
+
+    def test_repair_text_form_keeps_merged_sources_separate(self):
+        # 同一位置号的两条维修记录合成一行时，编辑表单仍按来源分别列出。
+        # 内容相同的照片备注合成一项，并写明会一起更新哪些照片。
+        repair_a = 'a' * 32
+        repair_b = 'b' * 32
+        sentence = '检测故障。暂时没有可替换保险丝。需要购买保险丝后再替换。'
+
+        def photo(**fields):
+            row = dict(id=0, order_id=7, order_number='SO2611005', capture_date='2026-11-20',
+                       position_number='1B3-1', container_number='BOX1', equipment_number='NAME-1',
+                       equipment_model='LCI-400CR', work_content='', fault='', result='',
+                       pump_fuse_numbers='', note='', fault_note='', technician_name='Tech',
+                       employee_name='Tech', repair_phase='', equipment_session='', completed_date='',
+                       repair_id='')
+            row.update(fields)
+            return row
+
+        rows = field_work.group_repair_photos([
+            photo(id=11, equipment_session=repair_a, repair_id=repair_a, repair_phase='before',
+                  fault='保险丝熔断', work_content=sentence, result='待更换', note='旧备注',
+                  fault_note='屏幕故障说明'),
+            photo(id=12, equipment_session=repair_a, repair_id=repair_a, repair_phase='after',
+                  fault='保险丝熔断', work_content=sentence, result='待更换', note='旧备注'),
+            photo(id=21, equipment_session=repair_b, repair_id=repair_b, repair_phase='before',
+                  position_number='1B3-1', fault='接头松动', work_content='紧固接头', result='已完成',
+                  note='另一条备注'),
+        ])
+        self.assertEqual(len(rows), 1)
+        self.assertIn(sentence, rows[0]['work_content'])
+        self.assertIn('紧固接头', rows[0]['work_content'])
+        form = field_work.repair_text_form(rows[0])
+        self.assertEqual(form['title'], 'SO2611005 · 2026-11-20 · 1B3-1')
+        self.assertEqual([item['id'] for item in form['repairs']], [repair_a, repair_b])
+        self.assertEqual(form['repairs'][0]['work_content'], sentence)
+        self.assertEqual(form['repairs'][0]['fault'], '保险丝熔断')
+        self.assertEqual(form['repairs'][0]['result'], '待更换')
+        self.assertEqual(form['repairs'][1]['work_content'], '紧固接头')
+        self.assertNotIn(' / ', form['repairs'][0]['work_content'])
+        self.assertEqual(form['notes'][0]['photo_ids'], [11, 12])
+        self.assertIn('#11（维修前）', form['notes'][0]['label'])
+        self.assertIn('#12（维修后）', form['notes'][0]['label'])
+        self.assertEqual(form['notes'][1]['photo_ids'], [21])
+        self.assertEqual(form['fault_notes'][0]['photo_ids'], [11])
+        self.assertEqual(form['fault_notes'][0]['fault_note'], '屏幕故障说明')
+
+    def _repair_with_photos(self, repair_id, position, work, note, result='待更换', fault='保险丝熔断', fault_note=''):
+        created = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={'id': repair_id, 'equipment_number': 'NAME-1', 'equipment_model': 'LCI-400CR',
+                  'position_number': position, 'container_number': 'BOX1', 'fault': fault,
+                  'no_equipment_number': False},
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        before = self.upload(equipment_number='NAME-1', position_number=position, container_number='BOX1',
+                             equipment_session=repair_id, repair_phase='before', photo_type='equipment', note=note)
+        self.assertEqual(before.status_code, 200, before.text)
+        after = self.upload(equipment_number='NAME-1', position_number=position, container_number='BOX1',
+                            equipment_session=repair_id, repair_phase='after', photo_type='equipment', note=note,
+                            fault_note=fault_note)
+        self.assertEqual(after.status_code, 200, after.text)
+        completed = self.http.post(
+            f'/api/field/orders/{self.fixture.order}/repair-records',
+            json={'id': repair_id, 'action': 'complete', 'work_content': work, 'result': result},
+            headers={'X-Field-Token': self.csrf},
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        return before.json['id'], after.json['id']
+
+    def test_ledger_text_edit_updates_source_records_only(self):
+        sentence = '检测故障。暂时没有可替换保险丝。需要购买保险丝后再替换。'
+        repair_a = uuid.uuid4().hex
+        repair_b = uuid.uuid4().hex
+        photos_a = self._repair_with_photos(repair_a, '1B3-1', sentence, '旧备注', result='待更换', fault_note='屏幕故障说明')
+        photos_b = self._repair_with_photos(repair_b, '1B3-1', '紧固接头', '另一条备注', result='已完成', fault='接头松动')
+        with self.module.app.app_context():
+            before_rows = {
+                row['id']: dict(row) for row in self.module.db().execute(
+                    '''select id, note, fault_note, position_number, container_number, equipment_number,
+                              captured_at, watermark_at, relative_path, content_hash, photo_type
+                       from field_photos order by id'''
+                )
+            }
+            repair_before = dict(self.module.db().execute(
+                '''select fault, work_content, result, position_number, container_number, equipment_number, completed_date
+                   from field_repairs where id = ?''',
+                (repair_a,),
+            ).fetchone())
+        page = self.http.get('/reports/field-repairs', query_string={'order_id': self.fixture.order})
+        self.assertEqual(page.status_code, 200)
+        body = page.get_data(as_text=True)
+        self.assertIn('data-repair-edit', body)
+        self.assertIn(sentence, body)
+        self.fixture.login('Manager')
+        manager_csrf = self.http.get('/api/field/session').json['csrf']
+        page = self.http.get('/reports/field-repairs', query_string={'order_id': self.fixture.order})
+        body = page.get_data(as_text=True)
+        self.assertIn(sentence, body)
+        match = re.search(r'<script type="application/json" id="repairEditors">(.*?)</script>', body)
+        self.assertIsNotNone(match)
+        editors = json.loads(match.group(1))
+        form = next(item for item in editors.values() if sentence in {repair['work_content'] for repair in item['repairs']})
+        self.assertEqual({repair['id'] for repair in form['repairs']}, {repair_a, repair_b})
+        note_group = next(item for item in form['notes'] if item['note'] == '旧备注')
+        self.assertCountEqual(note_group['photo_ids'], list(photos_a))
+        too_long = self.http.post(
+            '/api/field/repairs/text',
+            json={'repairs': [{'id': repair_a, 'fault': '保险丝熔断', 'work_content': '超' * 2001, 'result': '待更换'}]},
+            headers={'X-Field-Token': manager_csrf},
+        )
+        self.assertEqual(too_long.status_code, 422)
+        with self.module.app.app_context():
+            unchanged = self.module.db().execute(
+                'select work_content from field_repairs where id = ?', (repair_a,),
+            ).fetchone()
+        self.assertEqual(unchanged['work_content'], sentence)
+        edited = []
+        for repair in form['repairs']:
+            if repair['id'] == repair_a:
+                edited.append({
+                    'id': repair_a,
+                    'fault': '保险丝已更换',
+                    'work_content': '已购买保险丝并完成更换。',
+                    'result': '已更换',
+                    'position_number': 'SHOULD-NOT-STICK',
+                    'container_number': 'SHOULD-NOT-STICK',
+                })
+            else:
+                edited.append(repair)
+        saved = self.http.post(
+            '/api/field/repairs/text',
+            json={
+                'repairs': edited,
+                'notes': [{'photo_ids': note_group['photo_ids'], 'note': '保险丝已更换。'}],
+                'fault_notes': [{'photo_ids': [photos_a[1]], 'fault_note': '屏幕已恢复'}],
+            },
+            headers={'X-Field-Token': manager_csrf},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertGreaterEqual(saved.json['changed'], 2)
+        with self.module.app.app_context():
+            repair = self.module.db().execute(
+                '''select fault, work_content, result, position_number, container_number, equipment_number, completed_date
+                   from field_repairs where id = ?''',
+                (repair_a,),
+            ).fetchone()
+            other = self.module.db().execute(
+                'select fault, work_content, result from field_repairs where id = ?', (repair_b,),
+            ).fetchone()
+            photos = {
+                row['id']: dict(row) for row in self.module.db().execute(
+                    '''select id, note, fault_note, position_number, container_number, equipment_number,
+                              captured_at, watermark_at, relative_path, content_hash, photo_type
+                       from field_photos'''
+                )
+            }
+            logs = self.module.db().execute(
+                '''select user_name, action, entity_type, entity_id, summary, created_at
+                   from audit_logs where action = 'update' and entity_type in ('field_repair', 'field_photo')
+                   order by id'''
+            ).fetchall()
+        self.assertEqual(repair['work_content'], '已购买保险丝并完成更换。')
+        self.assertEqual(repair['fault'], '保险丝已更换')
+        self.assertEqual(repair['result'], '已更换')
+        self.assertEqual(repair['position_number'], repair_before['position_number'])
+        self.assertEqual(repair['container_number'], repair_before['container_number'])
+        self.assertEqual(repair['equipment_number'], repair_before['equipment_number'])
+        self.assertEqual(str(repair['completed_date']), str(repair_before['completed_date']))
+        self.assertEqual(other['work_content'], '紧固接头')
+        self.assertEqual(other['fault'], '接头松动')
+        self.assertEqual(other['result'], '已完成')
+        for photo_id in photos_a:
+            current = photos[photo_id]
+            original = before_rows[photo_id]
+            self.assertEqual(current['note'], '保险丝已更换。')
+            for column in ('position_number', 'container_number', 'equipment_number', 'captured_at',
+                           'watermark_at', 'relative_path', 'content_hash', 'photo_type'):
+                self.assertEqual(current[column], original[column])
+        self.assertEqual(photos[photos_a[1]]['fault_note'], '屏幕已恢复')
+        self.assertEqual(photos[photos_a[0]]['fault_note'], before_rows[photos_a[0]]['fault_note'])
+        for photo_id in photos_b:
+            self.assertEqual(photos[photo_id]['note'], '另一条备注')
+            self.assertEqual(photos[photo_id]['content_hash'], before_rows[photo_id]['content_hash'])
+        self.assertTrue(logs)
+        self.assertTrue(all(row['user_name'] == 'Manager' and row['created_at'] for row in logs))
+        self.assertIn('field_repair', {row['entity_type'] for row in logs})
+        self.assertIn(repair_a, {row['entity_id'] for row in logs})
+        self.assertTrue(any('已购买保险丝并完成更换' in (row['summary'] or '') for row in logs))
+        refreshed = self.http.get('/reports/field-repairs', query_string={'order_id': self.fixture.order})
+        refreshed_body = refreshed.get_data(as_text=True)
+        self.assertIn('已购买保险丝并完成更换。', refreshed_body)
+        self.assertIn('保险丝已更换。', refreshed_body)
+        self.assertIn('紧固接头', refreshed_body)
+        self.assertNotIn(sentence, refreshed_body)
+        self.assertNotIn('旧备注', refreshed_body)
+        read_back = self.http.get(
+            f'/api/field/repairs/order/{self.fixture.order}',
+            query_string={'date': str(repair_before['completed_date'])},
+        )
+        self.assertEqual(read_back.status_code, 200, read_back.text)
+        self.assertIn('保险丝已更换', read_back.json['text'])
+        self.assertIn('已购买保险丝并完成更换。', read_back.json['text'])
+        self.assertNotIn(sentence, read_back.json['text'])
+        missing = self.http.post('/api/field/repairs/text', json={'repairs': [{
+            'id': repair_a, 'fault': '保险丝已更换', 'work_content': '已购买保险丝并完成更换。', 'result': '已更换',
+        }]}, headers={'X-Field-Token': 'not-the-token'})
+        self.assertEqual(missing.status_code, 403)
+        with self.module.app.app_context():
+            viewer = self.module.db().execute(
+                '''insert into users (name,email,password_hash,role,is_active,created_at)
+                   values (?,?,?,?,?,?)''',
+                ('Viewer', 'viewer@test.invalid', 'unused', 'external_manager', 1, self.module.now()),
+            ).lastrowid
+            self.module.db().commit()
+        self.fixture.people['Viewer'] = viewer
+        self.fixture.login('Viewer')
+        viewer_page = self.http.get('/reports/field-repairs', query_string={'order_id': self.fixture.order})
+        self.assertEqual(viewer_page.status_code, 200)
+        self.assertNotIn('data-repair-edit', viewer_page.get_data(as_text=True))
+        viewer_csrf = self.http.get('/api/field/session').json['csrf']
+        denied = self.http.post(
+            '/api/field/repairs/text',
+            json={'repairs': [{'id': repair_a, 'fault': '不该写上', 'work_content': '不该写上', 'result': '不该写上'}]},
+            headers={'X-Field-Token': viewer_csrf},
+        )
+        self.assertEqual(denied.status_code, 403)
+        with self.module.app.app_context():
+            untouched = self.module.db().execute(
+                'select fault, work_content, result from field_repairs where id = ?', (repair_a,),
+            ).fetchone()
+        self.assertEqual(untouched['work_content'], '已购买保险丝并完成更换。')
 
     def test_public_shell_has_no_employee_data_and_manifest_exists(self):
         with self.http.session_transaction() as session:
