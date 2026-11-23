@@ -43,6 +43,8 @@ from invoice_tool.quotations.documents import (
     _draw_prasinos_quotation_header,
     _esc,
     _money,
+    _payment_grid,
+    _section,
     _signature_table as _hourly_signature_table,
     _pdf_styles as _hourly_pdf_styles,
     _terms_block,
@@ -380,7 +382,8 @@ def project_form_values(form):
         "normal_working_hours": _form_get(form, "normal_working_hours"),
         "customer_provides": ",".join(provides),
         "assumptions_other": _form_get(form, "assumptions_other"),
-        "payment_terms": _form_get(form, "payment_terms", "net_30") or "net_30",
+        "payment_terms": "net_45" if _form_get(form, "payment_terms") == "net_45" else "net_30",
+        "advance_payment_percent": advance_payment_percent,
         "payment_terms_other": _form_get(form, "payment_terms_other"),
         "quotation_validity": _form_get(form, "quotation_validity", "30 calendar days") or "30 calendar days",
         "invoice_frequency": _form_get(form, "invoice_frequency", "upon_completion") or "upon_completion",
@@ -445,6 +448,8 @@ def line_form_state(line):
         custom = unit
     qty = line.get("qty")
     price = line.get("unit_price")
+    submitted_advance = _form_get(form, "advance_payment_percent")
+    advance_payment_percent = int(submitted_advance) if submitted_advance in ("30", "50") else 0
     return {
         "section_name": line.get("section_name") or "",
         "scope_of_work": line.get("scope_of_work") or "",
@@ -705,10 +710,12 @@ def build_project_quotation_pdf(quote, path, language=None):
         pdf_language(), quote.get("project_terms"), quote.get("project_terms_zh"), quote.get("project_terms_en"),
     )
     title = project_document_title(quote, language)
+    hourly_styles = _hourly_pdf_styles()
+    payment = [_section(L("payment"), hourly_styles, level=2), _payment_grid(quote, hourly_styles)]
     if prasinos:
-        hourly_styles = _hourly_pdf_styles()
         story = quotation_cover_story(quote, hourly_styles)
         story.append(table)
+        story.extend(payment)
         if terms:
             story.append(Paragraph(_esc(terms), styles["disclaimer"]))
         story.append(Spacer(1, 8))
@@ -723,6 +730,7 @@ def build_project_quotation_pdf(quote, path, language=None):
             ), styles["meta"]),
             Spacer(1, 6),
             table,
+            *payment,
         ]
         if terms:
             story.append(Paragraph(_esc(terms), styles["disclaimer"]))

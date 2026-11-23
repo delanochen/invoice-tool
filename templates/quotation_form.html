@@ -78,6 +78,7 @@
         {{ tab_button('info', quote_ui('报价信息', 'Quotation information'), true) }}
         {{ tab_button('lines', quote_ui('安装清单', 'Installation checklist'), false) }}
         {{ tab_button('terms', quote_ui('条款', 'Terms'), false) }}
+        {{ tab_button('payment', quote_ui('付款与开票', 'Payment & Invoicing'), false) }}
       {% else %}
         {{ tab_button('info', '报价信息', true) }}
         {{ tab_button('pricing', '定价汇总', false) }}
@@ -204,8 +205,39 @@
           <label class="erp-field">{{ quote_ui('页脚说明（英文）', 'Footer note (English)') }} <textarea name="project_terms_en" rows="3">{{ defaults.project_terms_en or '' }}</textarea></label>
           <label class="standard-terms-toggle"><input type="checkbox" name="include_standard_clauses" value="1" {% if defaults.include_standard_clauses|string in ["1", "True", "true"] %}checked{% endif %}> {{ quote_ui('在报价 PDF 中附上标准条款（30 条）', 'Attach the 30 standard terms to the quotation PDF') }}</label>
           <input type="hidden" name="pricing_type" value="estimated">
-          <input type="hidden" name="payment_terms" value="{{ defaults.payment_terms or 'net_30' }}">
-          <input type="hidden" name="invoice_frequency" value="{{ defaults.invoice_frequency or 'upon_completion' }}">
+        </div>
+      </section>
+      <section class="erp-panel" data-erp-panel="payment">
+        <div class="erp-detail-scroll">
+          <div class="fields-2col">
+            <label class="erp-field">{{ quote_ui('结算周期', 'Payment Terms') }}
+              <select name="payment_terms">
+                <option value="net_30" {% if defaults.payment_terms != 'net_45' %}selected{% endif %}>Net 30</option>
+                <option value="net_45" {% if defaults.payment_terms == 'net_45' %}selected{% endif %}>Net 45</option>
+              </select>
+            </label>
+            <label class="erp-field">{{ quote_ui('预付款比例', 'Advance Payment') }}
+              <select name="advance_payment_percent">
+                {% for percent in (0, 30, 50) %}
+                  <option value="{{ percent }}" {% if defaults.advance_payment_percent|default(0)|int == percent %}selected{% endif %}>{{ percent }}%</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">{{ quote_ui('报价有效期', 'Quotation Validity') }}
+              <input name="quotation_validity" value="{{ defaults.quotation_validity or '30 calendar days' }}">
+            </label>
+            <label class="erp-field">{{ quote_ui('开票频率', 'Invoice Frequency') }}
+              <select name="invoice_frequency">
+                {% set frequency_zh = {'weekly': '每周', 'biweekly': '每两周', 'monthly': '每月', 'upon_completion': '完工后'} %}
+                {% for value, label in invoice_frequency_labels.items() %}
+                  <option value="{{ value }}" {% if (defaults.invoice_frequency or 'upon_completion') == value %}selected{% endif %}>{{ quote_ui(frequency_zh[value], label) }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">{{ quote_ui('税务说明', 'Tax Note') }}
+              <input name="tax_note" value="{{ defaults.tax_note or 'Excluded unless stated' }}">
+            </label>
+          </div>
         </div>
       </section>
       {% else %}

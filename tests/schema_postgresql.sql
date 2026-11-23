@@ -7810,3 +7810,5 @@ ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS document_title_en text NO
 
 \unrestrict jRFH8isCbGlVw27RdBw6ucAcVCH3EtujX4xQ2wQPNa3DDgHD22hpD7v2ODwPM1N
 
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS advance_payment_percent integer NOT NULL DEFAULT 0
+    CHECK (advance_payment_percent IN (0, 30, 50));

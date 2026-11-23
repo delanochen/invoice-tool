@@ -72,7 +72,7 @@ _QUOTATION_COLUMNS = (
     "gross_total, discount_amount, final_amount, driving_billing_mode, settlement_mode, "
     "rate_schedule, crew_size, workdays, hours_per_day, expected_start_date, "
     "expected_completion, normal_working_hours, customer_provides, assumptions_other, "
-    "payment_terms, payment_terms_other, quotation_validity, invoice_frequency, "
+    "payment_terms, payment_terms_other, quotation_validity, invoice_frequency, advance_payment_percent, "
     "pricing_type, tax_note, notes, travel_expenses, layout, document_title, "
     "document_title_zh, document_title_en, party_a, party_b, project_terms, "
     "project_terms_zh, project_terms_en, project_description_zh, project_description_en, "
@@ -374,6 +374,7 @@ def quotation_form_values(api, quotation=None):
         ),
         "assumptions_other": field("assumptions_other"),
         "payment_terms": field("payment_terms", "net_30") or "net_30",
+        "advance_payment_percent": 0,
         "payment_terms_other": field("payment_terms_other"),
         "quotation_validity": field("quotation_validity", "30 calendar days") or "30 calendar days",
         "invoice_frequency": field("invoice_frequency", "upon_completion") or "upon_completion",

@@ -665,6 +665,8 @@ def _payment_grid(quote, styles):
         (L("invoice_frequency"), translate_known(INVOICE_FREQUENCY_LABELS.get(frequency, frequency)), L("currency"), quote.get("currency") or "USD"),
         (L("pricing_type"), translate_known(PRICING_TYPE_LABELS.get(pricing_type, pricing_type)), L("tax_note"), tax_note),
     ]
+    if quote.get("layout") == "project":
+        rows[-1] = (L("advance_payment"), f"{quote.get('advance_payment_percent') or 0}%", L("tax_note"), tax_note)
     data = [_label_value_row(a, b, c, d, styles, label_fill=DARK_GREEN, value_fill=VALUE_BG2)
             for a, b, c, d in rows]
     table = Table(data, colWidths=[47 * mm, 47 * mm, 47 * mm, 47 * mm], repeatRows=0)

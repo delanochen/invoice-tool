@@ -157,6 +157,24 @@ class ProjectLayoutMathTests(unittest.TestCase):
 
 
 class ProjectLayoutFormTests(unittest.TestCase):
+    def test_project_payment_options_and_defaults(self):
+        defaults = project_form_values(MultiDict())
+        self.assertEqual(defaults["payment_terms"], "net_30")
+        self.assertEqual(defaults["advance_payment_percent"], 0)
+        for percentage in ("0", "30", "50"):
+            values = project_form_values(MultiDict({
+                "payment_terms": "net_45", "advance_payment_percent": percentage,
+                "invoice_frequency": "monthly",
+            }))
+            self.assertEqual(values["payment_terms"], "net_45")
+            self.assertEqual(values["advance_payment_percent"], int(percentage))
+            self.assertEqual(values["invoice_frequency"], "monthly")
+        invalid = project_form_values(MultiDict({
+            "payment_terms": "net_99", "advance_payment_percent": "25",
+        }))
+        self.assertEqual(invalid["payment_terms"], "net_30")
+        self.assertEqual(invalid["advance_payment_percent"], 0)
+
     def setUp(self):
         self.app = Flask(__name__)
 

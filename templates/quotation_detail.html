@@ -61,6 +61,7 @@
         {{ tab_button('info', quote_ui('报价信息', 'Quotation Information'), true) }}
         {{ tab_button('lines', quote_ui('安装清单', 'Installation Checklist'), false) }}
         {{ tab_button('terms', quote_ui('条款', 'Terms'), false) }}
+        {{ tab_button('payment', quote_ui('付款与开票', 'Payment & Invoicing'), false) }}
       {% else %}
         {{ tab_button('info', '报价信息', true) }}
         {{ tab_button('pricing', '定价汇总', false) }}
@@ -131,6 +132,19 @@
         <div class="detail-grid">
           <p class="full-span"><strong>{{ quote_ui('页脚说明', 'Footer Notes') }}</strong><span class="pre-line">{{ quotation.project_terms or quote_ui('（未填写，PDF 不附 30 条标准条款）', '(No footer notes. The PDF excludes the 30 standard clauses.)') }}</span></p>
           <p><strong>{{ quote_ui('标准条款', 'Standard Terms') }}</strong><span>{% if quotation.include_standard_clauses|string in ['1', 'True', 'true'] %}{{ quote_ui('附在页脚说明之后', 'Included after the footer notes') }}{% else %}{{ quote_ui('不附带', 'Excluded') }}{% endif %}</span></p>
+        </div>
+      </div>
+    </section>
+    <section class="erp-panel" data-erp-panel="payment">
+      <div class="erp-detail-scroll">
+        {% set frequency = quotation.invoice_frequency or 'upon_completion' %}
+        {% set frequency_zh = {'weekly': '每周', 'biweekly': '每两周', 'monthly': '每月', 'upon_completion': '完工后'} %}
+        <div class="detail-grid">
+          <p><strong>{{ quote_ui('结算周期', 'Payment Terms') }}</strong><span>{{ payment_terms_labels.get(quotation.payment_terms, 'Net 30') }}</span></p>
+          <p><strong>{{ quote_ui('预付款比例', 'Advance Payment') }}</strong><span>{{ quotation.advance_payment_percent or 0 }}%</span></p>
+          <p><strong>{{ quote_ui('报价有效期', 'Quotation Validity') }}</strong><span>{{ quotation.quotation_validity or '-' }}</span></p>
+          <p><strong>{{ quote_ui('开票频率', 'Invoice Frequency') }}</strong><span>{{ quote_ui(frequency_zh.get(frequency, frequency), invoice_frequency_labels.get(frequency, frequency)) }}</span></p>
+          <p><strong>{{ quote_ui('税务说明', 'Tax Note') }}</strong><span>{{ quotation.tax_note or '-' }}</span></p>
         </div>
       </div>
     </section>
