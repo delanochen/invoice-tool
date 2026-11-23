@@ -1549,7 +1549,7 @@
       ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || $('equipmentNumber').value.trim(),
       equipment_model:captureDevice?.equipment_model || group.equipment_model || $('equipmentModel').value.trim(), position_number:captureDevice?.position_number || group.position_number || $('positionNumber').value.trim(),
       container_number:captureDevice?.container_number || group.container_number || $('containerNumber').value.trim(), fault_note:group.fault || '',
-      equipment_session:captureDevice?.id || captureBatchId, repair_phase:captureDevice?.repair_phase || repairStage || '',
+      equipment_session:captureDevice?.id || captureBatchId, repair_phase:repairStage || captureDevice?.repair_phase || '',
       work_content:afterWork,
       no_equipment_number:captureDevice ? !!captureDevice.no_equipment_number : !group.equipment_number} : {})};
   }
