@@ -1282,6 +1282,7 @@ def register_field_routes(app, api):
         equipment_session = request.form.get('equipment_session', '').strip()[:64]
         repair_phase = request.form.get('repair_phase', '').strip()
         photo_type = request.form.get('photo_type', 'legacy').strip()
+        repair_model = ''
         if repair_phase:
             if photo_type != 'equipment' or repair_phase not in {'before', 'after'}:
                 return jsonify(error='维修拍摄阶段无效。'), 422
@@ -1290,11 +1291,13 @@ def register_field_routes(app, api):
                 'select * from field_repairs where id = ? and order_id = ?',
                 (equipment_session, order_id),
             ).fetchone()
-            if not repair:
-                return jsonify(error='找不到对应维修记录。'), 404
-            equipment_number, position_number, container_number = (
-                repair['equipment_number'], repair['position_number'], repair['container_number'],
-            )
+            if repair:
+                equipment_number = repair['equipment_number']
+                position_number = repair['position_number']
+                container_number = repair['container_number']
+                repair_model = repair['equipment_model'] or ''
+            # 维修前直拍、维修记录尚未建立或选定时，不按 404 拦截：照片先按待关联批次入库，
+            # 编号/型号/位置/集装箱与维修记录关联后续按批次补录并重绘水印。
         watermark_at = watermark.isoformat()
         batch_id = request.form.get('batch_id', '').strip()[:64]
         if photo_type not in {'equipment', 'general', 'legacy', 'arrival', 'departure', 'safety'}:
@@ -1439,7 +1442,7 @@ def register_field_routes(app, api):
                     original_target.write_bytes(raw_original)
                     original_relative = original_rel.as_posix()
             photo_role = request.form.get('photo_role', '').strip()[:32]
-            photo_model = request.form.get('equipment_model', '').strip()[:200]
+            photo_model = (repair_model or request.form.get('equipment_model', '')).strip()[:200]
             fault_note = request.form.get('fault_note', '').strip()[:4000]
             cursor = db.execute('''insert into field_photos
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
