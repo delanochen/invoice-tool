@@ -18,7 +18,17 @@
   .erp-app .quotation-form table.pricing th, .erp-app .quotation-form table.pricing td { border: 1px solid #dfe9e3; padding: 2px 5px; text-align: left; }
   .project-line-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   #projectLines tr.project-line-selected > td { background-color: #e6f0ff; }
-  #projectLines .project-line-number { width: 1%; white-space: nowrap; }
+  .project-lines-scroll { overflow-x: auto; }
+  #projectLines { table-layout: fixed; min-width: 780px; }
+  #projectLines .project-line-number { width: 48px; white-space: nowrap; }
+  #projectLines th:nth-child(2) { width: 16%; }
+  #projectLines th:nth-child(4), #projectLines th:nth-child(5) { width: 8%; }
+  #projectLines th:nth-child(6) { width: 9%; }
+  #projectLines th:nth-child(7) { width: 10%; }
+  #projectLines th:nth-child(8) { width: 17%; }
+  #projectLines th { box-sizing: border-box; }
+  #projectLines :is(input:not([type="hidden"]), select, textarea) { box-sizing: border-box; width: 100%; min-width: 0; }
+  #projectLines textarea { display: block; field-sizing: content; overflow-wrap: anywhere; resize: vertical; }
   #projectLines .line-no button[aria-pressed="true"] { border-color: #2f63b6; }
   .erp-app .quotation-form table.pricing th { background: #e4ece7; color: #163e36; font-weight: 600; }
   .erp-app .quotation-form .check-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -151,7 +161,7 @@
             <button type="button" class="erp-btn" id="moveProjectLineDown" disabled>{{ quote_ui('下移', 'Move down') }}</button>
             <button type="button" class="erp-btn danger" id="deleteProjectLine" disabled>{{ quote_ui('删除行', 'Delete row') }}</button>
           </div>
-          <div class="system-grid">
+          <div class="system-grid project-lines-scroll">
             <table class="pricing project-lines" id="projectLines">
               <thead>
                 <tr>
