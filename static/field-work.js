@@ -198,6 +198,64 @@
     const text = batch && batch.type === 'equipment' ? currentDeviceInfoText() : '';
     el.textContent = fieldText(text);
     el.hidden = !text;
+    renderPreviewWatermark();
+  }
+  let previewWatermarkGen = 0;
+  // 预览用的水印上下文：取值与 makeContext 一致，但跳过定位与校验，供取景窗实时核对设备信息。
+  function previewContext() {
+    const selected = chosenOrder();
+    const tech = profile?.technicians?.find(p => String(p.id) === $('technicianSelect').value) || {id: profile?.user.id, name: profile?.user.name};
+    const device = activeRepair?.order_id === selected?.id ? activeRepair : deviceSession;
+    const group = batch?.pending || {};
+    const now = new Date();
+    const watermark = captureWatermarkTime(now);
+    const tz = $('timezoneName').value.trim() || 'UTC';
+    const photoType = batch?.type || 'equipment';
+    const loc = position || {};
+    const ctx = {
+      employee_name: tech.name || '', technician_user_id: tech.id,
+      order_id: selected?.id, order_number: selected?.order_number,
+      site_name: selected?.client_name, site_address: selected?.site_address,
+      captured_at: now.toISOString(), watermark_at: Number.isNaN(watermark.getTime()) ? now.toISOString() : watermark.toISOString(),
+      batch_id: batch?.id, photo_type: photoType, timezone_name: tz,
+      latitude: Number(loc.latitude) || 0, longitude: Number(loc.longitude) || 0, accuracy: Number(loc.accuracy) || 100000,
+      location_verified: false, note: $('photoNote').value.trim(), location_note: '', source: 'camera', error: '',
+    };
+    if (photoType === 'equipment') {
+      Object.assign(ctx, {
+        equipment_number: device?.equipment_number || group.equipment_number || $('equipmentNumber').value.trim(),
+        equipment_model: device?.equipment_model || group.equipment_model || $('equipmentModel').value.trim(),
+        position_number: device?.position_number || group.position_number || $('positionNumber').value.trim(),
+        container_number: device?.container_number || group.container_number || $('containerNumber').value.trim(),
+        fault_note: group.fault || device?.fault || $('repairFault').value.trim() || '',
+        equipment_session: device?.id || batch?.id,
+        repair_phase: repairStage || device?.repair_phase || '',
+        work_content: '',
+        no_equipment_number: device ? !!device.no_equipment_number : !group.equipment_number,
+      });
+    }
+    return ctx;
+  }
+  async function renderPreviewWatermark() {
+    const stage = $('cameraStage'), canvas = $('previewWatermark');
+    if (!stage || !canvas) return;
+    if (stage.hidden || document.body.classList.contains('recognition-mode')) {
+      canvas.hidden = true;
+      const c = canvas.getContext('2d'); if (c) c.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    const w = stage.clientWidth, h = stage.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    canvas.hidden = false;
+    const gen = ++previewWatermarkGen;
+    const c2 = canvas.getContext('2d');
+    c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c2.clearRect(0, 0, w, h);
+    await window.PrasinosWatermark.draw(c2, w, h, previewContext());
+    if (gen !== previewWatermarkGen) return;
   }
 
   const KIND_LABEL = {equipment:'设备',arrival:'进场',departure:'离场',safety:'自检',general:'非设备',legacy:'历史'};
@@ -1069,15 +1127,18 @@
     clock.hidden = false;
     clock.classList.toggle('camera-clock-adjusted', !useSystemTime);
     setFieldText('cameraClockMode', useSystemTime ? '水印 · 系统时间' : '水印 · 已调整');
+    let lastPreviewDraw = 0;
     const tick = () => {
       const shown = captureWatermarkTime(new Date());
       if (Number.isNaN(shown.getTime())) {
         time.removeAttribute('datetime');
         setFieldText('cameraClockTime','请检查水印时间');
-        return;
+      } else {
+        time.dateTime = shown.toISOString();
+        time.textContent = displayTime.format(shown);
       }
-      time.dateTime = shown.toISOString();
-      time.textContent = displayTime.format(shown);
+      const nowMs = Date.now();
+      if (nowMs - lastPreviewDraw >= 1000) { lastPreviewDraw = nowMs; renderPreviewWatermark(); }
     };
     clearInterval(cameraClockTimer);
     tick();
@@ -1088,6 +1149,8 @@
     cameraClockTimer = null;
     $('cameraWatermarkClock').hidden = true;
     const deviceInfo = $('cameraDeviceInfo'); if (deviceInfo) { deviceInfo.hidden = true; deviceInfo.textContent = ''; }
+    previewWatermarkGen++;
+    const previewCanvas = $('previewWatermark'); if (previewCanvas) { previewCanvas.hidden = true; const pc = previewCanvas.getContext('2d'); if (pc) pc.clearRect(0, 0, previewCanvas.width, previewCanvas.height); }
     cameraStripSession = null;
     clearInterval(scanTimer); scanTimer = null;
     clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
