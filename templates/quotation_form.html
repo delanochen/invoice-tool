@@ -16,6 +16,10 @@
   .erp-app .quotation-form small { color: var(--erp-muted); }
   .erp-app .quotation-form table.pricing { border-collapse: collapse; width: 100%; font-size: 11.5px; }
   .erp-app .quotation-form table.pricing th, .erp-app .quotation-form table.pricing td { border: 1px solid #dfe9e3; padding: 2px 5px; text-align: left; }
+  .project-line-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  #projectLines tr.project-line-selected > td { background-color: #e6f0ff; }
+  #projectLines .line-no button { min-width: 28px; }
+  #projectLines .line-no button[aria-pressed="true"] { border-color: #2f63b6; }
   .erp-app .quotation-form table.pricing th { background: #e4ece7; color: #163e36; font-weight: 600; }
   .erp-app .quotation-form .check-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .erp-app .quotation-form .check-row label { display: inline-flex; align-items: center; gap: 3px; font-weight: normal; }
@@ -32,8 +36,6 @@
   .section-picker-options { max-height: 12rem; overflow-y: auto; }
   .section-picker-options .erp-btn { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; }
   .section-picker-options [hidden] { display: none; }
-  .project-pdf-translations summary { cursor: pointer; color: var(--erp-muted); }
-  .project-pdf-translations label { display: block; margin-top: 4px; }
 </style>
 {% endblock %}
 
@@ -135,11 +137,17 @@
         <div class="erp-detail-scroll">
           <h4 class="panel-title">{{ quote_ui('安装清单', 'Installation checklist') }}</h4>
           <p class="unit">{{ quote_ui('数量和单价都填写时，金额按数量 × 单价自动计算；否则该行是总价包干，直接填写金额。两种行可以出现在同一张报价单里。', 'Enter a quantity and unit price to calculate the amount. For a lump-sum line, enter the amount directly. Both line types can be used in the same quotation.') }}</p>
+          <div class="project-line-toolbar" role="group" aria-label="{{ quote_ui('清单行操作', 'Checklist row actions') }}">
+            <button type="button" class="erp-btn" id="addProjectLine">{{ quote_ui('新增行', 'Add row') }}</button>
+            <button type="button" class="erp-btn" id="moveProjectLineUp" disabled>{{ quote_ui('上移', 'Move up') }}</button>
+            <button type="button" class="erp-btn" id="moveProjectLineDown" disabled>{{ quote_ui('下移', 'Move down') }}</button>
+            <button type="button" class="erp-btn danger" id="deleteProjectLine" disabled>{{ quote_ui('删除行', 'Delete row') }}</button>
+          </div>
           <div class="system-grid">
             <table class="pricing project-lines" id="projectLines">
               <thead>
                 <tr>
-                  <th>{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project name') }}</th><th>{{ quote_ui('工作范围', 'Scope of work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th><th></th>
+                  <th>{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project name') }}</th><th>{{ quote_ui('工作范围', 'Scope of work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -157,9 +165,6 @@
             {% set line = {"section_name": "", "scope_of_work": "", "qty": "", "unit": "", "unit_custom": "", "unit_price": "", "line_total": "", "notes": ""} %}
             {% include "quotation_project_line_row.html" %}
           </template>
-          <p>
-            <button type="button" class="erp-btn" id="addProjectLine">{{ quote_ui('添加一行', 'Add row') }}</button>
-          </p>
         </div>
       </section>
       <section class="erp-panel" data-erp-panel="terms">
@@ -500,6 +505,26 @@
     const money = (v) => "$" + (Number(v) || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const body = table.querySelector("tbody");
     const template = document.getElementById("projectLineTemplate");
+    const moveUp = document.getElementById("moveProjectLineUp");
+    const moveDown = document.getElementById("moveProjectLineDown");
+    const deleteLine = document.getElementById("deleteProjectLine");
+    let selectedRow = null;
+
+    const refreshLineActions = () => {
+      moveUp.disabled = !selectedRow?.previousElementSibling;
+      moveDown.disabled = !selectedRow?.nextElementSibling;
+      deleteLine.disabled = !selectedRow;
+    };
+    const selectRow = (row) => {
+      if (selectedRow !== row) {
+        selectedRow?.classList.remove("project-line-selected");
+        selectedRow?.querySelector(".line-no button").setAttribute("aria-pressed", "false");
+        selectedRow = row;
+        selectedRow.classList.add("project-line-selected");
+        selectedRow.querySelector(".line-no button").setAttribute("aria-pressed", "true");
+      }
+      refreshLineActions();
+    };
     const clientSelect = document.querySelector('select[name="client_id"]');
     const partyA = document.querySelector('input[name="party_a"]');
     const customer = document.querySelector('input[name="customer"]');
@@ -511,8 +536,9 @@
 
     const renumber = () => {
       body.querySelectorAll("tr").forEach((row, index) => {
-        const cell = row.querySelector(".line-no");
-        if (cell) cell.textContent = String(index + 1);
+        const selector = row.querySelector(".line-no button");
+        selector.textContent = String(index + 1);
+        selector.setAttribute("aria-label", selector.dataset.label + " " + (index + 1));
       });
     };
     const rowItemized = (row) => {
@@ -550,29 +576,6 @@
       row.querySelectorAll("input, select, textarea").forEach((el) => {
         el.addEventListener("input", recalc);
         el.addEventListener("change", recalc);
-      });
-      row.querySelector(".remove-line").addEventListener("click", () => {
-        if (body.querySelectorAll("tr").length === 1) {
-          row.querySelectorAll("input, textarea").forEach((el) => { el.value = ""; });
-          const unit = row.querySelector(".unit-select");
-          if (unit) unit.value = "";
-          const project = row.querySelector(".section-select");
-          project.value = "";
-          project.dispatchEvent(new Event("change"));
-        } else {
-          row.remove();
-        }
-        recalc();
-      });
-      row.querySelector(".move-up").addEventListener("click", () => {
-        const prev = row.previousElementSibling;
-        if (prev) body.insertBefore(row, prev);
-        recalc();
-      });
-      row.querySelector(".move-down").addEventListener("click", () => {
-        const next = row.nextElementSibling;
-        if (next) body.insertBefore(next, row);
-        recalc();
       });
       const sectionSelect = row.querySelector(".section-select");
       const sectionFilter = row.querySelector(".section-filter");
@@ -634,6 +637,44 @@
       picker.hidden = false;
     };
     body.querySelectorAll("tr").forEach(bindRow);
+    const selectEventRow = (event) => {
+      const row = event.target.closest("tr");
+      if (row?.parentElement === body) selectRow(row);
+    };
+    body.addEventListener("click", selectEventRow);
+    body.addEventListener("focusin", selectEventRow);
+
+    moveUp.addEventListener("click", () => {
+      const previous = selectedRow?.previousElementSibling;
+      if (!previous) return;
+      body.insertBefore(selectedRow, previous);
+      renumber();
+      refreshLineActions();
+    });
+    moveDown.addEventListener("click", () => {
+      const next = selectedRow?.nextElementSibling;
+      if (!next) return;
+      body.insertBefore(next, selectedRow);
+      renumber();
+      refreshLineActions();
+    });
+    deleteLine.addEventListener("click", () => {
+      if (!selectedRow) return;
+      const row = selectedRow;
+      const replacement = row.nextElementSibling || row.previousElementSibling;
+      if (replacement) {
+        selectRow(replacement);
+        row.remove();
+        refreshLineActions();
+      } else {
+        row.querySelectorAll("input, textarea").forEach((el) => { el.value = ""; });
+        row.querySelector(".unit-select").value = "";
+        const project = row.querySelector(".section-select");
+        project.value = "";
+        project.dispatchEvent(new Event("change"));
+      }
+      recalc();
+    });
     document.getElementById("addProjectLine").addEventListener("click", () => {
       const holder = document.createElement("tbody");
       holder.innerHTML = template.innerHTML.trim();
@@ -641,6 +682,7 @@
       body.appendChild(row);
       bindRow(row);
       recalc();
+      selectRow(row);
     });
     document.getElementById("taxInput").addEventListener("input", recalc);
     bindQuotationDiscount(recalc);

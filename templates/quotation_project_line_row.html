@@ -1,5 +1,7 @@
 <tr>
-  <td class="line-no"></td>
+  <td class="line-no">
+    <button type="button" class="erp-btn" aria-pressed="false" data-label="{{ quote_ui('选择行', 'Select row') }}"></button>
+  </td>
   <td>
     <select name="project_line_project_id" class="section-select">
       <option value="">{{ quote_ui('选择报价项目', 'Select a quotation item') }}</option>
@@ -25,15 +27,8 @@
   </td>
   <td>
     <textarea name="project_scope" rows="2" aria-label="{{ quote_ui('工作范围', 'Scope of work') }}">{{ line.scope_of_work or '' }}</textarea>
-    <details class="project-pdf-translations">
-      <summary>{{ quote_ui('PDF 译文', 'PDF translations') }}</summary>
-      <label>{{ quote_ui('中文 PDF 工作范围', 'Scope for Chinese PDF') }}
-        <textarea name="project_scope_zh" rows="2">{{ line.scope_of_work_zh or '' }}</textarea>
-      </label>
-      <label>{{ quote_ui('英文 PDF 工作范围', 'Scope for English PDF') }}
-        <textarea name="project_scope_en" rows="2">{{ line.scope_of_work_en or '' }}</textarea>
-      </label>
-    </details>
+    <input type="hidden" name="project_scope_zh" value="{{ line.scope_of_work_zh or '' }}">
+    <input type="hidden" name="project_scope_en" value="{{ line.scope_of_work_en or '' }}">
   </td>
   <td><input type="number" step="any" min="0" name="project_qty" class="qty" value="{{ line.qty if line.qty is not none else '' }}"></td>
   <td>
@@ -51,19 +46,7 @@
   <td><input type="number" step="0.01" min="0" name="project_line_total" class="line-total" value="{{ line.line_total if line.line_total is not none else '' }}"></td>
   <td>
     <textarea name="project_notes" rows="2" aria-label="{{ quote_ui('备注', 'Notes') }}">{{ line.notes or '' }}</textarea>
-    <details class="project-pdf-translations">
-      <summary>{{ quote_ui('PDF 译文', 'PDF translations') }}</summary>
-      <label>{{ quote_ui('中文 PDF 备注', 'Notes for Chinese PDF') }}
-        <textarea name="project_notes_zh" rows="2">{{ line.notes_zh or '' }}</textarea>
-      </label>
-      <label>{{ quote_ui('英文 PDF 备注', 'Notes for English PDF') }}
-        <textarea name="project_notes_en" rows="2">{{ line.notes_en or '' }}</textarea>
-      </label>
-    </details>
-  </td>
-  <td class="project-line-actions">
-    <button type="button" class="erp-btn move-up">{{ quote_ui('上移', 'Move up') }}</button>
-    <button type="button" class="erp-btn move-down">{{ quote_ui('下移', 'Move down') }}</button>
-    <button type="button" class="erp-btn danger remove-line">{{ quote_ui('删除', 'Delete') }}</button>
+    <input type="hidden" name="project_notes_zh" value="{{ line.notes_zh or '' }}">
+    <input type="hidden" name="project_notes_en" value="{{ line.notes_en or '' }}">
   </td>
 </tr>

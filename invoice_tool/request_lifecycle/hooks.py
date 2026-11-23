@@ -9,7 +9,8 @@ def prevent_stale_business_pages(response):
 
 def load_user(*, SUPPORTED_LANGUAGES, abort, app, current_user, g, has_action_permission, request, required_action_for_request, session):
     requested_language = request.args.get("lang")
-    if requested_language in SUPPORTED_LANGUAGES:
+    # Quotation PDF links use lang for document output, not for the UI session.
+    if request.endpoint != "quotation_pdf" and requested_language in SUPPORTED_LANGUAGES:
         session["language"] = requested_language
     g.user = current_user()
     if request.method == "POST":
