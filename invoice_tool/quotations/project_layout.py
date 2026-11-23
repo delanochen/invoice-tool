@@ -17,6 +17,15 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from invoice_tool.commercial_billing import quote_amounts
+from invoice_tool.quotations.pdf_i18n import (
+    L,
+    catalog_name,
+    localized_text,
+    pdf_language,
+    reset_pdf_language,
+    section_label,
+    use_pdf_language,
+)
 from invoice_tool.quotations.documents import (
     BORDER,
     DARK_GREEN,
@@ -216,13 +225,19 @@ def compute_line_total(qty, unit_price, manual_total):
     return manual.quantize(Decimal("0.01"))
 
 
-def parse_project_lines(sections, scopes, qtys, units, customs, prices, totals, notes):
+def parse_project_lines(sections, scopes, qtys, units, customs, prices, totals, notes,
+                       project_ids=None, scope_zh=None, scope_en=None, notes_zh=None, notes_en=None):
     """Parse parallel form lists into stored line dicts and their subtotal.
 
     A posted line total is ignored when both quantity and unit price are set.
     Completely empty rows are dropped.
     """
-    sequences = (sections, scopes, qtys, units, customs, prices, totals, notes)
+    project_ids = project_ids or []
+    scope_zh = scope_zh or []
+    scope_en = scope_en or []
+    notes_zh = notes_zh or []
+    notes_en = notes_en or []
+    sequences = (sections, scopes, qtys, units, customs, prices, totals, notes, project_ids, scope_zh, scope_en, notes_zh, notes_en)
     count = max((len(item) for item in sequences), default=0)
     lines = []
     for index in range(count):
@@ -233,12 +248,19 @@ def parse_project_lines(sections, scopes, qtys, units, customs, prices, totals, 
         qty = _decimal_or_none(_at(qtys, index))
         price = _decimal_or_none(_at(prices, index))
         manual = _decimal_or_none(_at(totals, index))
-        if not any((section, scope, note, unit)) and qty is None and price is None and manual is None:
+        raw_project_id = str(_at(project_ids, index) or "").strip()
+        project_id = int(raw_project_id) if raw_project_id.isdigit() else None
+        if not any((section, scope, note, unit)) and qty is None and price is None and manual is None and project_id is None and not str(_at(scope_zh, index) or "").strip():
             continue
         total = compute_line_total(qty, price, manual)
         lines.append({
+            "project_id": project_id,
             "section_name": section,
             "scope_of_work": scope,
+            "scope_of_work_zh": str(_at(scope_zh, index) or "").strip(),
+            "scope_of_work_en": str(_at(scope_en, index) or "").strip(),
+            "notes_zh": str(_at(notes_zh, index) or "").strip(),
+            "notes_en": str(_at(notes_en, index) or "").strip(),
             "qty": qty,
             "unit": unit,
             "unit_price": price,
@@ -300,6 +322,11 @@ def project_form_values(form):
         _form_list(form, "project_unit_price"),
         _form_list(form, "project_line_total"),
         _form_list(form, "project_notes"),
+        _form_list(form, "project_line_project_id"),
+        _form_list(form, "project_scope_zh"),
+        _form_list(form, "project_scope_en"),
+        _form_list(form, "project_notes_zh"),
+        _form_list(form, "project_notes_en"),
     )
     amounts = project_amounts(subtotal, _form_get(form, "tax", "0"), _form_get(form, "discount_amount", "0"))
     party_a = _form_get(form, "party_a") or _form_get(form, "customer")
@@ -326,6 +353,8 @@ def project_form_values(form):
         "currency": _form_get(form, "currency", "USD") or "USD",
         "client_id": int(client_id) if client_id.isdigit() else None,
         "project_description": _form_get(form, "project_description"),
+        "project_description_zh": _form_get(form, "project_description_zh"),
+        "project_description_en": _form_get(form, "project_description_en"),
         "scope_1": _form_get(form, "scope_1"),
         "scope_2": _form_get(form, "scope_2"),
         "scope_3": _form_get(form, "scope_3"),
@@ -337,7 +366,7 @@ def project_form_values(form):
         "discount_amount": amounts["discount_amount"],
         "final_amount": amounts["final_amount"],
         "driving_billing_mode": "mileage_only",
-        "settlement_mode": "actual",
+        "settlement_mode": "fixed",
         "rate_schedule": "[]",
         "crew_size": _form_get(form, "crew_size"),
         "workdays": _form_get(form, "workdays"),
@@ -357,9 +386,13 @@ def project_form_values(form):
         "travel_expenses": "[]",
         "layout": LAYOUT_PROJECT,
         "document_title": _form_get(form, "document_title") or DEFAULT_DOCUMENT_TITLE,
+        "document_title_zh": _form_get(form, "document_title_zh"),
+        "document_title_en": _form_get(form, "document_title_en"),
         "party_a": party_a,
         "party_b": _form_get(form, "party_b") or DEFAULT_PARTY_B,
         "project_terms": _form_get(form, "project_terms"),
+        "project_terms_zh": _form_get(form, "project_terms_zh"),
+        "project_terms_en": _form_get(form, "project_terms_en"),
         "include_standard_clauses": 1 if clauses_enabled(form.get("include_standard_clauses") if form else "") else 0,
         "_project_lines": lines,
     }
@@ -374,6 +407,28 @@ def format_quantity(value):
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text
+
+
+def apply_catalog_sections(lines, catalog_by_id):
+    """Copy the catalog name onto the line and prefill an empty unit price."""
+    for line in lines or []:
+        project_id = line.get("project_id")
+        if not project_id:
+            continue
+        item = catalog_by_id.get(project_id) or catalog_by_id.get(int(project_id))
+        if not item:
+            line["project_id"] = None
+            continue
+        line["section_name"] = item.get("name") or line.get("section_name") or ""
+        line["catalog_name"] = item.get("name") or ""
+        line["catalog_name_zh"] = item.get("name_zh") or ""
+        line["catalog_name_en"] = item.get("name_en") or ""
+        catalog_price = item.get("unit_price")
+        if line.get("unit_price") is None and catalog_price not in (None, "", 0, 0.0):
+            line["unit_price"] = Decimal(str(catalog_price))
+            line["line_total"] = compute_line_total(line.get("qty"), line["unit_price"], line.get("line_total"))
+            line["lump_sum"] = line.get("qty") is None or line.get("unit_price") is None
+    return lines
 
 
 def line_form_state(line):
@@ -395,6 +450,11 @@ def line_form_state(line):
         "unit_price": "" if price in (None, "") else format_quantity(price),
         "line_total": f"{Decimal(str(line.get('line_total') or 0)):.2f}",
         "notes": line.get("notes") or "",
+        "scope_of_work_zh": line.get("scope_of_work_zh") or "",
+        "scope_of_work_en": line.get("scope_of_work_en") or "",
+        "notes_zh": line.get("notes_zh") or "",
+        "notes_en": line.get("notes_en") or "",
+        "project_id": line.get("project_id") or "",
         "lump_sum": bool(line.get("lump_sum")) if "lump_sum" in line else (qty in (None, "") or price in (None, "")),
         "display_unit": custom if selected == CUSTOM_UNIT else unit,
     }
@@ -447,12 +507,22 @@ def _quote_lines(quote):
             lump = qty in (None, "") or price in (None, "")
         lines.append({
             "section_name": item.get("section_name") or item.get("section") or "",
+            "section_name_zh": item.get("section_name_zh") or "",
+            "section_name_en": item.get("section_name_en") or "",
+            "catalog_name": item.get("catalog_name") or "",
+            "catalog_name_zh": item.get("catalog_name_zh") or "",
+            "catalog_name_en": item.get("catalog_name_en") or "",
+            "project_id": item.get("project_id"),
             "scope_of_work": item.get("scope_of_work") or item.get("scope") or "",
+            "scope_of_work_zh": item.get("scope_of_work_zh") or "",
+            "scope_of_work_en": item.get("scope_of_work_en") or "",
             "qty": qty,
             "unit": item.get("unit") or "",
             "unit_price": price,
             "line_total": total,
             "notes": item.get("notes") or "",
+            "notes_zh": item.get("notes_zh") or "",
+            "notes_en": item.get("notes_en") or "",
             "lump_sum": bool(lump),
         })
     return lines
@@ -468,17 +538,17 @@ def _page_decorator(font_name, party_b, prasinos, number, language):
             canvas.setFont("Helvetica-Bold", 16)
             canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
             canvas.setFillColor(HEADER_GRAY)
-            canvas.setFont("Helvetica", 7)
-            canvas.drawCentredString(
-                PAGE_W / 2.0, PAGE_H - 21 * mm,
-                "FIELD SERVICES \u2022 RETROFIT \u2022 COMMISSIONING",
-            )
-            footer_font = "Helvetica"
-            footer_left = "Prasinos Power  |  Confidential"
+            if pdf_language() == "zh":
+                canvas.setFont(font_name, 7)
+            else:
+                canvas.setFont("Helvetica", 7)
+            canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
+            footer_font = font_name if pdf_language() == "zh" else "Helvetica"
+            footer_left = f"Prasinos Power  |  {L('footer_confidential')}"
         else:
             canvas.setFillColor(DARK_GREEN)
             canvas.setFont(font_name, 13)
-            canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 18 * mm, party_b or "QUOTATION")
+            canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 18 * mm, party_b or L("doc_title"))
             footer_font = font_name
             footer_left = number or ""
         canvas.setStrokeColor(BORDER)
@@ -487,7 +557,7 @@ def _page_decorator(font_name, party_b, prasinos, number, language):
         canvas.setFillColor(HEADER_GRAY)
         canvas.setFont(footer_font, 8)
         canvas.drawString(DOC_MARGIN, 7 * mm, footer_left)
-        canvas.drawRightString(PAGE_W - DOC_MARGIN, 7 * mm, labels["page"].format(n=doc.page))
+        canvas.drawRightString(PAGE_W - DOC_MARGIN, 7 * mm, L("page").format(n=doc.page))
         canvas.line(DOC_MARGIN, 10 * mm, PAGE_W - DOC_MARGIN, 10 * mm)
         canvas.restoreState()
 
@@ -530,7 +600,8 @@ def _signature_table(party_a, party_b, styles, labels, prasinos, quotation_date)
 
 def build_project_quotation_pdf(quote, path, language=None):
     """Render a project-layout quotation. ``path`` may be a file path or a buffer."""
-    language = normalize_language(language)
+    token = use_pdf_language(language, default="zh")
+    language = pdf_language()
     labels = LABELS[language]
     font_name = cjk_font_name()
     styles = _styles(font_name)
@@ -549,26 +620,27 @@ def build_project_quotation_pdf(quote, path, language=None):
     if subtotal in (None, ""):
         subtotal = sum((Decimal(str(line["line_total"] or 0)) for line in lines), Decimal("0"))
 
-    if prasinos:
-        header_labels = PRASINOS_LINE_HEADERS
-    else:
-        header_labels = [
-            labels[key]
-            for key in ("no", "section", "scope", "qty", "unit", "price", "line_total", "notes")
-        ]
+    header_labels = [
+        L(key) for key in (
+            "line_no", "line_section", "line_scope", "line_qty",
+            "line_unit", "line_price", "line_amount", "line_notes",
+        )
+    ]
     header = [Paragraph(_esc(text), styles["head"]) for text in header_labels]
     data = [header]
     for index, line in enumerate(lines, start=1):
-        price_text = labels["lump"] if line["lump_sum"] else _money_with_currency(line["unit_price"], currency)
+        price_text = L("lump") if line["lump_sum"] else _money_with_currency(line["unit_price"], currency)
+        scope = localized_text(pdf_language(), line.get("scope_of_work"), line.get("scope_of_work_zh"), line.get("scope_of_work_en"))
+        notes = localized_text(pdf_language(), line.get("notes"), line.get("notes_zh"), line.get("notes_en"))
         data.append([
             Paragraph(_esc(str(index)), styles["cell_center"]),
-            Paragraph(_esc(line["section_name"]) or "&nbsp;", styles["cell"]),
-            Paragraph(_esc(line["scope_of_work"]) or "&nbsp;", styles["cell"]),
+            Paragraph(_esc(section_label(line, pdf_language())) or "&nbsp;", styles["cell"]),
+            Paragraph(_esc(scope) or "&nbsp;", styles["cell"]),
             Paragraph(_esc(format_quantity(line["qty"])) or "&nbsp;", styles["cell_center"]),
             Paragraph(_esc(line["unit"]) or "&nbsp;", styles["cell_center"]),
             Paragraph(_esc(price_text), styles["cell_right"]),
             Paragraph(_esc(_money_with_currency(line["line_total"], currency)), styles["cell_right"]),
-            Paragraph(_esc(line["notes"]) or "&nbsp;", styles["cell"]),
+            Paragraph(_esc(notes) or "&nbsp;", styles["cell"]),
         ])
     if len(data) == 1:
         data.append([Paragraph("&nbsp;", styles["cell"]) for _ in range(8)])
@@ -576,12 +648,12 @@ def build_project_quotation_pdf(quote, path, language=None):
     show_breakdown = Decimal(str(tax or 0)) != 0 or Decimal(str(discount or 0)) != 0
     total_rows = []
     if show_breakdown:
-        total_rows.append((labels["subtotal"], subtotal))
+        total_rows.append((L("subtotal"), subtotal))
         if Decimal(str(tax or 0)) != 0:
-            total_rows.append((labels["tax"], tax))
+            total_rows.append((L("tax"), tax))
         if Decimal(str(discount or 0)) != 0:
-            total_rows.append((labels["discount"], discount))
-    total_rows.append((labels["grand"], final_amount))
+            total_rows.append((L("discount"), discount))
+    total_rows.append((L("grand"), final_amount))
     first_total = len(data)
     for label, amount in total_rows:
         data.append([
@@ -616,9 +688,9 @@ def build_project_quotation_pdf(quote, path, language=None):
 
     party_header = Table(
         [[
-            Paragraph(_esc(f"{labels['party_a']}：{party_a}" if language == "zh" else f"{labels['party_a']}: {party_a}"), styles["party"]),
-            Paragraph(_esc(f"{labels['total']}：{_money_with_currency(final_amount, currency)}" if language == "zh" else f"{labels['total']}: {_money_with_currency(final_amount, currency)}"), styles["party"]),
-            Paragraph(_esc(f"{labels['party_b']}：{party_b}" if language == "zh" else f"{labels['party_b']}: {party_b}"), styles["party"]),
+            Paragraph(_esc(f"{L('party_a')}：{party_a}" if pdf_language() == "zh" else f"{L('party_a')}: {party_a}"), styles["party"]),
+            Paragraph(_esc(f"{L('total')}：{_money_with_currency(final_amount, currency)}" if pdf_language() == "zh" else f"{L('total')}: {_money_with_currency(final_amount, currency)}"), styles["party"]),
+            Paragraph(_esc(f"{L('party_b')}：{party_b}" if pdf_language() == "zh" else f"{L('party_b')}: {party_b}"), styles["party"]),
         ]],
         colWidths=[62 * mm, 64 * mm, 62 * mm],
     )
@@ -631,15 +703,15 @@ def build_project_quotation_pdf(quote, path, language=None):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
 
-    terms = str(quote.get("project_terms") or "").strip()
+    terms = localized_text(
+        pdf_language(), quote.get("project_terms"), quote.get("project_terms_zh"), quote.get("project_terms_en"),
+    )
+    title = localized_text(
+        pdf_language(), quote.get("document_title"), quote.get("document_title_zh"), quote.get("document_title_en"),
+    ) or (L("doc_title") if pdf_language() == "en" else DEFAULT_DOCUMENT_TITLE)
     if prasinos:
-        cover_styles = _hourly_styles()
-        cover_styles["value"] = ParagraphStyle(
-            "PrasinosCoverValue",
-            parent=cover_styles["value"],
-            fontName=font_name,
-        )
-        story = quotation_cover_story(quote, cover_styles)
+        from invoice_tool.quotations.documents import _pdf_styles
+        story = quotation_cover_story(quote, _pdf_styles())
         story.append(table)
         if terms:
             story.append(Paragraph(_esc(terms), styles["disclaimer"]))
@@ -682,5 +754,8 @@ def build_project_quotation_pdf(quote, path, language=None):
         author=party_b,
     )
     draw = _page_decorator(font_name, party_b, prasinos, str(quote.get("quotation_number") or ""), language)
-    document.build(story, onFirstPage=draw, onLaterPages=draw)
+    try:
+        document.build(story, onFirstPage=draw, onLaterPages=draw)
+    finally:
+        reset_pdf_language(token)
     return path

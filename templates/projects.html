@@ -7,7 +7,7 @@
 {% block content %}
   <div class="erp-app" data-active-panel="list" data-selectable-scope data-local-list>
     <header class="erp-toolbar no-print">
-      <div class="erp-toolbar-title">项目维护<small>基础数据 · 项目 · 报销项目映射</small></div>
+      <div class="erp-toolbar-title">项目维护<small>基础数据 · 项目 · 报销项目映射 · 报价项目映射</small></div>
       <span class="erp-badge"><span data-list-count>{{ projects|length }}</span> 个项目</span>
       <span class="erp-badge">{{ expense_map|length }} 条映射</span>
       <span class="erp-toolbar-spacer"></span>
@@ -41,6 +41,7 @@
       <nav class="erp-tabs no-print" aria-label="项目维护视图">
         {{ tab_button('list', '项目列表', true, projects|length) }}
         {{ tab_button('mapping', '报销项目映射', false, expense_map|length) }}
+        {{ tab_button('quote-map', '报价项目映射', false, quote_invoice_map|length) }}
       </nav>
 
       <section class="erp-panel active" data-erp-panel="list">
@@ -123,6 +124,72 @@
           </form>
         {% endif %}
       </section>
+
+      <section class="erp-panel" data-erp-panel="quote-map">
+        <div class="erp-grid-wrap">
+          <table class="list-table erp-grid" data-grid-height="100%">
+            <thead><tr><th>报价项目</th><th>发票项目</th>{% if can_edit_map %}<th>操作</th>{% endif %}</tr></thead>
+            <tbody>
+              {% for row in quote_invoice_map %}
+                <tr>
+                  <td>{{ row.quotation_project_name }}</td>
+                  <td>
+                    {% if can_edit_map %}
+                      <form method="post" class="erp-filter">
+                        <input type="hidden" name="quote_map_action" value="edit">
+                        <input type="hidden" name="quote_map_id" value="{{ row.id }}">
+                        <input type="hidden" name="quotation_project_id" value="{{ row.quotation_project_id }}">
+                        <select name="invoice_project_id">
+                          {% for project in invoice_projects %}
+                            <option value="{{ project.id }}" {% if project.id == row.invoice_project_id %}selected{% endif %}>{{ project.name }}</option>
+                          {% endfor %}
+                        </select>
+                        <button class="erp-btn" type="submit">保存</button>
+                      </form>
+                    {% else %}
+                      {{ row.invoice_project_name }}
+                    {% endif %}
+                  </td>
+                  {% if can_edit_map %}
+                    <td>
+                      <form method="post" onsubmit="return confirm('确定删除这条报价映射吗？');">
+                        <input type="hidden" name="quote_map_action" value="delete">
+                        <input type="hidden" name="quote_map_id" value="{{ row.id }}">
+                        <button class="erp-btn danger" type="submit">删除</button>
+                      </form>
+                    </td>
+                  {% endif %}
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="empty">还没有报价项目映射。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if can_edit_map %}
+          <form method="post" class="erp-filter no-print" style="border-top:1px solid var(--erp-line);">
+            <input type="hidden" name="quote_map_action" value="add">
+            <label class="erp-field">报价项目
+              <select name="quotation_project_id" required>
+                <option value="">选择报价项目</option>
+                {% for project in quotation_projects %}
+                  <option value="{{ project.id }}">{{ project.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="erp-field">发票项目
+              <select name="invoice_project_id" required>
+                <option value="">选择发票项目</option>
+                {% for project in invoice_projects %}
+                  <option value="{{ project.id }}">{{ project.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <div class="erp-filter-actions"><button class="erp-btn primary" type="submit">新增映射</button></div>
+            <p class="erp-filter-note">一个报价项目只对应一个发票项目。开票时优先用这里的映射，否则找同名发票项目，最后才用 Technical Services。</p>
+          </form>
+        {% endif %}
+      </section>
     </div>
 
     <footer class="erp-summary">
@@ -142,11 +209,14 @@
       </div>
       <div class="form-grid two-columns">
         <label>项目名称 <input name="name" required></label>
+        <label>中文名称 <input name="name_zh" placeholder="报价单和发票的中文 PDF 使用"></label>
+        <label>英文名称 <input name="name_en" placeholder="English name for the English PDF"></label>
         <label>项目类型
           <select name="project_type">
             <option value="invoice">发票项目</option>
             <option value="expense">员工报销</option>
             <option value="customer_expense">工单结算</option>
+            <option value="quotation">报价项目</option>
           </select>
         </label>
         <label>单价 <input name="unit_price" type="number" step="0.01" min="0" value="0"></label>
@@ -169,11 +239,14 @@
         </div>
         <div class="form-grid two-columns">
           <label>项目名称 <input name="name" value="{{ project.name }}" required></label>
+          <label>中文名称 <input name="name_zh" value="{{ project.name_zh or '' }}"></label>
+          <label>英文名称 <input name="name_en" value="{{ project.name_en or '' }}"></label>
           <label>项目类型
             <select name="project_type">
               <option value="invoice" {% if project.project_type == "invoice" %}selected{% endif %}>发票项目</option>
               <option value="expense" {% if project.project_type == "expense" %}selected{% endif %}>员工报销</option>
               <option value="customer_expense" {% if project.project_type == "customer_expense" %}selected{% endif %}>工单结算</option>
+              <option value="quotation" {% if project.project_type == "quotation" %}selected{% endif %}>报价项目</option>
             </select>
           </label>
           <label>单价 <input name="unit_price" type="number" step="0.01" min="0" value="{{ project.unit_price }}"></label>

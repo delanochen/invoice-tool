@@ -43,6 +43,20 @@ from invoice_tool.commercial_billing import (
     COMMERCIAL_RATE_TYPES,
     canonical_commercial_rate_key,
 )
+from invoice_tool.quotations.pdf_i18n import (
+    LABELS,
+    PROVIDES_ZH,
+    RATE_LABEL_ZH,
+    RATE_UNIT_ZH,
+    TERMS_ZH,
+    TRAVEL_LABEL_ZH,
+    TRAVEL_METHOD_ZH,
+    L,
+    pdf_language,
+    reset_pdf_language,
+    translate_known,
+    use_pdf_language,
+)
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static")
 SIGNATURE_IMAGE = os.path.join(_STATIC_DIR, "signature-yongming.png")
@@ -389,11 +403,11 @@ def _label_value_row(label_a, value_a, label_b, value_b, styles, label_fill=MID_
 def _info_grid(quote, styles):
     """10 template fields laid out as 4 columns (label/value/label/value)."""
     rows = [
-        ("Quotation No.", quote.get("quotation_number") or "", "Quotation Date", quote.get("quotation_date") or ""),
-        ("Valid Until", quote.get("valid_until") or "", "Prepared By", quote.get("prepared_by") or ""),
-        ("Customer", quote.get("customer") or "", "Contact", quote.get("contact") or ""),
-        ("Project Name", quote.get("project_name") or "", "Project No.", quote.get("project_no") or ""),
-        ("Project Location", quote.get("project_location") or "", "PO No.", quote.get("po_no") or ""),
+        (L("quotation_no"), quote.get("quotation_number") or "", L("quotation_date"), quote.get("quotation_date") or ""),
+        (L("valid_until"), quote.get("valid_until") or "", L("prepared_by"), quote.get("prepared_by") or ""),
+        (L("customer"), quote.get("customer") or "", L("contact"), quote.get("contact") or ""),
+        (L("project_name"), quote.get("project_name") or "", L("project_no"), quote.get("project_no") or ""),
+        (L("project_location"), quote.get("project_location") or "", L("po_no"), quote.get("po_no") or ""),
     ]
     data = [_label_value_row(a, b, c, d, styles) for a, b, c, d in rows]
     table = Table(data, colWidths=[27 * mm, 63 * mm, 27 * mm, 69 * mm], repeatRows=0)
@@ -412,28 +426,52 @@ def _section(title, styles, level=1):
     return Paragraph(_esc(title), styles["section"])
 
 
+def _pdf_styles():
+    styles = _styles()
+    if pdf_language() != "zh":
+        return styles
+    from invoice_tool.quotations.project_layout import cjk_font_name
+
+    font = cjk_font_name()
+    return {
+        key: ParagraphStyle(f"Zh{style.name}", parent=style, fontName=font)
+        for key, style in styles.items()
+    }
+
+
+def _localized_description(quote):
+    from invoice_tool.quotations.pdf_i18n import localized_text
+
+    return localized_text(
+        pdf_language(),
+        quote.get("project_description"),
+        quote.get("project_description_zh"),
+        quote.get("project_description_en"),
+    )
+
+
 def quotation_cover_story(quote, styles):
     """Letterhead title, info grid, scope and the pricing-summary heading.
 
     The hourly Time & Expense PDF and a Prasinos-issued project quote share
-    this block so the front of the two documents stays the same.
+    this block. Wording follows the active PDF language.
     """
     story = [
         Paragraph(
-            "QUOTATION<br/><font color='#66736D' size='9'>Professional Services</font>",
+            f"{_esc(L('doc_title'))}<br/><font color='#66736D' size='9'>{_esc(L('doc_subtitle'))}</font>",
             styles["title"],
         ),
         Spacer(1, 7),
         _info_grid(quote, styles),
-        _section("SCOPE OF WORK", styles),
+        _section(L("scope"), styles),
     ]
-    description = quote.get("project_description") or ""
+    description = _localized_description(quote)
     scope_rows = [("Project Description", description)]
     scope_rows = [pair for pair in scope_rows if str(pair[1]).strip()]
     if not scope_rows:
         scope_rows = [("Project Description", "")]
     scope_data = [
-        [Paragraph(_esc(label), styles["label"]),
+        [Paragraph(_esc(L("project_description") if label == "Project Description" else label), styles["label"]),
          Paragraph(_esc(value) or "&nbsp;", styles["value"])]
         for label, value in scope_rows
     ]
@@ -443,21 +481,22 @@ def quotation_cover_story(quote, styles):
     style.add("BACKGROUND", (1, 0), (1, -1), VALUE_BG)
     scope_table.setStyle(style)
     story.append(scope_table)
-    story.append(_section("PRICING SUMMARY", styles))
+    story.append(_section(L("pricing_summary"), styles))
     return story
 
 
 def _pricing_table(quote, lines, styles):
     header = [
-        Paragraph("Description", styles["head"]),
-        Paragraph("Qty / Unit", styles["head"]),
-        Paragraph("Rate", styles["head"]),
-        Paragraph("Estimated Amount", styles["head"]),
+        Paragraph(_esc(L("description")), styles["head"]),
+        Paragraph(_esc(L("qty_unit")), styles["head"]),
+        Paragraph(_esc(L("rate")), styles["head"]),
+        Paragraph(_esc(L("estimated_amount")), styles["head"]),
     ]
     data = [header]
     for idx, line in enumerate(lines):
+        label = RATE_LABEL_ZH.get(line.get("key"), line.get("label") or "") if pdf_language() == "zh" else (line.get("label") or "")
         data.append([
-            Paragraph(_esc(line.get("label") or ""), styles["cell"]),
+            Paragraph(_esc(label), styles["cell"]),
             Paragraph(_esc(_qty_text(line, quote)), styles["cell_center"]),
             Paragraph(_esc(_rate_text(line, quote)), styles["cell_center"]),
             Paragraph(_esc(_amount_text(line, quote)), styles["cell_right"]),
@@ -476,13 +515,13 @@ def _pricing_table(quote, lines, styles):
 def _fixed_price_table(quote, total, styles):
     """Fixed-price quotations render a single total row instead of line items."""
     header = [
-        Paragraph("Description", styles["head"]),
-        Paragraph("Qty / Unit", styles["head"]),
-        Paragraph("Rate", styles["head"]),
-        Paragraph("Amount", styles["head"]),
+        Paragraph(_esc(L("description")), styles["head"]),
+        Paragraph(_esc(L("qty_unit")), styles["head"]),
+        Paragraph(_esc(L("rate")), styles["head"]),
+        Paragraph(_esc(L("amount")), styles["head"]),
     ]
     data = [header, [
-        Paragraph("Fixed Price", styles["cell"]),
+        Paragraph(_esc(L("fixed_price")), styles["cell"]),
         Paragraph("—", styles["cell_center"]),
         Paragraph("—", styles["cell_center"]),
         Paragraph(_esc(f"$ {_money(total)}"), styles["cell_right"]),
@@ -505,12 +544,12 @@ def _totals_table(quote, subtotal, tax, total, styles):
     discount_amount = quote.get("discount_amount") or 0
     final_amount = quote.get("final_amount")
     final_value = final_amount if final_amount is not None else total - discount_amount
-    discount_row = row("Discount", discount_amount, styles["cell"], styles["cell_right"])
-    final_row = row("FINAL QUOTED AMOUNT", final_value, styles["total"], styles["total_value"])
+    discount_row = row(L("discount"), discount_amount, styles["cell"], styles["cell_right"])
+    final_row = row(L("final_amount"), final_value, styles["total"], styles["total_value"])
     data = [
-        row("Estimated Subtotal", subtotal, styles["cell"], styles["cell_right"]),
-        row("Tax", tax, styles["cell"], styles["cell_right"]),
-        row("Estimated Total (before discount)", total, styles["cell"], styles["cell_right"]),
+        row(L("estimated_subtotal"), subtotal, styles["cell"], styles["cell_right"]),
+        row(L("tax"), tax, styles["cell"], styles["cell_right"]),
+        row(L("estimated_total"), total, styles["cell"], styles["cell_right"]),
         discount_row,
         final_row,
     ]
@@ -524,18 +563,20 @@ def _totals_table(quote, subtotal, tax, total, styles):
 
 def _rate_table(quote, lines, styles):
     header = [
-        Paragraph("Billing Category", styles["head"]),
-        Paragraph("Rate", styles["head"]),
-        Paragraph("Billing Unit", styles["head"]),
+        Paragraph(_esc(L("billing_category")), styles["head"]),
+        Paragraph(_esc(L("rate")), styles["head"]),
+        Paragraph(_esc(L("billing_unit")), styles["head"]),
     ]
     rate_style = ParagraphStyle("QRateCell", parent=styles["cell"], fontSize=8.5, leading=11)
     rate_center = ParagraphStyle("QRateCenter", parent=styles["cell_center"], fontSize=8.5, leading=11)
     data = [header]
     for line in lines:
+        label = RATE_LABEL_ZH.get(line.get("key"), line.get("label") or "") if pdf_language() == "zh" else (line.get("label") or "")
+        unit = RATE_UNIT_ZH.get(line.get("unit") or "", line.get("unit") or "") if pdf_language() == "zh" else (line.get("unit") or "")
         data.append([
-            Paragraph(_esc(line.get("label") or ""), rate_style),
+            Paragraph(_esc(label), rate_style),
             Paragraph(_esc(f"$ {_money(line.get('rate') or 0)}"), rate_center),
-            Paragraph(_esc(line.get("unit") or ""), rate_center),
+            Paragraph(_esc(unit), rate_center),
         ])
     table = Table(data, colWidths=[63 * mm, 62.5 * mm, 62.5 * mm], repeatRows=1)
     style = _table_style()
@@ -546,8 +587,8 @@ def _rate_table(quote, lines, styles):
 
 def _travel_table(quote, styles):
     header = [
-        Paragraph("Expense", styles["head"]),
-        Paragraph("Billing Method", styles["head"]),
+        Paragraph(_esc(L("expense")), styles["head"]),
+        Paragraph(_esc(L("billing_method")), styles["head"]),
     ]
     data = [header]
     try:
@@ -562,12 +603,16 @@ def _travel_table(quote, styles):
         method = item.get("method") or default_method
         if method == "not_applicable":
             continue
-        method_text = TRAVEL_EXPENSE_METHODS.get(method, method)
+        if pdf_language() == "zh":
+            label = TRAVEL_LABEL_ZH.get(key, label)
+            method_text = TRAVEL_METHOD_ZH.get(method, method)
+        else:
+            method_text = TRAVEL_EXPENSE_METHODS.get(method, method)
         if method == "fixed_amount":
-            method_text = f"Fixed Amount - $ {_money(item.get('amount') or 0)}"
+            method_text = f"{L('fixed_amount_prefix')} - $ {_money(item.get('amount') or 0)}"
         data.append([Paragraph(_esc(label), styles["cell"]), Paragraph(_esc(method_text), styles["cell"])])
     if len(data) == 1:
-        data.append([Paragraph("No reimbursable travel expenses", styles["cell"]), Paragraph("Not Applicable", styles["cell"])])
+        data.append([Paragraph(_esc(L("no_travel")), styles["cell"]), Paragraph(_esc(L("not_applicable")), styles["cell"])])
     table = Table(data, colWidths=[93 * mm, 93 * mm], repeatRows=1)
     style = _table_style()
     style.add("BACKGROUND", (0, 0), (-1, 0), MID_GREEN)
@@ -579,14 +624,15 @@ def _assumptions_grid(quote, styles):
     provides = quote.get("customer_provides") or ""
     provided = set(p.strip() for p in str(provides).split(",") if p.strip())
     provided_text = "  ".join(
-        ("\u2611" if key in provided else "\u2610") + " " + label
+        ("\u2611" if key in provided else "\u2610") + " " + (PROVIDES_ZH.get(key, label) if pdf_language() == "zh" else label)
         for key, label in CUSTOMER_PROVIDES_OPTIONS
     )
+    other = translate_known(quote.get("assumptions_other") or "") if pdf_language() == "zh" else (quote.get("assumptions_other") or "")
     rows = [
-        ("Estimated Crew Size", quote.get("crew_size") or "", "Estimated Workdays", quote.get("workdays") or ""),
-        ("Estimated Hours / Day", quote.get("hours_per_day") or "", "Expected Start Date", quote.get("expected_start_date") or ""),
-        ("Expected Completion", quote.get("expected_completion") or "", "Normal Working Hours", quote.get("normal_working_hours") or ""),
-        ("Customer Provides", provided_text, "Other", quote.get("assumptions_other") or ""),
+        (L("crew_size"), quote.get("crew_size") or "", L("workdays"), quote.get("workdays") or ""),
+        (L("hours_per_day"), quote.get("hours_per_day") or "", L("expected_start"), quote.get("expected_start_date") or ""),
+        (L("expected_completion"), quote.get("expected_completion") or "", L("normal_hours"), quote.get("normal_working_hours") or ""),
+        (L("customer_provides"), provided_text, L("other"), other),
     ]
     data = [_label_value_row(a, b, c, d, styles, label_fill=MID_GREEN, value_fill=VALUE_BG2)
             for a, b, c, d in rows]
@@ -603,16 +649,18 @@ def _assumptions_grid(quote, styles):
 def _payment_grid(quote, styles):
     payment_terms = quote.get("payment_terms") or "net_30"
     other_text = str(quote.get("payment_terms_other") or "").strip()
-    terms_text = PAYMENT_TERMS_LABELS.get(payment_terms, "Net 30")
+    terms_text = translate_known(PAYMENT_TERMS_LABELS.get(payment_terms, "Net 30"))
     if payment_terms == "other":
-        terms_text = f"Other: {other_text}" if other_text else "Other: ____"
+        terms_text = f"{L('other_prefix')}: {other_text}" if other_text else f"{L('other_prefix')}: ____"
 
     frequency = quote.get("invoice_frequency") or "upon_completion"
     pricing_type = quote.get("pricing_type") or "estimated"
+    validity = translate_known(quote.get("quotation_validity") or "30 calendar days")
+    tax_note = translate_known(quote.get("tax_note") or "Excluded unless stated")
     rows = [
-        ("Payment Terms", terms_text, "Quotation Validity", quote.get("quotation_validity") or "30 calendar days"),
-        ("Invoice Frequency", INVOICE_FREQUENCY_LABELS.get(frequency, frequency), "Currency", quote.get("currency") or "USD"),
-        ("Pricing Type", PRICING_TYPE_LABELS.get(pricing_type, pricing_type), "Tax", quote.get("tax_note") or "Excluded unless stated"),
+        (L("payment_terms"), terms_text, L("validity"), validity),
+        (L("invoice_frequency"), translate_known(INVOICE_FREQUENCY_LABELS.get(frequency, frequency)), L("currency"), quote.get("currency") or "USD"),
+        (L("pricing_type"), translate_known(PRICING_TYPE_LABELS.get(pricing_type, pricing_type)), L("tax_note"), tax_note),
     ]
     data = [_label_value_row(a, b, c, d, styles, label_fill=DARK_GREEN, value_fill=VALUE_BG2)
             for a, b, c, d in rows]
@@ -627,14 +675,14 @@ def _payment_grid(quote, styles):
 
 
 def _signature_table(quote, styles):
-    header = [Paragraph("Customer / Company", styles["head"]), Paragraph("Prasinos Power", styles["head"])]
+    header = [Paragraph(_esc(L("customer_company")), styles["head"]), Paragraph("Prasinos Power", styles["head"])]
 
     sig_img = None
     if os.path.isfile(SIGNATURE_IMAGE):
         sig_img = Image(SIGNATURE_IMAGE, width=55 * mm, height=15 * mm)
 
-    rep_value = "Yongming Chen"
-    title_value = "CEO"
+    rep_value = L("rep_name")
+    title_value = L("rep_title")
     date_value = quote.get("quotation_date") or ""
 
     left_label_style = ParagraphStyle("SigLeft", parent=styles["label"], textColor=colors.HexColor("#66736D"))
@@ -643,23 +691,23 @@ def _signature_table(quote, styles):
     data = [header]
     # Authorized Representative
     data.append([
-        Paragraph(_esc("Authorized Representative"), left_label_style),
+        Paragraph(_esc(L("representative")), left_label_style),
         Paragraph(_esc(rep_value), right_value_style),
     ])
     # Title
     data.append([
-        Paragraph(_esc("Title"), left_label_style),
+        Paragraph(_esc(L("title")), left_label_style),
         Paragraph(_esc(title_value), right_value_style),
     ])
     # Signature
     sig_cell = sig_img if sig_img else Paragraph(" ", right_value_style)
     data.append([
-        Paragraph(_esc("Signature"), left_label_style),
+        Paragraph(_esc(L("signature")), left_label_style),
         sig_cell,
     ])
     # Date
     data.append([
-        Paragraph(_esc("Date"), left_label_style),
+        Paragraph(_esc(L("date")), left_label_style),
         Paragraph(_esc(date_value), right_value_style),
     ])
 
@@ -675,21 +723,29 @@ def _signature_table(quote, styles):
     return table
 
 
-def _terms_block(styles):
-    story = [Paragraph("PRASINOS POWER", ParagraphStyle("QTermsTitle", parent=styles["subtitle"], fontSize=15, leading=19, textColor=DARK_GREEN))]
+def _terms_block(styles=None):
+    font = "Helvetica"
+    if pdf_language() == "zh":
+        from invoice_tool.quotations.project_layout import cjk_font_name
+        font = cjk_font_name()
+    title_style = ParagraphStyle("QTermsTitle", fontName=font, fontSize=15, leading=19, alignment=TA_CENTER, textColor=DARK_GREEN)
+    sub_style = ParagraphStyle("QTermsSub", fontName=font, fontSize=10, leading=13, alignment=TA_CENTER, textColor=MID_GREEN)
+    clause_title = ParagraphStyle("QClauseTitleLang", fontName=font, fontSize=9, leading=12, textColor=DARK_GREEN, spaceBefore=5, spaceAfter=1)
+    clause = ParagraphStyle("QClauseLang", fontName=font, fontSize=8, leading=11, alignment=TA_LEFT, spaceAfter=3)
+    section = ParagraphStyle("QSectionLang", fontName=font, fontSize=14, leading=17, textColor=DARK_GREEN, spaceBefore=12, spaceAfter=5)
+    clauses = TERMS_ZH if pdf_language() == "zh" else TERMS_AND_CONDITIONS
+    story = [Paragraph("PRASINOS POWER", title_style)]
     story.append(Spacer(1, 2))
-    story.append(Paragraph("STANDARD QUOTATION TERMS AND CONDITIONS", ParagraphStyle("QTermsSub", parent=styles["clause_title"], fontSize=10, leading=13, alignment=TA_CENTER, textColor=MID_GREEN)))
+    story.append(Paragraph(_esc(L("terms_title")), sub_style))
     story.append(Spacer(1, 4))
-    story.append(Paragraph(_esc(
-        "These Terms are incorporated into and form part of each quotation issued by Prasinos Power."
-    ), styles["clause"]))
-    for title, paragraphs in TERMS_AND_CONDITIONS:
-        story.append(Paragraph(_esc(title), styles["clause_title"]))
+    story.append(Paragraph(_esc(L("terms_intro")), clause))
+    for title, paragraphs in clauses:
+        story.append(Paragraph(_esc(title), clause_title))
         for paragraph in paragraphs:
-            story.append(Paragraph(_esc(paragraph), styles["clause"]))
+            story.append(Paragraph(_esc(paragraph), clause))
     story.append(Spacer(1, 6))
-    story.append(Paragraph("CUSTOMER ACKNOWLEDGEMENT", styles["section"]))
-    story.append(Paragraph(_esc(CUSTOMER_ACKNOWLEDGEMENT), styles["clause"]))
+    story.append(Paragraph(_esc(L("acknowledgement_title")), section))
+    story.append(Paragraph(_esc(L("acknowledgement")), clause))
     return story
 
 
@@ -701,16 +757,24 @@ def _draw_header_footer(canvas, doc):
     canvas.setFont("Helvetica-Bold", 16)
     canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
     canvas.setFillColor(HEADER_GRAY)
-    canvas.setFont("Helvetica", 7)
-    canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, "FIELD SERVICES \u2022 RETROFIT \u2022 COMMISSIONING")
+    if pdf_language() == "zh":
+        from invoice_tool.quotations.project_layout import cjk_font_name
+        canvas.setFont(cjk_font_name(), 7)
+    else:
+        canvas.setFont("Helvetica", 7)
+    canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
     canvas.setStrokeColor(BORDER)
     canvas.setLineWidth(0.5)
     canvas.line(DOC_MARGIN, PAGE_H - 24.5 * mm, PAGE_W - DOC_MARGIN, PAGE_H - 24.5 * mm)
     # --- footer ---
     canvas.setFillColor(HEADER_GRAY)
-    canvas.setFont("Helvetica", 8)
-    canvas.drawString(DOC_MARGIN, 7 * mm, "Prasinos Power  |  Confidential")
-    canvas.drawRightString(PAGE_W - DOC_MARGIN, 7 * mm, "Page %d" % doc.page)
+    if pdf_language() == "zh":
+        from invoice_tool.quotations.project_layout import cjk_font_name
+        canvas.setFont(cjk_font_name(), 8)
+    else:
+        canvas.setFont("Helvetica", 8)
+    canvas.drawString(DOC_MARGIN, 7 * mm, f"Prasinos Power  |  {L('footer_confidential')}")
+    canvas.drawRightString(PAGE_W - DOC_MARGIN, 7 * mm, L("page").format(n=doc.page))
     canvas.setStrokeColor(BORDER)
     canvas.setLineWidth(0.5)
     canvas.line(DOC_MARGIN, 10 * mm, PAGE_W - DOC_MARGIN, 10 * mm)
@@ -729,7 +793,8 @@ def build_quotation_pdf(quote, path, language=None):
     if layout == "project":
         from invoice_tool.quotations.project_layout import build_project_quotation_pdf
         return build_project_quotation_pdf(quote, path, language=language)
-    styles = _styles()
+    token = use_pdf_language(language, default="en")
+    styles = _pdf_styles()
 
     def parse_pricing_lines():
         lines = []
@@ -804,36 +869,39 @@ def build_quotation_pdf(quote, path, language=None):
     story.append(Spacer(1, 2))
     story.append(_totals_table(quote, subtotal, tax, total, styles))
     story.append(Spacer(1, 2))
-    story.append(Paragraph(_esc(PRICING_BASIS), styles["small"]))
+    story.append(Paragraph(_esc(L("pricing_basis")), styles["small"]))
 
     if pricing_type != "fixed":
-        story.append(_section("RATE SCHEDULE & PROJECT ASSUMPTIONS", styles))
+        story.append(_section(L("rate_schedule"), styles))
         story.append(_rate_table(quote, rate_lines, styles))
         story.append(Spacer(1, 2))
-        story.append(Paragraph(_esc(MINIMUM_BILLING_INCREMENT), styles["small"]))
+        story.append(Paragraph(_esc(L("minimum_increment")), styles["small"]))
 
     story.append(KeepTogether([
-        _section("TRAVEL & REIMBURSABLE EXPENSES", styles, level=2),
+        _section(L("travel"), styles, level=2),
         _travel_table(quote, styles),
     ]))
 
     story.append(KeepTogether([
-        _section("PROJECT ASSUMPTIONS", styles, level=2),
+        _section(L("assumptions"), styles, level=2),
         _assumptions_grid(quote, styles),
     ]))
 
     story.append(KeepTogether([
-        _section("PAYMENT & INVOICING", styles, level=2),
+        _section(L("payment"), styles, level=2),
         _payment_grid(quote, styles),
     ]))
 
-    story.append(_section("CUSTOMER ACCEPTANCE", styles))
-    story.append(Paragraph(_esc(CUSTOMER_ACCEPTANCE_TEXT), styles["body"]))
+    story.append(_section(L("acceptance"), styles))
+    story.append(Paragraph(_esc(L("acceptance_body")), styles["body"]))
     story.append(Spacer(1, 4))
     story.append(_signature_table(quote, styles))
 
     story.append(PageBreak())
     story.extend(_terms_block(styles))
 
-    document.build(story, onFirstPage=_draw_header_footer, onLaterPages=_draw_header_footer)
+    try:
+        document.build(story, onFirstPage=_draw_header_footer, onLaterPages=_draw_header_footer)
+    finally:
+        reset_pdf_language(token)
     return path

@@ -29,13 +29,13 @@ def update_invoice_from_form(invoice_id, *, abort, accounting_base_enabled, can_
         ),
     )
     db().execute("delete from invoice_items where invoice_id = ?", (invoice_id,))
-    for project, amount in item_rows:
+    for project, amount, description in item_rows:
         db().execute(
             """
             insert into invoice_items (invoice_id, project_id, description, amount, tax_rate)
             values (?, ?, ?, ?, ?)
             """,
-            (invoice_id, project["id"], project["name"], amount, project["tax_rate"]),
+            (invoice_id, project["id"], description or project["name"], amount, project["tax_rate"]),
         )
     db().execute("update invoices set status = 'completed', return_reason = null where id = ?", (invoice_id,))
     recognize_invoice_if_accounting_enabled(invoice_id)

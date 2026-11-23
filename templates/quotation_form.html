@@ -103,6 +103,10 @@
             <label class="erp-field" style="margin-top:6px">项目描述
               <textarea name="project_description" rows="3" placeholder="Project Description">{{ defaults.project_description or '' }}</textarea>
             </label>
+            <label class="erp-field">项目描述（中文） <input name="project_description_zh" value="{{ defaults.project_description_zh or '' }}"></label>
+            <label class="erp-field">项目描述（英文） <input name="project_description_en" value="{{ defaults.project_description_en or '' }}"></label>
+            <label class="erp-field">文档标题（中文） <input name="document_title_zh" value="{{ defaults.document_title_zh or '' }}"></label>
+            <label class="erp-field">文档标题（英文） <input name="document_title_en" value="{{ defaults.document_title_en or '' }}"></label>
           {% else %}
             <p class="unit">版式：按工时报价（Time &amp; Expense）。</p>
           {% endif %}
@@ -150,6 +154,8 @@
           <label class="erp-field">条款 / 免责声明
             <textarea name="project_terms" rows="6" placeholder="此段文字会替换按工时模板里的 30 条标准条款。">{{ defaults.project_terms or '' }}</textarea>
           </label>
+          <label class="erp-field">页脚说明（中文） <textarea name="project_terms_zh" rows="3">{{ defaults.project_terms_zh or '' }}</textarea></label>
+          <label class="erp-field">页脚说明（英文） <textarea name="project_terms_en" rows="3">{{ defaults.project_terms_en or '' }}</textarea></label>
           <label class="check-row"><input type="checkbox" name="include_standard_clauses" value="1" {% if defaults.include_standard_clauses|string in ["1", "True", "true"] %}checked{% endif %}> 附上标准条款（30 条）</label>
           <input type="hidden" name="pricing_type" value="estimated">
           <input type="hidden" name="payment_terms" value="{{ defaults.payment_terms or 'net_30' }}">
@@ -527,6 +533,29 @@
         if (next) body.insertBefore(next, row);
         recalc();
       });
+      const sectionSelect = row.querySelector(".section-select");
+      const sectionFilter = row.querySelector(".section-filter");
+      const sectionName = row.querySelector(".section-name");
+      if (sectionSelect) {
+        sectionSelect.addEventListener("change", () => {
+          const option = sectionSelect.selectedOptions[0];
+          if (!option || option.value === "" || option.value === "legacy") return;
+          if (sectionName) sectionName.value = option.dataset.name || option.textContent.trim();
+          const catalogPrice = Number(option.dataset.price);
+          const price = row.querySelector(".price");
+          if (catalogPrice && price && price.value.trim() === "") price.value = String(catalogPrice);
+          recalc();
+        });
+      }
+      if (sectionFilter && sectionSelect) {
+        sectionFilter.addEventListener("input", () => {
+          const query = sectionFilter.value.trim().toLowerCase();
+          Array.from(sectionSelect.options).forEach((option) => {
+            if (!option.value || option.value === "legacy") return;
+            option.hidden = query && !option.textContent.toLowerCase().includes(query);
+          });
+        });
+      }
     };
     body.querySelectorAll("tr").forEach(bindRow);
     document.getElementById("addProjectLine").addEventListener("click", () => {

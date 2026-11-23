@@ -152,7 +152,7 @@ def _quotation_totals_with_discount(reimbursement, totals, *, _parse_quotation_r
             "total_amount": totals["total_amount"],
         }
     snapshot = _parse_quotation_revision_snapshot(quotation_revision)
-    mode = normalize_settlement_mode(snapshot.get("settlement_mode"))
+    mode = "fixed" if snapshot.get("layout") == "project" else normalize_settlement_mode(snapshot.get("settlement_mode"))
     gross = money_decimal(snapshot.get("gross_total") or quotation_revision["total"] or 0)
     discount = money_decimal(snapshot.get("discount_amount") or 0)
     if mode == "fixed":

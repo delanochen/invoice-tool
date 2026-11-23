@@ -85,6 +85,48 @@ def customer_reimbursement_invoice_items(reimbursement, *, CUSTOMER_REIMBURSEMEN
             (reimbursement["quotation_revision_id"],),
         ).fetchone()
         snapshot = _parse_quotation_revision_snapshot(quotation_revision) if quotation_revision else {}
+        if snapshot.get("layout") == "project":
+            from invoice_tool.quotations.invoice_lines import project_quote_invoice_items
+            lines = snapshot.get("project_lines")
+            if not isinstance(lines, list):
+                lines = [
+                    dict(row) for row in db().execute(
+                        """
+                        select project_id, section_name, scope_of_work, notes, line_total
+                        from quotation_project_lines
+                        where quotation_id = ?
+                        order by sort_order, id
+                        """,
+                        (quotation_revision["quotation_id"],),
+                    ).fetchall()
+                ]
+            project_ids = [line.get("project_id") for line in lines if line.get("project_id")]
+            mapped = {}
+            if project_ids:
+                marks = ",".join("?" for _ in project_ids)
+                for row in db().execute(
+                    f"""
+                    select quotation_project_id, invoice_project_id
+                    from quotation_invoice_project_map
+                    where quotation_project_id in ({marks})
+                    """,
+                    tuple(project_ids),
+                ).fetchall():
+                    mapped[row["quotation_project_id"]] = row["invoice_project_id"]
+            for line in lines:
+                if line.get("project_id") in mapped:
+                    line["invoice_project_id"] = mapped[line["project_id"]]
+            invoice_projects = db().execute(
+                "select * from projects where project_type = 'invoice'"
+            ).fetchall()
+            technical = next(
+                (
+                    project for project in invoice_projects
+                    if str(project["name"] or "").strip().lower() == "technical services"
+                ),
+                None,
+            )
+            return project_quote_invoice_items(lines, invoice_projects, technical)
         if normalize_settlement_mode(snapshot.get("settlement_mode")) == "fixed":
             project = db().execute(
                 """

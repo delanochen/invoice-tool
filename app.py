@@ -536,6 +536,7 @@ PROJECT_TYPE_LABELS = {
     "invoice": "发票项目",
     "expense": "员工报销",
     "customer_expense": "工单结算",
+    "quotation": "报价项目",
 }
 
 CONTRACT_TYPE_LABELS = {
