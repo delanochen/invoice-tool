@@ -154,6 +154,56 @@ def section_label(line, language):
     ) or fallback
 
 
+PROJECT_UNITS_EN = {
+    "台": "unit",
+    "项": "item",
+    "米": "m",
+    "个": "each",
+    "套": "set",
+    "小时": "hour",
+    "按台": "per unit",
+}
+
+
+def project_unit(value, language):
+    unit = str(value or "").strip()
+    return PROJECT_UNITS_EN.get(unit, unit) if language == "en" else unit
+
+
+def project_document_title(quote, language):
+    title = localized_text(
+        language, quote.get("document_title"), quote.get("document_title_zh"), quote.get("document_title_en"),
+    )
+    return LABELS[language]["doc_title"] if not title or (language == "en" and title == "报价单") else title
+
+
+def project_english_pdf_gaps(quote, lines):
+    """Identify untranslated content before issuing an English project quotation."""
+    gaps = []
+
+    def check(label, value):
+        if _looks_chinese(value):
+            gaps.append(label)
+
+    for key, label in (
+        ("project_description", "项目描述"),
+        ("project_terms", "页脚说明"),
+    ):
+        check(label, localized_text("en", quote.get(key), quote.get(key + "_zh"), quote.get(key + "_en")))
+    party_b = "".join(str(quote.get("party_b") or "").lower().split())
+    if party_b and "prasinos" not in party_b:
+        check("文档标题", project_document_title(quote, "en"))
+    for index, line in enumerate(lines, start=1):
+        check(f"第 {index} 行项目名称", section_label(line, "en"))
+        check(f"第 {index} 行单位", project_unit(line.get("unit"), "en"))
+        for key, label in (("scope_of_work", "工作范围"), ("notes", "备注")):
+            check(
+                f"第 {index} 行{label}",
+                localized_text("en", line.get(key), line.get(key + "_zh"), line.get(key + "_en")),
+            )
+    return gaps
+
+
 def missing_language_warnings(quote, lines, catalog_by_id=None):
     """Human-readable gaps where one PDF language has no dedicated text."""
     warnings = []

@@ -1,47 +1,69 @@
 <tr>
   <td class="line-no"></td>
   <td>
-    <input type="search" class="section-filter" placeholder="搜索报价项目" aria-label="搜索报价项目">
     <select name="project_line_project_id" class="section-select">
-      <option value="">选择报价项目</option>
+      <option value="">{{ quote_ui('选择报价项目', 'Select a quotation item') }}</option>
       {% if line.section_name and not line.project_id %}
-        <option value="legacy" selected data-legacy="1">{{ line.section_name }}（历史文本）</option>
+        <option value="legacy" selected data-legacy="1" data-name="{{ line.section_name }}">{{ line.section_name }}{{ quote_ui('（历史文本）', ' (legacy text)') }}</option>
       {% endif %}
       {% for item in quotation_projects %}
-        <option value="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.unit_price or 0 }}" {% if line.project_id|string == item.id|string %}selected{% endif %}>{{ item.name }}</option>
+        <option value="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.unit_price or 0 }}" {% if line.project_id|string == item.id|string %}selected{% endif %}>{{ (item.name_en or item.name) if project_ui_english else (item.name_zh or item.name) if project_ui_localized else item.name }}</option>
       {% endfor %}
       {% if line.project_id and line.project_id|string not in quotation_projects|map(attribute='id')|map('string')|list %}
         <option value="{{ line.project_id }}" selected>{{ line.section_name }}</option>
       {% endif %}
     </select>
+    <details class="section-picker" hidden>
+      <summary><span class="section-picker-label"></span></summary>
+      <div class="section-picker-menu">
+        <input type="search" class="section-filter" placeholder="{{ quote_ui('搜索报价项目', 'Search quotation items') }}" aria-label="{{ quote_ui('搜索报价项目', 'Search quotation items') }}">
+        <div class="section-picker-options"></div>
+        <small class="section-picker-empty" role="status" hidden>{{ quote_ui('没有匹配的项目', 'No matching items') }}</small>
+      </div>
+    </details>
     <input type="hidden" name="project_section" class="section-name" value="{{ line.section_name or '' }}">
   </td>
   <td>
-    <textarea name="project_scope" rows="2">{{ line.scope_of_work or '' }}</textarea>
-    <input name="project_scope_zh" value="{{ line.scope_of_work_zh or '' }}" placeholder="中文工作范围（可选）">
-    <input name="project_scope_en" value="{{ line.scope_of_work_en or '' }}" placeholder="English scope (optional)">
+    <textarea name="project_scope" rows="2" aria-label="{{ quote_ui('工作范围', 'Scope of work') }}">{{ line.scope_of_work or '' }}</textarea>
+    <details class="project-pdf-translations">
+      <summary>{{ quote_ui('PDF 译文', 'PDF translations') }}</summary>
+      <label>{{ quote_ui('中文 PDF 工作范围', 'Scope for Chinese PDF') }}
+        <textarea name="project_scope_zh" rows="2">{{ line.scope_of_work_zh or '' }}</textarea>
+      </label>
+      <label>{{ quote_ui('英文 PDF 工作范围', 'Scope for English PDF') }}
+        <textarea name="project_scope_en" rows="2">{{ line.scope_of_work_en or '' }}</textarea>
+      </label>
+    </details>
   </td>
   <td><input type="number" step="any" min="0" name="project_qty" class="qty" value="{{ line.qty if line.qty is not none else '' }}"></td>
   <td>
     <select name="project_unit" class="unit-select">
       <option value="" {% if not line.unit %}selected{% endif %}></option>
+      {% set unit_en = {'台': 'Unit', '项': 'Item', '米': 'm', '个': 'Each', '套': 'Set', '小时': 'Hour', '按台': 'Per unit'} %}
       {% for unit in project_units %}
-        <option value="{{ unit }}" {% if line.unit == unit %}selected{% endif %}>{{ unit }}</option>
+        <option value="{{ unit }}" {% if line.unit == unit %}selected{% endif %}>{{ unit_en.get(unit, unit) if project_ui_english else unit }}</option>
       {% endfor %}
-      <option value="{{ custom_unit }}" {% if line.unit == custom_unit %}selected{% endif %}>自定义</option>
+      <option value="{{ custom_unit }}" {% if line.unit == custom_unit %}selected{% endif %}>{{ quote_ui('自定义', 'Custom') }}</option>
     </select>
-    <input name="project_unit_custom" class="unit-custom" value="{{ line.unit_custom or '' }}" placeholder="自定义单位" {% if line.unit != custom_unit %}hidden{% endif %}>
+    <input name="project_unit_custom" class="unit-custom" value="{{ line.unit_custom or '' }}" placeholder="{{ quote_ui('自定义单位', 'Custom unit') }}" {% if line.unit != custom_unit %}hidden{% endif %}>
   </td>
   <td><input type="number" step="any" min="0" name="project_unit_price" class="price" value="{{ line.unit_price if line.unit_price is not none else '' }}"></td>
   <td><input type="number" step="0.01" min="0" name="project_line_total" class="line-total" value="{{ line.line_total if line.line_total is not none else '' }}"></td>
   <td>
-    <textarea name="project_notes" rows="2">{{ line.notes or '' }}</textarea>
-    <input name="project_notes_zh" value="{{ line.notes_zh or '' }}" placeholder="中文备注（可选）">
-    <input name="project_notes_en" value="{{ line.notes_en or '' }}" placeholder="English note (optional)">
+    <textarea name="project_notes" rows="2" aria-label="{{ quote_ui('备注', 'Notes') }}">{{ line.notes or '' }}</textarea>
+    <details class="project-pdf-translations">
+      <summary>{{ quote_ui('PDF 译文', 'PDF translations') }}</summary>
+      <label>{{ quote_ui('中文 PDF 备注', 'Notes for Chinese PDF') }}
+        <textarea name="project_notes_zh" rows="2">{{ line.notes_zh or '' }}</textarea>
+      </label>
+      <label>{{ quote_ui('英文 PDF 备注', 'Notes for English PDF') }}
+        <textarea name="project_notes_en" rows="2">{{ line.notes_en or '' }}</textarea>
+      </label>
+    </details>
   </td>
   <td class="project-line-actions">
-    <button type="button" class="erp-btn move-up">上移</button>
-    <button type="button" class="erp-btn move-down">下移</button>
-    <button type="button" class="erp-btn danger remove-line">删除</button>
+    <button type="button" class="erp-btn move-up">{{ quote_ui('上移', 'Move up') }}</button>
+    <button type="button" class="erp-btn move-down">{{ quote_ui('下移', 'Move down') }}</button>
+    <button type="button" class="erp-btn danger remove-line">{{ quote_ui('删除', 'Delete') }}</button>
   </td>
 </tr>

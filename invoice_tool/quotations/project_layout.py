@@ -22,6 +22,8 @@ from invoice_tool.quotations.pdf_i18n import (
     catalog_name,
     localized_text,
     pdf_language,
+    project_document_title,
+    project_unit,
     reset_pdf_language,
     section_label,
     use_pdf_language,
@@ -637,7 +639,7 @@ def build_project_quotation_pdf(quote, path, language=None):
             Paragraph(_esc(section_label(line, pdf_language())) or "&nbsp;", styles["cell"]),
             Paragraph(_esc(scope) or "&nbsp;", styles["cell"]),
             Paragraph(_esc(format_quantity(line["qty"])) or "&nbsp;", styles["cell_center"]),
-            Paragraph(_esc(line["unit"]) or "&nbsp;", styles["cell_center"]),
+            Paragraph(_esc(project_unit(line["unit"], language)) or "&nbsp;", styles["cell_center"]),
             Paragraph(_esc(price_text), styles["cell_right"]),
             Paragraph(_esc(_money_with_currency(line["line_total"], currency)), styles["cell_right"]),
             Paragraph(_esc(notes) or "&nbsp;", styles["cell"]),
@@ -706,9 +708,7 @@ def build_project_quotation_pdf(quote, path, language=None):
     terms = localized_text(
         pdf_language(), quote.get("project_terms"), quote.get("project_terms_zh"), quote.get("project_terms_en"),
     )
-    title = localized_text(
-        pdf_language(), quote.get("document_title"), quote.get("document_title_zh"), quote.get("document_title_en"),
-    ) or (L("doc_title") if pdf_language() == "en" else DEFAULT_DOCUMENT_TITLE)
+    title = project_document_title(quote, language)
     if prasinos:
         from invoice_tool.quotations.documents import _pdf_styles
         story = quotation_cover_story(quote, _pdf_styles())

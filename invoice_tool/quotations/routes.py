@@ -1055,6 +1055,17 @@ def register_quotation_routes(app, api):
         if quotation_layout_value(quotation) == LAYOUT_PROJECT:
             quote["project_lines"] = attach_catalog_names(api, load_project_lines(api, quotation_id))
             language = normalize_language(request.args.get("lang"))
+            if language == "en":
+                from .pdf_i18n import project_english_pdf_gaps
+
+                gaps = project_english_pdf_gaps(quote, quote["project_lines"])
+                if gaps:
+                    flash(
+                        "英文 PDF 尚未生成。请在报价单或报价项目目录中补全下列内容的英文："
+                        + "、".join(gaps),
+                        "error",
+                    )
+                    return redirect(api["url_for"]("quotation_detail", quotation_id=quotation_id))
         buffer = BytesIO()
         build_quotation_pdf(quote, buffer, language=language)
         buffer.seek(0)

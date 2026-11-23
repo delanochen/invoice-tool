@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% from "erp_ui.html" import tab_button %}
-{% block title %}{{ form_title }} - 发票工具{% endblock %}
+{% set project_ui_localized = layout == 'project' and current_language in ('zh-CN', 'en') %}
+{% set project_ui_english = project_ui_localized and current_language == 'en' %}
+{% macro quote_ui(zh, en) -%}{{ en if project_ui_english else zh }}{%- endmacro %}
+{% set page_title = ('Edit quotation' if quotation else 'New quotation') if project_ui_english else form_title %}
+{% block title %}{{ page_title }} - {{ quote_ui('发票工具', 'Invoice Tool') }}{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='quotations.css', v=app_version) }}">
@@ -21,30 +25,39 @@
   /* 表单面板内：字段两列网格 + 区块小节标题，与查看页信息架构一致 */
   .erp-app .quotation-form .panel-title { font-size: 12px; font-weight: 600; color: #163e36; margin: 8px 0 6px; }
   .erp-app .quotation-form .panel-title:first-child { margin-top: 0; }
+  .section-picker { min-width: 9rem; }
+  .section-picker > summary { cursor: pointer; padding: 2px 5px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); background: #fff; }
+  .section-picker-label { overflow-wrap: anywhere; }
+  .section-picker-menu { margin-top: 4px; padding: 4px; border: 1px solid #dfe9e3; border-radius: var(--erp-radius); background: #fff; }
+  .section-picker-options { max-height: 12rem; overflow-y: auto; }
+  .section-picker-options .erp-btn { width: 100%; justify-content: flex-start; text-align: left; white-space: normal; }
+  .section-picker-options [hidden] { display: none; }
+  .project-pdf-translations summary { cursor: pointer; color: var(--erp-muted); }
+  .project-pdf-translations label { display: block; margin-top: 4px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="erp-app" data-active-panel="info">
+<div class="erp-app" data-active-panel="info"{% if project_ui_localized %} translate="no"{% endif %}>
   <header class="erp-toolbar no-print">
     <div class="erp-toolbar-title">
-      {{ form_title }}
-      <small>报价单 · 新建 / 编辑</small>
+      {{ page_title }}
+      <small>{{ quote_ui('报价单 · 新建 / 编辑', 'Quotation · New / Edit') }}</small>
     </div>
-    <span class="erp-badge">报价单表单</span>
+    <span class="erp-badge">{{ quote_ui('报价单表单', 'Quotation form') }}</span>
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
-      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('quotation_detail', quotation_id=quotation.id) if quotation else url_for('quotations') }}'">返回</button>
-      <button type="submit" class="erp-btn primary" form="quotationForm">保存报价单</button>
+      <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('quotation_detail', quotation_id=quotation.id) if quotation else url_for('quotations') }}'">{{ quote_ui('返回', 'Back') }}</button>
+      <button type="submit" class="erp-btn primary" form="quotationForm">{{ quote_ui('保存报价单', 'Save quotation') }}</button>
     </div>
   </header>
 
   <div class="erp-body">
     <nav class="erp-tabs no-print">
       {% if layout == 'project' %}
-        {{ tab_button('info', '报价信息', true) }}
-        {{ tab_button('lines', '安装清单', false) }}
-        {{ tab_button('terms', '条款与合计', false) }}
+        {{ tab_button('info', quote_ui('报价信息', 'Quotation information'), true) }}
+        {{ tab_button('lines', quote_ui('安装清单', 'Installation checklist'), false) }}
+        {{ tab_button('terms', quote_ui('条款与合计', 'Terms and totals'), false) }}
       {% else %}
         {{ tab_button('info', '报价信息', true) }}
         {{ tab_button('pricing', '定价汇总', false) }}
@@ -59,33 +72,34 @@
       <section class="erp-panel active" data-erp-panel="info">
         <div class="erp-detail-scroll">
           <div class="fields-2col">
-            <label class="erp-field">报价单编号 <input name="quotation_number" value="{{ defaults.quotation_number or '' }}" required></label>
-            <label class="erp-field">报价日期 <input type="date" name="quotation_date" value="{{ defaults.quotation_date or '' }}" required></label>
-            <label class="erp-field">有效期至 <input type="date" name="valid_until" value="{{ defaults.valid_until or '' }}"></label>
-            <label class="erp-field">编制人 <input name="prepared_by" value="{{ defaults.prepared_by or '' }}"></label>
-            <label class="erp-field">客户 <input name="customer" value="{{ defaults.customer or '' }}" placeholder="报价单上的客户名称"></label>
-            <label class="erp-field">关联正式客户
+            <label class="erp-field">{{ quote_ui('报价单编号', 'Quotation number') }} <input name="quotation_number" value="{{ defaults.quotation_number or '' }}" required></label>
+            <label class="erp-field">{{ quote_ui('报价日期', 'Quotation date') }} <input type="date" name="quotation_date" value="{{ defaults.quotation_date or '' }}" required></label>
+            <label class="erp-field">{{ quote_ui('有效期至', 'Valid until') }} <input type="date" name="valid_until" value="{{ defaults.valid_until or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('编制人', 'Prepared by') }} <input name="prepared_by" value="{{ defaults.prepared_by or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('客户', 'Customer') }} <input name="customer" value="{{ defaults.customer or '' }}" placeholder="{{ quote_ui('报价单上的客户名称', 'Customer name on the quotation') }}"></label>
+            <label class="erp-field">{{ quote_ui('关联正式客户', 'Link customer account') }}
               <select name="client_id">
-                <option value="">不关联</option>
+                <option value="">{{ quote_ui('不关联', 'None') }}</option>
                 {% for client in clients %}
                   <option value="{{ client.id }}" {% if defaults.client_id|string == client.id|string %}selected{% endif %}>{{ client.client_number }} · {{ client.name }}</option>
                 {% endfor %}
               </select>
-              <small>关联后工单可引用本报价单</small>
+              <small>{{ quote_ui('关联后工单可引用本报价单', 'Link a customer to reference this quotation from work orders.') }}</small>
             </label>
-            <label class="erp-field">联系人 <input name="contact" value="{{ defaults.contact or '' }}"></label>
-            <label class="erp-field">项目名称 <input name="project_name" value="{{ defaults.project_name or '' }}"></label>
-            <label class="erp-field">项目编号 <input name="project_no" value="{{ defaults.project_no or '' }}"></label>
-            <label class="erp-field">项目地点 <input name="project_location" value="{{ defaults.project_location or '' }}"></label>
-            <label class="erp-field">PO 编号 <input name="po_no" value="{{ defaults.po_no or '' }}"></label>
-            <label class="erp-field">状态
+            <label class="erp-field">{{ quote_ui('联系人', 'Contact') }} <input name="contact" value="{{ defaults.contact or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('项目名称', 'Project name') }} <input name="project_name" value="{{ defaults.project_name or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('项目编号', 'Project number') }} <input name="project_no" value="{{ defaults.project_no or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('项目地点', 'Project location') }} <input name="project_location" value="{{ defaults.project_location or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('PO 编号', 'PO number') }} <input name="po_no" value="{{ defaults.po_no or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('状态', 'Status') }}
               <select name="status">
+                {% set project_status_en = {'draft': 'Draft', 'sent': 'Sent', 'accepted': 'Accepted', 'expired': 'Expired', 'cancelled': 'Cancelled'} %}
                 {% for value, label in status_labels.items() %}
-                  <option value="{{ value }}" {% if (defaults.status or 'draft') == value %}selected{% endif %}>{{ label }}</option>
+                  <option value="{{ value }}" {% if (defaults.status or 'draft') == value %}selected{% endif %}>{{ project_status_en.get(value, label) if project_ui_english else label }}</option>
                 {% endfor %}
               </select>
             </label>
-            <label class="erp-field">货币
+            <label class="erp-field">{{ quote_ui('货币', 'Currency') }}
               <select name="currency">
                 {% for currency in ["USD", "CAD", "EUR", "GBP", "CNY"] %}
                   <option value="{{ currency }}" {% if (defaults.currency or "USD") == currency %}selected{% endif %}>{{ currency }}</option>
@@ -93,24 +107,24 @@
               </select>
             </label>
             {% if layout == 'project' %}
-              <label class="erp-field">文档标题 <input name="document_title" value="{{ defaults.document_title or '报价单' }}" placeholder="报价单"></label>
-              <label class="erp-field">甲方 Party A <input name="party_a" value="{{ defaults.party_a or '' }}" placeholder="关联客户后可自动带出，可再修改"></label>
-              <label class="erp-field">乙方 Party B <input name="party_b" value="{{ defaults.party_b or 'Prasinos Power' }}"></label>
+              <label class="erp-field">{{ quote_ui('文档标题', 'Document title') }} <input name="document_title" value="{{ defaults.document_title or '报价单' }}" placeholder="{{ quote_ui('报价单', 'Quotation') }}"></label>
+              <label class="erp-field">{{ quote_ui('甲方', 'Party A') }} <input name="party_a" value="{{ defaults.party_a or '' }}" placeholder="{{ quote_ui('关联客户后可自动带出，可再修改', 'Filled from the linked customer and can be edited') }}"></label>
+              <label class="erp-field">{{ quote_ui('乙方', 'Party B') }} <input name="party_b" value="{{ defaults.party_b or 'Prasinos Power' }}"></label>
             {% endif %}
           </div>
           {% if layout == 'project' %}
-            <p class="unit">版式：按项目/安装清单。创建后不能改成按工时报价。</p>
-            <label class="erp-field" style="margin-top:6px">项目描述
-              <textarea name="project_description" rows="3" placeholder="Project Description">{{ defaults.project_description or '' }}</textarea>
+            <p class="unit">{{ quote_ui('版式：按项目/安装清单。创建后不能改成按工时报价。', 'Layout: Project / installation checklist. The layout is fixed after creation.') }}</p>
+            <label class="erp-field" style="margin-top:6px">{{ quote_ui('项目描述', 'Project description') }}
+              <textarea name="project_description" rows="3" placeholder="{{ quote_ui('项目描述', 'Project description') }}">{{ defaults.project_description or '' }}</textarea>
             </label>
-            <label class="erp-field">项目描述（中文） <input name="project_description_zh" value="{{ defaults.project_description_zh or '' }}"></label>
-            <label class="erp-field">项目描述（英文） <input name="project_description_en" value="{{ defaults.project_description_en or '' }}"></label>
-            <label class="erp-field">文档标题（中文） <input name="document_title_zh" value="{{ defaults.document_title_zh or '' }}"></label>
-            <label class="erp-field">文档标题（英文） <input name="document_title_en" value="{{ defaults.document_title_en or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('项目描述（中文）', 'Project description (Chinese)') }} <input name="project_description_zh" value="{{ defaults.project_description_zh or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('项目描述（英文）', 'Project description (English)') }} <input name="project_description_en" value="{{ defaults.project_description_en or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('文档标题（中文）', 'Document title (Chinese)') }} <input name="document_title_zh" value="{{ defaults.document_title_zh or '' }}"></label>
+            <label class="erp-field">{{ quote_ui('文档标题（英文）', 'Document title (English)') }} <input name="document_title_en" value="{{ defaults.document_title_en or '' }}"></label>
           {% else %}
             <p class="unit">版式：按工时报价（Time &amp; Expense）。</p>
           {% endif %}
-          <label class="erp-field" style="margin-top:6px">备注
+          <label class="erp-field" style="margin-top:6px">{{ quote_ui('备注', 'Notes') }}
             <textarea name="notes" rows="3">{{ defaults.notes or '' }}</textarea>
           </label>
         </div>
@@ -119,13 +133,13 @@
       {% if layout == 'project' %}
       <section class="erp-panel" data-erp-panel="lines">
         <div class="erp-detail-scroll">
-          <h4 class="panel-title">安装清单</h4>
-          <p class="unit">数量和单价都填写时，金额按数量 × 单价自动计算；否则该行是总价包干，直接填写金额。两种行可以出现在同一张报价单里。</p>
+          <h4 class="panel-title">{{ quote_ui('安装清单', 'Installation checklist') }}</h4>
+          <p class="unit">{{ quote_ui('数量和单价都填写时，金额按数量 × 单价自动计算；否则该行是总价包干，直接填写金额。两种行可以出现在同一张报价单里。', 'Enter a quantity and unit price to calculate the amount. For a lump-sum line, enter the amount directly. Both line types can be used in the same quotation.') }}</p>
           <div class="system-grid">
             <table class="pricing project-lines" id="projectLines">
               <thead>
                 <tr>
-                  <th>序号</th><th>项目名称</th><th>工作范围</th><th>数量</th><th>单位</th><th>单价</th><th>金额</th><th>备注</th><th></th>
+                  <th>{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project name') }}</th><th>{{ quote_ui('工作范围', 'Scope of work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -144,30 +158,31 @@
             {% include "quotation_project_line_row.html" %}
           </template>
           <p>
-            <button type="button" class="erp-btn" id="addProjectLine">添加一行</button>
+            <button type="button" class="erp-btn" id="addProjectLine">{{ quote_ui('添加一行', 'Add row') }}</button>
           </p>
         </div>
       </section>
       <section class="erp-panel" data-erp-panel="terms">
         <div class="erp-detail-scroll">
-          <h4 class="panel-title">页脚说明</h4>
-          <label class="erp-field">条款 / 免责声明
-            <textarea name="project_terms" rows="6" placeholder="此段文字会替换按工时模板里的 30 条标准条款。">{{ defaults.project_terms or '' }}</textarea>
+          <h4 class="panel-title">{{ quote_ui('页脚说明', 'Footer note') }}</h4>
+          <label class="erp-field">{{ quote_ui('条款 / 免责声明', 'Terms / disclaimer') }}
+            <textarea name="project_terms" rows="6" placeholder="{{ quote_ui('此段文字会替换按工时模板里的 30 条标准条款。', 'These terms replace the 30 standard terms in the hourly template.') }}">{{ defaults.project_terms or '' }}</textarea>
           </label>
-          <label class="erp-field">页脚说明（中文） <textarea name="project_terms_zh" rows="3">{{ defaults.project_terms_zh or '' }}</textarea></label>
-          <label class="erp-field">页脚说明（英文） <textarea name="project_terms_en" rows="3">{{ defaults.project_terms_en or '' }}</textarea></label>
-          <label class="check-row"><input type="checkbox" name="include_standard_clauses" value="1" {% if defaults.include_standard_clauses|string in ["1", "True", "true"] %}checked{% endif %}> 附上标准条款（30 条）</label>
+          <label class="erp-field">{{ quote_ui('页脚说明（中文）', 'Footer note (Chinese)') }} <textarea name="project_terms_zh" rows="3">{{ defaults.project_terms_zh or '' }}</textarea></label>
+          <label class="erp-field">{{ quote_ui('页脚说明（英文）', 'Footer note (English)') }} <textarea name="project_terms_en" rows="3">{{ defaults.project_terms_en or '' }}</textarea></label>
+          <label class="check-row"><input type="checkbox" name="include_standard_clauses" value="1" {% if defaults.include_standard_clauses|string in ["1", "True", "true"] %}checked{% endif %}> {{ quote_ui('附上标准条款（30 条）', 'Attach the 30 standard terms') }}</label>
           <input type="hidden" name="pricing_type" value="estimated">
           <input type="hidden" name="payment_terms" value="{{ defaults.payment_terms or 'net_30' }}">
           <input type="hidden" name="invoice_frequency" value="{{ defaults.invoice_frequency or 'upon_completion' }}">
           <div class="totals">
-            <span>行合计 <b id="subtotalText">$0.00</b></span>
-            <span>税 <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}"></span>
-            <span>折扣前总额 <b id="grossText">$0.00</b></span>
-            <span>折扣金额 <input type="number" step="0.01" min="0" name="discount_amount" id="discountInput" value="{{ defaults.discount_amount if defaults.discount_amount is not none else '' }}"></span>
-            <span>最终报价金额 <b id="finalText">$0.00</b></span>
+            <span>{{ quote_ui('行合计', 'Line subtotal') }} <b id="subtotalText">$0.00</b></span>
+            <span>{{ quote_ui('税', 'Tax') }} <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}"></span>
+            <span>{{ quote_ui('折扣前总额', 'Total before discount') }} <b id="grossText">$0.00</b></span>
+            <label>{{ quote_ui('折扣百分比', 'Discount (%)') }} <input type="number" min="0" max="100" step="0.01" id="discountPercent" inputmode="decimal"> %</label>
+            <span>{{ quote_ui('折扣金额', 'Discount amount') }} <input type="number" step="0.01" min="0" name="discount_amount" id="discountInput" value="{{ defaults.discount_amount if defaults.discount_amount is not none else '' }}"></span>
+            <span>{{ quote_ui('最终报价金额', 'Final quotation amount') }} <b id="finalText">$0.00</b></span>
           </div>
-          <small>税和折扣沿用现有报价规则：最终金额 = 各行金额合计 + 税 − 折扣。</small>
+          <small>{{ quote_ui('税和折扣沿用现有报价规则：最终金额 = 各行金额合计 + 税 − 折扣。', 'Final amount = line subtotal + tax − discount.') }}</small>
         </div>
       </section>
       {% else %}
@@ -211,6 +226,7 @@
             <span>预估小计 <b id="subtotalText">$0.00</b></span>
             <span>税 <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}" style="width:110px"></span>
             <span>折扣前总额 <b id="grossText">$0.00</b></span>
+            <label translate="no">{{ 'Discount (%)' if current_language == 'en' else '折扣百分比' }} <input type="number" min="0" max="100" step="0.01" id="discountPercent" inputmode="decimal"> %</label>
             <span>折扣金额 <input type="number" step="0.01" min="0" name="discount_amount" id="discountInput" value="{{ defaults.discount_amount if defaults.discount_amount is not none else '' }}" style="width:110px"></span>
             <span>最终报价金额 <b id="finalText">$0.00</b></span>
           </div>
@@ -332,6 +348,28 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='erp-report.js', v=app_version) }}"></script>
 <script>
+  const quotationDiscountAmount = document.getElementById("discountInput");
+  const quotationDiscountPercent = document.getElementById("discountPercent");
+  const calculateQuotationDiscount = (gross) => {
+    if (quotationDiscountPercent.value !== "" && quotationDiscountPercent.validity.valid) {
+      const grossCents = Math.round(gross * 100);
+      const basisPoints = Math.round(Number(quotationDiscountPercent.value) * 100);
+      quotationDiscountAmount.value = (Math.round(grossCents * basisPoints / 10000) / 100).toFixed(2);
+    }
+    return Number(quotationDiscountAmount.value) || 0;
+  };
+  const bindQuotationDiscount = (recalc) => {
+    quotationDiscountAmount.addEventListener("input", () => {
+      quotationDiscountPercent.value = "";
+      recalc();
+    });
+    quotationDiscountPercent.addEventListener("input", () => {
+      if (quotationDiscountPercent.value === "" && quotationDiscountPercent.validity.valid) {
+        quotationDiscountAmount.value = "";
+      }
+      recalc();
+    });
+  };
   (() => {
     if (!document.getElementById("pricingType")) return;
     const money = (v) => "$" + (Number(v) || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -349,7 +387,7 @@
     const discountInput = document.getElementById("discountInput");
     const refreshFinal = (gross) => {
       document.getElementById("grossText").textContent = money(gross);
-      const discount = Number(discountInput.value) || 0;
+    const discount = calculateQuotationDiscount(gross);
       const final = gross - discount;
       document.getElementById("finalText").textContent = money(Math.max(0, final));
       if (discount > gross) discountInput.setCustomValidity("折扣不能超过折扣前总额");
@@ -425,7 +463,7 @@
     });
     taxInput.addEventListener("input", recalc);
     totalInput.addEventListener("input", recalc);
-    discountInput.addEventListener("input", recalc);
+    bindQuotationDiscount(recalc);
     pricingType.addEventListener("change", refreshMode);
     if (clientSelect) clientSelect.addEventListener("change", () => fetchRates(clientSelect.value));
     recalc();
@@ -503,9 +541,9 @@
       const gross = subtotal + tax;
       document.getElementById("grossText").textContent = money(gross);
       const discountInput = document.getElementById("discountInput");
-      const discount = Number(discountInput.value) || 0;
+      const discount = calculateQuotationDiscount(gross);
       document.getElementById("finalText").textContent = money(Math.max(0, gross - discount));
-      discountInput.setCustomValidity(discount > gross ? "折扣不能超过折扣前总额" : "");
+      discountInput.setCustomValidity(discount > gross ? {{ quote_ui('折扣不能超过折扣前总额', 'The discount cannot exceed the total before discount.')|string|tojson }} : "");
       renumber();
     };
     const bindRow = (row) => {
@@ -518,6 +556,9 @@
           row.querySelectorAll("input, textarea").forEach((el) => { el.value = ""; });
           const unit = row.querySelector(".unit-select");
           if (unit) unit.value = "";
+          const project = row.querySelector(".section-select");
+          project.value = "";
+          project.dispatchEvent(new Event("change"));
         } else {
           row.remove();
         }
@@ -536,26 +577,61 @@
       const sectionSelect = row.querySelector(".section-select");
       const sectionFilter = row.querySelector(".section-filter");
       const sectionName = row.querySelector(".section-name");
-      if (sectionSelect) {
-        sectionSelect.addEventListener("change", () => {
-          const option = sectionSelect.selectedOptions[0];
-          if (!option || option.value === "" || option.value === "legacy") return;
-          if (sectionName) sectionName.value = option.dataset.name || option.textContent.trim();
-          const catalogPrice = Number(option.dataset.price);
-          const price = row.querySelector(".price");
-          if (catalogPrice && price && price.value.trim() === "") price.value = String(catalogPrice);
-          recalc();
+      const picker = row.querySelector(".section-picker");
+      const summary = picker.querySelector("summary");
+      const label = picker.querySelector(".section-picker-label");
+      const options = picker.querySelector(".section-picker-options");
+      const empty = picker.querySelector(".section-picker-empty");
+      const updateLabel = () => {
+        label.textContent = sectionSelect.selectedOptions[0]?.textContent.trim() || "";
+      };
+      const choices = Array.from(sectionSelect.options, (option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "erp-btn";
+        button.textContent = option.textContent.trim();
+        button.addEventListener("click", () => {
+          sectionSelect.value = option.value;
+          sectionSelect.dispatchEvent(new Event("change"));
+          picker.open = false;
+          summary.focus();
         });
-      }
-      if (sectionFilter && sectionSelect) {
-        sectionFilter.addEventListener("input", () => {
-          const query = sectionFilter.value.trim().toLowerCase();
-          Array.from(sectionSelect.options).forEach((option) => {
-            if (!option.value || option.value === "legacy") return;
-            option.hidden = query && !option.textContent.toLowerCase().includes(query);
-          });
-        });
-      }
+        options.appendChild(button);
+        return { button, searchText: (button.textContent + " " + (option.dataset.name || "")).toLowerCase() };
+      });
+      const filterOptions = () => {
+        const query = sectionFilter.value.trim().toLowerCase();
+        choices.forEach(({ button, searchText }) => { button.hidden = !searchText.includes(query); });
+        empty.hidden = choices.some(({ button }) => !button.hidden);
+      };
+      sectionSelect.addEventListener("change", () => {
+        const option = sectionSelect.selectedOptions[0];
+        updateLabel();
+        sectionName.value = option?.value ? option.dataset.name || option.textContent.trim() : "";
+        const price = row.querySelector(".price");
+        const catalogPrice = Number(option?.dataset.price);
+        if (catalogPrice && price.value.trim() === "") price.value = String(catalogPrice);
+        recalc();
+      });
+      sectionFilter.addEventListener("input", filterOptions);
+      sectionFilter.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") event.preventDefault();
+      });
+      picker.addEventListener("toggle", () => {
+        if (!picker.open) return;
+        sectionFilter.value = "";
+        filterOptions();
+        sectionFilter.focus();
+      });
+      picker.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !picker.open) return;
+        event.preventDefault();
+        picker.open = false;
+        summary.focus();
+      });
+      updateLabel();
+      sectionSelect.hidden = true;
+      picker.hidden = false;
     };
     body.querySelectorAll("tr").forEach(bindRow);
     document.getElementById("addProjectLine").addEventListener("click", () => {
@@ -567,7 +643,7 @@
       recalc();
     });
     document.getElementById("taxInput").addEventListener("input", recalc);
-    document.getElementById("discountInput").addEventListener("input", recalc);
+    bindQuotationDiscount(recalc);
     if (clientSelect && partyA) {
       const fillParty = () => {
         const name = clientNames[clientSelect.value] || "";
