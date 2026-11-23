@@ -144,8 +144,10 @@
       renderCameraDeviceInfo();
       return true;
     }
-    const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
-    if (!number && !noNumber) { notice('请输入设备编号，或勾选“无编号”。', true); $('equipmentNumber').focus(); return false; }
+    const number = $('equipmentNumber').value.trim(), noNumberChecked = $('noEquipmentNumber').checked;
+    // 现场先拍后补：未填编号且未勾无编号时，按无编号会话先锁定，信息后续补录。
+    const noNumber = noNumberChecked || !number;
+    if (!number && !noNumberChecked) notice('设备编号暂未填，先上传待后续补录。', false);
     deviceSession = {id:key(), equipment_number:noNumber ? '' : number,
       position_number:$('positionNumber').value.trim().toUpperCase(), container_number:$('containerNumber').value.trim().toUpperCase(),
       no_equipment_number:noNumber};
@@ -168,8 +170,10 @@
     if (activeRepair && activeRepair.order_id === chosenOrder()?.id) return true;
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
     const model = $('equipmentModel').value.trim();
-    if (!number && !noNumber) { notice('请输入设备编号，或勾选“无编号”。', true); $('equipmentNumber').focus(); return false; }
-    if (!model) { notice('请填写设备型号。', true); $('equipmentModel').focus(); return false; }
+    // 现场先拍后补：编号/型号缺失不再硬拦，照片先按待补批次入库，后续按设备归并补录并重绘水印。
+    if (!number && !noNumber && !model) { notice('设备编号、型号暂未填，先上传待后续补录。', false); }
+    else if (!number && !noNumber) { notice('设备编号暂未填，先上传待后续补录。', false); }
+    else if (!model) { notice('设备型号暂未填，先上传待后续补录。', false); }
     return true;
   }
 
