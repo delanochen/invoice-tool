@@ -24,6 +24,7 @@ from photo_capture_date import resolve_capture_date
 from invoice_tool.service_reports.field_capture import (
     earliest_watermark, fields_for_watermark, position_token, read_container_image, shifted_watermark,
     should_server_watermark, stamp_group_watermark, validate_container_llm, validate_position_llm,
+    watermark_device_fields,
 )
 from invoice_tool.service_reports.field_repairs import (
     FAULT_TEXT_LIMIT, controller_fault_text, decode_ocr_output, machine_number_token,
@@ -1273,12 +1274,17 @@ def register_field_routes(app, api):
             # 选图上传（保留原图水印或生成水印）均不检查位置；拍照仍必须通过位置检查。
             return jsonify(error='只有选图上传可以跳过位置检查。'), 422
         note = request.form.get('note', '').strip()[:1000]
-        has_device_metadata = any(key in request.form for key in ('equipment_number', 'position_number', 'container_number', 'pump_fuse_numbers',
-                                                                   'equipment_session', 'no_equipment_number'))
-        equipment_number = request.form.get('equipment_number', '').strip()[:200]
-        position_number = request.form.get('position_number', '').strip().upper()[:200]
-        container_number = request.form.get('container_number', '').strip().upper()[:200]
-        pump_fuse_numbers = request.form.get('pump_fuse_numbers', '').strip()[:200]
+        has_device_metadata = any(key in request.form for key in (
+            'equipment_number', 'machine_number', 'position_number', 'container_number', 'pump_fuse_numbers',
+            'equipment_model', 'photo_model', 'equipment_session', 'no_equipment_number', 'fault_note', 'fault'))
+        device = watermark_device_fields(request.form)
+        equipment_number = device['equipment_number']
+        position_number = device['position_number']
+        container_number = device['container_number']
+        pump_fuse_numbers = device['pump_fuse_numbers']
+        equipment_model = device['equipment_model']
+        fault_note = device['fault_note']
+        work_content = device['work_content']
         equipment_session = request.form.get('equipment_session', '').strip()[:64]
         repair_phase = request.form.get('repair_phase', '').strip()
         photo_type = request.form.get('photo_type', 'legacy').strip()
@@ -1292,9 +1298,21 @@ def register_field_routes(app, api):
             ).fetchone()
             if not repair:
                 return jsonify(error='找不到对应维修记录。'), 404
-            equipment_number, position_number, container_number = (
-                repair['equipment_number'], repair['position_number'], repair['container_number'],
-            )
+            repair_device = watermark_device_fields(repair)
+            # The saved repair is authoritative when it has a value. A blank repair
+            # column must not wipe the number, model or fault the phone already sent.
+            if repair_device['equipment_number']:
+                equipment_number = repair_device['equipment_number']
+            if repair_device['position_number']:
+                position_number = repair_device['position_number']
+            if repair_device['container_number']:
+                container_number = repair_device['container_number']
+            if not equipment_model:
+                equipment_model = repair_device['equipment_model']
+            if not fault_note:
+                fault_note = repair_device['fault_note']
+            if not work_content:
+                work_content = repair_device['work_content']
         watermark_at = watermark.isoformat()
         batch_id = request.form.get('batch_id', '').strip()[:64]
         if photo_type not in {'equipment', 'general', 'legacy', 'arrival', 'departure', 'safety'}:
@@ -1416,12 +1434,12 @@ def register_field_routes(app, api):
                         'longitude': lng,
                         'accuracy': accuracy,
                         'equipment_number': equipment_number,
-                        'equipment_model': request.form.get('equipment_model', '').strip()[:200],
+                        'equipment_model': equipment_model,
                         'container_number': container_number,
                         'position_number': position_number,
                         'pump_fuse_numbers': pump_fuse_numbers,
-                        'fault_note': request.form.get('fault_note', '').strip()[:4000],
-                        'work_content': request.form.get('work_content', '').strip()[:2000],
+                        'fault_note': fault_note,
+                        'work_content': work_content,
                         'note': note,
                     })
                 except (OSError, ValueError, Image.DecompressionBombError):
@@ -1439,8 +1457,7 @@ def register_field_routes(app, api):
                     original_target.write_bytes(raw_original)
                     original_relative = original_rel.as_posix()
             photo_role = request.form.get('photo_role', '').strip()[:32]
-            photo_model = request.form.get('equipment_model', '').strip()[:200]
-            fault_note = request.form.get('fault_note', '').strip()[:4000]
+            photo_model = equipment_model
             cursor = db.execute('''insert into field_photos
                 (client_id, order_id, user_id, captured_at, received_at, capture_date, timezone_name,
                  latitude, longitude, accuracy, location_note, note, source, relative_path, content_hash, bytes,

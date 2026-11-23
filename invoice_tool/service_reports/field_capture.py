@@ -197,17 +197,58 @@ def watermark_lines(fields):
     return lines
 
 
+def _as_mapping(source):
+    if not source:
+        return {}
+    if isinstance(source, dict):
+        return source
+    keys = getattr(source, "keys", None)
+    if callable(keys):
+        try:
+            return {key: source[key] for key in source.keys()}
+        except TypeError:
+            return {}
+    return source if callable(getattr(source, "get", None)) else {}
+
+
+def _first_text(source, keys, limit):
+    source = _as_mapping(source)
+    for key in keys:
+        text = str(source.get(key) or "").strip()
+        if text:
+            return text[:limit]
+    return ""
+
+
+def watermark_device_fields(*sources):
+    """Equipment lines for a watermark. Earlier sources win; later ones fill blanks.
+
+    The phone stores the same value under more than one name: equipment_number
+    or machine_number, equipment_model or photo_model, and fault_note or fault.
+    """
+    def pick(*keys, limit=200, upper=False):
+        for source in sources:
+            text = _first_text(source, keys, limit)
+            if text:
+                return text.upper() if upper else text
+        return ""
+
+    return {
+        "equipment_number": pick("equipment_number", "machine_number"),
+        "equipment_model": pick("equipment_model", "photo_model"),
+        "position_number": pick("position_number", upper=True),
+        "container_number": pick("container_number", upper=True),
+        "pump_fuse_numbers": pick("pump_fuse_numbers"),
+        "fault_note": pick("fault_note", "fault", limit=4000),
+        "work_content": pick("work_content", limit=2000),
+    }
+
+
 def fields_for_watermark(photo, pending):
     """Confirmed group fields replace whatever was known when the photo was taken."""
-    pending = pending or {}
-    return {
-        "equipment_number": pending.get("equipment_number") or photo.get("equipment_number") or "",
-        "equipment_model": pending.get("equipment_model") or photo.get("equipment_model") or "",
-        "container_number": pending.get("container_number") or photo.get("container_number") or "",
-        "position_number": pending.get("position_number") or photo.get("position_number") or "",
-        "fault_note": pending.get("fault") or photo.get("fault_note") or "",
-        "watermark": True,
-    }
+    device = watermark_device_fields(pending or {}, photo or {})
+    device["watermark"] = True
+    return device
 
 
 # --- Server-side fallback watermark -----------------------------------------

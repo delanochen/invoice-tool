@@ -63,8 +63,8 @@ class FieldWorkJsContractTest(unittest.TestCase):
     # 12. non-equipment payload has NO device keys
     def test_08_non_equipment_payload_excludes_device_keys(self):
         # Equipment-only device fields are spread conditionally:
-        self.assertIn("...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || '',", self.pack)
-        self.assertIn("equipment_session:captureDevice?.id || captureBatchId", self.pack)
+        self.assertIn("...(photoType === 'equipment' ? equipmentCaptureFields(captureDevice, group, typedAtShutter, afterWork, captureBatchId)", self.pack)
+        self.assertIn("equipment_session: device?.id || captureBatchId", self.pack)
         # No other place adds device fields to payloads.
         self.assertNotIn("equipment_number:captureDevice.equipment_number,position_number", self.pack.replace("...(photoType === 'equipment' ? {", ""))
 

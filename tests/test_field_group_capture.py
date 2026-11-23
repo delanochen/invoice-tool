@@ -7,7 +7,7 @@ from PIL import Image
 from invoice_tool.service_reports.field_capture import (
     assess_container, container_candidates, fields_for_watermark, iso6346_check_digit,
     read_container_image, shifted_watermark, should_server_watermark, stamp_group_watermark, validate_container_llm,
-    validate_position_llm, watermark_lines,
+    validate_position_llm, watermark_device_fields, watermark_lines, _watermark_rows,
 )
 
 
@@ -101,6 +101,50 @@ class ContainerCheckDigitTest(unittest.TestCase):
             "2026-11-17T19:00:00+00:00",
         )
         self.assertTrue(later.startswith("2026-11-17T19:02:10"))
+
+    def test_aliases_and_repair_gaps_reach_the_watermark_card(self):
+        posted = watermark_device_fields({
+            "machine_number": "10232A0407536",
+            "photo_model": "LCI-400CR-01AZ-3487U",
+            "fault": "水泵干磨",
+            "position_number": "b6-1",
+            "container_number": "csqu3054383",
+        })
+        self.assertEqual(posted["equipment_number"], "10232A0407536")
+        self.assertEqual(posted["equipment_model"], "LCI-400CR-01AZ-3487U")
+        self.assertEqual(posted["fault_note"], "水泵干磨")
+        self.assertEqual(posted["position_number"], "B6-1")
+        filled = watermark_device_fields(
+            {"equipment_number": "", "equipment_model": ""},
+            {"equipment_number": "FROM-REPAIR", "equipment_model": "LCI-400", "fault": "已记录故障"},
+        )
+        self.assertEqual(filled["equipment_number"], "FROM-REPAIR")
+        self.assertEqual(filled["equipment_model"], "LCI-400")
+        self.assertEqual(filled["fault_note"], "已记录故障")
+        # A typed number wins over a different value already stored on the photo.
+        confirmed = fields_for_watermark(
+            {"equipment_number": "STALE", "photo_model": "STALE-MODEL"},
+            {"equipment_number": "10232A0407536", "equipment_model": "LCI-400CR-01AZ-3487U"},
+        )
+        self.assertEqual(confirmed["equipment_number"], "10232A0407536")
+        self.assertEqual(confirmed["equipment_model"], "LCI-400CR-01AZ-3487U")
+        rows = _watermark_rows({
+            **posted,
+            "photo_type": "equipment",
+            "photo_type_label": "设备",
+            "technician_name": "陈亦珹",
+            "when": "2026-11-23T15:04:08+00:00",
+            "timezone_name": "America/Chicago",
+            "site_address": "9181 County Rd 196, Liverpool, TX 77577",
+        })
+        text = {label: value for label, value, _lines in rows}
+        self.assertEqual(text["Machine No."], "10232A0407536")
+        self.assertEqual(text["Model"], "LCI-400CR-01AZ-3487U")
+        self.assertEqual(text["Location No."], "B6-1")
+        self.assertEqual(text["Container No."], "CSQU3054383")
+        self.assertEqual(text["Type"], "设备")
+        self.assertEqual(text["Fault"], "水泵干磨")
+        self.assertEqual(text["Technician"], "陈亦珹")
 
 
 if __name__ == "__main__":
