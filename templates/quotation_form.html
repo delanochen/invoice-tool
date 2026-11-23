@@ -18,17 +18,25 @@
   .erp-app .quotation-form table.pricing th, .erp-app .quotation-form table.pricing td { border: 1px solid #dfe9e3; padding: 2px 5px; text-align: left; }
   .project-line-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   #projectLines tr.project-line-selected > td { background-color: #e6f0ff; }
-  #projectLines .line-no button { min-width: 28px; }
+  #projectLines .project-line-number { width: 1%; white-space: nowrap; }
   #projectLines .line-no button[aria-pressed="true"] { border-color: #2f63b6; }
   .erp-app .quotation-form table.pricing th { background: #e4ece7; color: #163e36; font-weight: 600; }
   .erp-app .quotation-form .check-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .erp-app .quotation-form .check-row label { display: inline-flex; align-items: center; gap: 3px; font-weight: normal; }
-  .erp-app .quotation-form .totals { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: 11.5px; }
-  .erp-app .quotation-form .totals b { font-size: 13px; color: #163e36; }
+  .erp-app .quotation-form [data-erp-panel="lines"] .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr)); align-items: stretch; width: min(100%, 940px); margin: 10px 0 4px auto; border: 1px solid #d5e1dc; background: #f5f8f6; }
+  .erp-app .quotation-form [data-erp-panel="lines"] .totals > * { display: grid; align-content: space-between; gap: 4px; min-width: 0; padding: 5px 8px; border-inline-end: 1px solid #d5e1dc; font-size: 11.5px; font-weight: 400; }
+  .erp-app .quotation-form [data-erp-panel="lines"] .totals > [hidden] { display: none; }
+  .erp-app .quotation-form [data-erp-panel="lines"] .totals b { text-align: right; font-size: 13px; color: #163e36; font-variant-numeric: tabular-nums; }
+  .erp-app .quotation-form [data-erp-panel="lines"] .totals input { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+  .erp-app .quotation-form [data-erp-panel="lines"] .totals > :has(#finalText) { border-inline-end: 0; background: #e4ece7; font-weight: 600; }
+  .erp-app .quotation-form .standard-terms-toggle { display: inline-flex; align-items: center; gap: 6px; width: auto; margin-top: 6px; font-weight: 400; }
+  .erp-app .quotation-form .standard-terms-toggle input { width: auto; margin: 0; }
   .erp-app .quotation-form .unit { font-size: 10px; color: var(--erp-muted); }
   /* 表单面板内：字段两列网格 + 区块小节标题，与查看页信息架构一致 */
   .erp-app .quotation-form .panel-title { font-size: 12px; font-weight: 600; color: #163e36; margin: 8px 0 6px; }
   .erp-app .quotation-form .panel-title:first-child { margin-top: 0; }
+  .erp-app .quotation-form [data-erp-panel="pricing"] .totals { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: 11.5px; }
+  .erp-app .quotation-form [data-erp-panel="pricing"] .totals b { font-size: 13px; color: #163e36; }
   .section-picker { min-width: 9rem; }
   .section-picker > summary { cursor: pointer; padding: 2px 5px; border: 1px solid #a9b4c5; border-radius: var(--erp-radius); background: #fff; }
   .section-picker-label { overflow-wrap: anywhere; }
@@ -59,7 +67,7 @@
       {% if layout == 'project' %}
         {{ tab_button('info', quote_ui('报价信息', 'Quotation information'), true) }}
         {{ tab_button('lines', quote_ui('安装清单', 'Installation checklist'), false) }}
-        {{ tab_button('terms', quote_ui('条款与合计', 'Terms and totals'), false) }}
+        {{ tab_button('terms', quote_ui('条款', 'Terms'), false) }}
       {% else %}
         {{ tab_button('info', '报价信息', true) }}
         {{ tab_button('pricing', '定价汇总', false) }}
@@ -147,7 +155,7 @@
             <table class="pricing project-lines" id="projectLines">
               <thead>
                 <tr>
-                  <th>{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project name') }}</th><th>{{ quote_ui('工作范围', 'Scope of work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th>
+                  <th class="project-line-number">{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project name') }}</th><th>{{ quote_ui('工作范围', 'Scope of work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -165,6 +173,15 @@
             {% set line = {"section_name": "", "scope_of_work": "", "qty": "", "unit": "", "unit_custom": "", "unit_price": "", "line_total": "", "notes": ""} %}
             {% include "quotation_project_line_row.html" %}
           </template>
+          <div class="totals">
+            <span>{{ quote_ui('行合计', 'Line subtotal') }} <b id="subtotalText">$0.00</b></span>
+            <label>{{ quote_ui('税', 'Tax') }} <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}"></label>
+            <span>{{ quote_ui('折扣前总额', 'Total before discount') }} <b id="grossText">$0.00</b></span>
+            <label>{{ quote_ui('折扣（%）', 'Discount (%)') }} <input type="number" min="0" max="100" step="0.01" id="discountPercent" inputmode="decimal"></label>
+            <label>{{ quote_ui('折扣金额', 'Discount amount') }} <input type="number" step="0.01" min="0" name="discount_amount" id="discountInput" value="{{ defaults.discount_amount if defaults.discount_amount is not none else '' }}"></label>
+            <span>{{ quote_ui('最终报价金额', 'Final quotation amount') }} <b id="finalText">$0.00</b></span>
+          </div>
+          <small>{{ quote_ui('税和折扣沿用现有报价规则：最终金额 = 各行金额合计 + 税 − 折扣。', 'Final amount = line subtotal + tax − discount.') }}</small>
         </div>
       </section>
       <section class="erp-panel" data-erp-panel="terms">
@@ -175,19 +192,10 @@
           </label>
           <label class="erp-field">{{ quote_ui('页脚说明（中文）', 'Footer note (Chinese)') }} <textarea name="project_terms_zh" rows="3">{{ defaults.project_terms_zh or '' }}</textarea></label>
           <label class="erp-field">{{ quote_ui('页脚说明（英文）', 'Footer note (English)') }} <textarea name="project_terms_en" rows="3">{{ defaults.project_terms_en or '' }}</textarea></label>
-          <label class="check-row"><input type="checkbox" name="include_standard_clauses" value="1" {% if defaults.include_standard_clauses|string in ["1", "True", "true"] %}checked{% endif %}> {{ quote_ui('附上标准条款（30 条）', 'Attach the 30 standard terms') }}</label>
+          <label class="standard-terms-toggle"><input type="checkbox" name="include_standard_clauses" value="1" {% if defaults.include_standard_clauses|string in ["1", "True", "true"] %}checked{% endif %}> {{ quote_ui('在报价 PDF 中附上标准条款（30 条）', 'Attach the 30 standard terms to the quotation PDF') }}</label>
           <input type="hidden" name="pricing_type" value="estimated">
           <input type="hidden" name="payment_terms" value="{{ defaults.payment_terms or 'net_30' }}">
           <input type="hidden" name="invoice_frequency" value="{{ defaults.invoice_frequency or 'upon_completion' }}">
-          <div class="totals">
-            <span>{{ quote_ui('行合计', 'Line subtotal') }} <b id="subtotalText">$0.00</b></span>
-            <span>{{ quote_ui('税', 'Tax') }} <input type="number" step="0.01" min="0" name="tax" id="taxInput" value="{{ defaults.tax if defaults.tax is not none else '' }}"></span>
-            <span>{{ quote_ui('折扣前总额', 'Total before discount') }} <b id="grossText">$0.00</b></span>
-            <label>{{ quote_ui('折扣百分比', 'Discount (%)') }} <input type="number" min="0" max="100" step="0.01" id="discountPercent" inputmode="decimal"> %</label>
-            <span>{{ quote_ui('折扣金额', 'Discount amount') }} <input type="number" step="0.01" min="0" name="discount_amount" id="discountInput" value="{{ defaults.discount_amount if defaults.discount_amount is not none else '' }}"></span>
-            <span>{{ quote_ui('最终报价金额', 'Final quotation amount') }} <b id="finalText">$0.00</b></span>
-          </div>
-          <small>{{ quote_ui('税和折扣沿用现有报价规则：最终金额 = 各行金额合计 + 税 − 折扣。', 'Final amount = line subtotal + tax − discount.') }}</small>
         </div>
       </section>
       {% else %}

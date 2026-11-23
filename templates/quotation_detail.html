@@ -84,7 +84,7 @@
         <div class="erp-grid-wrap">
           <table class="list-table erp-grid" data-grid-height="auto">
             <thead>
-              <tr><th>{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project Name') }}</th><th>{{ quote_ui('工作范围', 'Scope of Work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit Price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th></tr>
+              <tr><th data-grid-width="48" data-grid-min-width="44">{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project Name') }}</th><th>{{ quote_ui('工作范围', 'Scope of Work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit Price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th></tr>
             </thead>
             <tbody>
               {% for line in quotation.project_lines %}

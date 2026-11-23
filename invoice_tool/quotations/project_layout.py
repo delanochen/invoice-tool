@@ -42,7 +42,7 @@ from invoice_tool.quotations.documents import (
     _esc,
     _money,
     _signature_table as _hourly_signature_table,
-    _styles as _hourly_styles,
+    _pdf_styles as _hourly_pdf_styles,
     _terms_block,
     quotation_cover_story,
 )
@@ -471,7 +471,7 @@ def _styles(font_name):
         "title": style("PTitle", fontSize=16, leading=20, alignment=TA_CENTER, textColor=DARK_GREEN),
         "meta": style("PMeta", fontSize=8, leading=11, alignment=TA_CENTER, textColor=HEADER_GRAY),
         "head": style("PHead", fontSize=7.5, leading=9.5, textColor=WHITE, alignment=TA_CENTER),
-        "cell": style("PCell", fontSize=8, leading=10.5, alignment=TA_LEFT),
+        "cell": style("PCell", fontSize=8, leading=10.5, alignment=TA_LEFT, splitLongWords=True),
         "cell_center": style("PCellCenter", fontSize=8, leading=10.5, alignment=TA_CENTER),
         "cell_right": style("PCellRight", fontSize=8, leading=10.5, alignment=TA_RIGHT),
         "party": style("PParty", fontSize=9, leading=12, textColor=WHITE),
@@ -665,7 +665,10 @@ def build_project_quotation_pdf(quote, path, language=None):
             "",
         ])
 
-    col_widths = [12 * mm, 32 * mm, 36 * mm, 14 * mm, 16 * mm, 24 * mm, 28 * mm, 26 * mm]
+    # SimpleDocTemplate's frame reserves six points on each side for padding.
+    content_width = PAGE_W - 2 * DOC_MARGIN - 12
+    column_weights = (9, 28, 39, 12, 12, 24, 29, 35)
+    col_widths = [content_width * weight / sum(column_weights) for weight in column_weights]
     table = Table(data, colWidths=col_widths, repeatRows=1)
     style = TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), DARK_GREEN),
@@ -710,13 +713,13 @@ def build_project_quotation_pdf(quote, path, language=None):
     )
     title = project_document_title(quote, language)
     if prasinos:
-        from invoice_tool.quotations.documents import _pdf_styles
-        story = quotation_cover_story(quote, _pdf_styles())
+        hourly_styles = _hourly_pdf_styles()
+        story = quotation_cover_story(quote, hourly_styles)
         story.append(table)
         if terms:
             story.append(Paragraph(_esc(terms), styles["disclaimer"]))
         story.append(Spacer(1, 8))
-        story.append(_hourly_signature_table(quote, _hourly_styles()))
+        story.append(_hourly_signature_table(quote, hourly_styles))
     else:
         story = [
             party_header,
