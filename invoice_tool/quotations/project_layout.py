@@ -14,7 +14,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import BaseDocTemplate, NextPageTemplate, PageBreak, Paragraph, Spacer, Table, TableStyle
 
 from invoice_tool.commercial_billing import quote_amounts
 from invoice_tool.quotations.pdf_i18n import (
@@ -39,6 +39,7 @@ from invoice_tool.quotations.documents import (
     TEXT_DARK,
     VALUE_BG,
     WHITE,
+    _add_quotation_page_templates,
     _esc,
     _money,
     _signature_table as _hourly_signature_table,
@@ -533,29 +534,25 @@ def _quote_lines(quote):
 def _page_decorator(font_name, party_b, prasinos, number, language):
     labels = LABELS[language]
 
-    def draw(canvas, doc):
+    def draw(canvas, doc, *, show_header=True):
         canvas.saveState()
-        if prasinos:
-            canvas.setFillColor(DARK_GREEN)
-            canvas.setFont("Helvetica-Bold", 16)
-            canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
-            canvas.setFillColor(HEADER_GRAY)
-            if pdf_language() == "zh":
-                canvas.setFont(font_name, 7)
-            else:
-                canvas.setFont("Helvetica", 7)
-            canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
-            footer_font = font_name if pdf_language() == "zh" else "Helvetica"
-            footer_left = f"Prasinos Power  |  {L('footer_confidential')}"
-        else:
-            canvas.setFillColor(DARK_GREEN)
-            canvas.setFont(font_name, 13)
-            canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 18 * mm, party_b or L("doc_title"))
-            footer_font = font_name
-            footer_left = number or ""
+        footer_font = font_name if language == "zh" or not prasinos else "Helvetica"
+        footer_left = f"Prasinos Power  |  {L('footer_confidential')}" if prasinos else number or ""
         canvas.setStrokeColor(BORDER)
         canvas.setLineWidth(0.5)
-        canvas.line(DOC_MARGIN, PAGE_H - 24.5 * mm, PAGE_W - DOC_MARGIN, PAGE_H - 24.5 * mm)
+        if show_header:
+            if prasinos:
+                canvas.setFillColor(DARK_GREEN)
+                canvas.setFont("Helvetica-Bold", 16)
+                canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
+                canvas.setFillColor(HEADER_GRAY)
+                canvas.setFont(footer_font, 7)
+                canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
+            else:
+                canvas.setFillColor(DARK_GREEN)
+                canvas.setFont(font_name, 13)
+                canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 18 * mm, party_b or L("doc_title"))
+            canvas.line(DOC_MARGIN, PAGE_H - 24.5 * mm, PAGE_W - DOC_MARGIN, PAGE_H - 24.5 * mm)
         canvas.setFillColor(HEADER_GRAY)
         canvas.setFont(footer_font, 8)
         canvas.drawString(DOC_MARGIN, 7 * mm, footer_left)
@@ -665,7 +662,7 @@ def build_project_quotation_pdf(quote, path, language=None):
             "",
         ])
 
-    # SimpleDocTemplate's frame reserves six points on each side for padding.
+    # The quotation frame reserves six points on each side for padding.
     content_width = PAGE_W - 2 * DOC_MARGIN - 12
     column_weights = (9, 28, 39, 12, 12, 24, 29, 35)
     col_widths = [content_width * weight / sum(column_weights) for weight in column_weights]
@@ -737,8 +734,9 @@ def build_project_quotation_pdf(quote, path, language=None):
         story.append(_signature_table(
             party_a, party_b, styles, labels, prasinos, quote.get("quotation_date") or "",
         ))
-    if clauses_enabled(quote.get("include_standard_clauses")):
-        story.append(PageBreak())
+    include_standard_clauses = clauses_enabled(quote.get("include_standard_clauses"))
+    if include_standard_clauses:
+        story.extend([NextPageTemplate("StandardTerms"), PageBreak()])
         story.extend(_terms_block({
             "subtitle": ParagraphStyle("QSubtitle", fontName="Helvetica", fontSize=10, leading=13, alignment=TA_CENTER),
             "clause_title": ParagraphStyle("QClauseTitle", fontName="Helvetica", fontSize=9, leading=12, textColor=DARK_GREEN),
@@ -746,7 +744,7 @@ def build_project_quotation_pdf(quote, path, language=None):
             "section": ParagraphStyle("QSection", fontName="Helvetica", fontSize=14, leading=17, textColor=DARK_GREEN),
         }))
 
-    document = SimpleDocTemplate(
+    document = BaseDocTemplate(
         path,
         pagesize=(PAGE_W, PAGE_H),
         leftMargin=DOC_MARGIN,
@@ -757,8 +755,9 @@ def build_project_quotation_pdf(quote, path, language=None):
         author=party_b,
     )
     draw = _page_decorator(font_name, party_b, prasinos, str(quote.get("quotation_number") or ""), language)
+    _add_quotation_page_templates(document, draw, include_terms=include_standard_clauses)
     try:
-        document.build(story, onFirstPage=draw, onLaterPages=draw)
+        document.build(story)
     finally:
         reset_pdf_language(token)
     return path

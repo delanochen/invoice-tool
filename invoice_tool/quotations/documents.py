@@ -27,11 +27,14 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
+    BaseDocTemplate,
+    Frame,
     Image,
     KeepTogether,
+    NextPageTemplate,
     PageBreak,
+    PageTemplate,
     Paragraph,
-    SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
@@ -749,23 +752,44 @@ def _terms_block(styles=None):
     return story
 
 
-def _draw_header_footer(canvas, doc):
+def _add_quotation_page_templates(document, draw, *, include_terms):
+    quotation_frame = Frame(
+        document.leftMargin, document.bottomMargin, document.width, document.height,
+        id="Quotation",
+    )
+    document.addPageTemplates(PageTemplate(id="Quotation", frames=[quotation_frame], onPage=draw))
+    if not include_terms:
+        return
+    frame = Frame(
+        document.leftMargin, document.bottomMargin, document.width,
+        document.pagesize[1] - document.bottomMargin - 14 * mm,
+        id="StandardTerms",
+    )
+    document.addPageTemplates(PageTemplate(
+        id="StandardTerms",
+        frames=[frame],
+        onPage=lambda canvas, doc: draw(canvas, doc, show_header=False),
+    ))
+
+
+def _draw_header_footer(canvas, doc, *, show_header=True):
     """Page header (PRASINOS POWER + tagline) and footer (confidential + page)."""
     canvas.saveState()
-    # --- header ---
-    canvas.setFillColor(DARK_GREEN)
-    canvas.setFont("Helvetica-Bold", 16)
-    canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
-    canvas.setFillColor(HEADER_GRAY)
-    if pdf_language() == "zh":
-        from invoice_tool.quotations.project_layout import cjk_font_name
-        canvas.setFont(cjk_font_name(), 7)
-    else:
-        canvas.setFont("Helvetica", 7)
-    canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
-    canvas.setStrokeColor(BORDER)
-    canvas.setLineWidth(0.5)
-    canvas.line(DOC_MARGIN, PAGE_H - 24.5 * mm, PAGE_W - DOC_MARGIN, PAGE_H - 24.5 * mm)
+    if show_header:
+        # --- header ---
+        canvas.setFillColor(DARK_GREEN)
+        canvas.setFont("Helvetica-Bold", 16)
+        canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
+        canvas.setFillColor(HEADER_GRAY)
+        if pdf_language() == "zh":
+            from invoice_tool.quotations.project_layout import cjk_font_name
+            canvas.setFont(cjk_font_name(), 7)
+        else:
+            canvas.setFont("Helvetica", 7)
+        canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
+        canvas.setStrokeColor(BORDER)
+        canvas.setLineWidth(0.5)
+        canvas.line(DOC_MARGIN, PAGE_H - 24.5 * mm, PAGE_W - DOC_MARGIN, PAGE_H - 24.5 * mm)
     # --- footer ---
     canvas.setFillColor(HEADER_GRAY)
     if pdf_language() == "zh":
@@ -850,7 +874,7 @@ def build_quotation_pdf(quote, path, language=None):
     tax = quote.get("tax")
     total = quote.get("total")
 
-    document = SimpleDocTemplate(
+    document = BaseDocTemplate(
         path,
         pagesize=A4,
         leftMargin=DOC_MARGIN,
@@ -897,11 +921,12 @@ def build_quotation_pdf(quote, path, language=None):
     story.append(Spacer(1, 4))
     story.append(_signature_table(quote, styles))
 
-    story.append(PageBreak())
+    story.extend([NextPageTemplate("StandardTerms"), PageBreak()])
     story.extend(_terms_block(styles))
+    _add_quotation_page_templates(document, _draw_header_footer, include_terms=True)
 
     try:
-        document.build(story, onFirstPage=_draw_header_footer, onLaterPages=_draw_header_footer)
+        document.build(story)
     finally:
         reset_pdf_language(token)
     return path
