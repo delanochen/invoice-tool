@@ -344,6 +344,11 @@ def project_form_values(form):
             value for value in form.getlist("customer_provides")
             if value in {"access", "escort", "loto", "permits"}
         ]
+    payment_terms = _form_get(form, "payment_terms")
+    if payment_terms not in ("net_30", "net_45", "due_on_completion"):
+        payment_terms = "net_30"
+    submitted_advance = _form_get(form, "advance_payment_percent")
+    advance_payment_percent = int(submitted_advance) if submitted_advance in ("30", "50") else 0
     values = {
         "quotation_number": _form_get(form, "quotation_number"),
         "quotation_date": _form_get(form, "quotation_date"),
@@ -448,11 +453,6 @@ def line_form_state(line):
         custom = unit
     qty = line.get("qty")
     price = line.get("unit_price")
-    payment_terms = _form_get(form, "payment_terms")
-    if payment_terms not in ("net_30", "net_45", "due_on_completion"):
-        payment_terms = "net_30"
-    submitted_advance = _form_get(form, "advance_payment_percent")
-    advance_payment_percent = int(submitted_advance) if submitted_advance in ("30", "50") else 0
     return {
         "section_name": line.get("section_name") or "",
         "scope_of_work": line.get("scope_of_work") or "",
