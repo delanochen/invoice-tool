@@ -40,6 +40,7 @@ from invoice_tool.quotations.documents import (
     VALUE_BG,
     WHITE,
     _add_quotation_page_templates,
+    _draw_prasinos_quotation_header,
     _esc,
     _money,
     _signature_table as _hourly_signature_table,
@@ -542,12 +543,7 @@ def _page_decorator(font_name, party_b, prasinos, number, language):
         canvas.setLineWidth(0.5)
         if show_header:
             if prasinos:
-                canvas.setFillColor(DARK_GREEN)
-                canvas.setFont("Helvetica-Bold", 16)
-                canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
-                canvas.setFillColor(HEADER_GRAY)
-                canvas.setFont(footer_font, 7)
-                canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
+                _draw_prasinos_quotation_header(canvas)
             else:
                 canvas.setFillColor(DARK_GREEN)
                 canvas.setFont(font_name, 13)

@@ -772,21 +772,25 @@ def _add_quotation_page_templates(document, draw, *, include_terms):
     ))
 
 
+def _draw_prasinos_quotation_header(canvas):
+    logo_size = 12 * mm
+    header_center = PAGE_H - 16 * mm
+    logo_path = os.path.join(_STATIC_DIR, "invoice-logo.png")
+    text_left = DOC_MARGIN
+    if os.path.isfile(logo_path):
+        canvas.drawImage(logo_path, DOC_MARGIN, header_center - logo_size / 2,
+                         width=logo_size, height=logo_size, mask="auto")
+        text_left += logo_size + 3 * mm
+    canvas.setFillColor(DARK_GREEN)
+    canvas.setFont("Helvetica-Bold", 16)
+    canvas.drawString(text_left, header_center - 5, "PRASINOS POWER")
+
+
 def _draw_header_footer(canvas, doc, *, show_header=True):
-    """Page header (PRASINOS POWER + tagline) and footer (confidential + page)."""
+    """Draw the quotation brand header and the page footer."""
     canvas.saveState()
     if show_header:
-        # --- header ---
-        canvas.setFillColor(DARK_GREEN)
-        canvas.setFont("Helvetica-Bold", 16)
-        canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 16 * mm, "PRASINOS POWER")
-        canvas.setFillColor(HEADER_GRAY)
-        if pdf_language() == "zh":
-            from invoice_tool.quotations.project_layout import cjk_font_name
-            canvas.setFont(cjk_font_name(), 7)
-        else:
-            canvas.setFont("Helvetica", 7)
-        canvas.drawCentredString(PAGE_W / 2.0, PAGE_H - 21 * mm, L("tagline"))
+        _draw_prasinos_quotation_header(canvas)
         canvas.setStrokeColor(BORDER)
         canvas.setLineWidth(0.5)
         canvas.line(DOC_MARGIN, PAGE_H - 24.5 * mm, PAGE_W - DOC_MARGIN, PAGE_H - 24.5 * mm)

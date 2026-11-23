@@ -317,7 +317,7 @@ class ProjectLayoutPdfTests(unittest.TestCase):
         self.assertIn("QuotationNo.", english)
         self.assertIn("SCOPEOFWORK", english)
         self.assertIn("PRICINGSUMMARY", english)
-        self.assertIn("FIELDSERVICES", english)
+        self.assertNotRegex(english, r"FIELDSERVICES\W*RETROFIT\W*COMMISSIONING")
         self.assertIn("STANDARDQUOTATIONTERMSANDCONDITIONS", english)
         self.assertIn("UnitPrice", english)
         self.assertNotIn("项目名称", english)
