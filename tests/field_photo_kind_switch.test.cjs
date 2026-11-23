@@ -24,6 +24,7 @@ function setup(type = 'departure') {
     processingFiles:false,syncing:false,captureContext:null,key:()=> 'batch-test',
     queued:async()=>[],notice:message=>notices.push(message),
     setFieldText:(id,text)=>{$(id).textContent=text;},clearDeviceInputs(){},resetDevice(){},renderQueue(){},
+    stream:null,
   });
   vm.runInContext(source.slice(begin,end),context);
   context.startKind(type);
@@ -57,7 +58,7 @@ test('single-row type control shows device fields only for equipment',async()=>{
   for(const type of ['equipment','departure','arrival','safety']) {
     const {context:c,$}=setup(type);
     assert.equal(c.batch.type,type);
-    assert.equal($('deviceSession').hidden,false);
+    assert.equal($('deviceSession').hidden, type !== 'equipment');
     for(const kind of ['equipment','departure','arrival','safety']) assert.equal($(kind+'Kind').getAttribute('aria-pressed'),String(kind===type));
   }
 });
@@ -90,7 +91,7 @@ test('queue read failure preserves both capture type and highlighted choice',asy
   assert.equal($('departureKind').getAttribute('aria-pressed')==='true',true);
   assert(notices.at(-1).includes('未切换'));
 });
-const contextStart=source.indexOf('  async function makeContext(');
+const contextStart=source.indexOf('  function fieldTextValue(');
 const contextEnd=source.indexOf('  async function processedPhoto(',contextStart);
 const uploadStart=source.indexOf('  async function syncQueue(');
 const uploadEnd=source.indexOf('  async function completeBatch(',uploadStart);
@@ -101,6 +102,8 @@ function captureSetup(type) {
     chosenOrder:()=>({id:44,order_number:'SO-TEST',client_name:'Test',site_address:'Test'}),
     cameraSelection:null,useSystemTime:true,position:{latitude:1,longitude:1,accuracy:1},locationNote:'',
     checkLocation:async()=>true,localStorage:{setItem(){}},locate:async()=>{},
+    activeRepair:null,repairStage:'before',captureWatermarkTime:actual=>actual,photoFilenameTime:()=>'',
+    photoTypeLabel:type=>({equipment:'设备',arrival:'进场',departure:'离场',safety:'自检'}[type]||type||'-'),
   });
   $('timezoneName').value='UTC';$('technicianSelect').value='2';$('photoNote').value='';
   vm.runInContext(source.slice(contextStart,contextEnd),c);
@@ -147,3 +150,71 @@ for(const type of ['arrival','safety','departure']) {
     assert.deepEqual(removed,[photo.client_id]);
   });
 }
+test('typed equipment reaches the watermark after the shutter, including values entered during location',async()=>{
+  const {c,$}=captureSetup('equipment');
+  c.deviceSession=null;
+  $('equipmentNumber').value='';
+  $('equipmentModel').value='';
+  $('noEquipmentNumber').checked=false;
+  let resume;c.locate=()=>new Promise(resolve=>{resume=resolve;});
+  const pending=c.makeContext('camera');
+  $('equipmentNumber').value='10232A0407536';
+  $('equipmentModel').value='LCI-400CR-01AZ-3487U';
+  $('positionNumber').value='b6-1';
+  $('containerNumber').value='csqu3054383';
+  $('repairFault').value='水泵干磨';
+  resume();
+  const photo=await pending;
+  assert.equal(photo.photo_type,'equipment');
+  assert.equal(photo.photo_type_label,'设备');
+  assert.equal(photo.equipment_number,'10232A0407536');
+  assert.equal(photo.equipment_model,'LCI-400CR-01AZ-3487U');
+  assert.equal(photo.position_number,'B6-1');
+  assert.equal(photo.container_number,'CSQU3054383');
+  assert.equal(photo.fault_note,'水泵干磨');
+});
+test('equipment typed before the shutter survives the form being cleared during location',async()=>{
+  const {c,$}=captureSetup('equipment');
+  c.deviceSession=null;
+  $('equipmentNumber').value='10232A0407536';
+  $('equipmentModel').value='LCI-400CR-01AZ-3487U';
+  let resume;c.locate=()=>new Promise(resolve=>{resume=resolve;});
+  const pending=c.makeContext('camera');
+  $('equipmentNumber').value='';
+  $('equipmentModel').value='';
+  resume();
+  const photo=await pending;
+  assert.equal(photo.equipment_number,'10232A0407536');
+  assert.equal(photo.equipment_model,'LCI-400CR-01AZ-3487U');
+});
+test('a later edit in the form replaces a stale device session on the watermark',async()=>{
+  const {c,$}=captureSetup('equipment');
+  c.deviceSession={id:'device-old',equipment_number:'OLDNUMBER1234',equipment_model:'OLD',position_number:'Z9',container_number:'OLD',no_equipment_number:false};
+  $('equipmentNumber').value='10232A0407536';
+  $('equipmentModel').value='LCI-400CR-01AZ-3487U';
+  const photo=await c.makeContext('camera');
+  assert.equal(photo.equipment_number,'10232A0407536');
+  assert.equal(photo.equipment_model,'LCI-400CR-01AZ-3487U');
+  assert.equal(photo.photo_type,'equipment');
+});
+test('queued equipment photo keeps stored aliases when the form is blank',()=>{
+  const {c}=captureSetup('arrival');
+  const fields=c.equipmentFieldsFor({photo_type:'equipment',capture_session:'older',batch_id:'older:equipment',order_id:44,
+    machine_number:'10232A0407536',photo_model:'LCI-400CR-01AZ-3487U',position_number:'b6-1',fault:'水泵干磨'});
+  assert.equal(fields.equipment_number,'10232A0407536');
+  assert.equal(fields.equipment_model,'LCI-400CR-01AZ-3487U');
+  assert.equal(fields.position_number,'B6-1');
+  assert.equal(fields.fault_note,'水泵干磨');
+});
+test('a blank queued equipment photo for this order picks up the open form',()=>{
+  const {c,$}=captureSetup('equipment');
+  $('equipmentNumber').value='10232A0407536';
+  $('equipmentModel').value='LCI-400CR-01AZ-3487U';
+  $('positionNumber').value='b6-1';
+  $('containerNumber').value='csqu3054383';
+  const fields=c.equipmentFieldsFor({photo_type:'equipment',capture_session:'older',batch_id:'older:equipment',order_id:44,equipment_number:''});
+  assert.equal(fields.equipment_number,'10232A0407536');
+  assert.equal(fields.equipment_model,'LCI-400CR-01AZ-3487U');
+  assert.equal(fields.position_number,'B6-1');
+  assert.equal(fields.container_number,'CSQU3054383');
+});

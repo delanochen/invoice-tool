@@ -147,6 +147,7 @@
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
     if (!number && !noNumber) { notice('请输入设备编号，或勾选“无编号”。', true); $('equipmentNumber').focus(); return false; }
     deviceSession = {id:key(), equipment_number:noNumber ? '' : number,
+      equipment_model:$('equipmentModel').value.trim(), fault_note:$('repairFault').value.trim(),
       position_number:$('positionNumber').value.trim().toUpperCase(), container_number:$('containerNumber').value.trim().toUpperCase(),
       no_equipment_number:noNumber};
     $('equipmentNumber').closest('fieldset').classList.add('locked');
@@ -1493,6 +1494,118 @@
       refreshUploadControls(); renderWatermarkPanel(); await renderQueue();
     }
   }
+  function fieldTextValue(value) {
+    return String(value == null ? '' : value).trim();
+  }
+  function inputValue(id) {
+    return fieldTextValue($(id)?.value);
+  }
+  function liveEquipmentFields() {
+    const noNumber = Boolean($('noEquipmentNumber')?.checked);
+    return {
+      equipment_number: noNumber ? '' : inputValue('equipmentNumber'),
+      equipment_model: inputValue('equipmentModel'),
+      position_number: inputValue('positionNumber').toUpperCase(),
+      container_number: inputValue('containerNumber').toUpperCase(),
+      fault_note: inputValue('repairFault'),
+      work_content: repairStage === 'after' ? inputValue('repairWork') : '',
+      pump_fuse_numbers: '',
+      no_equipment_number: noNumber,
+    };
+  }
+  function storedEquipmentFields(photo) {
+    photo = photo || {};
+    const number = fieldTextValue(photo.equipment_number || photo.machine_number);
+    return {
+      equipment_number: number,
+      equipment_model: fieldTextValue(photo.equipment_model || photo.photo_model),
+      position_number: fieldTextValue(photo.position_number).toUpperCase(),
+      container_number: fieldTextValue(photo.container_number).toUpperCase(),
+      fault_note: fieldTextValue(photo.fault_note || photo.fault),
+      work_content: fieldTextValue(photo.work_content),
+      pump_fuse_numbers: fieldTextValue(photo.pump_fuse_numbers),
+      no_equipment_number: (photo.no_equipment_number === true || photo.no_equipment_number === 'true') && !number,
+    };
+  }
+  function preferEquipment(primary, fallback) {
+    const fields = {
+      equipment_number: fieldTextValue(fallback?.equipment_number),
+      equipment_model: fieldTextValue(fallback?.equipment_model),
+      position_number: fieldTextValue(fallback?.position_number).toUpperCase(),
+      container_number: fieldTextValue(fallback?.container_number).toUpperCase(),
+      fault_note: fieldTextValue(fallback?.fault_note),
+      work_content: fieldTextValue(fallback?.work_content),
+      pump_fuse_numbers: fieldTextValue(fallback?.pump_fuse_numbers),
+      no_equipment_number: Boolean(fallback?.no_equipment_number),
+    };
+    if (!primary) return fields;
+    if (primary.no_equipment_number) {
+      fields.equipment_number = '';
+      fields.no_equipment_number = true;
+    } else if (fieldTextValue(primary.equipment_number)) {
+      fields.equipment_number = fieldTextValue(primary.equipment_number);
+      fields.no_equipment_number = false;
+    }
+    for (const key of ['equipment_model', 'position_number', 'container_number', 'fault_note', 'work_content', 'pump_fuse_numbers']) {
+      const value = fieldTextValue(primary[key]);
+      if (!value) continue;
+      fields[key] = (key === 'position_number' || key === 'container_number') ? value.toUpperCase() : value;
+    }
+    return fields;
+  }
+  function equipmentStampKey(fields) {
+    const parts = ['equipment_number','equipment_model','position_number','container_number','fault_note','work_content','pump_fuse_numbers'].map(key => fieldTextValue(fields?.[key]));
+    return parts.some(Boolean) ? parts.join('\n') : '';
+  }
+  function inCurrentEquipmentSession(photo) {
+    const sessionId = batch?.session_id || batch?.id;
+    if (!sessionId || photo?.photo_type !== 'equipment') return false;
+    const batchId = String(photo.batch_id || '');
+    return photo.capture_session === sessionId || batchId === sessionId || batchId.startsWith(sessionId + ':');
+  }
+  function equipmentFieldsFor(photo) {
+    const stored = storedEquipmentFields(photo);
+    if (photo?.photo_type !== 'equipment') return stored;
+    const live = liveEquipmentFields();
+    if (inCurrentEquipmentSession(photo)) return preferEquipment(live, stored);
+    if (activeRepair && photo.equipment_session && photo.equipment_session === activeRepair.id) return preferEquipment(stored, storedEquipmentFields(activeRepair));
+    // A draft shot before the device was copied onto it can still be repaired
+    // from the open form when it is for this order and does not already name a device.
+    const order = typeof chosenOrder === 'function' ? chosenOrder() : null;
+    if (equipmentStampKey(live) && order && String(photo.order_id || '') === String(order.id) && !equipmentStampKey(stored)) return preferEquipment(live, stored);
+    return stored;
+  }
+  function equipmentCaptureFields(device, group, typedAtShutter, afterWork, captureBatchId) {
+    const fromGroup = {
+      equipment_number: fieldTextValue(group?.equipment_number || group?.machine_number),
+      equipment_model: fieldTextValue(group?.equipment_model || group?.photo_model),
+      position_number: fieldTextValue(group?.position_number).toUpperCase(),
+      container_number: fieldTextValue(group?.container_number).toUpperCase(),
+      fault_note: fieldTextValue(group?.fault || group?.fault_note),
+      work_content: fieldTextValue(group?.work_content || afterWork),
+      pump_fuse_numbers: fieldTextValue(group?.pump_fuse_numbers),
+      no_equipment_number: false,
+    };
+    const fromDevice = storedEquipmentFields(device);
+    if (!fromDevice.fault_note) fromDevice.fault_note = fieldTextValue(device?.fault);
+    let fields = preferEquipment(fromDevice, fromGroup);
+    fields = preferEquipment(typedAtShutter, fields);
+    fields = preferEquipment(liveEquipmentFields(), fields);
+    if (!fields.work_content && fieldTextValue(afterWork)) fields.work_content = fieldTextValue(afterWork);
+    return {
+      equipment_number: fields.equipment_number,
+      equipment_model: fields.equipment_model,
+      position_number: fields.position_number,
+      container_number: fields.container_number,
+      fault_note: fields.fault_note,
+      work_content: fields.work_content,
+      pump_fuse_numbers: fields.pump_fuse_numbers,
+      equipment_session: device?.id || captureBatchId,
+      repair_phase: device?.repair_phase || '',
+      no_equipment_number: Boolean(fields.no_equipment_number || !fields.equipment_number),
+      watermark_equipment_key: equipmentStampKey(fields),
+    };
+  }
   async function makeContext(source, lockedSelection = null, actual = new Date()) {
     const resolved = chosenOrder();
     if (!identityReady || !profile?.can_capture || !resolved) throw new Error('请先在上方选择工单。');
@@ -1510,20 +1623,23 @@
       new Intl.DateTimeFormat('en', {timeZone:timezoneName}).format();
       return {client_id:key(),user_id:profile.user.id,employee_name:originalTech.name,technician_user_id:originalTech.id,
         order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
-        captured_at:actual,watermark_at:actual,batch_id:batch.id,photo_type:batch.type,timezone_name:timezoneName,
+        captured_at:actual,watermark_at:actual,batch_id:batch.id,photo_type:batch.type,photo_type_label:photoTypeLabel(batch.type),timezone_name:timezoneName,
         latitude:0,longitude:0,accuracy:100000,location_verified:false,note:'',
         location_note:'原图已有水印，未检查拍摄位置。',source,error:'',
-        ...(originalDevice ? {equipment_number:originalDevice.equipment_number,position_number:originalDevice.position_number,
-        container_number:originalDevice.container_number,equipment_session:originalDevice.id,repair_phase:originalDevice.repair_phase || '',no_equipment_number:originalDevice.no_equipment_number} : {})};
+        ...(batch.type === 'equipment' ? equipmentCaptureFields(originalDevice, batch.pending || {}, liveEquipmentFields(), '', batch.id) : {})};
     }
     if (!batch) batch = {id:key(), type:'equipment', actual_start:Date.now(), watermark_start:null, session_id:null};
     if (!batch.session_id) batch.session_id = batch.id;
     if (batch.type === 'general') throw new Error('请先选择进场、离场或自检照片。');
     // Freeze the shutter-time metadata before asynchronous location checks.
+    // The form is snapshotted here and read again after location, so a value
+    // typed before the shutter is kept even if the field is cleared while
+    // locating, and a value typed during the check still reaches the watermark.
     const photoType = batch.type, captureBatchId = batch.id;
     const device = activeRepair?.order_id === selected.id ? activeRepair : deviceSession;
     const captureDevice = device ? {...device} : null;
-    const group = batch?.pending || {};
+    const group = {...(batch?.pending || {})};
+    const typedAtShutter = photoType === 'equipment' ? liveEquipmentFields() : null;
     const selectedId = selected.id, selectedUser = lockedSelection?.userId || cameraSelection?.userId || profile.user.id;
     const keepsOriginalWatermark = source === 'file' && lockedSelection?.watermarkSource === 'original';
     // Current phone location does not prove where an imported photo was taken:
@@ -1544,15 +1660,10 @@
     return {client_id:key(),user_id:profile.user.id,employee_name:technician.name,technician_user_id:technician.id,
       order_id:selected.id,order_number:selected.order_number,site_name:selected.client_name,site_address:selected.site_address,
       filename_time:source === 'camera' ? photoFilenameTime(actual) : '',
-      captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,timezone_name:timezoneName,
+      captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,photo_type_label:photoTypeLabel(photoType),timezone_name:timezoneName,
       latitude:skipsLocation ? 0 : position.latitude,longitude:skipsLocation ? 0 : position.longitude,accuracy:skipsLocation ? 100000 : position.accuracy,
       location_verified:!skipsLocation,note:afterWork ? '' : $('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
-      ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || $('equipmentNumber').value.trim(),
-      equipment_model:captureDevice?.equipment_model || group.equipment_model || $('equipmentModel').value.trim(), position_number:captureDevice?.position_number || group.position_number || $('positionNumber').value.trim(),
-      container_number:captureDevice?.container_number || group.container_number || $('containerNumber').value.trim(), fault_note:group.fault || '',
-      equipment_session:captureDevice?.id || captureBatchId, repair_phase:captureDevice?.repair_phase || '',
-      work_content:afterWork,
-      no_equipment_number:captureDevice ? !!captureDevice.no_equipment_number : !group.equipment_number} : {})};
+      ...(photoType === 'equipment' ? equipmentCaptureFields(captureDevice, group, typedAtShutter, afterWork, captureBatchId) : {})};
   }
   async function processedPhoto(source, context) {
     const width = source.videoWidth || source.naturalWidth || source.width;
@@ -1631,6 +1742,45 @@
     await image.decode();
     return {image, url};
   }
+  async function syncEquipmentWatermark(photo) {
+    if (!photo || photo.photo_type !== 'equipment' || photo.stagedFault) return photo;
+    const fields = equipmentFieldsFor(photo);
+    const key = equipmentStampKey(fields);
+    if (!key || photo.watermark_equipment_key === key) return photo;
+    Object.assign(photo, {
+      equipment_number: fields.equipment_number,
+      equipment_model: fields.equipment_model,
+      position_number: fields.position_number,
+      container_number: fields.container_number,
+      fault_note: fields.fault_note,
+      work_content: fields.work_content,
+      pump_fuse_numbers: fields.pump_fuse_numbers,
+      no_equipment_number: Boolean(fields.no_equipment_number || !fields.equipment_number),
+      photo_type_label: photoTypeLabel(photo.photo_type),
+    });
+    if (photo.watermark_opt_out === true || photo.watermark_source === 'original') {
+      photo.watermark_equipment_key = key;
+      await storePhoto(photo);
+      return photo;
+    }
+    const raw = photo.original_blob instanceof Blob ? photo.original_blob : null;
+    let loaded;
+    try {
+      if (!raw || !window.PrasinosWatermark?.draw) throw new Error('no original');
+      loaded = await blobImage(raw);
+      photo.blob = await processedPhoto(loaded.image, {...photo, ...fields, photo_type_label:photoTypeLabel(photo.photo_type), watermark_source:'system'});
+      photo.original_blob = raw;
+      photo.awaiting_watermark = false;
+      photo.watermark_source = 'system';
+      photo.watermark_equipment_key = key;
+    } catch (_) {
+      // The upload sends the original and asks the server to stamp these fields.
+      photo.awaiting_watermark = true;
+      photo.watermark_equipment_key = key;
+    } finally { if (loaded) URL.revokeObjectURL(loaded.url); }
+    await storePhoto(photo);
+    return photo;
+  }
   async function captureRawAndClassify(source, context) {
     const raw = await processedPhoto(source, {...context, watermark_source:'original'});
     // Stamp a preview immediately so a freshly shot photo already shows its watermark.
@@ -1646,6 +1796,7 @@
       : batch?.type === 'safety' ? 'safety'
       : 'other';
     const photo = {...context, blob:stamped, original_blob:raw, awaiting_watermark:stamped === raw, watermark_source:'system', photo_role:role, recognition_status:''};
+    if (stamped === raw) photo.watermark_equipment_key = '';
     applyPhotoRole(photo, role);
     await storePhoto(photo);
     if (cameraStripSession && photo.source === 'camera' && photo.batch_id === cameraStripSession.batchId) cameraStripSession.ids.add(photo.client_id);
@@ -1728,7 +1879,7 @@
     const fields = {equipment_number:'', equipment_model:'', container_number:'', position_number:'', fault:'', sources:{}};
     for (const photo of photos || []) {
       const role = photo.photo_role || '';
-      const number = photo.recognized_number || (role === 'nameplate' ? photo.equipment_number : '') || '';
+      const number = photo.recognized_number || (role === 'nameplate' ? (photo.equipment_number || photo.machine_number) : '') || '';
       const model = photo.recognized_model || (role === 'nameplate' ? (photo.photo_model || photo.equipment_model) : '') || '';
       const container = photo.recognized_container || (role === 'container' ? photo.container_number : '') || '';
       const position = photo.recognized_position || (role === 'position' ? photo.position_number : '') || '';
@@ -1748,6 +1899,16 @@
         if (!fields.container_number && photo.container_number) fields.container_number = photo.container_number;
         if (!fields.position_number && photo.position_number) fields.position_number = photo.position_number;
         if (!fields.fault && photo.fault_note) fields.fault = photo.fault_note;
+      }
+      // Equipment shots store the typed device on the photo itself (role "other"
+      // is the default). Keep that when the form is later cleared.
+      if (photo.photo_type === 'equipment') {
+        const saved = storedEquipmentFields(photo);
+        if (!fields.equipment_number && saved.equipment_number && !['container','position','controller'].includes(role)) fields.equipment_number = saved.equipment_number;
+        if (!fields.equipment_model && saved.equipment_model) fields.equipment_model = saved.equipment_model;
+        if (!fields.container_number && saved.container_number && role !== 'position' && role !== 'nameplate') fields.container_number = saved.container_number;
+        if (!fields.position_number && saved.position_number && role !== 'container') fields.position_number = saved.position_number;
+        if (!fields.fault && saved.fault_note && !['nameplate','container','position'].includes(role)) fields.fault = saved.fault_note;
       }
     }
     return fields;
@@ -1889,10 +2050,12 @@
       photo.container_number = fields.container_number;
       photo.position_number = fields.position_number;
       photo.fault_note = fields.fault;
+      const stampedKey = equipmentStampKey({equipment_number:photo.equipment_number, equipment_model:photo.equipment_model, position_number:photo.position_number, container_number:photo.container_number, fault_note:photo.fault_note, work_content:photo.work_content, pump_fuse_numbers:photo.pump_fuse_numbers});
       if (optOut) {
         photo.awaiting_watermark = false;
         photo.watermark_source = 'original';
         photo.watermark_opt_out = true;
+        photo.watermark_equipment_key = stampedKey;
         photo.blob = photo.original_blob || photo.blob;
         await storePhoto(photo);
         continue;
@@ -1909,6 +2072,7 @@
         photo.original_blob = raw;
         photo.awaiting_watermark = false;
         photo.watermark_source = 'system';
+        photo.watermark_equipment_key = stampedKey;
         await storePhoto(photo);
       } catch (error) {
         photo.awaiting_watermark = true;
@@ -2028,6 +2192,10 @@
     try {
       const photos = await queued();
       if (generation !== queueRenderGeneration) return;
+      for (const photo of photos) {
+        if (typeof syncEquipmentWatermark === 'function') await syncEquipmentWatermark(photo);
+        if (generation !== queueRenderGeneration) return;
+      }
       renderRecentCaptures(photos);
       $('queueCount').textContent = String(photos.length);
       const ids = new Set(photos.map(photo => photo.client_id));
@@ -2040,7 +2208,7 @@
         if (!view) {
           const row = textNode('div','','queue-item draft-item');
           const thumb = document.createElement('img'), url = URL.createObjectURL(photo.blob);
-          view = {row, url, photo, title:textNode('strong',''), date:textNode('small',''), watermark:textNode('span',''), status:textNode('span','')};
+          view = {row, url, blob:photo.blob, photo, title:textNode('strong',''), date:textNode('small',''), watermark:textNode('span',''), status:textNode('span','')};
           queueViews.set(photo.client_id, view);
           thumb.src = url; thumb.alt = fieldText('草稿照片');
           thumb.onerror = () => {
@@ -2053,8 +2221,16 @@
           row.append(thumb,view.title,view.date,view.watermark,view.status,save);
         }
         view.photo = photo;
+        if (view.blob !== photo.blob) {
+          URL.revokeObjectURL(view.url);
+          view.url = URL.createObjectURL(photo.blob);
+          view.blob = photo.blob;
+          const thumb = view.row.querySelector('img');
+          if (thumb) thumb.src = view.url;
+        }
         const update = (node, text) => { const translated = fieldText(text); if (node.textContent !== translated) node.textContent = translated; };
-        update(view.title,photoTypeLabel(photo.photo_type)+' · '+(photo.photo_type==='equipment' ? (photo.equipment_number||'N/A')+' · ' : '')+photo.order_number);
+        const equipmentLabel = photo.equipment_number || photo.equipment_model || photo.position_number || '设备照片';
+        update(view.title,photoTypeLabel(photo.photo_type)+' · '+(photo.photo_type==='equipment' ? equipmentLabel+' · ' : '')+photo.order_number);
         update(view.date,photo.source === 'file' || photo.watermark_source === 'original' ? (photo.manual_capture_date || '上传时识别拍摄日期') : new Date(photo.captured_at).toLocaleString());
         update(view.watermark,photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印');
         update(view.status,uploadingPhotoId === photo.client_id ? `${fieldText('正在上传')} ${uploadIndex}/${uploadTotal}` : photo.error || '本机草稿');
@@ -2095,7 +2271,10 @@
     $('retryFaultDraft').hidden = !photo.stagedFault || Boolean(activeRepair);
     $('deleteDraft').hidden = uploaded;
     draftSelection=photo; if (previewURL) URL.revokeObjectURL(previewURL); previewURL=URL.createObjectURL(photo.blob);
-    $('draftLarge').src=previewURL; setFieldText('draftDetail',(photo.equipment_number||'非设备照片')+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印')); $('draftDialog').showModal();
+    const draftKind = photo.photo_type === 'equipment'
+      ? (photo.equipment_number || photo.equipment_model || photo.position_number || '设备照片')
+      : (photo.equipment_number || '非设备照片');
+    $('draftLarge').src=previewURL; setFieldText('draftDetail',draftKind+' · '+new Date(photo.captured_at).toLocaleString()+' · '+(photo.watermark_source === 'original' ? '保留原图水印' : '系统生成水印')); $('draftDialog').showModal();
   }
   let captureDateResolve = null, captureDateURL = null;
   function finishCaptureDate(value) {
@@ -2132,6 +2311,7 @@
       const pending = (await queued(batchId)).filter(photo => !photo.pending_device); uploadTotal = pending.length;
       for (const photo of pending) {
         if (!identityReady || photo.user_id !== profile?.user.id) break;
+        if (typeof syncEquipmentWatermark === 'function') await syncEquipmentWatermark(photo);
         uploadingPhotoId = photo.client_id; uploadIndex++;
         try {
           if (photo.watermark_source === 'original' && photo.source !== 'file') {
@@ -2150,7 +2330,7 @@
           photo.error = '';
           await storePhoto(photo);
           const data = new FormData();
-          const skip = new Set(['blob','error','original_blob','original_blob_type','sources','recognized_number','recognized_model','recognized_container','recognized_position','recognized_fault','watermark_opt_out']);
+          const skip = new Set(['blob','error','original_blob','original_blob_type','sources','recognized_number','recognized_model','recognized_container','recognized_position','recognized_fault','watermark_opt_out','watermark_equipment_key']);
           Object.entries(photo).forEach(([k,v]) => { if (!skip.has(k) && v != null && typeof v !== 'object') data.append(k,String(v)); });
           data.append('photo',photo.blob,photo.original_filename || photo.client_id+'.jpg');
           const optOut = photo.source === 'file' && photo.watermark_opt_out === true;
