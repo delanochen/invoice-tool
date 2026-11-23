@@ -59,7 +59,7 @@
     const repairAfter = phase === 'after';
     const summary = String((repairAfter ? context.work_content : context.fault_note) || '').trim();
     const chars = Array.from(summary.replace(/\s+/g, ' '));
-    const summaryText = phase && chars.length > 20 ? chars.slice(0, 20).join('') + '…' : chars.join('');
+    const summaryText = phase && chars.length > 40 ? chars.slice(0, 40).join('') + '…' : chars.join('');
     const type = repairAfter ? '维修后' : phase === 'before' ? '维修前' : context.photo_type_label || context.photo_type || '—';
     const rows = [
       ...(String(context.equipment_number || '').trim() ? [['Machine No.', String(context.equipment_number).trim(), 2]] : []),

@@ -323,8 +323,8 @@ def _watermark_rows(fields):
     summary_key = "work_content" if after_repair else "fault_note"
     summary = " ".join(str(fields.get(summary_key) or "").split())
     if summary:
-        if phase_label and len(summary) > 20:
-            summary = summary[:20] + "…"
+        if phase_label and len(summary) > 40:
+            summary = summary[:40] + "…"
         label = "工作内容" if after_repair else "故障" if phase_label else "Fault"
         rows.append((label, summary, 2))
     rows.append(("Technician", technician, 2))
