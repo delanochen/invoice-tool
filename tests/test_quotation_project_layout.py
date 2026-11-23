@@ -206,6 +206,12 @@ class ProjectLayoutFormTests(unittest.TestCase):
             ("party_b", "WAN MEP LLC"),
             ("currency", "USD"),
             ("project_terms", "Footer disclaimer"),
+            ("project_description", "Install cooling pipes"),
+            ("project_name", "Cooling Install"),
+            ("project_location", "Fort Worth, TX"),
+            ("contact", "Ada"),
+            ("po_no", "PO-9"),
+            ("prepared_by", "QA Tester"),
             ("tax", "0"),
             ("discount_amount", "0"),
         ]
@@ -230,6 +236,12 @@ class ProjectLayoutFormTests(unittest.TestCase):
         self.assertEqual(values["party_a"], "bitdeer")
         self.assertEqual(values["party_b"], "WAN MEP LLC")
         self.assertEqual(values["document_title"], "Appendix I: Installation Checklist")
+        self.assertEqual(values["project_description"], "Install cooling pipes")
+        self.assertEqual(values["project_name"], "Cooling Install")
+        self.assertEqual(values["project_location"], "Fort Worth, TX")
+        self.assertEqual(values["contact"], "Ada")
+        self.assertEqual(values["po_no"], "PO-9")
+        self.assertEqual(values["prepared_by"], "QA Tester")
         self.assertEqual(len(values["_project_lines"]), 3)
         self.assertEqual(project_form_values(MultiDict(fields))["customer"], "bitdeer")
 
@@ -269,16 +281,45 @@ class ProjectLayoutPdfTests(unittest.TestCase):
         self.assertIn("ScopeofWork", english)
         self.assertIn("Lumpsum", english)
         self.assertIn("GrandTotal", english)
+        self.assertNotIn("ProfessionalServices", english)
+        self.assertNotIn("SCOPEOFWORK", english)
+        self.assertNotIn("QuotationNo.", english)
 
-    def test_prasinos_party_keeps_letterhead_and_optional_clauses(self):
+    def test_prasinos_front_matches_hourly_template(self):
         lines, _subtotal = _example_lines()
-        quote = _project_quote(lines, party_b="Prasinos Power", include_standard_clauses=1)
-        text = _compact(_pdf_text(_render_pdf(quote, "en")))
-        self.assertIn("PRASINOSPOWER", text)
-        self.assertIn("FIELDSERVICES", text)
-        self.assertIn("STANDARDQUOTATIONTERMSANDCONDITIONS", text)
-        self.assertIn("PartyA", text)
-        self.assertIn("PartyB", text)
+        quote = _project_quote(
+            lines,
+            party_b="Prasinos Power",
+            customer="bitdeer",
+            contact="Ada Lovelace",
+            prepared_by="QA Tester",
+            project_name="Cooling Install",
+            project_no="P-14",
+            project_location="Fort Worth, TX",
+            po_no="PO-9",
+            project_description="Install cooling pipes for 2000 machines",
+            valid_until="2026-12-22",
+            include_standard_clauses=1,
+        )
+        for language in ("zh", "en"):
+            text = _compact(_pdf_text(_render_pdf(quote, language)))
+            self.assertIn("ProfessionalServices", text)
+            self.assertIn("QuotationNo.", text)
+            self.assertIn("SCOPEOFWORK", text)
+            self.assertIn("PRICINGSUMMARY", text)
+            self.assertIn("ProjectDescription", text)
+            self.assertIn("Installcoolingpipesfor2000machines", text)
+            self.assertIn("QT2611001", text)
+            self.assertIn("bitdeer", text)
+            self.assertIn("项目名称", text)
+            self.assertIn("工作范围", text)
+            self.assertIn("Unitprice", text)
+            self.assertIn("YongmingChen", text)
+            self.assertIn("PRASINOSPOWER", text)
+            self.assertIn("FIELDSERVICES", text)
+            self.assertIn("STANDARDQUOTATIONTERMSANDCONDITIONS", text)
+            self.assertNotIn("PartyA", text)
+            self.assertIn("50000.00", text.replace(",", ""))
 
     def test_hourly_pdf_is_unchanged_by_language_or_missing_layout(self):
         quote = {

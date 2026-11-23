@@ -412,6 +412,41 @@ def _section(title, styles, level=1):
     return Paragraph(_esc(title), styles["section"])
 
 
+def quotation_cover_story(quote, styles):
+    """Letterhead title, info grid, scope and the pricing-summary heading.
+
+    The hourly Time & Expense PDF and a Prasinos-issued project quote share
+    this block so the front of the two documents stays the same.
+    """
+    story = [
+        Paragraph(
+            "QUOTATION<br/><font color='#66736D' size='9'>Professional Services</font>",
+            styles["title"],
+        ),
+        Spacer(1, 7),
+        _info_grid(quote, styles),
+        _section("SCOPE OF WORK", styles),
+    ]
+    description = quote.get("project_description") or ""
+    scope_rows = [("Project Description", description)]
+    scope_rows = [pair for pair in scope_rows if str(pair[1]).strip()]
+    if not scope_rows:
+        scope_rows = [("Project Description", "")]
+    scope_data = [
+        [Paragraph(_esc(label), styles["label"]),
+         Paragraph(_esc(value) or "&nbsp;", styles["value"])]
+        for label, value in scope_rows
+    ]
+    scope_table = Table(scope_data, colWidths=[35 * mm, 153 * mm], repeatRows=0)
+    style = _table_style()
+    style.add("BACKGROUND", (0, 0), (0, -1), MID_GREEN)
+    style.add("BACKGROUND", (1, 0), (1, -1), VALUE_BG)
+    scope_table.setStyle(style)
+    story.append(scope_table)
+    story.append(_section("PRICING SUMMARY", styles))
+    return story
+
+
 def _pricing_table(quote, lines, styles):
     header = [
         Paragraph("Description", styles["head"]),
@@ -760,34 +795,8 @@ def build_quotation_pdf(quote, path, language=None):
         title=f"Quotation {quote.get('quotation_number') or ''}",
         author="Prasinos Power",
     )
-    story = []
-    story.append(Paragraph(
-        "QUOTATION<br/><font color='#66736D' size='9'>Professional Services</font>",
-        styles["title"],
-    ))
-    story.append(Spacer(1, 7))
-    story.append(_info_grid(quote, styles))
-
-    story.append(_section("SCOPE OF WORK", styles))
-    scope_rows = [("Project Description", quote.get("project_description") or "")]
-    scope_rows = [pair for pair in scope_rows if str(pair[1]).strip()]
-    if not scope_rows:
-        scope_rows = [("Project Description", "")]
-    scope_data = [
-        [Paragraph(_esc(label), styles["label"]),
-         Paragraph(_esc(value) or "&nbsp;", styles["value"])]
-        for label, value in scope_rows
-    ]
-    scope_table = Table(scope_data, colWidths=[35 * mm, 153 * mm], repeatRows=0)
-    style = _table_style()
-    style.add("BACKGROUND", (0, 0), (0, -1), MID_GREEN)
-    style.add("BACKGROUND", (1, 0), (1, -1), VALUE_BG)
-    scope_table.setStyle(style)
-    story.append(scope_table)
-
+    story = quotation_cover_story(quote, styles)
     pricing_type = quote.get("pricing_type") or "estimated"
-
-    story.append(_section("PRICING SUMMARY", styles))
     if pricing_type == "fixed":
         story.append(_fixed_price_table(quote, total, styles))
     else:
