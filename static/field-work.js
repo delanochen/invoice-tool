@@ -158,11 +158,23 @@
     renderCameraDeviceInfo();
     return true;
   }
+  async function backfillRecognizedDraft(number, model) {
+    if (!batch) return;
+    const photos = await queued(batch.id);
+    for (const photo of photos) {
+      if (!photo.pending_device) continue;
+      await storePhoto({...photo,
+        equipment_number: number || photo.equipment_number || '',
+        equipment_model: model || photo.equipment_model || ''});
+    }
+    await renderQueue();
+  }
   function applyRecognizedDevice(number, model) {
     const num = String(number || '').trim(), mdl = String(model || '').trim();
     if (num) { $('equipmentNumber').disabled = false; $('noEquipmentNumber').checked = false; $('equipmentNumber').value = num; }
     if (mdl) $('equipmentModel').value = mdl;
     deviceSession = null;
+    void backfillRecognizedDraft(num, mdl);
     renderCameraDeviceInfo();
   }
   function requireDeviceFields() {
@@ -2217,7 +2229,7 @@
       if (live.user.id !== profile.user.id) { lock('账号已改变，已暂停原账号的照片上传。'); return; }
       profile.csrf = live.csrf;
       setFieldText('networkStatus', '在线');
-      const pending = (await queued(batchId)).filter(photo => !photo.pending_device); uploadTotal = pending.length;
+      const pending = await queued(batchId); uploadTotal = pending.length;
       for (const photo of pending) {
         if (!identityReady || photo.user_id !== profile?.user.id) break;
         uploadingPhotoId = photo.client_id; uploadIndex++;
@@ -2296,10 +2308,7 @@
     const session = batch.session_id || batch.id;
     const inSession = photo => photo.capture_session === session || photo.batch_id === session || String(photo.batch_id || '').startsWith(session + ':');
     let groupPhotos = (await queued()).filter(inSession);
-    if (groupPhotos.some(photo => photo.pending_device)) {
-      notice('请先填齐设备资料并保存维修前记录，铭牌照片才能入账。',true);
-      return;
-    }
+    // 先拍后补：铭牌等暂未关联设备的草稿也随组先上传，编号/型号/位置/集装箱与维修记录后续按批次补录并重绘水印。
     if (navigator.onLine) {
       for (const photo of groupPhotos) {
         if (photo.recognition_status === 'offline' && RECOGNIZE_ROLES.has(photo.photo_role)) {
@@ -2758,7 +2767,7 @@
     } catch (error) { notice(error.message || '删除失败，请稍后重试。', true); }
     finally { button.disabled = false; }
   });
-  $('nextDevice').addEventListener('click', async () => { if(batch && (await queued(batch.id)).length){notice('请先完成上传或删除当前组照片，再清除设备信息。',true);return;} if(taking || processingFiles || captureContext || syncing) return; if(faultPhotos.length && !window.confirm('清除尚未保存的维修前照片？')) return; stopCamera(); showRepair(null); clearFaultPhotos(); $('repairFault').value=''; resetDevice(); $('photoNote').value=''; $('photoNote').style.height=''; $('equipmentNumber').focus(); });
+  $('nextDevice').addEventListener('click', async () => { if(taking || processingFiles || captureContext || syncing) return; if(faultPhotos.length && !window.confirm('清除尚未保存的维修前照片？')) return; stopCamera(); showRepair(null); clearFaultPhotos(); $('repairFault').value=''; resetDevice(); $('photoNote').value=''; $('photoNote').style.height=''; $('equipmentNumber').focus(); });
   $('noEquipmentNumber').addEventListener('change', () => { $('equipmentNumber').disabled = $('noEquipmentNumber').checked; $('equipmentNumber').required = !$('noEquipmentNumber').checked; if ($('noEquipmentNumber').checked) $('equipmentNumber').value=''; deviceSession=null; });
   function resizePhotoNote() {
     const note = $('photoNote');
