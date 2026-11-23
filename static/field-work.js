@@ -141,6 +141,7 @@
   function confirmDevice() {
     if (activeRepair && activeRepair.order_id === chosenOrder()?.id) {
       deviceSession = {...activeRepair, no_equipment_number:!activeRepair.equipment_number};
+      renderCameraDeviceInfo();
       return true;
     }
     const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
@@ -152,6 +153,7 @@
     $('equipmentNumber').value = deviceSession.equipment_number;
     $('equipmentNumber').disabled = noNumber;
     setFieldText('deviceStatus', `已锁定：${number || '无铭牌号'}${deviceSession.position_number ? ' · 位置 '+deviceSession.position_number : ''}${deviceSession.container_number ? ' · 集装箱 '+deviceSession.container_number : ''}。后续照片沿用；换设备请点“清除”。`);
+    renderCameraDeviceInfo();
     return true;
   }
 
@@ -160,6 +162,23 @@
     // 新一组/换类型：清空设备输入框，避免残留上一张照片的设备信息。
     $('equipmentNumber').value = ''; $('equipmentModel').value = ''; $('positionNumber').value = ''; $('containerNumber').value = '';
     $('noEquipmentNumber').checked = false; $('equipmentNumber').disabled = false; $('equipmentNumber').required = true;
+  }
+  function currentDeviceInfoText() {
+    const src = (activeRepair && activeRepair.order_id === chosenOrder()?.id) ? activeRepair : (deviceSession || {});
+    const pairs = [
+      ['编号', src.equipment_number || $('equipmentNumber').value.trim()],
+      ['型号', src.equipment_model || $('equipmentModel').value.trim()],
+      ['位置', src.position_number || $('positionNumber').value.trim()],
+      ['集装箱', src.container_number || $('containerNumber').value.trim()],
+    ];
+    return pairs.filter(([, value]) => value).map(([label, value]) => label + ' ' + value).join(' · ');
+  }
+  function renderCameraDeviceInfo() {
+    const el = $('cameraDeviceInfo');
+    if (!el) return;
+    const text = batch && batch.type === 'equipment' ? currentDeviceInfoText() : '';
+    el.textContent = fieldText(text);
+    el.hidden = !text;
   }
 
   const KIND_LABEL = {equipment:'设备',arrival:'进场',departure:'离场',safety:'自检',general:'非设备',legacy:'历史'};
@@ -1046,6 +1065,7 @@
     clearInterval(cameraClockTimer);
     cameraClockTimer = null;
     $('cameraWatermarkClock').hidden = true;
+    const deviceInfo = $('cameraDeviceInfo'); if (deviceInfo) { deviceInfo.hidden = true; deviceInfo.textContent = ''; }
     cameraStripSession = null;
     clearInterval(scanTimer); scanTimer = null;
     clearInterval(ocrTimer); ocrTimer = null; ocrBusy = false;
@@ -1136,6 +1156,7 @@
       } else {
         $('cameraOrder').textContent = selected.order_number + ' · ' + selected.client_name;
       }
+      renderCameraDeviceInfo();
       const flip = $('flipSafetyCamera');
       flip.hidden = recognitionOnly || batch.type !== 'safety';
       flip.textContent = cameraFacing === 'user' ? '后置' : '前置';
@@ -1526,9 +1547,9 @@
       captured_at:actual.toISOString(),watermark_at:watermark.toISOString(),batch_id:captureBatchId,photo_type:photoType,timezone_name:timezoneName,
       latitude:skipsLocation ? 0 : position.latitude,longitude:skipsLocation ? 0 : position.longitude,accuracy:skipsLocation ? 100000 : position.accuracy,
       location_verified:!skipsLocation,note:afterWork ? '' : $('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
-      ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || '',
-      equipment_model:group.equipment_model || '', position_number:captureDevice?.position_number || group.position_number || '',
-      container_number:captureDevice?.container_number || group.container_number || '', fault_note:group.fault || '',
+      ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || $('equipmentNumber').value.trim(),
+      equipment_model:captureDevice?.equipment_model || group.equipment_model || $('equipmentModel').value.trim(), position_number:captureDevice?.position_number || group.position_number || $('positionNumber').value.trim(),
+      container_number:captureDevice?.container_number || group.container_number || $('containerNumber').value.trim(), fault_note:group.fault || '',
       equipment_session:captureDevice?.id || captureBatchId, repair_phase:captureDevice?.repair_phase || '',
       work_content:afterWork,
       no_equipment_number:captureDevice ? !!captureDevice.no_equipment_number : !group.equipment_number} : {})};
@@ -2154,7 +2175,7 @@
           await storePhoto(photo,true);
           const recent = recentCaptureViews.get(photo.client_id);
           if (recent) { recent.uploaded = true; recent.photo = photo; }
-          notice('照片已上传到 '+photo.order_number+'，系统已按拍摄日期归档。');
+          renderCameraDeviceInfo();
         } catch(error) {
           photo.error = error.message; await storePhoto(photo);
           if (!navigator.onLine || error instanceof TypeError) break;
@@ -2352,6 +2373,7 @@
         $('technicianSelect').value = String(profile.user.id);
       }
     }
+    renderCameraDeviceInfo();
   }
   function clearFaultPhotos() {
     for (const photo of faultPhotos) URL.revokeObjectURL(photo.preview);
