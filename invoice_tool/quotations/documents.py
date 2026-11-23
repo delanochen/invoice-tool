@@ -653,7 +653,9 @@ def _payment_grid(quote, styles):
     payment_terms = quote.get("payment_terms") or "net_30"
     other_text = str(quote.get("payment_terms_other") or "").strip()
     terms_text = translate_known(PAYMENT_TERMS_LABELS.get(payment_terms, "Net 30"))
-    if payment_terms == "other":
+    if payment_terms == "due_on_completion":
+        terms_text = L("due_on_completion")
+    elif payment_terms == "other":
         terms_text = f"{L('other_prefix')}: {other_text}" if other_text else f"{L('other_prefix')}: ____"
 
     frequency = quote.get("invoice_frequency") or "upon_completion"

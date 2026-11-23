@@ -140,7 +140,7 @@
         {% set frequency = quotation.invoice_frequency or 'upon_completion' %}
         {% set frequency_zh = {'weekly': '每周', 'biweekly': '每两周', 'monthly': '每月', 'upon_completion': '完工后'} %}
         <div class="detail-grid">
-          <p><strong>{{ quote_ui('结算周期', 'Payment Terms') }}</strong><span>{{ payment_terms_labels.get(quotation.payment_terms, 'Net 30') }}</span></p>
+          <p><strong>{{ quote_ui('付款期限', 'Payment Terms') }}</strong><span>{{ quote_ui('完工即付款', 'Due Upon Completion') if quotation.payment_terms == 'due_on_completion' else payment_terms_labels.get(quotation.payment_terms, 'Net 30') }}</span></p>
           <p><strong>{{ quote_ui('预付款比例', 'Advance Payment') }}</strong><span>{{ quotation.advance_payment_percent or 0 }}%</span></p>
           <p><strong>{{ quote_ui('报价有效期', 'Quotation Validity') }}</strong><span>{{ quotation.quotation_validity or '-' }}</span></p>
           <p><strong>{{ quote_ui('开票频率', 'Invoice Frequency') }}</strong><span>{{ quote_ui(frequency_zh.get(frequency, frequency), invoice_frequency_labels.get(frequency, frequency)) }}</span></p>

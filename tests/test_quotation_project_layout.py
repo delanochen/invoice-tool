@@ -169,6 +169,8 @@ class ProjectLayoutFormTests(unittest.TestCase):
             self.assertEqual(values["payment_terms"], "net_45")
             self.assertEqual(values["advance_payment_percent"], int(percentage))
             self.assertEqual(values["invoice_frequency"], "monthly")
+        completion = project_form_values(MultiDict({"payment_terms": "due_on_completion"}))
+        self.assertEqual(completion["payment_terms"], "due_on_completion")
         invalid = project_form_values(MultiDict({
             "payment_terms": "net_99", "advance_payment_percent": "25",
         }))

@@ -382,7 +382,7 @@ def project_form_values(form):
         "normal_working_hours": _form_get(form, "normal_working_hours"),
         "customer_provides": ",".join(provides),
         "assumptions_other": _form_get(form, "assumptions_other"),
-        "payment_terms": "net_45" if _form_get(form, "payment_terms") == "net_45" else "net_30",
+        "payment_terms": payment_terms,
         "advance_payment_percent": advance_payment_percent,
         "payment_terms_other": _form_get(form, "payment_terms_other"),
         "quotation_validity": _form_get(form, "quotation_validity", "30 calendar days") or "30 calendar days",
@@ -448,6 +448,9 @@ def line_form_state(line):
         custom = unit
     qty = line.get("qty")
     price = line.get("unit_price")
+    payment_terms = _form_get(form, "payment_terms")
+    if payment_terms not in ("net_30", "net_45", "due_on_completion"):
+        payment_terms = "net_30"
     submitted_advance = _form_get(form, "advance_payment_percent")
     advance_payment_percent = int(submitted_advance) if submitted_advance in ("30", "50") else 0
     return {

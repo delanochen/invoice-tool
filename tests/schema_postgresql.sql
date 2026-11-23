@@ -7812,3 +7812,7 @@ ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS document_title_en text NO
 
 ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS advance_payment_percent integer NOT NULL DEFAULT 0
     CHECK (advance_payment_percent IN (0, 30, 50));
+
+ALTER TABLE public.quotations DROP CONSTRAINT IF EXISTS quotations_payment_terms_check;
+ALTER TABLE public.quotations ADD CONSTRAINT quotations_payment_terms_check
+    CHECK (payment_terms IN ('net_15', 'net_30', 'net_45', 'other', 'due_on_completion'));

@@ -210,10 +210,11 @@
       <section class="erp-panel" data-erp-panel="payment">
         <div class="erp-detail-scroll">
           <div class="fields-2col">
-            <label class="erp-field">{{ quote_ui('结算周期', 'Payment Terms') }}
+            <label class="erp-field">{{ quote_ui('付款期限', 'Payment Terms') }}
               <select name="payment_terms">
-                <option value="net_30" {% if defaults.payment_terms != 'net_45' %}selected{% endif %}>Net 30</option>
+                <option value="net_30" {% if defaults.payment_terms not in ('net_45', 'due_on_completion') %}selected{% endif %}>Net 30</option>
                 <option value="net_45" {% if defaults.payment_terms == 'net_45' %}selected{% endif %}>Net 45</option>
+                <option value="due_on_completion" {% if defaults.payment_terms == 'due_on_completion' %}selected{% endif %}>{{ quote_ui('完工即付款', 'Due Upon Completion') }}</option>
               </select>
             </label>
             <label class="erp-field">{{ quote_ui('预付款比例', 'Advance Payment') }}
