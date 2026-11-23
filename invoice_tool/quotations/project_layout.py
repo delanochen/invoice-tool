@@ -30,7 +30,10 @@ from invoice_tool.quotations.documents import (
     WHITE,
     _esc,
     _money,
+    _signature_table as _hourly_signature_table,
+    _styles as _hourly_styles,
     _terms_block,
+    quotation_cover_story,
 )
 
 LAYOUT_HOURLY = "hourly"
@@ -41,6 +44,16 @@ PROJECT_UNITS = ("台", "项", "米", "个", "套", "小时", "按台")
 CUSTOM_UNIT = "__custom__"
 DEFAULT_DOCUMENT_TITLE = "报价单"
 DEFAULT_PARTY_B = "Prasinos Power"
+PRASINOS_LINE_HEADERS = (
+    "No.",
+    "项目名称",
+    "工作范围",
+    "Qty",
+    "Unit",
+    "Unit price",
+    "Amount",
+    "Notes",
+)
 
 _FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
 _CJK_CANDIDATES = (
@@ -536,10 +549,14 @@ def build_project_quotation_pdf(quote, path, language=None):
     if subtotal in (None, ""):
         subtotal = sum((Decimal(str(line["line_total"] or 0)) for line in lines), Decimal("0"))
 
-    header = [
-        Paragraph(_esc(labels[key]), styles["head"])
-        for key in ("no", "section", "scope", "qty", "unit", "price", "line_total", "notes")
-    ]
+    if prasinos:
+        header_labels = PRASINOS_LINE_HEADERS
+    else:
+        header_labels = [
+            labels[key]
+            for key in ("no", "section", "scope", "qty", "unit", "price", "line_total", "notes")
+        ]
+    header = [Paragraph(_esc(text), styles["head"]) for text in header_labels]
     data = [header]
     for index, line in enumerate(lines, start=1):
         price_text = labels["lump"] if line["lump_sum"] else _money_with_currency(line["unit_price"], currency)
@@ -614,23 +631,37 @@ def build_project_quotation_pdf(quote, path, language=None):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
 
-    story = [
-        party_header,
-        Spacer(1, 8),
-        Paragraph(_esc(title), styles["title"]),
-        Paragraph(_esc(
-            " ".join(part for part in (str(quote.get("quotation_number") or ""), str(quote.get("quotation_date") or "")) if part)
-        ), styles["meta"]),
-        Spacer(1, 6),
-        table,
-    ]
     terms = str(quote.get("project_terms") or "").strip()
-    if terms:
-        story.append(Paragraph(_esc(terms), styles["disclaimer"]))
-    story.append(Spacer(1, 10))
-    story.append(_signature_table(
-        party_a, party_b, styles, labels, prasinos, quote.get("quotation_date") or "",
-    ))
+    if prasinos:
+        cover_styles = _hourly_styles()
+        cover_styles["value"] = ParagraphStyle(
+            "PrasinosCoverValue",
+            parent=cover_styles["value"],
+            fontName=font_name,
+        )
+        story = quotation_cover_story(quote, cover_styles)
+        story.append(table)
+        if terms:
+            story.append(Paragraph(_esc(terms), styles["disclaimer"]))
+        story.append(Spacer(1, 8))
+        story.append(_hourly_signature_table(quote, _hourly_styles()))
+    else:
+        story = [
+            party_header,
+            Spacer(1, 8),
+            Paragraph(_esc(title), styles["title"]),
+            Paragraph(_esc(
+                " ".join(part for part in (str(quote.get("quotation_number") or ""), str(quote.get("quotation_date") or "")) if part)
+            ), styles["meta"]),
+            Spacer(1, 6),
+            table,
+        ]
+        if terms:
+            story.append(Paragraph(_esc(terms), styles["disclaimer"]))
+        story.append(Spacer(1, 10))
+        story.append(_signature_table(
+            party_a, party_b, styles, labels, prasinos, quote.get("quotation_date") or "",
+        ))
     if clauses_enabled(quote.get("include_standard_clauses")):
         story.append(PageBreak())
         story.extend(_terms_block({

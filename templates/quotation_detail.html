@@ -66,8 +66,14 @@
           <p><strong>报价日期</strong><span>{{ quotation.quotation_date or '-' }}</span></p>
           <p><strong>有效期至</strong><span>{{ quotation.valid_until or '-' }}</span></p>
           <p><strong>货币</strong><span>{{ quotation.currency or 'USD' }}</span></p>
+          <p><strong>编制人</strong><span>{{ quotation.prepared_by or '-' }}</span></p>
           <p><strong>客户</strong><span>{{ quotation.customer or quotation.client_name or '-' }}</span></p>
+          <p><strong>联系人</strong><span>{{ quotation.contact or '-' }}</span></p>
           <p><strong>项目名称</strong><span>{{ quotation.project_name or '-' }}</span></p>
+          <p><strong>项目编号</strong><span>{{ quotation.project_no or '-' }}</span></p>
+          <p><strong>项目地点</strong><span>{{ quotation.project_location or '-' }}</span></p>
+          <p><strong>PO 编号</strong><span>{{ quotation.po_no or '-' }}</span></p>
+          <p class="full-span"><strong>项目描述</strong><span class="pre-line">{{ quotation.project_description or '-' }}</span></p>
           <p><strong>最终报价</strong><span>{{ quotation.final_amount|money(quotation.currency) }}</span></p>
         </div>
       </div>
