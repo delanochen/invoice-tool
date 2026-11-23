@@ -168,7 +168,6 @@
     const pairs = [
       ['编号', src.equipment_number || $('equipmentNumber').value.trim()],
       ['型号', src.equipment_model || $('equipmentModel').value.trim()],
-      ['位置', src.position_number || $('positionNumber').value.trim()],
       ['集装箱', src.container_number || $('containerNumber').value.trim()],
     ];
     return pairs.filter(([, value]) => value).map(([label, value]) => label + ' ' + value).join(' · ');
@@ -1550,7 +1549,7 @@
       ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || $('equipmentNumber').value.trim(),
       equipment_model:captureDevice?.equipment_model || group.equipment_model || $('equipmentModel').value.trim(), position_number:captureDevice?.position_number || group.position_number || $('positionNumber').value.trim(),
       container_number:captureDevice?.container_number || group.container_number || $('containerNumber').value.trim(), fault_note:group.fault || '',
-      equipment_session:captureDevice?.id || captureBatchId, repair_phase:captureDevice?.repair_phase || '',
+      equipment_session:captureDevice?.id || captureBatchId, repair_phase:captureDevice?.repair_phase || repairStage || '',
       work_content:afterWork,
       no_equipment_number:captureDevice ? !!captureDevice.no_equipment_number : !group.equipment_number} : {})};
   }
