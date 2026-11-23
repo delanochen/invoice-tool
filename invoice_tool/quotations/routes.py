@@ -74,7 +74,9 @@ _QUOTATION_COLUMNS = (
     "expected_completion, normal_working_hours, customer_provides, assumptions_other, "
     "payment_terms, payment_terms_other, quotation_validity, invoice_frequency, "
     "pricing_type, tax_note, notes, travel_expenses, layout, document_title, "
-    "party_a, party_b, project_terms, include_standard_clauses"
+    "document_title_zh, document_title_en, party_a, party_b, project_terms, "
+    "project_terms_zh, project_terms_en, project_description_zh, project_description_en, "
+    "include_standard_clauses"
 )
 # created_by / created_at / updated_at 由后端补充，不属于表单。
 _FORM_COLUMNS = _QUOTATION_COLUMNS
@@ -237,7 +239,19 @@ def quotation_form_values(api, quotation=None):
     else:
         layout = normalize_layout(field("layout", "hourly"))
     if layout == LAYOUT_PROJECT:
-        return project_form_values(form)
+        values = project_form_values(form)
+        if api is not None:
+            catalog = {
+                row["id"]: dict(row)
+                for row in api["db"]().execute(
+                    "select id, name, name_zh, name_en, unit_price from projects where project_type = 'quotation'"
+                ).fetchall()
+            }
+            from .project_layout import apply_catalog_sections, project_amounts
+            values["_project_lines"] = apply_catalog_sections(values["_project_lines"], catalog)
+            subtotal = sum((line["line_total"] for line in values["_project_lines"]), Decimal("0"))
+            values.update(project_amounts(subtotal, values["tax"], values["discount_amount"]))
+        return values
 
     pricing_type = field("pricing_type", "estimated") or "estimated"
     if pricing_type == "fixed":
@@ -331,6 +345,8 @@ def quotation_form_values(api, quotation=None):
         "currency": field("currency", "USD") or "USD",
         "client_id": int(client_id) if client_id.isdigit() else None,
         "project_description": field("project_description"),
+        "project_description_zh": field("project_description_zh"),
+        "project_description_en": field("project_description_en"),
         "scope_1": field("scope_1"),
         "scope_2": field("scope_2"),
         "scope_3": field("scope_3"),
@@ -367,9 +383,13 @@ def quotation_form_values(api, quotation=None):
         "travel_expenses": json.dumps(travel_expenses, ensure_ascii=False),
         "layout": "hourly",
         "document_title": "",
+        "document_title_zh": field("document_title_zh"),
+        "document_title_en": field("document_title_en"),
         "party_a": "",
         "party_b": "",
         "project_terms": "",
+        "project_terms_zh": "",
+        "project_terms_en": "",
         "include_standard_clauses": 0,
     }
 
@@ -380,8 +400,13 @@ def _line_signature(lines):
         qty = line.get("qty")
         price = line.get("unit_price")
         payload.append({
+            "project_id": line.get("project_id") or "",
             "section_name": line.get("section_name") or "",
             "scope_of_work": line.get("scope_of_work") or "",
+            "scope_of_work_zh": line.get("scope_of_work_zh") or "",
+            "scope_of_work_en": line.get("scope_of_work_en") or "",
+            "notes_zh": line.get("notes_zh") or "",
+            "notes_en": line.get("notes_en") or "",
             "qty": "" if qty in (None, "") else format_quantity(qty),
             "unit": line.get("unit") or "",
             "unit_price": "" if price in (None, "") else format_quantity(price),
@@ -509,10 +534,31 @@ def _quotation_or_404(api, quotation_id):
     return quotation
 
 
+def attach_catalog_names(api, lines):
+    ids = [line.get("project_id") for line in lines or [] if line.get("project_id")]
+    if not ids:
+        return lines
+    marks = ",".join("?" for _ in ids)
+    rows = api["db"]().execute(
+        f"select id, name, name_zh, name_en from projects where id in ({marks})",
+        tuple(ids),
+    ).fetchall()
+    by_id = {row["id"]: row for row in rows}
+    for line in lines:
+        item = by_id.get(line.get("project_id"))
+        if not item:
+            continue
+        line["catalog_name"] = item["name"]
+        line["catalog_name_zh"] = item["name_zh"]
+        line["catalog_name_en"] = item["name_en"]
+    return lines
+
+
 def load_project_lines(api, quotation_id):
     rows = api["db"]().execute(
         """
-        select section_name, scope_of_work, qty, unit, unit_price, line_total, notes
+        select project_id, section_name, scope_of_work, scope_of_work_zh, scope_of_work_en,
+               qty, unit, unit_price, line_total, notes, notes_zh, notes_en
         from quotation_project_lines
         where quotation_id = ?
         order by sort_order, id
@@ -533,20 +579,26 @@ def replace_project_lines(api, quotation_id, lines):
         api["db"]().execute(
             """
             insert into quotation_project_lines (
-                quotation_id, sort_order, section_name, scope_of_work,
-                qty, unit, unit_price, line_total, notes
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                quotation_id, sort_order, project_id, section_name, scope_of_work,
+                scope_of_work_zh, scope_of_work_en, qty, unit, unit_price, line_total,
+                notes, notes_zh, notes_en
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 quotation_id,
                 index,
+                line.get("project_id") or None,
                 line.get("section_name") or "",
                 line.get("scope_of_work") or "",
+                line.get("scope_of_work_zh") or "",
+                line.get("scope_of_work_en") or "",
                 None if qty in (None, "") else Decimal(str(qty)),
                 line.get("unit") or "",
                 None if price in (None, "") else Decimal(str(price)),
                 Decimal(str(line.get("line_total") or 0)).quantize(Decimal("0.01")),
                 line.get("notes") or "",
+                line.get("notes_zh") or "",
+                line.get("notes_en") or "",
             ),
         )
 
@@ -610,6 +662,9 @@ def _render_form(api, quotation, clients, form_title, defaults=None, errors=None
         project_lines=project_lines or [],
         project_units=PROJECT_UNITS,
         custom_unit=CUSTOM_UNIT,
+        quotation_projects=api["db"]().execute(
+            "select id, name, name_zh, name_en, unit_price from projects where project_type = 'quotation' and is_active = 1 order by name"
+        ).fetchall(),
     )
 
 
@@ -777,10 +832,19 @@ def register_quotation_routes(app, api):
             except (ValueError, TypeError):
                 view[target] = []
         view["layout"] = quotation_layout_value(quotation)
-        view["project_lines"] = (
-            [line_form_state(line) for line in load_project_lines(api, quotation_id)]
-            if view["layout"] == LAYOUT_PROJECT else []
-        )
+        raw_lines = load_project_lines(api, quotation_id) if view["layout"] == LAYOUT_PROJECT else []
+        attach_catalog_names(api, raw_lines)
+        from .pdf_i18n import missing_language_warnings
+        catalog = {
+            line.get("project_id"): {
+                "name": line.get("catalog_name"),
+                "name_zh": line.get("catalog_name_zh"),
+                "name_en": line.get("catalog_name_en"),
+            }
+            for line in raw_lines if line.get("project_id")
+        }
+        view["language_warnings"] = missing_language_warnings(view, raw_lines, catalog)
+        view["project_lines"] = [line_form_state(line) for line in raw_lines]
         return render_template(
             "quotation_detail.html",
             quotation=view,
@@ -921,6 +985,7 @@ def register_quotation_routes(app, api):
         if values["layout"] == LAYOUT_PROJECT:
             values["rate_schedule"] = source_dict.get("rate_schedule") or "[]"
             values["pricing_type"] = "estimated"
+            values["settlement_mode"] = "fixed"
         else:
             values["rate_schedule"] = _canonical_rate_schedule_json(
                 source_dict.get("rate_schedule") or "[]"
@@ -988,7 +1053,7 @@ def register_quotation_routes(app, api):
         quote = dict(quotation)
         language = None
         if quotation_layout_value(quotation) == LAYOUT_PROJECT:
-            quote["project_lines"] = load_project_lines(api, quotation_id)
+            quote["project_lines"] = attach_catalog_names(api, load_project_lines(api, quotation_id))
             language = normalize_language(request.args.get("lang"))
         buffer = BytesIO()
         build_quotation_pdf(quote, buffer, language=language)

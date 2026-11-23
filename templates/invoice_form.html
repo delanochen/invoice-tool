@@ -72,7 +72,7 @@
       {% if form_items %}
         {% for item in form_items %}
           <tr class="item-row">
-            <td><select name="project_id" class="project-select" required>
+            <td><input type="hidden" name="item_description" value="{{ item.description or '' }}"><select name="project_id" class="project-select" required>
               <option value="">选择项目</option>
               {% for project in projects %}
                 <option value="{{ project.id }}" data-tax="{{ project.tax_rate }}" data-amount="{{ project.default_amount }}" {% if item.project_id == project.id %}selected{% endif %}>{{ project.name }}</option>

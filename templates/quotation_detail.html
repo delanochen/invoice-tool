@@ -23,12 +23,8 @@
     <span class="erp-toolbar-spacer"></span>
     <div class="erp-toolbar-group">
       <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('quotations') }}'">返回列表</button>
-      {% if (quotation.layout or 'hourly') == 'project' %}
-        <a class="erp-btn primary" href="{{ url_for('quotation_pdf', quotation_id=quotation.id, lang='zh') }}" target="_blank">中文 PDF</a>
-        <a class="erp-btn" href="{{ url_for('quotation_pdf', quotation_id=quotation.id, lang='en') }}" target="_blank">English PDF</a>
-      {% else %}
-        <button type="button" class="erp-btn primary" onclick="window.open('{{ url_for('quotation_pdf', quotation_id=quotation.id) }}', '_blank')">导出 PDF</button>
-      {% endif %}
+      <a class="erp-btn primary" href="{{ url_for('quotation_pdf', quotation_id=quotation.id, lang='zh') }}" target="_blank">中文 PDF</a>
+      <a class="erp-btn" href="{{ url_for('quotation_pdf', quotation_id=quotation.id, lang='en') }}" target="_blank">English PDF</a>
       {% if can_manage_quotations() %}
         <button type="button" class="erp-btn" onclick="window.location.href='{{ url_for('edit_quotation', quotation_id=quotation.id) }}'">编辑报价单</button>
         <form method="post" action="{{ url_for('copy_quotation', quotation_id=quotation.id) }}" style="display:inline;">
@@ -57,6 +53,9 @@
       {% endif %}
     </nav>
     {% if (quotation.layout or 'hourly') == 'project' %}
+    {% if language_warnings %}
+      <div class="erp-filter-note">{{ language_warnings|join(' ') }}</div>
+    {% endif %}
     <section class="erp-panel active" data-erp-panel="info">
       <div class="erp-detail-scroll">
         <div class="detail-grid">

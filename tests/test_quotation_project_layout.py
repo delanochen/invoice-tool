@@ -1,5 +1,6 @@
 """Project-layout quotation math and PDF. No database required."""
 
+import re
 import unittest
 from decimal import Decimal
 from io import BytesIO
@@ -242,6 +243,7 @@ class ProjectLayoutFormTests(unittest.TestCase):
         self.assertEqual(values["contact"], "Ada")
         self.assertEqual(values["po_no"], "PO-9")
         self.assertEqual(values["prepared_by"], "QA Tester")
+        self.assertEqual(values["settlement_mode"], "fixed")
         self.assertEqual(len(values["_project_lines"]), 3)
         self.assertEqual(project_form_values(MultiDict(fields))["customer"], "bitdeer")
 
@@ -301,25 +303,33 @@ class ProjectLayoutPdfTests(unittest.TestCase):
             valid_until="2026-12-22",
             include_standard_clauses=1,
         )
-        for language in ("zh", "en"):
-            text = _compact(_pdf_text(_render_pdf(quote, language)))
-            self.assertIn("ProfessionalServices", text)
-            self.assertIn("QuotationNo.", text)
-            self.assertIn("SCOPEOFWORK", text)
-            self.assertIn("PRICINGSUMMARY", text)
-            self.assertIn("ProjectDescription", text)
+        english = _compact(_pdf_text(_render_pdf(quote, "en")))
+        chinese = _compact(_pdf_text(_render_pdf(quote, "zh")))
+        for text in (english, chinese):
             self.assertIn("Installcoolingpipesfor2000machines", text)
             self.assertIn("QT2611001", text)
             self.assertIn("bitdeer", text)
-            self.assertIn("项目名称", text)
-            self.assertIn("工作范围", text)
-            self.assertIn("Unitprice", text)
             self.assertIn("YongmingChen", text)
             self.assertIn("PRASINOSPOWER", text)
-            self.assertIn("FIELDSERVICES", text)
-            self.assertIn("STANDARDQUOTATIONTERMSANDCONDITIONS", text)
             self.assertNotIn("PartyA", text)
             self.assertIn("50000.00", text.replace(",", ""))
+        self.assertIn("ProfessionalServices", english)
+        self.assertIn("QuotationNo.", english)
+        self.assertIn("SCOPEOFWORK", english)
+        self.assertIn("PRICINGSUMMARY", english)
+        self.assertIn("FIELDSERVICES", english)
+        self.assertIn("STANDARDQUOTATIONTERMSANDCONDITIONS", english)
+        self.assertIn("UnitPrice", english)
+        self.assertNotIn("项目名称", english)
+        self.assertIn("专业服务", chinese)
+        self.assertIn("报价编号", chinese)
+        self.assertIn("工作范围", chinese)
+        self.assertIn("定价汇总", chinese)
+        self.assertIn("项目名称", chinese)
+        self.assertIn("标准报价条款与条件", chinese)
+        self.assertNotIn("ProfessionalServices", chinese)
+        self.assertNotIn("FIELDSERVICES", chinese)
+        self.assertNotIn("Unitprice", chinese)
 
     def test_hourly_pdf_is_unchanged_by_language_or_missing_layout(self):
         quote = {
@@ -333,13 +343,96 @@ class ProjectLayoutPdfTests(unittest.TestCase):
             "tax": 0,
             "total": 0,
         }
-        for language in (None, "zh", "en"):
+        for language in (None, "en"):
             text = _pdf_text(_render_pdf(quote, language))
             self.assertIn("QUOTATION", text)
             self.assertIn("Professional Services", text)
             self.assertIn("PRASINOS POWER", text)
             self.assertNotIn("甲方", text)
-            self.assertNotIn("Party A", text)
+            self.assertNotIn("报价单", text)
+        chinese = _pdf_text(_render_pdf(quote, "zh"))
+        self.assertIn("报价单", chinese)
+        self.assertIn("专业服务", chinese)
+        self.assertNotIn("Professional Services", chinese)
+        self.assertNotIn("QUOTATION", chinese)
+
+
+def _strip_allowed(text, names):
+    for token in names:
+        text = text.replace(token, " ")
+    for char in "台项米个套小时按":
+        text = text.replace(char, " ")
+    return text
+
+
+class PdfLanguagePurityTests(unittest.TestCase):
+    def test_project_pdf_languages_do_not_mix(self):
+        line = {
+            "project_id": 7,
+            "section_name": "Machine deployment",
+            "catalog_name": "Machine deployment",
+            "catalog_name_en": "Machine deployment",
+            "catalog_name_zh": "设备部署",
+            "scope_of_work": "Install pipes",
+            "scope_of_work_en": "Install pipes",
+            "scope_of_work_zh": "安装管道",
+            "qty": 2,
+            "unit": "台",
+            "unit_price": 10,
+            "line_total": 20,
+            "notes": "Done in a week",
+            "notes_en": "Done in a week",
+            "notes_zh": "一周完成",
+            "lump_sum": False,
+        }
+        quote = _project_quote(
+            [line],
+            party_b="Prasinos Power",
+            customer="Bitdeer",
+            party_a="Bitdeer",
+            prepared_by="Yongming Chen",
+            contact="Ada Lovelace",
+            project_name="North site",
+            project_location="Fort Worth",
+            document_title_en="Installation checklist",
+            document_title_zh="安装清单",
+            project_description_en="Cooling pipe work",
+            project_description_zh="冷却管道工程",
+            project_terms_en="Tax excluded",
+            project_terms_zh="不含税",
+            include_standard_clauses=1,
+        )
+        names = [
+            "Prasinos Power", "PRASINOS POWER", "Yongming Chen", "Bitdeer", "USD",
+            "QT2611001", "Ada Lovelace", "Fort Worth", "North site",
+            "Installation checklist", "Machine deployment", "Install pipes",
+            "Done in a week", "Cooling pipe work", "Tax excluded",
+        ]
+        english = _strip_allowed(_pdf_text(_render_pdf(quote, "en")), names)
+        chinese = _strip_allowed(_pdf_text(_render_pdf(quote, "zh")), names)
+        self.assertEqual(re.findall(r"[\u4e00-\u9fff]", english), [])
+        self.assertEqual(re.findall(r"[A-Za-z]{2,}", chinese), [])
+
+    def test_hourly_pdf_languages_do_not_mix(self):
+        quote = {
+            "layout": "hourly",
+            "quotation_number": "QT2611001",
+            "quotation_date": "2026-11-23",
+            "currency": "USD",
+            "pricing_type": "estimated",
+            "pricing_lines": "[]",
+            "rate_schedule": "[]",
+            "customer": "Bitdeer",
+            "prepared_by": "Yongming Chen",
+            "subtotal": 0,
+            "tax": 0,
+            "total": 0,
+        }
+        names = ["Prasinos Power", "PRASINOS POWER", "Yongming Chen", "Bitdeer", "USD", "QT2611001"]
+        english = _strip_allowed(_pdf_text(_render_pdf(quote, "en")), names)
+        chinese = _strip_allowed(_pdf_text(_render_pdf(quote, "zh")), names)
+        self.assertEqual(re.findall(r"[\u4e00-\u9fff]", english), [])
+        self.assertEqual(re.findall(r"[A-Za-z]{2,}", chinese), [])
 
 
 class LayoutSelectorTemplateTests(unittest.TestCase):

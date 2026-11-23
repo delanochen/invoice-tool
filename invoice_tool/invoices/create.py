@@ -94,13 +94,13 @@ def create_invoice_from_form(save_token=None, *, IntegrityError, abort, can_acce
     invoice_id = cursor.lastrowid
     if save_token:
         finish_invoice_save_token(save_token, invoice_id)
-    for project, amount in item_rows:
+    for project, amount, description in item_rows:
         db().execute(
             """
             insert into invoice_items (invoice_id, project_id, description, amount, tax_rate)
             values (?, ?, ?, ?, ?)
             """,
-            (invoice_id, project["id"], project["name"], to_float(amount), project["tax_rate"]),
+            (invoice_id, project["id"], description or project["name"], to_float(amount), project["tax_rate"]),
         )
     recognize_invoice_if_accounting_enabled(invoice_id)
     for uploaded in uploaded_attachments_from_request():

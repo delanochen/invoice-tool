@@ -2,7 +2,9 @@
 
 def invoice_items_from_form(*, db, request, to_float):
     rows = []
-    for project_id, amount in zip(request.form.getlist("project_id"), request.form.getlist("amount")):
+    descriptions = request.form.getlist("item_description")
+    pairs = list(zip(request.form.getlist("project_id"), request.form.getlist("amount")))
+    for index, (project_id, amount) in enumerate(pairs):
         if not project_id:
             continue
         project = db().execute(
@@ -11,7 +13,8 @@ def invoice_items_from_form(*, db, request, to_float):
         ).fetchone()
         if not project:
             raise ValueError("选择的项目不存在或已停用，请重新选择项目。")
-        rows.append((project, to_float(amount)))
+        description = descriptions[index].strip() if index < len(descriptions) else ""
+        rows.append((project, to_float(amount), description or project["name"]))
     if not rows:
         raise ValueError("请至少选择一个项目明细。")
     if sum(amount for _, amount in rows) <= 0:

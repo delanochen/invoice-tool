@@ -93,6 +93,66 @@ def register_catalog_routes(
 
     @login_required
     def projects():
+        quote_map_action = request.form.get("quote_map_action", "").strip()
+        if request.method == "POST" and quote_map_action in ("add", "edit", "delete"):
+            if not has_action_permission("projects", "edit"):
+                abort(403)
+            from flask import g
+            actor = g.user["id"] if getattr(g, "user", None) else None
+            if quote_map_action == "delete":
+                map_id = request.form.get("quote_map_id", "").strip()
+                if map_id.isdigit():
+                    db().execute("delete from quotation_invoice_project_map where id = ?", (int(map_id),))
+                    db().commit()
+                    flash("报价项目映射已删除。", "success")
+            else:
+                quotation_id = request.form.get("quotation_project_id", "").strip()
+                invoice_id = request.form.get("invoice_project_id", "").strip()
+                if not quotation_id.isdigit() or not invoice_id.isdigit():
+                    flash("请选择报价项目和发票项目。", "error")
+                else:
+                    quotation_project = db().execute(
+                        "select id, project_type from projects where id = ?", (int(quotation_id),)
+                    ).fetchone()
+                    invoice_project = db().execute(
+                        "select id, project_type from projects where id = ?", (int(invoice_id),)
+                    ).fetchone()
+                    if not quotation_project or quotation_project["project_type"] != "quotation":
+                        flash("请选择报价项目。", "error")
+                    elif not invoice_project or invoice_project["project_type"] != "invoice":
+                        flash("请选择发票项目。", "error")
+                    elif quote_map_action == "add":
+                        exists = db().execute(
+                            "select id from quotation_invoice_project_map where quotation_project_id = ?",
+                            (int(quotation_id),),
+                        ).fetchone()
+                        if exists:
+                            flash("该报价项目已有映射，请直接修改。", "error")
+                        else:
+                            db().execute(
+                                """
+                                insert into quotation_invoice_project_map (
+                                    quotation_project_id, invoice_project_id, created_at, updated_at, updated_by
+                                ) values (?, ?, ?, ?, ?)
+                                """,
+                                (int(quotation_id), int(invoice_id), now(), now(), actor),
+                            )
+                            db().commit()
+                            flash("报价项目映射已新增。", "success")
+                    else:
+                        map_id = request.form.get("quote_map_id", "").strip()
+                        if map_id.isdigit():
+                            db().execute(
+                                """
+                                update quotation_invoice_project_map
+                                set quotation_project_id = ?, invoice_project_id = ?, updated_at = ?, updated_by = ?
+                                where id = ?
+                                """,
+                                (int(quotation_id), int(invoice_id), now(), actor, int(map_id)),
+                            )
+                            db().commit()
+                            flash("报价项目映射已更新。", "success")
+            return redirect(url_for("projects"))
         map_action = request.form.get("map_action", "").strip()
         if request.method == "POST" and map_action in ("add", "delete"):
             # 报销项目映射维护（v0.1.325）：员工报销项目 → 结算字段 → 发票项目。
@@ -128,6 +188,8 @@ def register_catalog_routes(
             return redirect(url_for("projects"))
         if request.method == "POST":
             name = normalized_project_name(request.form.get("name"))
+            name_zh = request.form.get("name_zh", "").strip()
+            name_en = request.form.get("name_en", "").strip()
             project_type = request.form.get("project_type", "invoice")
             if project_type not in project_type_labels:
                 project_type = "invoice"
@@ -140,12 +202,14 @@ def register_catalog_routes(
             try:
                 db().execute(
                     """
-                    insert into projects (name, name_key, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
-                    values (?, ?, ?, ?, ?, ?, ?, ?)
+                    insert into projects (name, name_key, name_zh, name_en, project_type, default_amount, unit_price, tax_rate, is_active, created_at)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         name,
                         project_name_key(name),
+                        name_zh,
+                        name_en,
                         project_type,
                         to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
                         to_float(request.form.get("unit_price")),
@@ -192,6 +256,25 @@ def register_catalog_routes(
             expense_map=db().execute(
                 "select id, expense_project_name, settlement_field, invoice_project_name from expense_settlement_invoice_map order by expense_project_name"
             ).fetchall(),
+            quote_invoice_map=db().execute(
+                """
+                select quotation_invoice_project_map.id,
+                       quotation_invoice_project_map.quotation_project_id,
+                       quotation_invoice_project_map.invoice_project_id,
+                       quotation_projects.name as quotation_project_name,
+                       invoice_projects.name as invoice_project_name
+                from quotation_invoice_project_map
+                join projects quotation_projects on quotation_projects.id = quotation_invoice_project_map.quotation_project_id
+                join projects invoice_projects on invoice_projects.id = quotation_invoice_project_map.invoice_project_id
+                order by quotation_projects.name
+                """
+            ).fetchall(),
+            quotation_projects=db().execute(
+                "select id, name from projects where project_type = 'quotation' and is_active = 1 order by name"
+            ).fetchall(),
+            invoice_projects=db().execute(
+                "select id, name from projects where project_type = 'invoice' and is_active = 1 order by name"
+            ).fetchall(),
             settlement_field_labels=settlement_expense_field_labels,
             invoice_project_names=invoice_project_names,
             can_edit_map=has_action_permission("projects", "edit"),
@@ -204,6 +287,8 @@ def register_catalog_routes(
             abort(404)
         if request.method == "POST":
             name = normalized_project_name(request.form.get("name"))
+            name_zh = request.form.get("name_zh", "").strip()
+            name_en = request.form.get("name_en", "").strip()
             project_type = request.form.get("project_type", "invoice")
             if project_type not in project_type_labels:
                 project_type = "invoice"
@@ -227,12 +312,14 @@ def register_catalog_routes(
             try:
                 db().execute(
                     """
-                    update projects set name = ?, name_key = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
+                    update projects set name = ?, name_key = ?, name_zh = ?, name_en = ?, project_type = ?, default_amount = ?, unit_price = ?, tax_rate = ?, is_active = ?
                     where id = ?
                     """,
                     (
                         name,
                         project_name_key(name),
+                        name_zh,
+                        name_en,
                         project_type,
                         to_float(request.form.get("default_amount")) if project_type == "invoice" else 0,
                         to_float(request.form.get("unit_price")),

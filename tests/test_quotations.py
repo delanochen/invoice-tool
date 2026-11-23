@@ -111,8 +111,9 @@ class TestQuotations(unittest.TestCase):
     def setUpClass(cls):
         conn = tests_pg.connection()
         try:
-            migration = Path(__file__).resolve().parents[1] / "migrations" / "postgresql" / "0323-quotation-project-layout.sql"
-            _apply_sql_script(conn, migration.read_text(encoding="utf-8"))
+            root = Path(__file__).resolve().parents[1] / "migrations" / "postgresql"
+            for name in ("0323-quotation-project-layout.sql", "0324-quotation-catalog-map.sql"):
+                _apply_sql_script(conn, (root / name).read_text(encoding="utf-8"))
         finally:
             conn.close()
         conn = tests_pg.connection()
