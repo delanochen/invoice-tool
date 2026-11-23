@@ -156,6 +156,22 @@
     renderCameraDeviceInfo();
     return true;
   }
+  function applyRecognizedDevice(number, model) {
+    const num = String(number || '').trim(), mdl = String(model || '').trim();
+    if (num) { $('equipmentNumber').disabled = false; $('noEquipmentNumber').checked = false; $('equipmentNumber').value = num; }
+    if (mdl) $('equipmentModel').value = mdl;
+    deviceSession = null;
+    renderCameraDeviceInfo();
+  }
+  function requireDeviceFields() {
+    if (batch?.type !== 'equipment') return true;
+    if (activeRepair && activeRepair.order_id === chosenOrder()?.id) return true;
+    const number = $('equipmentNumber').value.trim(), noNumber = $('noEquipmentNumber').checked;
+    const model = $('equipmentModel').value.trim();
+    if (!number && !noNumber) { notice('请输入设备编号，或勾选“无编号”。', true); $('equipmentNumber').focus(); return false; }
+    if (!model) { notice('请填写设备型号。', true); $('equipmentModel').focus(); return false; }
+    return true;
+  }
 
   function clearDeviceInputs() {
     if (activeRepair) return;
@@ -534,7 +550,8 @@
       if (!result.candidates?.length && !result.equipment_model) throw new Error('未识别到设备编号或型号，请重试或手工输入。');
       $('recognizedNumber').textContent = result.candidates?.[0] || '';
       $('recognizedModel').textContent = result.equipment_model || '';
-      $('nameplateStatus').textContent = '识别完成，请确认。';
+      applyRecognizedDevice(result.candidates?.[0], result.equipment_model);
+      $('nameplateStatus').textContent = '识别完成，请核对。';
       $('nameplatePendingConfirm').hidden = false;
       hideRecognizeProgress();
       if (!$('recognitionDialog').open) $('recognitionDialog').showModal();
@@ -680,6 +697,7 @@
     ensureSession();
     if (!UPLOAD_TYPES.includes(batch?.type)) { notice('请先选择照片类型：进场、离场、自检或设备。', true); return; }
     if (batch.type === 'equipment' && repairStage === 'after' && !activeRepair) { notice('请先选择维修记录。', true); return; }
+    if (!requireDeviceFields()) return;
     taking = true;
     try {
       const base = await makeContext('file', {order:{...chosenOrder()}, userId:profile.user.id, watermarkSource:'system'});
@@ -766,6 +784,7 @@
       stopCamera();
       $('recognizedNumber').textContent = result.candidates?.[0] || '';
       $('recognizedModel').textContent = result.equipment_model || '';
+      applyRecognizedDevice(result.candidates?.[0], result.equipment_model);
       $('recognitionDialog').showModal();
     } catch(error) { if (!automatic) recognitionFailure(error); }
     finally { if (preview) URL.revokeObjectURL(preview); ocrBusy = false; button.disabled = false; }
@@ -1443,7 +1462,7 @@
     if (!manual && wmItems.some(item => !item.exif)) { notice('还有照片缺少 EXIF 时间，请先剔除。',true); return; }
     const adjusted = new Date($('wmAdjust').value);
     if (Number.isNaN(adjusted.getTime())) { notice('请选择有效的水印时间。',true); $('wmAdjust').focus(); return; }
-    if (batch.type === 'equipment' && !deviceSession && !confirmDevice()) return;
+    if (batch.type === 'equipment' && (!requireDeviceFields() || (!deviceSession && !confirmDevice()))) return;
     const selected = chosenOrder();
     if (!selected) { notice('请先在上方选择工单。',true); return; }
     const items = wmItems.slice(), offset = manual ? 0 : wmOffsetMs();
@@ -1548,7 +1567,7 @@
       location_verified:!skipsLocation,note:afterWork ? '' : $('photoNote').value.trim(),location_note:keepsOriginalWatermark ? '原图已有水印，未检查拍摄位置。' : skipsLocation ? '选图上传，未检查拍摄位置。' : locationNote,source,error:'',
       ...(photoType === 'equipment' ? {equipment_number:captureDevice?.equipment_number || group.equipment_number || $('equipmentNumber').value.trim(),
       equipment_model:captureDevice?.equipment_model || group.equipment_model || $('equipmentModel').value.trim(), position_number:captureDevice?.position_number || group.position_number || $('positionNumber').value.trim(),
-      container_number:captureDevice?.container_number || group.container_number || $('containerNumber').value.trim(), fault_note:group.fault || '',
+      container_number:captureDevice?.container_number || group.container_number || $('containerNumber').value.trim(), fault_note:group.fault || captureDevice?.fault || $('repairFault').value.trim() || '',
       equipment_session:captureDevice?.id || captureBatchId, repair_phase:repairStage || captureDevice?.repair_phase || '',
       work_content:afterWork,
       no_equipment_number:captureDevice ? !!captureDevice.no_equipment_number : !group.equipment_number} : {})};
@@ -1690,6 +1709,7 @@
         photo.recognized_model = pending.equipment_model;
         $('recognizedNumber').textContent = pending.equipment_number;
         $('recognizedModel').textContent = pending.equipment_model;
+        applyRecognizedDevice(pending.equipment_number, pending.equipment_model);
         $('nameplateStatus').textContent = '识别完成，请确认。';
         $('nameplatePending').hidden = false;
         $('nameplatePendingConfirm').hidden = false;
@@ -1921,7 +1941,9 @@
       if (!document.body.classList.contains('controller-camera')) await recognizeDevice();
       return;
     }
-    if (taking || switchingCamera || !stream) return; taking = true; $('takePhoto').disabled = true;
+    if (taking || switchingCamera || !stream) return;
+    if (!requireDeviceFields()) return;
+    taking = true; $('takePhoto').disabled = true;
     try { const context = await makeContext('camera'); if (context) await captureRawAndClassify($('viewfinder'), context); }
     catch (error) { notice('照片未保存：'+error.message,true); }
     finally { taking = false; $('takePhoto').disabled = false; }
@@ -2013,10 +2035,10 @@
       button.className = 'recent-capture'; button.dataset.photoId = id;
       const image = document.createElement('img'); image.src = view.url; image.alt = fieldText('照片预览');
       const status = textNode('span', ROLE_LABEL[view.photo.photo_role] || '未分类', 'role-badge');
-      button.title = fieldText('点按可更改这张照片的类型');
+      button.title = fieldText('照片预览');
       button.append(image, status);
       image.onerror = () => { image.hidden = true; };
-      button.addEventListener('click', () => reclassifyPhoto(view.photo));
+      button.addEventListener('click', () => openDraft(view.photo));
       strip.append(button);
     }
     strip.hidden = !strip.children.length;
