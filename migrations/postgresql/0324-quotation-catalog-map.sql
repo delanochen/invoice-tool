@@ -1,4 +1,4 @@
--- v0.1.549 报价项目目录、报价到发票的映射，以及报价 PDF 的中英文字段。
+-- v0.1.551 报价项目目录、报价到发票的映射，以及报价 PDF 的中英文字段。
 -- 只新增列和表。已有项目、报价行和按工时报价的金额不变。
 
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS name_zh text;

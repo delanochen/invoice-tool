@@ -380,8 +380,8 @@ body.camera-active .capture-actions{display:none!important}
 }
 
 .fw-header { gap:8px; }
-.fw-header-aside { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:3px; min-width:0; }
-.fw-header-top { display:flex; align-items:center; gap:8px; min-width:0; }
+.fw-header .fw-header-aside { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:3px; min-width:0; }
+.fw-header .fw-header-top { display:flex; align-items:center; gap:8px; min-width:0; max-width:100%; }
 .fw-header #operatorName { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:650; }
 .fw-header #networkStatus { margin-left:0; flex-shrink:0; }
 .fw-header-version { font-size:11px; color:var(--muted); line-height:1; white-space:nowrap; }
