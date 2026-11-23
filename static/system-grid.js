@@ -64,6 +64,7 @@
       this.shell.appendChild(this.loadingOverlay);
       if(source.classList.contains('service-orders-table')) this.shell.classList.add('service-orders-grid');
       this.data = this.read();
+      const fitColumns = source.hasAttribute('data-grid-fit-columns');
       const columns = this.headers.map((title, index) => {
         // 列宽提示：源表 <th data-grid-width="440"> 直传给 Tabulator。
         // 镜像出来的列宽跟源表 CSS 里那些 nth-child 规则一点关系都没有，只能这样传。
@@ -74,8 +75,10 @@
         const headCell = source.tHead.rows[0].cells[index] || {};
         const fixedWidth = parseInt(headCell.dataset ? (headCell.dataset.gridWidth || '') : '', 10);
         return {
-          title, field:`c${index}`, minWidth:85,
-          width: fixedWidth || (/备注|说明|附件|工作内容/.test(title) ? 240 : undefined),
+          title, field:`c${index}`,
+          minWidth: fitColumns ? (Number(headCell.dataset.gridMinWidth) || 36) : 85,
+          width: fixedWidth || (!fitColumns && /备注|说明|附件|工作内容/.test(title) ? 240 : undefined),
+          ...(fitColumns ? {widthGrow: Number(headCell.dataset.gridWidthGrow) || 1, widthShrink: 1} : {}),
           headerSort: true, variableHeight:true,
           sorter: (a,b) => this.money[index] ? this.numeric(a)-this.numeric(b) : String(a).localeCompare(String(b), undefined, {numeric:true}),
           hozAlign: this.money[index] ? 'right' : 'left',
@@ -113,7 +116,7 @@
       // totals row in the footer only (dense ERP look); default stays "both".
       const gridCalcs = source.dataset.gridCalcs;
       this.grid = new Tabulator(this.host, {
-        data:this.data, index:'_id', columns:groupedColumns, columnHeaderVertAlign:'middle', layout:'fitDataStretch', renderVertical:'basic',
+        data:this.data, index:'_id', columns:groupedColumns, columnHeaderVertAlign:'middle', layout:fitColumns ? 'fitColumns' : 'fitDataStretch', renderVertical:'basic',
         ...(gridHeight ? {height:gridHeight, columnHeaderVertAlign:'middle'} : {}),
         movableColumns:true, columnCalcs: gridCalcs === 'bottom' ? 'bottom' : 'both', groupClosedShowCalcs:true,
         groupToggleElement:'header', placeholder:t('没有符合条件的记录'),

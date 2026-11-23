@@ -7,6 +7,20 @@
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='erp-ui.css', v=app_version) }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='quotations.css', v=app_version) }}">
+<style>
+  .quotation-checklist-grid { min-width: 0; }
+  .quotation-checklist-grid .tabulator .tabulator-cell,
+  .quotation-checklist-grid .tabulator .tabulator-col-title,
+  .quotation-checklist-grid .tabulator .grid-cell-content {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+  }
+  .quotation-checklist-grid .tabulator .tabulator-cell { padding-inline: 4px; }
+  .quotation-checklist-grid .tabulator .tabulator-col-content { padding-inline: 4px; }
+  .quotation-checklist-grid .erp-grid { table-layout: fixed; width: 100%; }
+  .quotation-checklist-grid .erp-grid th,
+  .quotation-checklist-grid .erp-grid td { white-space: pre-line; overflow-wrap: anywhere; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -81,10 +95,10 @@
     </section>
     <section class="erp-panel" data-erp-panel="lines">
       <div class="erp-detail-scroll">
-        <div class="erp-grid-wrap">
-          <table class="list-table erp-grid" data-grid-height="auto">
+        <div class="erp-grid-wrap quotation-checklist-grid">
+          <table id="quotationChecklist" class="list-table erp-grid" data-grid-height="auto" data-grid-fit-columns>
             <thead>
-              <tr><th data-grid-width="48" data-grid-min-width="44">{{ quote_ui('序号', 'No.') }}</th><th>{{ quote_ui('项目名称', 'Project Name') }}</th><th>{{ quote_ui('工作范围', 'Scope of Work') }}</th><th>{{ quote_ui('数量', 'Quantity') }}</th><th>{{ quote_ui('单位', 'Unit') }}</th><th>{{ quote_ui('单价', 'Unit Price') }}</th><th>{{ quote_ui('金额', 'Amount') }}</th><th>{{ quote_ui('备注', 'Notes') }}</th></tr>
+              <tr><th data-grid-width="44" data-grid-min-width="36">{{ quote_ui('序号', 'No.') }}</th><th data-grid-min-width="46" data-grid-width-grow="2">{{ quote_ui('项目名称', 'Project Name') }}</th><th data-grid-min-width="52" data-grid-width-grow="5">{{ quote_ui('工作范围', 'Scope of Work') }}</th><th data-grid-min-width="36" data-grid-width-grow="1">{{ quote_ui('数量', 'Quantity') }}</th><th data-grid-min-width="32" data-grid-width-grow="1">{{ quote_ui('单位', 'Unit') }}</th><th data-grid-min-width="42" data-grid-width-grow="1">{{ quote_ui('单价', 'Unit Price') }}</th><th data-grid-min-width="44" data-grid-width-grow="1.2">{{ quote_ui('金额', 'Amount') }}</th><th data-grid-min-width="44" data-grid-width-grow="2">{{ quote_ui('备注', 'Notes') }}</th></tr>
             </thead>
             <tbody>
               {% for line in quotation.project_lines %}
