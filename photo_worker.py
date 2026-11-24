@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import psycopg
 from PIL import Image
 
 from image_processing import compress_image, create_thumbnail, is_supported_image
@@ -74,6 +75,61 @@ def directory_signature(order_dir):
 
 # order folder path -> {"signature": ..., "maintained_at": float, "dirty": bool}
 _ORDER_STATE = {}
+
+# Registered (already uploaded) photos must never be renamed, deduplicated or
+# quarantined by maintenance. The worker only reorganizes orphan files that
+# have no field_photos row. Cache the DB relative_path list for a short TTL so
+# freshly uploaded rows are picked up quickly without querying every cycle.
+REGISTERED_TTL = max(POLL_SECONDS, 60)
+_REGISTERED = {"paths": set(), "loaded_at": 0.0, "available": False}
+
+
+def _registered_rel(path):
+    return path.relative_to(ROOT).as_posix()
+
+
+def _load_registered_paths():
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        return None
+    try:
+        conn = psycopg.connect(url, autocommit=True, connect_timeout=5)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select relative_path, original_relative_path "
+                    "from field_photos where relative_path is not null"
+                )
+                paths = set()
+                for relative, original in cur.fetchall():
+                    if relative:
+                        paths.add(str(relative))
+                    if original:
+                        paths.add(str(original))
+            return paths
+        finally:
+            conn.close()
+    except Exception as error:
+        log(f"unable to load registered photo paths: {type(error).__name__}: {error}")
+        return None
+
+
+def registered_paths():
+    """Return the set of DB-registered relative paths, or None when the DB is
+    unreachable and no previous cache exists. Callers treat None conservatively
+    and skip destructive maintenance rather than risking an uploaded photo."""
+    now = time.time()
+    if _REGISTERED["available"] and now - _REGISTERED["loaded_at"] <= REGISTERED_TTL:
+        return _REGISTERED["paths"]
+    paths = _load_registered_paths()
+    if paths is not None:
+        _REGISTERED["paths"] = paths
+        _REGISTERED["loaded_at"] = now
+        _REGISTERED["available"] = True
+        return paths
+    if _REGISTERED["available"]:
+        return _REGISTERED["paths"]
+    return None
 
 
 def pending_sources(order_dir, unstable=None):
@@ -237,9 +293,12 @@ def rename_existing_pictures_by_datetime(order_dir):
     thumbnails_dir = order_dir / "thumbnails"
     if not pictures_dir.is_dir():
         return 0
+    registered = registered_paths()
     renamed = 0
     for path in sorted(pictures_dir.rglob("*")):
         if not path.is_file() or path.name.startswith(".") or is_ignored(path.relative_to(pictures_dir)):
+            continue
+        if registered is None or _registered_rel(path) in registered:
             continue
         relative = path.relative_to(pictures_dir)
         named_datetime = filename_taken_datetime(path)
@@ -277,6 +336,7 @@ def repair_or_quarantine_pictures(order_dir):
     quarantine_dir = order_dir / "failed" / "orphaned_pictures"
     if not pictures_dir.is_dir():
         return 0
+    registered = registered_paths()
     changed = 0
     for path in sorted(pictures_dir.rglob("*")):
         if not path.is_file() or path.name.startswith(".") or is_ignored(path.relative_to(pictures_dir)):
@@ -284,6 +344,9 @@ def repair_or_quarantine_pictures(order_dir):
         relative = path.relative_to(pictures_dir)
         thumbnail = thumbnails_dir / relative
         if not valid_image_file(path):
+            if registered is None or _registered_rel(path) in registered:
+                log(f"keep registered or DB-unreachable invalid picture in place: {path}")
+                continue
             try:
                 target = move_file(path, quarantine_dir / relative)
                 changed += 1
@@ -348,6 +411,7 @@ def clean_duplicate_pictures(order_dir):
             continue
         groups.setdefault(normalized_duplicate_name(path.relative_to(pictures_dir)), []).append(path)
 
+    registered = registered_paths()
     removed = 0
     for candidates in groups.values():
         if len(candidates) < 2:
@@ -359,11 +423,16 @@ def clean_duplicate_pictures(order_dir):
             except OSError as error:
                 log(f"unable to hash picture {path}: {error}")
         for duplicates in by_hash.values():
-            if len(duplicates) < 2:
+            if len(duplicates) < 2 or registered is None:
                 continue
-            keep = sorted(duplicates, key=duplicate_keep_rank)[0]
+            def _is_registered(path):
+                return _registered_rel(path) in registered
+            keep = sorted(
+                duplicates,
+                key=lambda path: (0 if _is_registered(path) else 1, *duplicate_keep_rank(path)),
+            )[0]
             for duplicate in duplicates:
-                if duplicate == keep:
+                if duplicate == keep or _is_registered(duplicate):
                     continue
                 try:
                     relative = duplicate.relative_to(pictures_dir)
